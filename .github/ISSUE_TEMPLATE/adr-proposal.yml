@@ -1,0 +1,30 @@
+name: ADR proposal
+description: Propose an Architecture Decision Record.
+labels: [adr]
+body:
+  - type: input
+    id: title
+    attributes:
+      label: Proposed ADR title
+      placeholder: e.g., 0008 — Use source-generated AggregateVM for arities 3–5
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What's the situation that demands a decision?
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options considered
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Proposed decision + consequences
+    validations:
+      required: true

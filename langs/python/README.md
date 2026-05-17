@@ -1,0 +1,17 @@
+# VMx — Python flavor
+
+The Python implementation of the VMx hierarchical MVVM framework, published as the `vmx` PyPI package.
+
+- Supported Python versions: 3.10, 3.11, 3.12, 3.13
+- See the language-neutral spec at [`/spec/`](../../spec) and the design doc at
+  [`/docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md`](../../docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md).
+
+## Build and test
+
+```bash
+uv sync --all-extras
+uv run pytest
+uv run ruff check
+uv run ruff format --check
+uv run mypy --strict src/vmx
+```

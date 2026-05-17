@@ -1,0 +1,38 @@
+name: Bug report — Python (vmx PyPI package)
+description: Something is broken in the Python flavor.
+labels: [bug, python]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: vmx version
+      placeholder: e.g., 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: e.g., 3.12.1
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest code snippet that reproduces the issue.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

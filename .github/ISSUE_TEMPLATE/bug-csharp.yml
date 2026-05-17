@@ -1,0 +1,38 @@
+name: Bug report — C# (VMx NuGet package)
+description: Something is broken in the C# flavor.
+labels: [bug, csharp]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: VMx (C#) version
+      placeholder: e.g., 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: tfm
+    attributes:
+      label: Target framework
+      placeholder: e.g., net8.0, netstandard2.0
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest code snippet that reproduces the issue.
+      render: csharp
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

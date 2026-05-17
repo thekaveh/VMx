@@ -1,0 +1,23 @@
+name: Spec — feature request
+description: Propose a behavior change that affects all language flavors.
+labels: [spec, enhancement]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this needed? What's the user-facing problem?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should the spec say? What new conformance IDs are needed?
+    validations:
+      required: true
+  - type: textarea
+    id: cross-language
+    attributes:
+      label: Cross-language considerations
+      description: Any language-specific constraints worth flagging upfront.
