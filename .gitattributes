@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.snupkg binary
+*.nupkg binary
+
+# linguist hints — keep docs from dominating language stats
+docs/**       linguist-documentation
+spec/**       linguist-documentation
+examples/**   linguist-vendored=false
+langs/csharp/**  linguist-detectable=true
+langs/python/**  linguist-detectable=true
