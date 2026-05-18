@@ -36,8 +36,8 @@ uv run mypy --strict src/vmx
 
 Behavior changes start in `spec/`. The rules are:
 
-- A spec change requires a matching ADR in `spec/ADRs/` (the `spec-discipline` CI check enforces this).
-- A new conformance test ID in `spec/12-conformance.md` requires a stub test in **every** active language flavor in the same PR.
+- A spec change requires a matching ADR in `spec/ADRs/` (enforced by the `spec-discipline` CI check — planned for Phase 0 Task 9).
+- A new conformance test ID in `spec/12-conformance.md` (planned for Phase 1) requires a stub test in **every** active language flavor in the same PR.
 
 See `docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md` §5 and §6 for the full process.
 
