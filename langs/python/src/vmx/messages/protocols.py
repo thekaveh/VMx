@@ -1,4 +1,4 @@
-from typing import Protocol, runtime_checkable, TypeVar, Generic
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 Sender = TypeVar("Sender", covariant=True)
 
