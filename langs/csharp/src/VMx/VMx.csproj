@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <RootNamespace>VMx</RootNamespace>
+    <AssemblyName>VMx</AssemblyName>
+    <PackageId>VMx</PackageId>
+    <Version>0.0.1-dev</Version>
+    <Description>Hierarchical, lifecycle-aware MVVM viewmodel framework.</Description>
+    <PackageTags>mvvm;viewmodel;reactive;wpf;avalonia;maui;xamarin</PackageTags>
+
+    <!-- Minimum spec version this assembly implements -->
+    <MinSpecVersion>0.0.0</MinSpecVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Reactive" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>MinSpecVersion</_Parameter1>
+      <_Parameter2>$(MinSpecVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
