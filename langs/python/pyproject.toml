@@ -36,7 +36,7 @@ Changelog = "https://github.com/kavehr/VMx/blob/main/langs/python/CHANGELOG.md"
 test = ["pytest>=7", "pytest-asyncio>=0.23", "pytest-cov>=4"]
 typing = ["mypy>=1.8"]
 lint = ["ruff>=0.4"]
-dev = ["pytest>=7", "pytest-asyncio>=0.23", "pytest-cov>=4", "mypy>=1.8", "ruff>=0.4"]
+dev = ["vmx[test,typing,lint]"]
 
 [tool.hatch.version]
 path = "src/vmx/__about__.py"
@@ -56,6 +56,9 @@ select = ["E", "F", "I", "N", "UP", "B", "RUF"]
 strict = true
 python_version = "3.10"
 files = ["src/vmx"]
+# Temporary: protocols.py uses `pass` instead of `...` in Protocol method bodies
+# (legacy stub carried over verbatim per Task 3; migration deferred to a later task).
+# Remove this override once those bodies are migrated to `...`.
 disable_error_code = ["empty-body"]
 
 [tool.pytest.ini_options]
