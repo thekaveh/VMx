@@ -1,0 +1,24 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "spec/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "spec/**"
+      - ".github/workflows/docs.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder — real docs build wired up in Phase 2k/3j
+        run: |
+          echo "docs build will be wired up once mkdocs config lands"
+          test -d docs/superpowers || (echo "docs dir missing" && exit 1)

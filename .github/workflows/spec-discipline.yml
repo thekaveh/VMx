@@ -1,0 +1,30 @@
+name: spec-discipline
+
+on:
+  pull_request:
+    paths:
+      - "spec/**"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check ADR accompanies non-trivial spec change
+        run: |
+          # PRs touching spec/ should also touch spec/ADRs/ (the spec/README.md and
+          # spec/VERSION are allowed exceptions). This check is permissive in Phase 0
+          # — it warns but does not fail until spec content lands in Phase 1.
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ | grep -v '^spec/README.md$' | grep -v '^spec/VERSION$' || true)
+          adr_changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ADRs/ || true)
+
+          if [ -n "$changed" ] && [ -z "$adr_changed" ]; then
+            echo "::warning::Spec changed without a matching ADR. (Soft-fail until Phase 1 lands.)"
+          else
+            echo "OK"
+          fi

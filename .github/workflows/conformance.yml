@@ -1,0 +1,29 @@
+name: conformance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "spec/**"
+      - "langs/**/tests/conformance/**"
+      - "tools/check-conformance-coverage.py"
+      - ".github/workflows/conformance.yml"
+  pull_request:
+    paths:
+      - "spec/**"
+      - "langs/**/tests/conformance/**"
+      - "tools/check-conformance-coverage.py"
+      - ".github/workflows/conformance.yml"
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder — real conformance check wired up in Phase 1
+        run: |
+          if [ -f tools/check-conformance-coverage.py ]; then
+            python3 tools/check-conformance-coverage.py
+          else
+            echo "conformance tool not present yet (lands in Phase 1) — skipping"
+          fi
