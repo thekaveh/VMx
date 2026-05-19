@@ -1,0 +1,59 @@
+name: csharp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "langs/csharp/**"
+      - "spec/**"
+      - ".github/workflows/csharp.yml"
+  pull_request:
+    paths:
+      - "langs/csharp/**"
+      - "spec/**"
+      - ".github/workflows/csharp.yml"
+
+defaults:
+  run:
+    working-directory: langs/csharp
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install both SDKs:
+      # - 8.0.x: required to build the library's net8.0 TFM
+      # - 9.0.x: required to run VMx.Tests (which targets net9.0; see VMx.Tests.csproj)
+      - name: Setup .NET 8 + .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Restore
+        run: dotnet restore VMx.sln
+
+      - name: Format check
+        run: dotnet format VMx.sln --verify-no-changes
+
+      - name: Build
+        run: dotnet build VMx.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger "trx"
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          files: langs/csharp/TestResults/**/coverage.cobertura.xml
+          flags: csharp
+          fail_ci_if_error: false
