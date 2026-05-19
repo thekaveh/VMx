@@ -1,5 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!--
+      Test runner targets net9.0 (not the library's lowest TFM net8.0) because the
+      dev environment used to bootstrap Phase 0 only had the .NET 9 SDK/runtime
+      installed. The library `VMx.csproj` itself remains multi-targeted
+      `netstandard2.0;net8.0`. CI (.github/workflows/csharp.yml, Task 8) installs
+      .NET 9.0.x SDK; revisit if we want a net8.0 + net9.0 test matrix.
+    -->
     <TargetFramework>net9.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>

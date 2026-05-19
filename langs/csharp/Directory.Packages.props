@@ -15,6 +15,7 @@
     <PackageVersion Include="xunit" Version="2.9.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageVersion Include="FluentAssertions" Version="6.12.0" />
+    <!-- Pre-pinned for reactive unit tests in Phase 2b+; add <PackageReference> when consumed. -->
     <PackageVersion Include="Microsoft.Reactive.Testing" Version="6.0.1" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
   </ItemGroup>
