@@ -37,7 +37,13 @@ repos:
     hooks:
       - id: dotnet-format
         name: dotnet format (C# only)
-        entry: bash -c 'cd langs/csharp && dotnet format VMx.sln --verify-no-changes --include $(echo "$@" | tr " " "\n" | sed "s|^langs/csharp/||" | paste -sd " " -)' --
+        # Build --include args via array so paths with spaces survive intact.
+        entry: |
+          bash -c '
+            args=();
+            for f in "$@"; do args+=("--include" "${f#langs/csharp/}"); done;
+            cd langs/csharp && dotnet format VMx.sln --verify-no-changes "${args[@]}"
+          ' --
         language: system
         files: ^langs/csharp/.*\.(cs|csproj|props)$
         pass_filenames: true
