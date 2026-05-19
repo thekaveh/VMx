@@ -1,5 +1,11 @@
 # VMx
 
+[![csharp](https://github.com/kavehr/VMx/actions/workflows/csharp.yml/badge.svg)](https://github.com/kavehr/VMx/actions/workflows/csharp.yml)
+[![python](https://github.com/kavehr/VMx/actions/workflows/python.yml/badge.svg)](https://github.com/kavehr/VMx/actions/workflows/python.yml)
+[![docs](https://github.com/kavehr/VMx/actions/workflows/docs.yml/badge.svg)](https://github.com/kavehr/VMx/actions/workflows/docs.yml)
+[![conformance](https://github.com/kavehr/VMx/actions/workflows/conformance.yml/badge.svg)](https://github.com/kavehr/VMx/actions/workflows/conformance.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A hierarchical, lifecycle-aware MVVM viewmodel framework, available in multiple language flavors.
 
 | Flavor | Package | Status |
