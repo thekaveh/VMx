@@ -7,6 +7,7 @@
 **Architecture:** Top-level `langs/<lang>/` folders host each language flavor as a self-contained project. Shared concerns (`spec/`, `docs/`, `examples/`, `tools/`, `.github/`) live at the repo root. Phase 0 only creates the scaffolding — no spec text, no library code. Smoke tests (a single trivial passing test per language) prove the build pipelines work.
 
 **Tech Stack:**
+
 - **C#:** .NET SDK 8.x, multi-target `netstandard2.0;net8.0`, xUnit, `dotnet format`
 - **Python:** 3.10–3.13, `hatchling` build backend, `uv` as dev/CI runner, `pytest`, `ruff`, `mypy --strict`
 - **CI:** GitHub Actions (ubuntu-latest + macos-latest + windows-latest matrix)
@@ -15,6 +16,7 @@
 **Spec reference:** `/Users/kaveh/repos/VMx/docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md`, primarily sections §4 (layout), §10 (tooling/CI), §11 (migration).
 
 **Open question resolutions baked into this plan:**
+
 - Python build backend: **hatchling** (mature, well-supported by `uv`).
 - Python dev/CI runner: **uv** (faster than pip, supports lockfiles).
 - Symbol packages (`.snupkg`): on from day one.
@@ -24,7 +26,7 @@
 
 **Working directory for all relative paths:** `/Users/kaveh/repos/VMx`
 
----
+______________________________________________________________________
 
 ## Pre-flight
 
@@ -49,7 +51,7 @@ pre-commit --version   # install via: brew install pre-commit  (or: pipx install
 
 If any are missing, install them before proceeding. Tasks below assume all are present and on `PATH`.
 
----
+______________________________________________________________________
 
 ## File structure produced by Phase 0
 
@@ -136,14 +138,18 @@ VMx/
         └── spec-discipline.yml         NEW (skeleton only — succeeds with a no-op step)
 ```
 
----
+______________________________________________________________________
 
 ## Task 1 — Top-level scaffolding (directories + hygiene files)
 
 **Files:**
+
 - Create: `/Users/kaveh/repos/VMx/.gitignore` (rewrite)
+
 - Create: `/Users/kaveh/repos/VMx/.editorconfig`
+
 - Create: `/Users/kaveh/repos/VMx/.gitattributes`
+
 - Create directories: `spec/`, `spec/ADRs/`, `spec/fixtures/`, `examples/`, `tools/`, `langs/csharp/src/VMx/`, `langs/csharp/tests/VMx.Tests/`, `langs/python/src/vmx/messages/`, `langs/python/src/vmx/services/`, `langs/python/tests/unit/`, `langs/python/tests/conformance/`, `.github/ISSUE_TEMPLATE/`, `.github/workflows/`
 
 - [ ] **Step 1: Create the directory layout**
@@ -339,19 +345,28 @@ git commit -m "chore: scaffold multi-language repo layout
 Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §4, §11"
 ```
 
----
+______________________________________________________________________
 
 ## Task 2 — Repo metadata (README, CONTRIBUTING, etc.)
 
 **Files:**
+
 - Create: `README.md` (rewrite of the 2-line existing one)
+
 - Create: `CONTRIBUTING.md`
+
 - Create: `CODE_OF_CONDUCT.md`
+
 - Create: `SECURITY.md`
+
 - Create: `compatibility-matrix.md` (empty placeholder)
+
 - Create: `.github/CODEOWNERS`
+
 - Create: `.github/PULL_REQUEST_TEMPLATE.md`
+
 - Create: `.github/ISSUE_TEMPLATE/bug-csharp.yml`, `bug-python.yml`, `spec-feature-request.yml`, `adr-proposal.yml`
+
 - Create: `langs/csharp/README.md`, `langs/csharp/CHANGELOG.md`, `langs/python/README.md`, `langs/python/CHANGELOG.md`
 
 - [ ] **Step 1: Rewrite top-level `README.md`**
@@ -403,7 +418,7 @@ MIT — see [`LICENSE`](LICENSE).
 
 Create `/Users/kaveh/repos/VMx/CONTRIBUTING.md`:
 
-```markdown
+````markdown
 # Contributing to VMx
 
 Thanks for your interest in contributing!
@@ -425,7 +440,7 @@ dotnet restore
 dotnet build
 dotnet test
 dotnet format --verify-no-changes
-```
+````
 
 ### Python
 
@@ -450,7 +465,8 @@ See `docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md` §5 and 
 ## Code of conduct
 
 This project follows the Contributor Covenant v2.1 — see [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-```
+
+````
 
 - [ ] **Step 3: Write `CODE_OF_CONDUCT.md`**
 
@@ -460,7 +476,7 @@ Create `/Users/kaveh/repos/VMx/CODE_OF_CONDUCT.md` containing the Contributor Co
 cd /Users/kaveh/repos/VMx
 curl -sSL https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md \
   -o CODE_OF_CONDUCT.md
-```
+````
 
 Then replace the placeholder enforcement email (`[INSERT CONTACT METHOD]`) with your contact email manually (e.g., `kaveh.razavi@gmail.com`).
 
@@ -699,7 +715,7 @@ body:
 
 Create `/Users/kaveh/repos/VMx/langs/csharp/README.md`:
 
-```markdown
+````markdown
 # VMx — C# flavor
 
 The C# implementation of the VMx hierarchical MVVM framework, published as the `VMx` NuGet package.
@@ -715,8 +731,9 @@ dotnet restore
 dotnet build
 dotnet test
 dotnet format --verify-no-changes
-```
-```
+````
+
+````
 
 Create `/Users/kaveh/repos/VMx/langs/csharp/CHANGELOG.md`:
 
@@ -731,11 +748,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 - Initial repo scaffolding.
-```
+````
 
 Create `/Users/kaveh/repos/VMx/langs/python/README.md`:
 
-```markdown
+````markdown
 # VMx — Python flavor
 
 The Python implementation of the VMx hierarchical MVVM framework, published as the `vmx` PyPI package.
@@ -752,8 +769,9 @@ uv run pytest
 uv run ruff check
 uv run ruff format --check
 uv run mypy --strict src/vmx
-```
-```
+````
+
+````
 
 Create `/Users/kaveh/repos/VMx/langs/python/CHANGELOG.md`:
 
@@ -768,7 +786,7 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Added
 - Initial repo scaffolding.
-```
+````
 
 - [ ] **Step 10: Commit**
 
@@ -790,11 +808,12 @@ git commit -m "docs: add repo metadata, code of conduct, issue/PR templates
 Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §10.7"
 ```
 
----
+______________________________________________________________________
 
 ## Task 3 — Migrate legacy Python stubs
 
 **Files:**
+
 - Move: `messages/contracts/message.py` → `langs/python/src/vmx/messages/protocols.py`
 - Move + edit: `services/contracts/message_hub.py` → `langs/python/src/vmx/services/message_hub.py`
 - Delete: `messages/` and `services/` top-level directories
@@ -802,6 +821,7 @@ Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §10.7"
 The existing stubs are:
 
 **`messages/contracts/message.py`** (current content — keep verbatim):
+
 ```python
 from typing import Protocol, runtime_checkable, TypeVar, Generic
 
@@ -830,6 +850,7 @@ class TypedMessage(Message, Protocol, Generic[Sender]):
 ```
 
 **`services/contracts/message_hub.py`** (current content):
+
 ```python
 from typing import TypeVar, Protocol, runtime_checkable
 from rx.core.observable.observable import Observable
@@ -898,9 +919,13 @@ class MessageHub(Protocol[TMessage]):
 ```
 
 Changes vs. the original:
+
 - Import switched from `rx.core.observable.observable.Observable` to `reactivex.Observable` (rx 3 → reactivex 4).
+
 - Import path for `Message` switched to the new package root (`vmx.messages.protocols`).
+
 - Function bodies use `...` instead of `pass` (the standard for Protocol method stubs).
+
 - Docstring at module top noting that the concrete implementation is deferred.
 
 - [ ] **Step 4: Delete the legacy top-level folders**
@@ -923,9 +948,13 @@ git status
 ```
 
 Expected:
+
 - `langs/python/src/vmx/messages/` contains `protocols.py`.
+
 - `langs/python/src/vmx/services/` contains `message_hub.py`.
+
 - `messages/` and `services/` no longer exist.
+
 - `git status` shows the renames (`R  messages/... -> langs/python/...`) plus the modification to `message_hub.py`.
 
 - [ ] **Step 6: Commit**
@@ -944,11 +973,12 @@ git commit -m "refactor: relocate legacy Python stubs into langs/python/src/vmx
 Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §9.8, §11"
 ```
 
----
+______________________________________________________________________
 
 ## Task 4 — Python skeleton (pyproject.toml, package layout, smoke test)
 
 **Files:**
+
 - Create: `langs/python/pyproject.toml`
 - Create: `langs/python/tox.ini`
 - Create: `langs/python/src/vmx/__init__.py`
@@ -1232,8 +1262,11 @@ uv run pytest tests/unit/test_smoke.py -v
 Expected: all 4 tests pass.
 
 If a test fails, do not move on — fix the cause first. Likely culprits if it fails:
+
 - Forgot the `__init__.py` in `messages/` or `services/` (Step 7).
+
 - Typo in the `from vmx... import ...` paths in `test_smoke.py`.
+
 - `reactivex` failed to install (rare; check `uv sync` output).
 
 - [ ] **Step 10: Run lint and type-check, confirm clean**
@@ -1272,11 +1305,12 @@ git commit -m "feat(python): scaffold vmx package with smoke tests
 Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §9.1-9.7"
 ```
 
----
+______________________________________________________________________
 
 ## Task 5 — C# skeleton (solution, projects, smoke test)
 
 **Files:**
+
 - Create: `langs/csharp/Directory.Build.props`
 - Create: `langs/csharp/Directory.Packages.props`
 - Create: `langs/csharp/VMx.sln`
@@ -1577,11 +1611,12 @@ git commit -m "feat(csharp): scaffold VMx solution with smoke tests
 Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §8.1, §8.2"
 ```
 
----
+______________________________________________________________________
 
 ## Task 6 — Pre-commit hooks
 
 **Files:**
+
 - Create: `.pre-commit-config.yaml`
 
 - [ ] **Step 1: Write `.pre-commit-config.yaml`**
@@ -1659,11 +1694,12 @@ git commit -m "chore: add pre-commit hooks (ruff, mdformat, dotnet format, hygie
 Run \`pre-commit install\` once after cloning."
 ```
 
----
+______________________________________________________________________
 
 ## Task 7 — GitHub Actions: Python workflow
 
 **Files:**
+
 - Create: `.github/workflows/python.yml`
 
 - [ ] **Step 1: Write `python.yml`**
@@ -1749,11 +1785,12 @@ Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §10.2"
 
 After the next push, verify the workflow ran green in the GitHub Actions UI before moving on. If it failed, inspect logs and fix locally before pushing again.
 
----
+______________________________________________________________________
 
 ## Task 8 — GitHub Actions: C# workflow
 
 **Files:**
+
 - Create: `.github/workflows/csharp.yml`
 
 - [ ] **Step 1: Write `csharp.yml`**
@@ -1832,11 +1869,12 @@ Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §10.2"
 
 After the next push, verify the workflow ran green in the GitHub Actions UI.
 
----
+______________________________________________________________________
 
 ## Task 9 — GitHub Actions: skeleton cross-cutting workflows
 
 **Files:**
+
 - Create: `.github/workflows/docs.yml`
 - Create: `.github/workflows/conformance.yml`
 - Create: `.github/workflows/spec-discipline.yml`
@@ -1960,14 +1998,18 @@ once spec content, ADR layout, and tools/check-conformance-coverage.py exist.
 Refs: docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md §10.3"
 ```
 
----
+______________________________________________________________________
 
 ## Task 10 — Final verification & spec placeholder
 
 **Files:**
+
 - Create: `spec/README.md`
+
 - Create: `tools/README.md`
+
 - Update: `compatibility-matrix.md` (no-op for Phase 0 — already a placeholder)
+
 - Update: top-level `README.md` (add CI status badges)
 
 - [ ] **Step 1: Write `spec/README.md` placeholder**
@@ -2081,27 +2123,27 @@ Open `https://github.com/kavehr/VMx/actions` (substitute the actual org/repo). Y
 
 If any cell is red, **do not declare Phase 0 done**. Inspect the logs, fix the issue locally, push the fix as an additional commit, and re-verify.
 
----
+______________________________________________________________________
 
 ## Phase 0 — completion criteria
 
 Phase 0 is done when **all** of these are true:
 
 1. The repo has the layout shown in §4 of the design spec.
-2. `/Users/kaveh/repos/VMx/messages/` and `/Users/kaveh/repos/VMx/services/` no longer exist.
-3. `langs/python/src/vmx/messages/protocols.py` and `langs/python/src/vmx/services/message_hub.py` exist with the updated `reactivex` import.
-4. `dotnet test langs/csharp/VMx.sln` passes locally (2 smoke tests green).
-5. `uv run pytest` in `langs/python` passes locally (4 smoke tests green).
-6. `dotnet format langs/csharp/VMx.sln --verify-no-changes` exits 0.
-7. `uv run ruff check`, `ruff format --check`, and `mypy --strict src/vmx` exit 0 in `langs/python`.
-8. `pre-commit run --all-files` exits 0.
-9. All five GitHub Actions workflows ran on the latest push to `main` and succeeded.
-10. The top-level README shows badges for all four CI workflows.
-11. Repo metadata files exist: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CODEOWNERS`, PR template, 4 issue templates, per-language READMEs and CHANGELOGs, `compatibility-matrix.md` placeholder.
+1. `/Users/kaveh/repos/VMx/messages/` and `/Users/kaveh/repos/VMx/services/` no longer exist.
+1. `langs/python/src/vmx/messages/protocols.py` and `langs/python/src/vmx/services/message_hub.py` exist with the updated `reactivex` import.
+1. `dotnet test langs/csharp/VMx.sln` passes locally (2 smoke tests green).
+1. `uv run pytest` in `langs/python` passes locally (4 smoke tests green).
+1. `dotnet format langs/csharp/VMx.sln --verify-no-changes` exits 0.
+1. `uv run ruff check`, `ruff format --check`, and `mypy --strict src/vmx` exit 0 in `langs/python`.
+1. `pre-commit run --all-files` exits 0.
+1. All five GitHub Actions workflows ran on the latest push to `main` and succeeded.
+1. The top-level README shows badges for all four CI workflows.
+1. Repo metadata files exist: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CODEOWNERS`, PR template, 4 issue templates, per-language READMEs and CHANGELOGs, `compatibility-matrix.md` placeholder.
 
 Once those are all true, the repo is ready for **Phase 1: Spec v1.0.0 authoring**. A separate plan should be written for Phase 1 at that point.
 
----
+______________________________________________________________________
 
 ## Plan self-review notes
 

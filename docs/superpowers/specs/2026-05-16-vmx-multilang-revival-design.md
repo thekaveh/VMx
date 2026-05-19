@@ -6,7 +6,7 @@
 **Repo:** `VMx`
 **Supersedes:** the legacy `.NET 4.5` library at `dotnet-tag/src/DotNetTag/VMx/`
 
----
+______________________________________________________________________
 
 ## 1. Vision
 
@@ -18,7 +18,7 @@ VMx is a hierarchical, lifecycle-aware MVVM viewmodel framework, designed to be:
 
 The library covers the viewmodel layer only: component hierarchy, lifecycle, commands, message hub, builders. UI bindings, virtualization, navigation, persistence, and serialization are explicitly out of scope.
 
----
+______________________________________________________________________
 
 ## 2. Goals & non-goals
 
@@ -38,7 +38,7 @@ The library covers the viewmodel layer only: component hierarchy, lifecycle, com
 - Inventing a custom reactive primitive. We standardize on Rx (System.Reactive / reactivex / rxjs).
 - Maintaining a unified version across languages. (See §7.)
 
----
+______________________________________________________________________
 
 ## 3. Provenance — what we're porting
 
@@ -54,7 +54,7 @@ The legacy library at `/Users/kaveh/repos/dotnet-tag/src/DotNetTag/VMx/` is a `.
 
 The Python repo currently contains only two stub Protocol files (`messages/contracts/message.py`, `services/contracts/message_hub.py`) and basic OSS hygiene.
 
----
+______________________________________________________________________
 
 ## 4. Repo layout
 
@@ -188,39 +188,39 @@ VMx/                                       (repo root)
 - `spec/` is the contract. Every implementation satisfies the same semantic model defined here.
 - `docs/` is rendered output. Concept pages are sourced from `spec/`; API pages are generated per language and embedded.
 
----
+______________________________________________________________________
 
 ## 5. Spec contents
 
 ### 5.1 Document set
 
-| File | Contents |
-| --- | --- |
-| `00-overview.md` | One-paragraph vision, in-scope vs. out-of-scope, glossary (VM, model, parent, current, predicate, trigger, hub, builder, dispatcher, foreground/background). |
-| `01-concepts.md` | VM hierarchy overview, readonly vs. modeled, `Current` selection contract, property-change notification contract, dependency philosophy (DI, no globals). |
-| `02-lifecycle.md` | `ConstructionStatus` states, legal transitions (digraph), invariants (e.g., `IsConstructed ⇔ Status == Constructed`; `Disposed` is irreversible; `Reconstruct = Destruct ∘ Construct`), parent-child orchestration rules. |
-| `03-messages.md` | `Message` shape (`sender_name`, `sender_object`, typed `Sender`), concrete message types, hub contract (hot stream, no replay, FIFO per producer thread), threading guarantees. |
-| `04-commands.md` | Command contract (`can_execute`, `execute`, `can_execute_changed`), generic parameterized variant, builder fluent flow (`task`, `predicate`, `triggers`, `build`), trigger semantics. |
+| File                 | Contents                                                                                                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `00-overview.md`     | One-paragraph vision, in-scope vs. out-of-scope, glossary (VM, model, parent, current, predicate, trigger, hub, builder, dispatcher, foreground/background).                                                                     |
+| `01-concepts.md`     | VM hierarchy overview, readonly vs. modeled, `Current` selection contract, property-change notification contract, dependency philosophy (DI, no globals).                                                                        |
+| `02-lifecycle.md`    | `ConstructionStatus` states, legal transitions (digraph), invariants (e.g., `IsConstructed ⇔ Status == Constructed`; `Disposed` is irreversible; `Reconstruct = Destruct ∘ Construct`), parent-child orchestration rules.        |
+| `03-messages.md`     | `Message` shape (`sender_name`, `sender_object`, typed `Sender`), concrete message types, hub contract (hot stream, no replay, FIFO per producer thread), threading guarantees.                                                  |
+| `04-commands.md`     | Command contract (`can_execute`, `execute`, `can_execute_changed`), generic parameterized variant, builder fluent flow (`task`, `predicate`, `triggers`, `build`), trigger semantics.                                            |
 | `05-component-vm.md` | `ComponentVM` members (`Name`, `Hint`, `Type`, `IsCurrent`, `IsConstructed`, `Status`), built-in commands (`Select`, `Deselect`, `SelectNext`, `SelectPrevious`, `Reconstruct`), lifecycle hooks, modeled and readonly variants. |
-| `06-composite-vm.md` | `CompositeVM<VM>` extends `ComponentVM` + `IList<VM>` + collection-change notifications; `Current` selection contract; modeled variant. |
-| `07-group-vm.md` | `GroupVM<VM>` — like composite minus selection. |
-| `08-aggregate-vm.md` | `AggregateVM<VM1..VM5>` fixed-arity tuple; parallel construct/destruct; arity rationale in ADR-0007. |
-| `09-forwarding.md` | `ForwardingComponentVM<M>`, `ForwardingCompositeVM<VM>`; selective override hooks. |
-| `10-builders.md` | Builder immutability, fluent flow, validation, factory entrypoints; per-language idiom hints. |
-| `11-threading.md` | Two scheduler roles (foreground/background); VMx is thread-aware, not thread-bound; defaults; conformance expectations. |
-| `12-conformance.md` | Cross-language conformance test catalog (see §6). |
+| `06-composite-vm.md` | `CompositeVM<VM>` extends `ComponentVM` + `IList<VM>` + collection-change notifications; `Current` selection contract; modeled variant.                                                                                          |
+| `07-group-vm.md`     | `GroupVM<VM>` — like composite minus selection.                                                                                                                                                                                  |
+| `08-aggregate-vm.md` | `AggregateVM<VM1..VM5>` fixed-arity tuple; parallel construct/destruct; arity rationale in ADR-0007.                                                                                                                             |
+| `09-forwarding.md`   | `ForwardingComponentVM<M>`, `ForwardingCompositeVM<VM>`; selective override hooks.                                                                                                                                               |
+| `10-builders.md`     | Builder immutability, fluent flow, validation, factory entrypoints; per-language idiom hints.                                                                                                                                    |
+| `11-threading.md`    | Two scheduler roles (foreground/background); VMx is thread-aware, not thread-bound; defaults; conformance expectations.                                                                                                          |
+| `12-conformance.md`  | Cross-language conformance test catalog (see §6).                                                                                                                                                                                |
 
 ### 5.2 ADRs (initial set)
 
 1. **0001 — Drop comScore.** External `comScore.Services` dependency removed; replaced with constructor-injected `IMessageHub` / `IDispatcher`.
-2. **0002 — Rx as the reactive primitive.** Adopt System.Reactive / reactivex / rxjs over native async/events for the message hub and command triggers.
-3. **0003 — Constructor injection.** Drop the service-locator pattern; VMs receive their dependencies via constructor/builder.
-4. **0004 — `langs/<lang>/` layout.** Per-language self-contained subprojects under a shared umbrella; alternatives rejected.
-5. **0005 — Drop virtualization from core.** `AlphaChiTech.VirtualizingObservableCollection` is removed; virtualization moves to an optional post-1.0 adapter.
-6. **0006 — Idiomatic API per language.** Names and shape follow each language's conventions; semantic parity enforced by the spec, not literal mirroring.
-7. **0007 — AggregateVM arity 1–5.** Explicit classes for arities 1 through 5 in every language; rationale: compile-time arity in C#, cross-language parity, and "more than 5" should be a composite/group.
+1. **0002 — Rx as the reactive primitive.** Adopt System.Reactive / reactivex / rxjs over native async/events for the message hub and command triggers.
+1. **0003 — Constructor injection.** Drop the service-locator pattern; VMs receive their dependencies via constructor/builder.
+1. **0004 — `langs/<lang>/` layout.** Per-language self-contained subprojects under a shared umbrella; alternatives rejected.
+1. **0005 — Drop virtualization from core.** `AlphaChiTech.VirtualizingObservableCollection` is removed; virtualization moves to an optional post-1.0 adapter.
+1. **0006 — Idiomatic API per language.** Names and shape follow each language's conventions; semantic parity enforced by the spec, not literal mirroring.
+1. **0007 — AggregateVM arity 1–5.** Explicit classes for arities 1 through 5 in every language; rationale: compile-time arity in C#, cross-language parity, and "more than 5" should be a composite/group.
 
----
+______________________________________________________________________
 
 ## 6. Cross-language conformance
 
@@ -228,19 +228,19 @@ VMx/                                       (repo root)
 
 Every test case in `spec/12-conformance.md` has a stable identifier and Given/When/Then prose. Identifier prefixes:
 
-| Area | Prefix |
-| --- | --- |
-| Lifecycle state machine | `LIFE-NNN` |
-| Message hub | `HUB-NNN` |
+| Area                          | Prefix     |
+| ----------------------------- | ---------- |
+| Lifecycle state machine       | `LIFE-NNN` |
+| Message hub                   | `HUB-NNN`  |
 | Property change notifications | `PROP-NNN` |
-| Commands | `CMD-NNN` |
-| Component VM | `CVM-NNN` |
-| Composite VM | `COMP-NNN` |
-| Group VM | `GRP-NNN` |
-| Aggregate VM | `AGG-NNN` |
-| Forwarding | `FWD-NNN` |
-| Builders | `BLD-NNN` |
-| Threading | `THR-NNN` |
+| Commands                      | `CMD-NNN`  |
+| Component VM                  | `CVM-NNN`  |
+| Composite VM                  | `COMP-NNN` |
+| Group VM                      | `GRP-NNN`  |
+| Aggregate VM                  | `AGG-NNN`  |
+| Forwarding                    | `FWD-NNN`  |
+| Builders                      | `BLD-NNN`  |
+| Threading                     | `THR-NNN`  |
 
 Example entry:
 
@@ -270,33 +270,33 @@ JSON files in `spec/fixtures/` hold data that must produce identical outputs acr
 `.github/workflows/conformance.yml` runs `tools/check-conformance-coverage.py`, which:
 
 1. Parses `spec/12-conformance.md` for all `XXX-NNN` IDs.
-2. Walks each `langs/<lang>/tests/conformance/` directory for matching IDs using language-specific scrapers.
-3. Reports missing IDs per language and fails CI on gaps.
+1. Walks each `langs/<lang>/tests/conformance/` directory for matching IDs using language-specific scrapers.
+1. Reports missing IDs per language and fails CI on gaps.
 
 ### 6.5 Spec evolution rules
 
 1. Spec changes precede implementation changes. A behavior PR starts with `spec/` + conformance skeletons in every active language.
-2. Merged ADRs are immutable except for a top-of-file `Superseded by: ADR-NNNN` marker; replacements are new files.
-3. Backward-incompatible spec changes require a major-version bump in every active language flavor (see §7).
-4. A new language flavor must pass the entire conformance catalog before being marked stable; it can ship in `0.x` pre-release while gaps remain.
+1. Merged ADRs are immutable except for a top-of-file `Superseded by: ADR-NNNN` marker; replacements are new files.
+1. Backward-incompatible spec changes require a major-version bump in every active language flavor (see §7).
+1. A new language flavor must pass the entire conformance catalog before being marked stable; it can ship in `0.x` pre-release while gaps remain.
 
----
+______________________________________________________________________
 
 ## 7. Versioning strategy (Option A — independent per-language SemVer + shared spec version)
 
-| Component | Versioned | Tag format | Notes |
-| --- | --- | --- | --- |
-| `spec/` | SemVer | `spec-v1.0.0` | Stored in `spec/VERSION`. |
-| C# package (`VMx`) | SemVer | `csharp-v1.0.0` | Declares `MinSpecVersion` in package metadata. |
-| Python package (`vmx`) | SemVer | `python-v1.0.0` | Declares `min_spec_version` in `__about__.py`. |
-| TypeScript package (future `vmx`) | SemVer | `typescript-v1.0.0` | Same pattern. |
+| Component                         | Versioned | Tag format          | Notes                                          |
+| --------------------------------- | --------- | ------------------- | ---------------------------------------------- |
+| `spec/`                           | SemVer    | `spec-v1.0.0`       | Stored in `spec/VERSION`.                      |
+| C# package (`VMx`)                | SemVer    | `csharp-v1.0.0`     | Declares `MinSpecVersion` in package metadata. |
+| Python package (`vmx`)            | SemVer    | `python-v1.0.0`     | Declares `min_spec_version` in `__about__.py`. |
+| TypeScript package (future `vmx`) | SemVer    | `typescript-v1.0.0` | Same pattern.                                  |
 
 **Rules**
 
 1. Each language flavor versions independently; cadence is set by that language's release needs.
-2. The spec version is the shared anchor. Every language flavor declares the spec version it implements.
-3. Bumping the spec major version requires every active language to bump its major version in turn (tracked via a spec-PR checklist).
-4. A compatibility matrix is auto-generated at `compatibility-matrix.md` by `tools/build-compatibility-matrix.py`:
+1. The spec version is the shared anchor. Every language flavor declares the spec version it implements.
+1. Bumping the spec major version requires every active language to bump its major version in turn (tracked via a spec-PR checklist).
+1. A compatibility matrix is auto-generated at `compatibility-matrix.md` by `tools/build-compatibility-matrix.py`:
 
 ```
 spec   csharp   python   typescript
@@ -306,7 +306,7 @@ spec   csharp   python   typescript
 
 5. Language-internal breaking changes (e.g., dropping a deprecated API) are only that language's major bump.
 
----
+______________________________________________________________________
 
 ## 8. C# library design
 
@@ -319,30 +319,30 @@ spec   csharp   python   typescript
 
 ### 8.2 Namespace map
 
-| Folder | Namespace | Public API |
-| --- | --- | --- |
-| `Lifecycle/` | `VMx.Lifecycle` | `ConstructionStatus`, `StatusTransitionException`, transition validator |
-| `Messages/` | `VMx.Messages` | `IMessage`, `IMessage<S>`, `IPropertyChangedMessage<S>`, `IConstructionStatusChangedMessage`, concrete `record` messages |
-| `Services/` | `VMx.Services` | `IMessageHub`, `MessageHub`, `IDispatcher`, `RxDispatcher` |
-| `Commands/` | `VMx.Commands` | BCL `ICommand`, `RelayCommand`, `RelayCommand<T>`, `ICommandBuilder`, `ICommandBuilder<T>` |
+| Folder        | Namespace        | Public API                                                                                                                         |
+| ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `Lifecycle/`  | `VMx.Lifecycle`  | `ConstructionStatus`, `StatusTransitionException`, transition validator                                                            |
+| `Messages/`   | `VMx.Messages`   | `IMessage`, `IMessage<S>`, `IPropertyChangedMessage<S>`, `IConstructionStatusChangedMessage`, concrete `record` messages           |
+| `Services/`   | `VMx.Services`   | `IMessageHub`, `MessageHub`, `IDispatcher`, `RxDispatcher`                                                                         |
+| `Commands/`   | `VMx.Commands`   | BCL `ICommand`, `RelayCommand`, `RelayCommand<T>`, `ICommandBuilder`, `ICommandBuilder<T>`                                         |
 | `Components/` | `VMx.Components` | `IComponentVM`, `IComponentVM<M>`, `IReadonlyComponentVM<M>`, `ComponentVMBase`, sealed `ComponentVM<M>`, `ReadonlyComponentVM<M>` |
-| `Composites/` | `VMx.Composites` | `ICompositeVM<VM>`, `ICompositeVM<M, VM>`, base, sealed `CompositeVM<VM>`, `CompositeVM<M, VM>` |
-| `Groups/` | `VMx.Groups` | `IGroupVM<VM>`, base, sealed `GroupVM<VM>` |
-| `Aggregates/` | `VMx.Aggregates` | `IAggregateVM<…>`, `AggregateVM<…>` for arities 1–5 |
-| `Forwarding/` | `VMx.Forwarding` | `ForwardingComponentVM<M>`, `ForwardingCompositeVM<VM>` |
-| `Builders/` | `VMx.Builders` | shared builder primitives, validation helpers |
+| `Composites/` | `VMx.Composites` | `ICompositeVM<VM>`, `ICompositeVM<M, VM>`, base, sealed `CompositeVM<VM>`, `CompositeVM<M, VM>`                                    |
+| `Groups/`     | `VMx.Groups`     | `IGroupVM<VM>`, base, sealed `GroupVM<VM>`                                                                                         |
+| `Aggregates/` | `VMx.Aggregates` | `IAggregateVM<…>`, `AggregateVM<…>` for arities 1–5                                                                                |
+| `Forwarding/` | `VMx.Forwarding` | `ForwardingComponentVM<M>`, `ForwardingCompositeVM<VM>`                                                                            |
+| `Builders/`   | `VMx.Builders`   | shared builder primitives, validation helpers                                                                                      |
 
 ### 8.3 Modernization choices vs. the legacy library
 
 1. **comScore eliminated.** No `IConstants`, no `IServiceLocator`, no `VMxServiceLocatorBase`. Replaced by constructor-injected `IMessageHub` and `IDispatcher`. `AsyncViewModelSelection` becomes a builder option (`.AsyncSelection(true)`).
-2. **Generic-parameter simplification.** `ComponentVMBase<SL, L, P, B>` (legacy 4 params) becomes `ComponentVMBase<TSelf, TParent, TBuilder>` (3 params). Modeled variant adds `M`. Sealed concretes expose zero-generic surfaces via nested `Builder()`. The deepest base remains 4-param (load-bearing for fluent-builder return types).
-3. **Nullable reference types on.** Optional values are `?`; `Name`/`Hint` non-nullable with empty-string defaults.
-4. **`init`-only setters** in builder configuration where the builder is the only legal mutation path.
-5. **`record` types** for `PropertyChangedMessage<S>`, `ConstructionStatusChangedMessage`; static `Create` factories preserved.
-6. **BCL `ICommand`** retained (`System.Windows.Input.ICommand`) — works in `netstandard2.0` and across WPF/Avalonia/MAUI/Uno without glue.
-7. **AggregateVM arities 1–5** implemented as five explicit classes; consider T4 / source generator if duplication becomes painful. Start with hand-written 1 and 2, decide later.
-8. **`IDispatcher` abstraction:** `Foreground` and `Background` `IScheduler` properties. Default `RxDispatcher` uses `SynchronizationContextScheduler` (foreground) and `TaskPoolScheduler.Default` (background). Tests inject `Microsoft.Reactive.Testing.TestScheduler` for determinism.
-9. **DI integration:** Companion package `VMx.Extensions.DependencyInjection` provides `services.AddVMx(options => options.UseRxDispatcher())`. Optional; core remains DI-container-agnostic.
+1. **Generic-parameter simplification.** `ComponentVMBase<SL, L, P, B>` (legacy 4 params) becomes `ComponentVMBase<TSelf, TParent, TBuilder>` (3 params). Modeled variant adds `M`. Sealed concretes expose zero-generic surfaces via nested `Builder()`. The deepest base remains 4-param (load-bearing for fluent-builder return types).
+1. **Nullable reference types on.** Optional values are `?`; `Name`/`Hint` non-nullable with empty-string defaults.
+1. **`init`-only setters** in builder configuration where the builder is the only legal mutation path.
+1. **`record` types** for `PropertyChangedMessage<S>`, `ConstructionStatusChangedMessage`; static `Create` factories preserved.
+1. **BCL `ICommand`** retained (`System.Windows.Input.ICommand`) — works in `netstandard2.0` and across WPF/Avalonia/MAUI/Uno without glue.
+1. **AggregateVM arities 1–5** implemented as five explicit classes; consider T4 / source generator if duplication becomes painful. Start with hand-written 1 and 2, decide later.
+1. **`IDispatcher` abstraction:** `Foreground` and `Background` `IScheduler` properties. Default `RxDispatcher` uses `SynchronizationContextScheduler` (foreground) and `TaskPoolScheduler.Default` (background). Tests inject `Microsoft.Reactive.Testing.TestScheduler` for determinism.
+1. **DI integration:** Companion package `VMx.Extensions.DependencyInjection` provides `services.AddVMx(options => options.UseRxDispatcher())`. Optional; core remains DI-container-agnostic.
 
 ### 8.4 Sample API surface
 
@@ -387,7 +387,7 @@ var saveCmd = RelayCommand.Builder()
 - Possible future packages: `VMx.Virtualization`, `VMx.Wpf`, `VMx.Avalonia`, `VMx.MAUI`.
 - All C# packages share the C# flavor's version number.
 
----
+______________________________________________________________________
 
 ## 9. Python library design
 
@@ -437,21 +437,21 @@ src/vmx/
 
 ### 9.3 Idiomatic translations
 
-| Concept (C#) | Python idiom |
-| --- | --- |
-| `INotifyPropertyChanged` | `Observable[PropertyChangedMessage]` exposed as `vm.property_changed`; internal mixin publishes via `MessageHub` |
-| `ICommand` | `Command` Protocol with `can_execute()`, `execute()`, `can_execute_changed: Observable[bool]` |
-| Fluent immutable builder | `@dataclass(frozen=True, slots=True)` builders; each setter returns `dataclasses.replace(self, …)` |
-| `Builder()` static factory | top-level factory function: `component_vm()` returns an empty builder |
-| `Func<T, R>` / `Action<T>` | `Callable[[T], R]` / `Callable[[T], None]` |
-| `IObservable<T>` | `reactivex.Observable[T]` |
-| `Task` / async | `asyncio` coroutines; `async def construct(...)` |
-| `Dispose` | explicit `dispose()` + `__aenter__`/`__aexit__` for `async with` use |
-| Generics | `typing.Generic`, `TypeVar`, `Protocol` |
-| `AggregateVM<VM1..VM5>` | `AggregateVM1[VM1]` … `AggregateVM5[VM1,VM2,VM3,VM4,VM5]` — explicit, not `TypeVarTuple` |
-| Nullable refs | `T \| None` with mypy `strict` |
-| Records | `@dataclass(frozen=True)` |
-| Naming | `snake_case` members, `PascalCase` classes, `UPPER_CASE` enum members |
+| Concept (C#)               | Python idiom                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `INotifyPropertyChanged`   | `Observable[PropertyChangedMessage]` exposed as `vm.property_changed`; internal mixin publishes via `MessageHub` |
+| `ICommand`                 | `Command` Protocol with `can_execute()`, `execute()`, `can_execute_changed: Observable[bool]`                    |
+| Fluent immutable builder   | `@dataclass(frozen=True, slots=True)` builders; each setter returns `dataclasses.replace(self, …)`               |
+| `Builder()` static factory | top-level factory function: `component_vm()` returns an empty builder                                            |
+| `Func<T, R>` / `Action<T>` | `Callable[[T], R]` / `Callable[[T], None]`                                                                       |
+| `IObservable<T>`           | `reactivex.Observable[T]`                                                                                        |
+| `Task` / async             | `asyncio` coroutines; `async def construct(...)`                                                                 |
+| `Dispose`                  | explicit `dispose()` + `__aenter__`/`__aexit__` for `async with` use                                             |
+| Generics                   | `typing.Generic`, `TypeVar`, `Protocol`                                                                          |
+| `AggregateVM<VM1..VM5>`    | `AggregateVM1[VM1]` … `AggregateVM5[VM1,VM2,VM3,VM4,VM5]` — explicit, not `TypeVarTuple`                         |
+| Nullable refs              | `T \| None` with mypy `strict`                                                                                   |
+| Records                    | `@dataclass(frozen=True)`                                                                                        |
+| Naming                     | `snake_case` members, `PascalCase` classes, `UPPER_CASE` enum members                                            |
 
 ### 9.4 Sample API surface
 
@@ -517,7 +517,7 @@ Same transition table as C#, loaded from `spec/fixtures/lifecycle-transitions.js
 - `services/contracts/message_hub.py` → moves to `langs/python/src/vmx/services/message_hub.py`; the `Protocol` survives; the concrete `MessageHub` class is added alongside it. Import switches from `rx.core.observable.observable.Observable` → `reactivex.Observable` (rx 3 → reactivex 4).
 - Legacy top-level `messages/` and `services/` folders are deleted.
 
----
+______________________________________________________________________
 
 ## 10. Tooling, CI/CD, release flow
 
@@ -569,25 +569,25 @@ Same transition table as C#, loaded from `spec/fixtures/lifecycle-transitions.js
 - C# API ref via DocFX; Python API ref via `mkdocstrings`. Both embedded under `docs/api/<lang>/`.
 - Deployed to GitHub Pages.
 
----
+______________________________________________________________________
 
 ## 11. Migration of the existing repo
 
-| Path | Disposition |
-| --- | --- |
-| `LICENSE` | Stays. Repo-wide. |
-| `README.md` (one line) | Rewritten with flavor matrix, links, badges. |
-| `.gitignore` | Rewritten as multi-language. |
-| `.mypy_cache/`, `.DS_Store` (all) | Deleted + globally ignored. |
-| `messages/contracts/message.py` | Moves to `langs/python/src/vmx/messages/protocols.py`. |
-| `services/contracts/message_hub.py` | Moves to `langs/python/src/vmx/services/message_hub.py`. |
-| `messages/`, `services/` (top-level) | Deleted after content has moved. |
-| New top-level dirs | `spec/`, `docs/`, `examples/`, `langs/`, `tools/`, `.github/`. |
-| New top-level files | `README.md`, `LICENSE` (kept), `.gitignore` (new), `.gitattributes`, `.editorconfig`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.pre-commit-config.yaml`, `compatibility-matrix.md` (generated). |
+| Path                                 | Disposition                                                                                                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LICENSE`                            | Stays. Repo-wide.                                                                                                                                                                                               |
+| `README.md` (one line)               | Rewritten with flavor matrix, links, badges.                                                                                                                                                                    |
+| `.gitignore`                         | Rewritten as multi-language.                                                                                                                                                                                    |
+| `.mypy_cache/`, `.DS_Store` (all)    | Deleted + globally ignored.                                                                                                                                                                                     |
+| `messages/contracts/message.py`      | Moves to `langs/python/src/vmx/messages/protocols.py`.                                                                                                                                                          |
+| `services/contracts/message_hub.py`  | Moves to `langs/python/src/vmx/services/message_hub.py`.                                                                                                                                                        |
+| `messages/`, `services/` (top-level) | Deleted after content has moved.                                                                                                                                                                                |
+| New top-level dirs                   | `spec/`, `docs/`, `examples/`, `langs/`, `tools/`, `.github/`.                                                                                                                                                  |
+| New top-level files                  | `README.md`, `LICENSE` (kept), `.gitignore` (new), `.gitattributes`, `.editorconfig`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.pre-commit-config.yaml`, `compatibility-matrix.md` (generated). |
 
 The migration is one commit ("everything moves"); subsequent work is additive.
 
----
+______________________________________________________________________
 
 ## 12. Phased roadmap
 
@@ -663,17 +663,17 @@ Same TDD discipline; Python conformance suite implemented in parallel with each 
 
 **Total time to 1.0 on both NuGet and PyPI:** ~9–14 weeks of focused part-time work, dominated by Phases 2 and 3.
 
----
+______________________________________________________________________
 
 ## 13. Future-language playbook
 
 Adding a new language flavor is engineered to be mechanical. Five steps:
 
 1. **Pick a Rx-equivalent library** — `rxjs` (TS), `kotlinx.coroutines.flow` or `RxKotlin` (Kotlin), `Combine` or `RxSwift` (Swift), `tokio-stream`+`futures` (Rust; requires its own ADR), `chan T`+goroutines (Go; requires its own ADR). The library must support hot streams, ordered emission, multi-subscriber broadcast, and scheduler control.
-2. **Add `langs/<lang>/`** per the standard skeleton with the language's idiomatic project file and the same module layout (`lifecycle/`, `messages/`, `services/`, `commands/`, `components/`, `composites/`, `groups/`, `aggregates/`, `forwarding/`, `builders/`).
-3. **Wire CI** — copy `python.yml` as the template, swap the toolchain, point `paths:` at `langs/<lang>/**` and `spec/**`. Add a ~30-line scraper to `tools/check-conformance-coverage.py` for the language's test-id convention.
-4. **Implement to the spec, write conformance tests in lockstep.** Reading order: `spec/00–02` → `spec/03–04` → `spec/05–09` → `spec/10–11` → `spec/12-conformance.md` plus `spec/fixtures/*.json`.
-5. **Ship.** Tag `<lang>-v0.x.y` while gaps remain; tag `<lang>-v1.0.0` once the conformance suite is fully green. Register in `compatibility-matrix.md`. Add `docs/getting-started/<lang>.md` and `docs/api/<lang>/`.
+1. **Add `langs/<lang>/`** per the standard skeleton with the language's idiomatic project file and the same module layout (`lifecycle/`, `messages/`, `services/`, `commands/`, `components/`, `composites/`, `groups/`, `aggregates/`, `forwarding/`, `builders/`).
+1. **Wire CI** — copy `python.yml` as the template, swap the toolchain, point `paths:` at `langs/<lang>/**` and `spec/**`. Add a ~30-line scraper to `tools/check-conformance-coverage.py` for the language's test-id convention.
+1. **Implement to the spec, write conformance tests in lockstep.** Reading order: `spec/00–02` → `spec/03–04` → `spec/05–09` → `spec/10–11` → `spec/12-conformance.md` plus `spec/fixtures/*.json`.
+1. **Ship.** Tag `<lang>-v0.x.y` while gaps remain; tag `<lang>-v1.0.0` once the conformance suite is fully green. Register in `compatibility-matrix.md`. Add `docs/getting-started/<lang>.md` and `docs/api/<lang>/`.
 
 **Cost estimates** (post-1.0, with spec stable):
 
@@ -689,18 +689,18 @@ Adding a new language flavor is engineered to be mechanical. Five steps:
 - A flavor's `1.0.0` requires 100% conformance against the active spec major. CI enforces this.
 - When a language can't meet a spec requirement, the resolution is **a spec ADR**, not a workaround. The spec adapts to the language family or the language opts out — recorded, not silent.
 
----
+______________________________________________________________________
 
 ## 14. Risks & open questions
 
 ### Risks
 
 1. **Conformance catalog completeness.** Vague entries let flavors drift. Mitigation: `spec/fixtures/*.json` data files turn fuzzy English into machine-checkable inputs.
-2. **Rx threading parity across languages.** `System.Reactive`, `reactivex`, and `rxjs` differ subtly on back-pressure, error propagation, and disposal-during-emission. Mitigation: `THR-NNN` conformance tests pin these with marble/`TestScheduler` tests in each language.
-3. **AggregateVM code generation.** Source-generated arities are elegant but add a compile-time dependency. Mitigation: hand-write arities 1 and 2 first; generate 3–5 only if duplication becomes painful.
-4. **"Idiomatic per language" drift.** Different mental models under the same name. Mitigation: spec text is the arbiter; deviations require an ADR.
-5. **PyPI/NuGet/npm name availability.** `vmx` may be taken. Mitigation: check in Phase 0; fall back to `vmx-mvvm` or `pyvmx` and document.
-6. **Single-maintainer bandwidth.** ~9–14 weeks to 1.0 is a real commitment. Phases 2 and 3 are the absorbers; Phase 1 (spec) is not.
+1. **Rx threading parity across languages.** `System.Reactive`, `reactivex`, and `rxjs` differ subtly on back-pressure, error propagation, and disposal-during-emission. Mitigation: `THR-NNN` conformance tests pin these with marble/`TestScheduler` tests in each language.
+1. **AggregateVM code generation.** Source-generated arities are elegant but add a compile-time dependency. Mitigation: hand-write arities 1 and 2 first; generate 3–5 only if duplication becomes painful.
+1. **"Idiomatic per language" drift.** Different mental models under the same name. Mitigation: spec text is the arbiter; deviations require an ADR.
+1. **PyPI/NuGet/npm name availability.** `vmx` may be taken. Mitigation: check in Phase 0; fall back to `vmx-mvvm` or `pyvmx` and document.
+1. **Single-maintainer bandwidth.** ~9–14 weeks to 1.0 is a real commitment. Phases 2 and 3 are the absorbers; Phase 1 (spec) is not.
 
 ### Open questions to revisit during implementation
 
@@ -710,22 +710,22 @@ Adding a new language flavor is engineered to be mechanical. Five steps:
 - Pre-1.0 Python (`0.x`) release during Phase 3 as a preview (optional).
 - Whether to publish `.snupkg` symbol packages from day one (lean yes; flip on at first release).
 
----
+______________________________________________________________________
 
 ## 15. Summary table
 
-| Axis | Decision |
-| --- | --- |
-| Port fidelity | Faithful + modernized; comScore eliminated; simplify generics where safe |
+| Axis                    | Decision                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| Port fidelity           | Faithful + modernized; comScore eliminated; simplify generics where safe                   |
 | Audience / distribution | Public OSS; NuGet + PyPI (+ npm for future TS); OIDC trusted publishing; GitHub Pages docs |
-| C# targets | `netstandard2.0` + `net8.0` multi-target |
-| Reactive primitive | Rx everywhere: `System.Reactive` (C#), `reactivex` (Python), `rxjs` (future TS) |
-| DI model | Constructor injection; companion `VMx.Extensions.DependencyInjection` package |
-| Repo layout | `langs/<lang>/` umbrella + shared `spec/`, `docs/`, `examples/`, `tools/`, `.github/` |
-| Virtualization | Dropped from core; optional `VMx.Virtualization` package planned post-1.0 |
-| API style | Idiomatic per language; semantic parity enforced by the spec |
-| Execution strategy | Spec-first → C# v1.0 → Python v1.0; TS post-1.0 |
-| Versioning | Option A: independent SemVer per language + shared spec version + compat matrix |
-| Conformance | Stable `XXX-NNN` IDs + JSON fixtures; CI fails on gaps |
-| Phasing | 5 phases: scaffolding → spec v1 → C# v1 → Python v1 → polish/launch |
-| Future languages | 5-step playbook, additive only, ADR-gated when spec can't be met |
+| C# targets              | `netstandard2.0` + `net8.0` multi-target                                                   |
+| Reactive primitive      | Rx everywhere: `System.Reactive` (C#), `reactivex` (Python), `rxjs` (future TS)            |
+| DI model                | Constructor injection; companion `VMx.Extensions.DependencyInjection` package              |
+| Repo layout             | `langs/<lang>/` umbrella + shared `spec/`, `docs/`, `examples/`, `tools/`, `.github/`      |
+| Virtualization          | Dropped from core; optional `VMx.Virtualization` package planned post-1.0                  |
+| API style               | Idiomatic per language; semantic parity enforced by the spec                               |
+| Execution strategy      | Spec-first → C# v1.0 → Python v1.0; TS post-1.0                                            |
+| Versioning              | Option A: independent SemVer per language + shared spec version + compat matrix            |
+| Conformance             | Stable `XXX-NNN` IDs + JSON fixtures; CI fails on gaps                                     |
+| Phasing                 | 5 phases: scaffolding → spec v1 → C# v1 → Python v1 → polish/launch                        |
+| Future languages        | 5-step playbook, additive only, ADR-gated when spec can't be met                           |

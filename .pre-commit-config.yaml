@@ -1,0 +1,43 @@
+# pre-commit configuration. Run `pre-commit install` once locally to wire the hooks.
+# See https://pre-commit.com/ for details.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$   # markdown trailing whitespace can be meaningful (line breaks)
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: ^langs/python/.*\.py$
+      - id: ruff-format
+        files: ^langs/python/.*\.py$
+
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.17
+    hooks:
+      - id: mdformat
+        files: ^(spec|docs)/.*\.md$
+        additional_dependencies:
+          - mdformat-gfm
+          - mdformat-tables
+
+  - repo: local
+    hooks:
+      - id: dotnet-format
+        name: dotnet format (C# only)
+        entry: bash -c 'cd langs/csharp && dotnet format VMx.sln --verify-no-changes --include $(echo "$@" | tr " " "\n" | sed "s|^langs/csharp/||" | paste -sd " " -)' --
+        language: system
+        files: ^langs/csharp/.*\.(cs|csproj|props)$
+        pass_filenames: true
