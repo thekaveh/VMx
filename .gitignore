@@ -8,6 +8,9 @@
 *.swo
 *~
 
+# ─── Claude Code session state ─────────────────────────────────────────
+.claude/
+
 # ─── Python ───────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -40,6 +43,7 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 .ruff_cache/
+.hypothesis/
 .env
 .venv
 env/
@@ -47,6 +51,8 @@ venv/
 ENV/
 
 # uv
+# We do not commit uv.lock for the library flavor today; revisit during Phase 1.
+uv.lock
 uv.lock.bak
 
 # ─── .NET / C# ────────────────────────────────────────────────────────

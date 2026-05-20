@@ -21,4 +21,6 @@ jobs:
       - name: Placeholder — real docs build wired up in Phase 2k/3j
         run: |
           echo "docs build will be wired up once mkdocs config lands"
+          # TODO(Phase 2k/3j): replace with `mkdocs build --strict` once docs/mkdocs.yml exists.
+          # The current existence check is a Phase 0 placeholder that always passes.
           test -d docs/superpowers || (echo "docs dir missing" && exit 1)
