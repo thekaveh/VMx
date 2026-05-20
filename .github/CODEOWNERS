@@ -1,6 +1,6 @@
 # Repository owners — required reviewers for all changes
-*               @kavehr
-spec/**         @kavehr
-langs/csharp/** @kavehr
-langs/python/** @kavehr
-.github/**      @kavehr
+*               @thekaveh
+spec/**         @thekaveh
+langs/csharp/** @thekaveh
+langs/python/** @thekaveh
+.github/**      @thekaveh

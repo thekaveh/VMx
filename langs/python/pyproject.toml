@@ -27,10 +27,10 @@ classifiers = [
 dynamic = ["version"]
 
 [project.urls]
-Repository = "https://github.com/kavehr/VMx"
-Documentation = "https://kavehr.github.io/VMx/"
-Issues = "https://github.com/kavehr/VMx/issues"
-Changelog = "https://github.com/kavehr/VMx/blob/main/langs/python/CHANGELOG.md"
+Repository = "https://github.com/thekaveh/VMx"
+Documentation = "https://thekaveh.github.io/VMx/"
+Issues = "https://github.com/thekaveh/VMx/issues"
+Changelog = "https://github.com/thekaveh/VMx/blob/main/langs/python/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-asyncio>=0.23", "pytest-cov>=4"]

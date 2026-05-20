@@ -14,8 +14,8 @@
     <Company>Kaveh Razavi</Company>
     <Copyright>Copyright (c) Kaveh Razavi</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/kavehr/VMx</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/kavehr/VMx</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/thekaveh/VMx</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/thekaveh/VMx</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
