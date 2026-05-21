@@ -1,0 +1,102 @@
+# 01 — Core concepts
+
+This document introduces the VMx mental model. Subsequent sections (`02-lifecycle.md`
+onwards) give precise normative definitions; this document is the orientation.
+
+## The viewmodel hierarchy
+
+VMx defines five viewmodel families:
+
+| Family                                            | Role                                  | Children                | Typical use                           |
+| ------------------------------------------------- | ------------------------------------- | ----------------------- | ------------------------------------- |
+| `ComponentVM`                                     | leaf                                  | none                    | a single addressable VM with state    |
+| `ReadonlyComponentVM`                             | leaf, immutable model                 | none                    | read-only view of a model             |
+| `CompositeVM`                                     | container with selection              | `IList<VM>` + `Current` | a tab strip, a navigation tree        |
+| `GroupVM`                                         | container without selection           | `IList<VM>`             | peers shown side-by-side              |
+| `AggregateVM<VM1..VM5>`                           | fixed tuple of heterogeneous children | 1–5 typed slots         | a screen composed of distinct sub-VMs |
+| `ForwardingComponentVM` / `ForwardingCompositeVM` | decorator                             | wraps another VM        | proxies, caching, instrumentation     |
+
+Every VM is also a `ComponentVM` (inheritance / protocol composition per language). A
+composite's children are themselves VMs and may be composites, components, etc.
+
+### Modeled and readonly variants
+
+Components and composites have two variants:
+
+- **modeled** — the VM holds a `Model` of type `M`. The model can be replaced via
+  `vm.Model = m'` (this is a "set" operation, fires `PropertyChangedMessage`).
+- **readonly** — the VM is constructed with a model and the model is final. No setter
+  is exposed.
+
+### `Current` selection contract
+
+Each `CompositeVM<VM>` has an optional `Current` child. The contract:
+
+- At most one child is `Current` at any time.
+- Setting `Current = c` requires `c ∈ children` (otherwise the operation MUST raise).
+- Setting `Current = None` is legal at any time.
+- The `Current` setter MAY dispatch asynchronously if the builder enabled
+  `AsyncSelection(true)`.
+- Child VMs observe their selection state via their `IsCurrent` property (raised
+  through `PropertyChangedMessage`).
+
+`GroupVM<VM>` has no `Current`. Children are peers.
+
+### `IComponentVM` baseline
+
+Every viewmodel exposes:
+
+- `Name : string` — immutable post-construction; an identifier for the VM.
+- `Hint : string` — immutable post-construction; a human-readable hint.
+- `Type : ViewModelType` — enum (`Component`, `ReadOnlyComponent`, `Aggregate`,
+  `Group`, `Composite`); immutable.
+- `IsCurrent : bool` — derived from parent's `Current` reference. Raised through
+  property-change notification.
+- `IsConstructed : bool` — equals `Status == Constructed`. Raised when `Status`
+  changes.
+- `Status : ConstructionStatus` — the lifecycle state. See `02-lifecycle.md`.
+- The lifecycle commands: `SelectCommand`, `DeselectCommand`, `SelectNextCommand`,
+  `SelectPreviousCommand`, `ReconstructCommand`. Each is an `ICommand`-equivalent
+  with appropriate predicates.
+
+## Dependency philosophy
+
+Every VM receives two cross-cutting services:
+
+- `IMessageHub` — the pub/sub hub for `IMessage` events.
+- `IDispatcher` — exposes `Foreground` and `Background` Rx schedulers.
+
+These are injected via constructor (and via the builder's `Services(hub, dispatcher)`
+call for fluent users). VMx does NOT register a global locator. See ADR-0001 and
+ADR-0003 for the rationale.
+
+The `IMessageHub` MAY be shared across many VMs or scoped to a sub-tree; that is
+the host application's choice. The conformance tests verify that VMs publish to the
+hub they were given (`HUB-001`).
+
+## Concurrency philosophy
+
+VMx is **thread-aware but not thread-bound**:
+
+- It does not own a UI thread.
+- It uses Rx schedulers (`IDispatcher.Foreground`, `IDispatcher.Background`) to
+  dispatch work.
+- Subscribers that need to observe events on a specific thread (e.g., a UI thread)
+  must inject an `IDispatcher` whose `Foreground` scheduler dispatches there.
+
+The default `IDispatcher` in each language uses the language's standard "main
+loop" scheduler for foreground (`SynchronizationContextScheduler` in .NET,
+`AsyncIOScheduler(loop)` in Python) and a thread/task pool scheduler for
+background.
+
+See `11-threading.md` for the full contract.
+
+## What this spec is not
+
+This spec does not specify:
+
+- The wire format of messages (no serialization).
+- The lifetime of `IMessageHub` (the host decides).
+- Whether multiple `IMessageHub` instances may coexist (they MAY).
+- UI-framework specifics like XAML binding behaviors, accessibility, or rendering.
+- The exact Rx version each flavor uses (each flavor's `README.md` documents that).
