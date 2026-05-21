@@ -13,18 +13,82 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check ADR accompanies non-trivial spec change
+      - name: Require ADR for non-trivial spec changes
         run: |
-          # PRs touching spec/ should also touch spec/ADRs/ (the spec/README.md and
-          # spec/VERSION are allowed exceptions). This check is permissive in Phase 0
-          # — it warns but does not fail until spec content lands in Phase 1.
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
-          changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ | grep -v '^spec/README.md$' | grep -v '^spec/VERSION$' || true)
-          adr_changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ADRs/ || true)
 
-          if [ -n "$changed" ] && [ -z "$adr_changed" ]; then
-            echo "::warning::Spec changed without a matching ADR. (Soft-fail until Phase 1 lands.)"
-          else
-            echo "OK"
+          # Files under spec/ that don't require a paired ADR (housekeeping):
+          # - spec/README.md
+          # - spec/VERSION
+          # - spec/ADRs/** (the ADRs themselves)
+          # - spec/fixtures/** (fixtures may be tweaked alongside spec text)
+          changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ \
+            | grep -v '^spec/README.md$' \
+            | grep -v '^spec/VERSION$' \
+            | grep -v '^spec/ADRs/' \
+            | grep -v '^spec/fixtures/' \
+            || true)
+
+          # Newly added ADRs satisfy the rule.
+          new_adrs=$(git diff --name-status --diff-filter=A "$base_sha" "$head_sha" -- spec/ADRs/ \
+            | awk '{print $2}' || true)
+
+          if [ -n "$changed" ] && [ -z "$new_adrs" ]; then
+            echo "::error::Spec text changed but no new ADR was added in spec/ADRs/."
+            echo "Changed spec files:"
+            echo "$changed"
+            echo
+            echo "If this change does not warrant an ADR (e.g., it is a typo or pure formatting),"
+            echo "the maintainer may add the label 'no-adr-needed' to bypass this check."
+            # Allow bypass via PR label.
+            if echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | grep -q 'no-adr-needed'; then
+              echo "Bypassed by 'no-adr-needed' label."
+              exit 0
+            fi
+            exit 1
           fi
+
+          echo "OK: spec changes either include a new ADR or only touch exempted files."
+
+      - name: Require conformance stubs when new IDs are added
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+
+          # Detect newly-added XXX-NNN IDs in spec/12-conformance.md (lines starting
+          # with "### " that contain the pattern, present in head but not in base).
+          new_ids=$(git diff "$base_sha" "$head_sha" -- spec/12-conformance.md \
+            | grep -E '^\+### ' \
+            | grep -oE '[A-Z]{3,5}-[0-9]{3}' \
+            | sort -u || true)
+
+          if [ -z "$new_ids" ]; then
+            echo "No new conformance IDs in this PR."
+            exit 0
+          fi
+
+          echo "New conformance IDs in this PR:"
+          echo "$new_ids"
+
+          missing_in=()
+          for lang_dir in langs/python/tests/conformance langs/csharp/tests/VMx.Conformance.Tests; do
+            if [ ! -d "$lang_dir" ]; then
+              continue
+            fi
+            for id in $new_ids; do
+              if ! grep -rq "$id" "$lang_dir"; then
+                missing_in+=("$lang_dir:$id")
+              fi
+            done
+          done
+
+          if [ ${#missing_in[@]} -gt 0 ]; then
+            echo "::error::Newly-added conformance IDs lack matching test stubs in every active language:"
+            for item in "${missing_in[@]}"; do
+              echo "  - $item"
+            done
+            exit 1
+          fi
+
+          echo "OK: every new conformance ID has a matching test stub in every active language."
