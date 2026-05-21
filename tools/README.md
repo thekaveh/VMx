@@ -2,13 +2,31 @@
 
 Cross-cutting scripts that operate across `spec/` and `langs/`.
 
-Planned (Phase 1):
+## Current
 
-- `check-conformance-coverage.py` — enumerates `XXX-NNN` IDs in `spec/12-conformance.md`
-  and verifies every active language flavor has a matching test. Used by
-  `.github/workflows/conformance.yml`.
-- `build-compatibility-matrix.py` — regenerates `compatibility-matrix.md`
-  from spec/version files in each `langs/<lang>/`.
-- `spec-to-docs.py` — renders `spec/` into `docs/concepts/` for the docs site.
+- `check-conformance-coverage.py` — parses `spec/12-conformance.md` for the catalog
+  of `XXX-NNN` conformance IDs and walks each active language's
+  `tests/conformance/` directory for matching tests. Reports gaps to stdout and
+  exits non-zero if any language passed via `--require` has gaps. Used by the
+  `conformance` CI workflow.
 
-This directory is intentionally empty in Phase 0.
+  ```bash
+  # report-only
+  python3 tools/check-conformance-coverage.py
+
+  # CI mode — require python and csharp to be at 100% coverage
+  python3 tools/check-conformance-coverage.py --require python --require csharp
+  ```
+
+  Unit tests live in `tools/tests/`. Run with:
+  ```bash
+  uv --project langs/python run pytest tools/tests/
+  ```
+
+## Planned
+
+- `build-compatibility-matrix.py` — regenerates `compatibility-matrix.md` from the
+  spec version (`spec/VERSION`) and each language's declared `MinSpecVersion`. To
+  be added when the first language flavor releases.
+- `spec-to-docs.py` — renders `spec/*.md` into `docs/concepts/` for the docs site.
+  To be added when the docs site is wired up (Phase 2k/3j).
