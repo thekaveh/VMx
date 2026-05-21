@@ -1,0 +1,136 @@
+# 05 — ComponentVM
+
+`ComponentVM` is the leaf VM. Use it for any addressable VM that is not itself a
+container.
+
+## Variants
+
+| Variant                     | Has `Model` | `Model` mutable | Type identifier     |
+| --------------------------- | ----------- | --------------- | ------------------- |
+| `ComponentVM` (non-modeled) | no          | n/a             | `Component`         |
+| `ComponentVM<M>` (modeled)  | yes         | yes             | `Component`         |
+| `ReadonlyComponentVM<M>`    | yes         | no              | `ReadOnlyComponent` |
+
+All three variants share the `IComponentVM` baseline (see `01-concepts.md`).
+
+## Members (every variant)
+
+```
+ComponentVM:
+    Name : string                          # immutable post-construction
+    Hint : string                          # immutable post-construction
+    Type : ViewModelType                   # immutable, equals "Component" or "ReadOnlyComponent"
+    IsCurrent : bool                       # parent-derived; raised through PropertyChanged
+    IsConstructed : bool                   # equals Status == Constructed
+    Status : ConstructionStatus            # see 02-lifecycle.md
+
+    # Built-in commands
+    SelectCommand : ICommand
+    DeselectCommand : ICommand
+    SelectNextCommand : ICommand
+    SelectPreviousCommand : ICommand
+    ReconstructCommand : ICommand
+
+    # Lifecycle operations
+    can_construct() : bool
+    construct() : void  /  async
+    can_destruct() : bool
+    destruct() : void  /  async
+    can_reconstruct() : bool
+    reconstruct() : void  /  async
+    dispose() : void
+
+    # Selection operations
+    can_select() : bool
+    select() : void
+    can_deselect() : bool
+    deselect() : void
+```
+
+## Modeled variant additions (`ComponentVM<M>`)
+
+```
+ComponentVM<M> : ComponentVM:
+    Model : M                              # settable; setting fires PropertyChangedMessage("Model")
+    ModeledHint : string                   # derived; recomputed when Model changes
+```
+
+The setter for `Model`:
+
+1. If the new value equals the old (`==` semantics per language), no message is
+   emitted and no derived properties update.
+1. Otherwise, the field is replaced, `PropertyChangedMessage("Model")` is emitted,
+   and if `ModeledHint` is wired (see below), it is recomputed and
+   `PropertyChangedMessage("ModeledHint")` is emitted.
+
+### `ModeledHint`
+
+`ModeledHint` is a derived string computed from `Model` via a `model_hinter`
+function provided at build time:
+
+```
+modeled_hinter : (M) -> string
+```
+
+If no `modeled_hinter` is configured, `ModeledHint` returns the empty string.
+
+### `OnModelChanged`
+
+The builder accepts an `on_model_changed` callback (`(M) -> void`). When the model
+setter accepts a new value, this callback is invoked AFTER the
+`PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
+
+## Readonly variant (`ReadonlyComponentVM<M>`)
+
+Same surface as `ComponentVM<M>` minus the `Model` setter. The model is provided at
+build time and is final. `ModeledHint` remains derived but stable (the model never
+changes).
+
+`Type` equals `ReadOnlyComponent`.
+
+## Built-in commands
+
+| Command                 | Predicate                     | Task                                        |
+| ----------------------- | ----------------------------- | ------------------------------------------- |
+| `SelectCommand`         | `can_select()`                | `select()`                                  |
+| `DeselectCommand`       | `can_deselect()`              | `deselect()`                                |
+| `SelectNextCommand`     | parent has a "next" child     | move parent's `Current` to next sibling     |
+| `SelectPreviousCommand` | parent has a "previous" child | move parent's `Current` to previous sibling |
+| `ReconstructCommand`    | `can_reconstruct()`           | `reconstruct()`                             |
+
+All five commands re-evaluate their predicates on every relevant `Status` change of
+the VM (via a trigger derived from `Status`).
+
+## Selection predicates
+
+```
+can_select() returns true iff:
+  - Parent is not null
+  - Parent.Current != this
+  - Status == Constructed
+
+can_deselect() returns true iff:
+  - Parent is not null
+  - Parent.Current == this
+```
+
+`select()` calls `parent.SelectComponent(this)`. `deselect()` calls
+`parent.DeselectComponent(this)`. The selection contract is defined in
+`06-composite-vm.md`.
+
+## Construction
+
+Construction in this variant amounts to publishing the status transitions. There is
+no child orchestration (components have no children). Override hooks for user code
+exist (`OnConstruct` / `OnDestruct` callbacks at build time) — see `10-builders.md`.
+
+## Conformance
+
+`CVM-001` through `CVM-006` in `12-conformance.md` cover:
+
+- status emission on construct
+- modeled `Model` setter PropertyChanged behavior
+- readonly variant has no `Model` setter
+- `ModeledHint` recomputation
+- `Name`/`Hint`/`Type` immutability
+- `SelectCommand` predicate behavior
