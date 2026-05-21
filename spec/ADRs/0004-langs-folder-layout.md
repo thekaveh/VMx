@@ -5,7 +5,7 @@
 
 ## Context
 
-VMx is a single semantic library shipped in multiple language flavors. The repo must keep flavors isolated (no cross-language imports) while sharing the spec and CI. Three reasonable layouts:
+VMx is a single semantic library shipped in multiple language flavors. The repo must keep flavors isolated (no cross-language imports) while sharing the spec and CI.
 
 ## Options considered
 
