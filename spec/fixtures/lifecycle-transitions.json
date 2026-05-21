@@ -1,0 +1,29 @@
+{
+  "$schema-version": "1.0.0",
+  "states": [
+    "Disposed",
+    "Destructing",
+    "Destructed",
+    "Constructing",
+    "Constructed"
+  ],
+  "initial_state": "Destructed",
+  "terminal_states": ["Disposed"],
+  "transitions": [
+    { "from": "Destructed", "via": "construct", "to_intermediate": "Constructing", "to_final": "Constructed", "legal": true },
+    { "from": "Constructed", "via": "destruct", "to_intermediate": "Destructing", "to_final": "Destructed", "legal": true },
+    { "from": "Constructed", "via": "reconstruct", "to_intermediate": "Destructing", "to_final": "Constructed", "legal": true },
+    { "from": "Constructed", "via": "dispose", "to_intermediate": null, "to_final": "Disposed", "legal": true },
+    { "from": "Destructed", "via": "dispose", "to_intermediate": null, "to_final": "Disposed", "legal": true },
+    { "from": "Constructing", "via": "dispose", "to_intermediate": null, "to_final": "Disposed", "legal": true },
+    { "from": "Destructing", "via": "dispose", "to_intermediate": null, "to_final": "Disposed", "legal": true },
+    { "from": "Disposed", "via": "construct", "to_intermediate": null, "to_final": null, "legal": false },
+    { "from": "Disposed", "via": "destruct", "to_intermediate": null, "to_final": null, "legal": false },
+    { "from": "Disposed", "via": "reconstruct", "to_intermediate": null, "to_final": null, "legal": false },
+    { "from": "Disposed", "via": "dispose", "to_intermediate": null, "to_final": "Disposed", "legal": true },
+    { "from": "Constructed", "via": "construct", "to_intermediate": null, "to_final": "Constructed", "legal": true },
+    { "from": "Destructed", "via": "destruct", "to_intermediate": null, "to_final": "Destructed", "legal": true },
+    { "from": "Constructing", "via": "construct", "to_intermediate": null, "to_final": null, "legal": false },
+    { "from": "Destructing", "via": "destruct", "to_intermediate": null, "to_final": null, "legal": false }
+  ]
+}
