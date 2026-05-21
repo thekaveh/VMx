@@ -29,8 +29,8 @@ must pass before any flavor releases a stable version.
 ## Versioning
 
 Spec version is tracked in `VERSION` and follows SemVer. Each language flavor declares
-the spec version it implements (see `compatibility-matrix.md`). Breaking spec changes
-require a major-version bump in every active flavor.
+the spec version it implements (see [`../compatibility-matrix.md`](../compatibility-matrix.md)).
+Breaking spec changes require a major-version bump in every active flavor.
 
 See the design doc at `../docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md`
 for the full background.
