@@ -50,23 +50,27 @@ _PY_MARK_PATTERN = re.compile(
     r'@pytest\.mark\.conformance\(\s*["\']([A-Z]{3,5}-\d{3})["\']\s*(?:,[\s\S]*?)?\)',
     re.DOTALL,
 )
-_CS_TRAIT_PATTERN = re.compile(r'Trait\(\s*"Conformance"\s*,\s*"([A-Z]{3,5}-\d{3})"\s*\)')
+_CS_TRAIT_PATTERN = re.compile(
+    r'\[[^\[\]]*?Trait\(\s*"Conformance"\s*,\s*"([A-Z]{3,5}-\d{3})"\s*\)',
+)
+
+
+def _scrape_ids(directory: Path, glob: str, pattern: re.Pattern[str]) -> set[str]:
+    """Recursively scan `directory` for files matching `glob` and collect every
+    conformance ID matched by `pattern` (which must have the ID as group 1)."""
+    return {
+        match.group(1)
+        for path in directory.rglob(glob)
+        for match in pattern.finditer(path.read_text(encoding="utf-8"))
+    }
 
 
 def scrape_python_conformance_ids(directory: Path) -> set[str]:
-    ids: set[str] = set()
-    for path in directory.rglob("*.py"):
-        for match in _PY_MARK_PATTERN.finditer(path.read_text(encoding="utf-8")):
-            ids.add(match.group(1))
-    return ids
+    return _scrape_ids(directory, "*.py", _PY_MARK_PATTERN)
 
 
 def scrape_csharp_conformance_ids(directory: Path) -> set[str]:
-    ids: set[str] = set()
-    for path in directory.rglob("*.cs"):
-        for match in _CS_TRAIT_PATTERN.finditer(path.read_text(encoding="utf-8")):
-            ids.add(match.group(1))
-    return ids
+    return _scrape_ids(directory, "*.cs", _CS_TRAIT_PATTERN)
 
 
 # ─── coverage math ────────────────────────────────────────────────────
@@ -106,7 +110,9 @@ def collect_coverage(repo_root: Path) -> dict[str, set[str]]:
 
 # ─── reporting ────────────────────────────────────────────────────────
 
-def render_report(catalog: set[str], coverage: dict[str, set[str]], gaps: dict[str, set[str]]) -> str:
+def render_report(
+    catalog: set[str], coverage: dict[str, set[str]], gaps: dict[str, set[str]]
+) -> str:
     lines: list[str] = []
     lines.append(f"Conformance catalog: {len(catalog)} IDs")
     if not coverage:
@@ -114,10 +120,17 @@ def render_report(catalog: set[str], coverage: dict[str, set[str]], gaps: dict[s
         return "\n".join(lines)
     for lang in sorted(coverage):
         found = coverage[lang]
+        covered = found & catalog
+        orphans = found - catalog
         missing = gaps.get(lang, set())
-        lines.append(f"  {lang}: {len(found)}/{len(catalog)} covered")
+        lines.append(f"  {lang}: {len(covered)}/{len(catalog)} covered")
         if missing:
             lines.append(f"    MISSING ({len(missing)}): " + ", ".join(sorted(missing)))
+        if orphans:
+            lines.append(
+                f"    ORPHAN ({len(orphans)}): " + ", ".join(sorted(orphans))
+                + " (tests reference IDs not in the catalog)"
+            )
     return "\n".join(lines)
 
 

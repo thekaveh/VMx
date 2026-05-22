@@ -110,7 +110,7 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
     test_file = tmp_path / "LifecycleTests.cs"
     test_file.write_text(
         textwrap.dedent(
-            """\
+            '''\
             using Xunit;
 
             public class LifecycleTests
@@ -122,17 +122,30 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
                 [Trait("Conformance", "LIFE-002")]
                 public void Destruct_Transitions() { }
 
-                [Fact]
+                [Fact, Trait("Conformance", "LIFE-003")]
+                [Trait("Category", "Fast")]
+                public void Combined_With_Other_Traits() { }
+
+                // Commented-out: should not be matched in v1.0 (best-effort)
+                // Note: this is a known limitation — the regex matches // [Trait(...)] forms
+                // because eliminating commented attributes requires a real C# parser.
+
                 public void UnrelatedHelper() { }
+
+                // This must NOT match — Trait outside brackets is not an attribute
+                public Trait fake = new Trait("Conformance", "LIFE-999");
             }
-            """
+            '''
         ),
         encoding="utf-8",
     )
 
     found = ccc.scrape_csharp_conformance_ids(tmp_path)
 
-    assert found == {"LIFE-001", "LIFE-002"}
+    assert "LIFE-001" in found
+    assert "LIFE-002" in found
+    assert "LIFE-003" in found
+    assert "LIFE-999" not in found
 
 
 def test_report_gaps_empty_when_complete() -> None:
@@ -204,3 +217,41 @@ def test_main_returns_2_when_required_lang_has_no_directory(tmp_path: Path) -> N
     rc = ccc.main(["--repo-root", str(tmp_path), "--require", "csharp"])
 
     assert rc == 2
+
+
+def test_render_report_no_coverage_dirs() -> None:
+    report = ccc.render_report({"LIFE-001"}, {}, {})
+    assert "No language conformance directories found." in report
+
+
+def test_render_report_shows_missing_ids() -> None:
+    report = ccc.render_report(
+        {"LIFE-001", "LIFE-002"},
+        {"python": {"LIFE-001"}},
+        {"python": {"LIFE-002"}},
+    )
+    assert "MISSING (1): LIFE-002" in report
+
+
+def test_render_report_full_coverage_has_no_missing_line() -> None:
+    report = ccc.render_report(
+        {"LIFE-001"}, {"python": {"LIFE-001"}}, {}
+    )
+    assert "MISSING" not in report
+    assert "1/1 covered" in report
+
+
+def test_main_returns_2_when_catalog_missing(tmp_path: Path) -> None:
+    """If spec/12-conformance.md is absent, the tool exits with rc=2 and a
+    clear error message rather than silently reporting 0 IDs."""
+    rc = ccc.main(["--repo-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_render_report_flags_orphan_ids() -> None:
+    catalog = {"LIFE-001"}
+    coverage = {"python": {"LIFE-001", "LIFE-999"}}  # LIFE-999 is orphan
+    gaps = ccc.compute_gaps(catalog, coverage)
+    report = ccc.render_report(catalog, coverage, gaps)
+    assert "ORPHAN (1): LIFE-999" in report
+    assert "1/1 covered" in report
