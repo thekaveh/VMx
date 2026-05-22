@@ -51,7 +51,9 @@ venv/
 ENV/
 
 # uv
-# We do not commit uv.lock for the library flavor today; revisit during Phase 1.
+# uv.lock is not committed: vmx is a library, not an application. CI re-resolves
+# on every run so consumers always test against current dependency resolutions.
+# (Decision made at the close of Phase 1.)
 uv.lock
 uv.lock.bak
 
@@ -69,7 +71,6 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 .vs/
-.idea/
 
 # NuGet
 *.nupkg

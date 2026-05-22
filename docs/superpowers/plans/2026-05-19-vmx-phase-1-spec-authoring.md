@@ -724,11 +724,11 @@ every language's conformance tests can load the same table.
 
 ```
 
-Disposed     ← terminal; once entered, cannot leave
-Destructing  ← transient; during destruct()
-Destructed   ← initial state of a freshly built VM
+Disposed ← terminal; once entered, cannot leave
+Destructing ← transient; during destruct()
+Destructed ← initial state of a freshly built VM
 Constructing ← transient; during construct()
-Constructed  ← ready-to-use state
+Constructed ← ready-to-use state
 
 ```
 
@@ -1085,7 +1085,7 @@ re-evaluation of `CanExecute`.
 ICommand:
 CanExecute() : bool
 Execute() : void
-CanExecuteChanged : event  / Observable<Unit>
+CanExecuteChanged : event / Observable<Unit>
 
 ```
 
@@ -1096,7 +1096,7 @@ A parameterized variant accepts a typed parameter:
 ICommand<T>:
 CanExecute(parameter: T) : bool
 Execute(parameter: T) : void
-CanExecuteChanged : event  / Observable<Unit>
+CanExecuteChanged : event / Observable<Unit>
 
 ```
 
@@ -1138,9 +1138,9 @@ immutable builder:
 ```
 
 RelayCommand.Builder()
-.Task(() => ...)         // optional
-.Predicate(() => ...)    // optional
-.Triggers(observable)    // optional, multiple calls allowed
+.Task(() => ...) // optional
+.Predicate(() => ...) // optional
+.Triggers(observable) // optional, multiple calls allowed
 .Build()
 
 ```
@@ -1212,12 +1212,12 @@ All three variants share the `IComponentVM` baseline (see `01-concepts.md`).
 ```
 
 ComponentVM:
-Name : string                          # immutable post-construction
-Hint : string                          # immutable post-construction
-Type : ViewModelType                   # immutable, equals "Component" or "ReadOnlyComponent"
-IsCurrent : bool                       # parent-derived; raised through PropertyChanged
-IsConstructed : bool                   # equals Status == Constructed
-Status : ConstructionStatus            # see 02-lifecycle.md
+Name : string # immutable post-construction
+Hint : string # immutable post-construction
+Type : ViewModelType # immutable, equals "Component" or "ReadOnlyComponent"
+IsCurrent : bool # parent-derived; raised through PropertyChanged
+IsConstructed : bool # equals Status == Constructed
+Status : ConstructionStatus # see 02-lifecycle.md
 
 ```
 # Built-in commands
@@ -1250,8 +1250,8 @@ deselect() : void
 ```
 
 ComponentVM<M> : ComponentVM:
-Model : M                              # settable; setting fires PropertyChangedMessage("Model")
-ModeledHint : string                   # derived; recomputed when Model changes
+Model : M # settable; setting fires PropertyChangedMessage("Model")
+ModeledHint : string # derived; recomputed when Model changes
 
 ```
 
@@ -1784,7 +1784,7 @@ field. Example pseudo-code:
 
 b1 = ComponentVM<M>.Builder()
 b2 = b1.Name("user-vm")
-b1 == b2  ?  # false; b2 is a different instance with Name set
+b1 == b2 ? # false; b2 is a different instance with Name set
 
 ```
 
@@ -1873,8 +1873,8 @@ Every VM holds an `IDispatcher`:
 ```
 
 IDispatcher:
-Foreground : IScheduler   # Rx scheduler for events subscribers expect on the UI thread
-Background : IScheduler   # Rx scheduler for VM lifecycle work
+Foreground : IScheduler # Rx scheduler for events subscribers expect on the UI thread
+Background : IScheduler # Rx scheduler for VM lifecycle work
 
 ```
 
