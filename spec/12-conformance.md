@@ -21,10 +21,30 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `BLD-NNN`  | Builders                              | `10-builders.md`     |
 | `THR-NNN`  | Threading & schedulers                | `11-threading.md`    |
 
+Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
+listing its applicable ID range. When adding a new ID, update both the catalog (here)
+and the source spec's `## Conformance` section.
+
 ## How to read an entry
 
 Each entry follows Given/When/Then. Implementers map Given to test setup, When to
 the operation under test, and Then to assertions.
+
+## Notation
+
+Within Given/When/Then prose:
+
+- `Status == Constructed` is a state assertion (equality).
+- `Status = Constructed` (single `=`) appears only as the *value* of a
+  `ConstructionStatusChangedMessage` — i.e., shorthand for "the message whose `Status`
+  field equals `Constructed`".
+
+Type and method names follow the spec convention (PascalCase for types/properties/builder
+methods; lowercase for primitive operations like `construct()` / `select()`). Each
+language flavor adapts to its native conventions per ADR-0006.
+
+Where pseudo-lambdas appear in Given/When/Then (e.g., `m => …`), they are illustrative —
+each language flavor uses its native syntax.
 
 ______________________________________________________________________
 
@@ -110,9 +130,14 @@ attempted operation ("construct")
 ### LIFE-011 — Lifecycle transition table matches fixture
 
 **Given** the JSON fixture `spec/fixtures/lifecycle-transitions.json`
-**When** every row in the fixture is exercised against a fresh VM
+**When** each row is exercised against a freshly-built VM, where rows with `from == Constructing`
+or `from == Destructing` are reached by starting an asynchronous `construct()` or `destruct()`
+and pausing the dispatcher mid-transition (e.g., via a test scheduler or controllable hook)
 **Then** rows with `legal: true` complete with the expected `to_final` state
 **And** rows with `legal: false` raise `StatusTransitionError` / `StatusTransitionException`
+**And** the fixture's `to_intermediate` field captures only the first transient state of
+non-trivial transitions; the full `reconstruct` sequence is normatively defined in
+`02-lifecycle.md` and tested by LIFE-003
 
 ### LIFE-012 — dispose from Disposed emits no message
 
@@ -296,8 +321,7 @@ ______________________________________________________________________
 
 ### CVM-004 — ModeledHint recomputes when Model changes
 
-**Given** a modeled `ComponentVM<M>` built with
-`.ModeledHinter(m => f"hint:{m.Id}")`
+**Given** a modeled `ComponentVM<M>` built with a `ModeledHinter` that returns `"hint:" + m.Id`
 **And** `Model = m1` where `m1.Id == 7`
 **When** `vm.Model = m2` where `m2.Id == 8`
 **Then** `vm.ModeledHint == "hint:8"`
@@ -312,10 +336,10 @@ ______________________________________________________________________
 
 ### CVM-006 — SelectCommand can_execute reflects selection state
 
-**Given** a `ComponentVM<M>` whose parent has `Current = null`
-**When** `SelectCommand.CanExecute()` is called and `vm.Status == Constructed`
+**Given** a `ComponentVM<M>` in `Constructed` state whose parent has `Current = null`
+**When** `SelectCommand.CanExecute()` is called
 **Then** it returns `true`
-**And** after `vm.Select()`, `SelectCommand.CanExecute()` returns `false`
+**And** after `vm.select()`, `SelectCommand.CanExecute()` returns `false`
 
 ______________________________________________________________________
 
@@ -497,7 +521,7 @@ ______________________________________________________________________
 
 ### FWD-001 — ForwardingComponentVM delegates every member to wrapped
 
-**Given** a `ForwardingComponentVM<M>` wrapping `inner` (no override)
+**Given** a concrete no-op subclass of `ForwardingComponentVM<M>` wrapping `inner` (no member overridden)
 **When** each public member of the forwarding VM is read or invoked
 **Then** the result equals the value/effect of the same member on `inner`
 
