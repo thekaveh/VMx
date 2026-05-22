@@ -8,3 +8,4 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Added
 - Initial repo scaffolding.
+- Implementing against `spec-v1.0.0`. Python v1.0.0 release planned for Phase 3 of the roadmap.

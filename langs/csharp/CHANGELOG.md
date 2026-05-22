@@ -8,3 +8,4 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 - Initial repo scaffolding.
+- Implementing against `spec-v1.0.0`. C# v1.0.0 release planned for Phase 2 of the roadmap.
