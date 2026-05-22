@@ -3,7 +3,7 @@
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         exclude: \.md$   # markdown trailing whitespace can be meaningful (line breaks)
@@ -16,7 +16,7 @@ repos:
         args: ["--fix=lf"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.10
+    rev: v0.15.14
     hooks:
       - id: ruff
         args: ["--fix"]
@@ -25,7 +25,9 @@ repos:
         files: ^langs/python/.*\.py$
 
   - repo: https://github.com/executablebooks/mdformat
-    rev: 0.7.17
+    # mdformat 1.0.0 is incompatible with mdformat-gfm (requires mdformat <0.8.0).
+    # Pinned to the latest 0.7.x until mdformat-gfm releases a 1.0-compatible version.
+    rev: 0.7.22
     hooks:
       - id: mdformat
         files: ^(spec|docs)/.*\.md$

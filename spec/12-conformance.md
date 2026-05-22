@@ -114,6 +114,22 @@ attempted operation ("construct")
 **Then** rows with `legal: true` complete with the expected `to_final` state
 **And** rows with `legal: false` raise `StatusTransitionError` / `StatusTransitionException`
 
+### LIFE-012 — dispose from Disposed emits no message
+
+**Given** a VM in state `Disposed`
+**And** a subscriber filtered on `ConstructionStatusChangedMessage`
+**When** `dispose()` is called
+**Then** the subscriber observes NO new messages
+**And** `vm.Status` remains `Disposed`
+
+### LIFE-013 — dispose on a parent disposes every child depth-first
+
+**Given** a `CompositeVM<VM>` in `Constructed` state with N children all `Constructed`,
+each child itself a `CompositeVM<VM>` with M grand-children all `Constructed`
+**When** `parent.dispose()` is called
+**Then** when it returns, every child and every grand-child has `Status == Disposed`
+**And** the disposal order is depth-first (grand-children before children before parent)
+
 ______________________________________________________________________
 
 ## Message hub (`HUB-NNN`)
@@ -158,6 +174,14 @@ subscription on the first message
 **Given** the JSON fixture `spec/fixtures/message-ordering.json`
 **When** every scenario in the fixture is exercised against a fresh hub
 **Then** the observed messages match each scenario's `expected_observed`
+
+### HUB-007 — Subscriber handler that raises does not break the hub
+
+**Given** an `IMessageHub` with subscriber A whose handler raises on every message
+**And** subscriber B whose handler records every message
+**When** `hub.Send(message1)` then `hub.Send(message2)` is called
+**Then** subscriber B observes both `message1` and `message2`
+**And** no exception propagates to the caller of `Send`
 
 ______________________________________________________________________
 
@@ -341,11 +365,14 @@ ______________________________________________________________________
 **And** every child has `Status == Destructed`
 **And** the composite has `Status == Destructed`
 
-### COMP-006 — Current is None after destruct
+### COMP-006 — IsCurrent change on the previously-Current child dispatches on foreground
 
-**Given** a `CompositeVM<VM>` in `Constructed` with `Current = c0`
-**When** `composite.destruct()` is called
-**Then** `composite.Current == null` after the call returns
+**Given** a `CompositeVM<VM>` in `Constructed` state with children `[vmA, vmB]` and
+`Current = vmA`, built with a dispatcher whose `Foreground` is a `TestScheduler`-equivalent
+**And** a subscriber to `PropertyChangedMessage("IsCurrent")` filtered on `Sender == vmA`,
+using `ObserveOn(dispatcher.Foreground)`
+**When** `composite.Current = vmB` (or `composite.deselect_component(vmA)`)
+**Then** the subscriber's handler is invoked on the foreground scheduler with `vmA` as sender
 
 ### COMP-007 — Modeled composite maps model factory output to children
 
@@ -362,6 +389,31 @@ ______________________________________________________________________
 **When** `composite.can_select_component(vmB)` is called
 **Then** it returns `false`
 **And** `composite.select_component(vmB)` raises
+
+### COMP-009 — Current setter raises when assigned a non-child
+
+**Given** a `CompositeVM<VM>` containing `vmA` in `Constructed` state with `Current == null`
+**And** a foreign `vmB` (not in the composite)
+**When** `composite.Current = vmB` is attempted
+**Then** the operation raises (e.g., `InvalidOperationException` / `ValueError`)
+**And** `composite.Current` is still `null`
+
+### COMP-010 — AsyncSelection dispatches Current change via foreground scheduler
+
+**Given** a `CompositeVM<VM>` built with `AsyncSelection(true)` and a dispatcher whose
+`Foreground` is a `TestScheduler`-equivalent
+**And** the composite contains `vmA` and `Current == null`
+**When** `composite.select_component(vmA)` is called
+**Then** `composite.Current` does NOT change synchronously
+**And** advancing the test scheduler completes the dispatch, making `composite.Current == vmA`
+**And** subsequent subscribers to `PropertyChangedMessage("Current")` observe on the foreground scheduler
+
+### COMP-011 — deselect_component raises when vm is not Current
+
+**Given** a `CompositeVM<VM>` containing `vmA` and `vmB`, with `Current == vmA`
+**When** `composite.deselect_component(vmB)` is called
+**Then** the operation raises
+**And** `composite.Current` is still `vmA`
 
 ______________________________________________________________________
 
