@@ -1,8 +1,8 @@
 """Unit tests for tools/check-conformance-coverage.py.
 
 The script is imported under the module name `check_conformance_coverage` (the
-hyphen in the filename would prevent direct import, so the script also exists
-with an underscore alias via a sys.modules shim — see the script itself).
+hyphen in the filename would prevent direct import; conftest.py pre-loads it
+under the underscore alias via importlib so plain imports work in tests).
 """
 
 import textwrap
@@ -69,7 +69,7 @@ def test_scrape_python_tests_finds_marks(tmp_path: Path) -> None:
     test_file = tmp_path / "test_lifecycle.py"
     test_file.write_text(
         textwrap.dedent(
-            """\
+            '''\
             import pytest
 
             @pytest.mark.conformance("LIFE-001")
@@ -80,16 +80,30 @@ def test_scrape_python_tests_finds_marks(tmp_path: Path) -> None:
             async def test_destruct_transitions():
                 pass
 
+            @pytest.mark.conformance(
+                "LIFE-003"
+            )
+            def test_multiline_decorator():
+                pass
+
+            @pytest.mark.conformance("LIFE-004", reason="documented gap")
+            def test_with_kwargs():
+                pass
+
+            @pytest.mark.conformance(  "LIFE-005"  )
+            def test_extra_whitespace():
+                pass
+
             def test_unrelated_helper():
                 pass
-            """
+            '''
         ),
         encoding="utf-8",
     )
 
     found = ccc.scrape_python_conformance_ids(tmp_path)
 
-    assert found == {"LIFE-001", "LIFE-002"}
+    assert found == {"LIFE-001", "LIFE-002", "LIFE-003", "LIFE-004", "LIFE-005"}
 
 
 def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
@@ -176,3 +190,17 @@ def test_main_returns_nonzero_when_required_lang_has_gaps(tmp_path: Path) -> Non
     rc = ccc.main(["--repo-root", str(tmp_path), "--require", "python"])
 
     assert rc == 1
+
+
+def test_main_returns_2_when_required_lang_has_no_directory(tmp_path: Path) -> None:
+    """A required language whose tests/conformance directory is missing must fail
+    with rc=2; reporting it as 'no coverage' silently would be a gate hole when
+    Phase 2 wires --require csharp before C# conformance tests exist."""
+    catalog = tmp_path / "spec" / "12-conformance.md"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text("### LIFE-001 — sample\n", encoding="utf-8")
+
+    # Note: do NOT create langs/csharp/tests/VMx.Conformance.Tests/
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "csharp"])
+
+    assert rc == 2

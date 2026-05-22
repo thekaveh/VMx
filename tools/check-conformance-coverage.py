@@ -23,9 +23,6 @@ import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-# Make the script importable from tests under both filename forms.
-sys.modules.setdefault("check_conformance_coverage", sys.modules[__name__])
-
 
 # ─── parsing ──────────────────────────────────────────────────────────
 
@@ -49,7 +46,10 @@ def parse_catalog_ids(catalog_path: Path) -> set[str]:
     return ids
 
 
-_PY_MARK_PATTERN = re.compile(r'@pytest\.mark\.conformance\(["\']([A-Z]{3,5}-\d{3})["\']\)')
+_PY_MARK_PATTERN = re.compile(
+    r'@pytest\.mark\.conformance\(\s*["\']([A-Z]{3,5}-\d{3})["\']\s*(?:,[\s\S]*?)?\)',
+    re.DOTALL,
+)
 _CS_TRAIT_PATTERN = re.compile(r'Trait\(\s*"Conformance"\s*,\s*"([A-Z]{3,5}-\d{3})"\s*\)')
 
 
@@ -147,6 +147,20 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     catalog = parse_catalog_ids(catalog_path)
     coverage = collect_coverage(repo_root)
+
+    # Required-language sanity: a required language with no conformance directory
+    # is a hard error, not a "0/N covered" warning. CI authors wiring --require
+    # expect a missing directory to block the run.
+    for lang in args.require:
+        if lang not in coverage:
+            rel_dir, _ = _SCRAPERS[lang]
+            print(
+                f"ERROR: --require {lang}: conformance directory not found at "
+                f"{repo_root / rel_dir}",
+                file=sys.stderr,
+            )
+            return 2
+
     gaps = compute_gaps(catalog, coverage)
     print(render_report(catalog, coverage, gaps))
 
