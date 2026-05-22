@@ -99,8 +99,8 @@ auto-construct-on-add is a future enhancement.)
 Identical to `CompositeVM<VM>` except the children come from a model factory:
 
 - Builder accepts:
-  - `children_models : () -> Iterable<M>`
-  - `child_model_to_view_model : (M) -> VM`
+  - `ChildrenModels : () -> Iterable<M>`
+  - `ChildModelToChildViewModel : (M) -> VM`
 - On `construct()`, the composite first evaluates `children_models()`, then maps
   each `M` to a `VM`, then orchestrates children construction as above.
 

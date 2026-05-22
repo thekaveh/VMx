@@ -2,7 +2,7 @@
 
 VMx uses a single hot pub/sub stream — the message hub — to convey property changes,
 lifecycle status changes, and any future event types. Subscribers observe via an Rx
-`Observable<IMessage>`.
+`IObservable<IMessage>`.
 
 ## `IMessage` shape
 
@@ -57,7 +57,7 @@ A factory `Create(sender, senderName, status)` exists per language.
 
 ```
 IMessageHub:
-    Messages : Observable<IMessage>
+    Messages : IObservable<IMessage>
     Send<TMessage : IMessage>(message: TMessage) : void
 ```
 

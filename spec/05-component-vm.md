@@ -69,14 +69,14 @@ The setter for `Model`:
 function provided at build time:
 
 ```
-modeled_hinter : (M) -> string
+ModeledHinter : (M) -> string
 ```
 
-If no `modeled_hinter` is configured, `ModeledHint` returns the empty string.
+If no `ModeledHinter` is configured, `ModeledHint` returns the empty string.
 
 ### `OnModelChanged`
 
-The builder accepts an `on_model_changed` callback (`(M) -> void`). When the model
+The builder accepts an `OnModelChanged` callback (`(M) -> void`). When the model
 setter accepts a new value, this callback is invoked AFTER the
 `PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
 
