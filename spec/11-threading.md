@@ -1,7 +1,7 @@
 # 11 — Threading and schedulers
 
 VMx is thread-aware but not thread-bound. This document defines the contract every
-language flavor must satisfy for thread/scheduler dispatch.
+language flavor MUST satisfy for thread/scheduler dispatch.
 
 ## `IDispatcher`
 
@@ -61,7 +61,7 @@ ComponentVM<M>.Builder()
 
 With background enabled, `construct()` and `destruct()` return immediately and
 complete asynchronously. The status transitions are still observable via the
-hub; subscribers that need to await completion should subscribe to
+hub; subscribers that need to await completion SHOULD subscribe to
 `ConstructionStatusChangedMessage` and filter for the terminal state.
 
 With background disabled (the default), `construct()` and `destruct()` run on

@@ -91,7 +91,7 @@ children:
   `Destructed`, the composite transitions to `Destructed`.
 
 A child added via `Add` AFTER the composite has reached `Constructed` does NOT
-automatically `construct()` — the host must invoke it. (This is a v1.0 limitation;
+automatically `construct()` — the host MUST invoke it. (This is a v1.0 limitation;
 auto-construct-on-add is a future enhancement.)
 
 ## Modeled variant `CompositeVM<M, VM>`
@@ -101,7 +101,7 @@ Identical to `CompositeVM<VM>` except the children come from a model factory:
 - Builder accepts:
   - `ChildrenModels : () -> Iterable<M>`
   - `ChildModelToChildViewModel : (M) -> VM`
-- On `construct()`, the composite first evaluates `children_models()`, then maps
+- On `construct()`, the composite first evaluates `ChildrenModels()`, then maps
   each `M` to a `VM`, then orchestrates children construction as above.
 
 The model values themselves are NOT exposed on the composite; the composite is a

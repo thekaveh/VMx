@@ -51,7 +51,8 @@ A subclass overrides any subset of these.
 Same pattern, but additionally forwards the `IList<VM>` surface (Add, Remove,
 indexer, iterator, Count, …), the `Current` property, and the selection methods.
 
-Override hooks specifically called out in the legacy library:
+Commonly-overridden hooks (these names are illustrative; each language flavor MAY adopt
+its own convention as long as the override surface is documented):
 
 - `DoGetType()` → override to return a different `ViewModelType`.
 - `DoGetCurrent()` → override to alter selection semantics.

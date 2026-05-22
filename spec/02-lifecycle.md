@@ -41,6 +41,12 @@ Each operation has a paired predicate. Predicates are defined as:
   destructing while already `Destructed` is a no-op.)
 - `can_reconstruct()` returns `true` iff `Status == Constructed`.
 
+Note that `can_construct()` returning `true` from `Constructed`, and `can_destruct()`
+returning `true` from `Destructed`, are intentional: re-invoking those operations in
+the matching state is a no-op (see `## Idempotency` below), not an error, and the
+predicate signals "the operation is safe to call" rather than "the operation will
+produce a state change".
+
 Calling an operation when its predicate returns `false` MUST raise
 `StatusTransitionError` (Python) / `StatusTransitionException` (C#). The exception's
 message MUST include the current state and the attempted operation.

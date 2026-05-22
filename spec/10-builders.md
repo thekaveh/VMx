@@ -24,7 +24,7 @@ type (C#), or any structurally-immutable construct.
 ComponentVM<M>.Builder()
     .Name("user-vm")
     .Hint("Logged-in user")
-    .Type(ViewModelType.Component)
+    .Type(ViewModelType.Component)   // optional; derived from VM class if omitted
     .Parent(parentComposite)
     .Model(currentUser)
     .ModeledHinter(u => $"User: {u.DisplayName}")

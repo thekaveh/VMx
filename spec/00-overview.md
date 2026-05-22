@@ -43,7 +43,7 @@ in multiple language flavors with semantically equivalent behavior.
 | **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work. |
 | **foreground**     | the Rx scheduler reserved for events that subscribers expect on the UI thread (e.g., `PropertyChanged`, collection notifications).    |
 | **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                      |
-| **conformance ID** | a stable `XXX-NNN` identifier (e.g., `CVM-001`) in `12-conformance.md` that every language flavor must implement as a passing test.   |
+| **conformance ID** | a stable `XXX-NNN` identifier (e.g., `CVM-001`) in `12-conformance.md` that every language flavor MUST implement as a passing test.   |
 
 ## Audience
 

@@ -88,7 +88,7 @@ VMx is **thread-aware but not thread-bound**:
 - It uses Rx schedulers (`IDispatcher.Foreground`, `IDispatcher.Background`) to
   dispatch work.
 - Subscribers that need to observe events on a specific thread (e.g., a UI thread)
-  must inject an `IDispatcher` whose `Foreground` scheduler dispatches there.
+  MUST inject an `IDispatcher` whose `Foreground` scheduler dispatches there.
 
 The default `IDispatcher` in each language uses the language's standard "main
 loop" scheduler for foreground (`SynchronizationContextScheduler` in .NET,

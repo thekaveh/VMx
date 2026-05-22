@@ -7,6 +7,7 @@ that tool ships, it is maintained by hand.
 | ----- | ---------------- | ---------------- | ---------- |
 | 1.0.x | — (Phase 2 WIP)  | — (Phase 3 WIP)  | —          |
 
-A `—` entry indicates no language flavor has yet declared compatibility with that
-spec version. Each released language flavor will replace its `—` with its version
+A `—` entry indicates no language flavor has yet released against that spec version.
+A `— (Phase N WIP)` annotation indicates work is actively in progress per the roadmap
+phase noted. Each released language flavor will replace its cell with its version
 range (e.g., `1.0.0–1.2.x`) once it ships against this spec.

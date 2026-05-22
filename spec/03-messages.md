@@ -83,8 +83,9 @@ continues for other subscribers and for future `Send` calls). Raising subscriber
 are a contributor concern, not a hub concern.
 
 If a subscriber disposes its subscription during the delivery of a message (e.g.,
-the handler calls `subscription.Dispose()`), the in-flight dispatch completes
-normally; subsequent messages are not delivered to that subscriber.
+the handler calls `subscription.Dispose()`), the in-flight dispatch of *that* message
+completes normally for the subscriber; subsequent messages are not delivered to that
+subscriber. Other subscribers are unaffected.
 
 ### Multiplicity
 
