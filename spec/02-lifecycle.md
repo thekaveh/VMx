@@ -71,8 +71,11 @@ These hold for every VM at every point in its lifetime:
 `reconstruct()` is defined as `destruct()` followed by `construct()`. The two are
 executed in order, and the message hub observes the full transition sequence:
 `ConstructionStatusChangedMessage(Destructing)`, `(Destructed)`, `(Constructing)`,
-`(Constructed)`. See ADR-0002 for the rationale of why this is a first-class
-operation rather than letting users compose it themselves.
+`(Constructed)`. Reconstruct is a first-class operation (rather than `destruct()` then
+`construct()` composed by the caller) for two reasons: (1) it expresses "replace state"
+as a single user-facing intent, naturally bound to a `ReconstructCommand`; (2) it
+guarantees subscribers observe the full four-message transition sequence atomically with
+respect to other lifecycle operations on the same VM.
 
 ## Parent–child orchestration
 
@@ -86,8 +89,9 @@ operation rather than letting users compose it themselves.
   children's `ConstructionStatusChangedMessage` emissions to know when to finalize
   its own state.
 
-Specific conformance IDs for this behavior live in `06-composite-vm.md`,
-`07-group-vm.md`, and `08-aggregate-vm.md`.
+Conformance IDs for this behavior are cataloged in `12-conformance.md` under the
+`COMP-NNN`, `GRP-NNN`, and `AGG-NNN` prefixes; each VM file's `## Conformance` section
+points at its applicable range.
 
 ## Disposal cascade
 

@@ -35,6 +35,8 @@ A command is built with an optional `predicate` (`() -> bool` or `(T) -> bool`):
 A command is built with an optional `task` (`() -> void` / `Action` or `(T) -> void`):
 
 - If `task` is null/absent, `Execute` is a no-op (returns immediately, does not raise).
+- If the configured predicate returns `false`, `Execute` MUST NOT invoke the task and returns
+  as a no-op. (This matches `fixtures/command-truthtable.json` row `predicate-false`.)
 - If `task` is present, `Execute` invokes it.
 - The task MUST NOT raise; if it does, the exception propagates to the caller of
   `Execute`. The exception is the application's responsibility, not the command's.

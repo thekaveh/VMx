@@ -19,11 +19,12 @@ GroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 Differences from `CompositeVM<VM>`:
 
 - No `Current` property.
-- No `SelectCommand`, `DeselectCommand`, `SelectNextCommand`, `SelectPreviousCommand`.
+- No `SelectNextCommand`, `SelectPreviousCommand` (children are peers, not navigable).
 - No `select_component`, `deselect_component`, `can_select_component`.
 
-The `GroupVM` itself can still be selected (its `Select/DeselectCommand` come from
-its own parent if it has one). It is only the children that are unselectable.
+The `GroupVM` itself retains `SelectCommand` and `DeselectCommand` from the `IComponentVM`
+baseline — they operate on the group's own selection state within its parent (if any), not
+on the children. It is only navigation *within* the group that is absent.
 
 ## Children construction orchestration
 

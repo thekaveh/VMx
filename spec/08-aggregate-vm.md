@@ -10,7 +10,7 @@ ADR-0007).
 AggregateVMN<VM1..VMN> : IComponentVM:
     # IComponentVM members:
     Name, Hint, Type=Aggregate, IsCurrent, IsConstructed, Status,
-    SelectCommand, DeselectCommand, ReconstructCommand,
+    SelectCommand, DeselectCommand, SelectNextCommand, SelectPreviousCommand, ReconstructCommand,
     can_construct/construct/..., can_select/select/...
 
     # Aggregate-specific:
@@ -56,9 +56,11 @@ On each successful slot population, the aggregate raises
 
 ## Selection
 
-The aggregate itself can be selected (via its parent's `Current`), but the
-individual `ComponentN` slots are not selectable — they are the aggregate's fixed
-structure, not navigable peers.
+The aggregate itself can be selected (via its parent's `Current`), and like any other
+`IComponentVM` it exposes `SelectCommand`, `DeselectCommand`, `SelectNextCommand`, and
+`SelectPreviousCommand` for navigation within its own parent. The individual `ComponentN`
+slots, however, are not selectable — they are the aggregate's fixed structure, not
+navigable peers, so there are no `select_component` / `deselect_component` methods.
 
 ## Arity rationale
 
