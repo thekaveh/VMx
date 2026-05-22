@@ -52,6 +52,7 @@ jobs:
           echo "OK: spec changes either include a new ADR or only touch exempted files."
 
       - name: Require conformance stubs when new IDs are added
+        shell: bash
         run: |
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"

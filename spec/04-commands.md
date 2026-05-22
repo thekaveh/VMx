@@ -9,7 +9,7 @@ re-evaluation of `CanExecute`.
 ICommand:
     CanExecute() : bool
     Execute() : void
-    CanExecuteChanged : event  / Observable<Unit>
+    CanExecuteChanged : event  / IObservable<Unit>
 ```
 
 A parameterized variant accepts a typed parameter:
@@ -18,7 +18,7 @@ A parameterized variant accepts a typed parameter:
 ICommand<T>:
     CanExecute(parameter: T) : bool
     Execute(parameter: T) : void
-    CanExecuteChanged : event  / Observable<Unit>
+    CanExecuteChanged : event  / IObservable<Unit>
 ```
 
 ## Predicate semantics
@@ -41,7 +41,7 @@ A command is built with an optional `task` (`() -> void` / `Action` or `(T) -> v
 
 ## Triggers
 
-A command MAY be built with one or more `triggers` (`Observable<Unit>`). On each
+A command MAY be built with one or more `triggers` (`IObservable<Unit>`). On each
 emission of any trigger, the command:
 
 1. Re-evaluates `CanExecute`.
