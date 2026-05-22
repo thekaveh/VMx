@@ -21,12 +21,18 @@ composite's children are themselves VMs and may be composites, components, etc.
 
 ### Modeled and readonly variants
 
-Components and composites have two variants:
+VMx uses "modeled" to describe two distinct patterns:
 
-- **modeled** — the VM holds a `Model` of type `M`. The model can be replaced via
-  `vm.Model = m'` (this is a "set" operation, fires `PropertyChangedMessage`).
-- **readonly** — the VM is constructed with a model and the model is final. No setter
-  is exposed.
+- **Modeled component** (`ComponentVM<M>`) — the VM holds a `Model` of type `M` as a
+  settable property. Replacing the model (`vm.Model = m'`) fires `PropertyChangedMessage`.
+- **Readonly component** (`ReadonlyComponentVM<M>`) — the VM is constructed with a model
+  and the model is final. No setter is exposed.
+- **Modeled composite** (`CompositeVM<M, VM>`) — `M` parameterizes the *children factory*
+  rather than a top-level property; the composite does not expose `M` directly. See
+  `06-composite-vm.md` for the full contract.
+
+The shared idea is that `M` is the *domain shape* the VM (or its children) wrap; the
+exact surface differs by VM family.
 
 ### `Current` selection contract
 
