@@ -18,16 +18,18 @@ jobs:
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
 
-          # Files under spec/ that don't require a paired ADR (housekeeping):
-          # - spec/README.md
-          # - spec/VERSION
-          # - spec/ADRs/** (the ADRs themselves)
-          # - spec/fixtures/** (fixtures may be tweaked alongside spec text)
+          # Files under spec/ that don't themselves require a paired ADR:
+          # - spec/README.md, spec/VERSION (housekeeping)
+          # - spec/ADRs/** (ADRs themselves)
+          # - spec/fixtures/** (machine-checkable test inputs; tweakable alongside spec text)
+          # - spec/12-conformance.md (test catalog; adding IDs is governed by the
+          #   separate "Require conformance stubs" step below, not by ADRs)
           changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ \
             | grep -v '^spec/README.md$' \
             | grep -v '^spec/VERSION$' \
             | grep -v '^spec/ADRs/' \
             | grep -v '^spec/fixtures/' \
+            | grep -v '^spec/12-conformance.md$' \
             || true)
 
           # Newly added ADRs satisfy the rule.
@@ -35,17 +37,21 @@ jobs:
             | awk '{print $2}' || true)
 
           if [ -n "$changed" ] && [ -z "$new_adrs" ]; then
+            # Allow bypass via PR label.
+            labels="${{ join(github.event.pull_request.labels.*.name, ' ') }}"
+            if echo "$labels" | grep -q 'no-adr-needed'; then
+              echo "::notice::Spec changed without an ADR, but bypassed by 'no-adr-needed' label."
+              echo "Changed spec files (bypassed):"
+              echo "$changed"
+              exit 0
+            fi
+
             echo "::error::Spec text changed but no new ADR was added in spec/ADRs/."
             echo "Changed spec files:"
             echo "$changed"
             echo
             echo "If this change does not warrant an ADR (e.g., it is a typo or pure formatting),"
             echo "the maintainer may add the label 'no-adr-needed' to bypass this check."
-            # Allow bypass via PR label.
-            if echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | grep -q 'no-adr-needed'; then
-              echo "Bypassed by 'no-adr-needed' label."
-              exit 0
-            fi
             exit 1
           fi
 
@@ -57,8 +63,6 @@ jobs:
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
 
-          # Detect newly-added XXX-NNN IDs in spec/12-conformance.md (lines starting
-          # with "### " that contain the pattern, present in head but not in base).
           new_ids=$(git diff "$base_sha" "$head_sha" -- spec/12-conformance.md \
             | grep -E '^\+### ' \
             | grep -oE '[A-Z]{3,5}-[0-9]{3}' \
@@ -72,20 +76,27 @@ jobs:
           echo "New conformance IDs in this PR:"
           echo "$new_ids"
 
+          # Stub patterns must match what tools/check-conformance-coverage.py recognizes:
+          # - Python: @pytest.mark.conformance("XXX-NNN") (multiline / kwargs allowed)
+          # - C#:     [Trait("Conformance", "XXX-NNN")] (inside attribute brackets)
           missing_in=()
-          for lang_dir in langs/python/tests/conformance langs/csharp/tests/VMx.Conformance.Tests; do
-            if [ ! -d "$lang_dir" ]; then
-              continue
-            fi
-            for id in $new_ids; do
-              if ! grep -rq "$id" "$lang_dir"; then
-                missing_in+=("$lang_dir:$id")
+          for id in $new_ids; do
+            # Python stub presence
+            if [ -d langs/python/tests/conformance ]; then
+              if ! grep -rE -q "pytest\.mark\.conformance\(\s*[\"']${id}[\"']" langs/python/tests/conformance; then
+                missing_in+=("langs/python/tests/conformance:${id}")
               fi
-            done
+            fi
+            # C# stub presence
+            if [ -d langs/csharp/tests/VMx.Conformance.Tests ]; then
+              if ! grep -rE -q "Trait\(\s*\"Conformance\"\s*,\s*\"${id}\"" langs/csharp/tests/VMx.Conformance.Tests; then
+                missing_in+=("langs/csharp/tests/VMx.Conformance.Tests:${id}")
+              fi
+            fi
           done
 
           if [ ${#missing_in[@]} -gt 0 ]; then
-            echo "::error::Newly-added conformance IDs lack matching test stubs in every active language:"
+            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\") or [Trait(\"Conformance\", \"…\")]):"
             for item in "${missing_in[@]}"; do
               echo "  - $item"
             done
