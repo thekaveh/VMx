@@ -112,3 +112,16 @@ those events were already in flight. Subscribers MUST be tolerant of this.
 See `fixtures/lifecycle-transitions.json` for the complete legal/illegal transition
 matrix. Conformance tests (`LIFE-NNN` in `12-conformance.md`) load that fixture
 directly.
+
+## Conformance
+
+`LIFE-001` through `LIFE-013` in `12-conformance.md` cover:
+
+- legal state transitions (construct / destruct / reconstruct / dispose)
+- predicates raising `StatusTransitionError` / `StatusTransitionException` on illegal calls
+- idempotency from `Constructed`/`Destructed`/`Disposed` states
+- the `IsConstructed == Status == Constructed` invariant
+- concurrent re-invocation during `Constructing` / `Destructing` raises
+- the full transition matrix (table-driven from `fixtures/lifecycle-transitions.json`)
+- dispose-from-Disposed emits no message
+- dispose cascade (parent disposes children depth-first)

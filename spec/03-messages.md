@@ -114,3 +114,17 @@ conformance tests load:
 - `multiple-subscribers-same-message`: every subscriber observes every post-subscribe
   message.
 - `unsubscribe-during-emit`: a subscriber disposing during delivery does not crash.
+
+## Conformance
+
+`HUB-001` through `HUB-007` and `PROP-001` through `PROP-004` in `12-conformance.md` cover:
+
+- `Send` delivers to current subscribers synchronously
+- late subscribers do not see prior messages (no replay)
+- single-producer FIFO order
+- subscriber disposing during emit does not crash the hub
+- multiple subscribers each observe every post-subscribe message
+- table-driven scenarios from `fixtures/message-ordering.json`
+- subscriber handler raising does not break the hub
+- `PropertyChangedMessage` emitted on real changes only (not on same-value sets)
+- sender identity / property name / sender name correctness

@@ -82,3 +82,15 @@ RelayCommand.Builder()
 `CMD-NNN` conformance tests load. Each row encodes: predicate value, task presence,
 trigger behavior, expected `CanExecute` return, whether `Execute` invokes the task,
 and whether `CanExecuteChanged` fires.
+
+## Conformance
+
+`CMD-001` through `CMD-007` in `12-conformance.md` cover:
+
+- `Execute` invokes the configured task
+- `CanExecute` returns `true` with no predicate, and the predicate result otherwise
+- trigger emissions fire `CanExecuteChanged`
+- parameterized variant passes the parameter through
+- null task is a no-op (no exception)
+- `Execute` is a no-op when the predicate returns `false`
+- table-driven configurations from `fixtures/command-truthtable.json`
