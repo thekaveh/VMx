@@ -36,10 +36,24 @@ uv run mypy --strict src/vmx
 
 Behavior changes start in `spec/`. The rules are:
 
-- A spec change requires a matching ADR in `spec/ADRs/` (enforced by the `spec-discipline` CI check — planned for Phase 0 Task 9).
-- A new conformance test ID in `spec/12-conformance.md` (planned for Phase 1) requires a stub test in **every** active language flavor in the same PR.
+- A spec change requires a matching ADR in `spec/ADRs/`. This is enforced by the
+  `spec-discipline` CI check.
+- Files exempt from the ADR requirement: `spec/README.md`, `spec/VERSION`,
+  `spec/ADRs/**`, `spec/fixtures/**`, and `spec/12-conformance.md` (adding catalog
+  IDs is governed by the conformance-stub rule below, not by ADRs).
+- A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
+  in **every** active language flavor in the same PR. The CI check looks for
+  `@pytest.mark.conformance("XXX-NNN")` (Python) and `[Trait("Conformance", "XXX-NNN")]`
+  (C#) — comment stubs do not satisfy the check.
 
-See `docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md` §5 and §6 for the full process.
+### Bypass
+
+If a spec change genuinely does not warrant an ADR (e.g., a typo fix or pure
+formatting change), a maintainer may add the `no-adr-needed` PR label to bypass the
+ADR check. Use sparingly; the label is intended for changes with zero semantic effect.
+
+See `docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md` §5 and §6 for
+the full process.
 
 ## Code of conduct
 

@@ -14,7 +14,7 @@
 - [ ] Tests added / updated
 - [ ] Spec updated (if behavior changed)
 - [ ] Conformance catalog entries added (if new behavior or new spec ID)
-- [ ] ADR added (if architectural / cross-language decision)
+- [ ] ADR added (if architectural / cross-language decision; or `no-adr-needed` label if the spec change has no semantic effect — see CONTRIBUTING.md)
 - [ ] CHANGELOG entry under the relevant `langs/<lang>/CHANGELOG.md`
 
 ## How to test
