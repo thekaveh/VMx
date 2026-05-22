@@ -9,8 +9,10 @@ TOOLS_DIR = Path(__file__).resolve().parents[1]
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-# The script filename uses a hyphen which prevents direct `import` statements.
-# Pre-load it under the underscore alias so `import check_conformance_coverage` works.
+# The script's filename uses a hyphen, so `import check_conformance_coverage` would
+# normally fail. We pre-load the script under the underscore alias via importlib so
+# the test module's plain `import` works. This conftest is the sole load path for
+# the script-as-module in tests.
 _SCRIPT = TOOLS_DIR / "check-conformance-coverage.py"
 if _SCRIPT.exists() and "check_conformance_coverage" not in sys.modules:
     _spec = importlib.util.spec_from_file_location("check_conformance_coverage", _SCRIPT)

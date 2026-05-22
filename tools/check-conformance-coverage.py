@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Cross-language conformance coverage check.
 
-Parses spec/12-conformance.md for every `XXX-NNN` conformance ID, then walks
-langs/<lang>/tests/conformance/ for each active language and verifies every ID has
-a matching test. Reports gaps to stdout and returns a non-zero exit code if any
-language passed via --require has gaps.
+Parses spec/12-conformance.md for every `XXX-NNN` conformance ID, then walks each
+active language's conformance test directory (registered in `_SCRAPERS`) and verifies
+every ID has a matching test. Reports gaps to stdout and returns a non-zero exit code
+if any language passed via --require has gaps, or if a required language has no
+conformance directory at all.
+
+Exit codes:
+    0  All required languages at full coverage (or no --require given).
+    1  At least one required language has conformance gaps.
+    2  Catalog file not found, required language has no conformance directory,
+       or invalid --require argument.
 
 Usage:
     python3 tools/check-conformance-coverage.py [--repo-root PATH] [--require LANG ...]
@@ -86,6 +93,9 @@ def compute_gaps(catalog: set[str], coverage: dict[str, set[str]]) -> dict[str, 
 
 # ─── language registry ────────────────────────────────────────────────
 
+# To add a new language: define a regex pattern matching its conformance-mark syntax,
+# add a thin scraper wrapper, and register `(rel_dir, scraper)` here under the
+# language key. The CLI's `--require` automatically picks up the new key via `choices`.
 _SCRAPERS: dict[str, tuple[str, Callable[[Path], set[str]]]] = {
     "python":  ("langs/python/tests/conformance",        scrape_python_conformance_ids),
     "csharp":  ("langs/csharp/tests/VMx.Conformance.Tests", scrape_csharp_conformance_ids),
@@ -148,7 +158,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         action="append",
         default=[],
         choices=list(_SCRAPERS.keys()),
-        help="Language(s) that MUST have full conformance coverage. May be passed multiple times.",
+        help=(
+            "Language(s) that MUST have full conformance coverage; tool exits 1 on any gap. "
+            "Omitting --require makes the tool report-only (always exits 0). "
+            "May be passed multiple times."
+        ),
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
 

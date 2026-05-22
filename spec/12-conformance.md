@@ -84,11 +84,11 @@ attempted operation ("construct")
 **When** `vm.IsConstructed` is read
 **Then** the value equals `(vm.Status == Constructed)`
 
-### LIFE-008 — Concurrent construct while Constructing raises
+### LIFE-008 — Concurrent operation while transitioning raises
 
-**Given** a VM whose `construct()` is in progress (state `Constructing`, has not yet
-reached `Constructed`)
-**When** a second `construct()` is invoked concurrently
+**Given** a VM whose `construct()` or `destruct()` is in progress (state `Constructing` or
+`Destructing`, has not yet reached the corresponding terminal state)
+**When** the same operation is invoked again concurrently
 **Then** the second call raises `StatusTransitionError` / `StatusTransitionException`
 
 ### LIFE-009 — construct from Constructed is idempotent (no-op)
@@ -297,7 +297,7 @@ ______________________________________________________________________
 
 ## CompositeVM (`COMP-NNN`)
 
-### COMP-001 — Add raises CollectionChanged(action=Add)
+### COMP-001 — Add emits CollectionChanged(action=Add)
 
 **Given** an empty `CompositeVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
@@ -305,9 +305,10 @@ ______________________________________________________________________
 **Then** the subscriber observes a `CollectionChanged` event with
 `action == Add`, `newItems == [vm]`, `newIndex == 0`
 
-### COMP-002 — Remove raises CollectionChanged(action=Remove)
+### COMP-002 — Remove emits CollectionChanged(action=Remove)
 
 **Given** a `CompositeVM<VM>` containing one VM
+**And** a subscriber to `CollectionChanged`
 **When** `composite.Remove(vm)` is called
 **Then** the subscriber observes a `CollectionChanged` event with
 `action == Remove`, `oldItems == [vm]`, `oldIndex == 0`
@@ -366,7 +367,7 @@ ______________________________________________________________________
 
 ## GroupVM (`GRP-NNN`)
 
-### GRP-001 — Add raises CollectionChanged
+### GRP-001 — Add emits CollectionChanged
 
 **Given** an empty `GroupVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
