@@ -113,7 +113,7 @@ public class ModeledCompositeVMTests
             .ChildModelToChildViewModel(m => ComponentVM<Model>.Builder()
                 .Name("v").Services(hub, dispatcher).Model(m).Build())
             .Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("ChildrenModels");
     }
 
@@ -126,7 +126,7 @@ public class ModeledCompositeVMTests
             .Name("x").Services(hub, dispatcher)
             .ChildrenModels(() => [])
             .Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("ChildModelToChildViewModel");
     }
 

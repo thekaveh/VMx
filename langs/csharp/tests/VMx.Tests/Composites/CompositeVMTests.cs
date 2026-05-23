@@ -520,7 +520,7 @@ public class CompositeVMTests
         var dispatcher = new TestDispatcher();
         var act = () => CompositeVM<ComponentVM<string>>.Builder()
             .Services(hub, dispatcher).Build();
-        act.Should().Throw<Builders.BuilderValidationException>();
+        act.Should().Throw<VMx.Builders.BuilderValidationException>();
     }
 
     [Fact]
@@ -528,6 +528,6 @@ public class CompositeVMTests
     {
         var act = () => CompositeVM<ComponentVM<string>>.Builder()
             .Name("x").Build();
-        act.Should().Throw<Builders.BuilderValidationException>();
+        act.Should().Throw<VMx.Builders.BuilderValidationException>();
     }
 }

@@ -401,7 +401,7 @@ public class ComponentVMTests
         var dispatcher = new TestDispatcher();
         var act = () => ComponentVM<string>.Builder()
             .Services(hub, dispatcher).Model("m").Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("Name");
     }
 
@@ -412,7 +412,7 @@ public class ComponentVMTests
         var dispatcher = new TestDispatcher();
         var act = () => ComponentVM<string>.Builder()
             .Name("v").Services(hub, dispatcher).Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("Model");
     }
 
@@ -421,7 +421,7 @@ public class ComponentVMTests
     {
         var act = () => ComponentVM<string>.Builder()
             .Name("v").Model("m").Build();
-        act.Should().Throw<Builders.BuilderValidationException>();
+        act.Should().Throw<VMx.Builders.BuilderValidationException>();
     }
 
     [Fact]
@@ -434,7 +434,7 @@ public class ComponentVMTests
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
         var act = () => b0.Services(hub, dispatcher).Model("m").Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("Name");
     }
 

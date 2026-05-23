@@ -110,7 +110,7 @@ public class ReadonlyComponentVMTests
         var dispatcher = new TestDispatcher();
         var act = () => ReadonlyComponentVM<string>.Builder()
             .Services(hub, dispatcher).Model("m").Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("Name");
     }
 
@@ -121,7 +121,7 @@ public class ReadonlyComponentVMTests
         var dispatcher = new TestDispatcher();
         var act = () => ReadonlyComponentVM<string>.Builder()
             .Name("v").Services(hub, dispatcher).Build();
-        act.Should().Throw<Builders.BuilderValidationException>()
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
             .Which.MissingField.Should().Be("Model");
     }
 
