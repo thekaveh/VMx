@@ -49,3 +49,17 @@ repos:
         language: system
         files: ^langs/csharp/.*\.(cs|csproj|props)$
         pass_filenames: true
+
+      - id: eslint-typescript
+        name: eslint (TypeScript only)
+        # Runs the flavor's own eslint config against staged .ts files. Requires
+        # `npm ci` to have populated langs/typescript/node_modules first.
+        entry: |
+          bash -c '
+            paths=();
+            for f in "$@"; do paths+=("${f#langs/typescript/}"); done;
+            cd langs/typescript && npx --no-install eslint "${paths[@]}"
+          ' --
+        language: system
+        files: ^langs/typescript/(src|tests|scripts)/.*\.(ts|tsx|mjs|cjs|js)$
+        pass_filenames: true

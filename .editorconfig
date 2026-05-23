@@ -14,5 +14,14 @@ trim_trailing_whitespace = false
 [*.{yml,yaml,json,toml}]
 indent_size = 2
 
+[*.cs]
+indent_size = 4
+
+[*.py]
+indent_size = 4
+
+[*.{ts,tsx,js,mjs,cjs}]
+indent_size = 2
+
 [Makefile]
 indent_style = tab
