@@ -417,8 +417,8 @@ class _ComponentVMBase(ABC):
     def _on_dispose(self) -> None:  # noqa: B027
         """Called by dispose() after status reaches Disposed. Override for cleanup."""
 
-    # -- SelectNext / SelectPrevious stubs -----------------------------------
-    # Requires parent enumeration - implemented when CompositeVM lands (Task 7).
+    # -- SelectNext / SelectPrevious (not implemented in v1.0) ---------------
+    # Parent enumeration (sibling navigation) is not implemented in v1.0 — always returns False.
     def _can_select_next(self) -> bool:
         return False
 
@@ -439,13 +439,12 @@ class _ComponentVMBase(ABC):
         # Emit on hub.
         self._hub.send(ConstructionStatusChangedMessage.create(self, self._name, new_status))
 
-        # Raise property_changed for status and is_constructed.
+        # Raise property_changed for status and is_constructed (INPC-equivalent only;
+        # these are computed/read-only properties so no PropertyChangedMessage is
+        # published on the hub — spec 03-messages.md: only setter-assigned properties
+        # emit PropertyChangedMessage).
         self._raise_property_changed("status")
         self._raise_property_changed("is_constructed")
-
-        # Also emit PropertyChangedMessage on hub for status and is_constructed.
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "status"))
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "is_constructed"))
 
         # Fire command trigger so predicates are re-evaluated.
         if not self._trigger_disposed:
