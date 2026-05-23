@@ -14,6 +14,8 @@ class TestDispatcher:
     ``.foreground`` and ``.background`` properties.
     """
 
+    __test__ = False  # tell pytest this is not a test class
+
     def __init__(self) -> None:
         self.foreground_scheduler: TestScheduler = TestScheduler()
         self.background_scheduler: TestScheduler = TestScheduler()

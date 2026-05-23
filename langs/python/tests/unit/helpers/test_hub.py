@@ -23,6 +23,8 @@ class TestHub:
     ``MessageHubProto`` interface: ``.messages`` and ``.send()``.
     """
 
+    __test__ = False  # tell pytest this is not a test class
+
     def __init__(self) -> None:
         self._subject: Subject[Message] = Subject()
 
