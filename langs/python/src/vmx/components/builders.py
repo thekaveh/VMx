@@ -13,6 +13,7 @@ import dataclasses
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
+from vmx.builders import _validation
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message
@@ -80,12 +81,9 @@ class ComponentVMBuilder:
         """
         from vmx.components.component_vm import ComponentVM
 
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
 
         return ComponentVM(
             name=self._name,
@@ -168,14 +166,11 @@ class ComponentVMOfBuilder(Generic[M]):
         """
         from vmx.components.component_vm import ComponentVMOf
 
-        if self._name is None:
-            raise BuilderValidationError("name")
+        _validation.require_field(self._name, "name")
         if not self._model_set:
             raise BuilderValidationError("model")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
 
         hinter: Callable[[M], str] = (
             self._modeled_hinter if self._modeled_hinter is not None else lambda _m: ""
@@ -258,14 +253,11 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
         """
         from vmx.components.readonly_component_vm import ReadonlyComponentVMOf
 
-        if self._name is None:
-            raise BuilderValidationError("name")
+        _validation.require_field(self._name, "name")
         if not self._model_set:
             raise BuilderValidationError("model")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
 
         hinter: Callable[[M], str] = (
             self._modeled_hinter if self._modeled_hinter is not None else lambda _m: ""

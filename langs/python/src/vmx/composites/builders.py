@@ -13,6 +13,7 @@ import dataclasses
 from collections.abc import Callable, Iterable
 from typing import Generic, TypeVar
 
+from vmx.builders import _validation
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.base import _ComponentVMBase
 from vmx.messages.protocols import Message
@@ -84,12 +85,9 @@ class CompositeVMBuilder(Generic[VM]):
         """
         from vmx.composites.composite_vm import CompositeVM
 
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
 
         return CompositeVM(
             name=self._name,
@@ -168,12 +166,9 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         """
         from vmx.composites.composite_vm import CompositeVMOf
 
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
         if self._children_models is None:
             raise BuilderValidationError("children_models")
         if self._child_model_to_child_vm is None:

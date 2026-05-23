@@ -13,6 +13,7 @@ import dataclasses
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
+from vmx.builders import _validation
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.protocols import ComponentVMProto
 from vmx.messages.protocols import Message
@@ -62,12 +63,9 @@ class AggregateVMBuilder1(Generic[V1]):
         Raises :class:`~vmx.builders.exceptions.BuilderValidationError`
         if a required field is missing.
         """
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
 
@@ -114,12 +112,9 @@ class AggregateVMBuilder2(Generic[V1, V2]):
         return dataclasses.replace(self, _factory2=factory)
 
     def build(self) -> AggregateVM2[V1, V2]:
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
@@ -173,12 +168,9 @@ class AggregateVMBuilder3(Generic[V1, V2, V3]):
         return dataclasses.replace(self, _factory3=factory)
 
     def build(self) -> AggregateVM3[V1, V2, V3]:
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
@@ -239,12 +231,9 @@ class AggregateVMBuilder4(Generic[V1, V2, V3, V4]):
         return dataclasses.replace(self, _factory4=factory)
 
     def build(self) -> AggregateVM4[V1, V2, V3, V4]:
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
@@ -312,12 +301,9 @@ class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
         return dataclasses.replace(self, _factory5=factory)
 
     def build(self) -> AggregateVM5[V1, V2, V3, V4, V5]:
-        if self._name is None:
-            raise BuilderValidationError("name")
-        if self._hub is None:
-            raise BuilderValidationError("hub")
-        if self._dispatcher is None:
-            raise BuilderValidationError("dispatcher")
+        _validation.require_field(self._name, "name")
+        _validation.require_services(self._hub, self._dispatcher)
+        assert self._name is not None and self._hub is not None and self._dispatcher is not None
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
