@@ -25,12 +25,12 @@ Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` secti
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
 and the source spec's `## Conformance` section.
 
-## How to read an entry
+## Reading entries
 
-Each entry follows Given/When/Then. Implementers map Given to test setup, When to
-the operation under test, and Then to assertions.
+Each entry below follows Given/When/Then. Implementers map Given to test setup, When
+to the operation under test, and Then to assertions.
 
-## Notation
+### Notation conventions
 
 Within Given/When/Then prose:
 
