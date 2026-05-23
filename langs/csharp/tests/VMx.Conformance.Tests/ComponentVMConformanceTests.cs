@@ -184,9 +184,9 @@ public class ComponentVMConformanceTests
         // Parent has no current: CanSelect is true.
         vm.SelectCommand.CanExecute(null).Should().BeTrue();
 
-        // Simulate selection.
+        // Simulate selection via the internal setter.
         parent.SetCurrent(vm);
-        vm.IsCurrent = true;
+        vm.IsCurrent = true; // use internal setter (InternalsVisibleTo)
 
         // Now SelectCommand.CanExecute reflects the new state after trigger fires.
         // The trigger fires asynchronously based on status changes, but for selection
@@ -456,49 +456,17 @@ public class ComponentVMConformanceTests
 
     /// <summary>
     /// Minimal mock composite that supports selection for CVM-006 testing.
+    /// Implements IParentCompositeVM so it can be assigned to ComponentVMBase.Parent.
     /// </summary>
-    private sealed class MockCompositeVM : ICompositeVM<IComponentVM>
+    private sealed class MockCompositeVM : IParentCompositeVM
     {
         private IComponentVM? _current;
 
-        public IComponentVM? Current => _current;
+        public IComponentVM? CurrentChild => _current;
 
         public void SetCurrent(IComponentVM vm) => _current = vm;
 
-        public void SelectComponent(IComponentVM vm) => _current = vm;
-        public void DeselectComponent(IComponentVM vm) { if (_current == vm) _current = null; }
-        public bool CanSelectComponent(IComponentVM vm) => true;
-
-        // IComponentVM stub members (not used in this test)
-        public string Name => "mock";
-        public string Hint => "";
-        public ViewModelType Type => ViewModelType.Composite;
-        public bool IsCurrent => false;
-        public bool IsConstructed => true;
-        public ConstructionStatus Status => ConstructionStatus.Constructed;
-        public System.Windows.Input.ICommand SelectCommand => throw new NotImplementedException();
-        public System.Windows.Input.ICommand DeselectCommand => throw new NotImplementedException();
-        public System.Windows.Input.ICommand SelectNextCommand => throw new NotImplementedException();
-        public System.Windows.Input.ICommand SelectPreviousCommand => throw new NotImplementedException();
-        public System.Windows.Input.ICommand ReconstructCommand => throw new NotImplementedException();
-        public bool CanConstruct() => false;
-        public void Construct() { }
-        public Task ConstructAsync() => Task.CompletedTask;
-        public bool CanDestruct() => false;
-        public void Destruct() { }
-        public Task DestructAsync() => Task.CompletedTask;
-        public bool CanReconstruct() => false;
-        public void Reconstruct() { }
-        public Task ReconstructAsync() => Task.CompletedTask;
-        public bool CanSelect() => false;
-#pragma warning disable CA1716
-        public void Select() { }
-#pragma warning restore CA1716
-        public bool CanDeselect() => false;
-        public void Deselect() { }
-        public void Dispose() { }
-#pragma warning disable CS0067 // Event never used - required by INotifyPropertyChanged interface
-        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
-#pragma warning restore CS0067
+        public void SelectChild(IComponentVM vm) => _current = vm;
+        public void DeselectChild(IComponentVM vm) { if (_current == vm) _current = null; }
     }
 }

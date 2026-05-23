@@ -1,0 +1,228 @@
+#pragma warning disable CA1715 // Spec uses 'VM' / 'M' type parameters per ADR-0006
+using VMx.Builders;
+using VMx.Components;
+using VMx.Services;
+
+namespace VMx.Composites;
+
+/// <summary>
+/// Immutable fluent builder for <see cref="CompositeVM{VM}"/> (non-modeled).
+/// Each setter returns a new builder instance (BLD-001).
+/// Use <c>CompositeVM&lt;VM&gt;.Builder()</c> to start.
+/// </summary>
+/// <typeparam name="VM">The child viewmodel type.</typeparam>
+public sealed class CompositeVMBuilder<VM>
+    where VM : class, IComponentVM
+{
+    // ── Required ──────────────────────────────────────────────────────────────
+    private readonly string? _name;
+    private readonly IMessageHub? _hub;
+    private readonly IDispatcher? _dispatcher;
+
+    // ── Optional ──────────────────────────────────────────────────────────────
+    private readonly string _hint;
+    private readonly bool _asyncSelection;
+    private readonly Func<IEnumerable<VM>>? _childrenFactory;
+    private readonly Action? _onConstruct;
+    private readonly Action? _onDestruct;
+
+    /// <summary>Empty starting builder.</summary>
+    public static readonly CompositeVMBuilder<VM> Empty = new();
+
+    private CompositeVMBuilder() { _hint = ""; }
+
+    private CompositeVMBuilder(
+        string? name,
+        IMessageHub? hub,
+        IDispatcher? dispatcher,
+        string hint,
+        bool asyncSelection,
+        Func<IEnumerable<VM>>? childrenFactory,
+        Action? onConstruct,
+        Action? onDestruct)
+    {
+        _name = name;
+        _hub = hub;
+        _dispatcher = dispatcher;
+        _hint = hint;
+        _asyncSelection = asyncSelection;
+        _childrenFactory = childrenFactory;
+        _onConstruct = onConstruct;
+        _onDestruct = onDestruct;
+    }
+
+    /// <summary>Sets the required Name.</summary>
+    public CompositeVMBuilder<VM> Name(string name) => With(name: name);
+
+    /// <summary>Sets the optional Hint (default: "").</summary>
+    public CompositeVMBuilder<VM> Hint(string hint) => With(hint: hint);
+
+    /// <summary>Sets the required Services (hub + dispatcher).</summary>
+    public CompositeVMBuilder<VM> Services(IMessageHub hub, IDispatcher dispatcher)
+        => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>Sets the optional children factory evaluated lazily on Construct.</summary>
+    public CompositeVMBuilder<VM> Children(Func<IEnumerable<VM>> factory)
+        => With(childrenFactory: factory);
+
+    /// <summary>Enables async selection dispatch via the foreground scheduler.</summary>
+    public CompositeVMBuilder<VM> AsyncSelection(bool asyncSelection) => With(asyncSelection: asyncSelection);
+
+    /// <summary>Sets the optional OnConstruct lifecycle callback.</summary>
+    public CompositeVMBuilder<VM> OnConstruct(Action callback) => With(onConstruct: callback);
+
+    /// <summary>Sets the optional OnDestruct lifecycle callback.</summary>
+    public CompositeVMBuilder<VM> OnDestruct(Action callback) => With(onDestruct: callback);
+
+    /// <summary>
+    /// Validates required fields and builds a <see cref="CompositeVM{VM}"/>.
+    /// </summary>
+    public CompositeVM<VM> Build()
+    {
+        if (_name is null) throw new BuilderValidationException("Name");
+        if (_hub is null) throw new BuilderValidationException("Hub");
+        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
+
+        return CompositeVM<VM>.Create(
+            _name, _hint, _hub, _dispatcher,
+            _asyncSelection, _childrenFactory,
+            _onConstruct, _onDestruct);
+    }
+
+    private CompositeVMBuilder<VM> With(
+        string? name = null,
+        IMessageHub? hub = null,
+        IDispatcher? dispatcher = null,
+        string? hint = null,
+        bool? asyncSelection = null,
+        Func<IEnumerable<VM>>? childrenFactory = null,
+        Action? onConstruct = null,
+        Action? onDestruct = null)
+        => new(
+            name ?? _name,
+            hub ?? _hub,
+            dispatcher ?? _dispatcher,
+            hint ?? _hint,
+            asyncSelection ?? _asyncSelection,
+            childrenFactory ?? _childrenFactory,
+            onConstruct ?? _onConstruct,
+            onDestruct ?? _onDestruct);
+}
+
+/// <summary>
+/// Immutable fluent builder for <see cref="CompositeVMOfM{M,VM}"/> (modeled).
+/// Each setter returns a new builder instance (BLD-001).
+/// Use <c>CompositeVMOfM&lt;M, VM&gt;.Builder()</c> to start.
+/// </summary>
+/// <typeparam name="M">The model type.</typeparam>
+/// <typeparam name="VM">The child viewmodel type.</typeparam>
+public sealed class CompositeVMOfMBuilder<M, VM>
+    where VM : class, IComponentVM
+{
+    // ── Required ──────────────────────────────────────────────────────────────
+    private readonly string? _name;
+    private readonly IMessageHub? _hub;
+    private readonly IDispatcher? _dispatcher;
+    private readonly Func<IEnumerable<M>>? _childrenModels;
+    private readonly Func<M, VM>? _childModelToChildViewModel;
+
+    // ── Optional ──────────────────────────────────────────────────────────────
+    private readonly string _hint;
+    private readonly bool _asyncSelection;
+    private readonly Action? _onConstruct;
+    private readonly Action? _onDestruct;
+
+    /// <summary>Empty starting builder.</summary>
+    public static readonly CompositeVMOfMBuilder<M, VM> Empty = new();
+
+    private CompositeVMOfMBuilder() { _hint = ""; }
+
+    private CompositeVMOfMBuilder(
+        string? name,
+        IMessageHub? hub,
+        IDispatcher? dispatcher,
+        string hint,
+        bool asyncSelection,
+        Func<IEnumerable<M>>? childrenModels,
+        Func<M, VM>? childModelToChildViewModel,
+        Action? onConstruct,
+        Action? onDestruct)
+    {
+        _name = name;
+        _hub = hub;
+        _dispatcher = dispatcher;
+        _hint = hint;
+        _asyncSelection = asyncSelection;
+        _childrenModels = childrenModels;
+        _childModelToChildViewModel = childModelToChildViewModel;
+        _onConstruct = onConstruct;
+        _onDestruct = onDestruct;
+    }
+
+    /// <summary>Sets the required Name.</summary>
+    public CompositeVMOfMBuilder<M, VM> Name(string name) => With(name: name);
+
+    /// <summary>Sets the optional Hint.</summary>
+    public CompositeVMOfMBuilder<M, VM> Hint(string hint) => With(hint: hint);
+
+    /// <summary>Sets the required Services.</summary>
+    public CompositeVMOfMBuilder<M, VM> Services(IMessageHub hub, IDispatcher dispatcher)
+        => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>Sets the required model factory.</summary>
+    public CompositeVMOfMBuilder<M, VM> ChildrenModels(Func<IEnumerable<M>> factory)
+        => With(childrenModels: factory);
+
+    /// <summary>Sets the required model→VM mapper.</summary>
+    public CompositeVMOfMBuilder<M, VM> ChildModelToChildViewModel(Func<M, VM> mapper)
+        => With(childModelToChildViewModel: mapper);
+
+    /// <summary>Enables async selection dispatch.</summary>
+    public CompositeVMOfMBuilder<M, VM> AsyncSelection(bool asyncSelection)
+        => With(asyncSelection: asyncSelection);
+
+    /// <summary>Sets the optional OnConstruct callback.</summary>
+    public CompositeVMOfMBuilder<M, VM> OnConstruct(Action callback) => With(onConstruct: callback);
+
+    /// <summary>Sets the optional OnDestruct callback.</summary>
+    public CompositeVMOfMBuilder<M, VM> OnDestruct(Action callback) => With(onDestruct: callback);
+
+    /// <summary>
+    /// Validates required fields and builds a <see cref="CompositeVMOfM{M,VM}"/>.
+    /// </summary>
+    public CompositeVMOfM<M, VM> Build()
+    {
+        if (_name is null) throw new BuilderValidationException("Name");
+        if (_hub is null) throw new BuilderValidationException("Hub");
+        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
+        if (_childrenModels is null) throw new BuilderValidationException("ChildrenModels");
+        if (_childModelToChildViewModel is null) throw new BuilderValidationException("ChildModelToChildViewModel");
+
+        return CompositeVMOfM<M, VM>.Create(
+            _name, _hint, _hub, _dispatcher,
+            _asyncSelection, _childrenModels, _childModelToChildViewModel,
+            _onConstruct, _onDestruct);
+    }
+
+    private CompositeVMOfMBuilder<M, VM> With(
+        string? name = null,
+        IMessageHub? hub = null,
+        IDispatcher? dispatcher = null,
+        string? hint = null,
+        bool? asyncSelection = null,
+        Func<IEnumerable<M>>? childrenModels = null,
+        Func<M, VM>? childModelToChildViewModel = null,
+        Action? onConstruct = null,
+        Action? onDestruct = null)
+        => new(
+            name ?? _name,
+            hub ?? _hub,
+            dispatcher ?? _dispatcher,
+            hint ?? _hint,
+            asyncSelection ?? _asyncSelection,
+            childrenModels ?? _childrenModels,
+            childModelToChildViewModel ?? _childModelToChildViewModel,
+            onConstruct ?? _onConstruct,
+            onDestruct ?? _onDestruct);
+}
+#pragma warning restore CA1715

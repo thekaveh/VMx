@@ -1,0 +1,61 @@
+#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
+using VMx.Components;
+using VMx.Services;
+
+namespace VMx.Composites;
+
+/// <summary>
+/// Sealed non-modeled composite VM.  Children are supplied by a builder factory
+/// <c>() =&gt; IEnumerable&lt;VM&gt;</c> evaluated lazily on the first <see cref="ComponentVMBase.Construct"/>.
+///
+/// Use <c>CompositeVM&lt;VM&gt;.Builder()</c> to create instances.
+/// See spec/06-composite-vm.md §Variants (non-modeled).
+/// </summary>
+/// <typeparam name="VM">The child viewmodel type.</typeparam>
+public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
+    where VM : class, IComponentVM
+{
+    private readonly Func<IEnumerable<VM>>? _childrenFactory;
+    private bool _populated;
+
+    private CompositeVM(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool asyncSelection,
+        Func<IEnumerable<VM>>? childrenFactory,
+        Action? onConstruct,
+        Action? onDestruct)
+        : base(name, hint, hub, dispatcher, asyncSelection, onConstruct, onDestruct)
+    {
+        _childrenFactory = childrenFactory;
+    }
+
+    /// <summary>Returns a new empty builder for <see cref="CompositeVM{VM}"/>.</summary>
+#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
+    public static CompositeVMBuilder<VM> Builder() => CompositeVMBuilder<VM>.Empty;
+#pragma warning restore CA1000
+
+    /// <summary>Internal factory called by the builder.</summary>
+    internal static CompositeVM<VM> Create(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool asyncSelection,
+        Func<IEnumerable<VM>>? childrenFactory,
+        Action? onConstruct,
+        Action? onDestruct)
+        => new(name, hint, hub, dispatcher, asyncSelection, childrenFactory, onConstruct, onDestruct);
+
+    /// <inheritdoc/>
+    protected override void PopulateChildren()
+    {
+        if (_populated || _childrenFactory is null) return;
+        _populated = true;
+        foreach (var child in _childrenFactory())
+            Add(child);
+    }
+}
+#pragma warning restore CA1715

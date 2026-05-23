@@ -10,13 +10,53 @@ using VMx.Services;
 namespace VMx.Components;
 
 /// <summary>
+/// Non-generic parent reference used by ComponentVMBase.
+/// Exposes only what a child needs from its parent composite for selection logic.
+/// Implemented by all ICompositeVM&lt;VM&gt; concrete classes.
+/// </summary>
+internal interface IParentCompositeVM
+{
+    /// <summary>The currently selected child, or null.</summary>
+    IComponentVM? CurrentChild { get; }
+
+    /// <summary>Selects the given child (typed as IComponentVM).</summary>
+    void SelectChild(IComponentVM vm);
+
+    /// <summary>Deselects the given child.</summary>
+    void DeselectChild(IComponentVM vm);
+}
+
+/// <summary>
+/// Internal interface allowing composites to set Parent and IsCurrent on children
+/// without exposing these mutators on the public IComponentVM contract.
+/// </summary>
+internal interface IComponentVMInternals
+{
+    void SetParent(IParentCompositeVM? parent);
+    void SetIsCurrent(bool value);
+}
+
+/// <summary>
+/// Extension helpers for <see cref="IComponentVM"/> → <see cref="IComponentVMInternals"/> cast.
+/// Used internally by composite and group implementations.
+/// </summary>
+internal static class ComponentVMExtensions
+{
+    internal static void SetParent(this IComponentVM vm, IParentCompositeVM? parent)
+        => (vm as IComponentVMInternals)?.SetParent(parent);
+
+    internal static void SetIsCurrent(this IComponentVM vm, bool value)
+        => (vm as IComponentVMInternals)?.SetIsCurrent(value);
+}
+
+/// <summary>
 /// Abstract base class for all ComponentVM variants. Implements <see cref="IComponentVM"/>:
 /// lifecycle state machine (Construct/Destruct/Reconstruct/Dispose), hub messaging,
 /// INPC events, built-in commands, and selection predicates.
 ///
 /// See spec/05-component-vm.md and spec/02-lifecycle.md.
 /// </summary>
-public abstract class ComponentVMBase : IComponentVM
+public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 {
     private readonly IMessageHub _hub;
 
@@ -42,8 +82,34 @@ public abstract class ComponentVMBase : IComponentVM
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
 
+    // ── Virtual lifecycle hooks for subclasses (e.g. CompositeVMBase) ────────
+    /// <summary>
+    /// Called between the Constructing and Constructed status transitions.
+    /// Override to perform additional setup (e.g. construct children).
+    /// Base implementation invokes the <c>onConstruct</c> delegate.
+    /// </summary>
+    protected virtual void OnConstruct() => _onConstruct?.Invoke();
+
+    /// <summary>
+    /// Called between the Destructing and Destructed status transitions.
+    /// Override to perform additional teardown (e.g. destruct children).
+    /// Base implementation invokes the <c>onDestruct</c> delegate.
+    /// </summary>
+    protected virtual void OnDestruct() => _onDestruct?.Invoke();
+
+    /// <summary>
+    /// Called by <see cref="Dispose()"/> after the status reaches Disposed,
+    /// before command disposal. Override for additional cleanup.
+    /// Base implementation is empty.
+    /// </summary>
+    protected virtual void OnDispose() { }
+
     // ── Parent (set by CompositeVM when a child is added) ───────────────────
-    internal ICompositeVM<IComponentVM>? Parent { get; set; }
+    internal IParentCompositeVM? Parent { get; set; }
+
+    // ── IComponentVMInternals explicit implementation ─────────────────────────
+    void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => Parent = parent;
+    void IComponentVMInternals.SetIsCurrent(bool value) => IsCurrent = value;
 
     // ── IComponentVM: identity ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -183,7 +249,7 @@ public abstract class ComponentVMBase : IComponentVM
         try
         {
             SetStatus(ConstructionStatus.Constructing);
-            _onConstruct?.Invoke();
+            OnConstruct();
             SetStatus(ConstructionStatus.Constructed);
         }
         finally
@@ -216,7 +282,7 @@ public abstract class ComponentVMBase : IComponentVM
         try
         {
             SetStatus(ConstructionStatus.Destructing);
-            _onDestruct?.Invoke();
+            OnDestruct();
             SetStatus(ConstructionStatus.Destructed);
         }
         finally
@@ -247,12 +313,12 @@ public abstract class ComponentVMBase : IComponentVM
         {
             // Destruct phase
             SetStatus(ConstructionStatus.Destructing);
-            _onDestruct?.Invoke();
+            OnDestruct();
             SetStatus(ConstructionStatus.Destructed);
 
             // Construct phase
             SetStatus(ConstructionStatus.Constructing);
-            _onConstruct?.Invoke();
+            OnConstruct();
             SetStatus(ConstructionStatus.Constructed);
         }
         finally
@@ -270,7 +336,7 @@ public abstract class ComponentVMBase : IComponentVM
 
     // ── Lifecycle: Dispose ──────────────────────────────────────────────────
     /// <inheritdoc/>
-    public void Dispose()
+    public virtual void Dispose()
     {
         // Idempotent: already Disposed → no-op (no message).
         if (_status == ConstructionStatus.Disposed) return;
@@ -299,21 +365,21 @@ public abstract class ComponentVMBase : IComponentVM
     /// <inheritdoc/>
     public bool CanSelect() =>
         Parent is not null &&
-        !ReferenceEquals(Parent.Current, this) &&
+        !ReferenceEquals(Parent.CurrentChild, this) &&
         _status == ConstructionStatus.Constructed;
 
     /// <inheritdoc/>
 #pragma warning disable CA1716 // 'Select' is the spec-mandated name per spec/05-component-vm.md
-    public void Select() => Parent?.SelectComponent(this);
+    public void Select() => Parent?.SelectChild(this);
 #pragma warning restore CA1716
 
     /// <inheritdoc/>
     public bool CanDeselect() =>
         Parent is not null &&
-        ReferenceEquals(Parent.Current, this);
+        ReferenceEquals(Parent.CurrentChild, this);
 
     /// <inheritdoc/>
-    public void Deselect() => Parent?.DeselectComponent(this);
+    public void Deselect() => Parent?.DeselectChild(this);
 
     private bool CanSelectNext() => false; // requires parent enumeration — Task 7
     private void SelectNext() { }

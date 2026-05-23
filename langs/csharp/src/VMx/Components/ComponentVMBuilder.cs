@@ -28,7 +28,7 @@ public sealed class ComponentVMBuilder<M>
     private readonly Action? _onDestruct;
     private readonly bool _background;
     private readonly bool _asyncSelection;
-    private readonly ICompositeVM<IComponentVM>? _parent;
+    private readonly IParentCompositeVM? _parent;
 
     /// <summary>Represents an empty, unconfigured builder.</summary>
     public static readonly ComponentVMBuilder<M> Empty = new();
@@ -57,7 +57,7 @@ public sealed class ComponentVMBuilder<M>
         Action? onDestruct,
         bool background,
         bool asyncSelection,
-        ICompositeVM<IComponentVM>? parent)
+        IParentCompositeVM? parent)
     {
         _name = name;
         _model = model;
@@ -111,8 +111,8 @@ public sealed class ComponentVMBuilder<M>
     public ComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
-    /// <summary>Sets the optional parent composite.</summary>
-    public ComponentVMBuilder<M> Parent(ICompositeVM<IComponentVM> parent) => With(parent: parent);
+    /// <summary>Sets the optional parent composite (internal: used by CompositeVMBase).</summary>
+    internal ComponentVMBuilder<M> Parent(IParentCompositeVM parent) => With(parent: parent);
 
     /// <summary>
     /// Validates required fields and constructs a <see cref="ComponentVM{M}"/>.
@@ -158,7 +158,7 @@ public sealed class ComponentVMBuilder<M>
         Action? onDestruct = null,
         bool? background = null,
         bool? asyncSelection = null,
-        ICompositeVM<IComponentVM>? parent = null)
+        IParentCompositeVM? parent = null)
         => new(
             name ?? _name,
             // For model: use provided model when modelSet is explicitly true, otherwise keep current
@@ -197,7 +197,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
     private readonly Func<M, string> _modeledHinter;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
-    private readonly ICompositeVM<IComponentVM>? _parent;
+    private readonly IParentCompositeVM? _parent;
 
     /// <summary>Represents an empty, unconfigured builder.</summary>
     public static readonly ReadonlyComponentVMBuilder<M> Empty = new();
@@ -220,7 +220,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
         Func<M, string> modeledHinter,
         Action? onConstruct,
         Action? onDestruct,
-        ICompositeVM<IComponentVM>? parent)
+        IParentCompositeVM? parent)
     {
         _name = name;
         _model = model;
@@ -258,8 +258,8 @@ public sealed class ReadonlyComponentVMBuilder<M>
     public ReadonlyComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
-    /// <summary>Sets the optional parent composite.</summary>
-    public ReadonlyComponentVMBuilder<M> Parent(ICompositeVM<IComponentVM> parent) => With(parent: parent);
+    /// <summary>Sets the optional parent composite (internal: used by CompositeVMBase).</summary>
+    internal ReadonlyComponentVMBuilder<M> Parent(IParentCompositeVM parent) => With(parent: parent);
 
     /// <summary>
     /// Validates required fields and constructs a <see cref="ReadonlyComponentVM{M}"/>.
@@ -299,7 +299,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
         Func<M, string>? modeledHinter = null,
         Action? onConstruct = null,
         Action? onDestruct = null,
-        ICompositeVM<IComponentVM>? parent = null)
+        IParentCompositeVM? parent = null)
         => new(
             name ?? _name,
             modelSet == true ? model : _model,

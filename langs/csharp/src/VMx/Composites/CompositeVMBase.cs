@@ -1,0 +1,296 @@
+#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
+using System.Collections;
+using System.Collections.Specialized;
+using VMx.Components;
+using VMx.Lifecycle;
+using VMx.Messages;
+using VMx.Services;
+
+namespace VMx.Composites;
+
+/// <summary>
+/// Abstract base for all CompositeVM variants.  Implements <see cref="ICompositeVM{VM}"/>
+/// on top of <see cref="ComponentVMBase"/>: ordered child collection with
+/// <see cref="INotifyCollectionChanged"/> events, <see cref="Current"/> selection,
+/// and coordinated Construct / Destruct / Dispose for the child hierarchy.
+///
+/// See spec/06-composite-vm.md.
+/// </summary>
+/// <typeparam name="VM">The child viewmodel type.</typeparam>
+public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, IParentCompositeVM
+    where VM : class, IComponentVM
+{
+    private readonly IDispatcher _dispatcher;
+    private readonly bool _asyncSelection;
+
+    // ── Children backing store ────────────────────────────────────────────────
+    private readonly List<VM> _children = new();
+
+    // ── Current selection ─────────────────────────────────────────────────────
+    private VM? _current;
+
+    // ── INotifyCollectionChanged ──────────────────────────────────────────────
+    /// <inheritdoc/>
+    public event NotifyCollectionChangedEventHandler? CollectionChanged;
+
+    // ── ICompositeVM: Current ─────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public VM? Current
+    {
+        get => _current;
+        set => SetCurrent(value, async: _asyncSelection);
+    }
+
+    // ── IList<VM> ─────────────────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public int Count => _children.Count;
+
+    /// <inheritdoc/>
+    public bool IsReadOnly => false;
+
+    /// <inheritdoc/>
+    public VM this[int index]
+    {
+        get => _children[index];
+        set
+        {
+            var old = _children[index];
+            _children[index] = value;
+            // Notify replace as Remove then Add (standard INCC pattern).
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Remove, old, index));
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, value, index));
+            old.SetParent(null);
+            value.SetParent(this);
+        }
+    }
+
+    // ── Constructor ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Initializes the composite base.
+    /// </summary>
+    protected CompositeVMBase(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool asyncSelection,
+        Action? onConstruct,
+        Action? onDestruct)
+        : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
+    {
+        _dispatcher = dispatcher;
+        _asyncSelection = asyncSelection;
+    }
+
+    // ── IParentCompositeVM (non-generic, used by ComponentVMBase for selection) ─
+
+    IComponentVM? IParentCompositeVM.CurrentChild => _current;
+
+    void IParentCompositeVM.SelectChild(IComponentVM vm)
+    {
+        if (vm is VM typed) SelectComponent(typed);
+    }
+
+    void IParentCompositeVM.DeselectChild(IComponentVM vm)
+    {
+        if (vm is VM typed) DeselectComponent(typed);
+    }
+
+    // ── ICompositeVM: selection ───────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public void SelectComponent(VM vm)
+    {
+        if (!CanSelectComponent(vm))
+            throw new InvalidOperationException(
+                $"Cannot select '{vm.Name}': can_select_component returned false.");
+        Current = vm;
+    }
+
+    /// <inheritdoc/>
+    public void DeselectComponent(VM vm)
+    {
+        if (!ReferenceEquals(_current, vm))
+            throw new InvalidOperationException(
+                $"Cannot deselect '{vm.Name}': it is not the current selection.");
+        Current = null;
+    }
+
+    /// <inheritdoc/>
+    public bool CanSelectComponent(VM vm)
+        => _children.Contains(vm) && vm.Status == ConstructionStatus.Constructed;
+
+    // ── IList<VM>: mutation ───────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public void Add(VM item)
+    {
+        _children.Add(item);
+        item.SetParent(this);
+        var idx = _children.Count - 1;
+        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Add, item, idx));
+    }
+
+    /// <inheritdoc/>
+    public bool Remove(VM item)
+    {
+        var idx = _children.IndexOf(item);
+        if (idx < 0) return false;
+        RemoveAt(idx);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public void Insert(int index, VM item)
+    {
+        _children.Insert(index, item);
+        item.SetParent(this);
+        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Add, item, index));
+    }
+
+    /// <inheritdoc/>
+    public void RemoveAt(int index)
+    {
+        var item = _children[index];
+        _children.RemoveAt(index);
+        item.SetParent(null);
+        // If the removed item was Current, clear selection.
+        if (ReferenceEquals(_current, item))
+            SetCurrent(null, async: false);
+        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Remove, item, index));
+    }
+
+    /// <inheritdoc/>
+    public void Clear()
+    {
+        foreach (var child in _children)
+            child.SetParent(null);
+        _children.Clear();
+        _current = null;
+        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Reset));
+    }
+
+    // ── IList<VM>: query ──────────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public bool Contains(VM item) => _children.Contains(item);
+
+    /// <inheritdoc/>
+    public int IndexOf(VM item) => _children.IndexOf(item);
+
+    /// <inheritdoc/>
+    public void CopyTo(VM[] array, int arrayIndex) => _children.CopyTo(array, arrayIndex);
+
+    /// <inheritdoc/>
+    public IEnumerator<VM> GetEnumerator() => _children.GetEnumerator();
+
+    /// <inheritdoc/>
+    IEnumerator IEnumerable.GetEnumerator() => _children.GetEnumerator();
+
+    // ── Lifecycle overrides ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Overrides Construct to populate + construct every child (sequential for v1.0).
+    /// Called by the base Construct() between Constructing → Constructed transitions.
+    /// </summary>
+    protected override void OnConstruct()
+    {
+        base.OnConstruct(); // invoke user's onConstruct callback if any
+        // Populate children from factory (lazy: only on first construct).
+        PopulateChildren();
+        // Construct all children.
+        ConstructChildren();
+    }
+
+    /// <summary>Constructs all current children sequentially.</summary>
+    protected void ConstructChildren()
+    {
+        foreach (var child in _children)
+            child.Construct();
+    }
+
+    /// <summary>
+    /// Called once per Construct() to populate the children collection from
+    /// the configured factory.  Default: no-op (children were added manually).
+    /// Sealed subclasses override to evaluate their factory and Add children.
+    /// </summary>
+    protected virtual void PopulateChildren() { }
+
+    /// <summary>
+    /// Overrides Destruct: sets Current = null first, then destructs all children.
+    /// </summary>
+    protected override void OnDestruct()
+    {
+        if (_current is not null)
+            SetCurrent(null, async: false);
+
+        foreach (var child in _children)
+            child.Destruct();
+
+        base.OnDestruct(); // invoke user's onDestruct callback if any
+    }
+
+    /// <summary>
+    /// Dispose cascade (LIFE-013): recursively dispose each child depth-first, then self.
+    /// </summary>
+    public override void Dispose()
+    {
+        // Depth-first: dispose each child before self.
+        foreach (var child in _children)
+            child.Dispose();
+
+        base.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    // ── IComponentVM.Type ─────────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public override ViewModelType Type => ViewModelType.Composite;
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private void SetCurrent(VM? value, bool async)
+    {
+        if (value is not null && !_children.Contains(value))
+            throw new InvalidOperationException(
+                $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
+
+        if (async)
+        {
+            _dispatcher.Foreground.Schedule(value, (sched, v) => { ApplyCurrentChange(v); return System.Reactive.Disposables.Disposable.Empty; });
+        }
+        else
+        {
+            ApplyCurrentChange(value);
+        }
+    }
+
+    private void ApplyCurrentChange(VM? value)
+    {
+        if (ReferenceEquals(_current, value)) return;
+
+        var previous = _current;
+        _current = value;
+
+        // Update IsCurrent on affected children.
+        if (previous is not null)
+            previous.SetIsCurrent(false);
+        if (value is not null)
+            value.SetIsCurrent(true);
+
+        // Emit PropertyChangedMessage for "Current" on the hub.
+        Hub.Send(PropertyChangedMessage<CompositeVMBase<VM>>.Create(this, Name, nameof(Current)));
+        RaisePropertyChanged(nameof(Current));
+    }
+}
+#pragma warning restore CA1715
