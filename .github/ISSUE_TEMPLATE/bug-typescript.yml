@@ -1,0 +1,45 @@
+name: Bug report — TypeScript (vmx npm package)
+description: Something is broken in the TypeScript flavor.
+labels: [bug, typescript]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: vmx version
+      placeholder: e.g., 1.1.0
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: e.g., 22.3.0
+    validations:
+      required: true
+  - type: input
+    id: typescript
+    attributes:
+      label: TypeScript version
+      placeholder: e.g., 5.4.5
+    validations:
+      required: false
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest code snippet that reproduces the issue.
+      render: typescript
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

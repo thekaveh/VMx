@@ -104,10 +104,16 @@ jobs:
                 missing_in+=("langs/csharp/tests/VMx.Conformance.Tests:${id}")
               fi
             fi
+            # TypeScript stub presence
+            if [ -d langs/typescript/tests/conformance ]; then
+              if ! grep -rE -q "describe\(\s*[\"']${id}[\"']" langs/typescript/tests/conformance; then
+                missing_in+=("langs/typescript/tests/conformance:${id}")
+              fi
+            fi
           done
 
           if [ ${#missing_in[@]} -gt 0 ]; then
-            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\") or [Trait(\"Conformance\", \"…\")]):"
+            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\"), [Trait(\"Conformance\", \"…\")], or describe(\"…\")):"
             for item in "${missing_in[@]}"; do
               echo "  - $item"
             done

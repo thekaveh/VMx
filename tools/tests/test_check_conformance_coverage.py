@@ -148,6 +148,33 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
     assert "LIFE-999" not in found
 
 
+def test_scrape_typescript_tests_finds_describe_ids(tmp_path: Path) -> None:
+    test_file = tmp_path / "lifecycle.test.ts"
+    test_file.write_text(
+        textwrap.dedent(
+            '''\
+            import { describe, it, expect } from "vitest";
+
+            describe("LIFE-001", () => {
+              it("construct transitions", () => {});
+            });
+
+            describe("LIFE-002", () => {
+              it("destruct transitions", () => {});
+            });
+
+            // Not a conformance ID — should be ignored
+            describe("some helper", () => {});
+            '''
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_typescript_conformance_ids(tmp_path)
+
+    assert found == {"LIFE-001", "LIFE-002"}
+
+
 def test_report_gaps_empty_when_complete() -> None:
     catalog = {"LIFE-001", "LIFE-002"}
     language_coverage = {"python": {"LIFE-001", "LIFE-002"}}

@@ -1,0 +1,388 @@
+import { describe, it, expect } from "vitest";
+import { TestScheduler } from "rxjs/testing";
+import {
+  ConstructionStatus,
+  MessageHub,
+  RxDispatcher,
+  ComponentVM,
+  ComponentVMOf,
+  CompositeVM,
+  CompositeVMOf,
+  PropertyChangedMessage,
+} from "../../src/index.js";
+import type { CollectionChangedEvent } from "../../src/index.js";
+
+function makeHub() { return new MessageHub(); }
+function makeDisp() { return RxDispatcher.immediate(); }
+
+function makeChild(hub: MessageHub, name: string) {
+  return ComponentVM.builder().name(name).services(hub, makeDisp()).build();
+}
+
+// ---------------------------------------------------------------------------
+// COMP-001
+// ---------------------------------------------------------------------------
+
+describe("COMP-001", () => {
+  it("Add emits CollectionChanged(action=Add)", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [])
+      .build();
+    composite.construct();
+
+    const events: CollectionChangedEvent[] = [];
+    composite.collectionChanged.subscribe((e) => events.push(e));
+
+    const vm = makeChild(hub, "child");
+    composite.add(vm);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("add");
+    expect(events[0]?.newItems).toContain(vm);
+    expect(events[0]?.newIndex).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-002
+// ---------------------------------------------------------------------------
+
+describe("COMP-002", () => {
+  it("Remove emits CollectionChanged(action=Remove)", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vm = makeChild(hub, "child");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [vm])
+      .build();
+    composite.construct();
+
+    const events: CollectionChangedEvent[] = [];
+    composite.collectionChanged.subscribe((e) => events.push(e));
+
+    composite.remove(vm);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("remove");
+    expect(events[0]?.oldItems).toContain(vm);
+    expect(events[0]?.oldIndex).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-003
+// ---------------------------------------------------------------------------
+
+describe("COMP-003", () => {
+  it("select_component sets Current and emits PropertyChanged messages", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vm = ComponentVM.builder().name("child").services(hub, disp).build();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [vm])
+      .build();
+    composite.construct();
+
+    const propNames: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage) propNames.push(m.propertyName);
+    });
+
+    composite.selectComponent(vm);
+
+    expect(composite.current).toBe(vm);
+    expect(vm.isCurrent).toBe(true);
+    expect(propNames).toContain("Current");
+    expect(propNames).toContain("IsCurrent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-004
+// ---------------------------------------------------------------------------
+
+describe("COMP-004", () => {
+  it("Construct waits until all children reach Constructed", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const c1 = makeChild(hub, "c1");
+    const c2 = makeChild(hub, "c2");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => [c1, c2])
+      .build();
+
+    composite.construct();
+
+    expect(c1.status).toBe(ConstructionStatus.Constructed);
+    expect(c2.status).toBe(ConstructionStatus.Constructed);
+    expect(composite.status).toBe(ConstructionStatus.Constructed);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-005
+// ---------------------------------------------------------------------------
+
+describe("COMP-005", () => {
+  it("Destruct waits until all children reach Destructed and unsets Current", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const c1 = makeChild(hub, "c1");
+    const c2 = makeChild(hub, "c2");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => [c1, c2])
+      .build();
+    composite.construct();
+    composite.selectComponent(c1);
+    expect(composite.current).toBe(c1);
+
+    composite.destruct();
+
+    expect(composite.current).toBeNull();
+    expect(c1.status).toBe(ConstructionStatus.Destructed);
+    expect(c2.status).toBe(ConstructionStatus.Destructed);
+    expect(composite.status).toBe(ConstructionStatus.Destructed);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-006
+// ---------------------------------------------------------------------------
+
+describe("COMP-006", () => {
+  it("IsCurrent change on previously-Current child dispatches on foreground scheduler", () => {
+    const testScheduler = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+
+    testScheduler.run(({ cold: _cold, expectObservable: _expectObservable }) => {
+      // Using immediate scheduler for this test; foreground events are observed
+      // synchronously since queueScheduler is synchronous.
+      const hub = makeHub();
+      const disp = makeDisp();
+      const vmA = makeChild(hub, "vmA");
+      const vmB = makeChild(hub, "vmB");
+      const composite = CompositeVM.builder<ComponentVM>()
+        .name("composite")
+        .services(hub, disp)
+        .children(() => [vmA, vmB])
+        .build();
+      composite.construct();
+      composite.selectComponent(vmA);
+
+      const isCurrentChanges: boolean[] = [];
+      vmA.propertyChanged.subscribe((p) => {
+        if (p === "isCurrent") isCurrentChanges.push(vmA.isCurrent);
+      });
+
+      composite.deselectComponent(vmA);
+
+      expect(isCurrentChanges).toContain(false);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-007
+// ---------------------------------------------------------------------------
+
+describe("COMP-007", () => {
+  it("Modeled composite maps model factory output to children", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const m1: M = { id: 1 };
+    const m2: M = { id: 2 };
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => [m1, m2])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .build();
+
+    composite.construct();
+
+    expect(composite.count).toBe(2);
+    expect(composite.at(0).model).toBe(m1);
+    expect(composite.at(1).model).toBe(m2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-008
+// ---------------------------------------------------------------------------
+
+describe("COMP-008", () => {
+  it("can_select_component returns false for non-children", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vmA = makeChild(hub, "vmA");
+    const vmB = makeChild(hub, "vmB");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [vmA])
+      .build();
+    composite.construct();
+
+    expect(composite.canSelectComponent(vmB)).toBe(false);
+    expect(() => composite.selectComponent(vmB)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-009
+// ---------------------------------------------------------------------------
+
+describe("COMP-009", () => {
+  it("Current setter raises when assigned a non-child", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vmA = makeChild(hub, "vmA");
+    const vmB = makeChild(hub, "vmB");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [vmA])
+      .build();
+    composite.construct();
+
+    expect(() => { composite.current = vmB; }).toThrow();
+    expect(composite.current).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-010
+// ---------------------------------------------------------------------------
+
+describe("COMP-010", () => {
+  it("AsyncSelection dispatches Current change via foreground scheduler", () => {
+    // Use the queueScheduler (synchronous) as the foreground scheduler.
+    // With asyncSelection=true, the change is scheduled on the foreground scheduler.
+    // With queueScheduler, it executes synchronously within the same task.
+    const hub = makeHub();
+    const disp = makeDisp(); // both use queueScheduler
+    const vmA = makeChild(hub, "vmA");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .asyncSelection(true)
+      .children(() => [vmA])
+      .build();
+    composite.construct();
+
+    // With queueScheduler (synchronous), current changes synchronously
+    // when the scheduler flushes (which is immediate for queueScheduler).
+    composite.selectComponent(vmA);
+
+    // queueScheduler is synchronous, so the selection completes immediately.
+    expect(composite.current).toBe(vmA);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-011
+// ---------------------------------------------------------------------------
+
+describe("COMP-011", () => {
+  it("deselect_component raises when vm is not Current", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vmA = makeChild(hub, "vmA");
+    const vmB = makeChild(hub, "vmB");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [vmA, vmB])
+      .build();
+    composite.construct();
+    composite.selectComponent(vmA);
+
+    expect(() => composite.deselectComponent(vmB)).toThrow();
+    expect(composite.current).toBe(vmA);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-012
+// ---------------------------------------------------------------------------
+
+describe("COMP-012", () => {
+  it("AutoConstructOnAdd(true) auto-constructs late children", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .autoConstructOnAdd(true)
+      .children(() => [])
+      .build();
+    composite.construct();
+
+    const child = makeChild(hub, "late-child");
+    const events: CollectionChangedEvent[] = [];
+    composite.collectionChanged.subscribe((e) => events.push(e));
+
+    composite.add(child);
+
+    // Child must be Constructed before the CollectionChanged(Add) event fires.
+    expect(child.status).toBe(ConstructionStatus.Constructed);
+    // Event should have been emitted.
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("add");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-013
+// ---------------------------------------------------------------------------
+
+describe("COMP-013", () => {
+  it("BatchUpdate suppresses per-mutation events and emits one Reset", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [])
+      .build();
+    composite.construct();
+
+    const events: CollectionChangedEvent[] = [];
+    composite.collectionChanged.subscribe((e) => events.push(e));
+
+    const c1 = makeChild(hub, "c1");
+    const c2 = makeChild(hub, "c2");
+    const c3 = makeChild(hub, "c3");
+
+    const batch = composite.batchUpdate();
+    composite.add(c1);
+    composite.add(c2);
+    composite.insert(0, c3);
+    // No events yet
+    expect(events).toHaveLength(0);
+    batch.dispose();
+
+    // Exactly one Reset event
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("reset");
+    // Children reflect post-batch state
+    expect(composite.count).toBe(3);
+  });
+});

@@ -60,6 +60,10 @@ _PY_MARK_PATTERN = re.compile(
 _CS_TRAIT_PATTERN = re.compile(
     r'\[[^\[\]]*?Trait\(\s*"Conformance"\s*,\s*"([A-Z]{3,5}-\d{3})"\s*\)',
 )
+# TypeScript: `describe("XXX-NNN", ...)` — the ID is the entire describe label.
+_TS_DESCRIBE_PATTERN = re.compile(
+    r'describe\(\s*["\']([A-Z]{3,5}-\d{3})["\']\s*,',
+)
 
 
 def _scrape_ids(directory: Path, glob: str, pattern: re.Pattern[str]) -> set[str]:
@@ -80,6 +84,10 @@ def scrape_csharp_conformance_ids(directory: Path) -> set[str]:
     return _scrape_ids(directory, "*.cs", _CS_TRAIT_PATTERN)
 
 
+def scrape_typescript_conformance_ids(directory: Path) -> set[str]:
+    return _scrape_ids(directory, "*.ts", _TS_DESCRIBE_PATTERN)
+
+
 # ─── coverage math ────────────────────────────────────────────────────
 
 def compute_gaps(catalog: set[str], coverage: dict[str, set[str]]) -> dict[str, set[str]]:
@@ -97,8 +105,9 @@ def compute_gaps(catalog: set[str], coverage: dict[str, set[str]]) -> dict[str, 
 # add a thin scraper wrapper, and register `(rel_dir, scraper)` here under the
 # language key. The CLI's `--require` automatically picks up the new key via `choices`.
 _SCRAPERS: dict[str, tuple[str, Callable[[Path], set[str]]]] = {
-    "python":  ("langs/python/tests/conformance",        scrape_python_conformance_ids),
-    "csharp":  ("langs/csharp/tests/VMx.Conformance.Tests", scrape_csharp_conformance_ids),
+    "python":     ("langs/python/tests/conformance",           scrape_python_conformance_ids),
+    "csharp":     ("langs/csharp/tests/VMx.Conformance.Tests", scrape_csharp_conformance_ids),
+    "typescript": ("langs/typescript/tests/conformance",       scrape_typescript_conformance_ids),
 }
 
 

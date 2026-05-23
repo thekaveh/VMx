@@ -39,8 +39,8 @@ jobs:
       - name: Run tool's own unit tests
         run: uv --project langs/python run pytest tools/tests/ -v
 
-      - name: Enforce conformance coverage (csharp + python)
-        # Both C# v1.0.0 and Python v1.0.0 have shipped. CI now enforces 100%
-        # conformance coverage for both languages. The tool exits non-zero if
-        # any required language falls below full coverage.
-        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python
+      - name: Enforce conformance coverage (csharp + python + typescript)
+        # C# v1.0.0, Python v1.0.0, and TypeScript v1.1.0 have shipped. CI
+        # enforces 100% conformance coverage for all three languages. The tool
+        # exits non-zero if any required language falls below full coverage.
+        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript

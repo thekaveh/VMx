@@ -1,0 +1,86 @@
+/**
+ * AggregateVM1<VM1> — arity-1 aggregate viewmodel.
+ *
+ * See spec/08-aggregate-vm.md and ADR-0007.
+ */
+import { ComponentVMBase } from "../components/componentVMBase.js";
+import { ViewModelType } from "../components/types.js";
+import { PropertyChangedMessage } from "../messages/propertyChanged.js";
+import type { IMessageHub } from "../services/messageHub.js";
+import type { IDispatcher } from "../services/dispatcher.js";
+
+const SENTINEL = Symbol("not-set");
+
+export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
+  readonly #factory1: () => VM1;
+  #component1: VM1 | null = null;
+
+  constructor(opts: {
+    name: string;
+    hint: string;
+    hub: IMessageHub;
+    dispatcher: IDispatcher;
+    factory1: () => VM1;
+  }) {
+    super(opts);
+    this.#factory1 = opts.factory1;
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Aggregate;
+  }
+
+  get component1(): VM1 | null {
+    return this.#component1;
+  }
+
+  protected override _onConstruct(): void {
+    this.#component1 = this.#factory1();
+    this._hub.send(PropertyChangedMessage.create(this, this._name, "Component1"));
+    this._raisePropertyChanged("component1");
+    this.#component1.construct();
+  }
+
+  protected override _onDestruct(): void {
+    this.#component1?.destruct();
+  }
+
+  protected override _onDispose(): void {
+    this.#component1?.dispose();
+  }
+
+  static builder<VM1 extends ComponentVMBase>(): AggregateVM1Builder<VM1> {
+    return new AggregateVM1Builder<VM1>();
+  }
+}
+
+export class AggregateVM1Builder<VM1 extends ComponentVMBase> {
+  #name: string | null = null;
+  #hint = "";
+  #hub: IMessageHub | null = null;
+  #dispatcher: IDispatcher | null = null;
+  #factory1: (() => VM1) | typeof SENTINEL = SENTINEL;
+
+  constructor(from?: AggregateVM1Builder<VM1>) {
+    if (from) {
+      this.#name = from.#name;
+      this.#hint = from.#hint;
+      this.#hub = from.#hub;
+      this.#dispatcher = from.#dispatcher;
+      this.#factory1 = from.#factory1;
+    }
+  }
+
+  name(v: string): AggregateVM1Builder<VM1> { const b = new AggregateVM1Builder<VM1>(this); b.#name = v; return b; }
+  hint(v: string): AggregateVM1Builder<VM1> { const b = new AggregateVM1Builder<VM1>(this); b.#hint = v; return b; }
+  services(hub: IMessageHub, disp: IDispatcher): AggregateVM1Builder<VM1> { const b = new AggregateVM1Builder<VM1>(this); b.#hub = hub; b.#dispatcher = disp; return b; }
+  component1(f: () => VM1): AggregateVM1Builder<VM1> { const b = new AggregateVM1Builder<VM1>(this); b.#factory1 = f; return b; }
+
+  build(): AggregateVM1<VM1> {
+    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
+    if (this.#hub === null || this.#dispatcher === null) throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+    if (this.#factory1 === SENTINEL) throw new Error("BuilderValidationError: component1 factory is required");
+    const factory1 = this.#factory1;
+    return new AggregateVM1<VM1>({ name: this.#name, hint: this.#hint, hub: this.#hub, dispatcher: this.#dispatcher, factory1 });
+  }
+}
