@@ -10,6 +10,8 @@ TSender = TypeVar("TSender", covariant=True)
 
 @runtime_checkable
 class Message(Protocol):
+    """Protocol for all VMx hub messages. See spec/03-messages.md."""
+
     @property
     def sender_name(self) -> str:
         """Should return the sender's name as a string."""
@@ -23,6 +25,11 @@ class Message(Protocol):
 
 @runtime_checkable
 class TypedMessage(Message, Protocol, Generic[Sender]):
+    """Typed hub message protocol carrying a strongly-typed Sender.
+
+    See spec/03-messages.md §IMessage shape.
+    """
+
     @property
     def sender(self) -> Sender:
         """Should return the sender, typed according to the Sender type variable."""
