@@ -3,7 +3,7 @@ using Xunit;
 
 namespace VMx.Conformance.Tests;
 
-public class _BootstrapTest
+public class BootstrapConformanceTests
 {
     [Fact]
     public void FixturesAreAvailable()
