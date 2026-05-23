@@ -50,22 +50,14 @@ Implementations MAY achieve this either by:
 ## Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The
-builder option `Background(true)` (or `Async(true)` per flavor) enables this:
-
-```
-ComponentVM<M>.Builder()
-    .Background(true)
-    ...
-    .Build()
-```
-
-With background enabled, `construct()` and `destruct()` return immediately and
-complete asynchronously. The status transitions are still observable via the
-hub; subscribers that need to await completion SHOULD subscribe to
+builder option `Background(true)` (see `10-builders.md §Default values` for the full
+builder API) enables this. With background enabled, `construct()` and `destruct()`
+return immediately and complete asynchronously; status transitions are still observable
+via the hub. Subscribers that need to await completion should subscribe to
 `ConstructionStatusChangedMessage` and filter for the terminal state.
 
-With background disabled (the default), `construct()` and `destruct()` run on
-the calling thread and complete before returning.
+With background disabled (the default), `construct()` and `destruct()` run on the
+calling thread and complete before returning.
 
 ## Conformance
 
