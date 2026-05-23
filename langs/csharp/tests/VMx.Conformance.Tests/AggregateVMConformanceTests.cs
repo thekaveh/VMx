@@ -171,7 +171,7 @@ public class AggregateVMConformanceTests
         var observedPropNames = new List<string>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<AggregateVM3<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>> pcm)
+            if (m is IPropertyChangedMessage<IComponentVM> pcm)
                 observedPropNames.Add(pcm.PropertyName);
         });
 

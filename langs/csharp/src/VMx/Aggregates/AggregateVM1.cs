@@ -50,7 +50,7 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>
     {
         _component1 = _factory1();
         RaisePropertyChanged(nameof(Component1));
-        Hub.Send(PropertyChangedMessage<AggregateVM1<VM1>>.Create(this, Name, nameof(Component1)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));
 
         _component1.Construct();
     }

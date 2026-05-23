@@ -287,7 +287,7 @@ public class AggregateVMTests
         var propNames = new List<string>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<AggregateVM2<ComponentVM<string>, ComponentVM<string>>> pcm)
+            if (m is IPropertyChangedMessage<IComponentVM> pcm)
                 propNames.Add(pcm.PropertyName);
         });
 

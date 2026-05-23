@@ -102,7 +102,7 @@ public class CompositeVMConformanceTests
         var isCurrentMessages = new List<IMessage>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<CompositeVMBase<ComponentVM<string>>> pcm)
+            if (m is IPropertyChangedMessage<IComponentVM> pcm)
                 currentMessages.Add(pcm.PropertyName);
             if (m is IPropertyChangedMessage<IComponentVM> pcm2 &&
                 pcm2.PropertyName == nameof(ComponentVMBase.IsCurrent))

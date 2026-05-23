@@ -268,7 +268,7 @@ public class CompositeVMTests
         var propMessages = new List<string>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<CompositeVMBase<ComponentVM<string>>> pcm)
+            if (m is IPropertyChangedMessage<IComponentVM> pcm)
                 propMessages.Add(pcm.PropertyName);
         });
 

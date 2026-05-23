@@ -77,19 +77,19 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
     {
         _component1 = _factory1();
         RaisePropertyChanged(nameof(Component1));
-        Hub.Send(PropertyChangedMessage<AggregateVM4<VM1, VM2, VM3, VM4>>.Create(this, Name, nameof(Component1)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));
 
         _component2 = _factory2();
         RaisePropertyChanged(nameof(Component2));
-        Hub.Send(PropertyChangedMessage<AggregateVM4<VM1, VM2, VM3, VM4>>.Create(this, Name, nameof(Component2)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component2)));
 
         _component3 = _factory3();
         RaisePropertyChanged(nameof(Component3));
-        Hub.Send(PropertyChangedMessage<AggregateVM4<VM1, VM2, VM3, VM4>>.Create(this, Name, nameof(Component3)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component3)));
 
         _component4 = _factory4();
         RaisePropertyChanged(nameof(Component4));
-        Hub.Send(PropertyChangedMessage<AggregateVM4<VM1, VM2, VM3, VM4>>.Create(this, Name, nameof(Component4)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component4)));
 
         _component1.Construct();
         _component2.Construct();

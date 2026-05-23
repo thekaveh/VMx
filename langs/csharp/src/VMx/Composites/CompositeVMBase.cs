@@ -289,7 +289,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
             value.SetIsCurrent(true);
 
         // Emit PropertyChangedMessage for "Current" on the hub.
-        Hub.Send(PropertyChangedMessage<CompositeVMBase<VM>>.Create(this, Name, nameof(Current)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
         RaisePropertyChanged(nameof(Current));
     }
 }
