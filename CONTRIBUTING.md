@@ -52,8 +52,7 @@ If a spec change genuinely does not warrant an ADR (e.g., a typo fix or pure
 formatting change), a maintainer may add the `no-adr-needed` PR label to bypass the
 ADR check. Use sparingly; the label is intended for changes with zero semantic effect.
 
-See `docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md` §5 and §6 for
-the full process.
+See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 
 ## Code of conduct
 

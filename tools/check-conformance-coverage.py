@@ -106,8 +106,7 @@ def collect_coverage(repo_root: Path) -> dict[str, set[str]]:
     """Walk every known language's conformance test directory and report IDs found.
 
     Languages whose conformance directory does not exist are skipped silently
-    (the directory is a Phase 1+ concern; absence simply means "not yet
-    implementing conformance").
+    (absence simply means "not yet implementing conformance").
     """
     coverage: dict[str, set[str]] = {}
     for lang, (rel_dir, scraper) in _SCRAPERS.items():

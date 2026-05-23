@@ -12,19 +12,17 @@ ______________________________________________________________________
 
 ## 1. Install
 
-VMx is not yet published to NuGet. Add it via a project reference:
+```bash
+dotnet add package VMx
+```
+
+For local development from a checked-out clone, reference the project directly:
 
 ```xml
 <!-- In your .csproj -->
 <ItemGroup>
   <ProjectReference Include="path/to/langs/csharp/src/VMx/VMx.csproj" />
 </ItemGroup>
-```
-
-Once published, this will become:
-
-```bash
-dotnet add package VMx
 ```
 
 ______________________________________________________________________

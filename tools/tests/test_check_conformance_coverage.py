@@ -203,8 +203,7 @@ def test_main_returns_nonzero_when_required_lang_has_gaps(tmp_path: Path) -> Non
 
 def test_main_returns_2_when_required_lang_has_no_directory(tmp_path: Path) -> None:
     """A required language whose tests/conformance directory is missing must fail
-    with rc=2; reporting it as 'no coverage' silently would be a gate hole when
-    Phase 2 wires --require csharp before C# conformance tests exist."""
+    with rc=2; reporting it as 'no coverage' silently would be a gate hole."""
     catalog = tmp_path / "spec" / "12-conformance.md"
     catalog.parent.mkdir(parents=True)
     catalog.write_text("### LIFE-001 — sample\n", encoding="utf-8")

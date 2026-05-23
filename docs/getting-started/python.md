@@ -12,28 +12,20 @@ ______________________________________________________________________
 
 ## 1. Install
 
-VMx is not yet published to PyPI. Install directly from the repository:
-
 ```bash
 # Using uv (recommended)
-uv add "vmx @ git+https://github.com/thekaveh/VMx#subdirectory=langs/python"
+uv add vmx
 
 # Using pip
-pip install "vmx @ git+https://github.com/thekaveh/VMx#subdirectory=langs/python"
+pip install vmx
 ```
 
-For local development, install from a checked-out clone:
+For local development from a checked-out clone:
 
 ```bash
 uv add --editable path/to/VMx/langs/python
 # or
 pip install -e path/to/VMx/langs/python
-```
-
-Once published this becomes:
-
-```bash
-uv add vmx
 ```
 
 ______________________________________________________________________

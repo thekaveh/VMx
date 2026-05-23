@@ -19,7 +19,7 @@ All notable changes to the C# flavor are documented here. The format is based on
   - Forwarding: `ForwardingComponentVM<M>` + `ForwardingCompositeVM<VM>` decorators
   - Background option (`Background(true)`) dispatches construct/destruct on `IDispatcher.Background`
   - Optional DI companion package `VMx.Extensions.DependencyInjection` with `AddVMx()`
-- 68 conformance tests covering LIFE-001..013, HUB-001..007, PROP-001..004, CMD-001..007, CVM-001..006, COMP-001..011, GRP-001..004, AGG-001..005, FWD-001..003, BLD-001..004, THR-001..004 — all pass.
+- 68 conformance IDs covered (82 test methods) — LIFE-001..013, HUB-001..007, PROP-001..004, CMD-001..007, CVM-001..006, COMP-001..011, GRP-001..004, AGG-001..005, FWD-001..003, BLD-001..004, THR-001..004 — all pass.
 - 194 unit tests across all modules — all pass.
 - Multi-target `netstandard2.0;net8.0`. Test runner targets `net9.0`.
 - Examples: `examples/csharp/HelloVMx/` (console) and `examples/csharp/WpfTodoApp/` (WPF binding, Windows-only build).

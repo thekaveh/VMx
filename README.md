@@ -2,7 +2,7 @@
 
 [![csharp](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml)
 [![python](https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/python.yml)
-[![docs](https://github.com/thekaveh/VMx/actions/workflows/docs.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/docs.yml)
+[![typescript](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml)
 [![conformance](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -10,9 +10,9 @@ A hierarchical, lifecycle-aware MVVM viewmodel framework, available in multiple 
 
 | Flavor | Package | Status |
 | --- | --- | --- |
-| C# | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet | v1.0.0 (NuGet publish deferred) |
-| Python | [`vmx`](https://pypi.org/project/vmx/) on PyPI | v1.0.0 (PyPI publish deferred) |
-| TypeScript | `vmx` on npm | planned (post-1.0) |
+| C# | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet | v1.1.0 |
+| Python | [`vmx`](https://pypi.org/project/vmx/) on PyPI | v1.1.0 |
+| TypeScript | [`vmx`](https://www.npmjs.com/package/vmx) on npm | v1.1.0 |
 
 ## Repository layout
 
@@ -36,8 +36,7 @@ Every published package declares the spec version it implements. See [`compatibi
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and the design spec at
-[`docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md`](docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
