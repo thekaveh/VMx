@@ -1,19 +1,37 @@
 # VMx TypeScript examples
 
-| Directory     | Description                                      |
-| ------------- | ------------------------------------------------ |
-| `hello-vmx/`  | Minimal console demo — lifecycle + model changes |
+Self-contained demos of the [VMx TypeScript package](../../langs/typescript/).
 
-## Running the hello-vmx example
+## Setup
 
-From this directory, with [tsx](https://github.com/privatenumber/tsx) installed:
+Examples here use [tsx](https://github.com/privatenumber/tsx) to run
+TypeScript directly without a separate compile step. Install once:
 
 ```bash
-npm install vmx tsx
+npm install -g tsx
+```
+
+---
+
+## Example 1 — `hello-vmx/` (Node script)
+
+Minimal console demo. Demonstrates:
+
+1. Building a `ComponentVMOf<UserModel>` with the fluent builder.
+2. Subscribing to hub messages (`ConstructionStatusChangedMessage` and
+   `PropertyChangedMessage`).
+3. The full lifecycle: construct → model mutations → destruct → dispose.
+4. The equality guard: setting the same model value emits **no** hub
+   message.
+
+**Run against the published package:**
+
+```bash
+npm install vmx
 npx tsx hello-vmx/index.ts
 ```
 
-Or run against the local source build:
+**Run against the local source build (from a clone of this repo):**
 
 ```bash
 # From the repo root
@@ -21,6 +39,17 @@ cd langs/typescript
 npm ci
 npm run build
 cd ../../examples/typescript
-npm install ../../langs/typescript tsx
+npm install ../../langs/typescript
 npx tsx hello-vmx/index.ts
+```
+
+---
+
+## Project layout
+
+```
+examples/typescript/
+├── README.md          # this file
+└── hello-vmx/
+    └── index.ts       # entry point
 ```
