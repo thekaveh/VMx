@@ -3,16 +3,43 @@
 Public API is organised by responsibility under sub-packages: ``vmx.lifecycle``,
 ``vmx.messages``, ``vmx.services``, ``vmx.commands``, ``vmx.components``,
 ``vmx.composites``, ``vmx.groups``, ``vmx.aggregates``, ``vmx.forwarding``,
-``vmx.builders``, ``vmx.tree``, ``vmx.collections``. The most common types are
-re-exported here for convenience.
+``vmx.builders``, ``vmx.tree``, ``vmx.collections``. The full set of public
+types is re-exported here so ``from vmx import ...`` reaches every primitive.
 """
 
 from vmx.__about__ import __min_spec_version__, __version__
-from vmx.collections import CollectionChangedEvent
-from vmx.commands import RelayCommand
-from vmx.components import ComponentVMOf, ReadonlyComponentVMOf
-from vmx.composites import CompositeVM, CompositeVMOf
-from vmx.groups import GroupVM
+from vmx.aggregates import (
+    AggregateVM1,
+    AggregateVM2,
+    AggregateVM3,
+    AggregateVM4,
+    AggregateVM5,
+    AggregateVMBuilder1,
+    AggregateVMBuilder2,
+    AggregateVMBuilder3,
+    AggregateVMBuilder4,
+    AggregateVMBuilder5,
+)
+from vmx.builders import BuilderValidationError
+from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
+from vmx.commands import RelayCommand, RelayCommandOfT
+from vmx.components import (
+    ComponentVM,
+    ComponentVMBuilder,
+    ComponentVMOf,
+    ComponentVMOfBuilder,
+    ReadonlyComponentVMOf,
+    ReadonlyComponentVMOfBuilder,
+    ViewModelType,
+)
+from vmx.composites import (
+    CompositeVM,
+    CompositeVMBuilder,
+    CompositeVMOf,
+    CompositeVMOfBuilder,
+)
+from vmx.forwarding import ForwardingComponentVM, ForwardingCompositeVM
+from vmx.groups import GroupVM, GroupVMBuilder
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
 from vmx.messages import (
     ConstructionStatusChangedMessage,
@@ -23,20 +50,43 @@ from vmx.services import MessageHub, RxDispatcher
 from vmx.tree import find, walk
 
 __all__ = [
+    "AggregateVM1",
+    "AggregateVM2",
+    "AggregateVM3",
+    "AggregateVM4",
+    "AggregateVM5",
+    "AggregateVMBuilder1",
+    "AggregateVMBuilder2",
+    "AggregateVMBuilder3",
+    "AggregateVMBuilder4",
+    "AggregateVMBuilder5",
+    "BatchUpdateHandle",
+    "BuilderValidationError",
     "CollectionChangedEvent",
+    "ComponentVM",
+    "ComponentVMBuilder",
     "ComponentVMOf",
+    "ComponentVMOfBuilder",
     "CompositeVM",
+    "CompositeVMBuilder",
     "CompositeVMOf",
+    "CompositeVMOfBuilder",
     "ConstructionStatus",
     "ConstructionStatusChangedMessage",
+    "ForwardingComponentVM",
+    "ForwardingCompositeVM",
     "GroupVM",
+    "GroupVMBuilder",
     "Message",
     "MessageHub",
     "PropertyChangedMessage",
     "ReadonlyComponentVMOf",
+    "ReadonlyComponentVMOfBuilder",
     "RelayCommand",
+    "RelayCommandOfT",
     "RxDispatcher",
     "StatusTransitionError",
+    "ViewModelType",
     "__min_spec_version__",
     "__version__",
     "find",
