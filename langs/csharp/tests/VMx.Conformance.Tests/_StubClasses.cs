@@ -16,6 +16,10 @@ internal sealed class ComponentVMConformanceTests
     public void LIFE_009_Idempotent_Construct() => throw new NotImplementedException("Task 6");
     public void LIFE_010_Idempotent_Destruct() => throw new NotImplementedException("Task 6");
     public void LIFE_012_Dispose_From_Disposed_Silent() => throw new NotImplementedException("Task 6");
+    public void PROP_001_Setter_Publishes() => throw new NotImplementedException("Task 6");
+    public void PROP_002_Setter_Same_Value_Silent() => throw new NotImplementedException("Task 6");
+    public void PROP_003_Sender_Identity() => throw new NotImplementedException("Task 6");
+    public void PROP_004_PropertyName_SenderName() => throw new NotImplementedException("Task 6");
 }
 
 internal sealed class CompositeVMConformanceTests
