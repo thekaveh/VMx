@@ -198,7 +198,13 @@ subscription on the first message
 
 **Given** the JSON fixture `spec/fixtures/message-ordering.json`
 **When** every scenario in the fixture is exercised against a fresh hub
-**Then** the observed messages match each scenario's `expected_observed`
+**Then** the observed messages match each scenario's expected-output field:
+
+- single-subscriber scenarios use `expected_observed` (a list of message identifiers)
+- the `multiple-subscribers-same-message` scenario uses `expected_observed_per_subscriber`
+  (each of the `subscriber_count` subscribers observes that same list)
+- the `unsubscribe-during-emit` scenario uses `expected_observed` (the surviving
+  subscription's observed list)
 
 ### HUB-007 — Subscriber handler that raises does not break the hub
 
@@ -450,13 +456,15 @@ ______________________________________________________________________
 **When** `group.Add(vm)` is called
 **Then** the subscriber observes a `CollectionChanged` event with `action == Add`
 
-### GRP-002 — Group has no Current
+### GRP-002 — Group lacks child-navigation and child-selection members
 
 **Given** a `GroupVM<VM>` instance
 **When** the API surface is inspected
 **Then** there is no `Current` property
-**And** there is no `SelectCommand`, `DeselectCommand`, `SelectNextCommand`,
-`SelectPreviousCommand`
+**And** there is no `SelectNextCommand` or `SelectPreviousCommand` (children are peers, not navigable)
+**And** there is no `select_component`, `deselect_component`, or `can_select_component` method
+**And** `SelectCommand` and `DeselectCommand` ARE present (they operate on the group's own
+selection within its parent, not on the children — see `07-group-vm.md`)
 
 ### GRP-003 — Construct waits until all children reach Constructed
 
