@@ -8,17 +8,18 @@ Public re-exports:
 - :class:`CompositeVMOf` — modeled composite VM
 - :class:`CompositeVMBuilder` — builder for CompositeVM
 - :class:`CompositeVMOfBuilder` — builder for CompositeVMOf
-- :class:`CollectionChangedEvent` — event payload for collection mutations
+
+The shared :class:`vmx.collections.CollectionChangedEvent` payload is emitted
+on ``CompositeVM.on_collection_changed``.
 """
 
 from __future__ import annotations
 
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
-from vmx.composites.composite_vm import CollectionChangedEvent, CompositeVM, CompositeVMOf
+from vmx.composites.composite_vm import CompositeVM, CompositeVMOf
 from vmx.composites.protocols import CompositeVMOfProto, CompositeVMProto
 
 __all__ = [
-    "CollectionChangedEvent",
     "CompositeVM",
     "CompositeVMBuilder",
     "CompositeVMOf",

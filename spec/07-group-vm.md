@@ -19,18 +19,20 @@ GroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 Differences from `CompositeVM<VM>`:
 
 - No `Current` property.
-- No `SelectNextCommand`, `SelectPreviousCommand` (children are peers, not navigable).
-- No `select_component`, `deselect_component`, `can_select_component`.
+- No `select_component`, `deselect_component`, `can_select_component` —
+  children are peers, not selectable from a group-level slot.
 
-The `GroupVM` itself retains `SelectCommand` and `DeselectCommand` from the `IComponentVM`
-baseline — they operate on the group's own selection state within its parent (if any), not
-on the children. It is only navigation *within* the group that is absent.
+The `GroupVM` itself retains `SelectCommand` and `DeselectCommand` from the
+`IComponentVM` baseline — they operate on the group's own selection state within
+its parent (if any), not on the children. `SelectNextCommand` and
+`SelectPreviousCommand` are likewise inherited but their predicates always
+return `false`, since a group has no internal navigation slot to advance.
 
 ## Children construction orchestration
 
 Identical to `CompositeVM`: `construct()` waits for every child to reach
-`Constructed`; `destruct()` waits for every child to reach `Destructed`. Construct
-and destruct proceed in parallel across children.
+`Constructed`; `destruct()` waits for every child to reach `Destructed`. The
+order in which children are visited is unspecified.
 
 ## Builder
 

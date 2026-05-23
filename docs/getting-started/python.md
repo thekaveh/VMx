@@ -308,7 +308,8 @@ print(user_vm.status)    # ConstructionStatus.DESTRUCTED
 user_vm.reconstruct()
 print(user_vm.status)    # ConstructionStatus.CONSTRUCTED
 
-# dispose() is terminal — further construct() / destruct() calls are no-ops.
+# dispose() is terminal and idempotent. Calling construct() or destruct() on a
+# disposed VM raises StatusTransitionError.
 user_vm.dispose()
 print(user_vm.status)    # ConstructionStatus.DISPOSED
 

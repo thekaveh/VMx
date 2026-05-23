@@ -13,8 +13,9 @@ import reactivex.operators as ops
 from reactivex.testing import TestScheduler
 
 from tests.unit.helpers.test_dispatcher import TestDispatcher
+from vmx.collections import CollectionChangedEvent
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
-from vmx.composites.composite_vm import CollectionChangedEvent, CompositeVM
+from vmx.composites.composite_vm import CompositeVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub

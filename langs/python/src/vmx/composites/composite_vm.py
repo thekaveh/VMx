@@ -5,7 +5,6 @@ See spec/06-composite-vm.md.
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from typing import Generic, TypeVar, overload
 
@@ -13,6 +12,7 @@ import reactivex as rx
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
+from vmx.collections import CollectionChangedEvent
 from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
@@ -23,25 +23,6 @@ from vmx.services.message_hub import MessageHub
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 M = TypeVar("M")
-
-
-# ---------------------------------------------------------------------------
-# CollectionChangedEvent
-# ---------------------------------------------------------------------------
-
-
-@dataclasses.dataclass(frozen=True)
-class CollectionChangedEvent:
-    """Immutable payload emitted on collection mutations.
-
-    ``action`` values: ``"add"``, ``"remove"``, ``"reset"``, ``"replace"``.
-    """
-
-    action: str
-    new_items: tuple[object, ...] = ()
-    new_index: int = -1
-    old_items: tuple[object, ...] = ()
-    old_index: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -265,14 +246,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=index)
         )
 
-    def _internal_add(self, child: VM) -> None:
-        """Add a child without emitting a collection-changed event.
-
-        Used by PopulateChildren during construct().
-        """
-        self._children.append(child)
-        child._set_parent(self)
-
     # ── Lifecycle overrides ───────────────────────────────────────────────────
 
     def _on_construct(self) -> None:
@@ -398,7 +371,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         if self._children_factory is None:
             return
         for child in self._children_factory():
-            self._internal_add(child)
+            self.append(child)
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +422,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
     def _populate_children(self) -> None:
         for model in self._children_models():
             child = self._child_model_to_child_vm(model)
-            self._internal_add(child)
+            self.append(child)
 
 
 # Deferred import to avoid circular references.

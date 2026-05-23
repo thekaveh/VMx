@@ -91,9 +91,11 @@ respect to other lifecycle operations on the same VM.
   reached `Constructed`.
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
-- The children are constructed/destructed in parallel. The parent observes its
-  children's `ConstructionStatusChangedMessage` emissions to know when to finalize
-  its own state.
+- The order in which children are constructed/destructed is unspecified.
+  Implementations MAY drive them sequentially or concurrently; v1.x reference
+  implementations are sequential. The parent observes its children's
+  `ConstructionStatusChangedMessage` emissions to know when to finalize its own
+  state.
 
 Conformance IDs for this behavior are cataloged in `12-conformance.md` under the
 `COMP-NNN`, `GRP-NNN`, and `AGG-NNN` prefixes; each VM file's `## Conformance` section

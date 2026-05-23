@@ -17,6 +17,7 @@ from typing import Generic, TypeVar
 
 from reactivex.subject import Subject
 
+from vmx.collections import CollectionChangedEvent
 from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message
@@ -24,54 +25,6 @@ from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHub
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
-
-
-# ---------------------------------------------------------------------------
-# CollectionChangedEvent — lightweight equivalent of NotifyCollectionChanged
-# ---------------------------------------------------------------------------
-
-
-class CollectionChangedEvent:
-    """Carries a single collection-change notification.
-
-    Mirrors the ``NotifyCollectionChangedEventArgs`` shape used in the C# spec
-    but uses Python-friendly snake_case attributes.
-
-    Attributes
-    ----------
-    action:
-        ``"add"`` or ``"remove"`` or ``"reset"``.
-    new_items:
-        List of items added (empty for remove / reset).
-    removed_items:
-        List of items removed (empty for add / reset).
-    new_index:
-        Index at which items were added (``-1`` for remove/reset).
-    removed_index:
-        Index from which items were removed (``-1`` for add/reset).
-    """
-
-    __slots__ = ("action", "new_index", "new_items", "removed_index", "removed_items")
-
-    def __init__(
-        self,
-        action: str,
-        new_items: list[object] | None = None,
-        removed_items: list[object] | None = None,
-        new_index: int = -1,
-        removed_index: int = -1,
-    ) -> None:
-        self.action: str = action
-        self.new_items: list[object] = new_items if new_items is not None else []
-        self.removed_items: list[object] = removed_items if removed_items is not None else []
-        self.new_index: int = new_index
-        self.removed_index: int = removed_index
-
-    def __repr__(self) -> str:  # pragma: no cover
-        return (
-            f"CollectionChangedEvent(action={self.action!r}, "
-            f"new_items={self.new_items!r}, new_index={self.new_index})"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -177,20 +130,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children[index] = value
         old._set_parent(None)
         value._set_parent(self._as_parent())
-        # Notify as Remove then Add (standard collection-change pattern).
         self._collection_changed_subject.on_next(
-            CollectionChangedEvent(
-                action="remove",
-                removed_items=[old],
-                removed_index=index,
-            )
+            CollectionChangedEvent(action="remove", old_items=(old,), old_index=index)
         )
         self._collection_changed_subject.on_next(
-            CollectionChangedEvent(
-                action="add",
-                new_items=[value],
-                new_index=index,
-            )
+            CollectionChangedEvent(action="add", new_items=(value,), new_index=index)
         )
 
     def __delitem__(self, index: int) -> None:
@@ -208,11 +152,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children.insert(index, item)
         item._set_parent(self._as_parent())
         self._collection_changed_subject.on_next(
-            CollectionChangedEvent(
-                action="add",
-                new_items=[item],
-                new_index=index,
-            )
+            CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
         )
 
     def add(self, item: VM) -> None:
@@ -221,11 +161,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children.append(item)
         item._set_parent(self._as_parent())
         self._collection_changed_subject.on_next(
-            CollectionChangedEvent(
-                action="add",
-                new_items=[item],
-                new_index=idx,
-            )
+            CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
         )
 
     # Alias: append mirrors Python list convention.
@@ -245,11 +181,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         del self._children[index]
         item._set_parent(None)
         self._collection_changed_subject.on_next(
-            CollectionChangedEvent(
-                action="remove",
-                removed_items=[item],
-                removed_index=index,
-            )
+            CollectionChangedEvent(action="remove", old_items=(item,), old_index=index)
         )
 
     def clear(self) -> None:
@@ -277,13 +209,16 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._on_destruct_cb is not None:
             self._on_destruct_cb()
 
-    def _on_dispose(self) -> None:
-        """Cascade dispose depth-first: each child before self (LIFE-013)."""
-        for child in self._children:
+    def dispose(self) -> None:
+        """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
+        for child in list(self._children):
             child.dispose()
-        # Complete the collection-changed subject.
-        self._collection_changed_subject.on_completed()
-        self._collection_changed_subject.dispose()
+        super().dispose()
+
+    def _on_dispose(self) -> None:
+        if not self._collection_changed_subject.is_disposed:
+            self._collection_changed_subject.on_completed()
+            self._collection_changed_subject.dispose()
 
     def _populate_children(self) -> None:
         """Evaluate the children factory (idempotent: runs at most once)."""

@@ -464,10 +464,12 @@ ______________________________________________________________________
 **Given** a `GroupVM<VM>` instance
 **When** the API surface is inspected
 **Then** there is no `Current` property
-**And** there is no `SelectNextCommand` or `SelectPreviousCommand` (children are peers, not navigable)
 **And** there is no `select_component`, `deselect_component`, or `can_select_component` method
 **And** `SelectCommand` and `DeselectCommand` ARE present (they operate on the group's own
 selection within its parent, not on the children — see `07-group-vm.md`)
+**And** `SelectNextCommand` and `SelectPreviousCommand` ARE present (inherited from
+the `IComponentVM` baseline) but their predicates always return `false`, since the group
+exposes no internal navigation slot
 
 ### GRP-003 — Construct waits until all children reach Constructed
 

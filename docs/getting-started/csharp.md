@@ -119,8 +119,8 @@ hub.Messages
        Console.WriteLine($"Property '{msg.PropertyName}' changed on {msg.Sender.Name}"));
 
 // Construct transitions the VM: Destructed → Constructing → Constructed.
-// This is when the VM subscribes to the hub, fires its OnConstruct callback,
-// and begins accepting model updates.
+// The VM publishes ConstructionStatusChangedMessage on the hub for each
+// transition and fires its OnConstruct callback when entering Constructing.
 userVM.Construct();
 
 // Update the model — triggers OnModelChanged and publishes PropertyChangedMessage.
@@ -257,7 +257,8 @@ Console.WriteLine(userVM.Status);  // Destructed
 // Reconstruct is Destruct + Construct in one call.
 userVM.Reconstruct();
 
-// Dispose is terminal — further Construct/Destruct calls are no-ops.
+// Dispose is terminal and idempotent. Calling Construct() or Destruct() on a
+// disposed VM raises StatusTransitionException.
 userVM.Dispose();
 Console.WriteLine(userVM.Status);  // Disposed
 

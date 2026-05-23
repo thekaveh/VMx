@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import pytest
 
+from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
 from vmx.groups.builders import GroupVMBuilder
-from vmx.groups.group_vm import CollectionChangedEvent, GroupVM
+from vmx.groups.group_vm import GroupVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
@@ -66,7 +67,7 @@ def test_GRP_001_add_emits_collection_changed() -> None:
     assert len(events) == 1, "Expected exactly one CollectionChanged event"
     evt = events[0]
     assert evt.action == "add", f"Expected action='add', got {evt.action!r}"
-    assert evt.new_items == [child], f"Expected new_items=[child], got {evt.new_items!r}"
+    assert evt.new_items == (child,), f"Expected new_items=(child,), got {evt.new_items!r}"
     assert evt.new_index == 0, f"Expected new_index=0, got {evt.new_index}"
 
 

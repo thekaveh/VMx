@@ -16,10 +16,11 @@ from __future__ import annotations
 import pytest
 
 from vmx.builders.exceptions import BuilderValidationError
+from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.protocols import ViewModelType
 from vmx.groups.builders import GroupVMBuilder
-from vmx.groups.group_vm import CollectionChangedEvent, GroupVM
+from vmx.groups.group_vm import GroupVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
@@ -261,7 +262,7 @@ class TestCollectionChangedEvents:
         grp.add(child)
         assert len(events) == 1
         assert events[0].action == "add"
-        assert events[0].new_items == [child]
+        assert events[0].new_items == (child,)
         assert events[0].new_index == 0
 
     def test_add_second_child_correct_index(self) -> None:
@@ -282,7 +283,7 @@ class TestCollectionChangedEvents:
         grp.insert(0, b)
         assert len(events) == 1
         assert events[0].action == "add"
-        assert events[0].new_items == [b]
+        assert events[0].new_items == (b,)
         assert events[0].new_index == 0
 
     def test_remove_emits_remove_event(self) -> None:
@@ -293,7 +294,7 @@ class TestCollectionChangedEvents:
         grp.remove(child)
         assert len(events) == 1
         assert events[0].action == "remove"
-        assert events[0].removed_items == [child]
+        assert events[0].old_items == (child,)
 
     def test_remove_at_emits_remove_event(self) -> None:
         grp, _ = _make_group()
@@ -396,6 +397,33 @@ class TestGroupVMLifecycle:
         for c in children:
             assert c.status == ConstructionStatus.DISPOSED  # type: ignore[union-attr]
         assert grp.status == ConstructionStatus.DISPOSED
+
+    def test_dispose_cascade_is_depth_first(self) -> None:
+        from vmx.messages.construction_status import ConstructionStatusChangedMessage
+
+        h = _hub()
+        grp, _ = _make_group(hub=h)
+        children = [_make_child(f"c{i}", hub=h) for i in range(2)]
+        for c in children:
+            grp.add(c)
+        grp.construct()
+
+        disposed: list[str] = []
+        h.messages.subscribe(
+            lambda m: (
+                disposed.append(m.sender_name)
+                if isinstance(m, ConstructionStatusChangedMessage)
+                and m.status == ConstructionStatus.DISPOSED
+                else None
+            )
+        )
+
+        grp.dispose()
+
+        assert disposed.index("c0") < disposed.index("grp"), (
+            "children must enter DISPOSED before the group"
+        )
+        assert disposed.index("c1") < disposed.index("grp")
 
     def test_on_construct_callback_invoked(self) -> None:
         calls: list[int] = []

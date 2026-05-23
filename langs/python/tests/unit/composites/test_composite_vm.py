@@ -343,6 +343,29 @@ def test_construct_constructs_all_children() -> None:
     assert child_b.status == ConstructionStatus.CONSTRUCTED
 
 
+def test_factory_children_emit_collection_changed_events() -> None:
+    hub = _hub()
+    disp = _dispatcher()
+    child_a = _build_child("a", hub=hub, dispatcher=disp)
+    child_b = _build_child("b", hub=hub, dispatcher=disp)
+
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, disp)
+        .children(lambda: [child_a, child_b])
+        .build()
+    )
+    events: list[object] = []
+    comp.on_collection_changed.subscribe(events.append)
+
+    comp.construct()
+
+    assert [e.action for e in events] == ["add", "add"]  # type: ignore[attr-defined]
+    assert events[0].new_items == (child_a,)  # type: ignore[attr-defined]
+    assert events[1].new_items == (child_b,)  # type: ignore[attr-defined]
+
+
 def test_destruct_destructs_children_and_clears_current() -> None:
     hub = _hub()
     disp = _dispatcher()

@@ -79,15 +79,18 @@ Implementations MAY suppress notifications during bulk operations; if so, a sing
 children:
 
 - `construct()` proceeds through `Destructed → Constructing`. It calls `construct()`
-  on every child in parallel and listens on the message hub for each child's
+  on every child and listens on the message hub for each child's
   `ConstructionStatusChangedMessage(Constructed)`. Once every child reaches
   `Constructed`, the composite transitions to `Constructed` and emits its own
   status message.
 - `destruct()` proceeds through `Constructed → Destructing`. If `Current != null`,
   the composite first sets `Current = null`. It then calls `destruct()` on every
-  child in parallel and waits for every child's
+  child and waits for every child's
   `ConstructionStatusChangedMessage(Destructed)`. Once every child reaches
   `Destructed`, the composite transitions to `Destructed`.
+
+The order in which children are visited is unspecified. v1.x reference
+implementations drive them sequentially.
 
 A child added via `Add` AFTER the composite has reached `Constructed` does NOT
 automatically `construct()` — the host MUST invoke it. (This is a v1.0 limitation;
