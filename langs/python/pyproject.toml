@@ -44,6 +44,11 @@ path = "src/vmx/__about__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/vmx"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"../../spec/fixtures/lifecycle-transitions.json" = "vmx/lifecycle/_data/lifecycle-transitions.json"
+"../../spec/fixtures/message-ordering.json" = "vmx/services/_data/message-ordering.json"
+"../../spec/fixtures/command-truthtable.json" = "vmx/commands/_data/command-truthtable.json"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
@@ -51,6 +56,12 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Conformance test names embed spec IDs (e.g. test_LIFE_005_…) — uppercased letters
+# are intentional and normative.  N802 (function name should be lowercase) does not
+# apply to these files.
+"tests/conformance/*.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -64,6 +75,7 @@ disable_error_code = ["empty-body"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["."]
 markers = [
   "conformance: cross-language conformance test (Phase 1 catalog ID)",
 ]
