@@ -351,11 +351,13 @@ For background work before constructing a VM:
 import reactivex as rx
 import reactivex.operators as ops
 
+def apply_remote_data(data: UserModel) -> None:
+    user_vm.model = data
+    user_vm.construct()
+
 rx.from_callable(lambda: load_from_database(), scheduler=dispatcher.background).pipe(
     ops.observe_on(dispatcher.foreground),
-).subscribe(lambda data: (
-    user_vm.__setattr__("model", data) or user_vm.construct()  # noqa
-))
+).subscribe(apply_remote_data)
 ```
 
 When using `RxDispatcher.asyncio(loop)`, the foreground scheduler posts work
@@ -367,17 +369,17 @@ ______________________________________________________________________
 
 ## 8. Where to go next
 
-| Resource                      | Path                                           |
-| ----------------------------- | ---------------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                          |
-| Lifecycle contract            | `spec/02-lifecycle.md`                         |
-| Message schema                | `spec/03-messages.md`                          |
-| Commands                      | `spec/04-commands.md`                          |
-| ComponentVM contract          | `spec/05-component-vm.md`                      |
-| CompositeVM contract          | `spec/06-composite-vm.md`                      |
-| Builder spec                  | `spec/10-builders.md`                          |
-| Threading rules               | `spec/11-threading.md`                         |
-| Architecture decision records | `spec/ADRs/`                                   |
-| Console example               | `examples/python/hello_vmx/` *(coming soon)*   |
-| Tkinter todo example          | `examples/python/tk_todo_app/` *(coming soon)* |
-| Conformance test suite        | `langs/python/tests/`                          |
+| Resource                      | Path                           |
+| ----------------------------- | ------------------------------ |
+| Spec overview                 | `spec/00-overview.md`          |
+| Lifecycle contract            | `spec/02-lifecycle.md`         |
+| Message schema                | `spec/03-messages.md`          |
+| Commands                      | `spec/04-commands.md`          |
+| ComponentVM contract          | `spec/05-component-vm.md`      |
+| CompositeVM contract          | `spec/06-composite-vm.md`      |
+| Builder spec                  | `spec/10-builders.md`          |
+| Threading rules               | `spec/11-threading.md`         |
+| Architecture decision records | `spec/ADRs/`                   |
+| Console example               | `examples/python/hello_vmx/`   |
+| Tkinter todo example          | `examples/python/tk_todo_app/` |
+| Conformance test suite        | `langs/python/tests/`          |

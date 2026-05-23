@@ -86,8 +86,8 @@ ______________________________________________________________________
 
 `ComponentVM<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `IPropertyChangedMessage` on the hub when the model changes, and
-participates in the lifecycle state machine (Destructed → Constructed →
-Destructed → Disposed).
+participates in the lifecycle state machine (Destructed → Constructing →
+Constructed → Destructing → Destructed → Disposed).
 
 ```csharp
 using VMx.Components;
@@ -118,7 +118,7 @@ hub.Messages
    .Subscribe(msg =>
        Console.WriteLine($"Property '{msg.PropertyName}' changed on {msg.Sender.Name}"));
 
-// Construct transitions the VM from Destructed → Constructed.
+// Construct transitions the VM: Destructed → Constructing → Constructed.
 // This is when the VM subscribes to the hub, fires its OnConstruct callback,
 // and begins accepting model updates.
 userVM.Construct();
@@ -311,16 +311,16 @@ ______________________________________________________________________
 
 ## 8. Where to go next
 
-| Resource                      | Path                                          |
-| ----------------------------- | --------------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                         |
-| Lifecycle contract            | `spec/02-lifecycle.md`                        |
-| Message schema                | `spec/03-messages.md`                         |
-| Commands                      | `spec/04-commands.md`                         |
-| ComponentVM contract          | `spec/05-component-vm.md`                     |
-| CompositeVM contract          | `spec/06-composite-vm.md`                     |
-| Threading rules               | `spec/11-threading.md`                        |
-| Architecture decision records | `spec/ADRs/`                                  |
-| Console example               | `examples/csharp/HelloVMx/` *(coming soon)*   |
-| WPF MVVM example              | `examples/csharp/WpfTodoApp/` *(coming soon)* |
-| Conformance test suite        | `langs/csharp/tests/VMx.Conformance.Tests/`   |
+| Resource                      | Path                                        |
+| ----------------------------- | ------------------------------------------- |
+| Spec overview                 | `spec/00-overview.md`                       |
+| Lifecycle contract            | `spec/02-lifecycle.md`                      |
+| Message schema                | `spec/03-messages.md`                       |
+| Commands                      | `spec/04-commands.md`                       |
+| ComponentVM contract          | `spec/05-component-vm.md`                   |
+| CompositeVM contract          | `spec/06-composite-vm.md`                   |
+| Threading rules               | `spec/11-threading.md`                      |
+| Architecture decision records | `spec/ADRs/`                                |
+| Console example               | `examples/csharp/HelloVMx/`                 |
+| WPF MVVM example              | `examples/csharp/WpfTodoApp/`               |
+| Conformance test suite        | `langs/csharp/tests/VMx.Conformance.Tests/` |
