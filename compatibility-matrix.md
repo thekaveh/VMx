@@ -5,7 +5,7 @@ that tool ships, it is maintained by hand.
 
 | spec  | csharp           | python           | typescript |
 | ----- | ---------------- | ---------------- | ---------- |
-| 1.0.x | 1.0.0           | — (Phase 3 WIP)  | —          |
+| 1.0.x | 1.0.0           | 1.0.0            | —          |
 
 A `—` entry indicates no language flavor has yet released against that spec version.
 A `— (Phase N WIP)` annotation indicates work is actively in progress per the roadmap
