@@ -150,10 +150,7 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
 
 def test_report_gaps_empty_when_complete() -> None:
     catalog = {"LIFE-001", "LIFE-002"}
-    language_coverage = {
-        "python": {"LIFE-001", "LIFE-002"},
-        "csharp": {"LIFE-001", "LIFE-002"},
-    }
+    language_coverage = {"python": {"LIFE-001", "LIFE-002"}}
 
     gaps = ccc.compute_gaps(catalog, language_coverage)
 
@@ -172,10 +169,9 @@ def test_report_gaps_lists_missing_ids_per_language() -> None:
     assert gaps == {"python": {"LIFE-002", "CMD-001"}}
 
 
-def test_main_returns_zero_when_no_active_languages(tmp_path: Path) -> None:
-    """If a langs/<lang>/tests/conformance/ directory is empty (no tests at all
-    for a flavor), the tool reports it but does not fail. The active-language
-    check is opt-in via the --require flag."""
+def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(tmp_path: Path) -> None:
+    """Empty conformance directories report 0/N covered but do not fail.
+    The strict check is opt-in via the --require flag (covered separately)."""
     catalog = tmp_path / "spec" / "12-conformance.md"
     catalog.parent.mkdir(parents=True)
     catalog.write_text("### LIFE-001 — sample\n", encoding="utf-8")
@@ -249,9 +245,9 @@ def test_main_returns_2_when_catalog_missing(tmp_path: Path) -> None:
 
 
 def test_render_report_flags_orphan_ids() -> None:
+    """Orphan IDs are detected entirely inside render_report — no compute_gaps involvement."""
     catalog = {"LIFE-001"}
-    coverage = {"python": {"LIFE-001", "LIFE-999"}}  # LIFE-999 is orphan
-    gaps = ccc.compute_gaps(catalog, coverage)
-    report = ccc.render_report(catalog, coverage, gaps)
+    coverage = {"python": {"LIFE-001", "LIFE-999"}}  # LIFE-999 is in tests but not catalog
+    report = ccc.render_report(catalog, coverage, gaps={})
     assert "ORPHAN (1): LIFE-999" in report
     assert "1/1 covered" in report
