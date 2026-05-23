@@ -46,9 +46,10 @@ path = "src/vmx/__about__.py"
 packages = ["src/vmx"]
 
 [tool.hatch.build.targets.wheel.force-include]
+# Only lifecycle-transitions.json is loaded at runtime (by vmx.lifecycle.transition_validator).
+# message-ordering.json and command-truthtable.json are conformance-test fixtures consumed from
+# spec/fixtures/ by the test suite, not by the published package.
 "../../spec/fixtures/lifecycle-transitions.json" = "vmx/lifecycle/_data/lifecycle-transitions.json"
-"../../spec/fixtures/message-ordering.json" = "vmx/services/_data/message-ordering.json"
-"../../spec/fixtures/command-truthtable.json" = "vmx/commands/_data/command-truthtable.json"
 
 [tool.ruff]
 line-length = 100
@@ -84,8 +85,3 @@ source = ["vmx"]
 [tool.coverage.report]
 show_missing = true
 fail_under = 85
-
-[dependency-groups]
-dev = [
-    "mypy>=1.10",
-]
