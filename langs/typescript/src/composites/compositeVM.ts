@@ -7,6 +7,7 @@ import { CompositeVMBase } from "./compositeVMBase.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM> {
   readonly #childrenFactory: (() => Iterable<VM>) | null;
@@ -117,11 +118,11 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
   }
 
   build(): CompositeVM<VM> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
-      throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+      throw new BuilderValidationError("services");
     if (this.#childrenFactory === null)
-      throw new Error("BuilderValidationError: children factory is required");
+      throw new BuilderValidationError("children");
     return new CompositeVM<VM>({
       name: this.#name,
       hint: this.#hint,

@@ -8,6 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -80,17 +81,17 @@ export class AggregateVM2Builder<VM1 extends ComponentVMBase, VM2 extends Compon
     }
   }
 
-  name(v: string): this { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#name = v; return b as unknown as this; }
-  hint(v: string): this { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#hint = v; return b as unknown as this; }
-  services(hub: IMessageHub, disp: IDispatcher): this { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#hub = hub; b.#dispatcher = disp; return b as unknown as this; }
-  component1(f: () => VM1): this { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#factory1 = f; return b as unknown as this; }
-  component2(f: () => VM2): this { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#factory2 = f; return b as unknown as this; }
+  name(v: string): AggregateVM2Builder<VM1, VM2> { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#name = v; return b; }
+  hint(v: string): AggregateVM2Builder<VM1, VM2> { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#hint = v; return b; }
+  services(hub: IMessageHub, disp: IDispatcher): AggregateVM2Builder<VM1, VM2> { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#hub = hub; b.#dispatcher = disp; return b; }
+  component1(f: () => VM1): AggregateVM2Builder<VM1, VM2> { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#factory1 = f; return b; }
+  component2(f: () => VM2): AggregateVM2Builder<VM1, VM2> { const b = new AggregateVM2Builder<VM1, VM2>(this); b.#factory2 = f; return b; }
 
   build(): AggregateVM2<VM1, VM2> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
-    if (this.#hub === null || this.#dispatcher === null) throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
-    if (this.#factory1 === SENTINEL) throw new Error("BuilderValidationError: component1 factory is required");
-    if (this.#factory2 === SENTINEL) throw new Error("BuilderValidationError: component2 factory is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
+    if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
+    if (this.#factory1 === SENTINEL) throw new BuilderValidationError("component1");
+    if (this.#factory2 === SENTINEL) throw new BuilderValidationError("component2");
     const factory1 = this.#factory1;
     const factory2 = this.#factory2;
     return new AggregateVM2<VM1, VM2>({ name: this.#name, hint: this.#hint, hub: this.#hub, dispatcher: this.#dispatcher, factory1, factory2 });

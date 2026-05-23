@@ -8,6 +8,7 @@ import { CompositeVMBase } from "./compositeVMBase.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBase<VM> {
   readonly #childrenModels: () => Iterable<M>;
@@ -129,13 +130,13 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
   }
 
   build(): CompositeVMOf<M, VM> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
-      throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+      throw new BuilderValidationError("services");
     if (this.#childrenModels === null)
-      throw new Error("BuilderValidationError: childrenModels factory is required");
+      throw new BuilderValidationError("childrenModels");
     if (this.#childModelToChildViewModel === null)
-      throw new Error("BuilderValidationError: childModelToChildViewModel mapper is required");
+      throw new BuilderValidationError("childModelToChildViewModel");
     return new CompositeVMOf<M, VM>({
       name: this.#name,
       hint: this.#hint,

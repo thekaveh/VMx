@@ -7,6 +7,7 @@ import { ComponentVMBase } from "./componentVMBase.js";
 import { ViewModelType } from "./types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class ComponentVM extends ComponentVMBase {
   get type(): ViewModelType {
@@ -81,9 +82,9 @@ export class ComponentVMBuilder {
   }
 
   build(): ComponentVM {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
-      throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+      throw new BuilderValidationError("services");
     return new ComponentVM({
       name: this.#name,
       hint: this.#hint,

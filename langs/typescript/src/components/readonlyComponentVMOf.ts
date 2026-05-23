@@ -8,6 +8,7 @@ import { ComponentVMBase } from "./componentVMBase.js";
 import { ViewModelType } from "./types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class ReadonlyComponentVMOf<M> extends ComponentVMBase {
   readonly #model: M;
@@ -127,10 +128,10 @@ export class ReadonlyComponentVMOfBuilder<M> {
   }
 
   build(): ReadonlyComponentVMOf<M> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
-    if (this.#model === SENTINEL) throw new Error("BuilderValidationError: model is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
+    if (this.#model === SENTINEL) throw new BuilderValidationError("model");
     if (this.#hub === null || this.#dispatcher === null)
-      throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+      throw new BuilderValidationError("services");
 
     const hinter = this.#modeledHinter ?? ((): string => "");
     const model = this.#model;

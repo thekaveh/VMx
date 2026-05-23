@@ -8,6 +8,7 @@ import { ViewModelType } from "./types.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class ComponentVMOf<M> extends ComponentVMBase {
   #model: M;
@@ -174,10 +175,10 @@ export class ComponentVMOfBuilder<M> {
   }
 
   build(): ComponentVMOf<M> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
-    if (this.#model === SENTINEL) throw new Error("BuilderValidationError: model is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
+    if (this.#model === SENTINEL) throw new BuilderValidationError("model");
     if (this.#hub === null || this.#dispatcher === null)
-      throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+      throw new BuilderValidationError("services");
 
     const hinter = this.#modeledHinter ?? ((): string => "");
     const initialModel = this.#model;

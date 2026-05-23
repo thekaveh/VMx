@@ -7,6 +7,9 @@
 // Version
 export { __version__, __minSpecVersion__ } from "./version.js";
 
+// Builders
+export { BuilderValidationError } from "./builders/exceptions.js";
+
 // Lifecycle
 export { ConstructionStatus } from "./lifecycle/status.js";
 export { StatusTransitionError } from "./lifecycle/exceptions.js";

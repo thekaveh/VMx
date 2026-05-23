@@ -11,6 +11,7 @@ import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 import {
   makeCollectionChangedEvent,
   BatchUpdateHandle,
@@ -282,11 +283,11 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
   }
 
   build(): GroupVM<VM> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
-      throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+      throw new BuilderValidationError("services");
     if (this.#childrenFactory === null)
-      throw new Error("BuilderValidationError: children factory is required");
+      throw new BuilderValidationError("children");
     return new GroupVM<VM>({
       name: this.#name,
       hint: this.#hint,

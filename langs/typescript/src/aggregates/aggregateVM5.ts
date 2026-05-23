@@ -8,6 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -76,14 +77,18 @@ export class AggregateVM5<
   }
 
   protected override _onDestruct(): void {
-    this.#component1?.destruct(); this.#component2?.destruct();
-    this.#component3?.destruct(); this.#component4?.destruct();
+    this.#component1?.destruct();
+    this.#component2?.destruct();
+    this.#component3?.destruct();
+    this.#component4?.destruct();
     this.#component5?.destruct();
   }
 
   protected override _onDispose(): void {
-    this.#component1?.dispose(); this.#component2?.dispose();
-    this.#component3?.dispose(); this.#component4?.dispose();
+    this.#component1?.dispose();
+    this.#component2?.dispose();
+    this.#component3?.dispose();
+    this.#component4?.dispose();
     this.#component5?.dispose();
   }
 
@@ -131,11 +136,11 @@ export class AggregateVM5Builder<
   component5(f: () => VM5): AggregateVM5Builder<VM1, VM2, VM3, VM4, VM5> { const b = new AggregateVM5Builder<VM1, VM2, VM3, VM4, VM5>(this); b.#factory5 = f; return b; }
 
   build(): AggregateVM5<VM1, VM2, VM3, VM4, VM5> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
-    if (this.#hub === null || this.#dispatcher === null) throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
+    if (this.#name === null) throw new BuilderValidationError("name");
+    if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
     if (this.#factory1 === SENTINEL || this.#factory2 === SENTINEL || this.#factory3 === SENTINEL ||
         this.#factory4 === SENTINEL || this.#factory5 === SENTINEL)
-      throw new Error("BuilderValidationError: all component factories are required");
+      throw new BuilderValidationError("components", "all component factories are required");
     const factory1 = this.#factory1;
     const factory2 = this.#factory2;
     const factory3 = this.#factory3;

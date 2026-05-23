@@ -8,6 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -105,11 +106,11 @@ export class AggregateVM3Builder<
   component3(f: () => VM3): AggregateVM3Builder<VM1, VM2, VM3> { const b = new AggregateVM3Builder<VM1, VM2, VM3>(this); b.#factory3 = f; return b; }
 
   build(): AggregateVM3<VM1, VM2, VM3> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
-    if (this.#hub === null || this.#dispatcher === null) throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
-    if (this.#factory1 === SENTINEL) throw new Error("BuilderValidationError: component1 factory is required");
-    if (this.#factory2 === SENTINEL) throw new Error("BuilderValidationError: component2 factory is required");
-    if (this.#factory3 === SENTINEL) throw new Error("BuilderValidationError: component3 factory is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
+    if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
+    if (this.#factory1 === SENTINEL) throw new BuilderValidationError("component1");
+    if (this.#factory2 === SENTINEL) throw new BuilderValidationError("component2");
+    if (this.#factory3 === SENTINEL) throw new BuilderValidationError("component3");
     const factory1 = this.#factory1;
     const factory2 = this.#factory2;
     const factory3 = this.#factory3;

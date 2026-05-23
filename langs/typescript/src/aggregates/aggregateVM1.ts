@@ -8,6 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { BuilderValidationError } from "../builders/exceptions.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -77,9 +78,9 @@ export class AggregateVM1Builder<VM1 extends ComponentVMBase> {
   component1(f: () => VM1): AggregateVM1Builder<VM1> { const b = new AggregateVM1Builder<VM1>(this); b.#factory1 = f; return b; }
 
   build(): AggregateVM1<VM1> {
-    if (this.#name === null) throw new Error("BuilderValidationError: name is required");
-    if (this.#hub === null || this.#dispatcher === null) throw new Error("BuilderValidationError: services (hub, dispatcher) are required");
-    if (this.#factory1 === SENTINEL) throw new Error("BuilderValidationError: component1 factory is required");
+    if (this.#name === null) throw new BuilderValidationError("name");
+    if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
+    if (this.#factory1 === SENTINEL) throw new BuilderValidationError("component1");
     const factory1 = this.#factory1;
     return new AggregateVM1<VM1>({ name: this.#name, hint: this.#hint, hub: this.#hub, dispatcher: this.#dispatcher, factory1 });
   }
