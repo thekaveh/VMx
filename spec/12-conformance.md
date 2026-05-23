@@ -97,6 +97,8 @@ attempted operation ("construct")
 **Given** a VM in state `Disposed`
 **When** `destruct()` is called
 **Then** a `StatusTransitionError` / `StatusTransitionException` is raised
+**And** the exception message contains the current state ("Disposed") and the
+attempted operation ("destruct")
 
 ### LIFE-007 — IsConstructed equals Status == Constructed
 
@@ -307,8 +309,8 @@ ______________________________________________________________________
 **Given** a `ComponentVM<M>` in `Destructed` state
 **And** a subscriber to the hub filtered on `ConstructionStatusChangedMessage`
 **When** `construct()` is called
-**Then** the subscriber observes at least one message with `Status = Constructing`
-**And** then a message with `Status = Constructed`
+**Then** the subscriber observes exactly two messages, with `Status` values
+`Constructing` then `Constructed` in that order
 **And** `vm.IsConstructed` is true after the call
 
 ### CVM-002 — Modeled component fires PropertyChanged("Model") on set
@@ -449,12 +451,13 @@ ______________________________________________________________________
 
 ## GroupVM (`GRP-NNN`)
 
-### GRP-001 — Add emits CollectionChanged
+### GRP-001 — Add emits CollectionChanged(action=Add)
 
 **Given** an empty `GroupVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
 **When** `group.Add(vm)` is called
-**Then** the subscriber observes a `CollectionChanged` event with `action == Add`
+**Then** the subscriber observes a `CollectionChanged` event with
+`action == Add`, `newItems == [vm]`, `newIndex == 0`
 
 ### GRP-002 — Group lacks child-navigation and child-selection members
 
