@@ -191,6 +191,22 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     );
   }
 
+  /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
+  setAt(index: number, value: VM): void {
+    const old = this._children[index];
+    if (old === undefined) throw new RangeError(`Index ${String(index)} out of range`);
+    this._children[index] = value;
+    old._parent = null;
+    value._parent = this;
+    this._emitCollectionChanged(
+      makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
+    );
+    this._maybeAutoConstruct(value);
+    this._emitCollectionChanged(
+      makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
+    );
+  }
+
   clear(): void {
     for (const child of this._children) {
       child._parent = null;

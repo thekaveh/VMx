@@ -7,8 +7,8 @@ The Python implementation of the VMx hierarchical MVVM framework, published as t
 
 ## Status
 
-**v1.0.0** — implements `spec-v1.0.0` end-to-end. 68/68 conformance tests pass.
-Supports Python 3.10 through 3.13. `mypy --strict` clean.
+**v1.1.0** — implements `spec-v1.1.0` end-to-end. 75/75 conformance IDs pass
+(385 tests total). Supports Python 3.10 through 3.13. `mypy --strict` clean.
 
 See [`docs/getting-started/python.md`](../../docs/getting-started/python.md) for a tutorial.
 

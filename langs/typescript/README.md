@@ -3,14 +3,17 @@
 Hierarchical lifecycle-aware MVVM viewmodel framework for TypeScript and
 JavaScript, spec-compatible with the C# and Python flavors.
 
+## Status
+
+**v1.1.0** — implements `spec-v1.1.0` end-to-end. 75/75 conformance IDs pass.
+Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles; TypeScript
+declarations are bundled — no `@types/vmx` needed.
+
 ## Install
 
 ```bash
 npm install vmx
 ```
-
-Requires Node.js ≥ 18 and rxjs ≥ 7.8. TypeScript declarations are bundled —
-no `@types/vmx` needed.
 
 ## Quick start
 

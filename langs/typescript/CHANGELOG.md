@@ -25,3 +25,5 @@ parity against the C# and Python flavors.
 - `walk(root)`, `find(root, predicate)` — DFS pre-order tree utilities.
 - Fluent immutable builders for every public type.
 - Dual ESM + CJS output via tsup; TypeScript declarations bundled.
+
+## [Unreleased]
