@@ -1,0 +1,62 @@
+<Window x:Class="WpfTodoApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:WpfTodoApp"
+        Title="VMx — Todo Demo" Height="420" Width="520"
+        Closed="Window_Closed">
+
+    <Window.Resources>
+        <!-- Item template: checkbox (toggle Done) + title text -->
+        <DataTemplate DataType="{x:Type local:TodoItemVM}">
+            <StackPanel Orientation="Horizontal" Margin="4,2">
+                <CheckBox IsChecked="{Binding VM.IsConstructed, Mode=OneWay}"
+                          Command="{Binding ToggleDoneCommand}"
+                          VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
+                           FontSize="14" />
+                <TextBlock Text=" ✓" VerticalAlignment="Center"
+                           FontSize="14" Foreground="Green"
+                           Visibility="{Binding Done,
+                               Converter={StaticResource BoolToVisibilityConverter}}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- To-do list -->
+        <Border Grid.Row="0" BorderBrush="LightGray" BorderThickness="1" CornerRadius="4">
+            <ListBox ItemsSource="{Binding Items}"
+                     BorderThickness="0"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </Border>
+
+        <!-- Add-item row -->
+        <Grid Grid.Row="1" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox Grid.Column="0"
+                     x:Name="NewItemBox"
+                     Text="{Binding NewItemTitle, UpdateSourceTrigger=PropertyChanged}"
+                     Padding="6,4"
+                     FontSize="14"
+                     VerticalContentAlignment="Center" />
+
+            <Button Grid.Column="1"
+                    Content="Add"
+                    Margin="8,0,0,0"
+                    Padding="16,4"
+                    FontSize="14"
+                    Click="AddButton_Click" />
+        </Grid>
+    </Grid>
+</Window>
