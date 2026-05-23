@@ -51,9 +51,9 @@ venv/
 ENV/
 
 # uv
-# uv.lock is not committed: vmx is a library, not an application. CI re-resolves
-# on every run so consumers always test against current dependency resolutions.
-# (Decision made at the close of Phase 1.)
+# uv.lock is not committed in this repo. The vmx library (langs/python/) is a
+# library, not an application, so consumers always re-resolve. The examples
+# under examples/python/ are tiny demo apps — re-resolving is fine for them too.
 uv.lock
 uv.lock.bak
 
