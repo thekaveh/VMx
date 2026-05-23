@@ -3,7 +3,7 @@ using VMx.Messages;
 namespace VMx.Services;
 
 /// <summary>
-/// Minimal interface for the message hub. Replaced by the full definition in Task 3.
+/// Hot pub/sub stream for IMessage events. See spec/03-messages.md.
 /// </summary>
 public interface IMessageHub
 {

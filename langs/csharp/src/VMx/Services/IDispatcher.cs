@@ -3,7 +3,8 @@ using System.Reactive.Concurrency;
 namespace VMx.Services;
 
 /// <summary>
-/// Minimal interface for the dispatcher. Replaced by the full definition in Task 3.
+/// Paired Rx schedulers for foreground (UI) and background work.
+/// See spec/11-threading.md.
 /// </summary>
 public interface IDispatcher
 {
