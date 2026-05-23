@@ -114,8 +114,8 @@ can_deselect() returns true iff:
   - Parent.Current == this
 ```
 
-`select()` calls `parent.SelectComponent(this)`. `deselect()` calls
-`parent.DeselectComponent(this)`. The selection contract is defined in
+`select()` calls `parent.select_component(this)`. `deselect()` calls
+`parent.deselect_component(this)`. The selection contract is defined in
 `06-composite-vm.md`.
 
 ## Construction

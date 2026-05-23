@@ -103,6 +103,6 @@ This spec does not specify:
 
 - The wire format of messages (no serialization).
 - The lifetime of `IMessageHub` (the host decides).
-- Whether multiple `IMessageHub` instances may coexist (they MAY).
+- Whether multiple `IMessageHub` instances coexist. Multiple instances MAY be created.
 - UI-framework specifics like XAML binding behaviors, accessibility, or rendering.
 - The exact Rx version each flavor uses (each flavor's `README.md` documents that).

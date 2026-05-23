@@ -47,7 +47,7 @@ in multiple language flavors with semantically equivalent behavior.
 
 ## Audience
 
-This spec is the contract that every language implementation must satisfy. The
+This spec is the contract that every language implementation MUST satisfy. The
 audience is implementers of language flavors and contributors who change the
 semantics of any VM type or service.
 
