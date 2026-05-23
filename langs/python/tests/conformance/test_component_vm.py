@@ -303,8 +303,54 @@ def test_LIFE_004_dispose_reaches_disposed() -> None:
 
 
 @pytest.mark.conformance("LIFE-007")
-def test_LIFE_007_construct_from_constructed_is_noop() -> None:
-    """LIFE-007: construct() from Constructed emits NO messages."""
+def test_LIFE_007_is_constructed_invariant() -> None:
+    """LIFE-007: is_constructed == (status == Constructed) at all times."""
+    vm, _ = _build_vm()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+    vm.construct()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+    assert vm.is_constructed is True
+    vm.destruct()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+    assert vm.is_constructed is False
+    vm.dispose()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+
+
+@pytest.mark.conformance("LIFE-008")
+def test_LIFE_008_concurrent_operation_raises() -> None:
+    """LIFE-008: re-invoking construct() while in-flight raises StatusTransitionError."""
+    caught: list[StatusTransitionError] = []
+    vm = None
+
+    def on_construct_cb() -> None:
+        # This callback fires while the VM is still mid-construct (in-flight).
+        # Re-entering construct() must raise StatusTransitionError.
+        try:
+            assert vm is not None
+            vm.construct()
+        except StatusTransitionError as exc:
+            caught.append(exc)
+
+    hub, dispatcher = _hub(), _dispatcher()
+    vm = (
+        ComponentVMBuilder()
+        .name("vm-reentrant")
+        .services(hub, dispatcher)
+        .on_construct(on_construct_cb)
+        .build()
+    )
+
+    vm.construct()
+
+    assert len(caught) == 1, (
+        "Re-entrant construct() during in-flight transition must raise StatusTransitionError"
+    )
+
+
+@pytest.mark.conformance("LIFE-009")
+def test_LIFE_009_construct_from_constructed_is_noop() -> None:
+    """LIFE-009: construct() from Constructed emits NO messages (idempotent)."""
     vm, hub = _build_vm()
     vm.construct()
     msgs = _status_messages(hub)
@@ -313,9 +359,9 @@ def test_LIFE_007_construct_from_constructed_is_noop() -> None:
     assert vm.status == ConstructionStatus.CONSTRUCTED
 
 
-@pytest.mark.conformance("LIFE-008")
-def test_LIFE_008_destruct_from_destructed_is_noop() -> None:
-    """LIFE-008: destruct() from Destructed emits NO messages (idempotent)."""
+@pytest.mark.conformance("LIFE-010")
+def test_LIFE_010_destruct_from_destructed_is_noop() -> None:
+    """LIFE-010: destruct() from Destructed emits NO messages (idempotent)."""
     vm, hub = _build_vm()
     msgs = _status_messages(hub)
     vm.destruct()  # should be no-op from Destructed
@@ -323,46 +369,15 @@ def test_LIFE_008_destruct_from_destructed_is_noop() -> None:
     assert vm.status == ConstructionStatus.DESTRUCTED
 
 
-@pytest.mark.conformance("LIFE-009")
-def test_LIFE_009_dispose_from_disposed_is_noop() -> None:
-    """LIFE-009: dispose() from Disposed emits NO messages (idempotent)."""
+@pytest.mark.conformance("LIFE-012")
+def test_LIFE_012_dispose_from_disposed_is_noop() -> None:
+    """LIFE-012: dispose() from Disposed emits NO messages (idempotent)."""
     vm, hub = _build_vm()
     vm.dispose()
     msgs = _status_messages(hub)
     vm.dispose()  # no-op
     assert len(msgs) == 0
     assert vm.status == ConstructionStatus.DISPOSED
-
-
-@pytest.mark.conformance("LIFE-010")
-def test_LIFE_010_is_constructed_invariant() -> None:
-    """LIFE-010: is_constructed == (status == Constructed) at all times."""
-    vm, _ = _build_vm()
-    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
-    vm.construct()
-    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
-    vm.destruct()
-    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
-    vm.dispose()
-    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
-
-
-@pytest.mark.conformance("LIFE-012")
-def test_LIFE_012_concurrent_reinvocation_raises() -> None:
-    """LIFE-012: re-invoking an operation while in-flight raises StatusTransitionError."""
-    vm, _ = _build_vm()
-    # Simulate in-flight by setting the flag directly.
-    vm._in_flight = True
-    vm._status = ConstructionStatus.DESTRUCTED
-    with pytest.raises(StatusTransitionError):
-        vm.construct()
-    vm._in_flight = False
-    # Same for destruct.
-    vm.construct()
-    vm._in_flight = True
-    with pytest.raises(StatusTransitionError):
-        vm.destruct()
-    vm._in_flight = False
 
 
 # ===========================================================================

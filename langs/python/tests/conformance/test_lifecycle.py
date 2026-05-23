@@ -115,57 +115,57 @@ def test_LIFE_004_delegated() -> None:
 
 @pytest.mark.conformance("LIFE-007")
 def test_LIFE_007_delegated() -> None:
-    """construct() from Constructed is a no-op (idempotent)."""
+    """IsConstructed == (Status == Constructed) invariant."""
     pytest.importorskip("vmx.components.component_vm")
     from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_007_construct_from_constructed_is_noop,
+        test_LIFE_007_is_constructed_invariant,
     )
 
-    test_LIFE_007_construct_from_constructed_is_noop()
+    test_LIFE_007_is_constructed_invariant()
 
 
 @pytest.mark.conformance("LIFE-008")
 def test_LIFE_008_delegated() -> None:
-    """destruct() from Destructed is a no-op (idempotent)."""
+    """Concurrent operation while transitioning raises StatusTransitionError."""
     pytest.importorskip("vmx.components.component_vm")
     from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_008_destruct_from_destructed_is_noop,
+        test_LIFE_008_concurrent_operation_raises,
     )
 
-    test_LIFE_008_destruct_from_destructed_is_noop()
+    test_LIFE_008_concurrent_operation_raises()
 
 
 @pytest.mark.conformance("LIFE-009")
 def test_LIFE_009_delegated() -> None:
-    """dispose() from Disposed is a no-op (idempotent, no message emitted)."""
+    """construct() from Constructed is a no-op (idempotent, no message emitted)."""
     pytest.importorskip("vmx.components.component_vm")
     from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_009_dispose_from_disposed_is_noop,
+        test_LIFE_009_construct_from_constructed_is_noop,
     )
 
-    test_LIFE_009_dispose_from_disposed_is_noop()
+    test_LIFE_009_construct_from_constructed_is_noop()
 
 
 @pytest.mark.conformance("LIFE-010")
 def test_LIFE_010_delegated() -> None:
-    """IsConstructed == (Status == Constructed) invariant."""
+    """destruct() from Destructed is a no-op (idempotent, no message emitted)."""
     pytest.importorskip("vmx.components.component_vm")
     from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_010_is_constructed_invariant,
+        test_LIFE_010_destruct_from_destructed_is_noop,
     )
 
-    test_LIFE_010_is_constructed_invariant()
+    test_LIFE_010_destruct_from_destructed_is_noop()
 
 
 @pytest.mark.conformance("LIFE-012")
 def test_LIFE_012_delegated() -> None:
-    """Concurrent re-invocation during Constructing/Destructing raises."""
+    """dispose() from Disposed is a no-op (idempotent, no message emitted)."""
     pytest.importorskip("vmx.components.component_vm")
     from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_012_concurrent_reinvocation_raises,
+        test_LIFE_012_dispose_from_disposed_is_noop,
     )
 
-    test_LIFE_012_concurrent_reinvocation_raises()
+    test_LIFE_012_dispose_from_disposed_is_noop()
 
 
 @pytest.mark.conformance("LIFE-013")

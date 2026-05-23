@@ -17,6 +17,7 @@ from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
 from vmx.composites.composite_vm import CollectionChangedEvent, CompositeVM, CompositeVMOf
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.construction_status import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
@@ -408,34 +409,42 @@ def test_COMP_011_deselect_component_raises_when_not_current() -> None:
 def test_LIFE_013_dispose_cascades_depth_first() -> None:
     """LIFE-013: dispose() on root propagates depth-first to all descendants.
 
-    Setup: root CompositeVM has 2 CompositeVM children, each with 2 ComponentVM
-    grandchildren.  After root.dispose(), all nodes have Status==Disposed.
-    The disposal order is depth-first (grandchildren before their parent,
-    children before root).
+    Setup:
+      root (CompositeVM)
+        ├── child-a (CompositeVM)
+        │     ├── gc-a1 (ComponentVM)
+        │     └── gc-a2 (ComponentVM)
+        └── child-b (CompositeVM)
+              ├── gc-b1 (ComponentVM)
+              └── gc-b2 (ComponentVM)
+
+    After root.dispose() all nodes must be Disposed.
+    The disposal order is depth-first: grandchildren before their parent
+    composite, children before root.  We track disposal order via hub
+    ConstructionStatusChangedMessage(Disposed) — every node (composites
+    included) emits one when it enters Disposed.
     """
     hub = _hub()
     disp = _dispatcher()
 
+    # Track which node names arrive at Disposed, in order.
     disposal_order: list[str] = []
+    hub.messages.subscribe(
+        lambda m: (
+            disposal_order.append(m.sender_name)
+            if isinstance(m, ConstructionStatusChangedMessage)
+            and m.status == ConstructionStatus.DISPOSED
+            else None
+        )
+    )
 
-    def _child_vm(name: str) -> ComponentVM:
-        vm = _build_child(name, hub=hub, dispatcher=disp)
-        original_dispose = vm.dispose
+    # Create leaf grandchildren.
+    gc_a1 = _build_child("gc-a1", hub=hub, dispatcher=disp)
+    gc_a2 = _build_child("gc-a2", hub=hub, dispatcher=disp)
+    gc_b1 = _build_child("gc-b1", hub=hub, dispatcher=disp)
+    gc_b2 = _build_child("gc-b2", hub=hub, dispatcher=disp)
 
-        def _tracked_dispose() -> None:
-            original_dispose()
-            disposal_order.append(name)
-
-        vm.dispose = _tracked_dispose  # type: ignore[method-assign]
-        return vm
-
-    # Create grandchildren.
-    gc_a1 = _child_vm("gc-a1")
-    gc_a2 = _child_vm("gc-a2")
-    gc_b1 = _child_vm("gc-b1")
-    gc_b2 = _child_vm("gc-b2")
-
-    # Create child composites.
+    # Create child composites with pre-populated children.
     child_comp_a: CompositeVM[ComponentVM] = (
         CompositeVMBuilder()
         .name("child-a")
@@ -462,24 +471,38 @@ def test_LIFE_013_dispose_cascades_depth_first() -> None:
 
     root.construct()
 
-    # Dispose root.
+    # Act: dispose root.
     root.dispose()
 
     # Every node must be Disposed.
-    assert root.status == ConstructionStatus.DISPOSED
-    assert child_comp_a.status == ConstructionStatus.DISPOSED
-    assert child_comp_b.status == ConstructionStatus.DISPOSED
     assert gc_a1.status == ConstructionStatus.DISPOSED
     assert gc_a2.status == ConstructionStatus.DISPOSED
     assert gc_b1.status == ConstructionStatus.DISPOSED
     assert gc_b2.status == ConstructionStatus.DISPOSED
+    assert child_comp_a.status == ConstructionStatus.DISPOSED
+    assert child_comp_b.status == ConstructionStatus.DISPOSED
+    assert root.status == ConstructionStatus.DISPOSED
 
-    # Depth-first order: grandchildren come before their parent composites.
-    assert disposal_order.index("gc-a1") < disposal_order.index("gc-a2") or True
-    # Just verify all grandchildren appear before both children in disposal_order
-    # (they are ComponentVMs so they are in disposal_order; composites are not tracked).
-    # All four grandchildren must be present.
-    assert set(disposal_order) == {"gc-a1", "gc-a2", "gc-b1", "gc-b2"}
+    # Depth-first order: grandchildren before their parent composite,
+    # children before root.
+    assert disposal_order.index("gc-a1") < disposal_order.index("child-a"), (
+        "gc-a1 must be disposed before child-a"
+    )
+    assert disposal_order.index("gc-a2") < disposal_order.index("child-a"), (
+        "gc-a2 must be disposed before child-a"
+    )
+    assert disposal_order.index("gc-b1") < disposal_order.index("child-b"), (
+        "gc-b1 must be disposed before child-b"
+    )
+    assert disposal_order.index("gc-b2") < disposal_order.index("child-b"), (
+        "gc-b2 must be disposed before child-b"
+    )
+    assert disposal_order.index("child-a") < disposal_order.index("root"), (
+        "child-a must be disposed before root"
+    )
+    assert disposal_order.index("child-b") < disposal_order.index("root"), (
+        "child-b must be disposed before root"
+    )
 
 
 # Alias imported by tests/conformance/test_lifecycle.py delegation.

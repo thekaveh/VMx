@@ -66,6 +66,10 @@ def test_AGG_001_arity1_factory_invoked_on_construct() -> None:
 
     agg = AggregateVMBuilder1().name("agg1").services(hub, dispatcher).component_1(make_vm1).build()
 
+    # Pre-construct: factory must NOT have been called yet (lazy semantics).
+    assert agg.component_1 is None, "component_1 must be None before construct()"
+    assert factory_call_count == 0, "Factory must not be called before construct()"
+
     agg.construct()
 
     assert factory_call_count == 1, "Factory must be called exactly once"
