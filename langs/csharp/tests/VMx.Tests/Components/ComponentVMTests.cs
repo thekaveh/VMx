@@ -274,10 +274,10 @@ public class ComponentVMTests
     public void Model_Setter_Emits_PropertyChangedMessage()
     {
         var (vm, hub, _) = BuildVm(model: "initial");
-        var messages = new List<IPropertyChangedMessage<ComponentVMBaseOfM<string>>>();
+        var messages = new List<IPropertyChangedMessage<IComponentVM>>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<string>> pcm) messages.Add(pcm);
+            if (m is IPropertyChangedMessage<IComponentVM> pcm) messages.Add(pcm);
         });
         vm.Model = "changed";
         messages.Should().Contain(m => m.PropertyName == "Model");
@@ -338,7 +338,7 @@ public class ComponentVMTests
         var hintMessages = new List<string>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<int>> pcm && pcm.PropertyName == "ModeledHint")
+            if (m is IPropertyChangedMessage<IComponentVM> pcm && pcm.PropertyName == "ModeledHint")
                 hintMessages.Add(pcm.PropertyName);
         });
         vm.Model = 8;

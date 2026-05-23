@@ -70,7 +70,7 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
         _model = value;
 
         // Emit PropertyChangedMessage for "Model".
-        Hub.Send(PropertyChangedMessage<ComponentVMBaseOfM<M>>.Create(this, Name, "Model"));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, "Model"));
 
         // Raise INPC for "Model".
         RaisePropertyChanged("Model");
@@ -80,7 +80,7 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
         if (!string.Equals(_modeledHint, newHint, StringComparison.Ordinal))
         {
             _modeledHint = newHint;
-            Hub.Send(PropertyChangedMessage<ComponentVMBaseOfM<M>>.Create(this, Name, nameof(ModeledHint)));
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(ModeledHint)));
             RaisePropertyChanged(nameof(ModeledHint));
         }
 

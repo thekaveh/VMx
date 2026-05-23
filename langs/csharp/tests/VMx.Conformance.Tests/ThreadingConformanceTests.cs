@@ -40,7 +40,7 @@ public class ThreadingConformanceTests
 
         var observed = new List<string>();
         hub.Messages
-            .OfType<IPropertyChangedMessage<ComponentVMBaseOfM<string>>>()
+            .OfType<IPropertyChangedMessage<IComponentVM>>()
             .Where(m => m.PropertyName == "Model")
             .ObserveOn(dispatcher.Foreground)
             .Subscribe(m => observed.Add(m.PropertyName));

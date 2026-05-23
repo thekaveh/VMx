@@ -70,7 +70,7 @@ public class ComponentVMConformanceTests
         var propMessages = new List<IMessage>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<string>> pcm && pcm.PropertyName == "Model")
+            if (m is IPropertyChangedMessage<IComponentVM> pcm && pcm.PropertyName == "Model")
                 propMessages.Add(m);
         });
 
@@ -124,7 +124,7 @@ public class ComponentVMConformanceTests
         var hintMessages = new List<string>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<int>> pcm &&
+            if (m is IPropertyChangedMessage<IComponentVM> pcm &&
                 pcm.PropertyName == nameof(vm.ModeledHint))
                 hintMessages.Add(pcm.PropertyName);
         });
@@ -206,7 +206,7 @@ public class ComponentVMConformanceTests
         var messages = new List<IMessage>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<string>> pcm && pcm.PropertyName == "Model")
+            if (m is IPropertyChangedMessage<IComponentVM> pcm && pcm.PropertyName == "Model")
                 messages.Add(m);
         });
 
@@ -244,7 +244,7 @@ public class ComponentVMConformanceTests
         IMessage? observed = null;
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<string>> pcm && pcm.PropertyName == "Model")
+            if (m is IPropertyChangedMessage<IComponentVM> pcm && pcm.PropertyName == "Model")
                 observed = m;
         });
 
@@ -263,10 +263,10 @@ public class ComponentVMConformanceTests
     public void PROP_004_PropertyName_SenderName()
     {
         var (vm, hub, _) = BuildVm(name: "n1", model: "m1");
-        IPropertyChangedMessage<ComponentVMBaseOfM<string>>? observed = null;
+        IPropertyChangedMessage<IComponentVM>? observed = null;
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<ComponentVMBaseOfM<string>> pcm && pcm.PropertyName == "Model")
+            if (m is IPropertyChangedMessage<IComponentVM> pcm && pcm.PropertyName == "Model")
                 observed = pcm;
         });
 

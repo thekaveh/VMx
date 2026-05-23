@@ -37,7 +37,7 @@ static class Demo
             {
                 Console.WriteLine($"  [hub] {csm.SenderName}  status → {csm.Status}");
             }
-            else if (msg is PropertyChangedMessage<ComponentVMBaseOfM<UserModel>> pcm)
+            else if (msg is PropertyChangedMessage<IComponentVM> pcm)
             {
                 Console.WriteLine($"  [hub] {pcm.SenderName}  property '{pcm.PropertyName}' changed");
             }

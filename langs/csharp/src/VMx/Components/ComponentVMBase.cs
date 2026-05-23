@@ -141,7 +141,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (_isCurrent == value) return;
             _isCurrent = value;
             RaisePropertyChanged(nameof(IsCurrent));
-            _hub.Send(PropertyChangedMessage<ComponentVMBase>.Create(this, Name, nameof(IsCurrent)));
+            _hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsCurrent)));
         }
     }
 

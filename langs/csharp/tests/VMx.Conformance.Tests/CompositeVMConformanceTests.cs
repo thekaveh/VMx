@@ -104,7 +104,7 @@ public class CompositeVMConformanceTests
         {
             if (m is IPropertyChangedMessage<CompositeVMBase<ComponentVM<string>>> pcm)
                 currentMessages.Add(pcm.PropertyName);
-            if (m is IPropertyChangedMessage<ComponentVMBase> pcm2 &&
+            if (m is IPropertyChangedMessage<IComponentVM> pcm2 &&
                 pcm2.PropertyName == nameof(ComponentVMBase.IsCurrent))
                 isCurrentMessages.Add(m);
         });
@@ -192,7 +192,7 @@ public class CompositeVMConformanceTests
             .ObserveOn(dispatcher.Foreground)
             .Subscribe(m =>
             {
-                if (m is IPropertyChangedMessage<ComponentVMBase> pcm
+                if (m is IPropertyChangedMessage<IComponentVM> pcm
                     && pcm.PropertyName == "IsCurrent"
                     && ReferenceEquals(pcm.SenderObject, vmA))
                     observedOnForeground.Add("vmA.IsCurrent");
