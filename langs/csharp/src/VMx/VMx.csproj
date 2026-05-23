@@ -31,4 +31,10 @@
     <EmbeddedResource Include="..\..\..\..\spec\fixtures\lifecycle-transitions.json"
                      LogicalName="VMx.Lifecycle.lifecycle-transitions.json" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Allow test projects to access internal members (e.g. ComponentVMBase.Parent, IsCurrent setter). -->
+    <InternalsVisibleTo Include="VMx.Tests" />
+    <InternalsVisibleTo Include="VMx.Conformance.Tests" />
+  </ItemGroup>
 </Project>
