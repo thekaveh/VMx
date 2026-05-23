@@ -315,10 +315,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Destruct()
     {
-        // Idempotent: already Destructed → no-op.
         if (_status == ConstructionStatus.Destructed) return;
 
-        // Validate.
         LifecycleTransitionValidator.Require(_status, "destruct");
 
         if (_inFlight)
@@ -327,8 +325,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         if (_background)
         {
-            // Emit Destructing synchronously so subscribers immediately observe the
-            // transition starting; then schedule the actual work on the background scheduler.
+            // Emit Destructing synchronously so subscribers see the transition start;
+            // the actual OnDestruct runs on the background scheduler and the caller does
+            // not wait for it.
             SetStatus(ConstructionStatus.Destructing);
             _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
             {
@@ -343,7 +342,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 }
                 return Disposable.Empty;
             });
-            // Return immediately — caller does not wait for background work.
         }
         else
         {
@@ -388,7 +386,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Reconstruct()
     {
-        // Validate: must be Constructed.
         LifecycleTransitionValidator.Require(_status, "reconstruct");
 
         if (_inFlight)
@@ -397,12 +394,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         try
         {
-            // Destruct phase
             SetStatus(ConstructionStatus.Destructing);
             OnDestruct();
             SetStatus(ConstructionStatus.Destructed);
 
-            // Construct phase
             SetStatus(ConstructionStatus.Constructing);
             OnConstruct();
             SetStatus(ConstructionStatus.Constructed);
@@ -424,12 +419,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public virtual void Dispose()
     {
-        // Idempotent: already Disposed → no-op (no message).
         if (_status == ConstructionStatus.Disposed) return;
 
         SetStatus(ConstructionStatus.Disposed);
 
-        // Complete and dispose the trigger subject.
         if (!_triggerDisposed)
         {
             _triggerDisposed = true;
@@ -437,7 +430,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             _statusTrigger.Dispose();
         }
 
-        // Dispose commands.
         (_selectCommand as IDisposable)?.Dispose();
         (_deselectCommand as IDisposable)?.Dispose();
         (_selectNextCommand as IDisposable)?.Dispose();
@@ -478,14 +470,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         _status = newStatus;
 
-        // Emit hub message.
         _hub.Send(ConstructionStatusChangedMessage.Create(this, Name, newStatus));
 
-        // Raise INPC for Status and IsConstructed.
+        // Status and IsConstructed are computed/read-only, so they raise INPC only;
+        // no PropertyChangedMessage on the hub (spec 03-messages.md restricts hub
+        // PropertyChangedMessage to setter-assigned properties).
         RaisePropertyChanged(nameof(Status));
         RaisePropertyChanged(nameof(IsConstructed));
 
-        // Fire command trigger so predicates are re-evaluated.
         if (!_triggerDisposed)
             _statusTrigger.OnNext(Unit.Default);
     }

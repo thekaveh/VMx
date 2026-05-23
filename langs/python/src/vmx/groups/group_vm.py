@@ -95,20 +95,6 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def type(self) -> ViewModelType:
         return ViewModelType.GROUP
 
-    # ── IParentCompositeVM (no-op: GroupVM has no selection) ─────────────────
-    # Children may try to select/deselect themselves; these are safe no-ops.
-
-    @property
-    def _current_child(self) -> object | None:
-        """GroupVM has no selection slot — always returns None."""
-        return None
-
-    def _select_child_impl(self, vm: _ComponentVMBase) -> None:
-        """No-op: GroupVM children are peers — no selection concept."""
-
-    def _deselect_child_impl(self, vm: _ComponentVMBase) -> None:
-        """No-op: GroupVM children are peers — no selection concept."""
-
     # ── Collection-change observable ─────────────────────────────────────────
 
     @property

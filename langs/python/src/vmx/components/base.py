@@ -355,7 +355,6 @@ class _ComponentVMBase(ABC):
         self._set_status(ConstructionStatus.DISPOSED)
         self._on_dispose()
 
-        # Complete and dispose subjects.
         if not self._trigger_disposed:
             self._trigger_disposed = True
             self._status_trigger.on_completed()
@@ -363,7 +362,6 @@ class _ComponentVMBase(ABC):
             self._property_changed_subject.on_completed()
             self._property_changed_subject.dispose()
 
-        # Dispose commands.
         self._select_command.dispose()
         self._deselect_command.dispose()
         self._select_next_command.dispose()
@@ -433,16 +431,13 @@ class _ComponentVMBase(ABC):
         """Update status, emit hub message, and fire command trigger."""
         self._status = new_status
 
-        # Emit on hub.
         self._hub.send(ConstructionStatusChangedMessage.create(self, self._name, new_status))
 
-        # Raise property_changed for status and is_constructed (INPC-equivalent only;
-        # these are computed/read-only properties so no PropertyChangedMessage is
-        # published on the hub — spec 03-messages.md: only setter-assigned properties
-        # emit PropertyChangedMessage).
+        # status and is_constructed are computed/read-only, so they raise INPC-equivalent
+        # property_changed only — no PropertyChangedMessage on the hub (spec 03-messages.md
+        # publishes only on setter-assigned properties).
         self._raise_property_changed("status")
         self._raise_property_changed("is_constructed")
 
-        # Fire command trigger so predicates are re-evaluated.
         if not self._trigger_disposed:
             self._status_trigger.on_next(None)
