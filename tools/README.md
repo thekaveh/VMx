@@ -6,10 +6,11 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 
 - `check-conformance-coverage.py` — parses `spec/12-conformance.md` for the catalog
   of `XXX-NNN` conformance IDs and walks each active language's registered conformance
-  test directory (`langs/python/tests/conformance/` for Python,
-  `langs/csharp/tests/VMx.Conformance.Tests/` for C#) for matching tests. Reports
-  gaps to stdout and exits non-zero if any language passed via `--require` has gaps.
-  Used by the `conformance` CI workflow.
+  test directory for matching tests. The exact directories are registered in the
+  `_SCRAPERS` dictionary at the top of `tools/check-conformance-coverage.py`; running
+  the tool prints the discovered paths per language. Reports gaps to stdout and exits
+  non-zero if any language passed via `--require` has gaps. Used by the `conformance`
+  CI workflow.
 
   ```bash
   # report-only
