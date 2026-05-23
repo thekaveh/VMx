@@ -22,6 +22,7 @@ public sealed class CompositeVMBuilder<VM>
     // ── Optional ──────────────────────────────────────────────────────────────
     private readonly string _hint;
     private readonly bool _asyncSelection;
+    private readonly bool _autoConstructOnAdd;
     private readonly Func<IEnumerable<VM>>? _childrenFactory;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
@@ -37,6 +38,7 @@ public sealed class CompositeVMBuilder<VM>
         IDispatcher? dispatcher,
         string hint,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct)
@@ -46,6 +48,7 @@ public sealed class CompositeVMBuilder<VM>
         _dispatcher = dispatcher;
         _hint = hint;
         _asyncSelection = asyncSelection;
+        _autoConstructOnAdd = autoConstructOnAdd;
         _childrenFactory = childrenFactory;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
@@ -68,6 +71,13 @@ public sealed class CompositeVMBuilder<VM>
     /// <summary>Enables async selection dispatch via the foreground scheduler.</summary>
     public CompositeVMBuilder<VM> AsyncSelection(bool asyncSelection) => With(asyncSelection: asyncSelection);
 
+    /// <summary>
+    /// When <see langword="true"/>, children added via Add or Insert after the composite
+    /// reaches Constructed are automatically constructed before the CollectionChanged event fires.
+    /// Default is <see langword="false"/> for backwards compatibility.
+    /// </summary>
+    public CompositeVMBuilder<VM> AutoConstructOnAdd(bool autoConstructOnAdd) => With(autoConstructOnAdd: autoConstructOnAdd);
+
     /// <summary>Sets the optional OnConstruct lifecycle callback.</summary>
     public CompositeVMBuilder<VM> OnConstruct(Action callback) => With(onConstruct: callback);
 
@@ -85,7 +95,7 @@ public sealed class CompositeVMBuilder<VM>
 
         return CompositeVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
-            _asyncSelection, _childrenFactory,
+            _asyncSelection, _autoConstructOnAdd, _childrenFactory,
             _onConstruct, _onDestruct);
     }
 
@@ -95,6 +105,7 @@ public sealed class CompositeVMBuilder<VM>
         IDispatcher? dispatcher = null,
         string? hint = null,
         bool? asyncSelection = null,
+        bool? autoConstructOnAdd = null,
         Func<IEnumerable<VM>>? childrenFactory = null,
         Action? onConstruct = null,
         Action? onDestruct = null)
@@ -104,6 +115,7 @@ public sealed class CompositeVMBuilder<VM>
             dispatcher ?? _dispatcher,
             hint ?? _hint,
             asyncSelection ?? _asyncSelection,
+            autoConstructOnAdd ?? _autoConstructOnAdd,
             childrenFactory ?? _childrenFactory,
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct);
@@ -129,6 +141,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     // ── Optional ──────────────────────────────────────────────────────────────
     private readonly string _hint;
     private readonly bool _asyncSelection;
+    private readonly bool _autoConstructOnAdd;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
 
@@ -143,6 +156,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         IDispatcher? dispatcher,
         string hint,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Func<IEnumerable<M>>? childrenModels,
         Func<M, VM>? childModelToChildViewModel,
         Action? onConstruct,
@@ -153,6 +167,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         _dispatcher = dispatcher;
         _hint = hint;
         _asyncSelection = asyncSelection;
+        _autoConstructOnAdd = autoConstructOnAdd;
         _childrenModels = childrenModels;
         _childModelToChildViewModel = childModelToChildViewModel;
         _onConstruct = onConstruct;
@@ -181,6 +196,14 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     public CompositeVMOfMBuilder<M, VM> AsyncSelection(bool asyncSelection)
         => With(asyncSelection: asyncSelection);
 
+    /// <summary>
+    /// When <see langword="true"/>, children added via Add or Insert after the composite
+    /// reaches Constructed are automatically constructed before the CollectionChanged event fires.
+    /// Default is <see langword="false"/> for backwards compatibility.
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> AutoConstructOnAdd(bool autoConstructOnAdd)
+        => With(autoConstructOnAdd: autoConstructOnAdd);
+
     /// <summary>Sets the optional OnConstruct callback.</summary>
     public CompositeVMOfMBuilder<M, VM> OnConstruct(Action callback) => With(onConstruct: callback);
 
@@ -200,7 +223,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
 
         return CompositeVMOfM<M, VM>.Create(
             _name, _hint, _hub, _dispatcher,
-            _asyncSelection, _childrenModels, _childModelToChildViewModel,
+            _asyncSelection, _autoConstructOnAdd,
+            _childrenModels, _childModelToChildViewModel,
             _onConstruct, _onDestruct);
     }
 
@@ -210,6 +234,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         IDispatcher? dispatcher = null,
         string? hint = null,
         bool? asyncSelection = null,
+        bool? autoConstructOnAdd = null,
         Func<IEnumerable<M>>? childrenModels = null,
         Func<M, VM>? childModelToChildViewModel = null,
         Action? onConstruct = null,
@@ -220,6 +245,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             dispatcher ?? _dispatcher,
             hint ?? _hint,
             asyncSelection ?? _asyncSelection,
+            autoConstructOnAdd ?? _autoConstructOnAdd,
             childrenModels ?? _childrenModels,
             childModelToChildViewModel ?? _childModelToChildViewModel,
             onConstruct ?? _onConstruct,

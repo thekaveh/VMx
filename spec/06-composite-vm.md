@@ -70,8 +70,18 @@ The collection raises `INotifyCollectionChanged.CollectionChanged` events:
 - `RemoveAt(i)` → `CollectionChanged(action=Remove, oldItems=[old], oldIndex=i)`.
 - `Clear()` → `CollectionChanged(action=Reset)`.
 
-Implementations MAY suppress notifications during bulk operations; if so, a single
-`Reset` event MUST be raised at the end.
+### Batch updates (spec v1.1)
+
+A composite MUST expose a `BatchUpdate()` method returning an `IDisposable` /
+context manager. While at least one batch handle is live, mutations (`Add`,
+`Insert`, `Remove`, `RemoveAt`, `Clear`, indexer set) MUST NOT raise individual
+`CollectionChanged` events. When the last live handle is disposed:
+
+- If any mutations occurred during the batch, a single
+  `CollectionChanged(action=Reset)` MUST be raised.
+- If no mutations occurred, no event is raised.
+
+Nested batches are ref-counted: only the outermost completion fires the `Reset`.
 
 ## Children construction orchestration
 
@@ -92,9 +102,16 @@ children:
 The order in which children are visited is unspecified. v1.x reference
 implementations drive them sequentially.
 
+### Add after Constructed
+
 A child added via `Add` AFTER the composite has reached `Constructed` does NOT
-automatically `construct()` — the host MUST invoke it. (This is a v1.0 limitation;
-auto-construct-on-add is a future enhancement.)
+automatically `construct()` by default — the host MUST invoke it.
+
+A composite built with `AutoConstructOnAdd(true)` (added in spec v1.1) MUST
+automatically call `construct()` on any child added via `Add` / `Insert` after
+the composite reaches `Constructed`, completing the child's transition to
+`Constructed` BEFORE the `CollectionChanged` event fires. Builds default to
+`false` for backwards compatibility.
 
 ## Modeled variant `CompositeVM<M, VM>`
 
@@ -112,7 +129,7 @@ model.
 
 ## Conformance
 
-`COMP-001` through `COMP-011` in `12-conformance.md` cover:
+`COMP-001` through `COMP-013` in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - `Current` setter behavior (legal/illegal values)
@@ -125,3 +142,5 @@ model.
 - `Current` setter raises on non-child assignment
 - `IsCurrent` change on the previously-Current child dispatches on the foreground scheduler
 - `deselect_component` raises when the argument is not `Current`
+- (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the composite is `Constructed`
+- (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion

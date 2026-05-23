@@ -27,11 +27,12 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
         IMessageHub hub,
         IDispatcher dispatcher,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Func<IEnumerable<M>> childrenModels,
         Func<M, VM> childModelToChildViewModel,
         Action? onConstruct,
         Action? onDestruct)
-        : base(name, hint, hub, dispatcher, asyncSelection, onConstruct, onDestruct)
+        : base(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, onConstruct, onDestruct)
     {
         _childrenModels = childrenModels;
         _childModelToChildViewModel = childModelToChildViewModel;
@@ -49,11 +50,12 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
         IMessageHub hub,
         IDispatcher dispatcher,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Func<IEnumerable<M>> childrenModels,
         Func<M, VM> childModelToChildViewModel,
         Action? onConstruct,
         Action? onDestruct)
-        => new(name, hint, hub, dispatcher, asyncSelection,
+        => new(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd,
                childrenModels, childModelToChildViewModel,
                onConstruct, onDestruct);
 

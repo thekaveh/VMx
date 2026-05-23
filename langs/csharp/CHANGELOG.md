@@ -25,4 +25,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Examples: `examples/csharp/HelloVMx/` (console) and `examples/csharp/WpfTodoApp/` (WPF binding, Windows-only build).
 - Getting-started tutorial at `docs/getting-started/csharp.md`.
 
+## [1.1.0] — 2026-05-23
+
+### Added
+- Implements spec-v1.1.0 on top of the v1.0.0 surface.
+- `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `.AutoConstructOnAdd(bool)` builder option. When `true`, a child added after the container reaches `Constructed` is automatically constructed before the `CollectionChanged(Add)` event fires.
+- `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `BatchUpdate()` method returns an `IDisposable` that suppresses per-mutation `CollectionChanged` events. The outermost `Dispose` emits a single `CollectionChanged(Reset)` event iff any mutations occurred.
+- New `VMx.Tree` namespace with `Tree.Walk(root)` (lazy DFS pre-order) and `Tree.Find(root, predicate)` (short-circuiting first-match).
+- New conformance IDs: COMP-012, COMP-013, GRP-005, GRP-006, UTIL-001, UTIL-002, UTIL-003 (89 conformance test methods; 75 catalog IDs covered).
+
 ## [Unreleased]

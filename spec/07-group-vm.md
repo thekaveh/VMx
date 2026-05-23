@@ -43,11 +43,29 @@ The builder accepts:
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
 In v1.0 only the non-modeled variant ships.
 
+## Auto-construct on add (spec v1.1)
+
+A group built with `AutoConstructOnAdd(true)` MUST automatically call
+`construct()` on any child added via `Add` / `Insert` after the group reaches
+`Constructed`, completing the child's transition BEFORE the `CollectionChanged`
+event fires. The default is `false`.
+
+## Batch updates (spec v1.1)
+
+A group MUST expose a `BatchUpdate()` method returning an `IDisposable` /
+context manager. While at least one batch handle is live, mutations MUST NOT
+raise individual `CollectionChanged` events. When the last live handle is
+disposed, if any mutations occurred a single
+`CollectionChanged(action=Reset)` MUST be raised. Nested batches are
+ref-counted.
+
 ## Conformance
 
-`GRP-001` through `GRP-004` in `12-conformance.md` cover:
+`GRP-001` through `GRP-006` in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - absence of `Current`
 - construction waits for all children
 - destruction waits for all children
+- (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
+- (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion

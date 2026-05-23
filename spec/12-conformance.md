@@ -7,19 +7,20 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## Identifier prefixes
 
-| Prefix     | Area                                  | File                 |
-| ---------- | ------------------------------------- | -------------------- |
-| `LIFE-NNN` | Lifecycle state machine               | `02-lifecycle.md`    |
-| `HUB-NNN`  | Message hub                           | `03-messages.md`     |
-| `PROP-NNN` | Property change notifications         | `03-messages.md`     |
-| `CMD-NNN`  | Commands                              | `04-commands.md`     |
-| `CVM-NNN`  | ComponentVM (incl. modeled, readonly) | `05-component-vm.md` |
-| `COMP-NNN` | CompositeVM                           | `06-composite-vm.md` |
-| `GRP-NNN`  | GroupVM                               | `07-group-vm.md`     |
-| `AGG-NNN`  | AggregateVM                           | `08-aggregate-vm.md` |
-| `FWD-NNN`  | Forwarding decorators                 | `09-forwarding.md`   |
-| `BLD-NNN`  | Builders                              | `10-builders.md`     |
-| `THR-NNN`  | Threading & schedulers                | `11-threading.md`    |
+| Prefix     | Area                                  | File                   |
+| ---------- | ------------------------------------- | ---------------------- |
+| `LIFE-NNN` | Lifecycle state machine               | `02-lifecycle.md`      |
+| `HUB-NNN`  | Message hub                           | `03-messages.md`       |
+| `PROP-NNN` | Property change notifications         | `03-messages.md`       |
+| `CMD-NNN`  | Commands                              | `04-commands.md`       |
+| `CVM-NNN`  | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`   |
+| `COMP-NNN` | CompositeVM                           | `06-composite-vm.md`   |
+| `GRP-NNN`  | GroupVM                               | `07-group-vm.md`       |
+| `AGG-NNN`  | AggregateVM                           | `08-aggregate-vm.md`   |
+| `FWD-NNN`  | Forwarding decorators                 | `09-forwarding.md`     |
+| `BLD-NNN`  | Builders                              | `10-builders.md`       |
+| `THR-NNN`  | Threading & schedulers                | `11-threading.md`      |
+| `UTIL-NNN` | Tree utilities (spec v1.1)            | `13-tree-utilities.md` |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -447,6 +448,26 @@ using `ObserveOn(dispatcher.Foreground)`
 **Then** the operation raises
 **And** `composite.Current` is still `vmA`
 
+### COMP-012 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
+
+**Given** a `CompositeVM<VM>` built with `.AutoConstructOnAdd(true)` and already in `Constructed` state
+**And** `child` is a fresh `IComponentVM` in `Destructed` state
+**And** a subscriber to `CollectionChanged`
+**When** `composite.Add(child)` is called
+**Then** `child.Status == Constructed` BEFORE the `CollectionChanged(Add)` event is observed
+**And** when the subscriber receives the event, the child reads as `Constructed`
+
+### COMP-013 — BatchUpdate suppresses per-mutation events and emits one Reset (spec v1.1)
+
+**Given** a `CompositeVM<VM>` in `Constructed` state
+**And** a subscriber to `CollectionChanged`
+**When** `composite.BatchUpdate()` is entered as `using`/`with`
+**And** N (≥1) mutations are applied (Add / Insert / Remove / Clear)
+**And** the batch handle is disposed / the context exits
+**Then** the subscriber observes exactly ONE `CollectionChanged(action=Reset)` event
+**And** the subscriber observes NO per-mutation events from within the batch
+**And** the composite's children reflect the post-batch state
+
 ______________________________________________________________________
 
 ## GroupVM (`GRP-NNN`)
@@ -484,6 +505,24 @@ exposes no internal navigation slot
 **When** `group.destruct()` is called
 **Then** when it returns, every child has `Status == Destructed`
 **And** the group has `Status == Destructed`
+
+### GRP-005 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
+
+**Given** a `GroupVM<VM>` built with `.AutoConstructOnAdd(true)` and already in `Constructed` state
+**And** `child` is a fresh `IComponentVM` in `Destructed` state
+**And** a subscriber to `CollectionChanged`
+**When** `group.Add(child)` is called
+**Then** `child.Status == Constructed` BEFORE the `CollectionChanged(Add)` event is observed
+
+### GRP-006 — BatchUpdate suppresses per-mutation events and emits one Reset (spec v1.1)
+
+**Given** a `GroupVM<VM>` in `Constructed` state
+**And** a subscriber to `CollectionChanged`
+**When** `group.BatchUpdate()` is entered as `using`/`with`
+**And** N (≥1) mutations are applied (Add / Insert / Remove / Clear)
+**And** the batch handle is disposed
+**Then** the subscriber observes exactly ONE `CollectionChanged(action=Reset)` event
+**And** the subscriber observes NO per-mutation events from within the batch
 
 ______________________________________________________________________
 
@@ -620,3 +659,37 @@ subscriber to `CollectionChanged` with `ObserveOn(dispatcher.Foreground)`
 **Given** a subscriber to `hub.Messages.ObserveOn(scheduler)` for any scheduler
 **When** `hub.Send(message)` is called
 **Then** the subscriber's handler is invoked on `scheduler`
+
+______________________________________________________________________
+
+## Tree utilities (`UTIL-NNN`) — spec v1.1
+
+### UTIL-001 — walk yields root then descendants in DFS pre-order
+
+**Given** a tree:
+
+```
+root: CompositeVM
+  ├── a: ComponentVM
+  └── b: CompositeVM
+        ├── b1: ComponentVM
+        └── b2: ComponentVM
+```
+
+**When** `list(walk(root))` is materialized
+**Then** the sequence is `[root, a, b, b1, b2]`
+
+### UTIL-002 — walk skips empty aggregate slots
+
+**Given** an `AggregateVM3` with `Component1` populated, `Component2 == null`, `Component3` populated
+**When** `list(walk(agg))` is materialized
+**Then** the sequence contains `agg`, `agg.Component1`, `agg.Component3`
+**And** the sequence does NOT contain `null` / `None` / any entry for the empty slot
+
+### UTIL-003 — find returns first matching node and short-circuits
+
+**Given** a tree as in UTIL-001
+**And** a predicate `vm => vm.Name == "b1"`
+**When** `find(root, predicate)` is called
+**Then** the result is `b1`
+**And** the predicate was invoked at most for `root`, `a`, `b`, `b1` — never for `b2`

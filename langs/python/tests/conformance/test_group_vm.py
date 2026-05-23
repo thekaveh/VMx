@@ -1,9 +1,11 @@
-"""Conformance tests: GRP-001..GRP-004.
+"""Conformance tests: GRP-001..GRP-006.
 
 GRP-001 — Add emits CollectionChanged(action=Add)
 GRP-002 — Group lacks child-navigation and child-selection members
 GRP-003 — Construct waits until all children reach Constructed
 GRP-004 — Destruct waits until all children reach Destructed
+GRP-005 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
+GRP-006 — BatchUpdate suppresses per-mutation events and emits one Reset (spec v1.1)
 """
 
 from __future__ import annotations
@@ -164,3 +166,58 @@ def test_GRP_004_destruct_waits_for_all_children() -> None:
         assert child.status == ConstructionStatus.DESTRUCTED, (  # type: ignore[union-attr]
             f"Child {i} expected Destructed, got {child.status}"  # type: ignore[union-attr]
         )
+
+
+# ===========================================================================
+# GRP-005 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
+# ===========================================================================
+
+
+@pytest.mark.conformance("GRP-005")
+def test_GRP_005_auto_construct_on_add() -> None:
+    """GRP-005: child added after Constructed reaches Constructed before the event fires."""
+    h = _hub()
+    d = _dispatcher()
+    grp: GroupVM[object] = (
+        GroupVMBuilder().name("grp").services(h, d).auto_construct_on_add(True).build()
+    )
+    grp.construct()
+
+    child = _make_child("late")
+    assert child.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+
+    seen: list[tuple[CollectionChangedEvent, ConstructionStatus]] = []
+    grp.on_collection_changed.subscribe(
+        lambda e: seen.append((e, child.status))  # type: ignore[arg-type, union-attr]
+    )
+
+    grp.add(child)
+
+    assert child.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert len(seen) == 1
+    evt, status_at_event = seen[0]
+    assert evt.action == "add"
+    assert status_at_event == ConstructionStatus.CONSTRUCTED
+
+
+# ===========================================================================
+# GRP-006 — BatchUpdate suppresses per-mutation events and emits one Reset
+# ===========================================================================
+
+
+@pytest.mark.conformance("GRP-006")
+def test_GRP_006_batch_update_emits_one_reset() -> None:
+    """GRP-006: mutations inside a batch produce exactly one Reset at exit."""
+    grp, _ = _make_group()
+    grp.construct()
+
+    events: list[CollectionChangedEvent] = []
+    grp.on_collection_changed.subscribe(events.append)
+
+    with grp.batch_update():
+        for i in range(3):
+            grp.add(_make_child(f"c{i}"))
+
+    assert len(events) == 1, f"Expected one Reset event, got {[e.action for e in events]}"
+    assert events[0].action == "reset"
+    assert len(grp) == 3

@@ -17,9 +17,10 @@ from typing import Generic, TypeVar
 
 from reactivex.subject import Subject
 
-from vmx.collections import CollectionChangedEvent
+from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
 from vmx.components.protocols import ViewModelType
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHub
@@ -65,6 +66,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         hint: str,
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
+        auto_construct_on_add: bool = False,
         children_factory: Callable[[], Iterable[VM]] | None = None,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
@@ -77,9 +79,12 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             on_construct=on_construct,
             on_destruct=on_destruct,
         )
+        self._auto_construct_on_add: bool = auto_construct_on_add
         self._children: list[VM] = []
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
         self._populated: bool = False
+        self._batch_depth: int = 0
+        self._batch_dirty: bool = False
 
         # Observable collection-change stream.
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
@@ -130,10 +135,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children[index] = value
         old._set_parent(None)
         value._set_parent(self._as_parent())
-        self._collection_changed_subject.on_next(
+        self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(old,), old_index=index)
         )
-        self._collection_changed_subject.on_next(
+        self._maybe_auto_construct(value)
+        self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(value,), new_index=index)
         )
 
@@ -151,7 +157,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         """Insert *item* at *index*, shifting existing children right."""
         self._children.insert(index, item)
         item._set_parent(self._as_parent())
-        self._collection_changed_subject.on_next(
+        self._maybe_auto_construct(item)
+        self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
         )
 
@@ -160,7 +167,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         idx = len(self._children)
         self._children.append(item)
         item._set_parent(self._as_parent())
-        self._collection_changed_subject.on_next(
+        self._maybe_auto_construct(item)
+        self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
         )
 
@@ -180,7 +188,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         item = self._children[index]
         del self._children[index]
         item._set_parent(None)
-        self._collection_changed_subject.on_next(
+        self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=index)
         )
 
@@ -189,7 +197,40 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         for child in self._children:
             child._set_parent(None)
         self._children.clear()
-        self._collection_changed_subject.on_next(CollectionChangedEvent(action="reset"))
+        self._emit_collection_changed(CollectionChangedEvent(action="reset"))
+
+    # ── Batch + auto-construct (spec v1.1) ──────────────────────────────────
+
+    def batch_update(self) -> BatchUpdateHandle:
+        """Open a ref-counted batch suppressing per-mutation events.
+
+        Returns a context manager / disposable. When the outermost handle is
+        disposed, a single ``CollectionChangedEvent(action='reset')`` is emitted
+        iff at least one mutation occurred while any batch was open.
+        """
+        self._batch_depth += 1
+        return BatchUpdateHandle(self)
+
+    def _exit_batch(self) -> None:
+        self._batch_depth -= 1
+        if self._batch_depth == 0 and self._batch_dirty:
+            self._batch_dirty = False
+            self._collection_changed_subject.on_next(CollectionChangedEvent(action="reset"))
+
+    def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
+        if self._batch_depth > 0:
+            self._batch_dirty = True
+            return
+        self._collection_changed_subject.on_next(event)
+
+    def _maybe_auto_construct(self, child: VM) -> None:
+        if not self._auto_construct_on_add:
+            return
+        if self._status != ConstructionStatus.CONSTRUCTED:
+            return
+        if child.status == ConstructionStatus.CONSTRUCTED:
+            return
+        child.construct()
 
     # ── Lifecycle overrides ──────────────────────────────────────────────────
 

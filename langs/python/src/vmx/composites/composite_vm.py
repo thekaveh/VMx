@@ -12,7 +12,7 @@ import reactivex as rx
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
-from vmx.collections import CollectionChangedEvent
+from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
@@ -48,6 +48,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
+        auto_construct_on_add: bool = False,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
     ) -> None:
@@ -60,10 +61,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             on_destruct=on_destruct,
         )
         self._async_selection: bool = async_selection
+        self._auto_construct_on_add: bool = auto_construct_on_add
         self._children: list[VM] = []
         self._current: VM | None = None
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
         self._populated: bool = False
+        self._batch_depth: int = 0
+        self._batch_dirty: bool = False
 
     # ── ViewModelType ─────────────────────────────────────────────────────────
 
@@ -172,10 +176,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._children[index] = value
         old._set_parent(None)
         value._set_parent(self)
-        self._collection_changed_subject.on_next(
+        self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(old,), old_index=index)
         )
-        self._collection_changed_subject.on_next(
+        self._maybe_auto_construct(value)
+        self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(value,), new_index=index)
         )
 
@@ -192,7 +197,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         """Insert *item* before *index*, emitting a collection-changed event."""
         self._children.insert(index, item)
         item._set_parent(self)
-        self._collection_changed_subject.on_next(
+        self._maybe_auto_construct(item)
+        self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
         )
 
@@ -201,7 +207,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._children.append(item)
         item._set_parent(self)
         idx = len(self._children) - 1
-        self._collection_changed_subject.on_next(
+        self._maybe_auto_construct(item)
+        self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
         )
 
@@ -228,7 +235,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             child._set_parent(None)
         self._children.clear()
         self._current = None
-        self._collection_changed_subject.on_next(CollectionChangedEvent(action="reset"))
+        self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def copy_to(self, target: list[VM], array_index: int) -> None:
         """Copy children into *target* starting at *array_index*."""
@@ -239,12 +246,44 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         item = self._children[index]
         del self._children[index]
         item._set_parent(None)
-        # If the removed item was current, clear selection synchronously.
         if self._current is item:
             self._set_current(None, async_sel=False)
-        self._collection_changed_subject.on_next(
+        self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=index)
         )
+
+    # ── Batch + auto-construct (spec v1.1) ────────────────────────────────────
+
+    def batch_update(self) -> BatchUpdateHandle:
+        """Open a ref-counted batch suppressing per-mutation events.
+
+        Returns a context manager / disposable. When the outermost handle is
+        disposed, a single ``CollectionChangedEvent(action='reset')`` is emitted
+        iff at least one mutation occurred while any batch was open.
+        """
+        self._batch_depth += 1
+        return BatchUpdateHandle(self)
+
+    def _exit_batch(self) -> None:
+        self._batch_depth -= 1
+        if self._batch_depth == 0 and self._batch_dirty:
+            self._batch_dirty = False
+            self._collection_changed_subject.on_next(CollectionChangedEvent(action="reset"))
+
+    def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
+        if self._batch_depth > 0:
+            self._batch_dirty = True
+            return
+        self._collection_changed_subject.on_next(event)
+
+    def _maybe_auto_construct(self, child: VM) -> None:
+        if not self._auto_construct_on_add:
+            return
+        if self._status != ConstructionStatus.CONSTRUCTED:
+            return
+        if child.status == ConstructionStatus.CONSTRUCTED:
+            return
+        child.construct()
 
     # ── Lifecycle overrides ───────────────────────────────────────────────────
 
@@ -347,6 +386,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
+        auto_construct_on_add: bool = False,
         children_factory: Callable[[], Iterable[VM]] | None = None,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
@@ -357,6 +397,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
             hub=hub,
             dispatcher=dispatcher,
             async_selection=async_selection,
+            auto_construct_on_add=auto_construct_on_add,
             on_construct=on_construct,
             on_destruct=on_destruct,
         )
@@ -397,6 +438,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
+        auto_construct_on_add: bool = False,
         children_models: Callable[[], Iterable[M]],
         child_model_to_child_vm: Callable[[M], VM],
         on_construct: Callable[[], None] | None = None,
@@ -408,6 +450,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
             hub=hub,
             dispatcher=dispatcher,
             async_selection=async_selection,
+            auto_construct_on_add=auto_construct_on_add,
             on_construct=on_construct,
             on_destruct=on_destruct,
         )

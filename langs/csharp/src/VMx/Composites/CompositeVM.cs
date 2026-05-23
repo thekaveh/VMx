@@ -24,10 +24,11 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
         IMessageHub hub,
         IDispatcher dispatcher,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct)
-        : base(name, hint, hub, dispatcher, asyncSelection, onConstruct, onDestruct)
+        : base(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, onConstruct, onDestruct)
     {
         _childrenFactory = childrenFactory;
     }
@@ -44,10 +45,11 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
         IMessageHub hub,
         IDispatcher dispatcher,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct)
-        => new(name, hint, hub, dispatcher, asyncSelection, childrenFactory, onConstruct, onDestruct);
+        => new(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, childrenFactory, onConstruct, onDestruct);
 
     /// <inheritdoc/>
     protected override void PopulateChildren()

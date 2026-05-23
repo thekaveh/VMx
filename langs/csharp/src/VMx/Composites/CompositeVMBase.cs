@@ -22,12 +22,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
 {
     private readonly IDispatcher _dispatcher;
     private readonly bool _asyncSelection;
+    private readonly bool _autoConstructOnAdd;
 
     // ── Children backing store ────────────────────────────────────────────────
     private readonly List<VM> _children = new();
 
     // ── Current selection ─────────────────────────────────────────────────────
     private VM? _current;
+
+    // ── Batch-update state (spec v1.1) ────────────────────────────────────────
+    private int _batchDepth;
+    private bool _batchDirty;
 
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -58,13 +63,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         {
             var old = _children[index];
             _children[index] = value;
-            // Notify replace as Remove then Add (standard INCC pattern).
-            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, old, index));
-            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, value, index));
             old.SetParent(null);
             value.SetParent(this);
+            MaybeAutoConstruct(value);
+            // Notify replace as Remove then Add (standard INCC pattern).
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Remove, old, index));
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, value, index));
         }
     }
 
@@ -79,12 +85,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         IMessageHub hub,
         IDispatcher dispatcher,
         bool asyncSelection,
+        bool autoConstructOnAdd,
         Action? onConstruct,
         Action? onDestruct)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
         _dispatcher = dispatcher;
         _asyncSelection = asyncSelection;
+        _autoConstructOnAdd = autoConstructOnAdd;
     }
 
     // ── IParentCompositeVM (non-generic, used by ComponentVMBase for selection) ─
@@ -132,8 +140,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     {
         _children.Add(item);
         item.SetParent(this);
+        MaybeAutoConstruct(item);
         var idx = _children.Count - 1;
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Add, item, idx));
     }
 
@@ -151,7 +160,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     {
         _children.Insert(index, item);
         item.SetParent(this);
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+        MaybeAutoConstruct(item);
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Add, item, index));
     }
 
@@ -161,10 +171,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         var item = _children[index];
         _children.RemoveAt(index);
         item.SetParent(null);
-        // If the removed item was Current, clear selection.
         if (ReferenceEquals(_current, item))
             SetCurrent(null, async: false);
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Remove, item, index));
     }
 
@@ -175,8 +184,68 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
             child.SetParent(null);
         _children.Clear();
         _current = null;
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Reset));
+    }
+
+    /// <summary>
+    /// Opens a ref-counted batch window. Mutations inside suppress individual
+    /// <see cref="CollectionChanged"/> events. The outermost dispose fires a
+    /// single <c>Reset</c> event iff any mutation occurred during the batch.
+    /// </summary>
+    public IDisposable BatchUpdate()
+    {
+        _batchDepth++;
+        return new CollectionBatch(this);
+    }
+
+    private void ExitBatch()
+    {
+        _batchDepth--;
+        if (_batchDepth == 0 && _batchDirty)
+        {
+            _batchDirty = false;
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Reset));
+        }
+    }
+
+    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args)
+    {
+        if (_batchDepth > 0)
+        {
+            _batchDirty = true;
+            return;
+        }
+        CollectionChanged?.Invoke(this, args);
+    }
+
+    private void MaybeAutoConstruct(VM item)
+    {
+        if (!_autoConstructOnAdd) return;
+        if (Status != ConstructionStatus.Constructed) return;
+        if (item.Status == ConstructionStatus.Constructed) return;
+        item.Construct();
+    }
+
+    /// <summary>
+    /// Disposable batch handle returned by <see cref="BatchUpdate"/>.
+    /// Decrement the composite's batch depth on dispose.
+    /// </summary>
+    private sealed class CollectionBatch : IDisposable
+    {
+        private readonly CompositeVMBase<VM> _owner;
+        private bool _disposed;
+
+        internal CollectionBatch(CompositeVMBase<VM> owner) => _owner = owner;
+
+        /// <summary>Closes the batch and emits a Reset event if mutations occurred.</summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _owner.ExitBatch();
+        }
     }
 
     // ── IList<VM>: query ──────────────────────────────────────────────────────

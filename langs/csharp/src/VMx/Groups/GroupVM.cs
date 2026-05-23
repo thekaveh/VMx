@@ -23,10 +23,11 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
         string hint,
         IMessageHub hub,
         IDispatcher dispatcher,
+        bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct)
-        : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
+        : base(name, hint, hub, dispatcher, autoConstructOnAdd, onConstruct, onDestruct)
     {
         _childrenFactory = childrenFactory;
     }
@@ -42,10 +43,11 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
         string hint,
         IMessageHub hub,
         IDispatcher dispatcher,
+        bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct)
-        => new(name, hint, hub, dispatcher, childrenFactory, onConstruct, onDestruct);
+        => new(name, hint, hub, dispatcher, autoConstructOnAdd, childrenFactory, onConstruct, onDestruct);
 
     /// <inheritdoc/>
     protected override void PopulateChildren()

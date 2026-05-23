@@ -45,6 +45,7 @@ class GroupVMBuilder(Generic[VM]):
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
+    _auto_construct_on_add: bool = dataclasses.field(default=False)
     _children_factory: Callable[[], Iterable[VM]] | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
@@ -62,6 +63,10 @@ class GroupVMBuilder(Generic[VM]):
     def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> GroupVMBuilder[VM]:
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
+
+    def auto_construct_on_add(self, value: bool) -> GroupVMBuilder[VM]:
+        """When True, children added after the group is Constructed are auto-constructed."""
+        return dataclasses.replace(self, _auto_construct_on_add=value)
 
     def children(self, factory: Callable[[], Iterable[VM]]) -> GroupVMBuilder[VM]:
         """Set the optional children factory, evaluated lazily on ``construct()``."""
@@ -96,6 +101,7 @@ class GroupVMBuilder(Generic[VM]):
             hint=self._hint,
             hub=self._hub,
             dispatcher=self._dispatcher,
+            auto_construct_on_add=self._auto_construct_on_add,
             children_factory=self._children_factory,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,

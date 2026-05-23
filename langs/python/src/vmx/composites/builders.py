@@ -41,6 +41,7 @@ class CompositeVMBuilder(Generic[VM]):
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _async_selection: bool = dataclasses.field(default=False)
+    _auto_construct_on_add: bool = dataclasses.field(default=False)
     _children_factory: Callable[[], Iterable[VM]] | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
@@ -62,6 +63,10 @@ class CompositeVMBuilder(Generic[VM]):
     def async_selection(self, value: bool) -> CompositeVMBuilder[VM]:
         """Enable/disable async selection dispatch (default: False)."""
         return dataclasses.replace(self, _async_selection=value)
+
+    def auto_construct_on_add(self, value: bool) -> CompositeVMBuilder[VM]:
+        """When True, children added after the composite is Constructed are auto-constructed."""
+        return dataclasses.replace(self, _auto_construct_on_add=value)
 
     def children(self, factory: Callable[[], Iterable[VM]]) -> CompositeVMBuilder[VM]:
         """Set the optional children factory evaluated lazily on construct()."""
@@ -95,6 +100,7 @@ class CompositeVMBuilder(Generic[VM]):
             hub=self._hub,
             dispatcher=self._dispatcher,
             async_selection=self._async_selection,
+            auto_construct_on_add=self._auto_construct_on_add,
             children_factory=self._children_factory,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
@@ -119,6 +125,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _async_selection: bool = dataclasses.field(default=False)
+    _auto_construct_on_add: bool = dataclasses.field(default=False)
     _children_models: Callable[[], Iterable[M]] | None = dataclasses.field(default=None)
     _child_model_to_child_vm: Callable[[M], VM] | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
@@ -139,6 +146,10 @@ class CompositeVMOfBuilder(Generic[M, VM]):
 
     def async_selection(self, value: bool) -> CompositeVMOfBuilder[M, VM]:
         return dataclasses.replace(self, _async_selection=value)
+
+    def auto_construct_on_add(self, value: bool) -> CompositeVMOfBuilder[M, VM]:
+        """When True, children added after the composite is Constructed are auto-constructed."""
+        return dataclasses.replace(self, _auto_construct_on_add=value)
 
     def children_models(self, factory: Callable[[], Iterable[M]]) -> CompositeVMOfBuilder[M, VM]:
         """Set the required model factory."""
@@ -180,6 +191,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
             hub=self._hub,
             dispatcher=self._dispatcher,
             async_selection=self._async_selection,
+            auto_construct_on_add=self._auto_construct_on_add,
             children_models=self._children_models,
             child_model_to_child_vm=self._child_model_to_child_vm,
             on_construct=self._on_construct,

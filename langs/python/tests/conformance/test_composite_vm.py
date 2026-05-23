@@ -1,4 +1,4 @@
-"""Conformance tests: COMP-001..011 + LIFE-013.
+"""Conformance tests: COMP-001..013 + LIFE-013.
 
 Each test is decorated with ``@pytest.mark.conformance("XXX-NNN")`` so the
 coverage checker finds it.
@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import pytest
 
+from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
-from vmx.composites.composite_vm import CollectionChangedEvent, CompositeVM, CompositeVMOf
+from vmx.composites.composite_vm import CompositeVM, CompositeVMOf
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -507,3 +508,65 @@ def test_LIFE_013_dispose_cascades_depth_first() -> None:
 
 # Alias imported by tests/conformance/test_lifecycle.py delegation.
 test_LIFE_013_dispose_cascade = test_LIFE_013_dispose_cascades_depth_first  # noqa: N816
+
+
+# ===========================================================================
+# COMP-012 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
+# ===========================================================================
+
+
+@pytest.mark.conformance("COMP-012")
+def test_COMP_012_auto_construct_on_add() -> None:
+    """COMP-012: child added after Constructed reaches Constructed before the event fires."""
+    hub = _hub()
+    disp = _dispatcher()
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder().name("comp").services(hub, disp).auto_construct_on_add(True).build()
+    )
+    composite.construct()
+
+    child = _build_child("late", hub=hub, dispatcher=disp)
+    assert child.status == ConstructionStatus.DESTRUCTED
+
+    seen: list[tuple[CollectionChangedEvent, ConstructionStatus]] = []
+    composite.on_collection_changed.subscribe(
+        lambda e: seen.append((e, child.status))  # type: ignore[arg-type]
+    )
+
+    composite.append(child)
+
+    assert child.status == ConstructionStatus.CONSTRUCTED
+    assert len(seen) == 1
+    evt, status_at_event = seen[0]
+    assert evt.action == "add"
+    assert status_at_event == ConstructionStatus.CONSTRUCTED
+
+
+# ===========================================================================
+# COMP-013 — BatchUpdate suppresses per-mutation events and emits one Reset
+# ===========================================================================
+
+
+@pytest.mark.conformance("COMP-013")
+def test_COMP_013_batch_update_emits_one_reset() -> None:
+    """COMP-013: mutations inside a batch produce exactly one Reset at exit."""
+    hub = _hub()
+    disp = _dispatcher()
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder().name("comp").services(hub, disp).build()
+    )
+    composite.construct()
+
+    events: list[CollectionChangedEvent] = []
+    composite.on_collection_changed.subscribe(events.append)
+
+    with composite.batch_update():
+        composite.append(_build_child("a", hub=hub, dispatcher=disp))
+        composite.append(_build_child("b", hub=hub, dispatcher=disp))
+        composite.append(_build_child("c", hub=hub, dispatcher=disp))
+
+    assert len(events) == 1, f"Expected one Reset event, got {[e.action for e in events]}"
+    assert events[0].action == "reset"
+    assert len(composite) == 3

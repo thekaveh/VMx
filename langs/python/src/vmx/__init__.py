@@ -3,11 +3,12 @@
 Public API is organised by responsibility under sub-packages: ``vmx.lifecycle``,
 ``vmx.messages``, ``vmx.services``, ``vmx.commands``, ``vmx.components``,
 ``vmx.composites``, ``vmx.groups``, ``vmx.aggregates``, ``vmx.forwarding``,
-``vmx.builders``, ``vmx.tree``. The most common types are re-exported here for
-convenience.
+``vmx.builders``, ``vmx.tree``, ``vmx.collections``. The most common types are
+re-exported here for convenience.
 """
 
 from vmx.__about__ import __min_spec_version__, __version__
+from vmx.collections import CollectionChangedEvent
 from vmx.commands import RelayCommand
 from vmx.components import ComponentVMOf, ReadonlyComponentVMOf
 from vmx.composites import CompositeVM, CompositeVMOf
@@ -19,8 +20,10 @@ from vmx.messages import (
     PropertyChangedMessage,
 )
 from vmx.services import MessageHub, RxDispatcher
+from vmx.tree import find, walk
 
 __all__ = [
+    "CollectionChangedEvent",
     "ComponentVMOf",
     "CompositeVM",
     "CompositeVMOf",
@@ -36,4 +39,6 @@ __all__ = [
     "StatusTransitionError",
     "__min_spec_version__",
     "__version__",
+    "find",
+    "walk",
 ]

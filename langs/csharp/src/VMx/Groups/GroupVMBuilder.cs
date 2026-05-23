@@ -21,6 +21,7 @@ public sealed class GroupVMBuilder<VM>
 
     // ── Optional ──────────────────────────────────────────────────────────────
     private readonly string _hint;
+    private readonly bool _autoConstructOnAdd;
     private readonly Func<IEnumerable<VM>>? _childrenFactory;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
@@ -35,6 +36,7 @@ public sealed class GroupVMBuilder<VM>
         IMessageHub? hub,
         IDispatcher? dispatcher,
         string hint,
+        bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct)
@@ -43,6 +45,7 @@ public sealed class GroupVMBuilder<VM>
         _hub = hub;
         _dispatcher = dispatcher;
         _hint = hint;
+        _autoConstructOnAdd = autoConstructOnAdd;
         _childrenFactory = childrenFactory;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
@@ -62,6 +65,14 @@ public sealed class GroupVMBuilder<VM>
     public GroupVMBuilder<VM> Children(Func<IEnumerable<VM>> factory)
         => With(childrenFactory: factory);
 
+    /// <summary>
+    /// When <see langword="true"/>, children added via Add or Insert after the group
+    /// reaches Constructed are automatically constructed before the CollectionChanged event fires.
+    /// Default is <see langword="false"/> for backwards compatibility.
+    /// </summary>
+    public GroupVMBuilder<VM> AutoConstructOnAdd(bool autoConstructOnAdd)
+        => With(autoConstructOnAdd: autoConstructOnAdd);
+
     /// <summary>Sets the optional OnConstruct lifecycle callback.</summary>
     public GroupVMBuilder<VM> OnConstruct(Action callback) => With(onConstruct: callback);
 
@@ -79,7 +90,7 @@ public sealed class GroupVMBuilder<VM>
 
         return GroupVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
-            _childrenFactory,
+            _autoConstructOnAdd, _childrenFactory,
             _onConstruct, _onDestruct);
     }
 
@@ -88,6 +99,7 @@ public sealed class GroupVMBuilder<VM>
         IMessageHub? hub = null,
         IDispatcher? dispatcher = null,
         string? hint = null,
+        bool? autoConstructOnAdd = null,
         Func<IEnumerable<VM>>? childrenFactory = null,
         Action? onConstruct = null,
         Action? onDestruct = null)
@@ -96,6 +108,7 @@ public sealed class GroupVMBuilder<VM>
             hub ?? _hub,
             dispatcher ?? _dispatcher,
             hint ?? _hint,
+            autoConstructOnAdd ?? _autoConstructOnAdd,
             childrenFactory ?? _childrenFactory,
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct);
