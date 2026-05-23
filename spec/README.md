@@ -22,6 +22,7 @@ must pass before any flavor releases a stable version.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
 - `12-conformance.md` — cross-language conformance test catalog.
+- `13-tree-utilities.md` — `walk` / `find` tree introspection (spec v1.1).
 - `VERSION` — current spec SemVer.
 - `fixtures/` — machine-checkable test inputs (JSON).
 - `ADRs/` — Architecture Decision Records.

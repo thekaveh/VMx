@@ -318,7 +318,9 @@ ______________________________________________________________________
 | Commands                      | `spec/04-commands.md`                       |
 | ComponentVM contract          | `spec/05-component-vm.md`                   |
 | CompositeVM contract          | `spec/06-composite-vm.md`                   |
+| Builder spec                  | `spec/10-builders.md`                       |
 | Threading rules               | `spec/11-threading.md`                      |
+| Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`                 |
 | Architecture decision records | `spec/ADRs/`                                |
 | Console example               | `examples/csharp/HelloVMx/`                 |
 | WPF MVVM example              | `examples/csharp/WpfTodoApp/`               |

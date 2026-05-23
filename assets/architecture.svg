@@ -24,7 +24,7 @@
   <!-- Spec banner (top) -->
   <rect x="40" y="80" width="1020" height="74" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
   <text x="550" y="106" fill="white" font-size="13" font-weight="600" text-anchor="middle">spec/ — language-neutral specification</text>
-  <text x="550" y="126" fill="#94a3b8" font-size="10" text-anchor="middle">13 markdown chapters · 75 conformance IDs · 3 JSON fixtures · 7 ADRs · SemVer-tracked in spec/VERSION</text>
+  <text x="550" y="126" fill="#94a3b8" font-size="10" text-anchor="middle">14 markdown chapters · 75 conformance IDs · 3 JSON fixtures · 9 ADRs · SemVer-tracked in spec/VERSION</text>
   <text x="550" y="144" fill="#a78bfa" font-size="9" text-anchor="middle">single source of truth — every flavor declares its MinSpecVersion</text>
 
   <!-- Spec → flavors arrows -->

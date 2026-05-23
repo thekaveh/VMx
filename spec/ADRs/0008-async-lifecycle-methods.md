@@ -1,8 +1,7 @@
-# ADR-0008 — Async lifecycle methods are a C#-specific affordance
+# ADR 0008 — Async lifecycle methods are a C#-specific affordance
 
-## Status
-
-Accepted, 2026-05-23. Supersedes nothing.
+**Status:** Accepted (2026-05-23)
+**Spec version:** introduced in 1.1.0
 
 ## Context
 

@@ -32,6 +32,18 @@ uv run ruff format --check
 uv run mypy --strict src/vmx
 ```
 
+### TypeScript
+
+```bash
+cd langs/typescript
+npm ci
+npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
+npm run typecheck
+npm run lint
+npm run build
+npm test
+```
+
 ## Spec-driven changes
 
 Behavior changes start in `spec/`. The rules are:

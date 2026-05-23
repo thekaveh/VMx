@@ -2,10 +2,17 @@
 
 ## Supported versions
 
-| Component   | Version | Supported |
-|---          |---      |---        |
-| C# (`VMx`)  | 1.0.x   | ✅        |
-| Python (`vmx`) | 1.0.x | ✅        |
+| Component             | Version | Supported |
+|---                    |---      |---        |
+| C# (`VMx`)            | 1.1.x   | ✅        |
+| C# (`VMx`)            | 1.0.x   | ✅        |
+| Python (`vmx`)        | 1.1.x   | ✅        |
+| Python (`vmx`)        | 1.0.x   | ✅        |
+| TypeScript (`vmx`)    | 1.1.x   | ✅        |
+
+Older minor or patch versions on a still-supported major receive fixes on a
+best-effort basis; we recommend upgrading to the latest published version
+within each major.
 
 ## Reporting a vulnerability
 

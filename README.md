@@ -67,7 +67,7 @@ a browsable HTML version with summary cards is at
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 13 markdown chapters, 7 ADRs,
+- **Spec** — `spec/` is the source of truth: 14 markdown chapters, 9 ADRs,
   3 JSON fixtures, 75 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and

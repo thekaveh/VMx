@@ -25,11 +25,6 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   uv --project langs/python run pytest tools/tests/
   ```
 
-## Planned
-
-- `build-compatibility-matrix.py` — regenerates `compatibility-matrix.md` from the
-  spec version (`spec/VERSION`) and each language's declared `MinSpecVersion`. To
-  be added (both C# 1.0.0 and Python 1.0.0 have shipped; the matrix is currently
-  maintained by hand).
-- `spec-to-docs.py` — renders `spec/*.md` into `docs/concepts/` for the docs site.
-  To be added (when the docs site is wired up).
+<!-- Future tooling ideas (matrix generator, spec-to-docs renderer) are tracked as
+GitHub issues rather than carried inline here, so this README stays a description
+of what exists rather than what might exist someday. -->
