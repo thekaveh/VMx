@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vmx-python-examples"
+version = "0.1.0"
+description = "VMx Python examples — hello_vmx console demo and tk_todo_app tkinter MVVM demo."
+requires-python = ">=3.10"
+dependencies = [
+    "vmx",
+]
+
+[tool.uv.sources]
+vmx = { path = "../../langs/python", editable = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["hello_vmx", "tk_todo_app"]
