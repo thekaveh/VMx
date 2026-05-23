@@ -182,6 +182,10 @@ class ForwardingCompositeVM(Generic[VM]):
         return int(self._wrapped.index_of(item))  # type: ignore[attr-defined]
 
     # ── CompositeVM: collection mutation ──────────────────────────────────────
+    # CompositeVMProto is a structural Protocol that intentionally omits the full
+    # MutableSequence surface (append, insert, remove, __delitem__, etc.) — concrete
+    # implementations provide them. Suppress the attr-defined warnings for the entire
+    # mutation block.
 
     def add(self, item: VM) -> None:
         self._wrapped.add(item)  # type: ignore[attr-defined]
