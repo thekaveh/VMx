@@ -43,8 +43,9 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
         IMessageHub hub,
         IDispatcher dispatcher,
         System.Action? onConstruct,
-        System.Action? onDestruct)
-        : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
+        System.Action? onDestruct,
+        bool background = false)
+        : base(name, hint, hub, dispatcher, onConstruct, onDestruct, background)
     {
         _model = initialModel;
         _modeledHinter = modeledHinter;

@@ -135,7 +135,8 @@ public sealed class ComponentVMBuilder<M>
             _hub,
             _dispatcher,
             _onConstruct,
-            _onDestruct);
+            _onDestruct,
+            _background);
 
         if (_parent is not null)
             vm.Parent = _parent;

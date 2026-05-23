@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Reactive;
+using System.Reactive.Disposables;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Commands;
@@ -59,6 +61,8 @@ internal static class ComponentVMExtensions
 public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 {
     private readonly IMessageHub _hub;
+    private readonly IDispatcher _dispatcher;
+    private readonly bool _background;
 
     // ── Lifecycle state ─────────────────────────────────────────────────────
     private ConstructionStatus _status = ConstructionStatus.Destructed;
@@ -171,16 +175,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         IMessageHub hub,
         IDispatcher dispatcher,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        bool background = false)
     {
         Name = name;
         Hint = hint;
         _hub = hub;
+        _dispatcher = dispatcher;
+        _background = background;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
-
-        // Suppress unused warning — dispatcher kept for future async overloads.
-        _ = dispatcher;
 
         // ── Status-change trigger observable ─────────────────────────────────
         // Fires CanExecuteChanged on all built-in commands whenever Status changes.
@@ -246,21 +250,63 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             throw new StatusTransitionException(_status, "construct");
         _inFlight = true;
 
-        try
+        if (_background)
         {
+            // Emit Constructing synchronously so subscribers immediately observe the
+            // transition starting; then schedule the actual work on the background scheduler.
             SetStatus(ConstructionStatus.Constructing);
-            OnConstruct();
-            SetStatus(ConstructionStatus.Constructed);
+            _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
+            {
+                try
+                {
+                    OnConstruct();
+                    SetStatus(ConstructionStatus.Constructed);
+                }
+                finally
+                {
+                    _inFlight = false;
+                }
+                return Disposable.Empty;
+            });
+            // Return immediately — caller does not wait for background work.
         }
-        finally
+        else
         {
-            _inFlight = false;
+            try
+            {
+                SetStatus(ConstructionStatus.Constructing);
+                OnConstruct();
+                SetStatus(ConstructionStatus.Constructed);
+            }
+            finally
+            {
+                _inFlight = false;
+            }
         }
     }
 
     /// <inheritdoc/>
     public Task ConstructAsync()
     {
+        if (_background)
+        {
+            // Subscribe to the hub BEFORE calling Construct() to avoid a race where
+            // the background work finishes before the subscription is established.
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var subscription = _hub.Messages
+                .OfType<IConstructionStatusChangedMessage>()
+                .Where(m => ReferenceEquals(m.SenderObject, this) &&
+                            m.Status == ConstructionStatus.Constructed)
+                .Take(1)
+                .Subscribe(_ => tcs.TrySetResult(true));
+
+            Construct();
+
+            // If already Constructed before subscription fired (e.g. scheduler advanced
+            // inline on a test scheduler), the TCS is already set; either way we wait.
+            return tcs.Task.ContinueWith(_ => subscription.Dispose(), TaskScheduler.Default);
+        }
+
         Construct();
         return Task.CompletedTask;
     }
@@ -279,21 +325,61 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             throw new StatusTransitionException(_status, "destruct");
         _inFlight = true;
 
-        try
+        if (_background)
         {
+            // Emit Destructing synchronously so subscribers immediately observe the
+            // transition starting; then schedule the actual work on the background scheduler.
             SetStatus(ConstructionStatus.Destructing);
-            OnDestruct();
-            SetStatus(ConstructionStatus.Destructed);
+            _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
+            {
+                try
+                {
+                    OnDestruct();
+                    SetStatus(ConstructionStatus.Destructed);
+                }
+                finally
+                {
+                    _inFlight = false;
+                }
+                return Disposable.Empty;
+            });
+            // Return immediately — caller does not wait for background work.
         }
-        finally
+        else
         {
-            _inFlight = false;
+            try
+            {
+                SetStatus(ConstructionStatus.Destructing);
+                OnDestruct();
+                SetStatus(ConstructionStatus.Destructed);
+            }
+            finally
+            {
+                _inFlight = false;
+            }
         }
     }
 
     /// <inheritdoc/>
     public Task DestructAsync()
     {
+        if (_background)
+        {
+            // Subscribe to the hub BEFORE calling Destruct() to avoid a race where
+            // the background work finishes before the subscription is established.
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var subscription = _hub.Messages
+                .OfType<IConstructionStatusChangedMessage>()
+                .Where(m => ReferenceEquals(m.SenderObject, this) &&
+                            m.Status == ConstructionStatus.Destructed)
+                .Take(1)
+                .Subscribe(_ => tcs.TrySetResult(true));
+
+            Destruct();
+
+            return tcs.Task.ContinueWith(_ => subscription.Dispose(), TaskScheduler.Default);
+        }
+
         Destruct();
         return Task.CompletedTask;
     }

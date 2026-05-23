@@ -34,8 +34,9 @@ public sealed class ComponentVM<M> : ComponentVMBaseOfM<M>, IComponentVM<M>
         IMessageHub hub,
         IDispatcher dispatcher,
         Action? onConstruct,
-        Action? onDestruct)
-        : base(name, hint, model, modeledHinter, onModelChanged, hub, dispatcher, onConstruct, onDestruct)
+        Action? onDestruct,
+        bool background = false)
+        : base(name, hint, model, modeledHinter, onModelChanged, hub, dispatcher, onConstruct, onDestruct, background)
     {
         _type = type;
     }
@@ -57,7 +58,8 @@ public sealed class ComponentVM<M> : ComponentVMBaseOfM<M>, IComponentVM<M>
         IMessageHub hub,
         IDispatcher dispatcher,
         Action? onConstruct,
-        Action? onDestruct)
-        => new(name, hint, type, model, modeledHinter, onModelChanged, hub, dispatcher, onConstruct, onDestruct);
+        Action? onDestruct,
+        bool background = false)
+        => new(name, hint, type, model, modeledHinter, onModelChanged, hub, dispatcher, onConstruct, onDestruct, background);
 }
 #pragma warning restore CA1715

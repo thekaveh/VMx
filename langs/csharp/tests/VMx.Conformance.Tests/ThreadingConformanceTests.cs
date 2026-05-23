@@ -4,6 +4,7 @@ using FluentAssertions;
 using Microsoft.Reactive.Testing;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
 using VMx.Tests.Helpers;
@@ -64,46 +65,38 @@ public class ThreadingConformanceTests
     /// THR-002: with <c>Background(true)</c> the construction work is dispatched
     /// on <see cref="TestDispatcher.Background"/>.
     ///
-    /// NOTE: <see cref="ComponentVMBase.Construct"/> currently runs synchronously
-    /// on the calling thread regardless of the <c>Background</c> builder flag —
-    /// async background dispatch is not yet wired in ComponentVMBase (Task 6 gap).
-    /// This test therefore asserts the weaker invariant that is reachable today:
-    ///   1. <see cref="TestDispatcher.Background"/> is non-null and is a
-    ///      <see cref="TestScheduler"/> (i.e. the dispatcher contract is satisfied).
-    ///   2. The builder accepts <c>.Background(true)</c> without throwing.
-    ///   3. After calling <c>Construct()</c> the VM reaches Constructed status
-    ///      (confirming construction completes even without background dispatch).
-    /// When background dispatch is implemented, this test must be tightened to
-    /// verify the status is NOT Constructed before the background scheduler is
-    /// advanced, and IS Constructed after advancing.
+    /// Construct() emits Constructing synchronously (so subscribers immediately see
+    /// the transition starting), then schedules <c>OnConstruct()</c> + the final
+    /// Constructed transition on the background scheduler before returning.
+    /// Callers observe Constructing immediately after Construct() returns; the VM
+    /// only reaches Constructed after the background scheduler is advanced.
     /// </summary>
     [Fact, Trait("Conformance", "THR-002")]
     public void THR_002_Background_Construct_Dispatches_On_Background_Scheduler()
     {
-        var hub = new TestHub();
+        using var hub = new TestHub();
         var dispatcher = new TestDispatcher();
-
-        // Background(true) must be accepted by the builder without error.
-        var vm = ComponentVM<string>.Builder()
-            .Name("vm-bg")
+        using var vm = ComponentVM<string>.Builder()
+            .Name("vm")
             .Services(hub, dispatcher)
-            .Model("m")
+            .Model("initial")
             .Background(true)
             .Build();
 
-        // The dispatcher's Background property must be reachable and be a TestScheduler.
-        dispatcher.Background.Should().NotBeNull(
-            "IDispatcher.Background must always be non-null");
-        dispatcher.Background.Should().BeAssignableTo<TestScheduler>(
-            "TestDispatcher.Background must be a TestScheduler for deterministic testing");
-
-        // GAP NOTE: background dispatch is not yet wired; Construct runs synchronously.
-        // When wired, remove the Construct() call below and instead verify that before
-        // advancing BackgroundScheduler, vm.Status is still Destructed, and after
-        // dispatcher.BackgroundScheduler.AdvanceBy(N), vm.Status == Constructed.
         vm.Construct();
-        vm.IsConstructed.Should().BeTrue(
-            "construction must ultimately complete (synchronously until background dispatch is wired)");
+
+        // Construct() returns immediately; the VM is mid-transition (Constructing),
+        // NOT yet in the terminal Constructed state.
+        vm.Status.Should().Be(ConstructionStatus.Constructing,
+            "Background(true) means OnConstruct() and the final Constructed transition " +
+            "are scheduled on the background scheduler — only Constructing is emitted synchronously");
+
+        // Advance the background scheduler — the scheduled work runs and the
+        // VM reaches the terminal Constructed state.
+        dispatcher.BackgroundScheduler.AdvanceBy(1);
+
+        vm.Status.Should().Be(ConstructionStatus.Constructed,
+            "after the background scheduler is advanced, the transition must complete");
     }
 
     // ── THR-003 — CollectionChanged observed on foreground scheduler ─────────
