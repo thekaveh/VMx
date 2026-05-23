@@ -2,15 +2,13 @@
   <PropertyGroup>
     <!--
       Test runner targets net9.0 (not the library's lowest TFM net8.0) because the
-      dev environment used to bootstrap Phase 0 only had the .NET 9 SDK/runtime
-      installed. The library `VMx.csproj` itself remains multi-targeted
-      `netstandard2.0;net8.0`. CI (.github/workflows/csharp.yml, Task 8) installs
-      .NET 9.0.x SDK; revisit if we want a net8.0 + net9.0 test matrix.
+      dev environment only has the .NET 9 SDK/runtime installed. The library
+      `VMx.csproj` itself remains multi-targeted `netstandard2.0;net8.0`.
     -->
     <TargetFramework>net9.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Tests don't ship as a package; relax doc/naming rules -->
+    <!-- Tests don't ship as a package; relax doc/naming rules. -->
     <NoWarn>$(NoWarn);CS1591;CA1707</NoWarn>
   </PropertyGroup>
 
@@ -25,5 +23,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VMx\VMx.csproj" />
+    <ProjectReference Include="..\VMx.Tests\VMx.Tests.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Make the JSON fixtures available to tests via relative path from bin/. -->
+    <None Include="..\..\..\..\spec\fixtures\*.json" Link="Fixtures\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>
