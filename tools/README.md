@@ -29,6 +29,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 
 - `build-compatibility-matrix.py` — regenerates `compatibility-matrix.md` from the
   spec version (`spec/VERSION`) and each language's declared `MinSpecVersion`. To
-  be added when the first language flavor releases.
+  be added (both C# 1.0.0 and Python 1.0.0 have shipped; the matrix is currently
+  maintained by hand).
 - `spec-to-docs.py` — renders `spec/*.md` into `docs/concepts/` for the docs site.
-  To be added when the docs site is wired up (Phase 2k/3j).
+  To be added (when the docs site is wired up).

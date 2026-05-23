@@ -6,6 +6,14 @@ The C# implementation of the VMx hierarchical MVVM framework, published as the `
 - See the language-neutral spec at [`/spec/`](../../spec) and the design doc at
   [`/docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md`](../../docs/superpowers/specs/2026-05-16-vmx-multilang-revival-design.md).
 
+## Status
+
+**v1.0.0** — implements `spec-v1.0.0` end-to-end. 68/68 conformance tests pass.
+Multi-targets `netstandard2.0` and `net8.0`. Optional companion package
+`VMx.Extensions.DependencyInjection` provides `services.AddVMx(...)`.
+
+See [`docs/getting-started/csharp.md`](../../docs/getting-started/csharp.md) for a tutorial.
+
 ## Build and test
 
 ```bash

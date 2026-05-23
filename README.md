@@ -10,8 +10,8 @@ A hierarchical, lifecycle-aware MVVM viewmodel framework, available in multiple 
 
 | Flavor | Package | Status |
 | --- | --- | --- |
-| C# | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet | scaffolding — not yet released |
-| Python | [`vmx`](https://pypi.org/project/vmx/) on PyPI | scaffolding — not yet released |
+| C# | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet | v1.0.0 (NuGet publish deferred) |
+| Python | [`vmx`](https://pypi.org/project/vmx/) on PyPI | v1.0.0 (PyPI publish deferred) |
 | TypeScript | `vmx` on npm | planned (post-1.0) |
 
 ## Repository layout
@@ -26,8 +26,8 @@ A hierarchical, lifecycle-aware MVVM viewmodel framework, available in multiple 
 ## Getting started
 
 See the language-specific quickstart pages:
-- `docs/getting-started/csharp.md` (arrives in Phase 2 of the roadmap)
-- `docs/getting-started/python.md` (arrives in Phase 3 of the roadmap)
+- [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md)
+- [`docs/getting-started/python.md`](docs/getting-started/python.md)
 
 ## Versioning
 

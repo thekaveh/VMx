@@ -2,7 +2,10 @@
 
 ## Supported versions
 
-Until VMx reaches 1.0 in any flavor, only the most recent published release is supported.
+| Component   | Version | Supported |
+|---          |---      |---        |
+| C# (`VMx`)  | 1.0.x   | ✅        |
+| Python (`vmx`) | 1.0.x | ✅        |
 
 ## Reporting a vulnerability
 

@@ -5,9 +5,8 @@ that tool ships, it is maintained by hand.
 
 | spec  | csharp           | python           | typescript |
 | ----- | ---------------- | ---------------- | ---------- |
-| 1.0.x | 1.0.0           | 1.0.0            | —          |
+| 1.0.x | 1.0.0            | 1.0.0            | —          |
 
-A `—` entry indicates no language flavor has yet released against that spec version.
-A `— (Phase N WIP)` annotation indicates work is actively in progress per the roadmap
-phase noted. Each released language flavor will replace its cell with its version
-range (e.g., `1.0.0–1.2.x`) once it ships against this spec.
+A `—` cell indicates no flavor has yet released against that spec version. Once a
+flavor ships, its cell shows the version range that implements this spec major (e.g.
+`1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow).
