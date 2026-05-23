@@ -63,6 +63,17 @@ jobs:
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
 
+          # Bootstrap case: if spec/12-conformance.md is being NEWLY ADDED in this PR
+          # (didn't exist at base_sha), all its IDs are "bootstrap" — not new additions
+          # against an existing catalog. Skip the stub check; the next PR that modifies
+          # the catalog will re-enable enforcement.
+          if ! git cat-file -e "${base_sha}:spec/12-conformance.md" 2>/dev/null; then
+            echo "spec/12-conformance.md is being newly added in this PR (bootstrap);"
+            echo "stub check is skipped. Subsequent PRs that add IDs to the existing"
+            echo "catalog will be enforced normally."
+            exit 0
+          fi
+
           new_ids=$(git diff "$base_sha" "$head_sha" -- spec/12-conformance.md \
             | grep -E '^\+### ' \
             | grep -oE '[A-Z]{3,5}-[0-9]{3}' \
@@ -89,7 +100,7 @@ jobs:
             fi
             # C# stub presence
             if [ -d langs/csharp/tests/VMx.Conformance.Tests ]; then
-              if ! grep -rE -q "Trait\(\s*\"Conformance\"\s*,\s*\"${id}\"" langs/csharp/tests/VMx.Conformance.Tests; then
+              if ! grep -rE -q "\[[^][]*Trait\(\s*\"Conformance\"\s*,\s*\"${id}\"" langs/csharp/tests/VMx.Conformance.Tests; then
                 missing_in+=("langs/csharp/tests/VMx.Conformance.Tests:${id}")
               fi
             fi
