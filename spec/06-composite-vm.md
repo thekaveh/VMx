@@ -70,9 +70,8 @@ The collection raises `INotifyCollectionChanged.CollectionChanged` events:
 - `RemoveAt(i)` → `CollectionChanged(action=Remove, oldItems=[old], oldIndex=i)`.
 - `Clear()` → `CollectionChanged(action=Reset)`.
 
-Implementations MAY suppress notifications during bulk operations (the legacy lib
-used a `_suppressNotification` flag); if so, a single `Reset` event MUST be raised
-at the end.
+Implementations MAY suppress notifications during bulk operations; if so, a single
+`Reset` event MUST be raised at the end.
 
 ## Children construction orchestration
 
@@ -110,13 +109,16 @@ model.
 
 ## Conformance
 
-`COMP-001` through `COMP-008` in `12-conformance.md` cover:
+`COMP-001` through `COMP-011` in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - `Current` setter behavior (legal/illegal values)
-- async selection dispatch
-- `select_component` / `deselect_component` predicates
+- async selection dispatch (`AsyncSelection(true)` via `IDispatcher.Foreground`)
+- `select_component` / `deselect_component` / `can_select_component` predicates
 - construction wait-for-all-children
 - destruction unsets `Current` before destructing children
 - modeled variant maps model factory output to children
 - `can_select_component` returns false for non-children
+- `Current` setter raises on non-child assignment
+- `IsCurrent` change on the previously-Current child dispatches on the foreground scheduler
+- `deselect_component` raises when the argument is not `Current`
