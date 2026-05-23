@@ -21,9 +21,11 @@
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Microsoft.Reactive.Testing" />
     <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VMx\VMx.csproj" />
+    <ProjectReference Include="..\..\src\VMx.Extensions.DependencyInjection\VMx.Extensions.DependencyInjection.csproj" />
   </ItemGroup>
 </Project>

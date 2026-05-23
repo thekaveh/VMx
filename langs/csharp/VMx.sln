@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VMx.Tests", "tests\VMx.Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VMx.Conformance.Tests", "tests\VMx.Conformance.Tests\VMx.Conformance.Tests.csproj", "{2A1065D9-3477-4A18-945A-D91EB0CF4D6F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VMx.Extensions.DependencyInjection", "src\VMx.Extensions.DependencyInjection\VMx.Extensions.DependencyInjection.csproj", "{5DF3F550-C2FB-4632-A3CB-D531101832C8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,10 +36,15 @@ Global
 		{2A1065D9-3477-4A18-945A-D91EB0CF4D6F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2A1065D9-3477-4A18-945A-D91EB0CF4D6F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2A1065D9-3477-4A18-945A-D91EB0CF4D6F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5DF3F550-C2FB-4632-A3CB-D531101832C8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DF3F550-C2FB-4632-A3CB-D531101832C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DF3F550-C2FB-4632-A3CB-D531101832C8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DF3F550-C2FB-4632-A3CB-D531101832C8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{03C4AAD2-3E82-4711-9902-99B36A8B0A3B} = {EF53AF26-4505-4061-849B-6F2B4E928113}
 		{D0B23F4F-53EF-459C-A317-6E84A640EC70} = {71AEA13A-C45E-48AC-BE7A-0C6728188546}
 		{2A1065D9-3477-4A18-945A-D91EB0CF4D6F} = {71AEA13A-C45E-48AC-BE7A-0C6728188546}
+		{5DF3F550-C2FB-4632-A3CB-D531101832C8} = {EF53AF26-4505-4061-849B-6F2B4E928113}
 	EndGlobalSection
 EndGlobal
