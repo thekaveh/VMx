@@ -6,6 +6,7 @@ on:
     paths:
       - "spec/**"
       - "langs/**/tests/conformance/**"
+      - "langs/csharp/tests/VMx.Conformance.Tests/**"
       - "tools/check-conformance-coverage.py"
       - "tools/tests/**"
       - ".github/workflows/conformance.yml"
@@ -13,6 +14,7 @@ on:
     paths:
       - "spec/**"
       - "langs/**/tests/conformance/**"
+      - "langs/csharp/tests/VMx.Conformance.Tests/**"
       - "tools/check-conformance-coverage.py"
       - "tools/tests/**"
       - ".github/workflows/conformance.yml"
@@ -37,9 +39,8 @@ jobs:
       - name: Run tool's own unit tests
         run: uv --project langs/python run pytest tools/tests/ -v
 
-      - name: Report conformance coverage (informational)
-        # Phase 1: neither language has shipped 1.0, so we run in report-only mode.
-        # Once Phase 2 (C# 1.0) ships, add `--require csharp`. Once Phase 3 (Python
-        # 1.0) ships, add `--require python`. The first time a language is at 1.0,
-        # CI starts enforcing 100% coverage for it.
-        run: uv --project langs/python run python tools/check-conformance-coverage.py
+      - name: Enforce conformance coverage (csharp + python)
+        # Both C# v1.0.0 and Python v1.0.0 have shipped. CI now enforces 100%
+        # conformance coverage for both languages. The tool exits non-zero if
+        # any required language falls below full coverage.
+        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python
