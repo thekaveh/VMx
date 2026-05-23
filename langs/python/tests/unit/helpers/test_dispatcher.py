@@ -9,9 +9,8 @@ from reactivex.testing import TestScheduler
 class TestDispatcher:
     """Dispatcher with TestScheduler foreground + background for deterministic time.
 
-    This is a stand-alone helper that does NOT inherit from the ``Dispatcher``
-    Protocol (which lands in Task 4).  It satisfies it structurally via
-    ``.foreground`` and ``.background`` properties.
+    Satisfies the ``Dispatcher`` Protocol structurally via ``.foreground`` /
+    ``.background`` properties; does not inherit.
     """
 
     __test__ = False  # tell pytest this is not a test class

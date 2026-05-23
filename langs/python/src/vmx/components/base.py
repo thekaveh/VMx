@@ -42,8 +42,7 @@ if TYPE_CHECKING:
 class _ParentCompositeVM(ABC):
     """Minimal parent interface used by a child VM for selection delegation.
 
-    Implemented by all composite / group base classes (Tasks 7-8).
-    Not part of the public API.
+    Implemented by composite and group base classes. Not part of the public API.
     """
 
     @property
@@ -65,12 +64,10 @@ class _ParentCompositeVM(ABC):
 class _ComponentVMBase(ABC):
     """Abstract base class for all ComponentVM variants.
 
-    Subclasses must implement:
-    - ``type`` property (returns ViewModelType)
-    - Override ``_on_construct()`` / ``_on_destruct()`` / ``_on_dispose()`` for
-      additional lifecycle behaviour (used by composite/group in Tasks 7-8).
-
-    Do NOT instantiate directly — use a builder.
+    Subclasses must implement the ``type`` property (returns ViewModelType) and
+    may override ``_on_construct`` / ``_on_destruct`` / ``_on_dispose`` to layer
+    container-specific behaviour onto the lifecycle. Do NOT instantiate
+    directly — use a builder.
     """
 
     # ── Constructor ──────────────────────────────────────────────────────────

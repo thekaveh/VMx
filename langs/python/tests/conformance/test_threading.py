@@ -4,10 +4,6 @@ Threading and scheduler dispatch — all four tests use TestDispatcher /
 TestScheduler for deterministic virtual-time control.
 
 See spec/11-threading.md and spec/12-conformance.md §Threading.
-
-THR-002 note: Python's _ComponentVMBase.construct() fully wires Background(True)
-dispatching on the background scheduler (added in the Phase 2 / Task 6
-implementation).  The full assertion is therefore exercised here.
 """
 
 from __future__ import annotations

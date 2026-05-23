@@ -1,8 +1,7 @@
 """Conformance tests: PROP-001..004.
 
-These tests require a concrete ComponentVM implementation (Task 6).
-Until that module is available they skip via ``pytest.importorskip``, which
-matches the same pattern used in test_lifecycle.py for delegated tests.
+These tests delegate to the ComponentVM unit suite via ``pytest.importorskip``,
+mirroring the pattern used in ``test_lifecycle.py`` for inherited assertions.
 """
 
 from __future__ import annotations
