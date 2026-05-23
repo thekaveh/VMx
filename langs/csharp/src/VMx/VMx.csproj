@@ -15,6 +15,7 @@
   <ItemGroup>
     <PackageReference Include="System.Reactive" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+    <PackageReference Include="System.Text.Json" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,5 +23,11 @@
       <_Parameter1>MinSpecVersion</_Parameter1>
       <_Parameter2>$(MinSpecVersion)</_Parameter2>
     </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embed spec/fixtures/lifecycle-transitions.json so the validator has it at runtime. -->
+    <EmbeddedResource Include="..\..\..\..\spec\fixtures\lifecycle-transitions.json"
+                     LogicalName="VMx.Lifecycle.lifecycle-transitions.json" />
   </ItemGroup>
 </Project>
