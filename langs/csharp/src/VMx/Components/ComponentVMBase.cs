@@ -467,10 +467,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Deselect() => Parent?.DeselectChild(this);
 
-    private bool CanSelectNext() => false; // requires parent enumeration — Task 7
+    private bool CanSelectNext() => false; // requires parent enumeration
     private void SelectNext() { }
 
-    private bool CanSelectPrevious() => false; // requires parent enumeration — Task 7
+    private bool CanSelectPrevious() => false; // requires parent enumeration
     private void SelectPrevious() { }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
