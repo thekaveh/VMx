@@ -179,6 +179,9 @@ class ComponentVMOfBuilder(Generic[M]):
         return ComponentVMOf(
             name=self._name,
             hint=self._hint,
+            # `self._model` is typed `object | None` to allow the _SENTINEL sentinel
+            # value; the assert + `_model_set` guard above prove it's the real `M`
+            # at this point, but mypy cannot narrow the dataclass field.
             initial_model=self._model,  # type: ignore[arg-type]
             modeled_hinter=hinter,
             on_model_changed=self._on_model_changed,
@@ -266,6 +269,7 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
         return ReadonlyComponentVMOf(
             name=self._name,
             hint=self._hint,
+            # Same sentinel-narrowing case as ComponentVMOfBuilder above.
             model=self._model,  # type: ignore[arg-type]
             modeled_hinter=hinter,
             hub=self._hub,

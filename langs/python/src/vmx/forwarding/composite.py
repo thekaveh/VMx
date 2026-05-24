@@ -166,10 +166,14 @@ class ForwardingCompositeVM(Generic[VM]):
     def __len__(self) -> int:
         return self._wrapped.count
 
+    # ── CompositeVM: collection query ─────────────────────────────────────────
+    # CompositeVMProto is a structural Protocol that intentionally omits the full
+    # MutableSequence surface (__iter__, __getitem__, __contains__, index_of, plus
+    # the mutation methods below) because concrete CompositeVM / GroupVM implement
+    # them but they are not part of the Protocol contract every wrapper must declare.
+    # The type: ignore tags below acknowledge the gap mypy reports on Protocol calls.
+
     def __iter__(self) -> Iterator[VM]:
-        # CompositeVMProto does not declare __iter__; wrapped implementations
-        # are expected to be iterable (e.g. list-backed). We cast to satisfy
-        # mypy's strict no-any-return rule.
         return cast(Iterator[VM], iter(self._wrapped))  # type: ignore[call-overload]
 
     def __getitem__(self, index: int) -> VM:
@@ -182,10 +186,7 @@ class ForwardingCompositeVM(Generic[VM]):
         return int(self._wrapped.index_of(item))  # type: ignore[attr-defined]
 
     # ── CompositeVM: collection mutation ──────────────────────────────────────
-    # CompositeVMProto is a structural Protocol that intentionally omits the full
-    # MutableSequence surface (append, insert, remove, __delitem__, etc.) — concrete
-    # implementations provide them. Suppress the attr-defined warnings for the entire
-    # mutation block.
+    # Same Protocol-gap reasoning as above for the mutation surface.
 
     def add(self, item: VM) -> None:
         self._wrapped.add(item)  # type: ignore[attr-defined]

@@ -10,10 +10,15 @@ types is re-exported here so ``from vmx import ...`` reaches every primitive.
 from vmx.__about__ import __min_spec_version__, __version__
 from vmx.aggregates import (
     AggregateVM1,
+    AggregateVM1Builder,
     AggregateVM2,
+    AggregateVM2Builder,
     AggregateVM3,
+    AggregateVM3Builder,
     AggregateVM4,
+    AggregateVM4Builder,
     AggregateVM5,
+    AggregateVM5Builder,
     AggregateVMBuilder1,
     AggregateVMBuilder2,
     AggregateVMBuilder3,
@@ -22,7 +27,12 @@ from vmx.aggregates import (
 )
 from vmx.builders import BuilderValidationError
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
-from vmx.commands import RelayCommand, RelayCommandOfT
+from vmx.commands import (
+    RelayCommand,
+    RelayCommandOf,
+    RelayCommandOfBuilder,
+    RelayCommandOfT,
+)
 from vmx.components import (
     ComponentVM,
     ComponentVMBuilder,
@@ -51,10 +61,15 @@ from vmx.tree import find, walk
 
 __all__ = [
     "AggregateVM1",
+    "AggregateVM1Builder",
     "AggregateVM2",
+    "AggregateVM2Builder",
     "AggregateVM3",
+    "AggregateVM3Builder",
     "AggregateVM4",
+    "AggregateVM4Builder",
     "AggregateVM5",
+    "AggregateVM5Builder",
     "AggregateVMBuilder1",
     "AggregateVMBuilder2",
     "AggregateVMBuilder3",
@@ -83,6 +98,8 @@ __all__ = [
     "ReadonlyComponentVMOf",
     "ReadonlyComponentVMOfBuilder",
     "RelayCommand",
+    "RelayCommandOf",
+    "RelayCommandOfBuilder",
     "RelayCommandOfT",
     "RxDispatcher",
     "StatusTransitionError",

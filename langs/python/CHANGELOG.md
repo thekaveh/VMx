@@ -4,6 +4,31 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-05-23
+
+### Added
+- `RelayCommandOf` and `RelayCommandOfBuilder` are now the canonical names for
+  the parameterised command + builder pair, matching the TypeScript flavor's
+  `RelayCommandOf` / `RelayCommandOfBuilder`.
+- `AggregateVM1Builder` through `AggregateVM5Builder` are now the canonical
+  builder names for the aggregate VMs, matching the TypeScript flavor's
+  `AggregateVMNBuilder` shape.
+
+### Deprecated
+- `RelayCommandOfT` and `RelayCommandOfTBuilder` remain as identity aliases for
+  backward compatibility. They will be removed in **vmx v2.0.0**.
+- `AggregateVMBuilder1` through `AggregateVMBuilder5` remain as identity aliases
+  for backward compatibility. They will be removed in **vmx v2.0.0**.
+
+### Internal
+- Per-suppression rationale comments added at every `# type: ignore` in
+  `vmx.forwarding.composite` and `vmx.components.builders` (10 + 2 sites).
+- `vmx.builders._validation` now declares parameters as `object | None` instead
+  of `Any`, with a module docstring explaining why a Hub/Dispatcher Protocol is
+  intentionally not used.
+- `vmx.components.base` empty B027-silenced override hooks now carry an inline
+  reason in their `noqa` comment.
+
 ## [1.1.0] — 2026-05-23
 
 ### Added

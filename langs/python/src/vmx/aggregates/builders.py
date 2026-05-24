@@ -339,7 +339,28 @@ from vmx.aggregates.aggregate_vm import (  # noqa: E402
     AggregateVM5,
 )
 
+# ---------------------------------------------------------------------------
+# Parity aliases (canonical from v1.2.0; old names removed in v2.0.0)
+# ---------------------------------------------------------------------------
+#
+# TypeScript exposes ``AggregateVM1Builder``..``AggregateVM5Builder`` (number
+# trailing the noun, then ``Builder``). The historical Python names put the
+# number AFTER ``Builder``, which reads "Builder of AggregateVM 1" rather than
+# "Builder for AggregateVM1". Aligning to TypeScript reads better and matches
+# the C# nested ``AggregateVM2.AggregateVM2Builder`` shape.
+
+AggregateVM1Builder = AggregateVMBuilder1
+AggregateVM2Builder = AggregateVMBuilder2
+AggregateVM3Builder = AggregateVMBuilder3
+AggregateVM4Builder = AggregateVMBuilder4
+AggregateVM5Builder = AggregateVMBuilder5
+
 __all__ = [
+    "AggregateVM1Builder",
+    "AggregateVM2Builder",
+    "AggregateVM3Builder",
+    "AggregateVM4Builder",
+    "AggregateVM5Builder",
     "AggregateVMBuilder1",
     "AggregateVMBuilder2",
     "AggregateVMBuilder3",
