@@ -1,6 +1,6 @@
 {
   "name": "vmx",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Hierarchical lifecycle-aware MVVM viewmodel framework",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,8 +25,9 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "sync-fixtures": "node scripts/sync-fixtures.mjs",
-    "prebuild": "npm run sync-fixtures",
-    "prepack": "npm run sync-fixtures && npm run build"
+    "check-version-sync": "node scripts/check-version-sync.mjs",
+    "prebuild": "npm run sync-fixtures && npm run check-version-sync",
+    "prepack": "npm run sync-fixtures && npm run check-version-sync && npm run build"
   },
   "keywords": [
     "mvvm",

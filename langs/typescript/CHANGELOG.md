@@ -3,6 +3,25 @@
 All notable changes to the TypeScript flavor of vmx are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-05-23
+
+### Added
+- `ConstructionStatusChangedMessage.sender` getter — alias of `senderObject`,
+  matching the typed `sender` field on the C# and Python flavors.
+- `scripts/check-version-sync.mjs` enforces `package.json.version` ↔
+  `src/version.ts.__version__` agreement and runs as part of `prebuild` and
+  `prepack` so a release that forgets to update one side fails fast.
+
+### Fixed
+- `scripts/sync-fixtures.mjs` now reports a clear error if `spec/fixtures/`
+  is missing rather than failing inside `readdirSync` with an opaque ENOENT.
+
+### Internal
+- JSDoc note on `selectNextCommand` / `selectPreviousCommand` explaining the
+  hard-coded `false` predicate semantics on orphan leaves (CVM-005).
+- Module docstring on `version.ts` documenting the manual-sync contract that
+  the new `check-version-sync.mjs` enforces.
+
 ## [1.1.0] — 2026-05-23
 
 Initial release. Implements all 75 conformance IDs from spec v1.1.0 with full

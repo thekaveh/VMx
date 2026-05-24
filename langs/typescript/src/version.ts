@@ -1,5 +1,10 @@
-/** Package version, matching package.json. */
-export const __version__ = "1.1.0";
+/**
+ * Package version, matching package.json.
+ *
+ * Kept in sync with package.json by scripts/check-version-sync.mjs, which runs
+ * as part of `prebuild` and `prepack`. Update both when releasing.
+ */
+export const __version__ = "1.2.0";
 
-/** Minimum spec version this package implements. */
+/** Minimum spec version this package implements (see spec/VERSION). */
 export const __minSpecVersion__ = "1.1.0";

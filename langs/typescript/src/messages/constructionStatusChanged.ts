@@ -21,6 +21,16 @@ export class ConstructionStatusChangedMessage implements IMessage {
     this.status = status;
   }
 
+  /**
+   * Alias of {@link senderObject}. Matches the `sender` field on the C# and
+   * Python flavors — kept as a getter to avoid duplicating storage and to
+   * preserve the existing `senderObject` shape (spec/03-messages.md §Required
+   * fields treats them as the same value).
+   */
+  get sender(): object {
+    return this.senderObject;
+  }
+
   static create(
     sender: object,
     senderName: string,
