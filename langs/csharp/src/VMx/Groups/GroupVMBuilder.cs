@@ -84,9 +84,9 @@ public sealed class GroupVMBuilder<VM>
     /// </summary>
     public GroupVM<VM> Build()
     {
-        if (_name is null) throw new BuilderValidationException("Name");
-        if (_hub is null) throw new BuilderValidationException("Hub");
-        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
+        BuilderValidationException.Require(_name, "Name");
+        BuilderValidationException.Require(_hub, "Hub");
+        BuilderValidationException.Require(_dispatcher, "Dispatcher");
 
         return GroupVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,

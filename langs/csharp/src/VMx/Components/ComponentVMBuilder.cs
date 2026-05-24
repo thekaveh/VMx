@@ -27,7 +27,6 @@ public sealed class ComponentVMBuilder<M>
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
     private readonly bool _background;
-    private readonly bool _asyncSelection;
     private readonly IParentCompositeVM? _parent;
 
     /// <summary>Represents an empty, unconfigured builder.</summary>
@@ -56,7 +55,6 @@ public sealed class ComponentVMBuilder<M>
         Action? onConstruct,
         Action? onDestruct,
         bool background,
-        bool asyncSelection,
         IParentCompositeVM? parent)
     {
         _name = name;
@@ -71,7 +69,6 @@ public sealed class ComponentVMBuilder<M>
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
         _background = background;
-        _asyncSelection = asyncSelection;
         _parent = parent;
     }
 
@@ -104,9 +101,6 @@ public sealed class ComponentVMBuilder<M>
     /// <summary>Sets the optional Background flag (default: false).</summary>
     public ComponentVMBuilder<M> Background(bool background) => With(background: background);
 
-    /// <summary>Sets the optional AsyncSelection flag (default: false).</summary>
-    public ComponentVMBuilder<M> AsyncSelection(bool asyncSelection) => With(asyncSelection: asyncSelection);
-
     /// <summary>Sets the required Services (hub + dispatcher).</summary>
     public ComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
@@ -120,10 +114,10 @@ public sealed class ComponentVMBuilder<M>
     /// </summary>
     public ComponentVM<M> Build()
     {
-        if (_name is null) throw new BuilderValidationException("Name");
+        BuilderValidationException.Require(_name, "Name");
         if (!_modelSet) throw new BuilderValidationException("Model");
-        if (_hub is null) throw new BuilderValidationException("Hub");
-        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
+        BuilderValidationException.Require(_hub, "Hub");
+        BuilderValidationException.Require(_dispatcher, "Dispatcher");
 
         var vm = ComponentVM<M>.Create(
             _name,
@@ -158,7 +152,6 @@ public sealed class ComponentVMBuilder<M>
         Action? onConstruct = null,
         Action? onDestruct = null,
         bool? background = null,
-        bool? asyncSelection = null,
         IParentCompositeVM? parent = null)
         => new(
             name ?? _name,
@@ -174,7 +167,120 @@ public sealed class ComponentVMBuilder<M>
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct,
             background ?? _background,
-            asyncSelection ?? _asyncSelection,
+            parent ?? _parent);
+}
+
+/// <summary>
+/// Immutable fluent builder for <see cref="ComponentVM"/> (non-modeled).
+/// Each setter returns a NEW builder instance (BLD-001).
+/// Use <c>ComponentVM.Builder()</c> to start.
+/// </summary>
+public sealed class ComponentVMBuilder
+{
+    // ── Required fields (null means unset) ──────────────────────────────────
+    private readonly string? _name;
+    private readonly IMessageHub? _hub;
+    private readonly IDispatcher? _dispatcher;
+
+    // ── Optional fields ──────────────────────────────────────────────────────
+    private readonly string _hint;
+    private readonly Action? _onConstruct;
+    private readonly Action? _onDestruct;
+    private readonly bool _background;
+    private readonly IParentCompositeVM? _parent;
+
+    /// <summary>Represents an empty, unconfigured builder.</summary>
+    public static readonly ComponentVMBuilder Empty = new();
+
+    private ComponentVMBuilder()
+    {
+        _hint = "";
+    }
+
+    private ComponentVMBuilder(
+        string? name,
+        IMessageHub? hub,
+        IDispatcher? dispatcher,
+        string hint,
+        Action? onConstruct,
+        Action? onDestruct,
+        bool background,
+        IParentCompositeVM? parent)
+    {
+        _name = name;
+        _hub = hub;
+        _dispatcher = dispatcher;
+        _hint = hint;
+        _onConstruct = onConstruct;
+        _onDestruct = onDestruct;
+        _background = background;
+        _parent = parent;
+    }
+
+    /// <summary>Sets the required Name field.</summary>
+    public ComponentVMBuilder Name(string name) => With(name: name);
+
+    /// <summary>Sets the optional Hint field (default: empty string).</summary>
+    public ComponentVMBuilder Hint(string hint) => With(hint: hint);
+
+    /// <summary>Sets the optional OnConstruct lifecycle callback.</summary>
+    public ComponentVMBuilder OnConstruct(Action callback) => With(onConstruct: callback);
+
+    /// <summary>Sets the optional OnDestruct lifecycle callback.</summary>
+    public ComponentVMBuilder OnDestruct(Action callback) => With(onDestruct: callback);
+
+    /// <summary>Sets the optional Background flag (default: false).</summary>
+    public ComponentVMBuilder Background(bool background) => With(background: background);
+
+    /// <summary>Sets the required Services (hub + dispatcher).</summary>
+    public ComponentVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
+        => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>Sets the optional parent composite (internal: used by CompositeVMBase).</summary>
+    internal ComponentVMBuilder Parent(IParentCompositeVM parent) => With(parent: parent);
+
+    /// <summary>
+    /// Validates required fields and constructs a <see cref="ComponentVM"/>.
+    /// Throws <see cref="BuilderValidationException"/> if a required field is missing.
+    /// </summary>
+    public ComponentVM Build()
+    {
+        BuilderValidationException.Require(_name, "Name");
+        BuilderValidationException.Require(_hub, "Hub");
+        BuilderValidationException.Require(_dispatcher, "Dispatcher");
+
+        var vm = ComponentVM.Create(
+            _name,
+            _hint,
+            _hub,
+            _dispatcher,
+            _onConstruct,
+            _onDestruct,
+            _background);
+
+        if (_parent is not null)
+            vm.Parent = _parent;
+
+        return vm;
+    }
+
+    private ComponentVMBuilder With(
+        string? name = null,
+        IMessageHub? hub = null,
+        IDispatcher? dispatcher = null,
+        string? hint = null,
+        Action? onConstruct = null,
+        Action? onDestruct = null,
+        bool? background = null,
+        IParentCompositeVM? parent = null)
+        => new(
+            name ?? _name,
+            hub ?? _hub,
+            dispatcher ?? _dispatcher,
+            hint ?? _hint,
+            onConstruct ?? _onConstruct,
+            onDestruct ?? _onDestruct,
+            background ?? _background,
             parent ?? _parent);
 }
 
@@ -268,10 +374,10 @@ public sealed class ReadonlyComponentVMBuilder<M>
     /// </summary>
     public ReadonlyComponentVM<M> Build()
     {
-        if (_name is null) throw new BuilderValidationException("Name");
+        BuilderValidationException.Require(_name, "Name");
         if (!_modelSet) throw new BuilderValidationException("Model");
-        if (_hub is null) throw new BuilderValidationException("Hub");
-        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
+        BuilderValidationException.Require(_hub, "Hub");
+        BuilderValidationException.Require(_dispatcher, "Dispatcher");
 
         var vm = ReadonlyComponentVM<M>.Create(
             _name,

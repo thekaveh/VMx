@@ -1,8 +1,14 @@
 <Project>
   <PropertyGroup>
+    <!--
+      Centralise all PackageReference Version="..." pins to this file
+      (NuGet 6.2+). Transitive pinning forces the resolver to honour our
+      central versions even for dependencies pulled in by other packages,
+      so a downstream package can't silently elevate System.Reactive etc.
+      to a version we haven't audited.
+    -->
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
-
   </PropertyGroup>
 
   <ItemGroup>

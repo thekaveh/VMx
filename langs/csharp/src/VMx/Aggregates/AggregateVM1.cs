@@ -131,10 +131,10 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>
         /// </summary>
         public AggregateVM1<VM1> Build()
         {
-            if (_name is null) throw new BuilderValidationException("Name");
-            if (_hub is null) throw new BuilderValidationException("Hub");
-            if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
-            if (_factory1 is null) throw new BuilderValidationException("Component1");
+            BuilderValidationException.Require(_name, "Name");
+            BuilderValidationException.Require(_hub, "Hub");
+            BuilderValidationException.Require(_dispatcher, "Dispatcher");
+            BuilderValidationException.Require(_factory1, "Component1");
 
             return new AggregateVM1<VM1>(_name, _hint, _hub, _dispatcher, _factory1);
         }

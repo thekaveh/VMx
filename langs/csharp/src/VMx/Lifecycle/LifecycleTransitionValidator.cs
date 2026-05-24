@@ -12,6 +12,9 @@ public static class LifecycleTransitionValidator
 {
     private const string EmbeddedResourceName = "VMx.Lifecycle.lifecycle-transitions.json";
 
+    // Lazy<T> default mode is ExecutionAndPublication: LoadTable() runs at most
+    // once across all threads, and any concurrent first-readers block on the
+    // same initialization. Safe for the static-state read pattern below.
     private static readonly Lazy<TransitionTable> Table = new(LoadTable);
 
     /// <summary>

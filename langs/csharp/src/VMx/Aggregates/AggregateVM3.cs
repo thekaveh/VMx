@@ -177,12 +177,12 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
         /// </summary>
         public AggregateVM3<VM1, VM2, VM3> Build()
         {
-            if (_name is null) throw new BuilderValidationException("Name");
-            if (_hub is null) throw new BuilderValidationException("Hub");
-            if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
-            if (_factory1 is null) throw new BuilderValidationException("Component1");
-            if (_factory2 is null) throw new BuilderValidationException("Component2");
-            if (_factory3 is null) throw new BuilderValidationException("Component3");
+            BuilderValidationException.Require(_name, "Name");
+            BuilderValidationException.Require(_hub, "Hub");
+            BuilderValidationException.Require(_dispatcher, "Dispatcher");
+            BuilderValidationException.Require(_factory1, "Component1");
+            BuilderValidationException.Require(_factory2, "Component2");
+            BuilderValidationException.Require(_factory3, "Component3");
 
             return new AggregateVM3<VM1, VM2, VM3>(_name, _hint, _hub, _dispatcher, _factory1, _factory2, _factory3);
         }

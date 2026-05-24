@@ -6,6 +6,30 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-23
+
+### Added
+- Non-modeled `ComponentVM` class + `ComponentVMBuilder` for parity with the
+  Python and TypeScript flavors. Existing `ComponentVM<M>` continues to ship
+  alongside it (additive change, no consumer impact).
+- `BuilderValidationException.Require([NotNull] object?, string)` static helper.
+  All 41 in-place null-check throws across the aggregate, composite, group, and
+  component builders are migrated to call it; the `[NotNull]` annotation lets
+  the C# flow analyser narrow the field as non-null after a successful call.
+- `System.Diagnostics.CodeAnalysis.NotNullAttribute` polyfill for the
+  netstandard2.0 target (existing `IsExternalInit` polyfill pattern).
+
+### Removed
+- `ComponentVMBuilder<M>.AsyncSelection(bool)` setter — the parameter was stored
+  on the builder but never forwarded to the constructed `ComponentVM<M>` (only
+  `CompositeVMBuilder<…>.AsyncSelection` is honoured at runtime, and that setter
+  is unchanged). No test referenced the component-level setter.
+
+### Internal
+- Comment polish on `ComponentVMBase.IsCurrent` idempotent-set guard,
+  `LifecycleTransitionValidator` `Lazy<T>` thread-safety, and
+  `Directory.Packages.props` central transitive pinning.
+
 ## [1.1.0] — 2026-05-23
 
 ### Added

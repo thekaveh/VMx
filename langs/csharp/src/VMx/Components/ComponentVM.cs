@@ -4,6 +4,46 @@ using VMx.Services;
 namespace VMx.Components;
 
 /// <summary>
+/// Sealed, non-modeled leaf viewmodel.
+///
+/// See spec/05-component-vm.md §Variants (ComponentVM, type=Component). Use
+/// <c>ComponentVM.Builder()</c> to construct instances. Pair with
+/// <see cref="ComponentVM{M}"/> when a typed model is required.
+/// </summary>
+public sealed class ComponentVM : ComponentVMBase, IComponentVM
+{
+    /// <inheritdoc/>
+    public override ViewModelType Type => ViewModelType.Component;
+
+    private ComponentVM(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        Action? onConstruct,
+        Action? onDestruct,
+        bool background)
+        : base(name, hint, hub, dispatcher, onConstruct, onDestruct, background)
+    {
+    }
+
+    // ── Builder factory ──────────────────────────────────────────────────────
+    /// <summary>Returns a new empty builder for <see cref="ComponentVM"/>.</summary>
+    public static ComponentVMBuilder Builder() => ComponentVMBuilder.Empty;
+
+    // ── Internal factory used by builder ────────────────────────────────────
+    internal static ComponentVM Create(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        Action? onConstruct,
+        Action? onDestruct,
+        bool background)
+        => new(name, hint, hub, dispatcher, onConstruct, onDestruct, background);
+}
+
+/// <summary>
 /// Sealed, modeled leaf viewmodel. Model is settable after construction.
 ///
 /// See spec/05-component-vm.md §Variants (ComponentVM&lt;M&gt;, type=Component).

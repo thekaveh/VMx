@@ -89,9 +89,9 @@ public sealed class CompositeVMBuilder<VM>
     /// </summary>
     public CompositeVM<VM> Build()
     {
-        if (_name is null) throw new BuilderValidationException("Name");
-        if (_hub is null) throw new BuilderValidationException("Hub");
-        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
+        BuilderValidationException.Require(_name, "Name");
+        BuilderValidationException.Require(_hub, "Hub");
+        BuilderValidationException.Require(_dispatcher, "Dispatcher");
 
         return CompositeVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
@@ -215,11 +215,11 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// </summary>
     public CompositeVMOfM<M, VM> Build()
     {
-        if (_name is null) throw new BuilderValidationException("Name");
-        if (_hub is null) throw new BuilderValidationException("Hub");
-        if (_dispatcher is null) throw new BuilderValidationException("Dispatcher");
-        if (_childrenModels is null) throw new BuilderValidationException("ChildrenModels");
-        if (_childModelToChildViewModel is null) throw new BuilderValidationException("ChildModelToChildViewModel");
+        BuilderValidationException.Require(_name, "Name");
+        BuilderValidationException.Require(_hub, "Hub");
+        BuilderValidationException.Require(_dispatcher, "Dispatcher");
+        BuilderValidationException.Require(_childrenModels, "ChildrenModels");
+        BuilderValidationException.Require(_childModelToChildViewModel, "ChildModelToChildViewModel");
 
         return CompositeVMOfM<M, VM>.Create(
             _name, _hint, _hub, _dispatcher,

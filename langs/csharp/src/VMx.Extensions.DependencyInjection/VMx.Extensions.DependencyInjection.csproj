@@ -4,7 +4,7 @@
     <RootNamespace>VMx.Extensions.DependencyInjection</RootNamespace>
     <AssemblyName>VMx.Extensions.DependencyInjection</AssemblyName>
     <PackageId>VMx.Extensions.DependencyInjection</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Description>VMx integration with Microsoft.Extensions.DependencyInjection.</Description>
     <PackageTags>mvvm;viewmodel;reactive;dependency-injection</PackageTags>
     <MinSpecVersion>1.1.0</MinSpecVersion>

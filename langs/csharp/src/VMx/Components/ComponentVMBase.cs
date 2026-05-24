@@ -138,6 +138,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         get => _isCurrent;
         internal set
         {
+            // Idempotent-set guard: spec/03-messages.md mandates that a property
+            // assignment to the same value MUST NOT emit a PropertyChanged hub
+            // message (HUB-005). The guard also avoids redundant INPC raises.
             if (_isCurrent == value) return;
             _isCurrent = value;
             RaisePropertyChanged(nameof(IsCurrent));
