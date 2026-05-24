@@ -41,7 +41,11 @@ jobs:
           cache-dependency-path: langs/csharp/**/packages.lock.json
 
       - name: Restore
-        run: dotnet restore VMx.sln
+        # --locked-mode pairs with <RestorePackagesWithLockFile> in
+        # Directory.Build.props: CI fails fast if a checked-in packages.lock.json
+        # is out of date with the csproj graph, so dependency changes can't
+        # silently skip the lockfile update.
+        run: dotnet restore VMx.sln --locked-mode
 
       - name: Format check
         run: dotnet format VMx.sln --verify-no-changes

@@ -22,6 +22,16 @@
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!--
+      Generate a packages.lock.json next to every csproj on 'dotnet restore',
+      and commit those lockfiles. This pins the resolved transitive graph for
+      reproducible CI restores and lets the GitHub Actions cache key
+      (.github/workflows/csharp.yml: cache-dependency-path) resolve.
+      CI restores with the locked-mode flag so a dependency change that forgets
+      to regenerate the lockfile fails fast on push.
+    -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
