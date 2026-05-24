@@ -39,30 +39,27 @@ ADR-0006 and require no further action:
 | `CompositeVM` index-set syntax  | `vm[i] = x` (indexer)                           | `vm[i] = x` (`__setitem__`)              | `setAt(i, x)` (named method)                  | JS lacks operator overloading; named method is the only option.    |
 | DI integration                  | `VMx.Extensions.DependencyInjection` companion  | None (manual constructor injection)      | None (manual constructor injection)           | DI ecosystems differ; spec stays unopinionated.                    |
 
-The following are **known gaps to address in a future minor/major release** —
-documented here so audits don't reopen them prematurely:
+The following are **known gaps to address in a future release** — documented
+here so audits don't reopen them prematurely:
 
-- **C# non-modeled `ComponentVM`** (spec/05-component-vm.md §Variants). The
-  Python and TypeScript flavors ship both `ComponentVM` (no model) and
-  `ComponentVMOf<M>` (modeled). C# only ships `ComponentVM<M>`. C# users wanting
-  a model-less leaf currently parameterise as `ComponentVM<object>` or roll
-  their own subclass of `ComponentVMBase`. **Target:** add a sealed non-generic
-  `ComponentVM` class + builder in C# v1.2.0 (additive, non-breaking).
-- **`RelayCommandOfT` rename to `RelayCommandOf`** in Python. The trailing `T`
-  is a transliteration of the C# generic parameter that reads awkwardly in
-  Python (and is inconsistent with TypeScript's `RelayCommandOf<T>`). Renaming
-  is breaking and is deferred to **Python v2.0.0**.
-- **`AggregateVMBuilderN` rename to `AggregateVMNBuilder`** in Python (e.g.
-  `AggregateVMBuilder1` → `AggregateVM1Builder`). The current name reads as
-  "Builder of AggregateVM 1" rather than "Builder for AggregateVM1". Breaking;
-  deferred to **Python v2.0.0**.
-- **`ConstructionStatusChangedMessage.sender` (typed) vs `senderObject`** —
-  C# and Python expose both; TypeScript exposes only `senderObject`. **Target:**
-  add `sender` typed field to TS v1.2.0 (additive).
-- **Vestigial `AsyncSelection` and `Type(ViewModelType)` setters** on
-  `ComponentVMBuilder<M>` in C# (and `vm_type` in Python). These are
-  per-flavor leftovers from prior iterations; review for removal or move into
-  the common surface in v1.2.0.
+- **`RelayCommandOfT` → `RelayCommandOf` rename** in Python. The new name shipped
+  as a canonical alias alongside the legacy `RelayCommandOfT` in **vmx v1.2.0**;
+  removal of the legacy name is deferred to **vmx v2.0.0** (breaking).
+- **`AggregateVMBuilderN` → `AggregateVMNBuilder` rename** in Python (e.g.
+  `AggregateVMBuilder1` → `AggregateVM1Builder`). New names shipped alongside
+  the legacy ones in **vmx v1.2.0**; removal deferred to **vmx v2.0.0** (breaking).
+- **`Type(ViewModelType)` (C#) / `vm_type` (Python) on the modeled
+  ComponentVM builder.** Surface intentionally retained as an advanced escape
+  hatch — a non-leaf VM (e.g. an aggregate) that internally uses
+  `ComponentVMOf<M>` can declare its actual role via this setter. Documented
+  here so future audits don't re-flag it as vestigial.
+
+### Resolved in v1.2.0
+
+- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
+- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive).
+- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
+  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
 
 ## Rationale
 

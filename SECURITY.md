@@ -4,10 +4,13 @@
 
 | Component             | Version | Supported |
 |---                    |---      |---        |
+| C# (`VMx`)            | 1.2.x   | ✅        |
 | C# (`VMx`)            | 1.1.x   | ✅        |
 | C# (`VMx`)            | 1.0.x   | ✅        |
+| Python (`vmx`)        | 1.2.x   | ✅        |
 | Python (`vmx`)        | 1.1.x   | ✅        |
 | Python (`vmx`)        | 1.0.x   | ✅        |
+| TypeScript (`vmx`)    | 1.2.x   | ✅        |
 | TypeScript (`vmx`)    | 1.1.x   | ✅        |
 
 Older minor or patch versions on a still-supported major receive fixes on a
