@@ -77,6 +77,7 @@ from vmx.composites import (
 from vmx.forwarding import ForwardingComponentVM, ForwardingCompositeVM
 from vmx.groups import GroupVM, GroupVMBuilder
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
+from vmx.localization import NULL_LOCALIZER, ILocalizer, NullLocalizer
 from vmx.messages import (
     ConstructionStatusChangedMessage,
     Message,
@@ -95,6 +96,7 @@ from vmx.tree import find, walk, walk_expanded
 
 __all__ = [
     "NULL_DISPATCHER",
+    "NULL_LOCALIZER",
     "NULL_MESSAGE_HUB",
     "AggregateVM1",
     "AggregateVM1Builder",
@@ -145,6 +147,7 @@ __all__ = [
     "IDestructable",
     "IExpandable",
     "IExpansionTogglable",
+    "ILocalizer",
     "IManagable",
     "INewCreatable",
     "IReconstructable",
@@ -156,6 +159,7 @@ __all__ = [
     "Message",
     "MessageHub",
     "NullDispatcher",
+    "NullLocalizer",
     "NullMessageHub",
     "PropertyChangedMessage",
     "ReadonlyComponentVMOf",

@@ -132,6 +132,10 @@ export {
   deriveFromSources,
 } from "./properties/index.js";
 
+// Localization (spec v2.0)
+export type { ILocalizer } from "./localization/localizer.js";
+export { NullLocalizer } from "./localization/nullLocalizer.js";
+
 // Capabilities (spec v2.0)
 export {
   CAPABILITIES,

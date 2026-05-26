@@ -29,6 +29,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `EXP-NNN`   | Expand / collapse state               | `05-component-vm.md` + `13-tree-utilities.md` |
 | `COMP-014+` | Search / filter (Composite v2.0)      | `06-composite-vm.md`                          |
 | `GRP-007+`  | Search / filter (Group v2.0)          | `07-group-vm.md`                              |
+| `LOC-NNN`   | Localization hooks                    | `17-localization.md`                          |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -972,6 +973,33 @@ window elapses
 **Given** a `SearchableState` with a custom predicate
 **When** `SearchTerm` is set and `search()` is called
 **Then** the filtered snapshot reflects the custom predicate's matches
+
+______________________________________________________________________
+
+## Expand / collapse — continued
+
+### LOC-001 — ILocalizer.Localize returns a string
+
+**Given** a concrete `ILocalizer` implementation that returns `"hello"` for
+key `"greeting"`
+**When** `localizer.Localize("greeting")` is called
+**Then** the result is the string `"hello"`
+
+### LOC-002 — NullLocalizer.Localize returns the key verbatim
+
+**Given** a `NullLocalizer` instance
+**When** `localizer.Localize("some-key")` is called
+**Then** the result is `"some-key"` (the key is returned unchanged)
+**And** `localizer.Localize("some-key", [arg1, arg2])` also returns
+`"some-key"` (no formatting)
+
+### LOC-003 — Custom localizer can be substituted
+
+**Given** a fixture localizer that returns `"X:" + key` for every key
+**When** the fixture localizer is used in place of the null variant
+**Then** calling `Localize("foo")` returns `"X:foo"`
+**And** the framework's `ILocalizer` contract accepts the fixture without
+type errors
 
 ______________________________________________________________________
 
