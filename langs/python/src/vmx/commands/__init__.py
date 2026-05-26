@@ -8,6 +8,7 @@ and will be removed in vmx v2.0.0.
 from vmx.commands.composite_command import CompositeCommand
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.decorator_command import DecoratorCommand
+from vmx.commands.modeled_crud_commands import ModeledCrudCommands
 from vmx.commands.protocols import Command, ParameterizedCommand
 from vmx.commands.relay_command import (
     RelayCommand,
@@ -23,6 +24,7 @@ __all__ = [
     "CompositeCommand",
     "ConfirmationDecoratorCommand",
     "DecoratorCommand",
+    "ModeledCrudCommands",
     "ParameterizedCommand",
     "RelayCommand",
     "RelayCommandBuilder",

@@ -14,3 +14,7 @@ export {
   ConfirmationDecoratorCommand,
   type ConfirmDelegate,
 } from "./confirmationDecoratorCommand.js";
+export {
+  ModeledCrudCommands,
+  type ModeledCrudCommandsOptions,
+} from "./modeledCrudCommands.js";

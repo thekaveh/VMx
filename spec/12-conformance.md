@@ -906,6 +906,46 @@ elapses
 notified (via `search()` / explicit refresh)
 **Then** the subscriber observes a snapshot containing two items
 
+### COMP-019 — CreateNewCommand invokes create-new action
+
+**Given** a `ModeledCrudCommands` built with a recording `create_new` action
+**When** `CreateNewCommand.Execute()` is called
+**Then** the recorder has exactly one invocation
+
+### COMP-020 — UpdateCurrentCommand invokes update with current VM
+
+**Given** a `ModeledCrudCommands` with `current` returning `vm1` and a
+recording `update_current(vm)` action
+**When** `UpdateCurrentCommand.Execute()` is called
+**Then** the recorder records `vm1` once
+
+### COMP-021 — UpdateCurrentCommand.CanExecute false when current is null
+
+**Given** a `ModeledCrudCommands` with `current` returning `null`
+**When** `UpdateCurrentCommand.CanExecute()` is called
+**Then** the result is `false`
+
+### COMP-022 — DeleteCurrentCommand invokes delete with current VM
+
+**Given** a `ModeledCrudCommands` with `current = vm1` and a recording
+`delete_current(vm)` action
+**When** `DeleteCurrentCommand.Execute()` is called
+**Then** the recorder records `vm1` once
+
+### COMP-023 — DeleteCurrentCommand.CanExecute false when current is null
+
+**Given** a `ModeledCrudCommands` with `current` returning `null`
+**When** `DeleteCurrentCommand.CanExecute()` is called
+**Then** the result is `false`
+
+### COMP-024 — DeleteCurrentCommand confirm gate
+
+**Given** a `ModeledCrudCommands` with `current = vm1`, a recording
+`delete_current` action, and a confirm delegate that resolves `false`
+**When** `DeleteCurrentCommand.Execute()` is awaited
+**Then** the recorder is empty
+**And** when the confirm delegate resolves `true`, the recorder records `vm1`
+
 ### GRP-007 — SearchableState defaults to empty search term (group context)
 
 **Given** a `SearchableState` over a list of group children

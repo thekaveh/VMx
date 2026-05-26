@@ -127,6 +127,38 @@ The model values themselves are NOT exposed on the composite; the composite is a
 container of VMs, not models. Each child VM is responsible for holding its own
 model.
 
+## Modeled CRUD commands (spec v2.0)
+
+A modeled composite (`CompositeVM<M, VM>`) MAY opt into a CRUD command set via
+the `ModeledCrudCommands<M, VM>` helper:
+
+```
+ModeledCrudCommands<M, VM>:
+    CreateNewCommand    : ICommand    # invokes the create-new action
+    UpdateCurrentCommand: ICommand    # invokes update(current_vm) when current != null
+    DeleteCurrentCommand: ICommand    # invokes delete(current_vm) when current != null
+```
+
+The helper takes:
+
+- A `current` provider (a function returning the current VM or `null`).
+- A `create_new` action (a parameterless callable).
+- An `update_current` action (a callable taking the current VM).
+- A `delete_current` action (a callable taking the current VM).
+- Optional `confirm_update` / `confirm_delete` async delegates that gate
+  execution via `ConfirmationDecoratorCommand` (see chapter 04 §Decorators).
+
+Behavior:
+
+- `CreateNewCommand.CanExecute` returns `true` whenever the helper exists.
+- `UpdateCurrentCommand.CanExecute` returns `true` iff `current != null`.
+- `DeleteCurrentCommand.CanExecute` returns `true` iff `current != null`.
+- When a confirm delegate is supplied, the command is wrapped in a
+  `ConfirmationDecoratorCommand` and `Execute` resolves the confirm gate
+  before invoking the action.
+
+The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
+
 ## Search / filter (spec v2.0)
 
 A composite (or group) MAY opt into search/filter via the `SearchableState`

@@ -57,6 +57,10 @@ export {
   ConfirmationDecoratorCommand,
   type ConfirmDelegate,
 } from "./commands/confirmationDecoratorCommand.js";
+export {
+  ModeledCrudCommands,
+  type ModeledCrudCommandsOptions,
+} from "./commands/modeledCrudCommands.js";
 
 // Components
 export { ViewModelType } from "./components/types.js";
