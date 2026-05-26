@@ -7,21 +7,22 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## Identifier prefixes
 
-| Prefix     | Area                                  | File                   |
-| ---------- | ------------------------------------- | ---------------------- |
-| `LIFE-NNN` | Lifecycle state machine               | `02-lifecycle.md`      |
-| `HUB-NNN`  | Message hub                           | `03-messages.md`       |
-| `PROP-NNN` | Property change notifications         | `03-messages.md`       |
-| `CMD-NNN`  | Commands                              | `04-commands.md`       |
-| `CVM-NNN`  | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`   |
-| `COMP-NNN` | CompositeVM                           | `06-composite-vm.md`   |
-| `GRP-NNN`  | GroupVM                               | `07-group-vm.md`       |
-| `AGG-NNN`  | AggregateVM                           | `08-aggregate-vm.md`   |
-| `FWD-NNN`  | Forwarding decorators                 | `09-forwarding.md`     |
-| `BLD-NNN`  | Builders                              | `10-builders.md`       |
-| `THR-NNN`  | Threading & schedulers                | `11-threading.md`      |
-| `UTIL-NNN` | Tree utilities (spec v1.1)            | `13-tree-utilities.md` |
-| `CAP-NNN`  | Capability micro-interfaces           | `14-capabilities.md`   |
+| Prefix     | Area                                  | File                                 |
+| ---------- | ------------------------------------- | ------------------------------------ |
+| `LIFE-NNN` | Lifecycle state machine               | `02-lifecycle.md`                    |
+| `HUB-NNN`  | Message hub                           | `03-messages.md`                     |
+| `PROP-NNN` | Property change notifications         | `03-messages.md`                     |
+| `CMD-NNN`  | Commands                              | `04-commands.md`                     |
+| `CVM-NNN`  | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`                 |
+| `COMP-NNN` | CompositeVM                           | `06-composite-vm.md`                 |
+| `GRP-NNN`  | GroupVM                               | `07-group-vm.md`                     |
+| `AGG-NNN`  | AggregateVM                           | `08-aggregate-vm.md`                 |
+| `FWD-NNN`  | Forwarding decorators                 | `09-forwarding.md`                   |
+| `BLD-NNN`  | Builders                              | `10-builders.md`                     |
+| `THR-NNN`  | Threading & schedulers                | `11-threading.md`                    |
+| `UTIL-NNN` | Tree utilities (spec v1.1)            | `13-tree-utilities.md`               |
+| `CAP-NNN`  | Capability micro-interfaces           | `14-capabilities.md`                 |
+| `NULL-NNN` | Null-object service variants          | `03-messages.md` + `11-threading.md` |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -842,6 +843,35 @@ with `can_update(item) -> true` and `update(item)` recording the item
 **Then** the answer is `true` for all five interfaces
 **And** invoking each interface's verb (after asserting its can\_-predicate)
 records an invocation on the correct recorder
+
+### NULL-001 — NullMessageHub is a safe no-op
+
+**Given** a `NullMessageHub` instance
+**And** a subscriber to `Messages` that records every emission and counts completion
+**When** `Send(message)` is called any number of times
+**Then** the subscriber records zero emissions
+**And** the subscription completes immediately upon subscribe (no values, no error)
+**And** no exception is raised by any of the calls
+
+### NULL-002 — NullDispatcher schedules synchronously on the calling thread
+
+**Given** a `NullDispatcher` instance
+**When** an action is scheduled on `Foreground` or on `Background`
+**Then** the action executes synchronously on the calling thread
+**And** by the time the schedule call returns, the action has completed
+
+### NULL-003 — Null-object convention is satisfied for every core service contract
+
+**Given** the set of core service contracts: `IMessageHub`, `IDispatcher`
+**When** the flavor's public surface is inspected
+**Then** each contract has a paired null variant (`NullMessageHub`,
+`NullDispatcher`) reachable from the public surface
+**And** the null variant satisfies the contract (its operations are total —
+they do not raise on any input)
+
+______________________________________________________________________
+
+## Capability micro-interfaces — continued
 
 ### CAP-020 — Core VM types do NOT implement non-baseline capabilities by default
 

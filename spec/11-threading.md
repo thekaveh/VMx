@@ -59,6 +59,21 @@ via the hub. Subscribers that need to await completion should subscribe to
 With background disabled (the default), `construct()` and `destruct()` run on the
 calling thread and complete before returning.
 
+## Null variant — `NullDispatcher` (spec v2.0)
+
+Every service contract in VMx has a **null-object** variant per ADR-0017. For
+`IDispatcher`, the variant is `NullDispatcher`:
+
+- `Foreground` returns an immediate scheduler — work scheduled on it runs
+  synchronously on the calling thread.
+- `Background` returns the same kind of immediate scheduler.
+
+In effect, every `Schedule(action)` call executes `action()` inline. The null
+dispatcher does NOT defer, queue, or thread-hop. Typical uses: tests, headless
+hosts, or any code path where async dispatch is not required.
+
+The null variant is conformance-tested by `NULL-002`.
+
 ## Conformance
 
 `THR-001` through `THR-004` in `12-conformance.md` cover:

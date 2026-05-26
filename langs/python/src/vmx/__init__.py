@@ -78,10 +78,19 @@ from vmx.messages import (
     Message,
     PropertyChangedMessage,
 )
-from vmx.services import MessageHub, RxDispatcher
+from vmx.services import (
+    NULL_DISPATCHER,
+    NULL_MESSAGE_HUB,
+    MessageHub,
+    NullDispatcher,
+    NullMessageHub,
+    RxDispatcher,
+)
 from vmx.tree import find, walk
 
 __all__ = [
+    "NULL_DISPATCHER",
+    "NULL_MESSAGE_HUB",
     "AggregateVM1",
     "AggregateVM1Builder",
     "AggregateVM2",
@@ -136,6 +145,8 @@ __all__ = [
     "IUpdatable",
     "Message",
     "MessageHub",
+    "NullDispatcher",
+    "NullMessageHub",
     "PropertyChangedMessage",
     "ReadonlyComponentVMOf",
     "ReadonlyComponentVMOfBuilder",

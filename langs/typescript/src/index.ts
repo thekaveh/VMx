@@ -37,6 +37,8 @@ export type { IMessageHub } from "./services/messageHub.js";
 export { MessageHub } from "./services/messageHub.js";
 export type { IDispatcher } from "./services/dispatcher.js";
 export { RxDispatcher } from "./services/dispatcher.js";
+export { NullMessageHub } from "./services/nullMessageHub.js";
+export { NullDispatcher } from "./services/nullDispatcher.js";
 
 // Commands
 export type { ICommand, ICommandOf } from "./commands/types.js";

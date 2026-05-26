@@ -115,6 +115,23 @@ conformance tests load:
   message.
 - `unsubscribe-during-emit`: a subscriber disposing during delivery does not crash.
 
+## Null variant — `NullMessageHub` (spec v2.0)
+
+Every service contract in VMx has a **null-object** variant per ADR-0017. For
+`IMessageHub`, the variant is `NullMessageHub`:
+
+- `Send<TMessage>(message)` is a no-op. Calling it has no effect, raises
+  nothing, returns immediately.
+- `Messages` returns the empty observable (`Observable.Empty<IMessage>()` in
+  C#, `reactivex.empty()` in Python, `EMPTY` in TypeScript). It completes
+  immediately upon subscription and emits no values.
+
+`NullMessageHub` is safe to share across consumers; it holds no state. Typical
+uses: a default for a VM whose hub is genuinely irrelevant; a placeholder in
+tests; a stand-in when the hub injection chain is being torn down.
+
+The null variant is conformance-tested by `NULL-001`.
+
 ## Conformance
 
 `HUB-001` through `HUB-007` and `PROP-001` through `PROP-004` in `12-conformance.md` cover:
