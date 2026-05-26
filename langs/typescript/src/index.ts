@@ -115,6 +115,12 @@ export { walk, find, walkExpanded } from "./tree/walk.js";
 // Expandable state helper (spec v2.0)
 export { ExpandableState } from "./capabilities/expandableState.js";
 
+// Searchable state helper (spec v2.0)
+export {
+  SearchableState,
+  type SearchableStateOptions,
+} from "./capabilities/searchableState.js";
+
 // Derived properties (spec v2.0)
 export {
   DerivedProperty,

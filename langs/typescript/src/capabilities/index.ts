@@ -36,3 +36,7 @@ export type {
 } from "./currentCrud.js";
 export type { IManagable } from "./management.js";
 export { ExpandableState } from "./expandableState.js";
+export {
+  SearchableState,
+  type SearchableStateOptions,
+} from "./searchableState.js";

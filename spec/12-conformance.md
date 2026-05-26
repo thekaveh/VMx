@@ -27,6 +27,8 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `CMDD-NNN`  | Command decorators (spec v2.0)        | `04-commands.md`                              |
 | `NOTIF-NNN` | Notification sub-package              | `16-notifications.md`                         |
 | `EXP-NNN`   | Expand / collapse state               | `05-component-vm.md` + `13-tree-utilities.md` |
+| `COMP-014+` | Search / filter (Composite v2.0)      | `06-composite-vm.md`                          |
+| `GRP-007+`  | Search / filter (Group v2.0)          | `07-group-vm.md`                              |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -863,6 +865,77 @@ records an invocation on the correct recorder
 **When** an action is scheduled on `Foreground` or on `Background`
 **Then** the action executes synchronously on the calling thread
 **And** by the time the schedule call returns, the action has completed
+
+### COMP-014 — SearchableState defaults to empty search term
+
+**Given** a `SearchableState` over a list of items
+**When** `SearchTerm` is read after construction
+**Then** the value is `""`
+**And** `Filtered` initially emits every item (predicate matches everything)
+
+### COMP-015 — Setting SearchTerm triggers a debounced recompute
+
+**Given** a `SearchableState` over `["apple", "banana", "cherry"]` with predicate
+"case-insensitive substring match" and debounce 0 (no delay, for the test)
+**And** a subscriber to `Filtered`
+**When** `SearchTerm = "an"` is set
+**Then** the subscriber observes a snapshot `["banana"]`
+
+### COMP-016 — search() forces immediate recompute, bypassing debounce
+
+**Given** a `SearchableState` over `["one", "two"]` with predicate "exact match"
+and a large debounce (1 second)
+**And** a subscriber to `Filtered`
+**When** `SearchTerm = "two"` is set, then `search()` is called immediately
+**Then** the subscriber observes a snapshot `["two"]` before the debounce window
+elapses
+
+### COMP-017 — Predicate is user-supplied
+
+**Given** a `SearchableState` constructed with predicate
+`(item, term) => item.length > term.length` over `["a", "bb", "ccc"]`
+**When** `SearchTerm = "bb"` is set and `search()` is called
+**Then** `Filtered` emits `["ccc"]`
+
+### COMP-018 — Filtered recomputes when Items source changes
+
+**Given** a `SearchableState` over an initial list `["one"]` with predicate
+"any match" and a search term of `"x"`
+**And** a subscriber to `Filtered`
+**When** the items source is updated to `["one", "two"]` and the helper is
+notified (via `search()` / explicit refresh)
+**Then** the subscriber observes a snapshot containing two items
+
+### GRP-007 — SearchableState defaults to empty search term (group context)
+
+**Given** a `SearchableState` over a list of group children
+**When** `SearchTerm` is read after construction
+**Then** the value is `""`
+
+### GRP-008 — Setting SearchTerm triggers debounced recompute (group context)
+
+**Given** a `SearchableState` over `["x", "yx", "z"]` with predicate
+"case-insensitive substring match" and debounce 0
+**And** a subscriber to `Filtered`
+**When** `SearchTerm = "x"` is set
+**Then** the subscriber observes a snapshot `["x", "yx"]`
+
+### GRP-009 — search() forces immediate recompute (group context)
+
+**Given** a `SearchableState` with a large debounce
+**When** `SearchTerm` is set then `search()` is called immediately
+**Then** the subscriber observes the filtered snapshot before the debounce
+window elapses
+
+### GRP-010 — Predicate is user-supplied (group context)
+
+**Given** a `SearchableState` with a custom predicate
+**When** `SearchTerm` is set and `search()` is called
+**Then** the filtered snapshot reflects the custom predicate's matches
+
+______________________________________________________________________
+
+## Expand / collapse — continued
 
 ### EXP-001 — ExpandableState defaults to collapsed
 

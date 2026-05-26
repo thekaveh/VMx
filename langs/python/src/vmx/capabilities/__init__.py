@@ -23,6 +23,7 @@ from vmx.capabilities.lifecycle_capabilities import (
 )
 from vmx.capabilities.management import IManagable
 from vmx.capabilities.search import ISearchable
+from vmx.capabilities.searchable_state import SearchableState
 from vmx.capabilities.selection import IDeselectable, ISelectable, ISelectionTogglable
 
 __all__ = [
@@ -47,4 +48,5 @@ __all__ = [
     "ISelectable",
     "ISelectionTogglable",
     "IUpdatable",
+    "SearchableState",
 ]

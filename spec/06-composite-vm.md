@@ -127,9 +127,46 @@ The model values themselves are NOT exposed on the composite; the composite is a
 container of VMs, not models. Each child VM is responsible for holding its own
 model.
 
+## Search / filter (spec v2.0)
+
+A composite (or group) MAY opt into search/filter via the `SearchableState`
+helper, which implements `ISearchable` from chapter 14:
+
+```
+SearchableState<TItem>:
+    SearchTerm : string                          # read/write
+    SearchTermChanged : Observable<string>        # debounced (default 1s, configurable)
+    Predicate : (TItem, string) -> bool           # user-supplied
+    Items : Iterable<TItem>                       # current source set
+    Filtered : Observable<list<TItem>>            # filtered set, recomputed on
+                                                 # debounced SearchTerm change or Items change
+    can_search() : bool
+    search() : void                              # force immediate recompute
+```
+
+Behavior:
+
+- Setting `SearchTerm` to a new value triggers a debounced emission on
+  `SearchTermChanged`. The default debounce is **1 second**; consumers may
+  override via builder/constructor.
+- After the debounce, the helper recomputes `Filtered` by applying
+  `Predicate(item, search_term)` to each item in `Items` and emitting the
+  list of matches.
+- `Predicate` is user-supplied; common defaults (case-insensitive substring
+  match) are NOT mandated by the spec.
+- `search()` forces an immediate recompute, bypassing the debounce.
+- `can_search()` returns `true` when at least one item is present (helpers
+  MAY relax this).
+
+Consumers wire `SearchableState` to a composite by passing
+`composite as Iterable<TItem>` as `Items`. The helper is opt-in; the base
+`CompositeVM<VM>` retains its current shape unchanged.
+
 ## Conformance
 
-`COMP-001` through `COMP-013` in `12-conformance.md` cover:
+`COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, and (the
+modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, in
+`12-conformance.md` cover:
 
 - collection-change events on add/remove
 - `Current` setter behavior (legal/illegal values)
