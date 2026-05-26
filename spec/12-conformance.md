@@ -25,6 +25,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `NULL-NNN`  | Null-object service variants          | `03-messages.md` + `11-threading.md` |
 | `DPROP-NNN` | Derived properties                    | `15-derived-properties.md`           |
 | `CMDD-NNN`  | Command decorators (spec v2.0)        | `04-commands.md`                     |
+| `NOTIF-NNN` | Notification sub-package              | `16-notifications.md`                |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -861,6 +862,81 @@ records an invocation on the correct recorder
 **When** an action is scheduled on `Foreground` or on `Background`
 **Then** the action executes synchronously on the calling thread
 **And** by the time the schedule call returns, the action has completed
+
+### NOTIF-001 — Post returns an awaitable that completes when Resolve is called
+
+**Given** a `NotificationHub` instance and a notification
+`n = Notification(Notification, "info")`
+**When** `task = hub.Post(n)` is called, then `hub.Resolve(n, Approve)` is called
+**Then** awaiting `task` yields `Approve`
+
+### NOTIF-002 — Post adds the notification to Pending
+
+**Given** a `NotificationHub` with a subscriber to `Pending`
+**When** `hub.Post(n)` is called
+**Then** the subscriber observes a new `Pending` snapshot whose contents include `n`
+
+### NOTIF-003 — Resolve removes the notification from Pending
+
+**Given** a `NotificationHub` with `n` posted and pending
+**And** a subscriber to `Pending` that captures every snapshot
+**When** `hub.Resolve(n, Approve)` is called
+**Then** the final observed `Pending` snapshot does NOT include `n`
+
+### NOTIF-004 — NotificationType has Error / Notification / Confirmation values
+
+**Given** the `NotificationType` enum
+**When** its values are enumerated
+**Then** the set is exactly `{Error, Notification, Confirmation}`
+
+### NOTIF-005 — NotificationReaction has Pending / Approve / Reject values
+
+**Given** the `NotificationReaction` enum
+**When** its values are enumerated
+**Then** the set is exactly `{Pending, Approve, Reject}`
+
+### NOTIF-006 — The resolved task carries the reaction value
+
+**Given** a `NotificationHub` with `n` posted and `task = hub.Post(n)`
+**When** `hub.Resolve(n, Reject)` is called
+**Then** awaiting `task` yields `Reject`
+
+### NOTIF-007 — Confirmation notifications can be resolved Approve or Reject
+
+**Given** a `NotificationHub`
+**And** `nApprove = Notification(Confirmation, "x")` posted via `taskA = hub.Post(nApprove)`
+**And** `nReject  = Notification(Confirmation, "y")` posted via `taskR = hub.Post(nReject)`
+**When** `hub.Resolve(nApprove, Approve)` and `hub.Resolve(nReject, Reject)`
+**Then** `taskA` yields `Approve`
+**And** `taskR` yields `Reject`
+
+### NOTIF-008 — Resolving a notification not in Pending is a no-op
+
+**Given** a `NotificationHub` and a fresh notification `n` that was never posted
+**When** `hub.Resolve(n, Approve)` is called
+**Then** no exception is raised
+**And** `Pending` is unchanged
+
+### NOTIF-009 — NullNotificationHub.Post resolves to Approve immediately
+
+**Given** a `NullNotificationHub` instance and a notification
+`n = Notification(Confirmation, "x")`
+**When** `task = hub.Post(n)` is called
+**Then** awaiting `task` yields `Approve`
+**And** the wait completes immediately (does not block on user input)
+
+### NOTIF-010 — make_confirm helper returns true iff resolved Approve
+
+**Given** a `NotificationHub` and the helper `confirm = make_confirm(hub, "ok?")`
+**When** the call `confirm()` is initiated and the next pending notification
+is resolved Approve
+**Then** awaiting `confirm()` yields `true`
+**And** when the next pending notification is resolved Reject instead, awaiting
+yields `false`
+
+______________________________________________________________________
+
+## Command decorators — continued
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <RootNamespace>VMx.Notifications</RootNamespace>
+    <AssemblyName>VMx.Notifications</AssemblyName>
+    <PackageId>VMx.Notifications</PackageId>
+    <Version>1.0.0</Version>
+    <Description>VMx notification / confirmation hub. See spec/16-notifications.md.</Description>
+    <PackageTags>mvvm;viewmodel;reactive;notifications</PackageTags>
+    <MinSpecVersion>2.0.0</MinSpecVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VMx\VMx.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>MinSpecVersion</_Parameter1>
+      <_Parameter2>$(MinSpecVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
