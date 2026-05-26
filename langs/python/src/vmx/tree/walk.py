@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 
+from vmx.capabilities.expansion import IExpandable
 from vmx.components.base import _ComponentVMBase
 
 
@@ -31,6 +32,18 @@ def find(
         if predicate(node):
             return node
     return None
+
+
+def walk_expanded(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
+    """Yield ``root`` then descend only into children whose parent reports as
+    expanded. A node that does NOT implement IExpandable is treated as
+    always-expanded. See spec/13-tree-utilities.md §Expand-aware traversal.
+    """
+    yield root
+    if isinstance(root, IExpandable) and not root.is_expanded:
+        return
+    for child in _children(root):
+        yield from walk_expanded(child)
 
 
 def _children(node: _ComponentVMBase) -> Iterator[_ComponentVMBase]:

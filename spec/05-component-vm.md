@@ -124,9 +124,32 @@ Construction in this variant amounts to publishing the status transitions. There
 no child orchestration (components have no children). Override hooks for user code
 exist (`OnConstruct` / `OnDestruct` callbacks at build time) — see `10-builders.md`.
 
+## `IExpandable` integration (spec v2.0)
+
+A consumer that wants a VM with expand/collapse semantics implements the
+`IExpandable` capability (see `14-capabilities.md`) and supplies an
+`is_expanded` accessor. The base `ComponentVM` does NOT implement
+`IExpandable`; this preserves the opt-in rule from chapter 14.
+
+A convenience helper per flavor (`ExpandableState`) bundles the state +
+toggle + change notification for VMs that want to opt in:
+
+```
+ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
+    IsExpanded : bool                       # current state (read/write)
+    Expand() / Collapse() / ToggleExpansion()
+    IsExpandedChanged : Observable<bool>    # emits on every change
+```
+
+The helper is composition-friendly: VMs that want expand/collapse hold an
+`ExpandableState` and delegate the capability members to it. The
+`walk_expanded` tree utility (see `13-tree-utilities.md`) recognizes any
+`IExpandable` implementation and gates descent on `IsExpanded`.
+
 ## Conformance
 
-`CVM-001` through `CVM-006` in `12-conformance.md` cover:
+`CVM-001` through `CVM-006` and `EXP-001` through `EXP-005` in
+`12-conformance.md` cover:
 
 - status emission on construct
 - modeled `Model` setter PropertyChanged behavior

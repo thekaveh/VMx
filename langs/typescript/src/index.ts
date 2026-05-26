@@ -110,7 +110,10 @@ export { ForwardingComponentVM } from "./forwarding/forwardingComponentVM.js";
 export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 
 // Tree utilities
-export { walk, find } from "./tree/walk.js";
+export { walk, find, walkExpanded } from "./tree/walk.js";
+
+// Expandable state helper (spec v2.0)
+export { ExpandableState } from "./capabilities/expandableState.js";
 
 // Derived properties (spec v2.0)
 export {

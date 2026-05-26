@@ -7,25 +7,26 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## Identifier prefixes
 
-| Prefix      | Area                                  | File                                 |
-| ----------- | ------------------------------------- | ------------------------------------ |
-| `LIFE-NNN`  | Lifecycle state machine               | `02-lifecycle.md`                    |
-| `HUB-NNN`   | Message hub                           | `03-messages.md`                     |
-| `PROP-NNN`  | Property change notifications         | `03-messages.md`                     |
-| `CMD-NNN`   | Commands                              | `04-commands.md`                     |
-| `CVM-NNN`   | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`                 |
-| `COMP-NNN`  | CompositeVM                           | `06-composite-vm.md`                 |
-| `GRP-NNN`   | GroupVM                               | `07-group-vm.md`                     |
-| `AGG-NNN`   | AggregateVM                           | `08-aggregate-vm.md`                 |
-| `FWD-NNN`   | Forwarding decorators                 | `09-forwarding.md`                   |
-| `BLD-NNN`   | Builders                              | `10-builders.md`                     |
-| `THR-NNN`   | Threading & schedulers                | `11-threading.md`                    |
-| `UTIL-NNN`  | Tree utilities (spec v1.1)            | `13-tree-utilities.md`               |
-| `CAP-NNN`   | Capability micro-interfaces           | `14-capabilities.md`                 |
-| `NULL-NNN`  | Null-object service variants          | `03-messages.md` + `11-threading.md` |
-| `DPROP-NNN` | Derived properties                    | `15-derived-properties.md`           |
-| `CMDD-NNN`  | Command decorators (spec v2.0)        | `04-commands.md`                     |
-| `NOTIF-NNN` | Notification sub-package              | `16-notifications.md`                |
+| Prefix      | Area                                  | File                                          |
+| ----------- | ------------------------------------- | --------------------------------------------- |
+| `LIFE-NNN`  | Lifecycle state machine               | `02-lifecycle.md`                             |
+| `HUB-NNN`   | Message hub                           | `03-messages.md`                              |
+| `PROP-NNN`  | Property change notifications         | `03-messages.md`                              |
+| `CMD-NNN`   | Commands                              | `04-commands.md`                              |
+| `CVM-NNN`   | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`                          |
+| `COMP-NNN`  | CompositeVM                           | `06-composite-vm.md`                          |
+| `GRP-NNN`   | GroupVM                               | `07-group-vm.md`                              |
+| `AGG-NNN`   | AggregateVM                           | `08-aggregate-vm.md`                          |
+| `FWD-NNN`   | Forwarding decorators                 | `09-forwarding.md`                            |
+| `BLD-NNN`   | Builders                              | `10-builders.md`                              |
+| `THR-NNN`   | Threading & schedulers                | `11-threading.md`                             |
+| `UTIL-NNN`  | Tree utilities (spec v1.1)            | `13-tree-utilities.md`                        |
+| `CAP-NNN`   | Capability micro-interfaces           | `14-capabilities.md`                          |
+| `NULL-NNN`  | Null-object service variants          | `03-messages.md` + `11-threading.md`          |
+| `DPROP-NNN` | Derived properties                    | `15-derived-properties.md`                    |
+| `CMDD-NNN`  | Command decorators (spec v2.0)        | `04-commands.md`                              |
+| `NOTIF-NNN` | Notification sub-package              | `16-notifications.md`                         |
+| `EXP-NNN`   | Expand / collapse state               | `05-component-vm.md` + `13-tree-utilities.md` |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -862,6 +863,57 @@ records an invocation on the correct recorder
 **When** an action is scheduled on `Foreground` or on `Background`
 **Then** the action executes synchronously on the calling thread
 **And** by the time the schedule call returns, the action has completed
+
+### EXP-001 — ExpandableState defaults to collapsed
+
+**Given** a freshly built `ExpandableState`
+**When** `IsExpanded` is read
+**Then** the value is `false`
+**And** `CanExpand()` returns `true`, `CanCollapse()` returns `false`
+
+### EXP-002 — Expand flips state and emits IsExpandedChanged
+
+**Given** an `ExpandableState` with `IsExpanded == false`
+**And** a subscriber to `IsExpandedChanged`
+**When** `Expand()` is called
+**Then** `IsExpanded == true`
+**And** the subscriber observes exactly one emission with value `true`
+**And** subsequent `Expand()` calls are no-ops (`IsExpanded` stays `true`, no
+additional emissions)
+
+### EXP-003 — Collapse flips state back
+
+**Given** an `ExpandableState` with `IsExpanded == true`
+**And** a subscriber to `IsExpandedChanged`
+**When** `Collapse()` is called
+**Then** `IsExpanded == false`
+**And** the subscriber observes exactly one emission with value `false`
+
+### EXP-004 — ToggleExpansion alternates state
+
+**Given** an `ExpandableState` with `IsExpanded == false`
+**When** `ToggleExpansion()` is called twice
+**Then** `IsExpanded == false`
+**And** when called a third time, `IsExpanded == true`
+
+### EXP-005 — walk_expanded skips descendants of collapsed nodes
+
+**Given** a tree:
+
+```
+root: CompositeVM with IExpandable wrapper, expanded
+  ├── a: ComponentVM (no IExpandable)
+  └── b: CompositeVM with IExpandable wrapper, COLLAPSED
+        ├── b1: ComponentVM
+        └── b2: ComponentVM
+```
+
+**When** `list(walk_expanded(root))` is materialized
+**Then** the sequence is `[root, a, b]` — b's children are NOT visited
+
+______________________________________________________________________
+
+## Notification sub-package — continued
 
 ### NOTIF-001 — Post returns an awaitable that completes when Resolve is called
 

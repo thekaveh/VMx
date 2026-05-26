@@ -27,6 +27,7 @@ from vmx.aggregates import (
 )
 from vmx.builders import BuilderValidationError
 from vmx.capabilities import (
+    ExpandableState,
     IApprovable,
     ICancelable,
     IClosable,
@@ -90,7 +91,7 @@ from vmx.services import (
     NullMessageHub,
     RxDispatcher,
 )
-from vmx.tree import find, walk
+from vmx.tree import find, walk, walk_expanded
 
 __all__ = [
     "NULL_DISPATCHER",
@@ -127,6 +128,7 @@ __all__ = [
     "ConstructionStatusChangedMessage",
     "DecoratorCommand",
     "DerivedProperty",
+    "ExpandableState",
     "ForwardingComponentVM",
     "ForwardingCompositeVM",
     "GroupVM",
@@ -170,6 +172,7 @@ __all__ = [
     "find",
     "from_sources",
     "walk",
+    "walk_expanded",
 ]
 
 # Lifecycle capabilities are baseline: every core VM trivially satisfies them.
