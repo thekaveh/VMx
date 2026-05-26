@@ -78,6 +78,7 @@ from vmx.messages import (
     Message,
     PropertyChangedMessage,
 )
+from vmx.properties import DerivedProperty, from_sources
 from vmx.services import (
     NULL_DISPATCHER,
     NULL_MESSAGE_HUB,
@@ -119,6 +120,7 @@ __all__ = [
     "CompositeVMOfBuilder",
     "ConstructionStatus",
     "ConstructionStatusChangedMessage",
+    "DerivedProperty",
     "ForwardingComponentVM",
     "ForwardingCompositeVM",
     "GroupVM",
@@ -160,6 +162,7 @@ __all__ = [
     "__min_spec_version__",
     "__version__",
     "find",
+    "from_sources",
     "walk",
 ]
 

@@ -103,6 +103,13 @@ export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 // Tree utilities
 export { walk, find } from "./tree/walk.js";
 
+// Derived properties (spec v2.0)
+export {
+  DerivedProperty,
+  type DerivedFromSourcesOptions,
+  deriveFromSources,
+} from "./properties/index.js";
+
 // Capabilities (spec v2.0)
 export {
   CAPABILITIES,

@@ -7,22 +7,23 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## Identifier prefixes
 
-| Prefix     | Area                                  | File                                 |
-| ---------- | ------------------------------------- | ------------------------------------ |
-| `LIFE-NNN` | Lifecycle state machine               | `02-lifecycle.md`                    |
-| `HUB-NNN`  | Message hub                           | `03-messages.md`                     |
-| `PROP-NNN` | Property change notifications         | `03-messages.md`                     |
-| `CMD-NNN`  | Commands                              | `04-commands.md`                     |
-| `CVM-NNN`  | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`                 |
-| `COMP-NNN` | CompositeVM                           | `06-composite-vm.md`                 |
-| `GRP-NNN`  | GroupVM                               | `07-group-vm.md`                     |
-| `AGG-NNN`  | AggregateVM                           | `08-aggregate-vm.md`                 |
-| `FWD-NNN`  | Forwarding decorators                 | `09-forwarding.md`                   |
-| `BLD-NNN`  | Builders                              | `10-builders.md`                     |
-| `THR-NNN`  | Threading & schedulers                | `11-threading.md`                    |
-| `UTIL-NNN` | Tree utilities (spec v1.1)            | `13-tree-utilities.md`               |
-| `CAP-NNN`  | Capability micro-interfaces           | `14-capabilities.md`                 |
-| `NULL-NNN` | Null-object service variants          | `03-messages.md` + `11-threading.md` |
+| Prefix      | Area                                  | File                                 |
+| ----------- | ------------------------------------- | ------------------------------------ |
+| `LIFE-NNN`  | Lifecycle state machine               | `02-lifecycle.md`                    |
+| `HUB-NNN`   | Message hub                           | `03-messages.md`                     |
+| `PROP-NNN`  | Property change notifications         | `03-messages.md`                     |
+| `CMD-NNN`   | Commands                              | `04-commands.md`                     |
+| `CVM-NNN`   | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`                 |
+| `COMP-NNN`  | CompositeVM                           | `06-composite-vm.md`                 |
+| `GRP-NNN`   | GroupVM                               | `07-group-vm.md`                     |
+| `AGG-NNN`   | AggregateVM                           | `08-aggregate-vm.md`                 |
+| `FWD-NNN`   | Forwarding decorators                 | `09-forwarding.md`                   |
+| `BLD-NNN`   | Builders                              | `10-builders.md`                     |
+| `THR-NNN`   | Threading & schedulers                | `11-threading.md`                    |
+| `UTIL-NNN`  | Tree utilities (spec v1.1)            | `13-tree-utilities.md`               |
+| `CAP-NNN`   | Capability micro-interfaces           | `14-capabilities.md`                 |
+| `NULL-NNN`  | Null-object service variants          | `03-messages.md` + `11-threading.md` |
+| `DPROP-NNN` | Derived properties                    | `15-derived-properties.md`           |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -859,6 +860,105 @@ records an invocation on the correct recorder
 **When** an action is scheduled on `Foreground` or on `Background`
 **Then** the action executes synchronously on the calling thread
 **And** by the time the schedule call returns, the action has completed
+
+### DPROP-001 — Single-source derived value computes on construction
+
+**Given** a single source observable `s1` whose latest value is `10`
+**And** a `DerivedProperty<int>` built from `s1` with transform `x => x * 2`
+**When** `Value` is read after the derived property is constructed
+**Then** `Value == 20`
+
+### DPROP-002 — Source change triggers recompute
+
+**Given** a `DerivedProperty<int>` built from source `s1` (initial `10`) with
+transform `x => x * 2`
+**When** `s1` emits the value `5`
+**Then** `Value == 10`
+
+### DPROP-003 — Two-source derived value
+
+**Given** sources `s1` (initial `3`) and `s2` (initial `4`)
+**And** a `DerivedProperty<int>` built from `(s1, s2)` with transform `(a, b) => a + b`
+**When** `Value` is read after construction
+**Then** `Value == 7`
+**When** `s2` emits `6`
+**Then** `Value == 9`
+
+### DPROP-004 — Five-source derived value (spec minimum)
+
+**Given** sources `s1..s5` with initial values `(1, 2, 3, 4, 5)`
+**And** a `DerivedProperty<int>` built from all five with transform `sum`
+**When** `Value` is read after construction
+**Then** `Value == 15`
+
+### DPROP-005 — Mutation of any source recomputes
+
+**Given** the five-source setup from DPROP-004
+**When** `s3` emits the value `30`
+**Then** `Value == 1 + 2 + 30 + 4 + 5 == 42`
+
+### DPROP-006 — Default-built derived property is read-only
+
+**Given** a `DerivedProperty<int>` built without a validator or write-back
+**When** `CanSet(any_value)` is queried
+**Then** the result is `false` for every input
+
+### DPROP-007 — Validator + write-back enables SetValue
+
+**Given** a `DerivedProperty<int>` built with validator `v => v > 0` and a
+recording write-back action
+**When** `SetValue(5)` is called
+**Then** the write-back action records `5`
+**And** when `SetValue(-1)` is called, the operation raises and the write-back
+is NOT invoked
+
+### DPROP-008 — Write-back action receives the value
+
+**Given** a `DerivedProperty<int>` built with validator `_ => true` and
+write-back action `v => recorder.Add(v)`
+**When** `SetValue(7)` is called
+**Then** the recorder has exactly one entry, equal to `7`
+
+### DPROP-009 — ValueChanged emits on recompute
+
+**Given** a `DerivedProperty<int>` from `s1` (initial `1`) and a subscriber
+to `ValueChanged`
+**When** `s1` emits `2`, then `3`
+**Then** the subscriber observes the sequence `[2, 3]`
+**And** the subscriber did NOT observe the initial value as an emission
+(only post-construction changes count)
+
+### DPROP-010 — ValueChanged does not emit when transform output is unchanged
+
+**Given** a `DerivedProperty<int>` from `(s1, s2)` with transform `(a, b) => a + b`
+and a subscriber to `ValueChanged`
+**And** initial values `s1=5, s2=5` so `Value == 10`
+**When** `s1` emits `3` (so the transform produces `3 + 5 == 8`) then `s2` emits `7`
+(so the transform produces `3 + 7 == 10` again)
+**Then** the subscriber observes exactly `[8, 10]` — the second mutation
+re-produces `10` and is not suppressed because the previous value was `8`
+**When** continuing with `s1` emits `3` again (same source value)
+**Then** no additional emission (transform output stays `10`)
+
+### DPROP-011 — Dispose ends subscriptions and ValueChanged completes
+
+**Given** a `DerivedProperty<int>` from `s1` (initial `1`) with a subscriber
+to `ValueChanged` that records completion
+**When** the derived property's `Dispose` is called
+**Then** the subscriber's `complete` (or equivalent) callback is invoked
+**And** subsequent emissions from `s1` do NOT update `Value` further
+
+### DPROP-012 — Derived-property scenarios match fixture
+
+**Given** the JSON fixture `spec/fixtures/derived-properties.json`
+**When** each scenario is exercised — initial values populate sources, the
+named transform is resolved, and the mutation sequence is replayed
+**Then** the sequence of `Value` reads (one initial, one after each mutation)
+matches `expected_values` exactly
+
+______________________________________________________________________
+
+## Null-object service variants — continued
 
 ### NULL-003 — Null-object convention is satisfied for every core service contract
 
