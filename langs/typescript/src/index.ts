@@ -48,6 +48,15 @@ export {
   RelayCommandOf,
   RelayCommandOfBuilder,
 } from "./commands/relayCommand.js";
+export { CompositeCommand } from "./commands/compositeCommand.js";
+export {
+  DecoratorCommand,
+  type DecoratorCommandOptions,
+} from "./commands/decoratorCommand.js";
+export {
+  ConfirmationDecoratorCommand,
+  type ConfirmDelegate,
+} from "./commands/confirmationDecoratorCommand.js";
 
 // Components
 export { ViewModelType } from "./components/types.js";

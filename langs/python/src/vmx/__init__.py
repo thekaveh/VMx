@@ -50,6 +50,9 @@ from vmx.capabilities import (
 )
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.commands import (
+    CompositeCommand,
+    ConfirmationDecoratorCommand,
+    DecoratorCommand,
     RelayCommand,
     RelayCommandOf,
     RelayCommandOfBuilder,
@@ -114,12 +117,15 @@ __all__ = [
     "ComponentVMBuilder",
     "ComponentVMOf",
     "ComponentVMOfBuilder",
+    "CompositeCommand",
     "CompositeVM",
     "CompositeVMBuilder",
     "CompositeVMOf",
     "CompositeVMOfBuilder",
+    "ConfirmationDecoratorCommand",
     "ConstructionStatus",
     "ConstructionStatusChangedMessage",
+    "DecoratorCommand",
     "DerivedProperty",
     "ForwardingComponentVM",
     "ForwardingCompositeVM",

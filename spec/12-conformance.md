@@ -24,6 +24,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `CAP-NNN`   | Capability micro-interfaces           | `14-capabilities.md`                 |
 | `NULL-NNN`  | Null-object service variants          | `03-messages.md` + `11-threading.md` |
 | `DPROP-NNN` | Derived properties                    | `15-derived-properties.md`           |
+| `CMDD-NNN`  | Command decorators (spec v2.0)        | `04-commands.md`                     |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -860,6 +861,79 @@ records an invocation on the correct recorder
 **When** an action is scheduled on `Foreground` or on `Background`
 **Then** the action executes synchronously on the calling thread
 **And** by the time the schedule call returns, the action has completed
+
+### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
+
+**Given** a `CompositeCommand` aggregating inner commands `c1` (`CanExecute() == false`)
+and `c2` (`CanExecute() == true`)
+**When** `composite.CanExecute()` is called
+**Then** the result is `true`
+**And** when both inners return false, the result is `false`
+
+### CMDD-002 — CompositeCommand.Execute invokes only enabled inner commands
+
+**Given** a `CompositeCommand` aggregating `c1` (`CanExecute() == true`, records),
+`c2` (`CanExecute() == false`, records), and `c3` (`CanExecute() == true`, records)
+**When** `composite.Execute()` is called
+**Then** `c1` and `c3` each record one invocation
+**And** `c2` records zero invocations
+
+### CMDD-003 — CompositeCommand propagates inner CanExecuteChanged
+
+**Given** a `CompositeCommand` aggregating `c1` with a trigger, and a subscriber to
+the composite's `CanExecuteChanged`
+**When** `c1`'s trigger fires
+**Then** the subscriber observes a `CanExecuteChanged` emission
+
+### CMDD-004 — DecoratorCommand.CanExecute is inner AND extra-predicate
+
+**Given** a `DecoratorCommand` wrapping `inner` (`CanExecute() == true`) with extra
+predicate returning `false`
+**When** `decorator.CanExecute()` is called
+**Then** the result is `false`
+**And** when the extra predicate returns `true`, the result is `true`
+**And** when `inner.CanExecute()` is `false`, the result is `false` regardless of
+the extra predicate
+
+### CMDD-005 — DecoratorCommand.Execute invokes pre, inner, post in order
+
+**Given** a `DecoratorCommand` wrapping `inner` (records) with pre-action `pre`
+(records) and post-action `post` (records)
+**When** `decorator.Execute()` is called (and `CanExecute` is true)
+**Then** the recorded order is `[pre, inner, post]`
+
+### CMDD-006 — DecoratorCommand.Execute is no-op when CanExecute is false
+
+**Given** a `DecoratorCommand` wrapping `inner` (records) with extra predicate
+returning `false`
+**When** `decorator.Execute()` is called
+**Then** `inner`, `pre`, and `post` all record zero invocations
+
+### CMDD-007 — ConfirmationDecoratorCommand invokes inner only when confirmed
+
+**Given** a `ConfirmationDecoratorCommand` wrapping `inner` (records) with a confirm
+delegate that resolves `true`
+**When** `decorator.Execute()` is called and the resulting task is awaited
+**Then** `inner` records one invocation
+**And** when the confirm delegate resolves `false`, `inner` records zero invocations
+
+### CMDD-008 — ConfirmationDecoratorCommand.CanExecute delegates to inner
+
+**Given** a `ConfirmationDecoratorCommand` wrapping `inner` with no extra gating
+**When** `decorator.CanExecute()` is called
+**Then** the result equals `inner.CanExecute()` for any state of `inner`
+
+### CMDD-009 — Decorators compose (decorator of confirmation of relay)
+
+**Given** a `RelayCommand` `relay` (records) wrapped by `ConfirmationDecoratorCommand`
+`conf` (confirm returns `true`) wrapped by `DecoratorCommand` `dec` (no pre/post,
+no extra predicate)
+**When** `dec.Execute()` is called and awaited
+**Then** `relay` records exactly one invocation
+
+______________________________________________________________________
+
+## Derived properties — continued
 
 ### DPROP-001 — Single-source derived value computes on construction
 
