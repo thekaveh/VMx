@@ -21,6 +21,7 @@ import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { declareCapabilities } from "../capabilities/registry.js";
 
 /** Minimal parent interface used by a child for selection delegation. */
 export interface IParentVM {
@@ -102,6 +103,14 @@ export abstract class ComponentVMBase {
       .task(() => this.reconstruct())
       .triggers(trigger)
       .build();
+
+    // Lifecycle capabilities are baseline per spec/14-capabilities.md rule 2.
+    declareCapabilities(
+      this,
+      "IConstructable",
+      "IDestructable",
+      "IReconstructable",
+    );
   }
 
   // ── Identity ────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows.Input;
+using VMx.Capabilities;
 using VMx.Lifecycle;
 
 namespace VMx.Components;
@@ -7,8 +8,12 @@ namespace VMx.Components;
 /// <summary>
 /// Baseline interface for every ComponentVM variant.
 /// See spec/05-component-vm.md §Members and spec/01-concepts.md §IComponentVM.
+///
+/// Implements the three lifecycle capabilities per spec/14-capabilities.md rule 2.
 /// </summary>
-public interface IComponentVM : INotifyPropertyChanged, IDisposable
+public interface IComponentVM
+    : INotifyPropertyChanged, IDisposable,
+      IConstructable, IDestructable, IReconstructable
 {
     /// <summary>Human-readable identifier; immutable post-construction.</summary>
     string Name { get; }
@@ -45,34 +50,8 @@ public interface IComponentVM : INotifyPropertyChanged, IDisposable
     /// <summary>Destructs then re-constructs this VM.</summary>
     ICommand ReconstructCommand { get; }
 
-    // ── Lifecycle operations ────────────────────────────────────────────────
-
-    /// <summary>Returns true when Construct() is safe to call.</summary>
-    bool CanConstruct();
-
-    /// <summary>Transitions Destructed → Constructing → Constructed.</summary>
-    void Construct();
-
-    /// <summary>Transitions Destructed → Constructing → Constructed asynchronously.</summary>
-    Task ConstructAsync();
-
-    /// <summary>Returns true when Destruct() is safe to call.</summary>
-    bool CanDestruct();
-
-    /// <summary>Transitions Constructed → Destructing → Destructed.</summary>
-    void Destruct();
-
-    /// <summary>Transitions Constructed → Destructing → Destructed asynchronously.</summary>
-    Task DestructAsync();
-
-    /// <summary>Returns true when Reconstruct() is safe to call.</summary>
-    bool CanReconstruct();
-
-    /// <summary>Destructs then re-constructs this VM.</summary>
-    void Reconstruct();
-
-    /// <summary>Destructs then re-constructs this VM asynchronously.</summary>
-    Task ReconstructAsync();
+    // ── Lifecycle operations are inherited from IConstructable, IDestructable,
+    //    IReconstructable (capability micro-interfaces per spec ch. 14 rule 2).
 
     // ── Selection operations ────────────────────────────────────────────────
 

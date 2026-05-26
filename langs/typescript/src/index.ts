@@ -100,3 +100,43 @@ export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 
 // Tree utilities
 export { walk, find } from "./tree/walk.js";
+
+// Capabilities (spec v2.0)
+export {
+  CAPABILITIES,
+  type CapabilityName,
+  declareCapabilities,
+  hasCapability,
+} from "./capabilities/registry.js";
+export type {
+  IDeselectable,
+  ISelectable,
+  ISelectionTogglable,
+} from "./capabilities/selection.js";
+export type {
+  ICollapsible,
+  IExpandable,
+  IExpansionTogglable,
+} from "./capabilities/expansion.js";
+export type {
+  IConstructable,
+  IDestructable,
+  IReconstructable,
+} from "./capabilities/lifecycleCapabilities.js";
+export type {
+  IApprovable,
+  ICancelable,
+  IClosable,
+} from "./capabilities/dialog.js";
+export type { ISearchable } from "./capabilities/search.js";
+export type {
+  IDeletable,
+  INewCreatable,
+  ISavable,
+  IUpdatable,
+} from "./capabilities/crud.js";
+export type {
+  ICurrentDeletable,
+  ICurrentUpdatable,
+} from "./capabilities/currentCrud.js";
+export type { IManagable } from "./capabilities/management.js";

@@ -21,6 +21,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `BLD-NNN`  | Builders                              | `10-builders.md`       |
 | `THR-NNN`  | Threading & schedulers                | `11-threading.md`      |
 | `UTIL-NNN` | Tree utilities (spec v1.1)            | `13-tree-utilities.md` |
+| `CAP-NNN`  | Capability micro-interfaces           | `14-capabilities.md`   |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -693,3 +694,160 @@ root: CompositeVM
 **When** `find(root, predicate)` is called
 **Then** the result is `b1`
 **And** the predicate was invoked at most for `root`, `a`, `b`, `b1` — never for `b2`
+
+______________________________________________________________________
+
+## Capability micro-interfaces (`CAP-NNN`) — spec v2.0
+
+Each CAP-NNN test verifies (a) the capability interface is present in the
+flavor's public surface with the documented signature, and (b) a fixture class
+implementing the capability satisfies the per-interface semantic contract.
+
+### CAP-001 — ISelectable contract
+
+**Given** a fixture class `F` that implements `ISelectable` with
+`can_select() -> true` and `select()` recording one invocation
+**When** `f.select()` is called after asserting `f.can_select()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-002 — IDeselectable contract
+
+**Given** a fixture class `F` that implements `IDeselectable` with
+`can_deselect() -> true` and `deselect()` recording one invocation
+**When** `f.deselect()` is called after asserting `f.can_deselect()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-003 — ISelectionTogglable contract
+
+**Given** a fixture class `F` that implements `ISelectionTogglable` with
+`can_toggle_selection() -> true` and `toggle_selection()` flipping an internal
+`selected` flag
+**When** `f.toggle_selection()` is called twice, asserting `can_toggle_selection()` first
+**Then** the internal flag has returned to its initial value
+
+### CAP-004 — IExpandable contract
+
+**Given** a fixture class `F` that implements `IExpandable` with
+`IsExpanded == false`, `can_expand() -> true`, and `expand()` flipping
+`IsExpanded` to true
+**When** `f.expand()` is called after asserting `f.can_expand()` returns true
+**Then** `f.IsExpanded == true`
+
+### CAP-005 — ICollapsible contract
+
+**Given** a fixture class `F` that implements `ICollapsible` with
+`can_collapse() -> true` and `collapse()` recording one invocation
+**When** `f.collapse()` is called after asserting `f.can_collapse()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-006 — IExpansionTogglable contract
+
+**Given** a fixture class `F` that implements `IExpansionTogglable` with
+`can_toggle_expansion() -> true` and `toggle_expansion()` flipping an internal
+`expanded` flag
+**When** `f.toggle_expansion()` is called twice, asserting `can_toggle_expansion()` first
+**Then** the internal flag has returned to its initial value
+
+### CAP-007 — IClosable contract
+
+**Given** a fixture class `F` that implements `IClosable` with
+`can_close() -> true` and `close()` recording one invocation
+**When** `f.close()` is called after asserting `f.can_close()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-008 — ISearchable contract
+
+**Given** a fixture class `F` that implements `ISearchable` with `SearchTerm = ""`
+**When** `f.SearchTerm = "abc"` is set, then `f.search()` is called after
+asserting `f.can_search()` returns true
+**Then** `f.SearchTerm == "abc"`
+**And** the search recorder records the term `"abc"`
+
+### CAP-009 — IApprovable contract
+
+**Given** a fixture class `F` that implements `IApprovable` with
+`can_approve() -> true` and `approve()` recording one invocation
+**When** `f.approve()` is called after asserting `f.can_approve()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-010 — ICancelable contract
+
+**Given** a fixture class `F` that implements `ICancelable` with
+`can_cancel() -> true` and `cancel()` recording one invocation
+**When** `f.cancel()` is called after asserting `f.can_cancel()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-011 — ISavable<T> contract
+
+**Given** a fixture class `F` that implements `ISavable<T>` for some `T`
+with `can_save(item) -> true` and `save(item)` recording the item
+**When** `f.save(item_a)` is called after asserting `f.can_save(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-012 — IManagable<T> contract
+
+**Given** a fixture class `F` that implements `IManagable<T>` for some `T`
+with `can_manage(item) -> true` and `manage(item)` recording the item
+**When** `f.manage(item_a)` is called after asserting `f.can_manage(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-013 — INewCreatable contract
+
+**Given** a fixture class `F` that implements `INewCreatable` with
+`can_create_new() -> true` and `create_new()` recording one invocation
+**When** `f.create_new()` is called after asserting `f.can_create_new()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-014 — IDeletable<T> contract
+
+**Given** a fixture class `F` that implements `IDeletable<T>` for some `T`
+with `can_delete(item) -> true` and `delete(item)` recording the item
+**When** `f.delete(item_a)` is called after asserting `f.can_delete(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-015 — IUpdatable<T> contract
+
+**Given** a fixture class `F` that implements `IUpdatable<T>` for some `T`
+with `can_update(item) -> true` and `update(item)` recording the item
+**When** `f.update(item_a)` is called after asserting `f.can_update(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-016 — ICurrentDeletable contract
+
+**Given** a fixture class `F` that implements `ICurrentDeletable` with
+`can_delete_current() -> true` and `delete_current()` recording one invocation
+**When** `f.delete_current()` is called after asserting `f.can_delete_current()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-017 — ICurrentUpdatable contract
+
+**Given** a fixture class `F` that implements `ICurrentUpdatable` with
+`can_update_current() -> true` and `update_current()` recording one invocation
+**When** `f.update_current()` is called after asserting `f.can_update_current()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-018 — Lifecycle capability set
+
+**Given** a fixture class `F` that implements all three of `IConstructable`,
+`IDestructable`, and `IReconstructable`
+**When** the API surface is inspected
+**Then** `F` has `can_construct`, `construct`, `can_destruct`, `destruct`,
+`can_reconstruct`, and `reconstruct` members at the documented signatures
+
+### CAP-019 — A single VM may implement multiple capabilities
+
+**Given** a fixture class `F` declared as implementing
+`ISelectable, IExpandable, IClosable, IApprovable, ICancelable` simultaneously
+**When** the type is queried for each interface
+**Then** the answer is `true` for all five interfaces
+**And** invoking each interface's verb (after asserting its can\_-predicate)
+records an invocation on the correct recorder
+
+### CAP-020 — Core VM types do NOT implement non-baseline capabilities by default
+
+**Given** a default-built `ComponentVM` (non-modeled, base type)
+**When** the type is queried for `ISelectable`, `IExpandable`, `IClosable`,
+`INewCreatable`, `ICurrentDeletable`, `ISearchable`
+**Then** the answer is `false` for every one of those six
+**And** the base VM does still report `true` for `IConstructable`,
+`IDestructable`, and `IReconstructable` (lifecycle capabilities are baseline)

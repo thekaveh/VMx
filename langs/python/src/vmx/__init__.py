@@ -26,6 +26,28 @@ from vmx.aggregates import (
     AggregateVMBuilder5,
 )
 from vmx.builders import BuilderValidationError
+from vmx.capabilities import (
+    IApprovable,
+    ICancelable,
+    IClosable,
+    ICollapsible,
+    IConstructable,
+    ICurrentDeletable,
+    ICurrentUpdatable,
+    IDeletable,
+    IDeselectable,
+    IDestructable,
+    IExpandable,
+    IExpansionTogglable,
+    IManagable,
+    INewCreatable,
+    IReconstructable,
+    ISavable,
+    ISearchable,
+    ISelectable,
+    ISelectionTogglable,
+    IUpdatable,
+)
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.commands import (
     RelayCommand,
@@ -92,6 +114,26 @@ __all__ = [
     "ForwardingCompositeVM",
     "GroupVM",
     "GroupVMBuilder",
+    "IApprovable",
+    "ICancelable",
+    "IClosable",
+    "ICollapsible",
+    "IConstructable",
+    "ICurrentDeletable",
+    "ICurrentUpdatable",
+    "IDeletable",
+    "IDeselectable",
+    "IDestructable",
+    "IExpandable",
+    "IExpansionTogglable",
+    "IManagable",
+    "INewCreatable",
+    "IReconstructable",
+    "ISavable",
+    "ISearchable",
+    "ISelectable",
+    "ISelectionTogglable",
+    "IUpdatable",
     "Message",
     "MessageHub",
     "PropertyChangedMessage",
@@ -109,3 +151,15 @@ __all__ = [
     "find",
     "walk",
 ]
+
+# Lifecycle capabilities are baseline: every core VM trivially satisfies them.
+# See spec/14-capabilities.md rule 2 and CAP-020.
+IConstructable.register(ComponentVM)
+IConstructable.register(ComponentVMOf)
+IConstructable.register(ReadonlyComponentVMOf)
+IDestructable.register(ComponentVM)
+IDestructable.register(ComponentVMOf)
+IDestructable.register(ReadonlyComponentVMOf)
+IReconstructable.register(ComponentVM)
+IReconstructable.register(ComponentVMOf)
+IReconstructable.register(ReadonlyComponentVMOf)
