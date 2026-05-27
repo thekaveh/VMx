@@ -5,6 +5,31 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Re-exports of `IBatchable` (collections) and `IParentVM` (components)
+  from the main `vmx` barrel for parity with the rest of the public
+  surface — previously only reachable via deep sub-path imports.
+- `tree/index.ts` re-exports `walkExpanded` alongside `walk` and `find`
+  for sub-index completeness.
+
+### Fixed
+
+- `CompositeVMBase.setAt` now clears `current` to null when the
+  replaced slot held the current selection, mirroring `removeAt`.
+- `SearchableState.searchTerm` setter no longer pushes the new value
+  through the debounce/recompute pipeline when it equals the current
+  value (spec wording: "emission on a new value").
+- `DecoratorCommand.execute` now wraps the inner `execute` call in
+  try/finally so the `postExecute` callback always runs — a "busy"
+  flag set in `preExecute` no longer gets stuck when the inner
+  command throws.
+- `AggregateVM4Builder.build()` / `AggregateVM5Builder.build()` now
+  throw per-field `BuilderValidationError("componentN")` for the first
+  missing slot, matching the arity-1/2/3 builders. Previously they
+  collapsed into a single generic `"components"` error, so consumers
+  could not programmatically distinguish which slot was missing.
+
 ## [2.0.0] — 2026-05-25
 
 Implements spec v2.0.0 — capability micro-interfaces, derived properties,

@@ -6,6 +6,44 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `RxDispatcher.Immediate()` — static factory returning a dispatcher with
+  `ImmediateScheduler.Instance` on both Foreground and Background. Parity
+  with Python `RxDispatcher.immediate()` and TypeScript
+  `RxDispatcher.immediate()`.
+
+### Fixed
+
+- `CompositeVMBase<VM>` indexer setter (`this[i] = newItem`) now clears
+  `Current` to null when the replaced slot held the current selection,
+  mirroring `RemoveAt`. Previously `_current` would silently dangle on
+  the no-longer-present old child.
+- `AggregateVM1..5.OnConstruct` now disposes the previous slot instance
+  before invoking the factory on Reconstruct, so the old VM's hub
+  subscriptions and command Subjects are released instead of lingering
+  until the hub itself is disposed.
+- `SearchableState<TItem>.SearchTerm` setter no longer pushes the new
+  value through the debounce/recompute pipeline when it equals the
+  current value (spec wording: "emission on a new value").
+- `DecoratorCommand.Execute` now wraps the inner `Execute` call in
+  try/finally so the `postExecute` callback always runs — a "busy" flag
+  set in `preExecute` no longer gets stuck when the inner command
+  throws.
+
+### Changed
+
+- `ServiceCollectionExtensions.AddVMx` now captures
+  `SynchronizationContext.Current` at the time of the `AddVMx` call,
+  rather than lazily at the first `IDispatcher` resolution. This binds
+  the default dispatcher to the correct UI thread even when the
+  singleton is first resolved on a worker thread. Fall back to
+  `RxDispatcher.CreateForCurrentContext()` when no `SynchronizationContext`
+  is present at `AddVMx`-time, preserving the legacy console/test path.
+- `VMx.Tree.Tree.Walk` / `WalkExpanded` no longer use reflection to
+  enumerate aggregate component slots; they pattern-match on a new
+  internal `IAggregateSlots` interface implemented by each AggregateVMN.
+
 ## [2.0.0] — 2026-05-25
 
 Implements spec v2.0.0 — capability micro-interfaces, derived properties,
@@ -13,9 +51,13 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
-- **Capabilities** (`VMx.Capabilities`): 20 opt-in micro-interfaces
-  (`ISearchable`, `IExpandable`, `ICollapsible`, `IExpansionTogglable`,
-  `IDirty`, `IDisposable`, `IBusy`, `IValidatable`, etc.).
+- **Capabilities** (`VMx.Capabilities`): 20 opt-in micro-interfaces —
+  `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
+  `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
+  `IApprovable`, `ICancelable`, `INewCreatable`, `IDeletable`,
+  `IUpdatable`, `ISavable`, `ICurrentDeletable`, `ICurrentUpdatable`,
+  `IManagable`, `IConstructable`, `IDestructable`, `IReconstructable`
+  (see `src/VMx/Capabilities/`).
 - **Helpers** (`VMx.Capabilities`): `SearchableState<TItem>` (trailing-edge
   debounce, configurable scheduler), `ExpandableState`.
 - **Derived properties** (`VMx.Properties`): `DerivedProperty<TValue>` plus
