@@ -182,6 +182,18 @@ public class DerivedPropertiesConformanceTests
         dp.Value.Should().Be(2);  // not updated after dispose
     }
 
+    // Dispose path — not a conformance ID, but a regression guard for the
+    // _disposed idempotence guard. Mirrors the Python test.
+    [Fact]
+    public void DerivedProperty_Dispose_IsIdempotent()
+    {
+        using var s1 = new BehaviorSubject<int>(1);
+        var dp = DerivedProperty.From(s1, x => x);
+        dp.Dispose();
+        Action act = () => dp.Dispose();
+        act.Should().NotThrow();
+    }
+
     // ── DPROP-012 ───────────────────────────────────────────────────────────
 
     private static readonly Dictionary<string, Func<IReadOnlyList<object?>, object?>> Transforms =

@@ -29,4 +29,5 @@ Option 1. Five explicit classes per language. The arity cap of 5 is a soft signa
   drive the slots sequentially; the spec leaves ordering unspecified to allow a
   future implementation to dispatch via `IDispatcher.Background`.
 - Any language flavor added under the new-language gate (ADR-0002) must implement all five arities before it can be considered conformant.
-- A future spec major version could lift the cap; that would be a v2.0 change.
+- A future spec major version could lift the cap. v2.0 chose not to; any
+  such change would land in a future major (v3.0 or later).

@@ -126,6 +126,8 @@ load. Each scenario has:
 - Validator + write-back enables `SetValue`
 - Write-back action receives the value
 - `ValueChanged` emits on recompute
-- `ValueChanged` does NOT emit if recomputed value equals previous
+- `ValueChanged` does NOT emit if recomputed value equals previous (the
+  equality operator is per-flavor — see ADR-0009 row
+  "`DerivedProperty` distinct-emit")
 - `Dispose` ends subscriptions and `ValueChanged` completes
 - Fixture-driven scenarios

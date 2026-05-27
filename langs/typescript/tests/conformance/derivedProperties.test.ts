@@ -176,6 +176,15 @@ describe("DPROP-011", () => {
     expect(dp.value).toBe(2);
     sub.unsubscribe();
   });
+
+  // Dispose path — not a conformance ID, but a regression guard for the
+  // _disposed idempotence guard. Mirrors the Python test.
+  it("dispose is idempotent", () => {
+    const s1 = new BehaviorSubject<number>(1);
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number);
+    dp.dispose();
+    expect(() => dp.dispose()).not.toThrow();
+  });
 });
 
 type FixtureMutation = [number, unknown];
