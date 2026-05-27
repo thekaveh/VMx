@@ -6,7 +6,7 @@ See spec/15-derived-properties.md and ADR-0011.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 import reactivex as rx
 from reactivex import Observable, Subject
@@ -68,6 +68,7 @@ class DerivedProperty(Generic[TValue]):
         self._disposed = True
         self._subscription.dispose()
         self._changes.on_completed()
+        self._changes.dispose()
 
 
 def from_sources(
@@ -88,8 +89,10 @@ def from_sources(
     else:
 
         def _apply(values: object) -> TValue:
-            assert isinstance(values, tuple)
-            return transform(*values)
+            # combine_latest emits a tuple of source values; cast keeps mypy
+            # happy without an `assert isinstance` that would be stripped by
+            # `python -O`.
+            return transform(*cast(tuple[object, ...], values))
 
         stream = rx.combine_latest(*sources).pipe(ops.map(_apply))
 

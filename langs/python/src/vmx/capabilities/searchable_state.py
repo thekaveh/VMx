@@ -92,5 +92,8 @@ class SearchableState(ISearchable, Generic[T]):
         self._disposed = True
         self._subscription.dispose()
         self._term_subject.on_completed()
+        self._term_subject.dispose()
         self._filtered_subject.on_completed()
+        self._filtered_subject.dispose()
         self._force_search.on_completed()
+        self._force_search.dispose()

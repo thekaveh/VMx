@@ -60,8 +60,9 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
             self.expand()
 
     def dispose(self) -> None:
-        """Complete the change observable. Idempotent."""
+        """Complete and dispose the change observable. Idempotent."""
         if self._disposed:
             return
         self._disposed = True
         self._changes.on_completed()
+        self._changes.dispose()
