@@ -67,6 +67,14 @@ class ModeledCrudCommands(Generic[M, VM]):
         )
 
     def dispose(self) -> None:
-        """Dispose the underlying RelayCommands and their trigger subscriptions."""
+        """Dispose the underlying RelayCommands and their trigger subscriptions.
+
+        Note: ``ConfirmationDecoratorCommand`` wrappers (when ``confirm_update`` /
+        ``confirm_delete`` are supplied) are NOT tracked separately because they
+        hold no subscriptions of their own — ``can_execute_changed`` is a direct
+        passthrough to ``inner.can_execute_changed``. This differs from C#, where
+        the wrapper subscribes to ``CanExecuteChanged`` events and must dispose
+        that subscription explicitly.
+        """
         for cmd in self._inner_relays:
             cmd.dispose()

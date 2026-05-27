@@ -103,3 +103,49 @@ describe("COMP-024", () => {
     expect(log).toEqual([vm1]);
   });
 });
+
+// Unit-style assertions for the dispose path (not a conformance ID — kept
+// adjacent to the COMP-024 confirm tests for proximity to the helper).
+describe("ModeledCrudCommands.dispose", () => {
+  it("disposes inner RelayCommands and is idempotent", () => {
+    const vm1 = {};
+    const crud = new ModeledCrudCommands<object>({
+      current: () => vm1,
+      createNew: () => undefined,
+      updateCurrent: () => undefined,
+      deleteCurrent: () => undefined,
+    });
+
+    expect(crud.createNewCommand.canExecute()).toBe(true);
+    expect(crud.updateCurrentCommand.canExecute()).toBe(true);
+    expect(crud.deleteCurrentCommand.canExecute()).toBe(true);
+
+    expect(() => crud.dispose()).not.toThrow();
+    expect(() => crud.dispose()).not.toThrow();
+  });
+
+  it("completes inner canExecuteChanged after dispose", () => {
+    const vm1 = {};
+    const crud = new ModeledCrudCommands<object>({
+      current: () => vm1,
+      createNew: () => undefined,
+      updateCurrent: () => undefined,
+      deleteCurrent: () => undefined,
+    });
+
+    let completions = 0;
+    const sub = (cmd: { canExecuteChanged: { subscribe: (o: { complete: () => void }) => unknown } }) =>
+      cmd.canExecuteChanged.subscribe({
+        complete: () => {
+          completions++;
+        },
+      });
+
+    sub(crud.createNewCommand);
+    sub(crud.updateCurrentCommand);
+    sub(crud.deleteCurrentCommand);
+
+    crud.dispose();
+    expect(completions).toBe(3);
+  });
+});

@@ -56,7 +56,16 @@ export class ModeledCrudCommands<VM> {
       : remove;
   }
 
-  /** Dispose the underlying RelayCommands and their trigger subscriptions. */
+  /**
+   * Dispose the underlying RelayCommands and their trigger subscriptions.
+   *
+   * Note: `ConfirmationDecoratorCommand` wrappers (when `confirmUpdate` /
+   * `confirmDelete` are supplied) are NOT tracked separately because they
+   * hold no subscriptions of their own — `canExecuteChanged` is a direct
+   * passthrough to `inner.canExecuteChanged`. This differs from C#, where
+   * the wrapper subscribes to `CanExecuteChanged` events and must dispose
+   * that subscription explicitly.
+   */
   dispose(): void {
     for (const cmd of this.#innerRelays) cmd.dispose();
   }
