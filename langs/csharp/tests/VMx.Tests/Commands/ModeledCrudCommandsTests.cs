@@ -33,7 +33,7 @@ public class ModeledCrudCommandsTests
     }
 
     [Fact]
-    public void Dispose_Wraps_Update_And_Delete_With_Confirmation_When_Configured()
+    public void Update_And_Delete_Are_Wrapped_With_Confirmation_When_Configured()
     {
         var vm1 = new object();
         using var crud = new ModeledCrudCommands<object, object>(
@@ -46,8 +46,13 @@ public class ModeledCrudCommandsTests
 
         crud.UpdateCurrentCommand.Should().BeOfType<ConfirmationDecoratorCommand>();
         crud.DeleteCurrentCommand.Should().BeOfType<ConfirmationDecoratorCommand>();
-        // Exiting the using block calls Dispose; verify no exception (idempotence
-        // for the wrapped path is covered by Dispose_Is_Idempotent above).
+        crud.CreateNewCommand.Should().NotBeOfType<ConfirmationDecoratorCommand>(
+            "createNew has no confirm hook by spec");
+        // Exiting the using block triggers Dispose on the wrapped path; the
+        // double-dispose check below verifies that path is idempotent too.
+        crud.Dispose();
+        var second = () => crud.Dispose();
+        second.Should().NotThrow("dispose must be idempotent even with confirmation wrappers");
     }
 
     [Fact]
@@ -69,14 +74,26 @@ public class ModeledCrudCommandsTests
             deleteCurrent: _ => { });
 
         crud.CreateNewCommand.CanExecute(null).Should().BeTrue();
+        crud.UpdateCurrentCommand.CanExecute(null).Should().BeTrue();
+        crud.DeleteCurrentCommand.CanExecute(null).Should().BeTrue();
+
         crud.Dispose();
 
-        var subscribe = () => crud.CreateNewCommand.CanExecuteChanged += (_, _) => { };
-        subscribe.Should().NotThrow();
-        var canExecute = () => crud.CreateNewCommand.CanExecute(null);
-        canExecute.Should().NotThrow();
-        var executeNoOp = () => crud.UpdateCurrentCommand.Execute(null);
-        executeNoOp.Should().NotThrow();
+        // Exercise every command's full surface (event subscribe, CanExecute,
+        // Execute) post-dispose to mirror the Python/TS sub_a/sub_b/sub_c
+        // coverage that verifies completion on all three streams.
+        foreach (var cmd in new[]
+                 {
+                     crud.CreateNewCommand, crud.UpdateCurrentCommand, crud.DeleteCurrentCommand,
+                 })
+        {
+            var subscribe = () => cmd.CanExecuteChanged += (_, _) => { };
+            subscribe.Should().NotThrow();
+            var canExecute = () => cmd.CanExecute(null);
+            canExecute.Should().NotThrow();
+            var execute = () => cmd.Execute(null);
+            execute.Should().NotThrow();
+        }
 
         crud.Dispose();  // idempotent
     }
