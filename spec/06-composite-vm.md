@@ -99,8 +99,8 @@ children:
   `ConstructionStatusChangedMessage(Destructed)`. Once every child reaches
   `Destructed`, the composite transitions to `Destructed`.
 
-The order in which children are visited is unspecified. v1.x reference
-implementations drive them sequentially.
+The order in which children are visited is unspecified. The reference
+implementations in all three flavors drive them sequentially.
 
 ### Add after Constructed
 

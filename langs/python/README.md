@@ -6,7 +6,7 @@ spec-compatible with the C# and TypeScript flavors.
 ## Status
 
 **v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
-pass (462 tests total across unit + conformance). Supports Python 3.10–3.13.
+pass (465 tests total across unit + conformance). Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
 

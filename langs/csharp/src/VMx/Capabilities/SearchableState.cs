@@ -1,3 +1,4 @@
+using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -15,7 +16,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     private readonly Func<TItem, string, bool> _predicate;
     private readonly BehaviorSubject<string> _termSubject = new("");
     private readonly BehaviorSubject<IReadOnlyList<TItem>> _filteredSubject;
-    private readonly Subject<System.Reactive.Unit> _forceSearchSubject = new();
+    private readonly Subject<Unit> _forceSearchSubject = new();
     private readonly IDisposable _subscription;
     private bool _disposed;
 
@@ -64,7 +65,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     public bool CanSearch() => _itemsSource().Any();
 
     /// <inheritdoc/>
-    public void Search() => _forceSearchSubject.OnNext(System.Reactive.Unit.Default);
+    public void Search() => _forceSearchSubject.OnNext(Unit.Default);
 
     private List<TItem> ApplyFilter(string term)
     {

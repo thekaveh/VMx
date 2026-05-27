@@ -92,8 +92,8 @@ respect to other lifecycle operations on the same VM.
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
 - The order in which children are constructed/destructed is unspecified.
-  Implementations MAY drive them sequentially or concurrently; v1.x reference
-  implementations are sequential. The parent observes its children's
+  Implementations MAY drive them sequentially or concurrently; the reference
+  implementations in all three flavors drive them sequentially. The parent observes its children's
   `ConstructionStatusChangedMessage` emissions to know when to finalize its own
   state.
 
