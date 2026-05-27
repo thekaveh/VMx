@@ -3,14 +3,14 @@
 Hierarchical lifecycle-aware MVVM viewmodel framework for Python,
 spec-compatible with the C# and TypeScript flavors.
 
-## Status
+## 1. Status
 
 **v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
 pass (465 tests total across unit + conformance). Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
 
-## Install
+## 2. Install
 
 ```bash
 pip install vmx
@@ -18,7 +18,7 @@ pip install vmx
 uv add vmx
 ```
 
-## Quick start
+## 3. Quick start
 
 ```python
 from dataclasses import dataclass
@@ -78,7 +78,7 @@ hub.dispose()
 See [docs/getting-started/python.md](../../docs/getting-started/python.md)
 for the full walkthrough.
 
-## API surface
+## 4. API surface
 
 The public API is re-exported from a single entry point:
 
@@ -125,7 +125,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0) adds:
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub` / `NULL_NOTIFICATION_HUB` | Async notification hub + null variant |
 | `make_confirm(hub, prompt)`                                       | Bridge to `ConfirmationDecoratorCommand` |
 
-## Conformance
+## 5. Conformance
 
 All 152 conformance IDs from `spec/12-conformance.md` are covered.
 
@@ -144,7 +144,7 @@ Run the suite:
 uv run pytest
 ```
 
-## Development
+## 6. Development
 
 ```bash
 # From this directory
@@ -160,6 +160,6 @@ inside the wheel via hatchling's `force-include` mapping in
 [`pyproject.toml`](pyproject.toml) and consumed at runtime by
 `vmx.lifecycle.transition_validator`.
 
-## License
+## 7. License
 
 MIT — see [`LICENSE`](../../LICENSE).

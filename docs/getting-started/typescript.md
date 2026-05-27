@@ -32,7 +32,7 @@ ______________________________________________________________________
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### Option A — immediate (Node scripts / synchronous tests)
+### 2.1 Option A — immediate (Node scripts / synchronous tests)
 
 ```ts
 import { MessageHub, RxDispatcher } from "vmx";
@@ -43,7 +43,7 @@ const dispatcher = RxDispatcher.immediate();
 // Safe for Node scripts and vitest suites with no async event loop.
 ```
 
-### Option B — custom schedulers (browser / async environments)
+### 2.2 Option B — custom schedulers (browser / async environments)
 
 ```ts
 import { asyncScheduler, animationFrameScheduler } from "rxjs";

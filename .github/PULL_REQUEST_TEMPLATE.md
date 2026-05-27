@@ -1,15 +1,16 @@
-## Summary
+## 1. Summary
 
 <!-- 1-3 bullets. What changed and why. -->
 
-## Affected flavor(s)
+## 2. Affected flavor(s)
 
 - [ ] spec
 - [ ] csharp
 - [ ] python
+- [ ] typescript
 - [ ] docs / infra
 
-## Checklist
+## 3. Checklist
 
 - [ ] Tests added / updated
 - [ ] Spec updated (if behavior changed)
@@ -17,6 +18,6 @@
 - [ ] ADR added (if architectural / cross-language decision; or `no-adr-needed` label if the spec change has no semantic effect — see CONTRIBUTING.md)
 - [ ] CHANGELOG entry under the relevant `langs/<lang>/CHANGELOG.md`
 
-## How to test
+## 4. How to test
 
 <!-- Exact commands the reviewer can run -->
