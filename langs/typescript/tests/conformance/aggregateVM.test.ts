@@ -44,7 +44,7 @@ describe("AGG-001", () => {
 // ---------------------------------------------------------------------------
 
 describe("AGG-002", () => {
-  it("Arity-2 both components reach Constructed in parallel", () => {
+  it("Arity-2 both components reach Constructed", () => {
     const hub = makeHub();
     const c1 = makeChild(hub, "c1");
     const c2 = makeChild(hub, "c2");
