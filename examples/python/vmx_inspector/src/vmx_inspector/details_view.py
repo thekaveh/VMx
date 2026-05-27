@@ -7,7 +7,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static
 
-from vmx.components.base import _ComponentVMBase
+from vmx.components.protocols import ComponentVMProto
 
 
 class DetailsView(Widget):
@@ -26,14 +26,14 @@ class DetailsView(Widget):
     }
     """
 
-    selected_vm: reactive[_ComponentVMBase | None] = reactive(None)
+    selected_vm: reactive[ComponentVMProto | None] = reactive(None)
     parent_map: reactive[dict[int, str]] = reactive(dict)
 
     def compose(self) -> ComposeResult:
         yield Static("Node Details", classes="detail-title")
         yield Static("", id="detail-content")
 
-    def watch_selected_vm(self, vm: _ComponentVMBase | None) -> None:
+    def watch_selected_vm(self, vm: ComponentVMProto | None) -> None:
         content = self.query_one("#detail-content", Static)
         if vm is None:
             content.update("(no node selected)")

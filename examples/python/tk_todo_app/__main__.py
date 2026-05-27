@@ -52,7 +52,8 @@ class TodoItemVM(ComponentVMOf[TodoItem]):
     """ViewModel for a single to-do item.
 
     Subclasses ``ComponentVMOf[TodoItem]`` so it can be stored directly inside
-    a ``CompositeVM`` (which requires ``_ComponentVMBase`` children).
+    a ``CompositeVM`` (which requires every child to satisfy the
+    ``ComponentVMProto`` protocol).
 
     Added on top of the base class:
       - ``toggle_done`` — RelayCommand that flips the Done flag.
