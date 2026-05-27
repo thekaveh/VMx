@@ -6,14 +6,14 @@ tree without requiring knowledge of any specific container type.
 
 This module shipped in spec v1.1.
 
-## Members
+## 1. Members
 
 ```
 walk(root: IComponentVM) -> Iterable<IComponentVM>
 find(root: IComponentVM, predicate: (IComponentVM) -> bool) -> IComponentVM?
 ```
 
-## `walk`
+## 2. `walk`
 
 Yields `root` first, then every descendant in depth-first **pre-order**:
 
@@ -36,7 +36,7 @@ Properties:
 
 `walk` does NOT trigger any lifecycle transition; it is a pure read.
 
-## `find`
+## 3. `find`
 
 Returns the first node for which `predicate(node)` is truthy when iterating in
 `walk` order, or `null` / `None` if no node matches.
@@ -48,7 +48,7 @@ Properties:
   tree).
 - The predicate is invoked at most once per visited node.
 
-## Idiomatic surface
+## 4. Idiomatic surface
 
 | Flavor     | Module     | Walk return                          | Find return            |
 | ---------- | ---------- | ------------------------------------ | ---------------------- |
@@ -56,7 +56,7 @@ Properties:
 | Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator) | `IComponentVM \| None` |
 | TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator) | `IComponentVM \| null` |
 
-## Expand-aware traversal (spec v2.0)
+## 5. Expand-aware traversal (spec v2.0)
 
 `walk_expanded` is a variant of `walk` that only descends into children whose
 parent reports as expanded:
@@ -83,7 +83,7 @@ Properties:
 This helper enables tree-view consumers to render only the visible portion
 of the VM tree without writing their own descent logic.
 
-## Conformance
+## 6. Conformance
 
 `UTIL-001` through `UTIL-003` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:

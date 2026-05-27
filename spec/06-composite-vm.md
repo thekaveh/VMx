@@ -4,14 +4,14 @@
 viewmodels and exposes a `Current` slot that designates at most one child as the
 selected one.
 
-## Variants
+## 1. Variants
 
 | Variant                         | Children source                                      | `Current` |
 | ------------------------------- | ---------------------------------------------------- | --------- |
 | `CompositeVM<VM>` (non-modeled) | builder factory `() -> Iterable<VM>`                 | yes       |
 | `CompositeVM<M, VM>` (modeled)  | model factory `() -> Iterable<M>` + mapper `M -> VM` | yes       |
 
-## Members
+## 2. Members
 
 ```
 CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
@@ -39,7 +39,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
     can_select_component(vm: VM) : bool
 ```
 
-## `Current` contract
+## 3. `Current` contract
 
 - `Current` MAY be `null` (no child selected).
 - If `Current` is non-null, it MUST be a member of the children collection.
@@ -52,7 +52,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
   only after the dispatcher delivers. If `AsyncSelection(false)` (the default), the
   setter is synchronous.
 
-### `select_component(vm)` / `deselect_component(vm)`
+### 3.1 `select_component(vm)` / `deselect_component(vm)`
 
 - `select_component(vm)` sets `Current = vm` after verifying `can_select_component(vm)`.
   If the predicate is false, the call raises.
@@ -60,7 +60,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
   If `Current != vm`, the call raises.
 - `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`.
 
-## Collection change notification
+## 4. Collection change notification
 
 The collection raises `INotifyCollectionChanged.CollectionChanged` events:
 
@@ -70,7 +70,7 @@ The collection raises `INotifyCollectionChanged.CollectionChanged` events:
 - `RemoveAt(i)` → `CollectionChanged(action=Remove, oldItems=[old], oldIndex=i)`.
 - `Clear()` → `CollectionChanged(action=Reset)`.
 
-### Batch updates (spec v1.1)
+### 4.1 Batch updates (spec v1.1)
 
 A composite MUST expose a `BatchUpdate()` method returning an `IDisposable` /
 context manager. While at least one batch handle is live, mutations (`Add`,
@@ -83,7 +83,7 @@ context manager. While at least one batch handle is live, mutations (`Add`,
 
 Nested batches are ref-counted: only the outermost completion fires the `Reset`.
 
-## Children construction orchestration
+## 5. Children construction orchestration
 
 `CompositeVM` overrides the base `construct()` and `destruct()` to coordinate
 children:
@@ -102,7 +102,7 @@ children:
 The order in which children are visited is unspecified. The reference
 implementations in all three flavors drive them sequentially.
 
-### Add after Constructed
+### 5.1 Add after Constructed
 
 A child added via `Add` AFTER the composite has reached `Constructed` does NOT
 automatically `construct()` by default — the host MUST invoke it.
@@ -113,7 +113,7 @@ the composite reaches `Constructed`, completing the child's transition to
 `Constructed` BEFORE the `CollectionChanged` event fires. Builds default to
 `false` for backwards compatibility.
 
-## Modeled variant `CompositeVM<M, VM>`
+## 6. Modeled variant `CompositeVM<M, VM>`
 
 Identical to `CompositeVM<VM>` except the children come from a model factory:
 
@@ -127,7 +127,7 @@ The model values themselves are NOT exposed on the composite; the composite is a
 container of VMs, not models. Each child VM is responsible for holding its own
 model.
 
-## Modeled CRUD commands (spec v2.0)
+## 7. Modeled CRUD commands (spec v2.0)
 
 A modeled composite (`CompositeVM<M, VM>`) MAY opt into a CRUD command set via
 the `ModeledCrudCommands<M, VM>` helper:
@@ -159,7 +159,7 @@ Behavior:
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 
-## Search / filter (spec v2.0)
+## 8. Search / filter (spec v2.0)
 
 A composite (or group) MAY opt into search/filter via the `SearchableState`
 helper, which implements `ISearchable` from chapter 14:
@@ -194,7 +194,7 @@ Consumers wire `SearchableState` to a composite by passing
 `composite as Iterable<TItem>` as `Items`. The helper is opt-in; the base
 `CompositeVM<VM>` retains its current shape unchanged.
 
-## Conformance
+## 9. Conformance
 
 `COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, and (the
 modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, in

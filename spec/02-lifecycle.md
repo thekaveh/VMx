@@ -4,7 +4,7 @@ Every viewmodel has a `Status` of type `ConstructionStatus`. The state machine i
 defined here normatively and encoded in `fixtures/lifecycle-transitions.json` so
 every language's conformance tests can load the same table.
 
-## States
+## 1. States
 
 ```
 Disposed     ← terminal; once entered, cannot leave
@@ -16,7 +16,7 @@ Constructed  ← ready-to-use state
 
 `IsConstructed` is defined as `Status == Constructed`. This is normative.
 
-## Operations
+## 2. Operations
 
 A VM exposes four lifecycle operations (rendered per language as
 `construct/destruct/reconstruct/dispose` or `Construct/Destruct/Reconstruct/Dispose`):
@@ -31,7 +31,7 @@ asynchronously, the operation completes when the final state is reached. Subscri
 to the message hub observe two `ConstructionStatusChangedMessage` emissions per
 non-trivial transition: one for the intermediate state and one for the final state.
 
-### `can_construct` / `can_destruct` / `can_reconstruct` predicates
+### 2.1 `can_construct` / `can_destruct` / `can_reconstruct` predicates
 
 Each operation has a paired predicate. Predicates are defined as:
 
@@ -51,7 +51,7 @@ Calling an operation when its predicate returns `false` MUST raise
 `StatusTransitionError` (Python) / `StatusTransitionException` (C#). The exception's
 message MUST include the current state and the attempted operation.
 
-## Invariants
+## 3. Invariants
 
 These hold for every VM at every point in its lifetime:
 
@@ -65,14 +65,14 @@ These hold for every VM at every point in its lifetime:
 1. A VM in `Constructing` or `Destructing` MUST NOT have its operation re-invoked
    concurrently. Implementations MUST raise on the second invocation.
 
-## Idempotency
+## 4. Idempotency
 
 - `construct()` from `Constructed` is a no-op. `Status` remains `Constructed`. No
   `ConstructionStatusChangedMessage` is emitted.
 - `destruct()` from `Destructed` is a no-op. Same emission behavior.
 - `dispose()` from `Disposed` is a no-op. No emission.
 
-## Reconstruct
+## 5. Reconstruct
 
 `reconstruct()` is defined as `destruct()` followed by `construct()`. The two are
 executed in order, and the message hub observes the full transition sequence:
@@ -83,7 +83,7 @@ as a single user-facing intent, naturally bound to a `ReconstructCommand`; (2) i
 guarantees subscribers observe the full four-message transition sequence atomically with
 respect to other lifecycle operations on the same VM.
 
-## Parent–child orchestration
+## 6. Parent–child orchestration
 
 `CompositeVM`, `GroupVM`, and `AggregateVM` compose their children's lifecycles:
 
@@ -101,7 +101,7 @@ Conformance IDs for this behavior are cataloged in `12-conformance.md` under the
 `COMP-NNN`, `GRP-NNN`, and `AGG-NNN` prefixes; each VM file's `## Conformance` section
 points at its applicable range.
 
-## Disposal cascade
+## 7. Disposal cascade
 
 `dispose()` on a parent disposes every child (synchronously, depth-first). This
 ensures no orphaned `IDisposable` resources are left behind.
@@ -109,13 +109,13 @@ ensures no orphaned `IDisposable` resources are left behind.
 A disposed VM MAY still receive late-arriving subscriber events from the hub if
 those events were already in flight. Subscribers MUST be tolerant of this.
 
-## Reference table
+## 8. Reference table
 
 See `fixtures/lifecycle-transitions.json` for the complete legal/illegal transition
 matrix. Conformance tests (`LIFE-NNN` in `12-conformance.md`) load that fixture
 directly.
 
-## Conformance
+## 9. Conformance
 
 `LIFE-001` through `LIFE-013` in `12-conformance.md` cover:
 

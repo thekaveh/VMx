@@ -3,7 +3,7 @@
 This document introduces the VMx mental model. Subsequent sections (`02-lifecycle.md`
 onwards) give precise normative definitions; this document is the orientation.
 
-## The viewmodel hierarchy
+## 1. The viewmodel hierarchy
 
 VMx defines five viewmodel families:
 
@@ -19,7 +19,7 @@ VMx defines five viewmodel families:
 Every VM is also a `ComponentVM` (inheritance / protocol composition per language). A
 composite's children are themselves VMs and may be composites, components, etc.
 
-### Modeled and readonly variants
+### 1.1 Modeled and readonly variants
 
 VMx uses "modeled" to describe two distinct patterns:
 
@@ -34,7 +34,7 @@ VMx uses "modeled" to describe two distinct patterns:
 The shared idea is that `M` is the *domain shape* the VM (or its children) wrap; the
 exact surface differs by VM family.
 
-### `Current` selection contract
+### 1.2 `Current` selection contract
 
 Each `CompositeVM<VM>` has an optional `Current` child. The contract:
 
@@ -48,7 +48,7 @@ Each `CompositeVM<VM>` has an optional `Current` child. The contract:
 
 `GroupVM<VM>` has no `Current`. Children are peers.
 
-### `IComponentVM` baseline
+### 1.3 `IComponentVM` baseline
 
 Every viewmodel exposes:
 
@@ -65,7 +65,7 @@ Every viewmodel exposes:
   `SelectPreviousCommand`, `ReconstructCommand`. Each is an `ICommand`-equivalent
   with appropriate predicates.
 
-## Dependency philosophy
+## 2. Dependency philosophy
 
 Every VM receives two cross-cutting services:
 
@@ -80,7 +80,7 @@ The `IMessageHub` MAY be shared across many VMs or scoped to a sub-tree; that is
 the host application's choice. The conformance tests verify that VMs publish to the
 hub they were given (`HUB-001`).
 
-## Concurrency philosophy
+## 3. Concurrency philosophy
 
 VMx is **thread-aware but not thread-bound**:
 
@@ -97,7 +97,7 @@ background.
 
 See `11-threading.md` for the full contract.
 
-## What this spec is not
+## 4. What this spec is not
 
 This spec does not specify:
 

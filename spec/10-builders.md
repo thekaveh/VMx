@@ -4,7 +4,7 @@ Every VMx VM and command is constructed via a fluent immutable builder. This doc
 describes the shared builder semantics; specific builder fields are documented in
 each VM's spec file.
 
-## Immutability
+## 1. Immutability
 
 A builder is immutable. Every setter returns a NEW builder instance with the updated
 field. Example pseudo-code:
@@ -18,7 +18,7 @@ b1 == b2  ?  # false; b2 is a different instance with Name set
 Implementations MAY use a "frozen dataclass" pattern (Python), a `record`-like value
 type (C#), or any structurally-immutable construct.
 
-## Fluent flow
+## 2. Fluent flow
 
 ```
 ComponentVM<M>.Builder()
@@ -38,7 +38,7 @@ the prior value (e.g., calling `.Name("a").Name("b")` results in `Name == "b"`).
 The one exception is additive setters like `Triggers` on `RelayCommand` — see
 `04-commands.md`.
 
-## Validation
+## 3. Validation
 
 `Build()` MUST validate required fields:
 
@@ -53,7 +53,7 @@ The one exception is additive setters like `Triggers` on `RelayCommand` — see
 If a required field is missing, `Build()` raises a `BuilderValidationError` /
 `InvalidOperationException` whose message identifies the missing field.
 
-## Default values
+## 4. Default values
 
 Optional fields have these defaults if not set:
 
@@ -69,13 +69,13 @@ Optional fields have these defaults if not set:
 - `Task` (commands) → no-op
 - `Triggers` (commands) → empty set
 
-## Repeated identical calls
+## 5. Repeated identical calls
 
 Calling `Build()` twice on the same fully-configured builder MUST produce two VMs
 that are functionally equivalent (the SAME `Name`, same `Hint`, same wired services,
 etc.) but DISTINCT instances. Builders themselves are reusable.
 
-## Conformance
+## 6. Conformance
 
 `BLD-001` through `BLD-004` in `12-conformance.md` cover:
 

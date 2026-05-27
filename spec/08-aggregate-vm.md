@@ -3,7 +3,7 @@
 `AggregateVM<VM1..VMN>` is a fixed-arity tuple of heterogeneous component VMs. VMx
 ships arities 1 through 5 (`AggregateVM1` through `AggregateVM5` — see ADR-0007).
 
-## Members (arity N)
+## 1. Members (arity N)
 
 ```
 AggregateVMN<VM1..VMN> : IComponentVM:
@@ -33,7 +33,7 @@ AggregateVM3.Builder()
     .Build()
 ```
 
-## Construction
+## 2. Construction
 
 `construct()`:
 
@@ -49,7 +49,7 @@ The reference implementations in all three flavors drive them sequentially
 On each successful slot population, the aggregate raises
 `PropertyChangedMessage("ComponentN")`.
 
-## Destruction
+## 3. Destruction
 
 `destruct()`:
 
@@ -60,7 +60,7 @@ On each successful slot population, the aggregate raises
 As with `construct()`, the order is unspecified and the reference
 implementations drive the slots sequentially.
 
-## Selection
+## 4. Selection
 
 The aggregate itself can be selected (via its parent's `Current`), and like any other
 `IComponentVM` it exposes `SelectCommand`, `DeselectCommand`, `SelectNextCommand`, and
@@ -68,13 +68,13 @@ The aggregate itself can be selected (via its parent's `Current`), and like any 
 slots, however, are not selectable — they are the aggregate's fixed structure, not
 navigable peers, so there are no `select_component` / `deselect_component` methods.
 
-## Arity rationale
+## 5. Arity rationale
 
 ADR-0007 documents why arities 1–5 are the supported range. For more than 5
 heterogeneous children, prefer `CompositeVM<VM>` or `GroupVM<VM>` with a
 heterogeneous-base-type `VM`, or compose multiple aggregates.
 
-## Conformance
+## 6. Conformance
 
 `AGG-001` through `AGG-005` in `12-conformance.md` cover:
 

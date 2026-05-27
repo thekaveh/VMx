@@ -6,7 +6,7 @@ machine (`ConstructionStatus`), commands with reactive triggers, and a hot pub/s
 message hub for change notifications. The library is UI-framework-agnostic and ships
 in multiple language flavors with semantically equivalent behavior.
 
-## In scope
+## 1. In scope
 
 - Hierarchical viewmodel types: `ComponentVM`, `ReadonlyComponentVM`, `CompositeVM`,
   `GroupVM`, `AggregateVM<VM1..VM5>`, `ForwardingComponentVM`, `ForwardingCompositeVM`.
@@ -22,7 +22,7 @@ in multiple language flavors with semantically equivalent behavior.
   `INotificationHub` sub-package, and `ILocalizer` hook (introduced in spec v2.0,
   detailed in chapters 14–17).
 
-## Out of scope
+## 2. Out of scope
 
 - UI bindings. VMs expose `INotifyPropertyChanged`-equivalent semantics; the rendering
   layer is the host application's responsibility.
@@ -33,7 +33,7 @@ in multiple language flavors with semantically equivalent behavior.
   independently; the spec version is the shared anchor (see ADR-0006 for the
   idiomatic-per-language stance).
 
-## Glossary
+## 3. Glossary
 
 | Term               | Definition                                                                                                                            |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -50,7 +50,7 @@ in multiple language flavors with semantically equivalent behavior.
 | **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                      |
 | **conformance ID** | a stable `XXX-NNN` identifier (e.g., `CVM-001`) in `12-conformance.md` that every language flavor MUST implement as a passing test.   |
 
-## Audience
+## 4. Audience
 
 This spec is the contract that every language implementation MUST satisfy. The
 audience is implementers of language flavors and contributors who change the
@@ -59,7 +59,7 @@ semantics of any VM type or service.
 End-user documentation (getting-started guides, API reference) is generated per
 language and lives under `docs/`.
 
-## Document conventions
+## 5. Document conventions
 
 - **MUST** / **MUST NOT** / **SHOULD** / **MAY** follow RFC 2119.
 - Pseudo-signatures use generic notation (`ComponentVM<M>`, `IList<VM>`); each

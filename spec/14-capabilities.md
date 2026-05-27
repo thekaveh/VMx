@@ -9,7 +9,7 @@ or more capabilities.
 This chapter lists the 20 capability interfaces, their members, and the rules
 that govern how they compose with the existing VM hierarchy.
 
-## Why capability interfaces
+## 1. Why capability interfaces
 
 The legacy 2012 VMx encoded most user-visible behavior as small marker /
 behavior interfaces (e.g., `ISelectable`, `IExpandable`, `INewCreatable`). The
@@ -21,12 +21,12 @@ mutually exclusive: capability interfaces give consumers a way to write
 See ADR-0010 for the rationale and the decision to absorb these interfaces
 additively rather than restructuring the existing VM hierarchy around them.
 
-## The 20 capabilities
+## 2. The 20 capabilities
 
 Capabilities are grouped by intent. Every capability is independently
 implementable; a VM may implement any subset.
 
-### Selection capabilities
+### 2.1 Selection capabilities
 
 ```
 ISelectable:
@@ -42,7 +42,7 @@ ISelectionTogglable:
     toggle_selection() : void
 ```
 
-### Expansion capabilities
+### 2.2 Expansion capabilities
 
 ```
 IExpandable:
@@ -60,7 +60,7 @@ IExpansionTogglable:
     toggle_expansion() : void
 ```
 
-### Lifecycle capabilities
+### 2.3 Lifecycle capabilities
 
 ```
 IConstructable:
@@ -82,7 +82,7 @@ core library) implements all three by virtue of its base type. The interfaces
 exist so that **consumers** can express dependencies on partial lifecycles —
 for example, a button binding that only requires `IReconstructable`.
 
-### Dialog / form capabilities
+### 2.4 Dialog / form capabilities
 
 ```
 IClosable:
@@ -98,7 +98,7 @@ ICancelable:
     cancel() : void
 ```
 
-### Search capability
+### 2.5 Search capability
 
 ```
 ISearchable:
@@ -108,7 +108,7 @@ ISearchable:
     search() : void          # apply current SearchTerm
 ```
 
-### CRUD capabilities
+### 2.6 CRUD capabilities
 
 ```
 INewCreatable:
@@ -128,7 +128,7 @@ ISavable<T>:
     save(item: T) : void
 ```
 
-### Container-current capabilities
+### 2.7 Container-current capabilities
 
 ```
 ICurrentDeletable:
@@ -140,7 +140,7 @@ ICurrentUpdatable:
     update_current() : void
 ```
 
-### Generic management capability
+### 2.8 Generic management capability
 
 ```
 IManagable<T>:
@@ -148,7 +148,7 @@ IManagable<T>:
     manage(item: T) : void
 ```
 
-## Rules
+## 3. Rules
 
 1. **Additive only.** Adding a capability interface to a VM type is a
    non-breaking change. Removing one is a breaking change.
@@ -172,7 +172,7 @@ IManagable<T>:
    effects (e.g., `PropertyChangedMessage` when `SearchTerm` mutates) come
    from the implementing class, not from the capability interface.
 
-## Capability-aware consumers
+## 4. Capability-aware consumers
 
 A consumer that wants to render a context menu of available actions for a VM
 might write (pseudo-code):
@@ -189,7 +189,7 @@ if vm is ICurrentDeletable:     actions.append("Delete current")
 Each branch is independent. The consumer needs no knowledge of the VM's
 concrete type.
 
-## Conformance
+## 5. Conformance
 
 `CAP-001` through `CAP-020` in `12-conformance.md` cover the 20 capability
 interfaces. Each test verifies that:

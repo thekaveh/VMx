@@ -13,9 +13,9 @@ Per ADR-0013, the distribution shape is per-flavor:
 The asymmetry preserves "opt-in, no core surface impact" without forcing a
 TypeScript monorepo restructure.
 
-## Primitives
+## 1. Primitives
 
-### `NotificationType`
+### 1.1 `NotificationType`
 
 An enum with three members:
 
@@ -25,7 +25,7 @@ An enum with three members:
 | `Notification` | Informational; user acknowledgement is enough. |
 | `Confirmation` | A decision is required (Approve/Reject).       |
 
-### `NotificationReaction`
+### 1.2 `NotificationReaction`
 
 An enum with three members:
 
@@ -35,7 +35,7 @@ An enum with three members:
 | `Approve` | User accepted / acknowledged the notification.       |
 | `Reject`  | User declined the notification.                      |
 
-### `Notification`
+### 1.3 `Notification`
 
 An immutable value object:
 
@@ -49,7 +49,7 @@ Notifications are identity-distinct: two `Notification` values with identical
 `Type` and `Message` are still different instances (one user's posting can be
 queued and resolved independently of another's).
 
-## `INotificationHub` contract
+## 2. `INotificationHub` contract
 
 ```
 INotificationHub:
@@ -58,7 +58,7 @@ INotificationHub:
     Pending : Observable<list<Notification>>       # current pending list (BehaviorSubject-like)
 ```
 
-### `Post` semantics
+### 2.1 `Post` semantics
 
 - Adds `notification` to the pending list.
 - Emits a new `Pending` value (the updated list).
@@ -72,7 +72,7 @@ INotificationHub:
   identity-distinctness rule above). A future minor version may strengthen
   this to a normative no-op and add a covering conformance ID.
 
-### `Resolve` semantics
+### 2.2 `Resolve` semantics
 
 - Removes `notification` from the pending list.
 - Emits a new `Pending` value.
@@ -81,14 +81,14 @@ INotificationHub:
 - Resolving a notification that is not in the pending list is a no-op (it
   was already resolved or never posted).
 
-### `Pending`
+### 2.3 `Pending`
 
 - A hot observable that emits the current pending list whenever it changes.
 - New subscribers immediately receive the current snapshot (BehaviorSubject-like).
 - Implementations MAY emit an immutable copy of the list, or a stable
   reference; consumers MUST NOT mutate the emitted list.
 
-## Null variant — `NullNotificationHub`
+## 3. Null variant — `NullNotificationHub`
 
 Per the convention from ADR-0017, `NullNotificationHub` is the null-object
 variant:
@@ -97,7 +97,7 @@ variant:
 - `Resolve(notification, reaction)` is a no-op.
 - `Pending` is an observable that emits the empty list once and completes.
 
-## Bridging command decorators
+## 4. Bridging command decorators
 
 The notifications package SHOULD also expose a small helper that adapts an
 `INotificationHub` confirmation flow to the `ConfirmDelegate` shape used by
@@ -111,7 +111,7 @@ The helper posts a `Notification(Confirmation, prompt)`, awaits resolution,
 and returns `true` iff the resolution is `Approve`. This is the canonical
 way to wire a UI-driven confirmation gate through the notification hub.
 
-## Conformance
+## 5. Conformance
 
 `NOTIF-001` through `NOTIF-010` in `12-conformance.md` cover the contract,
 the null variant, the type/reaction enums, and the command-decorator bridge.
