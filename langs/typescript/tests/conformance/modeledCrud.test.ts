@@ -11,7 +11,7 @@ import {
 describe("COMP-019", () => {
   it("CreateNewCommand invokes create-new action", () => {
     const log: string[] = [];
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => null,
       createNew: () => log.push("create"),
       updateCurrent: () => undefined,
@@ -26,7 +26,7 @@ describe("COMP-020", () => {
   it("UpdateCurrentCommand invokes update with current VM", () => {
     const log: object[] = [];
     const vm1 = {};
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: (vm) => log.push(vm),
@@ -39,7 +39,7 @@ describe("COMP-020", () => {
 
 describe("COMP-021", () => {
   it("UpdateCurrentCommand.canExecute false when current is null", () => {
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => null,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -53,7 +53,7 @@ describe("COMP-022", () => {
   it("DeleteCurrentCommand invokes delete with current VM", () => {
     const log: object[] = [];
     const vm1 = {};
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -66,7 +66,7 @@ describe("COMP-022", () => {
 
 describe("COMP-023", () => {
   it("DeleteCurrentCommand.canExecute false when current is null", () => {
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => null,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -81,7 +81,7 @@ describe("COMP-024", () => {
     const log: object[] = [];
     const vm1 = {};
 
-    const crudNo = new ModeledCrudCommands<object>({
+    const crudNo = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -92,7 +92,7 @@ describe("COMP-024", () => {
     await (crudNo.deleteCurrentCommand as ConfirmationDecoratorCommand).executeAsync();
     expect(log).toEqual([]);
 
-    const crudYes = new ModeledCrudCommands<object>({
+    const crudYes = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -109,7 +109,7 @@ describe("COMP-024", () => {
 describe("ModeledCrudCommands.dispose", () => {
   it("disposes inner RelayCommands and is idempotent", () => {
     const vm1 = {};
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -126,7 +126,7 @@ describe("ModeledCrudCommands.dispose", () => {
 
   it("completes inner canExecuteChanged after dispose", () => {
     const vm1 = {};
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: () => undefined,
@@ -151,7 +151,7 @@ describe("ModeledCrudCommands.dispose", () => {
 
   it("is idempotent with confirmation wrappers present", () => {
     const vm1 = {};
-    const crud = new ModeledCrudCommands<object>({
+    const crud = new ModeledCrudCommands<unknown, object>({
       current: () => vm1,
       createNew: () => undefined,
       updateCurrent: () => undefined,
