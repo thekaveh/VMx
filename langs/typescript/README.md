@@ -5,9 +5,10 @@ JavaScript, spec-compatible with the C# and Python flavors.
 
 ## Status
 
-**v1.1.0** — implements `spec-v1.1.0` end-to-end. 75/75 conformance IDs pass.
-Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles; TypeScript
-declarations are bundled — no `@types/vmx` needed.
+**v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
+pass. Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
+TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
+sub-path export `vmx/notifications` ships an `INotificationHub`.
 
 ## Install
 
@@ -65,34 +66,55 @@ import { ... } from "vmx";
 
 Key exports:
 
-| Export                   | Description                                      |
-| ------------------------ | ------------------------------------------------ |
-| `ComponentVM`            | Leaf viewmodel (no model)                        |
-| `ComponentVMOf<M>`       | Leaf viewmodel with a typed model                |
-| `ReadonlyComponentVMOf<M>` | Leaf VM with read-only model               |
-| `CompositeVM<VM>`        | Ordered collection of children + current slot    |
-| `CompositeVMOf<M, VM>`   | Model-driven composite                           |
-| `GroupVM<VM>`            | Collection without current selection             |
-| `AggregateVM1..5<...>`   | Fixed-arity named component slots                |
-| `ForwardingComponentVM<M>` | Decorator for `IComponentVMOf<M>`           |
-| `ForwardingCompositeVM<VM>` | Decorator for composites                   |
-| `RelayCommand`           | Executable command with `canExecute` predicate   |
-| `RelayCommandOf<T>`      | Typed command with argument                      |
-| `MessageHub`             | Pub/sub hub (rxjs `Subject`-backed)              |
-| `RxDispatcher`           | Foreground/background scheduler pair             |
-| `ConstructionStatus`     | 5-state lifecycle enum                           |
-| `StatusTransitionError`  | Raised on illegal lifecycle operations           |
-| `walk(root)`             | DFS pre-order tree traversal generator           |
-| `find(root, predicate)`  | Short-circuit tree search                        |
+| Export                          | Description                                      |
+| ------------------------------- | ------------------------------------------------ |
+| `ComponentVM`                   | Leaf viewmodel (no model)                        |
+| `ComponentVMOf<M>`              | Leaf viewmodel with a typed model                |
+| `ReadonlyComponentVMOf<M>`      | Leaf VM with read-only model                     |
+| `CompositeVM<VM>` / `CompositeVMOf<M,VM>` | Ordered collection + current slot      |
+| `GroupVM<VM>`                   | Collection without current selection             |
+| `AggregateVM1..5<...>`          | Fixed-arity named component slots                |
+| `ForwardingComponentVM<M>`      | Decorator for `IComponentVMOf<M>`                |
+| `ForwardingCompositeVM<VM>`     | Decorator for composites                         |
+| `RelayCommand` / `RelayCommandOf<T>` | Executable command with `canExecute`        |
+| `CompositeCommand`              | Aggregate N inner commands (spec v2.0)           |
+| `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate  |
+| `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm delegate    |
+| `ModeledCrudCommands<VM>`       | Create / UpdateCurrent / DeleteCurrent helper    |
+| `MessageHub`                    | Pub/sub hub (rxjs `Subject`-backed)              |
+| `NullMessageHub.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `RxDispatcher`                  | Foreground/background scheduler pair             |
+| `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `ConstructionStatus`            | 5-state lifecycle enum                           |
+| `StatusTransitionError`         | Raised on illegal lifecycle operations           |
+| `walk(root)`                    | DFS pre-order tree traversal generator           |
+| `walkExpanded(root)`            | DFS walk gated on `IExpandable.isExpanded` (v2.0) |
+| `find(root, predicate)`         | Short-circuit tree search                        |
+| `DerivedProperty<TValue>` / `deriveFromSources` | N-source computed value (v2.0)   |
+| `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)  |
+| `SearchableState<T>`            | Debounced filter helper (spec v2.0)              |
+| `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)             |
+| 20× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in v2.0 |
+
+The opt-in `vmx/notifications` sub-path export (spec v2.0) adds:
+
+| Export                                                            | Description                            |
+| ----------------------------------------------------------------- | -------------------------------------- |
+| `Notification` / `NotificationType` / `NotificationReaction`      | Notification primitives                |
+| `INotificationHub` / `NotificationHub` / `NullNotificationHub`    | Async notification hub + null variant  |
+| `makeConfirm(hub, prompt)`                                        | Bridge to `ConfirmationDecoratorCommand` |
 
 ## Conformance
 
-All 75 conformance IDs from `spec/12-conformance.md` are covered.
+All 152 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
-LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
-FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
+v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
+       CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
+       FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
+v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
+       NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
+       LOC-001..003
 ```
 
 Run the suite:

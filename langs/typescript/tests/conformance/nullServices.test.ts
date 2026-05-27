@@ -63,20 +63,45 @@ describe("NULL-002", () => {
 
 describe("NULL-003", () => {
   it("Null-object convention is satisfied for every core service contract", () => {
-    // IMessageHub → NullMessageHub
+    // IMessageHub → NullMessageHub: send is total (no input raises) and
+    // INSTANCE is the canonical singleton.
     const hub: IMessageHub = NullMessageHub.INSTANCE;
-    hub.send(
-      ConstructionStatusChangedMessage.create(
-        {},
-        "x",
-        ConstructionStatus.Destructed,
+    expect(hub).toBe(NullMessageHub.INSTANCE);
+    expect(() =>
+      hub.send(
+        ConstructionStatusChangedMessage.create(
+          {},
+          "x",
+          ConstructionStatus.Destructed,
+        ),
       ),
-    );
-    expect(hub.messages).toBeDefined();
+    ).not.toThrow();
+    // messages is the empty observable — completes immediately, emits nothing.
+    let nullHubObserved = 0;
+    let nullHubCompleted = false;
+    const sub = hub.messages.subscribe({
+      next: () => nullHubObserved++,
+      complete: () => {
+        nullHubCompleted = true;
+      },
+    });
+    expect(nullHubObserved).toBe(0);
+    expect(nullHubCompleted).toBe(true);
+    sub.unsubscribe();
 
-    // IDispatcher → NullDispatcher
+    // IDispatcher → NullDispatcher: schedulers exist, are the singleton, and
+    // execute scheduled work synchronously.
     const dispatcher: IDispatcher = NullDispatcher.INSTANCE;
-    expect(dispatcher.foreground).toBeDefined();
-    expect(dispatcher.background).toBeDefined();
+    expect(dispatcher).toBe(NullDispatcher.INSTANCE);
+    let fgRan = false;
+    let bgRan = false;
+    dispatcher.foreground.schedule(() => {
+      fgRan = true;
+    });
+    dispatcher.background.schedule(() => {
+      bgRan = true;
+    });
+    expect(fgRan).toBe(true);
+    expect(bgRan).toBe(true);
   });
 });

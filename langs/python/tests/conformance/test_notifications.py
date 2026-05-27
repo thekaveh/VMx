@@ -16,7 +16,8 @@ from vmx.notifications import (
     make_confirm,
 )
 
-pytestmark = pytest.mark.asyncio
+# Most tests below are async (the hub returns asyncio futures); the two
+# enum-shape checks (NOTIF-004, NOTIF-005) are sync and carry no asyncio mark.
 
 
 # ---------------------------------------------------------------------------

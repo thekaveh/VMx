@@ -22,7 +22,7 @@ class NullNotificationHub:
         return self._pending
 
     def post(self, notification: Notification) -> asyncio.Future[NotificationReaction]:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future: asyncio.Future[NotificationReaction] = loop.create_future()
         future.set_result(NotificationReaction.APPROVE)
         return future

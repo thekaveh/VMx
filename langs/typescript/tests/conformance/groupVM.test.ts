@@ -61,13 +61,16 @@ describe("GRP-002", () => {
     expect("deselectComponent" in group).toBe(false);
     expect("canSelectComponent" in group).toBe(false);
 
-    // SelectCommand and DeselectCommand ARE present (own-selection within parent)
-    expect(group.selectCommand).toBeDefined();
-    expect(group.deselectCommand).toBeDefined();
+    // SelectCommand and DeselectCommand ARE present (own-selection within parent).
+    // We verify they're non-null and expose the ICommand surface (canExecute).
+    expect(group.selectCommand).not.toBeNull();
+    expect(typeof group.selectCommand.canExecute).toBe("function");
+    expect(group.deselectCommand).not.toBeNull();
+    expect(typeof group.deselectCommand.canExecute).toBe("function");
 
-    // SelectNextCommand and SelectPreviousCommand are present but always-false
-    expect(group.selectNextCommand).toBeDefined();
-    expect(group.selectPreviousCommand).toBeDefined();
+    // SelectNextCommand and SelectPreviousCommand are present but always-false.
+    expect(group.selectNextCommand).not.toBeNull();
+    expect(group.selectPreviousCommand).not.toBeNull();
     expect(group.selectNextCommand.canExecute()).toBe(false);
     expect(group.selectPreviousCommand.canExecute()).toBe(false);
   });

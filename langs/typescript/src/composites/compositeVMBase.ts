@@ -92,11 +92,6 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   set current(value: VM | null) {
-    if (value !== null && !this._children.includes(value)) {
-      throw new Error(
-        `Cannot set current to '${value.name}': it is not a member of this composite.`,
-      );
-    }
     this._setCurrent(value, this.#asyncSelection);
   }
 
@@ -293,7 +288,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   protected _setCurrent(value: VM | null, asyncSel: boolean): void {
     if (value !== null && !this._children.includes(value)) {
       throw new Error(
-        `Cannot set current to '${value.name}': not a member of this composite.`,
+        `Cannot set current to '${value.name}': it is not a member of this composite.`,
       );
     }
     if (asyncSel) {

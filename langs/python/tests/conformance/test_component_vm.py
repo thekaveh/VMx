@@ -77,17 +77,17 @@ def _prop_messages(hub: MessageHub[object]) -> list[PropertyChangedMessage]:
 
 @pytest.mark.conformance("CVM-001")
 def test_CVM_001_construct_emits_status_messages() -> None:
-    """CVM-001: construct() emits Constructing then Constructed messages."""
+    """CVM-001: construct() emits exactly Constructing then Constructed messages."""
     vm, hub = _build_vm()
     msgs = _status_messages(hub)
     vm.construct()
 
     statuses = [m.status for m in msgs]
-    assert ConstructionStatus.CONSTRUCTING in statuses, "Expected Constructing message"
-    assert ConstructionStatus.CONSTRUCTED in statuses, "Expected Constructed message"
-    idx_ing = statuses.index(ConstructionStatus.CONSTRUCTING)
-    idx_ed = statuses.index(ConstructionStatus.CONSTRUCTED)
-    assert idx_ing < idx_ed, "Constructing must come before Constructed"
+    # Spec LIFE-001: subscriber observes exactly TWO messages in order.
+    assert statuses == [
+        ConstructionStatus.CONSTRUCTING,
+        ConstructionStatus.CONSTRUCTED,
+    ], f"Expected exactly [Constructing, Constructed]; got {statuses}"
     assert vm.is_constructed is True
 
 

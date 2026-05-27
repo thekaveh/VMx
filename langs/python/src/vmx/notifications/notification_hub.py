@@ -46,7 +46,7 @@ class NotificationHub:
         return self._pending_subject
 
     def post(self, notification: Notification) -> asyncio.Future[NotificationReaction]:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future: asyncio.Future[NotificationReaction] = loop.create_future()
         with self._lock:
             self._pending.append(notification)
