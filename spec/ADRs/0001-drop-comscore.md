@@ -24,4 +24,4 @@ Option 3. Constructor injection is idiomatic in modern .NET (`Microsoft.Extensio
 - `IConstants` is not carried forward; any global configuration it held is either dropped or becomes a constructor argument specific to the VM that needs it. The legacy `AsyncViewModelSelection` constant becomes a per-builder option (`.AsyncSelection(true)`).
 - `TaskScheduler` is replaced by `IDispatcher`, which exposes `Foreground` and `Background` `IScheduler` properties (see ADR-0002 for the scheduler contract).
 - An optional `VMx.Extensions.DependencyInjection` companion package wires `IMessageHub` + `IDispatcher` into Microsoft.Extensions.DependencyInjection for users who want the convenience.
-- The Python flavor does not yet ship a DI companion; explicit constructor wiring covers the common case and a future `vmx-di` package can be added without further spec change.
+- The Python flavor intentionally does not ship a DI companion; per ADR-0009 the absence of a Python DI integration is an accepted per-flavor divergence rather than a deferred deliverable. Explicit constructor wiring covers the common case.

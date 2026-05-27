@@ -5,7 +5,7 @@
 
 ## 1. Context
 
-`AggregateVM<VM1..VMN>` represents a fixed tuple of heterogeneous child VMs. The legacy library exposed arities 1 through 5. We need to decide the upper bound for v1.0 and whether to use variadic generics where the language supports them.
+`AggregateVM<VM1..VMN>` represents a fixed tuple of heterogeneous child VMs. The legacy library exposed arities 1 through 5. We needed to decide the upper bound and whether to use variadic generics where the language supports them.
 
 ## 2. Options considered
 
