@@ -148,4 +148,24 @@ describe("ModeledCrudCommands.dispose", () => {
     crud.dispose();
     expect(completions).toBe(3);
   });
+
+  it("is idempotent with confirmation wrappers present", () => {
+    const vm1 = {};
+    const crud = new ModeledCrudCommands<object>({
+      current: () => vm1,
+      createNew: () => undefined,
+      updateCurrent: () => undefined,
+      deleteCurrent: () => undefined,
+      confirmUpdate: () => Promise.resolve(true),
+      confirmDelete: () => Promise.resolve(true),
+    });
+
+    expect(crud.updateCurrentCommand).toBeInstanceOf(ConfirmationDecoratorCommand);
+    expect(crud.deleteCurrentCommand).toBeInstanceOf(ConfirmationDecoratorCommand);
+    // createNew has no confirm hook by spec.
+    expect(crud.createNewCommand).not.toBeInstanceOf(ConfirmationDecoratorCommand);
+
+    expect(() => crud.dispose()).not.toThrow();
+    expect(() => crud.dispose()).not.toThrow();
+  });
 });

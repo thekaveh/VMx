@@ -46,7 +46,12 @@ def test_dispose_when_confirm_wrappers_present() -> None:
 
     assert isinstance(crud.update_current_command, ConfirmationDecoratorCommand)
     assert isinstance(crud.delete_current_command, ConfirmationDecoratorCommand)
+    # create_new has no confirm hook by spec.
+    assert not isinstance(crud.create_new_command, ConfirmationDecoratorCommand)
 
+    # Double dispose must be idempotent even when wrappers are present
+    # (parity with C# Update_And_Delete_Are_Wrapped_With_Confirmation_When_Configured).
+    crud.dispose()
     crud.dispose()
 
 
