@@ -1,8 +1,9 @@
 """VMx Commands — RelayCommand, RelayCommandOf, and Protocol interfaces.
 
 ``RelayCommandOf`` is the canonical name from v1.2.0; ``RelayCommandOfT`` and
-``RelayCommandOfTBuilder`` are kept as identity aliases for backward compatibility
-and will be removed in vmx v2.0.0.
+``RelayCommandOfTBuilder`` are kept as identity aliases for backward compatibility.
+The originally planned v2.0.0 removal slipped and is deferred to vmx v3.0.0 per
+ADR-0009.
 """
 
 from vmx.commands.composite_command import CompositeCommand
