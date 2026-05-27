@@ -13,6 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Hoisted to job-level so the step-level `if: env.NUGET_API_KEY != ''`
+      # actually sees a value. GitHub evaluates step `if:` against
+      # workflow/job env BEFORE applying step-level `env:`, so a step-local
+      # env mapping is invisible to the same step's `if:`. Secrets cannot
+      # be referenced directly in `if:` either — the documented workaround
+      # is to project secret into job env.
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -26,8 +34,6 @@ jobs:
         run: dotnet pack langs/csharp/VMx.sln -c Release --nologo -o /tmp/nupkgs
       - name: Push to NuGet
         if: env.NUGET_API_KEY != ''
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           dotnet nuget push /tmp/nupkgs/*.nupkg \
             --api-key "$NUGET_API_KEY" \
@@ -59,6 +65,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      # See the rationale on the csharp job's env block — secrets must be
+      # projected to job-level env so that step `if:` can read them.
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -76,7 +87,4 @@ jobs:
       - name: Publish to npm
         if: env.NPM_TOKEN != ''
         working-directory: langs/typescript
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public

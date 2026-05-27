@@ -58,6 +58,13 @@ jobs:
           echo "OK: spec changes either include a new ADR or only touch exempted files."
 
       - name: Require conformance stubs when new IDs are added
+        # Scope: this check detects newly-added IDs by matching diff lines that
+        # begin with "+### " (heading additions in spec/12-conformance.md). It
+        # does NOT catch IDs added inside an existing heading body, nor heading
+        # *renames* (one delete + one add, where the deleted ID's stub looks
+        # orphaned afterwards). For the normal additive flow this is sufficient;
+        # for renames, prefer additive deprecation. tools/check-conformance-
+        # coverage.py provides the authoritative cross-check.
         shell: bash
         run: |
           base_sha="${{ github.event.pull_request.base.sha }}"

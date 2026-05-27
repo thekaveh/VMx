@@ -2,11 +2,23 @@ name: Bug report — C# (VMx NuGet package)
 description: Something is broken in the C# flavor.
 labels: [bug, csharp]
 body:
+  - type: dropdown
+    id: package
+    attributes:
+      label: Affected package
+      description: The C# flavor ships three independently-versioned NuGet packages.
+      options:
+        - VMx (core)
+        - VMx.Extensions.DependencyInjection
+        - VMx.Notifications
+        - Not sure / multiple
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
-      label: VMx (C#) version
-      placeholder: e.g., 2.0.0
+      label: Package version
+      placeholder: e.g., 2.0.0 (VMx core) / 1.0.0 (VMx.Notifications)
     validations:
       required: true
   - type: input

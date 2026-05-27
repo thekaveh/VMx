@@ -12,6 +12,7 @@ on:
       - "langs/csharp/**"
       - "spec/**"
       - ".github/workflows/csharp.yml"
+  workflow_dispatch:
 
 defaults:
   run:
