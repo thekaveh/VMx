@@ -39,18 +39,16 @@ class TabModel:
     title: str
 
 
-home = (
-    ComponentVMOf[TabModel]
-    .builder()
+home: ComponentVMOf[TabModel] = (
+    ComponentVMOf.builder()
     .name("home")
     .model(TabModel("Home"))
     .services(hub, dispatcher)
     .build()
 )
 
-settings = (
-    ComponentVMOf[TabModel]
-    .builder()
+settings: ComponentVMOf[TabModel] = (
+    ComponentVMOf.builder()
     .name("settings")
     .model(TabModel("Settings"))
     .services(hub, dispatcher)

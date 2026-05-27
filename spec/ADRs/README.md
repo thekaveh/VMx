@@ -37,6 +37,7 @@ cross-references each ADR carries.
 | [0018](0018-flat-vm-hierarchy-vs-old-chain.md)    | Flat VM hierarchy vs the 2012 chain        | 2.0.0        | Accepted |
 | [0019](0019-localization-hooks.md)                | `ILocalizer` hook + `NullLocalizer`        | 2.0.0        | Accepted |
 | [0020](0020-v2.0-spec-text-refresh.md)            | Spec text refresh for v2.0                 | 2.0.0        | Accepted |
+| [0021](0021-post-v2.0-editorial-polish.md)        | Post-v2.0 editorial polish                 | 2.0.0        | Accepted |
 
 ## 2. Format
 

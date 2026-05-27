@@ -38,7 +38,7 @@ flavor releases a stable version.
 
 - `VERSION` — current spec SemVer (`2.0.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0020); see
+- `ADRs/` — Architecture Decision Records (0001-0021); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — deferred designs not yet promoted to chapters.
 

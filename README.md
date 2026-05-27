@@ -24,6 +24,7 @@ tests passing on every commit.
    - 4.2 [Quickstart guides](#42-quickstart-guides)
    - 4.3 [Examples](#43-examples)
 5. [Repository layout](#5-repository-layout)
+   - 5.1 [Documentation map](#51-documentation-map)
 6. [Versioning and conformance](#6-versioning-and-conformance)
    - 6.1 [SemVer policy](#61-semver-policy)
    - 6.2 [Conformance catalog](#62-conformance-catalog)
@@ -37,9 +38,10 @@ reactive messaging. It targets WPF / Avalonia / MAUI on .NET, Tkinter / PyQt /
 NiceGUI / Textual on Python, and any DOM- or rxjs-based UI on TypeScript — but
 makes no assumption about the UI layer. Every flavor exposes:
 
-- A five-state construction lifecycle (`Destructed → Constructing →
-  Constructed → Destructing → Disposed`) with `reconstruct()` and a synchronous
-  depth-first dispose cascade.
+- A five-state construction lifecycle (`Destructed`, `Constructing`,
+  `Constructed`, `Destructing`, plus terminal `Disposed`) with reversible
+  `construct`/`destruct`, `reconstruct()`, and a synchronous depth-first
+  `dispose()` cascade that can be invoked from any state.
 - A reactive message hub for `PropertyChangedMessage` and
   `ConstructionStatusChangedMessage`, plus collection-change events on
   container VMs.
@@ -76,7 +78,7 @@ a browsable HTML version with summary cards is at
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 18 markdown chapters, 20 ADRs,
+- **Spec** — `spec/` is the source of truth: 18 markdown chapters, 21 ADRs,
   4 JSON fixtures, 152 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -87,9 +89,9 @@ Each flavor implements the same conceptual stack:
 - **Commands** — `RelayCommand` and `RelayCommand<T>` with `execute`,
   `canExecute`, and reactive trigger observables.
 - **Messages and collection events** — `PropertyChangedMessage`,
-  `ConstructionStatusChangedMessage`, `CollectionChangedEvent` (with
-  v1.1's `BatchUpdate()` and `AutoConstructOnAdd` options).
-- **Tree utilities** *(spec v1.1)* — `walk(root)` and
+  `ConstructionStatusChangedMessage`, `CollectionChangedEvent` with
+  `BatchUpdate()` and `AutoConstructOnAdd` options.
+- **Tree utilities** — `walk(root)`, `walk_expanded(root)`, and
   `find(root, predicate)` over any VM hierarchy.
 - **Services** — `MessageHub` (rx Subject-backed pub/sub) and
   `RxDispatcher` (paired foreground / background schedulers).
@@ -176,12 +178,12 @@ npm install vmx
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 17-localization.md
-│   ├── ADRs/              architecture decision records (0001..0020)
+│   ├── ADRs/              architecture decision records (0001..0021)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         deferred designs not yet promoted to chapters
 │   └── VERSION            spec SemVer
 ├── langs/
-│   ├── csharp/            VMx (NuGet)  + VMx.Extensions.DependencyInjection
+│   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   └── typescript/        vmx (npm)
 ├── examples/              runnable example apps per flavor
@@ -191,6 +193,36 @@ npm install vmx
 ├── .github/               issue/PR templates + CI workflows
 └── compatibility-matrix.md
 ```
+
+### 5.1 Documentation map
+
+This README is the entry point; the documents below add focused detail.
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — spec / ADR / conformance workflow,
+  per-flavor build commands, pre-commit setup. Read before opening a PR.
+- [`SECURITY.md`](SECURITY.md) — supported-version table and how to report
+  vulnerabilities.
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor-Covenant
+  community guidelines.
+- [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
+  version pairing.
+- [`spec/README.md`](spec/README.md) — index of the 18 chapters, 21 ADRs,
+  4 fixtures, and the 152-ID conformance catalog.
+- [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
+- Per-flavor READMEs (status, install, API surface, dev commands):
+  [`langs/csharp/README.md`](langs/csharp/README.md),
+  [`langs/python/README.md`](langs/python/README.md),
+  [`langs/typescript/README.md`](langs/typescript/README.md).
+- Per-flavor getting-started tutorials (longer walkthroughs):
+  [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
+  [`docs/getting-started/python.md`](docs/getting-started/python.md),
+  [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md).
+- Per-flavor examples READMEs (run instructions):
+  [`examples/csharp/README.md`](examples/csharp/README.md),
+  [`examples/python/README.md`](examples/python/README.md),
+  [`examples/typescript/README.md`](examples/typescript/README.md).
+- [`tools/README.md`](tools/README.md) — conformance-coverage tool and
+  cross-cutting scripts.
 
 ## 6. Versioning and conformance
 
