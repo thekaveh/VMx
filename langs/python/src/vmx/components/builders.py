@@ -81,15 +81,14 @@ class ComponentVMBuilder:
         """
         from vmx.components.component_vm import ComponentVM
 
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
 
         return ComponentVM(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
             background=self._background,
@@ -166,27 +165,26 @@ class ComponentVMOfBuilder(Generic[M]):
         """
         from vmx.components.component_vm import ComponentVMOf
 
-        _validation.require_field(self._name, "name")
+        name = _validation.require_field(self._name, "name")
         if not self._model_set:
             raise BuilderValidationError("model")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
 
         hinter: Callable[[M], str] = (
             self._modeled_hinter if self._modeled_hinter is not None else lambda _m: ""
         )
 
         return ComponentVMOf(
-            name=self._name,
+            name=name,
             hint=self._hint,
             # `self._model` is typed `object | None` to allow the _SENTINEL sentinel
-            # value; the assert + `_model_set` guard above prove it's the real `M`
-            # at this point, but mypy cannot narrow the dataclass field.
+            # value; the `_model_set` guard above proves it's the real `M` at this
+            # point, but mypy cannot narrow the dataclass field.
             initial_model=self._model,  # type: ignore[arg-type]
             modeled_hinter=hinter,
             on_model_changed=self._on_model_changed,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
             background=self._background,
@@ -256,24 +254,23 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
         """
         from vmx.components.readonly_component_vm import ReadonlyComponentVMOf
 
-        _validation.require_field(self._name, "name")
+        name = _validation.require_field(self._name, "name")
         if not self._model_set:
             raise BuilderValidationError("model")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
 
         hinter: Callable[[M], str] = (
             self._modeled_hinter if self._modeled_hinter is not None else lambda _m: ""
         )
 
         return ReadonlyComponentVMOf(
-            name=self._name,
+            name=name,
             hint=self._hint,
             # Same sentinel-narrowing case as ComponentVMOfBuilder above.
             model=self._model,  # type: ignore[arg-type]
             modeled_hinter=hinter,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
             background=self._background,

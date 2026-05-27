@@ -90,15 +90,14 @@ class CompositeVMBuilder(Generic[VM]):
         """
         from vmx.composites.composite_vm import CompositeVM
 
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
 
         return CompositeVM(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             async_selection=self._async_selection,
             auto_construct_on_add=self._auto_construct_on_add,
             children_factory=self._children_factory,
@@ -177,19 +176,18 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         """
         from vmx.composites.composite_vm import CompositeVMOf
 
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
         if self._children_models is None:
             raise BuilderValidationError("children_models")
         if self._child_model_to_child_vm is None:
             raise BuilderValidationError("child_model_to_child_view_model")
 
         return CompositeVMOf(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             async_selection=self._async_selection,
             auto_construct_on_add=self._auto_construct_on_add,
             children_models=self._children_models,
