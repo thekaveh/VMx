@@ -106,7 +106,7 @@ The companion package `VMx.Notifications` (spec v2.0) adds:
 
 ## 5. Conformance
 
-All 152 conformance IDs from `spec/12-conformance.md` are covered (166 test
+All 152 conformance IDs from `spec/12-conformance.md` are covered (171 test
 methods, since some IDs are validated by multiple scenarios).
 
 ```
