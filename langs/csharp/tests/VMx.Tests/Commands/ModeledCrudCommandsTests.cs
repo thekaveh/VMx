@@ -1,4 +1,3 @@
-using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Commands;
 using Xunit;
@@ -52,39 +51,33 @@ public class ModeledCrudCommandsTests
     }
 
     [Fact]
-    public void Dispose_Stops_Inner_CanExecuteChanged_Propagation()
+    public void Public_Command_Surface_Remains_Safe_After_Dispose()
     {
-        // Use a manual trigger via a RelayCommand built externally, wrap it
-        // through a CompositeCommand-like check: ModeledCrudCommands creates
-        // its inner RelayCommands internally, so we verify that after
-        // disposing the helper, attempting to invoke its commands still
-        // works (no NullReferenceException etc.) — i.e., disposal does not
-        // corrupt the public command surface, and double-dispose is safe.
+        // ModeledCrudCommands creates its inner RelayCommands internally, so
+        // we can't intercept their triggers. What we CAN verify is that the
+        // public command surface remains safe to call after disposal —
+        // event subscription doesn't throw, CanExecute/Execute don't throw,
+        // and double-dispose is a no-op. This is the analogue of the
+        // Python/TS "completes inner canExecuteChanged" tests, adapted to
+        // C# event semantics (events have no "completion" notion; the
+        // contract is "always safe to call").
         var vm1 = new object();
-        using var trigger = new Subject<System.Reactive.Unit>();
         var crud = new ModeledCrudCommands<object, object>(
             current: () => vm1,
             createNew: () => { },
             updateCurrent: _ => { },
             deleteCurrent: _ => { });
 
-        var firedBefore = 0;
-        var firedAfter = 0;
-        crud.CreateNewCommand.CanExecuteChanged += (_, _) => firedBefore++;
-
-        // Pre-dispose: command surface is responsive.
         crud.CreateNewCommand.CanExecute(null).Should().BeTrue();
-
         crud.Dispose();
 
-        // Post-dispose: re-subscribing does not throw, and any CanExecute
-        // / Execute calls remain safe (the public surface contract is
-        // 'always safe to call').
-        crud.CreateNewCommand.CanExecuteChanged += (_, _) => firedAfter++;
+        var subscribe = () => crud.CreateNewCommand.CanExecuteChanged += (_, _) => { };
+        subscribe.Should().NotThrow();
         var canExecute = () => crud.CreateNewCommand.CanExecute(null);
         canExecute.Should().NotThrow();
+        var executeNoOp = () => crud.UpdateCurrentCommand.Execute(null);
+        executeNoOp.Should().NotThrow();
 
-        // Idempotent dispose.
-        crud.Dispose();
+        crud.Dispose();  // idempotent
     }
 }
