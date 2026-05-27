@@ -40,4 +40,14 @@ public sealed class RxDispatcher : IDispatcher
             foreground: new SynchronizationContextScheduler(ctx),
             background: TaskPoolScheduler.Default);
     }
+
+    /// <summary>
+    /// Builds a dispatcher whose Foreground and Background are both
+    /// <see cref="ImmediateScheduler.Instance"/>. Useful in console scripts,
+    /// xUnit suites, and any context that has no UI thread. Parity with
+    /// Python <c>RxDispatcher.immediate()</c> and TypeScript
+    /// <c>RxDispatcher.immediate()</c>.
+    /// </summary>
+    public static RxDispatcher Immediate() =>
+        new(foreground: ImmediateScheduler.Instance, background: ImmediateScheduler.Instance);
 }
