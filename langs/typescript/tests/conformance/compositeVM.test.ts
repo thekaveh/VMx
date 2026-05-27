@@ -386,3 +386,50 @@ describe("COMP-013", () => {
     expect(composite.count).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// setAt _current handling (unit; not a conformance ID)
+// ---------------------------------------------------------------------------
+
+describe("setAt _current handling", () => {
+  it("setAt replacing the current slot clears current to null", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const oldChild = makeChild(hub, "old");
+    const newChild = makeChild(hub, "new");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [oldChild])
+      .build();
+    composite.construct();
+    composite.current = oldChild;
+    expect(composite.current).toBe(oldChild);
+
+    composite.setAt(0, newChild);
+
+    expect(composite.current).toBeNull();
+    expect(composite.at(0)).toBe(newChild);
+    expect(oldChild._parent).toBeNull();
+    expect(newChild._parent).toBe(composite);
+  });
+
+  it("setAt replacing a non-current slot leaves current intact", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const other = makeChild(hub, "other");
+    const sticky = makeChild(hub, "sticky");
+    const replacement = makeChild(hub, "replacement");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .children(() => [other, sticky])
+      .build();
+    composite.construct();
+    composite.current = sticky;
+
+    composite.setAt(0, replacement);  // replace `other`, not `sticky`
+
+    expect(composite.current).toBe(sticky);
+  });
+});

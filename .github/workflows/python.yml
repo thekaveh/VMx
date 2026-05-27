@@ -12,6 +12,7 @@ on:
       - "langs/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
+  workflow_dispatch:
 
 defaults:
   run:
@@ -34,8 +35,10 @@ jobs:
         with:
           version: latest
           enable-cache: true
+          # uv.lock is gitignored in this repo (library project, no committed lock);
+          # cache key derives purely from the manifest. If a lockfile is committed
+          # in the future, re-add `langs/python/uv.lock` to this glob.
           cache-dependency-glob: |
-            langs/python/uv.lock
             langs/python/pyproject.toml
 
       - name: Set up Python

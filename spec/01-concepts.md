@@ -5,7 +5,8 @@ onwards) give precise normative definitions; this document is the orientation.
 
 ## 1. The viewmodel hierarchy
 
-VMx defines five viewmodel families:
+VMx defines the following viewmodel types (five families, plus a pair of
+forwarding decorators that wrap an inner viewmodel):
 
 | Family                                            | Role                                  | Children                | Typical use                           |
 | ------------------------------------------------- | ------------------------------------- | ----------------------- | ------------------------------------- |

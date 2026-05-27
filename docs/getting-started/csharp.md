@@ -84,8 +84,8 @@ ______________________________________________________________________
 
 `ComponentVM<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `IPropertyChangedMessage` on the hub when the model changes, and
-participates in the lifecycle state machine (Destructed → Constructing →
-Constructed → Destructing → Destructed → Disposed).
+participates in the five-state lifecycle (Destructed, Constructing,
+Constructed, Destructing) plus terminal Disposed.
 
 ```csharp
 using VMx.Components;

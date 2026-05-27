@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- WPF only runs on Windows; fall back to a no-op net9.0 target on other OSes so
-         CI on macOS/Linux can at least restore/parse the project without errors. -->
-    <TargetFramework Condition="'$(OS)' == 'Windows_NT'">net9.0-windows</TargetFramework>
-    <TargetFramework Condition="'$(OS)' != 'Windows_NT'">net9.0</TargetFramework>
+    <!-- WPF only runs on Windows; fall back to a no-op net8.0 target on other OSes so
+         CI on macOS/Linux can at least restore/parse the project without errors.
+         Matches the library's lowest supported TFM (netstandard2.0; net8.0). -->
+    <TargetFramework Condition="'$(OS)' == 'Windows_NT'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(OS)' != 'Windows_NT'">net8.0</TargetFramework>
     <UseWPF Condition="'$(OS)' == 'Windows_NT'">true</UseWPF>
     <RootNamespace>WpfTodoApp</RootNamespace>
     <Nullable>enable</Nullable>

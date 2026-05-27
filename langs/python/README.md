@@ -6,7 +6,7 @@ spec-compatible with the C# and TypeScript flavors.
 ## 1. Status
 
 **v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
-pass (471 tests total across unit + conformance). Supports Python 3.10–3.13.
+pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
 
@@ -39,18 +39,16 @@ class TabModel:
     title: str
 
 
-home = (
-    ComponentVMOf[TabModel]
-    .builder()
+home: ComponentVMOf[TabModel] = (
+    ComponentVMOf.builder()
     .name("home")
     .model(TabModel("Home"))
     .services(hub, dispatcher)
     .build()
 )
 
-settings = (
-    ComponentVMOf[TabModel]
-    .builder()
+settings: ComponentVMOf[TabModel] = (
+    ComponentVMOf.builder()
     .name("settings")
     .model(TabModel("Settings"))
     .services(hub, dispatcher)

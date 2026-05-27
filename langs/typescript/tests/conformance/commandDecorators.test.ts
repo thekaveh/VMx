@@ -149,3 +149,27 @@ describe("CMDD-009", () => {
     expect(log).toEqual(["relay"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// DecoratorCommand exception handling (unit; not a conformance ID)
+// ---------------------------------------------------------------------------
+
+describe("DecoratorCommand postExecute on throw", () => {
+  it("runs postExecute even when inner throws", () => {
+    const log: string[] = [];
+    const throwing = RelayCommand.builder()
+      .task(() => {
+        throw new Error("boom");
+      })
+      .predicate(() => true)
+      .build();
+
+    const dec = new DecoratorCommand(throwing, {
+      preExecute: () => log.push("pre"),
+      postExecute: () => log.push("post"),
+    });
+
+    expect(() => dec.execute()).toThrow("boom");
+    expect(log).toEqual(["pre", "post"]);
+  });
+});

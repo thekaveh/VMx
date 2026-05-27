@@ -174,3 +174,24 @@ describe("SearchableState.dispose", () => {
     expect(completed).toBe(true);
   });
 });
+
+describe("SearchableState.searchTerm setter equality guard", () => {
+  it("skips no-op re-set (regression guard for SearchTerm equality check)", () => {
+    const items = ["apple", "banana"];
+    const s = new SearchableState<string>({
+      items: () => items,
+      predicate: ciSubstr,
+      debounceMs: 0,
+    });
+    const sink: string[][] = [];
+    s.filtered.subscribe((v) => sink.push([...v]));
+    const initial = sink.length;
+
+    s.searchTerm = "appl";
+    const afterFirst = sink.length;
+    expect(afterFirst).toBeGreaterThan(initial);
+
+    s.searchTerm = "appl"; // same value
+    expect(sink.length).toBe(afterFirst);
+  });
+});

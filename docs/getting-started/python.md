@@ -52,12 +52,20 @@ dispatcher = RxDispatcher.immediate()
 import asyncio
 from vmx.services import MessageHub, RxDispatcher
 
-loop = asyncio.get_event_loop()
-hub = MessageHub()
-dispatcher = RxDispatcher.asyncio(loop)
-# foreground → AsyncIOScheduler(loop)
-# background → ThreadPoolScheduler
+async def main() -> None:
+    loop = asyncio.get_running_loop()
+    hub = MessageHub()
+    dispatcher = RxDispatcher.asyncio(loop)
+    # foreground → AsyncIOScheduler(loop)
+    # background → ThreadPoolScheduler
+    ...
+
+asyncio.run(main())
 ```
+
+`asyncio.get_running_loop()` is preferred over `asyncio.get_event_loop()`,
+which has been a `DeprecationWarning` since Python 3.10 when no loop is
+running.
 
 You can also inject the two schedulers directly if you need a custom pairing:
 

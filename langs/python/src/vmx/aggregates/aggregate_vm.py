@@ -65,6 +65,11 @@ class AggregateVM1(Generic[V1], _ComponentVMBase):
         return self._component1
 
     def _on_construct(self) -> None:
+        # On Reconstruct, the previous slot instance is in Destructed state but
+        # still holds hub subscriptions and command Subjects. Dispose it before
+        # overwriting so subscribers don't leak across the Reconstruct boundary.
+        if self._component1 is not None:
+            self._component1.dispose()
         self._component1 = self._factory1()
         self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
         self._raise_property_changed("component_1")
@@ -121,6 +126,13 @@ class AggregateVM2(Generic[V1, V2], _ComponentVMBase):
         return self._component2
 
     def _on_construct(self) -> None:
+        # On Reconstruct, dispose previous slot instances before overwriting
+        # so their hub subscriptions and command Subjects don't leak.
+        if self._component1 is not None:
+            self._component1.dispose()
+        if self._component2 is not None:
+            self._component2.dispose()
+
         self._component1 = self._factory1()
         self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
         self._raise_property_changed("component_1")
@@ -194,6 +206,15 @@ class AggregateVM3(Generic[V1, V2, V3], _ComponentVMBase):
         return self._component3
 
     def _on_construct(self) -> None:
+        # On Reconstruct, dispose previous slot instances before overwriting
+        # so their hub subscriptions and command Subjects don't leak.
+        if self._component1 is not None:
+            self._component1.dispose()
+        if self._component2 is not None:
+            self._component2.dispose()
+        if self._component3 is not None:
+            self._component3.dispose()
+
         self._component1 = self._factory1()
         self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
         self._raise_property_changed("component_1")
@@ -283,6 +304,17 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _ComponentVMBase):
         return self._component4
 
     def _on_construct(self) -> None:
+        # On Reconstruct, dispose previous slot instances before overwriting
+        # so their hub subscriptions and command Subjects don't leak.
+        if self._component1 is not None:
+            self._component1.dispose()
+        if self._component2 is not None:
+            self._component2.dispose()
+        if self._component3 is not None:
+            self._component3.dispose()
+        if self._component4 is not None:
+            self._component4.dispose()
+
         self._component1 = self._factory1()
         self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
         self._raise_property_changed("component_1")
@@ -388,6 +420,19 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _ComponentVMBase):
         return self._component5
 
     def _on_construct(self) -> None:
+        # On Reconstruct, dispose previous slot instances before overwriting
+        # so their hub subscriptions and command Subjects don't leak.
+        if self._component1 is not None:
+            self._component1.dispose()
+        if self._component2 is not None:
+            self._component2.dispose()
+        if self._component3 is not None:
+            self._component3.dispose()
+        if self._component4 is not None:
+            self._component4.dispose()
+        if self._component5 is not None:
+            self._component5.dispose()
+
         self._component1 = self._factory1()
         self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
         self._raise_property_changed("component_1")

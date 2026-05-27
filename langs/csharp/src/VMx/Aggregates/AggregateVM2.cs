@@ -15,7 +15,7 @@ namespace VMx.Aggregates;
 /// </summary>
 /// <typeparam name="VM1">Type of the first component.</typeparam>
 /// <typeparam name="VM2">Type of the second component.</typeparam>
-public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1, VM2>
+public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1, VM2>, IAggregateSlots
     where VM1 : class, IComponentVM
     where VM2 : class, IComponentVM
 {
@@ -23,6 +23,12 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     private readonly Func<VM2> _factory2;
     private VM1? _component1;
     private VM2? _component2;
+
+    IEnumerable<IComponentVM> IAggregateSlots.EnumerateSlots()
+    {
+        if (_component1 is { } c1) yield return c1;
+        if (_component2 is { } c2) yield return c2;
+    }
 
     // ── IAggregateVM2<VM1, VM2> ─────────────────────────────────────────────
 
@@ -57,6 +63,11 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        // On Reconstruct, dispose previous slot instances before overwriting
+        // so their hub subscriptions and command Subjects don't leak.
+        _component1?.Dispose();
+        _component2?.Dispose();
+
         _component1 = _factory1();
         RaisePropertyChanged(nameof(Component1));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));

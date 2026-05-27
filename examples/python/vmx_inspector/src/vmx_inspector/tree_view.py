@@ -5,11 +5,11 @@ from __future__ import annotations
 from textual.widgets import Tree
 from textual.widgets.tree import TreeNode
 
-from vmx.components.base import _ComponentVMBase
+from vmx.components.protocols import ComponentVMProto
 from vmx.tree import walk
 
 
-def populate_tree(tree: Tree[_ComponentVMBase], root: _ComponentVMBase) -> None:
+def populate_tree(tree: Tree[ComponentVMProto], root: ComponentVMProto) -> None:
     """Fill *tree* with one node per VM in depth-first order.
 
     Each node label is ``name (Type, Status)``; its data is the VM instance.
@@ -20,26 +20,26 @@ def populate_tree(tree: Tree[_ComponentVMBase], root: _ComponentVMBase) -> None:
     tree.root.expand_all()
 
 
-def _node_label(vm: _ComponentVMBase) -> str:
+def _node_label(vm: ComponentVMProto) -> str:
     return f"{vm.name} ({vm.type.value}, {vm.status.name})"
 
 
 def _add_subtree(
-    parent_node: TreeNode[_ComponentVMBase],
-    vm: _ComponentVMBase,
-) -> TreeNode[_ComponentVMBase]:
+    parent_node: TreeNode[ComponentVMProto],
+    vm: ComponentVMProto,
+) -> TreeNode[ComponentVMProto]:
     node = parent_node.add(_node_label(vm), data=vm)
     if hasattr(vm, "__iter__"):
         try:
             for child in vm:
-                if isinstance(child, _ComponentVMBase):
+                if isinstance(child, ComponentVMProto):
                     _add_subtree(node, child)
         except TypeError:
             pass
     return node
 
 
-def refresh_node_label(node: TreeNode[_ComponentVMBase]) -> None:
+def refresh_node_label(node: TreeNode[ComponentVMProto]) -> None:
     """Update the label of *node* to reflect the VM's current state."""
     if node.data is not None:
         node.set_label(_node_label(node.data))

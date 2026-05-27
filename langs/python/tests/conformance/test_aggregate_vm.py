@@ -257,3 +257,40 @@ def test_AGG_005_arity2_destruct_waits_for_all_children() -> None:
     assert agg.component_1.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.component_2.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.status == ConstructionStatus.DESTRUCTED
+
+
+def test_aggregate_reconstruct_disposes_previous_slot() -> None:
+    """Regression: reconstruct() must dispose the previous _component1 before
+    overwriting it with fresh factory output. Without the guard, the
+    previous slot's hub subscriptions and Subjects would leak (commit
+    cdefcb1; C# parallel at 560be45). This is a unit-style test outside
+    the AGG-NNN conformance set.
+    """
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    agg = (
+        AggregateVMBuilder1()
+        .name("agg1")
+        .services(hub, dispatcher)
+        .component_1(lambda: _child(hub, dispatcher, "slot1"))
+        .build()
+    )
+
+    agg.construct()
+    first = agg.component_1
+    assert first is not None
+    assert first.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+
+    # reconstruct() destructs then re-constructs; with the parity fix in
+    # cdefcb1, the previous _component1 is disposed before the new
+    # factory output replaces it.
+    agg.reconstruct()
+
+    second = agg.component_1
+    assert second is not None
+    assert second is not first, "reconstruct must produce a fresh slot instance"
+    assert second.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert first.status == ConstructionStatus.DISPOSED, (  # type: ignore[union-attr]
+        "previous slot must be Disposed, not lingering in Destructed state"
+    )

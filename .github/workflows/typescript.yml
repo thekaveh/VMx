@@ -12,6 +12,7 @@ on:
       - "langs/typescript/**"
       - "spec/**"
       - ".github/workflows/typescript.yml"
+  workflow_dispatch:
 
 defaults:
   run:
@@ -25,7 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: ["20", "22"]
+        # 18 = engines floor declared in package.json; 20/22 exercise current LTS lines.
+        node-version: ["18", "20", "22"]
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +55,8 @@ jobs:
 
       - name: Test
         # On the matrix combination that uploads coverage, run with --coverage
-        # so coverage-final.json is generated for codecov.
+        # so coverage-final.json is generated for codecov. Coverage runs on
+        # Node 22 (the highest pinned node in the matrix).
         run: ${{ (matrix.os == 'ubuntu-latest' && matrix.node-version == '22') && 'npm run coverage' || 'npm test' }}
 
       - name: Upload coverage to Codecov

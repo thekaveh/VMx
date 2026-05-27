@@ -36,6 +36,10 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
   }
 
   protected override _onConstruct(): void {
+    // On Reconstruct, the previous slot instance is in Destructed state but
+    // still holds hub subscriptions and command Subjects. Dispose it before
+    // overwriting so subscribers don't leak across the Reconstruct boundary.
+    this.#component1?.dispose();
     this.#component1 = this.#factory1();
     this._hub.send(PropertyChangedMessage.create(this, this._name, "Component1"));
     this._raisePropertyChanged("component1");

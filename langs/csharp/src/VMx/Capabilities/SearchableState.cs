@@ -59,7 +59,13 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     public string SearchTerm
     {
         get => _termSubject.Value;
-        set => _termSubject.OnNext(value);
+        set
+        {
+            // Spec wording is "emission on a new value" — guard against no-op
+            // re-sets so debounce + recompute don't fire when nothing changed.
+            if (string.Equals(_termSubject.Value, value, StringComparison.Ordinal)) return;
+            _termSubject.OnNext(value);
+        }
     }
 
     /// <summary>Observable of the current filtered snapshot.</summary>

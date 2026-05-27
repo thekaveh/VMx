@@ -1,3 +1,4 @@
+using VMx.Aggregates;
 using VMx.Capabilities;
 using VMx.Components;
 
@@ -27,9 +28,9 @@ public static class Tree
                 foreach (var node in Walk(child))
                     yield return node;
         }
-        else
+        else if (root is IAggregateSlots agg)
         {
-            foreach (var slot in AggregateSlots(root))
+            foreach (var slot in agg.EnumerateSlots())
                 foreach (var node in Walk(slot))
                     yield return node;
         }
@@ -67,24 +68,11 @@ public static class Tree
                 foreach (var node in WalkExpanded(child))
                     yield return node;
         }
-        else
+        else if (root is IAggregateSlots agg)
         {
-            foreach (var slot in AggregateSlots(root))
+            foreach (var slot in agg.EnumerateSlots())
                 foreach (var node in WalkExpanded(slot))
                     yield return node;
-        }
-    }
-
-    // Enumerate Component1..Component5 on aggregate VMs via reflection, skipping nulls.
-    private static IEnumerable<IComponentVM> AggregateSlots(IComponentVM vm)
-    {
-        var type = vm.GetType();
-        for (var i = 1; i <= 5; i++)
-        {
-            var prop = type.GetProperty($"Component{i}");
-            if (prop is null) break;
-            if (prop.GetValue(vm) is IComponentVM child)
-                yield return child;
         }
     }
 }

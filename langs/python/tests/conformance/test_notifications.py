@@ -187,3 +187,32 @@ async def test_NOTIF_010_make_confirm_helper() -> None:
     )
     assert await confirm() is False
     sub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# resolve() thread-safety (unit; not a conformance ID)
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_is_thread_safe() -> None:
+    """resolve() may be called from a thread other than the event loop's.
+
+    Regression test: previously resolve() called asyncio.Future.set_result
+    directly, which is not thread-safe. The fix routes the call through
+    loop.call_soon_threadsafe; this test exercises the cross-thread path.
+    """
+    import threading
+
+    hub = NotificationHub()
+    n = Notification(NotificationType.NOTIFICATION, "info")
+    future = hub.post(n)
+
+    def worker() -> None:
+        hub.resolve(n, NotificationReaction.APPROVE)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    result = await future
+    t.join(timeout=1.0)
+    assert result == NotificationReaction.APPROVE

@@ -7,17 +7,18 @@ on:
       - "spec/**"
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
-      - "tools/check-conformance-coverage.py"
-      - "tools/tests/**"
+      - "langs/python/pyproject.toml"
+      - "tools/**"
       - ".github/workflows/conformance.yml"
   pull_request:
     paths:
       - "spec/**"
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
-      - "tools/check-conformance-coverage.py"
-      - "tools/tests/**"
+      - "langs/python/pyproject.toml"
+      - "tools/**"
       - ".github/workflows/conformance.yml"
+  workflow_dispatch:
 
 jobs:
   coverage:
@@ -35,6 +36,12 @@ jobs:
 
       - name: Sync Python dependencies (for pytest)
         run: uv --project langs/python sync --all-extras
+
+      - name: Ruff lint tools/
+        # The conformance-coverage tool lives at the repo root (outside the
+        # langs/python lint scope) but is CI-critical; lint it here so style
+        # regressions in this script don't slip past every other workflow.
+        run: uv --project langs/python run ruff check tools/
 
       - name: Run tool's own unit tests
         run: uv --project langs/python run pytest tools/tests/ -v

@@ -12,13 +12,12 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for spec v1.1 features:
-/// COMP-012, COMP-013 (CompositeVM), GRP-005, GRP-006 (GroupVM),
-/// and UTIL-001..003 (Tree utilities).
-/// See spec/06-composite-vm.md, spec/07-group-vm.md, spec/13-tree-utilities.md,
-/// and spec/12-conformance.md.
+/// Conformance tests for <see cref="VMx.Composites.CompositeVMBase{VM}.BatchUpdate"/>
+/// (COMP-012, COMP-013, GRP-005, GRP-006) and the <c>VMx.Tree</c> utilities
+/// (UTIL-001..003). See spec/06-composite-vm.md, spec/07-group-vm.md,
+/// spec/13-tree-utilities.md, and spec/12-conformance.md.
 /// </summary>
-public class SpecV1_1ConformanceTests
+public class BatchUpdateAndTreeUtilitiesConformanceTests
 {
     // ── Factory helpers ──────────────────────────────────────────────────────
 

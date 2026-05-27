@@ -16,7 +16,7 @@ namespace VMx.Aggregates;
 /// <typeparam name="VM1">Type of the first component.</typeparam>
 /// <typeparam name="VM2">Type of the second component.</typeparam>
 /// <typeparam name="VM3">Type of the third component.</typeparam>
-public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3<VM1, VM2, VM3>
+public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3<VM1, VM2, VM3>, IAggregateSlots
     where VM1 : class, IComponentVM
     where VM2 : class, IComponentVM
     where VM3 : class, IComponentVM
@@ -27,6 +27,13 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
     private VM1? _component1;
     private VM2? _component2;
     private VM3? _component3;
+
+    IEnumerable<IComponentVM> IAggregateSlots.EnumerateSlots()
+    {
+        if (_component1 is { } c1) yield return c1;
+        if (_component2 is { } c2) yield return c2;
+        if (_component3 is { } c3) yield return c3;
+    }
 
     // ── IAggregateVM3<VM1, VM2, VM3> ────────────────────────────────────────
 
@@ -66,6 +73,12 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        // On Reconstruct, dispose previous slot instances before overwriting
+        // so their hub subscriptions and command Subjects don't leak.
+        _component1?.Dispose();
+        _component2?.Dispose();
+        _component3?.Dispose();
+
         _component1 = _factory1();
         RaisePropertyChanged(nameof(Component1));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));

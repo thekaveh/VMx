@@ -64,6 +64,10 @@ class SearchableState(ISearchable, Generic[T]):
 
     @search_term.setter
     def search_term(self, value: str) -> None:
+        # Spec wording is "emission on a new value" — guard against no-op
+        # re-sets so debounce + recompute don't fire when nothing changed.
+        if value == self._term_subject.value:
+            return
         self._term_subject.on_next(value)
 
     @property
@@ -71,7 +75,9 @@ class SearchableState(ISearchable, Generic[T]):
         return self._filtered_subject
 
     def can_search(self) -> bool:
-        return any(True for _ in self._items_source())
+        # next(iter(...), None) materialises just one element instead of the
+        # whole sequence; matters for large items_source results.
+        return next(iter(self._items_source()), None) is not None
 
     def search(self) -> None:
         self._force_search.on_next(None)
@@ -86,5 +92,8 @@ class SearchableState(ISearchable, Generic[T]):
         self._disposed = True
         self._subscription.dispose()
         self._term_subject.on_completed()
+        self._term_subject.dispose()
         self._filtered_subject.on_completed()
+        self._filtered_subject.dispose()
         self._force_search.on_completed()
+        self._force_search.dispose()

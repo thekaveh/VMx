@@ -28,7 +28,7 @@ using VMx.Composites;
 using VMx.Services;
 
 var hub = new MessageHub();
-var dispatcher = RxDispatcher.Immediate();
+var dispatcher = RxDispatcher.Immediate();  // both schedulers = ImmediateScheduler.Instance
 
 public record TabModel(string Title);
 

@@ -9,7 +9,9 @@ in multiple language flavors with semantically equivalent behavior.
 ## 1. In scope
 
 - Hierarchical viewmodel types: `ComponentVM`, `ReadonlyComponentVM`, `CompositeVM`,
-  `GroupVM`, `AggregateVM<VM1..VM5>`, `ForwardingComponentVM`, `ForwardingCompositeVM`.
+  `GroupVM`, `AggregateVM<VM1..VM5>`.
+- Forwarding decorators that wrap an inner viewmodel without becoming new tree
+  nodes themselves: `ForwardingComponentVM`, `ForwardingCompositeVM`.
 - Lifecycle state machine: `Disposed`, `Destructing`, `Destructed`, `Constructing`,
   `Constructed`, with `Construct ↔ Destruct` reversibility and terminal `Disposed`.
 - Commands: `RelayCommand` with predicates and reactive triggers; parameterized

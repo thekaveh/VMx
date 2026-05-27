@@ -1,3 +1,4 @@
+using System.Reactive.Concurrency;
 using FluentAssertions;
 using Microsoft.Reactive.Testing;
 using VMx.Services;
@@ -15,5 +16,13 @@ public class RxDispatcherTests
         var d = new RxDispatcher(fg, bg);
         d.Foreground.Should().BeSameAs(fg);
         d.Background.Should().BeSameAs(bg);
+    }
+
+    [Fact]
+    public void Immediate_Uses_ImmediateScheduler_For_Both_Slots()
+    {
+        var d = RxDispatcher.Immediate();
+        d.Foreground.Should().BeSameAs(ImmediateScheduler.Instance);
+        d.Background.Should().BeSameAs(ImmediateScheduler.Instance);
     }
 }

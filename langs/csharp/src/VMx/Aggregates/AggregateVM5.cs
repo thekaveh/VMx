@@ -18,7 +18,7 @@ namespace VMx.Aggregates;
 /// <typeparam name="VM3">Type of the third component.</typeparam>
 /// <typeparam name="VM4">Type of the fourth component.</typeparam>
 /// <typeparam name="VM5">Type of the fifth component.</typeparam>
-public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAggregateVM5<VM1, VM2, VM3, VM4, VM5>
+public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAggregateVM5<VM1, VM2, VM3, VM4, VM5>, IAggregateSlots
     where VM1 : class, IComponentVM
     where VM2 : class, IComponentVM
     where VM3 : class, IComponentVM
@@ -35,6 +35,15 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     private VM3? _component3;
     private VM4? _component4;
     private VM5? _component5;
+
+    IEnumerable<IComponentVM> IAggregateSlots.EnumerateSlots()
+    {
+        if (_component1 is { } c1) yield return c1;
+        if (_component2 is { } c2) yield return c2;
+        if (_component3 is { } c3) yield return c3;
+        if (_component4 is { } c4) yield return c4;
+        if (_component5 is { } c5) yield return c5;
+    }
 
     // ── IAggregateVM5<VM1..VM5> ─────────────────────────────────────────────
 
@@ -84,6 +93,14 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        // On Reconstruct, dispose previous slot instances before overwriting
+        // so their hub subscriptions and command Subjects don't leak.
+        _component1?.Dispose();
+        _component2?.Dispose();
+        _component3?.Dispose();
+        _component4?.Dispose();
+        _component5?.Dispose();
+
         _component1 = _factory1();
         RaisePropertyChanged(nameof(Component1));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));

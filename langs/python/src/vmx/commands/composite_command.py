@@ -10,7 +10,6 @@ from typing import Any
 
 import reactivex as rx
 from reactivex import Observable
-from reactivex.abc import DisposableBase
 
 from vmx.commands.protocols import Command
 
@@ -25,7 +24,6 @@ class CompositeCommand:
 
     def __init__(self, *inner: Command) -> None:
         self._inner: Sequence[Command] = inner
-        self._subscriptions: list[DisposableBase] = []
         self._disposed = False
         self._can_execute_changed: Observable[None]
         if not inner:
@@ -46,10 +44,12 @@ class CompositeCommand:
                 c.execute(parameter)
 
     def dispose(self) -> None:
-        """Dispose internal subscriptions. Idempotent."""
-        if self._disposed:
-            return
+        """Mark the composite as disposed. Idempotent.
+
+        No internal subscriptions are held: ``can_execute_changed`` is a
+        lazy ``rx.merge`` of the inner streams. Subscribers' own
+        disposables tear down the merged subscription chain when they
+        unsubscribe; the composite itself owns nothing to release.
+        Provided for API symmetry with the C# IDisposable surface.
+        """
         self._disposed = True
-        for s in self._subscriptions:
-            s.dispose()
-        self._subscriptions.clear()

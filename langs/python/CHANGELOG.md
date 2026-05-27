@@ -6,6 +6,43 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+### Fixed
+
+- `CompositeVM.__setitem__` now clears `current` to None when the
+  replaced slot held the current selection, mirroring `_remove_at`.
+  Previously `_current` would silently dangle on the removed child.
+- `AggregateVM1.._on_construct` now disposes the previous slot
+  instance before invoking the factory on Reconstruct, so the old
+  VM's hub subscriptions and command Subjects are released instead of
+  lingering until the hub itself is disposed. (Parity with the C# fix.)
+- `NotificationHub.resolve()` now schedules `future.set_result` via
+  `loop.call_soon_threadsafe`, making `resolve()` safe to call from a
+  thread other than the future's owning event loop (`asyncio.Future`
+  itself is not thread-safe).
+- `CompositeCommand.dispose()` no longer iterates a permanently-empty
+  `_subscriptions` list (dead state). The merged `can_execute_changed`
+  observable is lazy; subscribers' own disposables tear down the
+  merged chain when they unsubscribe.
+- `SearchableState.search_term` setter no longer pushes the new value
+  through the debounce/recompute pipeline when it equals the current
+  value (spec wording: "emission on a new value").
+- `SearchableState.can_search` now uses `next(iter(...), None) is not None`
+  instead of `any(True for _ in ...)`, materialising one element
+  instead of the entire iterable.
+- `DecoratorCommand.execute` now wraps the inner `execute` call in
+  try/finally so the `post_execute` callback always runs — a "busy"
+  flag set in `pre_execute` no longer gets stuck when the inner
+  command raises.
+
+### Changed
+
+- `DerivedProperty`, `SearchableState`, and `ExpandableState` `dispose()`
+  methods now call `.dispose()` after `.on_completed()` on each Subject,
+  matching the project-wide pattern in `MessageHub` and `RelayCommand`.
+- `properties.derived._apply` uses `cast()` instead of
+  `assert isinstance(values, tuple)` so the runtime guard is not
+  stripped by `python -O`.
+
 ## [2.0.0] — 2026-05-25
 
 Implements spec v2.0.0 — capability micro-interfaces, derived properties,
@@ -13,10 +50,13 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
-- **Capabilities** (`vmx.capabilities`): 20 opt-in micro-interfaces
-  (`ISearchable`, `IExpandable`, `ICollapsible`, `IExpansionTogglable`,
-  `IDirty`, `IDisposable`, `IBusy`, `IValidatable`, etc.) so consumers can
-  type-check VMs against narrow contracts.
+- **Capabilities** (`vmx.capabilities`): 20 opt-in micro-interfaces —
+  `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
+  `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
+  `IApprovable`, `ICancelable`, `INewCreatable`, `IDeletable`,
+  `IUpdatable`, `ISavable`, `ICurrentDeletable`, `ICurrentUpdatable`,
+  `IManagable`, `IConstructable`, `IDestructable`, `IReconstructable`
+  (see `src/vmx/capabilities/`).
 - **Helpers** (`vmx.capabilities`): `SearchableState[TItem]` (debounced
   filter), `ExpandableState` (expand/collapse + observable change).
 - **Derived properties** (`vmx.properties`): `DerivedProperty[TValue]` +

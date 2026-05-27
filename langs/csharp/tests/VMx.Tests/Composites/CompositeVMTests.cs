@@ -489,6 +489,43 @@ public class CompositeVMTests
         composite[1].Should().BeSameAs(c2);
     }
 
+    [Fact]
+    public void Indexer_Setter_Replacing_Current_Clears_Current()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var oldChild = BuildChild(hub, dispatcher, "old");
+        var newChild = BuildChild(hub, dispatcher, "new");
+        composite.Add(oldChild);
+        oldChild.Construct();
+        composite.Current = oldChild;
+
+        composite[0] = newChild;
+
+        composite.Current.Should().BeNull(
+            "current must be cleared when the slot holding it is replaced");
+        composite[0].Should().BeSameAs(newChild);
+        oldChild.Parent.Should().BeNull();
+        newChild.Parent.Should().BeSameAs(composite);
+    }
+
+    [Fact]
+    public void Indexer_Setter_Replacing_Non_Current_Leaves_Current_Intact()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var other = BuildChild(hub, dispatcher, "other");
+        var sticky = BuildChild(hub, dispatcher, "sticky");
+        var replacement = BuildChild(hub, dispatcher, "replacement");
+        composite.Add(other);
+        composite.Add(sticky);
+        sticky.Construct();
+        composite.Current = sticky;
+
+        composite[0] = replacement;  // replace `other`, not `sticky`
+
+        composite.Current.Should().BeSameAs(sticky,
+            "current must survive when a different slot is replaced");
+    }
+
     // ── Contains / IndexOf ────────────────────────────────────────────────────
 
     [Fact]

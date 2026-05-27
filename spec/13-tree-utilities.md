@@ -94,3 +94,9 @@ of the VM tree without writing their own descent logic.
 - `walk` yields root, then every descendant, in DFS pre-order
 - `walk` skips empty aggregate slots
 - `find` returns the first matching node and short-circuits
+- `walk_expanded` walks the tree but stops descent at every node whose
+  `IExpandable.IsExpanded` is `false` (collapsed nodes contribute themselves
+  but none of their descendants)
+- `ExpandableState` provides default values, `Expand`/`Collapse`/`Toggle`
+  operations, and a `Changes` observable, idempotent under repeat
+  Expand/Collapse

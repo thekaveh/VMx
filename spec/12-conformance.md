@@ -883,9 +883,11 @@ contract as a safe no-op per ADR-0017.
 **Then** the action executes synchronously on the calling thread
 **And** by the time the schedule call returns, the action has completed
 
-### NULL-003 — Null-object convention is satisfied for every core service contract
+### NULL-003 — Null-object convention is satisfied for the base core service contracts
 
-**Given** the set of core service contracts: `IMessageHub`, `IDispatcher`
+**Given** the set of base-package core service contracts: `IMessageHub`,
+`IDispatcher` (sub-package contracts `INotificationHub` and `ILocalizer` are
+covered by NOTIF-009 and LOC-002 respectively, not by this ID)
 **When** the flavor's public surface is inspected
 **Then** each contract has a paired null variant (`NullMessageHub`,
 `NullDispatcher`) reachable from the public surface

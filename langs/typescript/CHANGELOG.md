@@ -5,6 +5,35 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Re-exports of `IBatchable` (collections) and `IParentVM` (components)
+  from the main `vmx` barrel for parity with the rest of the public
+  surface — previously only reachable via deep sub-path imports.
+- `tree/index.ts` re-exports `walkExpanded` alongside `walk` and `find`
+  for sub-index completeness.
+
+### Fixed
+
+- `CompositeVMBase.setAt` now clears `current` to null when the
+  replaced slot held the current selection, mirroring `removeAt`.
+- `AggregateVM1..5._onConstruct` now disposes the previous slot
+  instance before invoking the factory on Reconstruct, so the old
+  VM's hub subscriptions and command Subjects are released instead of
+  lingering until the hub itself is disposed. (Parity with the C# fix.)
+- `SearchableState.searchTerm` setter no longer pushes the new value
+  through the debounce/recompute pipeline when it equals the current
+  value (spec wording: "emission on a new value").
+- `DecoratorCommand.execute` now wraps the inner `execute` call in
+  try/finally so the `postExecute` callback always runs — a "busy"
+  flag set in `preExecute` no longer gets stuck when the inner
+  command throws.
+- `AggregateVM4Builder.build()` / `AggregateVM5Builder.build()` now
+  throw per-field `BuilderValidationError("componentN")` for the first
+  missing slot, matching the arity-1/2/3 builders. Previously they
+  collapsed into a single generic `"components"` error, so consumers
+  could not programmatically distinguish which slot was missing.
+
 ## [2.0.0] — 2026-05-25
 
 Implements spec v2.0.0 — capability micro-interfaces, derived properties,
@@ -12,14 +41,19 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
-- **Capabilities** (`vmx`): 20 opt-in micro-interfaces (`ISearchable`,
-  `IExpandable`, `ICollapsible`, `IExpansionTogglable`, `IDirty`,
-  `IDisposable`, `IBusy`, `IValidatable`, etc.).
+- **Capabilities** (`vmx`): 20 opt-in micro-interfaces —
+  `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
+  `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
+  `IApprovable`, `ICancelable`, `INewCreatable`, `IDeletable`,
+  `IUpdatable`, `ISavable`, `ICurrentDeletable`, `ICurrentUpdatable`,
+  `IManagable`, `IConstructable`, `IDestructable`, `IReconstructable`
+  (see `src/capabilities/registry.ts`).
 - **Helpers** (`vmx`): `SearchableState<TItem>` (real `debounceTime`,
   trailing-edge), `ExpandableState`.
 - **Derived properties** (`vmx`): `DerivedProperty<TValue>` plus a
   `fromSources(sources, transform, opts?)` factory for N-source
-  computed values with `distinctUntilChanged` + optional write-back.
+  computed values, value-equality guard via `Object.is`, optional
+  write-back.
 - **Commands**: `ConfirmationDecoratorCommand` + the abstract
   `DecoratorCommand` base, `makeConfirm` helper, `ModeledCrudCommands<M, VM>`
   (M is a phantom type parameter mirroring the spec contract — see ADR-0016).

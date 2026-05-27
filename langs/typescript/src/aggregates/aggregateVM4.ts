@@ -43,6 +43,13 @@ export class AggregateVM4<
   get component4(): VM4 | null { return this.#component4; }
 
   protected override _onConstruct(): void {
+    // On Reconstruct, dispose previous slot instances before overwriting
+    // so their hub subscriptions and command Subjects don't leak.
+    this.#component1?.dispose();
+    this.#component2?.dispose();
+    this.#component3?.dispose();
+    this.#component4?.dispose();
+
     this.#component1 = this.#factory1();
     this._hub.send(PropertyChangedMessage.create(this, this._name, "Component1"));
     this._raisePropertyChanged("component1");
@@ -124,8 +131,10 @@ export class AggregateVM4Builder<
   build(): AggregateVM4<VM1, VM2, VM3, VM4> {
     if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
-    if (this.#factory1 === SENTINEL || this.#factory2 === SENTINEL || this.#factory3 === SENTINEL || this.#factory4 === SENTINEL)
-      throw new BuilderValidationError("components", "all component factories are required");
+    if (this.#factory1 === SENTINEL) throw new BuilderValidationError("component1");
+    if (this.#factory2 === SENTINEL) throw new BuilderValidationError("component2");
+    if (this.#factory3 === SENTINEL) throw new BuilderValidationError("component3");
+    if (this.#factory4 === SENTINEL) throw new BuilderValidationError("component4");
     const factory1 = this.#factory1;
     const factory2 = this.#factory2;
     const factory3 = this.#factory3;
