@@ -80,8 +80,9 @@ public class ModeledCrudCommandsTests
         crud.Dispose();
 
         // Exercise every command's full surface (event subscribe, CanExecute,
-        // Execute) post-dispose to mirror the Python/TS sub_a/sub_b/sub_c
-        // coverage that verifies completion on all three streams.
+        // Execute) post-dispose. This adapts the Python/TS coverage that
+        // checks completion on all three command streams to C# event
+        // semantics, where the equivalent contract is "always safe to call".
         foreach (var cmd in new[]
                  {
                      crud.CreateNewCommand, crud.UpdateCurrentCommand, crud.DeleteCurrentCommand,
