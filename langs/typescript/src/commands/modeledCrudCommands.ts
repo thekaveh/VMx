@@ -24,6 +24,10 @@ export class ModeledCrudCommands<VM> {
   readonly updateCurrentCommand: ICommand;
   readonly deleteCurrentCommand: ICommand;
 
+  // Inner RelayCommands hold trigger subscriptions; track them so dispose()
+  // can tear them down (parity with C# ModeledCrudCommands.Dispose).
+  readonly #innerRelays: readonly RelayCommand[];
+
   constructor(opts: ModeledCrudCommandsOptions<VM>) {
     const create = RelayCommand.builder().task(opts.createNew).build();
     const update = RelayCommand.builder()
@@ -41,6 +45,8 @@ export class ModeledCrudCommands<VM> {
       .predicate(() => opts.current() != null)
       .build();
 
+    this.#innerRelays = [create, update, remove];
+
     this.createNewCommand = create;
     this.updateCurrentCommand = opts.confirmUpdate
       ? new ConfirmationDecoratorCommand(update, opts.confirmUpdate)
@@ -48,5 +54,10 @@ export class ModeledCrudCommands<VM> {
     this.deleteCurrentCommand = opts.confirmDelete
       ? new ConfirmationDecoratorCommand(remove, opts.confirmDelete)
       : remove;
+  }
+
+  /** Dispose the underlying RelayCommands and their trigger subscriptions. */
+  dispose(): void {
+    for (const cmd of this.#innerRelays) cmd.dispose();
   }
 }

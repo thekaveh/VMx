@@ -50,6 +50,10 @@ class ModeledCrudCommands(Generic[M, VM]):
             RelayCommand.builder().task(_do_delete).predicate(lambda: current() is not None).build()
         )
 
+        # Inner RelayCommands hold trigger subscriptions; track them so dispose()
+        # can tear them down (parity with C# ModeledCrudCommands.Dispose).
+        self._inner_relays = (create, update, delete)
+
         self.create_new_command = create
         self.update_current_command = (
             ConfirmationDecoratorCommand(update, confirm=confirm_update)
@@ -61,3 +65,8 @@ class ModeledCrudCommands(Generic[M, VM]):
             if confirm_delete is not None
             else delete
         )
+
+    def dispose(self) -> None:
+        """Dispose the underlying RelayCommands and their trigger subscriptions."""
+        for cmd in self._inner_relays:
+            cmd.dispose()
