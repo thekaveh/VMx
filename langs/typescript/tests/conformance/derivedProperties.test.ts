@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { BehaviorSubject } from "rxjs";
 import { describe, expect, it } from "vitest";
 
-import { deriveFromSources } from "../../src/properties/index.js";
+import { fromSources } from "../../src/properties/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, "..", "..", "src", "fixtures");
@@ -21,7 +21,7 @@ function loadFixture<T = unknown>(filename: string): T {
 describe("DPROP-001", () => {
   it("single-source derived value computes on construction", () => {
     const s1 = new BehaviorSubject<number>(10);
-    const dp = deriveFromSources<number>([s1], (...vs) =>
+    const dp = fromSources<number>([s1], (...vs) =>
       (vs[0] as number) * 2,
     );
     expect(dp.value).toBe(20);
@@ -32,7 +32,7 @@ describe("DPROP-001", () => {
 describe("DPROP-002", () => {
   it("source change triggers recompute", () => {
     const s1 = new BehaviorSubject<number>(10);
-    const dp = deriveFromSources<number>([s1], (...vs) =>
+    const dp = fromSources<number>([s1], (...vs) =>
       (vs[0] as number) * 2,
     );
     s1.next(5);
@@ -45,7 +45,7 @@ describe("DPROP-003", () => {
   it("two-source derived value", () => {
     const s1 = new BehaviorSubject<number>(3);
     const s2 = new BehaviorSubject<number>(4);
-    const dp = deriveFromSources<number>(
+    const dp = fromSources<number>(
       [s1, s2],
       (a, b) => (a as number) + (b as number),
     );
@@ -60,7 +60,7 @@ describe("DPROP-004", () => {
   it("five-source derived value (spec minimum)", () => {
     const subjects: BehaviorSubject<number>[] = [];
     for (let i = 0; i < 5; i++) subjects.push(new BehaviorSubject(i + 1));
-    const dp = deriveFromSources<number>(subjects, (...vs) =>
+    const dp = fromSources<number>(subjects, (...vs) =>
       (vs as number[]).reduce((a, b) => a + b, 0),
     );
     expect(dp.value).toBe(15);
@@ -72,7 +72,7 @@ describe("DPROP-005", () => {
   it("mutation of any source recomputes", () => {
     const subjects: BehaviorSubject<number>[] = [];
     for (let i = 0; i < 5; i++) subjects.push(new BehaviorSubject(i + 1));
-    const dp = deriveFromSources<number>(subjects, (...vs) =>
+    const dp = fromSources<number>(subjects, (...vs) =>
       (vs as number[]).reduce((a, b) => a + b, 0),
     );
     subjects[2]!.next(30);
@@ -84,7 +84,7 @@ describe("DPROP-005", () => {
 describe("DPROP-006", () => {
   it("default-built derived property is read-only", () => {
     const s1 = new BehaviorSubject<number>(1);
-    const dp = deriveFromSources<number>([s1], (...vs) => vs[0] as number);
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number);
     for (const v of [0, 1, 42, -7]) {
       expect(dp.canSet(v)).toBe(false);
     }
@@ -96,7 +96,7 @@ describe("DPROP-007", () => {
   it("validator + write-back enables setValue", () => {
     const s1 = new BehaviorSubject<number>(0);
     const recorder: number[] = [];
-    const dp = deriveFromSources<number>([s1], (...vs) => vs[0] as number, {
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number, {
       canSet: (v) => v > 0,
       setAction: (v) => recorder.push(v),
     });
@@ -112,7 +112,7 @@ describe("DPROP-008", () => {
   it("write-back action receives the value", () => {
     const s1 = new BehaviorSubject<number>(0);
     const recorder: number[] = [];
-    const dp = deriveFromSources<number>([s1], (...vs) => vs[0] as number, {
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number, {
       canSet: () => true,
       setAction: (v) => recorder.push(v),
     });
@@ -125,7 +125,7 @@ describe("DPROP-008", () => {
 describe("DPROP-009", () => {
   it("valueChanged emits on recompute", () => {
     const s1 = new BehaviorSubject<number>(1);
-    const dp = deriveFromSources<number>([s1], (...vs) => vs[0] as number);
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number);
     const observed: number[] = [];
     const sub = dp.valueChanged.subscribe((v) => observed.push(v));
     s1.next(2);
@@ -140,7 +140,7 @@ describe("DPROP-010", () => {
   it("valueChanged does not emit when transform output unchanged", () => {
     const s1 = new BehaviorSubject<number>(5);
     const s2 = new BehaviorSubject<number>(5);
-    const dp = deriveFromSources<number>(
+    const dp = fromSources<number>(
       [s1, s2],
       (a, b) => (a as number) + (b as number),
     );
@@ -159,7 +159,7 @@ describe("DPROP-010", () => {
 describe("DPROP-011", () => {
   it("dispose ends subscriptions; valueChanged completes", () => {
     const s1 = new BehaviorSubject<number>(1);
-    const dp = deriveFromSources<number>([s1], (...vs) => vs[0] as number);
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number);
     const observed: number[] = [];
     let completed = false;
     const sub = dp.valueChanged.subscribe({
@@ -175,6 +175,15 @@ describe("DPROP-011", () => {
     s1.next(3);
     expect(dp.value).toBe(2);
     sub.unsubscribe();
+  });
+
+  // Dispose path — not a conformance ID, but a regression guard for the
+  // _disposed idempotence guard. Mirrors the Python test.
+  it("dispose is idempotent", () => {
+    const s1 = new BehaviorSubject<number>(1);
+    const dp = fromSources<number>([s1], (...vs) => vs[0] as number);
+    dp.dispose();
+    expect(() => dp.dispose()).not.toThrow();
   });
 });
 
@@ -203,7 +212,7 @@ describe("DPROP-012", () => {
       const subjects = scenario.sources_initial.map(
         (v) => new BehaviorSubject<unknown>(v),
       );
-      const dp = deriveFromSources<unknown>(subjects, transform);
+      const dp = fromSources<unknown>(subjects, transform);
       const actuals: unknown[] = [dp.value];
       for (const [idx, val] of scenario.mutations) {
         subjects[idx]!.next(val);

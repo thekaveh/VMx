@@ -3,7 +3,7 @@
 VMx commands implement an `ICommand`-style interface and use Rx for reactive
 re-evaluation of `CanExecute`.
 
-## Command contract
+## 1. Command contract
 
 ```
 ICommand:
@@ -21,7 +21,7 @@ ICommand<T>:
     CanExecuteChanged : event  / IObservable<Unit>
 ```
 
-## Predicate semantics
+## 2. Predicate semantics
 
 A command is built with an optional `predicate` (`() -> bool` or `(T) -> bool`):
 
@@ -30,7 +30,7 @@ A command is built with an optional `predicate` (`() -> bool` or `(T) -> bool`):
 - The predicate MUST NOT raise. If it does, the language flavor MAY treat the result
   as `false` (defensive) but MUST NOT propagate the exception to the caller.
 
-## Task semantics
+## 3. Task semantics
 
 A command is built with an optional `task` (`() -> void` / `Action` or `(T) -> void`):
 
@@ -41,7 +41,7 @@ A command is built with an optional `task` (`() -> void` / `Action` or `(T) -> v
 - The task MUST NOT raise; if it does, the exception propagates to the caller of
   `Execute`. The exception is the application's responsibility, not the command's.
 
-## Triggers
+## 4. Triggers
 
 A command MAY be built with one or more `triggers` (`IObservable<Unit>`). On each
 emission of any trigger, the command:
@@ -53,7 +53,7 @@ Triggers do NOT carry data — only the fact that re-evaluation should happen. T
 typical pattern: derive a trigger from a property's change stream
 (`vm.Status.Where(s => s == Constructed).Select(_ => Unit.Default)`).
 
-## RelayCommand
+## 5. RelayCommand
 
 `RelayCommand` is the concrete `ICommand` implementation, built via a fluent
 immutable builder:
@@ -68,7 +68,7 @@ RelayCommand.Builder()
 
 `RelayCommand<T>` follows the same pattern with parameterized predicate/task.
 
-## Builder semantics
+## 6. Builder semantics
 
 - Setters return a NEW builder instance (immutability).
 - `Triggers` is additive: multiple `.Triggers(obs)` calls combine all observables
@@ -76,20 +76,20 @@ RelayCommand.Builder()
 - `Build()` succeeds even with no task, no predicate, and no triggers (yielding a
   command whose `CanExecute` returns `true` and whose `Execute` is a no-op).
 
-## Fixture
+## 7. Fixture
 
 `fixtures/command-truthtable.json` encodes five canonical command configurations that
 `CMD-NNN` conformance tests load. Each row encodes: predicate value, task presence,
 trigger behavior, expected `CanExecute` return, whether `Execute` invokes the task,
 and whether `CanExecuteChanged` fires.
 
-## Decorators (spec v2.0)
+## 8. Decorators (spec v2.0)
 
 Three decorator commands wrap one or more inner commands, layering additional
 behavior on top. All three implement `ICommand` and may themselves be composed
 arbitrarily.
 
-### `CompositeCommand`
+### 8.1 `CompositeCommand`
 
 Aggregates N inner commands. The composite's behavior:
 
@@ -99,7 +99,7 @@ Aggregates N inner commands. The composite's behavior:
   Inner commands whose `CanExecute` returns `false` are skipped.
 - `CanExecuteChanged` fires on any inner command's `CanExecuteChanged`.
 
-### `DecoratorCommand`
+### 8.2 `DecoratorCommand`
 
 Wraps a single inner command, layering pre/post actions and an extra can-execute
 gate.
@@ -112,7 +112,7 @@ gate.
   1. Invokes the optional post-execution action.
 - `CanExecuteChanged` fires when `inner.CanExecuteChanged` fires.
 
-### `ConfirmationDecoratorCommand`
+### 8.3 `ConfirmationDecoratorCommand`
 
 Wraps a single inner command, gating `Execute` on a user-confirmation delegate.
 
@@ -126,7 +126,7 @@ Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
 depend on the notification service (cycle 5). Consumers may bridge it to
 `INotificationHub` via an optional helper in the notifications sub-package.
 
-## Conformance
+## 9. Conformance
 
 `CMD-001` through `CMD-007` and `CMDD-001` through `CMDD-009` in `12-conformance.md`
 cover:

@@ -10,7 +10,7 @@ Derived properties are the modern equivalent of the 2012 VMx
 ADR-0011, the v2.0 contract supports **N sources** (with N ≥ 5 required of
 every flavor).
 
-## Shape
+## 1. Shape
 
 ```
 DerivedProperty<TValue>:
@@ -27,7 +27,7 @@ DerivedProperty<TValue>:
 emitted on `ValueChanged` **only if** it differs (by `==` semantics per
 language) from the previous value (distinct-until-changed).
 
-## Construction
+## 2. Construction
 
 A derived property is built from:
 
@@ -46,7 +46,7 @@ A factory per flavor provides the canonical build entry point. The factory
 takes a sequence of sources and a transform; validator and write-back are
 added via chained builder methods.
 
-## Source semantics
+## 3. Source semantics
 
 Sources are plain `Observable<T>` instances. A common pattern is to derive a
 source from the message hub:
@@ -63,7 +63,7 @@ The spec does not prescribe how sources are created; it only requires that
 the transform receive each source's most recent value at the moment any
 source emits.
 
-## Lifecycle
+## 4. Lifecycle
 
 A derived property holds one or more subscriptions to its sources. These
 remain active until `Dispose()` is called. Consumers SHOULD treat derived
@@ -78,7 +78,7 @@ When `Dispose()` is called:
 - Subsequent calls to `SetValue` are no-ops (or raise — implementation
   defined; the spec only forbids further emissions on `ValueChanged`).
 
-## Write-back
+## 5. Write-back
 
 If both a validator and a write-back action are configured, `SetValue(v)`:
 
@@ -90,7 +90,7 @@ The write-back action is responsible for propagating `v` to the source(s).
 The next emission from that source flows through the transform and updates
 `Value`. The derived property does NOT short-circuit the source path.
 
-## Distinct-until-changed
+## 6. Distinct-until-changed
 
 Emission on `ValueChanged` is gated by equality. The exact semantics:
 
@@ -102,7 +102,7 @@ If equal, the new value still replaces `Value`, but no `ValueChanged`
 emission is published. The semantics match the existing
 `PROP-002` rule for VM properties.
 
-## Fixture
+## 7. Fixture
 
 `fixtures/derived-properties.json` encodes scenarios the `DPROP-NNN` tests
 load. Each scenario has:
@@ -113,7 +113,7 @@ load. Each scenario has:
 - `mutations`: ordered `(source_index, new_value)` events.
 - `expected_values`: the expected `Value` after each mutation.
 
-## Conformance
+## 8. Conformance
 
 `DPROP-001` through `DPROP-012` in `12-conformance.md` cover:
 
@@ -124,7 +124,10 @@ load. Each scenario has:
 - Mutation of any source recomputes
 - Default-built derived property is read-only (`CanSet` returns false)
 - Validator + write-back enables `SetValue`
+- Write-back action receives the value
 - `ValueChanged` emits on recompute
-- `ValueChanged` does NOT emit if recomputed value equals previous
+- `ValueChanged` does NOT emit if recomputed value equals previous (the
+  equality operator is per-flavor — see ADR-0009 row
+  "`DerivedProperty` distinct-emit")
 - `Dispose` ends subscriptions and `ValueChanged` completes
 - Fixture-driven scenarios

@@ -2,7 +2,7 @@
 
 Two self-contained demos of the [VMx C# package](../../langs/csharp/).
 
-## Setup
+## 1. Setup
 
 Each project carries its own `.csproj` and resolves `VMx` either from the
 local source build (when run from this repository) or from
@@ -14,7 +14,7 @@ dotnet restore
 
 ---
 
-## Example 1 — `HelloVMx/` (console)
+## 2. Example 1 — `HelloVMx/` (console)
 
 Minimal console demo. Demonstrates:
 
@@ -35,7 +35,7 @@ Cross-platform — runs anywhere the .NET SDK runs.
 
 ---
 
-## Example 2 — `WpfTodoApp/` (WPF + MVVM)
+## 3. Example 2 — `WpfTodoApp/` (WPF + MVVM)
 
 Full MVVM todo app using WPF data binding. Demonstrates:
 
@@ -58,12 +58,12 @@ launches on Windows because of the WPF target.
 
 ---
 
-## IDE workflow
+## 4. IDE workflow
 
 Open `Examples.sln` in Visual Studio or Rider to step through both
 projects with the debugger attached.
 
-## Project layout
+## 5. Project layout
 
 ```
 examples/csharp/

@@ -6,6 +6,43 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-05-25
+
+Implements spec v2.0.0 — capability micro-interfaces, derived properties,
+search/filter, expand/collapse, modeled-CRUD commands, null-object services,
+opt-in notifications sub-package, and a localization hook.
+
+### Added
+- **Capabilities** (`VMx.Capabilities`): 20 opt-in micro-interfaces
+  (`ISearchable`, `IExpandable`, `ICollapsible`, `IExpansionTogglable`,
+  `IDirty`, `IDisposable`, `IBusy`, `IValidatable`, etc.).
+- **Helpers** (`VMx.Capabilities`): `SearchableState<TItem>` (trailing-edge
+  debounce, configurable scheduler), `ExpandableState`.
+- **Derived properties** (`VMx.Properties`): `DerivedProperty<TValue>` plus
+  strongly-typed `From<T1..T5,TValue>` overloads and an untyped `FromMany`
+  for arbitrary N.
+- **Commands**: `ConfirmationDecoratorCommand` + the abstract `DecoratorCommand`
+  base, `MakeConfirm` helper, `ModeledCrudCommands<M, VM>` for the CRUD trio.
+- **Null-object services** (per ADR-0017): `NullMessageHub`, `NullDispatcher`,
+  `NullLocalizer`, plus `NullNotificationHub` (in the notifications package).
+- **Localization** (`VMx.Localization`): `ILocalizer` interface and
+  `NullLocalizer` (identity translator).
+- **Notifications sub-package** (`VMx.Notifications`, separate NuGet package,
+  versioned independently per ADR-0013): `Notification`, `NotificationType`,
+  `NotificationReaction`, `INotificationHub` + `NotificationHub` reference
+  impl + `NullNotificationHub`.
+- **Tree utilities**: `Tree.WalkExpanded(root)` variant that descends only
+  into expanded composites.
+- **Conformance**: 77 new IDs added (total 152).
+
+### Internal
+- `BuilderValidationException.Require([NotNull])` rolled out to the new
+  v2.0 builders (CRUD, expandable, searchable, derived) for consistent
+  null-check shapes.
+- All v2.0 helpers (`SearchableState`, `ModeledCrudCommands`,
+  `DerivedProperty`, `ExpandableState`) implement `IDisposable` and are
+  idempotent.
+
 ## [1.2.0] — 2026-05-23
 
 ### Added

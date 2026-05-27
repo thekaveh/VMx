@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-23)
 **Spec version:** introduced in 1.1.0
 
-## Context
+## 1. Context
 
 `IComponentVM` in the C# flavor exposes three async lifecycle entry points
 alongside the synchronous ones:
@@ -22,12 +22,12 @@ The Python and TypeScript flavors do not expose async equivalents. The
 question is whether to add them for parity or to document the asymmetry as
 intentional.
 
-## Decision
+## 2. Decision
 
 The async wrappers ship in the C# flavor only. They are not part of the
 language-neutral spec and are not required for cross-flavor parity.
 
-## Rationale
+## 3. Rationale
 
 - **No new lifecycle semantics.** `Background(true)` already drives
   asynchronous construction on every flavor; `ConstructAsync` is purely a
@@ -40,12 +40,12 @@ language-neutral spec and are not required for cross-flavor parity.
   subscription in two or three lines. Adding a static convenience here
   would either pick a winner among multiple equally-idiomatic patterns or
   introduce a thin wrapper that consumers can write themselves.
-- **Cross-flavor conformance does not require them.** The 75-ID conformance
+- **Cross-flavor conformance does not require them.** The 152-ID conformance
   catalog tests observable behavior (state transitions, hub emissions,
   collection events); it does not test the calling convention of the
   trigger.
 
-## Consequences
+## 4. Consequences
 
 - Consumers wanting "await until Constructed" in Python or TypeScript
   subscribe to `hub.messages` filtered on
@@ -56,7 +56,7 @@ language-neutral spec and are not required for cross-flavor parity.
 - ADR-0006 ("idiomatic API per language") is the parent rationale. This
   ADR is a specific application of that principle.
 
-## Rejected alternatives
+## 5. Rejected alternatives
 
 - **Adding `construct_async()` / `constructAsync()` to Python and
   TypeScript.** Workable but each language has multiple plausible patterns

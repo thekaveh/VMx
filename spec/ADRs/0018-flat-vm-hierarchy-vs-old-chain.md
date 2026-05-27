@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** 2.0.0 (teaching ADR; no code change)
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor stacked a deep inheritance chain:
 
@@ -43,12 +43,12 @@ The absorption goal asked for "best-effort" capture of the predecessor's
 philosophy. This ADR is that capture — a teaching note explaining what was
 intentionally NOT brought forward and why.
 
-## Decision
+## 2. Decision
 
 The flat hierarchy is the v2.0 baseline. The chain is documented here for
 historical reference; no code change accompanies this ADR.
 
-### What we did NOT bring forward, and why
+### 2.1 What we did NOT bring forward, and why
 
 | Predecessor concept                      | Status in v2.0 | Reason                                                                                                                                                                           |
 | ---------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,7 +58,7 @@ historical reference; no code change accompanies this ADR.
 | `VMBase<VM, C, P>` generic chain         | Rejected       | Three+ type params per VM made consumer code hard to read. The current `ComponentVMBase` is non-generic; concrete types parameterize only where needed (e.g., `ComponentVM<M>`). |
 | `CompositionBase<M, VM, C, P>`           | Replaced       | Modern `CompositeVM<M, VM>` has two type params (model, VM) and no chain. Selection/CRUD/search now compose via cycle 7/8 helpers rather than inheriting from a base.            |
 
-### What we DID bring forward, in adapted form
+### 2.2 What we DID bring forward, in adapted form
 
 | Predecessor concept                                                  | Modern equivalent                                                                                                                            |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -72,7 +72,7 @@ historical reference; no code change accompanies this ADR.
 | `CreateNewCommand` / `DeleteCurrentCommand` etc.                     | `ModeledCrudCommands<M, VM>` helper, opt-in (cycle 8)                                                                                        |
 | `NullMessagingService`                                               | `NullMessageHub` + the broader null-object convention (cycle 2)                                                                              |
 
-## Consequences
+## 3. Consequences
 
 - No code change in this cycle; the ADR is documentation.
 - Consumers migrating from a hypothetical legacy-VMx project can use the

@@ -142,4 +142,27 @@ public class ExpandCollapseConformanceTests
             remove { }
         }
     }
+
+    // ----- Dispose path — not a conformance ID, but a regression guard for
+    // the _disposed idempotence guard and the Subject completion in
+    // ExpandableState.Dispose(). Mirrors the Python tests in
+    // tests/conformance/test_expand_collapse.py.
+    [Fact]
+    public void ExpandableState_Dispose_IsIdempotent()
+    {
+        var state = new ExpandableState(initiallyExpanded: true);
+        state.Dispose();
+        Action act = () => state.Dispose();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ExpandableState_Dispose_CompletesChangeObservable()
+    {
+        var state = new ExpandableState(initiallyExpanded: false);
+        var completed = false;
+        using var sub = state.IsExpandedChanged.Subscribe(_ => { }, () => completed = true);
+        state.Dispose();
+        completed.Should().BeTrue();
+    }
 }

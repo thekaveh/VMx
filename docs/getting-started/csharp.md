@@ -32,7 +32,7 @@ ______________________________________________________________________
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your UI thread.
 
-### Option A — manual construction (console / tests)
+### 2.1 Option A — manual construction (console / tests)
 
 ```csharp
 using System.Reactive.Concurrency;
@@ -46,7 +46,7 @@ IDispatcher dispatcher = new RxDispatcher(
 IMessageHub hub = new MessageHub();
 ```
 
-### Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
+### 2.2 Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
 
 Add the optional DI package:
 

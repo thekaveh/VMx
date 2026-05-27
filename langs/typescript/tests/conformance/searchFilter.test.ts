@@ -146,3 +146,31 @@ describe("GRP-010", () => {
     expect(snap.at(-1)).toEqual([3, 4]);
   });
 });
+
+// Dispose path — not a conformance ID, but a regression guard for the
+// `#disposed` idempotence guard and the Subject completions in dispose().
+describe("SearchableState.dispose", () => {
+  it("is idempotent", () => {
+    const items = ["a"];
+    const s = new SearchableState<string>({
+      items: () => items,
+      predicate: ciSubstr,
+      debounceMs: 0,
+    });
+    expect(() => s.dispose()).not.toThrow();
+    expect(() => s.dispose()).not.toThrow();
+  });
+
+  it("completes the filtered stream", () => {
+    const items = ["a"];
+    const s = new SearchableState<string>({
+      items: () => items,
+      predicate: ciSubstr,
+      debounceMs: 0,
+    });
+    let completed = false;
+    s.filtered.subscribe({ complete: () => { completed = true; } });
+    s.dispose();
+    expect(completed).toBe(true);
+  });
+});

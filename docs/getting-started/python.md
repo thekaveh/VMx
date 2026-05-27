@@ -35,7 +35,7 @@ ______________________________________________________________________
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your event loop or UI thread.
 
-### Option A — immediate (console / synchronous tests)
+### 2.1 Option A — immediate (console / synchronous tests)
 
 ```python
 from vmx.services import MessageHub, RxDispatcher
@@ -46,7 +46,7 @@ dispatcher = RxDispatcher.immediate()
 # console scripts and pytest suites where there is no event loop.
 ```
 
-### Option B — asyncio-based UI (Textual, etc.)
+### 2.2 Option B — asyncio-based UI (Textual, etc.)
 
 ```python
 import asyncio
@@ -112,9 +112,9 @@ user_vm: ComponentVMOf[UserModel] = (
 )
 
 # Subscribe to hub messages BEFORE constructing so you don't miss any.
-hub.messages.pipe(
-    # reactivex.operators has no OfType; filter by isinstance directly.
-).subscribe(
+# reactivex.operators has no OfType; filter by isinstance directly in the
+# subscriber.
+hub.messages.subscribe(
     lambda msg: (
         isinstance(msg, PropertyChangedMessage)
         and msg.sender is user_vm

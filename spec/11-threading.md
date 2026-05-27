@@ -3,7 +3,7 @@
 VMx is thread-aware but not thread-bound. This document defines the contract every
 language flavor MUST satisfy for thread/scheduler dispatch.
 
-## `IDispatcher`
+## 1. `IDispatcher`
 
 Every VM holds an `IDispatcher`:
 
@@ -17,20 +17,20 @@ The `IDispatcher` is provided via constructor / builder. There is no global
 dispatcher. A host application typically creates one dispatcher per VM tree (or
 shares one across all trees).
 
-## Default dispatchers
+## 2. Default dispatchers
 
 Each language flavor ships an `RxDispatcher` whose defaults are:
 
-| Language            | Foreground                                                                               | Background                  |
-| ------------------- | ---------------------------------------------------------------------------------------- | --------------------------- |
-| C#                  | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default` |
-| Python              | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`     |
-| TypeScript (future) | `queueScheduler` (microtask)                                                             | `asapScheduler`             |
+| Language   | Foreground                                                                               | Background                  |
+| ---------- | ---------------------------------------------------------------------------------------- | --------------------------- |
+| C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default` |
+| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`     |
+| TypeScript | `queueScheduler` (microtask)                                                             | `asapScheduler`             |
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.
 
-## Foreground emissions
+## 3. Foreground emissions
 
 VMs MUST dispatch the following emissions via `IDispatcher.Foreground`:
 
@@ -47,7 +47,7 @@ Implementations MAY achieve this either by:
   delivery. The spec does not prescribe which; only that subscribers can opt in
   via `ObserveOn` and see foreground delivery.
 
-## Background work
+## 4. Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The
 builder option `Background(true)` (see `10-builders.md §Default values` for the full
@@ -59,7 +59,7 @@ via the hub. Subscribers that need to await completion should subscribe to
 With background disabled (the default), `construct()` and `destruct()` run on the
 calling thread and complete before returning.
 
-## Null variant — `NullDispatcher` (spec v2.0)
+## 5. Null variant — `NullDispatcher` (spec v2.0)
 
 Every service contract in VMx has a **null-object** variant per ADR-0017. For
 `IDispatcher`, the variant is `NullDispatcher`:
@@ -74,7 +74,7 @@ hosts, or any code path where async dispatch is not required.
 
 The null variant is conformance-tested by `NULL-002`.
 
-## Conformance
+## 6. Conformance
 
 `THR-001` through `THR-004` in `12-conformance.md` cover:
 

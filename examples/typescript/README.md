@@ -2,7 +2,7 @@
 
 Self-contained demos of the [VMx TypeScript package](../../langs/typescript/).
 
-## Setup
+## 1. Setup
 
 Examples here use [tsx](https://github.com/privatenumber/tsx) to run
 TypeScript directly without a separate compile step. Install once:
@@ -13,7 +13,7 @@ npm install -g tsx
 
 ---
 
-## Example 1 — `hello-vmx/` (Node script)
+## 2. Example 1 — `hello-vmx/` (Node script)
 
 Minimal console demo. Demonstrates:
 
@@ -45,7 +45,7 @@ npx tsx hello-vmx/index.ts
 
 ---
 
-## Project layout
+## 3. Project layout
 
 ```
 examples/typescript/

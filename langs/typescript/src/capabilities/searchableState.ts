@@ -4,16 +4,17 @@
  * See spec/06-composite-vm.md §Search / filter and ADR-0014.
  */
 import {
-  asapScheduler,
+  asyncScheduler,
   BehaviorSubject,
+  debounceTime,
   map,
   merge,
   type Observable,
   type SchedulerLike,
   Subject,
   Subscription,
-  throttleTime,
 } from "rxjs";
+import { declareCapabilities } from "./registry.js";
 import type { ISearchable } from "./search.js";
 
 export interface SearchableStateOptions<T> {
@@ -35,15 +36,16 @@ export class SearchableState<T> implements ISearchable {
   constructor(opts: SearchableStateOptions<T>) {
     this.#items = opts.items;
     this.#predicate = opts.predicate;
+    declareCapabilities(this, "ISearchable");
     const debounceMs = opts.debounceMs ?? 1000;
-    const scheduler = opts.scheduler ?? asapScheduler;
+    const scheduler = opts.scheduler ?? asyncScheduler;
     this.#filteredSubject = new BehaviorSubject<readonly T[]>(
       this.#applyFilter(""),
     );
 
     const debouncedTerm: Observable<string> =
       debounceMs > 0
-        ? this.#termSubject.pipe(throttleTime(debounceMs, scheduler))
+        ? this.#termSubject.pipe(debounceTime(debounceMs, scheduler))
         : this.#termSubject.asObservable();
 
     const forceFilter = this.#forceSearchSubject.pipe(

@@ -4,7 +4,7 @@
 to `CompositeVM<VM>` minus the `Current` slot and minus the selection-related
 members and commands.
 
-## Members
+## 1. Members
 
 ```
 GroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
@@ -28,29 +28,29 @@ its parent (if any), not on the children. `SelectNextCommand` and
 `SelectPreviousCommand` are likewise inherited but their predicates always
 return `false`, since a group has no internal navigation slot to advance.
 
-## Children construction orchestration
+## 2. Children construction orchestration
 
 Identical to `CompositeVM`: `construct()` waits for every child to reach
 `Constructed`; `destruct()` waits for every child to reach `Destructed`. The
 order in which children are visited is unspecified.
 
-## Builder
+## 3. Builder
 
 The builder accepts:
 
 - `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
 
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
-In v1.0 only the non-modeled variant ships.
+Only the non-modeled variant currently ships.
 
-## Auto-construct on add (spec v1.1)
+## 4. Auto-construct on add (spec v1.1)
 
 A group built with `AutoConstructOnAdd(true)` MUST automatically call
 `construct()` on any child added via `Add` / `Insert` after the group reaches
 `Constructed`, completing the child's transition BEFORE the `CollectionChanged`
 event fires. The default is `false`.
 
-## Batch updates (spec v1.1)
+## 5. Batch updates (spec v1.1)
 
 A group MUST expose a `BatchUpdate()` method returning an `IDisposable` /
 context manager. While at least one batch handle is live, mutations MUST NOT
@@ -59,13 +59,13 @@ disposed, if any mutations occurred a single
 `CollectionChanged(action=Reset)` MUST be raised. Nested batches are
 ref-counted.
 
-## Search / filter (spec v2.0)
+## 6. Search / filter (spec v2.0)
 
 A group MAY opt into search/filter via the same `SearchableState` helper
 documented in `06-composite-vm.md` §"Search / filter". Behavior is identical
 in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 
-## Conformance
+## 7. Conformance
 
 `GRP-001` through `GRP-006` and `GRP-007` through `GRP-010` in `12-conformance.md` cover:
 

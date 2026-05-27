@@ -5,7 +5,7 @@ This document enumerates every stable conformance test identifier in the form
 `langs/<lang>/tests/conformance/` directory before it can be marked stable. CI
 verifies this via `tools/check-conformance-coverage.py`.
 
-## Identifier prefixes
+## 1. Identifier prefixes
 
 | Prefix          | Area                                              | File                                          |
 | --------------- | ------------------------------------------------- | --------------------------------------------- |
@@ -35,12 +35,12 @@ Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` secti
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
 and the source spec's `## Conformance` section.
 
-## Reading entries
+## 2. Reading entries
 
 Each entry below follows Given/When/Then. Implementers map Given to test setup, When
 to the operation under test, and Then to assertions.
 
-### Notation conventions
+### 2.1 Notation conventions
 
 Within Given/When/Then prose:
 
@@ -58,7 +58,7 @@ each language flavor uses its native syntax.
 
 ______________________________________________________________________
 
-## Lifecycle (`LIFE-NNN`)
+## 3. Lifecycle (`LIFE-NNN`)
 
 ### LIFE-001 — construct from Destructed transitions through Constructing to Constructed
 
@@ -169,7 +169,7 @@ each child itself a `CompositeVM<VM>` with M grand-children all `Constructed`
 
 ______________________________________________________________________
 
-## Message hub (`HUB-NNN`)
+## 4. Message hub (`HUB-NNN`)
 
 ### HUB-001 — Send delivers to current subscribers
 
@@ -228,7 +228,7 @@ subscription on the first message
 
 ______________________________________________________________________
 
-## Property change (`PROP-NNN`)
+## 5. Property change (`PROP-NNN`)
 
 ### PROP-001 — Setting a property to a different value publishes PropertyChangedMessage
 
@@ -263,7 +263,7 @@ the `vm` instance
 
 ______________________________________________________________________
 
-## Commands (`CMD-NNN`)
+## 6. Commands (`CMD-NNN`)
 
 ### CMD-001 — execute invokes the configured task
 
@@ -312,7 +312,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## ComponentVM (`CVM-NNN`)
+## 7. ComponentVM (`CVM-NNN`)
 
 ### CVM-001 — Construct emits ConstructionStatusChangedMessage(Constructed)
 
@@ -361,7 +361,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## CompositeVM (`COMP-NNN`)
+## 8. CompositeVM (`COMP-NNN`)
 
 ### COMP-001 — Add emits CollectionChanged(action=Add)
 
@@ -479,7 +479,7 @@ using `ObserveOn(dispatcher.Foreground)`
 
 ______________________________________________________________________
 
-## GroupVM (`GRP-NNN`)
+## 9. GroupVM (`GRP-NNN`)
 
 ### GRP-001 — Add emits CollectionChanged(action=Add)
 
@@ -535,7 +535,7 @@ exposes no internal navigation slot
 
 ______________________________________________________________________
 
-## AggregateVM (`AGG-NNN`)
+## 10. AggregateVM (`AGG-NNN`)
 
 ### AGG-001 — Arity-1 ComponentN factory invoked on construct
 
@@ -544,7 +544,7 @@ ______________________________________________________________________
 **Then** `agg.Component1` is populated with the result of `makeVm1()`
 **And** `agg.Component1.Status == Constructed`
 
-### AGG-002 — Arity-2 both components reach Constructed in parallel
+### AGG-002 — Arity-2 both components reach Constructed
 
 **Given** an `AggregateVM2<VM1, VM2>` in `Destructed`
 **When** `agg.construct()` is called
@@ -578,7 +578,7 @@ ONLY AFTER every `ComponentI.Status` has reached `Constructed`
 
 ______________________________________________________________________
 
-## Forwarding (`FWD-NNN`)
+## 11. Forwarding (`FWD-NNN`)
 
 ### FWD-001 — ForwardingComponentVM delegates every member to wrapped
 
@@ -603,7 +603,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Builders (`BLD-NNN`)
+## 12. Builders (`BLD-NNN`)
 
 ### BLD-001 — Setter returns a new builder instance
 
@@ -637,7 +637,7 @@ the VM class
 
 ______________________________________________________________________
 
-## Threading (`THR-NNN`)
+## 13. Threading (`THR-NNN`)
 
 ### THR-001 — PropertyChanged observed on foreground scheduler
 
@@ -671,7 +671,7 @@ subscriber to `CollectionChanged` with `ObserveOn(dispatcher.Foreground)`
 
 ______________________________________________________________________
 
-## Tree utilities (`UTIL-NNN`) — spec v1.1
+## 14. Tree utilities (`UTIL-NNN`) — spec v1.1
 
 ### UTIL-001 — walk yields root then descendants in DFS pre-order
 
@@ -705,7 +705,7 @@ root: CompositeVM
 
 ______________________________________________________________________
 
-## Capability micro-interfaces (`CAP-NNN`) — spec v2.0
+## 15. Capability micro-interfaces (`CAP-NNN`) — spec v2.0
 
 Each CAP-NNN test verifies (a) the capability interface is present in the
 flavor's public surface with the documented signature, and (b) a fixture class
@@ -862,7 +862,7 @@ records an invocation on the correct recorder
 
 ______________________________________________________________________
 
-## Null-object service variants (`NULL-NNN`) — spec v2.0
+## 16. Null-object service variants (`NULL-NNN`) — spec v2.0
 
 Each NULL-NNN test verifies a null-object variant satisfies its service
 contract as a safe no-op per ADR-0017.
@@ -894,7 +894,7 @@ they do not raise on any input)
 
 ______________________________________________________________________
 
-## Derived properties (`DPROP-NNN`) — spec v2.0
+## 17. Derived properties (`DPROP-NNN`) — spec v2.0
 
 Each DPROP-NNN test verifies the `DerivedProperty<TValue>` contract from
 spec/15-derived-properties.md.
@@ -996,7 +996,7 @@ matches `expected_values` exactly
 
 ______________________________________________________________________
 
-## Command decorators (`CMDD-NNN`) — spec v2.0
+## 18. Command decorators (`CMDD-NNN`) — spec v2.0
 
 Each CMDD-NNN test verifies behaviour of the three decorators added in
 spec/04-commands.md §Decorators.
@@ -1072,7 +1072,7 @@ no extra predicate)
 
 ______________________________________________________________________
 
-## Notification sub-package (`NOTIF-NNN`) — spec v2.0
+## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0
 
 Each NOTIF-NNN test verifies the `INotificationHub` contract from
 spec/16-notifications.md and ADR-0013.
@@ -1150,7 +1150,7 @@ yields `false`
 
 ______________________________________________________________________
 
-## CompositeVM v2.0 additions (`COMP-014..024`)
+## 20. CompositeVM v2.0 additions (`COMP-014..024`)
 
 Search/filter (COMP-014..018, see ADR-0014) and modeled CRUD (COMP-019..024,
 see ADR-0016) additions to chapter 06.
@@ -1237,7 +1237,7 @@ recording `update_current(vm)` action
 
 ______________________________________________________________________
 
-## GroupVM v2.0 additions (`GRP-007..010`)
+## 21. GroupVM v2.0 additions (`GRP-007..010`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -1272,7 +1272,7 @@ window elapses
 
 ______________________________________________________________________
 
-## Expand / collapse (`EXP-NNN`) — spec v2.0
+## 22. Expand / collapse (`EXP-NNN`) — spec v2.0
 
 Each EXP-NNN test verifies the `ExpandableState` helper and `walk_expanded`
 tree traversal from spec/05-component-vm.md and spec/13-tree-utilities.md.
@@ -1326,7 +1326,7 @@ root: CompositeVM with IExpandable wrapper, expanded
 
 ______________________________________________________________________
 
-## Localization (`LOC-NNN`) — spec v2.0
+## 23. Localization (`LOC-NNN`) — spec v2.0
 
 Each LOC-NNN test verifies the `ILocalizer` contract and `NullLocalizer`
 null-default from spec/17-localization.md.

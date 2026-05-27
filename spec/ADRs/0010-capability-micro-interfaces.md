@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 C# VMx predecessor encoded almost every user-visible behavior as a
 small marker / behavior interface — `ISelectable`, `IDeselectable`,
@@ -24,7 +24,7 @@ new capabilities can be added without modifying existing VM types).
 The VMx.old absorption goal asks us to bring this discipline forward, but
 without restructuring the existing VM hierarchy around it.
 
-## Options considered
+## 2. Options considered
 
 1. **Restructure existing VMs around capability interfaces.** Make
    `ComponentVM` implement `IClosable` + `IReconstructable`, `CompositeVM`
@@ -38,7 +38,7 @@ without restructuring the existing VM hierarchy around it.
 1. **Skip capability interfaces entirely.** Lose the philosophy gain.
    Consumer code continues to branch on concrete VM types only.
 
-## Decision
+## 3. Decision
 
 Option 2. All 20 capability interfaces are defined in a new chapter
 (`14-capabilities.md`) and exposed in the public surface of all three
@@ -49,7 +49,7 @@ are trivially satisfied by every VM and SHOULD be declared on the base VM
 interface; per-language declarations follow the flavor's idiomatic interface
 inheritance rules.
 
-## Consequences
+## 4. Consequences
 
 - A new chapter `14-capabilities.md` lists every capability and its
   members.

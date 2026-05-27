@@ -17,7 +17,7 @@ The generic `ICompositeVM<VM>` extends `IComponentVM` with the `IList<VM>` surfa
 methods (see `06-composite-vm.md`). The forwarding decorators delegate every member of
 these generic interfaces.
 
-## `ForwardingComponentVM<M>`
+## 1. `ForwardingComponentVM<M>`
 
 ```
 abstract ForwardingComponentVM<M> : IComponentVM<M>:
@@ -46,7 +46,7 @@ abstract ForwardingComponentVM<M> : IComponentVM<M>:
 
 A subclass overrides any subset of these.
 
-## `ForwardingCompositeVM<VM>`
+## 2. `ForwardingCompositeVM<VM>`
 
 Same pattern, but additionally forwards the `IList<VM>` surface (Add, Remove,
 indexer, iterator, Count, …), the `Current` property, and the selection methods.
@@ -63,7 +63,7 @@ its own convention as long as the override surface is documented):
 Subclasses MUST forward `dispose()` to the wrapped instance unless they explicitly
 own the wrapped's lifetime.
 
-## Conformance
+## 3. Conformance
 
 `FWD-001` through `FWD-003` in `12-conformance.md` cover:
 

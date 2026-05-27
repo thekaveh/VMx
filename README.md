@@ -76,7 +76,7 @@ a browsable HTML version with summary cards is at
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 18 markdown chapters, 19 ADRs,
+- **Spec** — `spec/` is the source of truth: 18 markdown chapters, 20 ADRs,
   4 JSON fixtures, 152 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -176,7 +176,7 @@ npm install vmx
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 17-localization.md
-│   ├── ADRs/              architecture decision records (0001..0019)
+│   ├── ADRs/              architecture decision records (0001..0020)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         deferred designs not yet promoted to chapters
 │   └── VERSION            spec SemVer

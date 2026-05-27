@@ -67,7 +67,7 @@ export interface DerivedFromSourcesOptions<TValue> {
 }
 
 /** Build a DerivedProperty from N source observables. */
-export function deriveFromSources<TValue>(
+export function fromSources<TValue>(
   sources: Observable<unknown>[],
   transform: (...values: unknown[]) => TValue,
   opts?: DerivedFromSourcesOptions<TValue>,

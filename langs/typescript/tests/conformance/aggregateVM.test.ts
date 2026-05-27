@@ -7,6 +7,7 @@ import {
   AggregateVM1,
   AggregateVM2,
   AggregateVM3,
+  AggregateVM4,
   AggregateVM5,
   PropertyChangedMessage,
   ConstructionStatusChangedMessage,
@@ -44,7 +45,7 @@ describe("AGG-001", () => {
 // ---------------------------------------------------------------------------
 
 describe("AGG-002", () => {
-  it("Arity-2 both components reach Constructed in parallel", () => {
+  it("Arity-2 both components reach Constructed", () => {
     const hub = makeHub();
     const c1 = makeChild(hub, "c1");
     const c2 = makeChild(hub, "c2");
@@ -160,6 +161,41 @@ describe("AGG-005", () => {
 
     expect(agg.component1?.status).toBe(ConstructionStatus.Destructed);
     expect(agg.component2?.status).toBe(ConstructionStatus.Destructed);
+    expect(agg.status).toBe(ConstructionStatus.Destructed);
+  });
+});
+
+// AggregateVM4 smoke test — not a separate conformance ID, but a guard
+// against the arity-4 type-and-builder shipping as dead public API.
+// AGG-001..005 cover arity-1/2/3/5 explicitly; arity-4 was previously
+// untested in any flavor's TS suite (Python and C# both exercise it).
+describe("AggregateVM4 smoke", () => {
+  it("construct/destruct populates and tears down all four slots", () => {
+    const hub = makeHub();
+    const cs = [1, 2, 3, 4].map((i) => makeChild(hub, `c${i}`));
+    const agg = AggregateVM4.builder<
+      ComponentVM, ComponentVM, ComponentVM, ComponentVM
+    >()
+      .name("agg")
+      .services(hub, makeDisp())
+      .component1(() => cs[0]!)
+      .component2(() => cs[1]!)
+      .component3(() => cs[2]!)
+      .component4(() => cs[3]!)
+      .build();
+
+    agg.construct();
+    expect(agg.component1?.status).toBe(ConstructionStatus.Constructed);
+    expect(agg.component2?.status).toBe(ConstructionStatus.Constructed);
+    expect(agg.component3?.status).toBe(ConstructionStatus.Constructed);
+    expect(agg.component4?.status).toBe(ConstructionStatus.Constructed);
+    expect(agg.status).toBe(ConstructionStatus.Constructed);
+
+    agg.destruct();
+    expect(agg.component1?.status).toBe(ConstructionStatus.Destructed);
+    expect(agg.component2?.status).toBe(ConstructionStatus.Destructed);
+    expect(agg.component3?.status).toBe(ConstructionStatus.Destructed);
+    expect(agg.component4?.status).toBe(ConstructionStatus.Destructed);
     expect(agg.status).toBe(ConstructionStatus.Destructed);
   });
 });

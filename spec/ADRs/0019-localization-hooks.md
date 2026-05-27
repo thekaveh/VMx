@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor shipped 9 satellite assemblies as empty resource
 shells (de/es/fr/it/ja/ko/ru/zh-Hans/zh-Hant). The intent was to localize
@@ -15,7 +15,7 @@ The current VMx has no localization contract. User-visible strings emerge
 from notifications (cycle 5) and confirmation prompts (cycle 4); without a
 localizer, those strings ship raw.
 
-## Options considered
+## 2. Options considered
 
 1. **Skip — consumers handle localization in their applications.**
    Smallest spec surface; misses the legacy parity goal.
@@ -25,7 +25,7 @@ localizer, those strings ship raw.
 1. **Ship a full localizer plus 9 language packs.** Maximum parity with
    the predecessor; massive ongoing maintenance burden.
 
-## Decision
+## 3. Decision
 
 Option 2. The cycle adds:
 
@@ -38,7 +38,7 @@ v2.0 — its purpose is to give consumers a documented hook for plugging in
 their own i18n. Future spec versions MAY introduce specific keys that VMx
 emits (e.g., for default command labels), but not in v2.0.
 
-## Consequences
+## 4. Consequences
 
 - Three conformance IDs `LOC-001..LOC-003` cover the contract and the null
   variant.

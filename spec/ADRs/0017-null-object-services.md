@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor used the null-object pattern for service
 implementations (`NullObjects/NullMessagingService.cs`). A "null" service was a
@@ -16,7 +16,7 @@ want an immediate dispatcher use `RxDispatcher.immediate()`, which is *almost*
 the same as a null dispatcher but exists for a different reason (testing
 synchronously, not "I don't care").
 
-## Options considered
+## 2. Options considered
 
 1. **Skip the convention.** Continue to use ad-hoc mocks or real instances.
    Simplest, but tests stay heavier than needed and there's no canonical "I
@@ -29,7 +29,7 @@ synchronously, not "I don't care").
    every service.** More dynamic but less discoverable than per-contract
    `Null<X>` types.
 
-## Decision
+## 3. Decision
 
 Option 2. Every core service contract gets a per-contract null variant whose
 name is `NullX` where `X` is the contract's short name:
@@ -42,7 +42,7 @@ The convention is normative: any new service contract added to the core spec
 MUST come with a paired null variant. The same rule extends to the
 notifications sub-package added in spec 2.0.
 
-## Consequences
+## 4. Consequences
 
 - Two new public types per flavor today (`NullMessageHub`, `NullDispatcher`);
   a third (`NullNotificationHub`) in cycle 5.

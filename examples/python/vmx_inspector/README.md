@@ -3,7 +3,7 @@
 A terminal UI showcase app for the **VMx** hierarchical MVVM framework, built with
 [Textual](https://github.com/Textualize/textual).
 
-## What it does
+## 1. What it does
 
 The inspector renders a live VMx hierarchy and lets you drive lifecycle operations
 from the keyboard:
@@ -32,7 +32,7 @@ The top-right pane shows property details for the selected node.
 The bottom-right pane is a scrolling log of messages received on the shared
 `MessageHub`.
 
-## Running
+## 2. Running
 
 ```
 uv run --project examples/python/vmx_inspector python -m vmx_inspector

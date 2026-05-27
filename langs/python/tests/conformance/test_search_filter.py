@@ -156,3 +156,31 @@ def test_GRP_010_user_predicate_group_context() -> None:
     s.search_term = "2"
     s.search()
     assert snap[-1] == [3, 4]
+
+
+# ---------------------------------------------------------------------------
+# Dispose path — not a conformance ID, but a regression guard for the
+# `_disposed` idempotence guard and the Subject completions in dispose().
+# ---------------------------------------------------------------------------
+
+
+def test_searchable_state_dispose_is_idempotent() -> None:
+    items = ["a"]
+    s = SearchableState(items=lambda: items, predicate=_ci_substr, debounce_seconds=0)
+    s.dispose()
+    # Second call must be a no-op (no Subject re-completion error from reactivex).
+    s.dispose()
+
+
+def test_searchable_state_dispose_completes_filtered_stream() -> None:
+    items = ["a"]
+    s = SearchableState(items=lambda: items, predicate=_ci_substr, debounce_seconds=0)
+    completed = False
+
+    def on_completed() -> None:
+        nonlocal completed
+        completed = True
+
+    s.filtered.subscribe(on_completed=on_completed)
+    s.dispose()
+    assert completed is True

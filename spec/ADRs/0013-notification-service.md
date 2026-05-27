@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor included a `NotificationService` that handled
 user-facing notifications and confirmations via an async pattern: post a
@@ -16,7 +16,7 @@ absence is felt most acutely when implementing a confirmation flow for the
 modeled-CRUD `DeleteCurrentCommand` (see cycle 8): there is no canonical
 way to ask "are you sure?" via the message hub.
 
-## Options considered
+## 2. Options considered
 
 1. **Skip — no notification primitive in v2.** Same as today. Consumers
    keep building their own.
@@ -25,7 +25,7 @@ way to ask "are you sure?" via the message hub.
 1. **Ship `INotificationHub` in an opt-in sub-package.** Core stays
    headless; consumers explicitly opt in via import path.
 
-## Decision
+## 3. Decision
 
 Option 3. The notification primitives ship in a separate sub-package per
 flavor, with the per-flavor distribution shape chosen for minimum friction:
@@ -47,7 +47,7 @@ The confirmation-decorator bridge (cycle 4's
 notification sub-package as a helper function — keeping the core
 `commands` chapter UI-agnostic.
 
-## Consequences
+## 4. Consequences
 
 - A new spec chapter `16-notifications.md` defines the contract.
 - Ten conformance IDs `NOTIF-001..NOTIF-010` cover the contract surface,

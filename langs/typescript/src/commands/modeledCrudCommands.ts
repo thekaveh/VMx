@@ -10,16 +10,21 @@ import {
 import { RelayCommand } from "./relayCommand.js";
 import type { ICommand } from "./types.js";
 
-export interface ModeledCrudCommandsOptions<VM> {
+// The `M` (model) type parameter is a phantom: the helper only manipulates
+// VMs at runtime, but exposing `M` at the type boundary keeps the public
+// signature symmetrical with C# `ModeledCrudCommands<M, VM>` and Python
+// `ModeledCrudCommands[M, VM]` per ADR-0006 / ADR-0016.
+export interface ModeledCrudCommandsOptions<M, VM> {
   current: () => VM | null | undefined;
   createNew: () => void;
   updateCurrent: (vm: VM) => void;
   deleteCurrent: (vm: VM) => void;
   confirmUpdate?: ConfirmDelegate;
   confirmDelete?: ConfirmDelegate;
+  _model?: M;
 }
 
-export class ModeledCrudCommands<VM> {
+export class ModeledCrudCommands<M, VM> {
   readonly createNewCommand: ICommand;
   readonly updateCurrentCommand: ICommand;
   readonly deleteCurrentCommand: ICommand;
@@ -29,7 +34,7 @@ export class ModeledCrudCommands<VM> {
   readonly #innerRelays: readonly RelayCommand[];
   #disposed = false;
 
-  constructor(opts: ModeledCrudCommandsOptions<VM>) {
+  constructor(opts: ModeledCrudCommandsOptions<M, VM>) {
     const create = RelayCommand.builder().task(opts.createNew).build();
     const update = RelayCommand.builder()
       .task(() => {

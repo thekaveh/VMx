@@ -1,3 +1,4 @@
+using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -15,7 +16,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     private readonly Func<TItem, string, bool> _predicate;
     private readonly BehaviorSubject<string> _termSubject = new("");
     private readonly BehaviorSubject<IReadOnlyList<TItem>> _filteredSubject;
-    private readonly Subject<System.Reactive.Unit> _forceSearchSubject = new();
+    private readonly Subject<Unit> _forceSearchSubject = new();
     private readonly IDisposable _subscription;
     private bool _disposed;
 
@@ -23,7 +24,11 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     /// <param name="items">Source of items to filter.</param>
     /// <param name="predicate">User-supplied filter: <c>(item, term) =&gt; bool</c>.</param>
     /// <param name="debounce">Search-term debounce (default 1s; pass <see cref="TimeSpan.Zero"/> to disable).</param>
-    /// <param name="scheduler">Optional scheduler for the debounce (default: immediate).</param>
+    /// <param name="scheduler">Optional scheduler for the debounce (default:
+    /// <see cref="DefaultScheduler.Instance"/> — required for real time
+    /// delays without blocking the calling thread. Pass <see cref="ImmediateScheduler.Instance"/>
+    /// or a <c>TestScheduler</c> in tests that need synchronous / virtual-time
+    /// behaviour).</param>
     public SearchableState(
         Func<IEnumerable<TItem>> items,
         Func<TItem, string, bool> predicate,
@@ -33,7 +38,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
         _itemsSource = items;
         _predicate = predicate;
         var actualDebounce = debounce ?? TimeSpan.FromSeconds(1);
-        var actualScheduler = scheduler ?? ImmediateScheduler.Instance;
+        var actualScheduler = scheduler ?? DefaultScheduler.Instance;
 
         _filteredSubject = new BehaviorSubject<IReadOnlyList<TItem>>(ApplyFilter(""));
 
@@ -64,7 +69,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     public bool CanSearch() => _itemsSource().Any();
 
     /// <inheritdoc/>
-    public void Search() => _forceSearchSubject.OnNext(System.Reactive.Unit.Default);
+    public void Search() => _forceSearchSubject.OnNext(Unit.Default);
 
     private List<TItem> ApplyFilter(string term)
     {

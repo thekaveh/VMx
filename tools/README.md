@@ -2,7 +2,7 @@
 
 Cross-cutting scripts that operate across `spec/` and `langs/`.
 
-## Current
+## 1. Current
 
 - `check-conformance-coverage.py` — parses `spec/12-conformance.md` for the catalog
   of `XXX-NNN` conformance IDs and walks each active language's registered conformance

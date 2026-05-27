@@ -3,21 +3,21 @@
 **Status:** Accepted (2026-05-19)
 **Spec version:** introduced in 1.0.0
 
-## Context
+## 1. Context
 
 The legacy VMx (private monorepo `DotNetTag`, path `src/DotNetTag/VMx/`) depended on `comScore.Services` for its service-locator pattern: every `ComponentVM` accepted an `SL : IVMxServiceLocator` generic parameter and retrieved `IMessageHub`, `TaskScheduler`, and `IConstants` from it. `comScore.Services` is an internal library not suitable for an open-source release.
 
-## Options considered
+## 2. Options considered
 
 1. **Vendor a minimal slice of comScore.Services into the new repo.** Preserves the legacy API but ships private code under a new name.
 1. **Re-implement a thin in-repo locator.** Re-creates the locator pattern under a VMx-owned namespace.
 1. **Eliminate the locator entirely; use constructor injection.** VMs receive `IMessageHub` and `IDispatcher` via constructor arguments (and via the builder for fluent users).
 
-## Decision
+## 3. Decision
 
 Option 3. Constructor injection is idiomatic in modern .NET (`Microsoft.Extensions.DependencyInjection` and similar), idiomatic in Python (explicit dependencies via `__init__`), and removes a class of "where does this come from" ambiguity. The locator generic parameter goes away, simplifying the heaviest type signatures.
 
-## Consequences
+## 4. Consequences
 
 - Public VM constructors and builders gain explicit `IMessageHub` / `IDispatcher` arguments.
 - The `ComponentVMBase<SL, …>` generic parameter `SL` disappears across all base classes.

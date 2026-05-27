@@ -235,3 +235,29 @@ def test_DPROP_012_fixture_scenarios() -> None:
             f"scenario {scenario['name']!r}: got {actuals}, expected {scenario['expected_values']}"
         )
         dp.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Dispose path — regression guard for the `_disposed` idempotence guard and
+# the Subject completion in DerivedProperty.dispose(). DPROP-011 covers the
+# happy-path dispose; these two add idempotence and source-mutation safety.
+# ---------------------------------------------------------------------------
+
+
+def test_derived_property_dispose_is_idempotent() -> None:
+    s1 = BehaviorSubject(1)
+    dp: DerivedProperty[int] = from_sources(s1, transform=lambda x: x * 2)
+    dp.dispose()
+    dp.dispose()  # second call must not raise
+
+
+def test_derived_property_post_dispose_source_mutation_no_emit() -> None:
+    s1 = BehaviorSubject(1)
+    dp: DerivedProperty[int] = from_sources(s1, transform=lambda x: x * 2)
+    emissions: list[int] = []
+    dp.value_changed.subscribe(emissions.append)
+    s1.on_next(2)
+    assert emissions == [4]
+    dp.dispose()
+    s1.on_next(3)  # post-dispose: subscription torn down, no emit
+    assert emissions == [4]

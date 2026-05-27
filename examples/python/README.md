@@ -2,7 +2,7 @@
 
 Three self-contained demos of the [VMx Python library](../../langs/python/).
 
-## Setup
+## 1. Setup
 
 All examples share a single virtual environment managed by [uv](https://docs.astral.sh/uv/).
 
@@ -13,7 +13,7 @@ uv sync          # creates .venv and installs vmx (editable) + reactivex
 
 ---
 
-## Example 1 — `hello_vmx` (console)
+## 2. Example 1 — `hello_vmx` (console)
 
 Minimal console demo. Demonstrates:
 
@@ -56,7 +56,7 @@ Setting the SAME model value (equality guard — no hub message expected) ...
 
 ---
 
-## Example 2 — `tk_todo_app` (tkinter MVVM)
+## 3. Example 2 — `tk_todo_app` (tkinter MVVM)
 
 Full MVVM todo app using tkinter. Demonstrates:
 
@@ -80,7 +80,7 @@ uv run python -c "from tk_todo_app.__main__ import MainWindow; print('OK')"
 
 ---
 
-## Example 3 — `vmx_inspector` (Textual TUI)
+## 4. Example 3 — `vmx_inspector` (Textual TUI)
 
 A general-purpose live inspector for any VMx hierarchy. Demonstrates:
 
@@ -99,7 +99,7 @@ uv run --project examples/python/vmx_inspector python -m vmx_inspector
 
 ---
 
-## Project layout
+## 5. Project layout
 
 ```
 examples/python/

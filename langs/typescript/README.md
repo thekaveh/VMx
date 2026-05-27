@@ -3,20 +3,20 @@
 Hierarchical lifecycle-aware MVVM viewmodel framework for TypeScript and
 JavaScript, spec-compatible with the C# and Python flavors.
 
-## Status
+## 1. Status
 
 **v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
 pass. Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `vmx/notifications` ships an `INotificationHub`.
 
-## Install
+## 2. Install
 
 ```bash
 npm install vmx
 ```
 
-## Quick start
+## 3. Quick start
 
 ```ts
 import {
@@ -56,7 +56,7 @@ hub.dispose();
 See [docs/getting-started/typescript.md](../../docs/getting-started/typescript.md)
 for the full walkthrough.
 
-## API surface
+## 4. API surface
 
 The public API is re-exported from a single entry point:
 
@@ -80,7 +80,7 @@ Key exports:
 | `CompositeCommand`              | Aggregate N inner commands (spec v2.0)           |
 | `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate  |
 | `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm delegate    |
-| `ModeledCrudCommands<VM>`       | Create / UpdateCurrent / DeleteCurrent helper    |
+| `ModeledCrudCommands<M, VM>`    | Create / UpdateCurrent / DeleteCurrent helper    |
 | `MessageHub`                    | Pub/sub hub (rxjs `Subject`-backed)              |
 | `NullMessageHub.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `RxDispatcher`                  | Foreground/background scheduler pair             |
@@ -90,7 +90,7 @@ Key exports:
 | `walk(root)`                    | DFS pre-order tree traversal generator           |
 | `walkExpanded(root)`            | DFS walk gated on `IExpandable.isExpanded` (v2.0) |
 | `find(root, predicate)`         | Short-circuit tree search                        |
-| `DerivedProperty<TValue>` / `deriveFromSources` | N-source computed value (v2.0)   |
+| `DerivedProperty<TValue>` / `fromSources` | N-source computed value (v2.0)   |
 | `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)  |
 | `SearchableState<T>`            | Debounced filter helper (spec v2.0)              |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)             |
@@ -104,7 +104,7 @@ The opt-in `vmx/notifications` sub-path export (spec v2.0) adds:
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub`    | Async notification hub + null variant  |
 | `makeConfirm(hub, prompt)`                                        | Bridge to `ConfirmationDecoratorCommand` |
 
-## Conformance
+## 5. Conformance
 
 All 152 conformance IDs from `spec/12-conformance.md` are covered.
 
@@ -123,7 +123,7 @@ Run the suite:
 npm test
 ```
 
-## Development
+## 6. Development
 
 ```bash
 # From this directory
@@ -135,6 +135,6 @@ npm run build
 npm test
 ```
 
-## License
+## 7. License
 
 MIT

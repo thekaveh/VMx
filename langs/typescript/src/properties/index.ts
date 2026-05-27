@@ -1,5 +1,5 @@
 export {
   DerivedProperty,
   type DerivedFromSourcesOptions,
-  deriveFromSources,
+  fromSources,
 } from "./derivedProperty.js";

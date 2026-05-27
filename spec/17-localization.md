@@ -10,12 +10,12 @@ The 2012 VMx predecessor shipped 9 satellite assemblies (de/es/fr/it/ja/ko/ru/
 zh-Hans/zh-Hant) as empty resource shells. VMx 2.0 absorbs the *convention* (a
 pluggable localizer hook) without the satellite shells.
 
-## Contract
+## 1. Contract
 
 ```
 ILocalizer:
     Localize(key: string) : string                       # required
-    Localize(key: string, args: Iterable<object>) : string?   # optional, format with positional args
+    Localize(key: string, args: Iterable<object>) : string    # optional, format with positional args
 ```
 
 Semantics:
@@ -29,7 +29,7 @@ Semantics:
   cache internally, but the contract surface is referentially transparent
   for a given key.
 
-## Null variant — `NullLocalizer`
+## 2. Null variant — `NullLocalizer`
 
 Per the convention from ADR-0017, `NullLocalizer` is the null-object variant:
 
@@ -41,13 +41,13 @@ into the framework. Components that emit user-visible text (notification
 messages, default command labels) should resolve via the configured
 `ILocalizer`.
 
-## Per-flavor distribution
+## 3. Per-flavor distribution
 
 The contract ships in the core `vmx` / `VMx` package. Consumers may bridge
 to platform-specific i18n libraries via a thin adapter; VMx does not depend
 on any platform localizer.
 
-## Conformance
+## 4. Conformance
 
 `LOC-001` through `LOC-003` in `12-conformance.md` cover:
 

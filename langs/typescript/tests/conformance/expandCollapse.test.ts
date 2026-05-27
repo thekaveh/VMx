@@ -134,3 +134,23 @@ describe("EXP-005", () => {
     expect(visited).not.toContain(b2);
   });
 });
+
+// Dispose path — not a conformance ID, but a regression guard for the
+// #disposed idempotence guard and the Subject completion in
+// ExpandableState.dispose(). Mirrors the Python tests in
+// tests/conformance/test_expand_collapse.py.
+describe("ExpandableState.dispose", () => {
+  it("is idempotent", () => {
+    const state = new ExpandableState(true);
+    state.dispose();
+    expect(() => state.dispose()).not.toThrow();
+  });
+
+  it("completes the isExpandedChanged observable", () => {
+    const state = new ExpandableState(false);
+    let completed = false;
+    state.isExpandedChanged.subscribe({ complete: () => { completed = true; } });
+    state.dispose();
+    expect(completed).toBe(true);
+  });
+});

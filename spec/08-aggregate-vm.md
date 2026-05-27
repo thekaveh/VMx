@@ -1,10 +1,9 @@
 # 08 — AggregateVM
 
 `AggregateVM<VM1..VMN>` is a fixed-arity tuple of heterogeneous component VMs. VMx
-v1.0 ships arities 1 through 5 (`AggregateVM1` through `AggregateVM5` — see
-ADR-0007).
+ships arities 1 through 5 (`AggregateVM1` through `AggregateVM5` — see ADR-0007).
 
-## Members (arity N)
+## 1. Members (arity N)
 
 ```
 AggregateVMN<VM1..VMN> : IComponentVM:
@@ -34,27 +33,38 @@ AggregateVM3.Builder()
     .Build()
 ```
 
-## Construction
+## 2. Construction
 
 `construct()`:
 
-1. Invokes every component factory in parallel, populating the `ComponentN` slots.
-1. Subscribes to each child's `ConstructionStatusChangedMessage` on the hub.
-1. Waits for every child to reach `Constructed`.
+1. Invokes every component factory, populating the `ComponentN` slots.
+1. Calls `construct()` on each child; each call returns once that child has
+   reached `Constructed` (per ADR-0008's synchronous lifecycle contract).
 1. Transitions to `Constructed` and emits its own status message.
+
+An asynchronous flavor MAY observe the children's
+`ConstructionStatusChangedMessage(Constructed)` on the hub instead; the
+synchronous default is a strict subset of that behavior.
+
+The order in which the slots are populated and constructed is unspecified.
+The reference implementations in all three flavors drive them sequentially
+(mirroring `CompositeVM` / `GroupVM`; see chapter 06).
 
 On each successful slot population, the aggregate raises
 `PropertyChangedMessage("ComponentN")`.
 
-## Destruction
+## 3. Destruction
 
 `destruct()`:
 
-1. Invokes `destruct()` on each `ComponentN` slot in parallel.
+1. Invokes `destruct()` on each `ComponentN` slot.
 1. Waits for every child to reach `Destructed`.
 1. Transitions to `Destructed`.
 
-## Selection
+As with `construct()`, the order is unspecified and the reference
+implementations drive the slots sequentially.
+
+## 4. Selection
 
 The aggregate itself can be selected (via its parent's `Current`), and like any other
 `IComponentVM` it exposes `SelectCommand`, `DeselectCommand`, `SelectNextCommand`, and
@@ -62,18 +72,18 @@ The aggregate itself can be selected (via its parent's `Current`), and like any 
 slots, however, are not selectable — they are the aggregate's fixed structure, not
 navigable peers, so there are no `select_component` / `deselect_component` methods.
 
-## Arity rationale
+## 5. Arity rationale
 
 ADR-0007 documents why arities 1–5 are the supported range. For more than 5
 heterogeneous children, prefer `CompositeVM<VM>` or `GroupVM<VM>` with a
 heterogeneous-base-type `VM`, or compose multiple aggregates.
 
-## Conformance
+## 6. Conformance
 
 `AGG-001` through `AGG-005` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
-- arity-2 both components reach Constructed in parallel
+- arity-2 both components reach Constructed
 - arity-5 all five components reach Constructed before parent
 - ComponentN property change fires on construct
 - destruction waits for all children

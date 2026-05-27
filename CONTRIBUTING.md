@@ -2,16 +2,16 @@
 
 Thanks for your interest in contributing!
 
-## Workflow
+## 1. Workflow
 
 1. Open an issue describing the change before opening a PR for anything non-trivial.
 2. Branch from `main`. Use a descriptive branch name (`feat/...`, `fix/...`, `docs/...`).
 3. Run the relevant test suite locally before pushing.
 4. Open a PR. CI must be green and at least one approval is required.
 
-## Per-language setup
+## 2. Per-language setup
 
-### C#
+### 2.1 C#
 
 ```bash
 cd langs/csharp
@@ -21,7 +21,7 @@ dotnet test
 dotnet format --verify-no-changes
 ```
 
-### Python
+### 2.2 Python
 
 ```bash
 cd langs/python
@@ -32,7 +32,7 @@ uv run ruff format --check
 uv run mypy --strict src/vmx
 ```
 
-### TypeScript
+### 2.3 TypeScript
 
 ```bash
 cd langs/typescript
@@ -44,7 +44,7 @@ npm run build
 npm test
 ```
 
-## Spec-driven changes
+## 3. Spec-driven changes
 
 Behavior changes start in `spec/`. The rules are:
 
@@ -55,10 +55,11 @@ Behavior changes start in `spec/`. The rules are:
   IDs is governed by the conformance-stub rule below, not by ADRs).
 - A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
   in **every** active language flavor in the same PR. The CI check looks for
-  `@pytest.mark.conformance("XXX-NNN")` (Python) and `[Trait("Conformance", "XXX-NNN")]`
-  (C#) — comment stubs do not satisfy the check.
+  `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`
+  (C#), and `describe("XXX-NNN", ...)` (TypeScript) — comment stubs do not satisfy
+  the check.
 
-### Bypass
+### 3.1 Bypass
 
 If a spec change genuinely does not warrant an ADR (e.g., a typo fix or pure
 formatting change), a maintainer may add the `no-adr-needed` PR label to bypass the
@@ -66,6 +67,6 @@ ADR check. Use sparingly; the label is intended for changes with zero semantic e
 
 See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 
-## Code of conduct
+## 4. Code of conduct
 
 This project follows the Contributor Covenant v2.1 — see [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).

@@ -3,7 +3,7 @@
 `ComponentVM` is the leaf VM. Use it for any addressable VM that is not itself a
 container.
 
-## Variants
+## 1. Variants
 
 | Variant                     | Has `Model` | `Model` mutable | Type identifier     |
 | --------------------------- | ----------- | --------------- | ------------------- |
@@ -13,7 +13,7 @@ container.
 
 All three variants share the `IComponentVM` baseline (see `01-concepts.md`).
 
-## Members (every variant)
+## 2. Members (every variant)
 
 ```
 ComponentVM:
@@ -47,7 +47,7 @@ ComponentVM:
     deselect() : void
 ```
 
-## Modeled variant additions (`ComponentVM<M>`)
+## 3. Modeled variant additions (`ComponentVM<M>`)
 
 ```
 ComponentVM<M> : ComponentVM:
@@ -63,7 +63,7 @@ The setter for `Model`:
    and if `ModeledHint` is wired (see below), it is recomputed and
    `PropertyChangedMessage("ModeledHint")` is emitted.
 
-### `ModeledHint`
+### 3.1 `ModeledHint`
 
 `ModeledHint` is a derived string computed from `Model` via a `model_hinter`
 function provided at build time:
@@ -74,13 +74,13 @@ ModeledHinter : (M) -> string
 
 If no `ModeledHinter` is configured, `ModeledHint` returns the empty string.
 
-### `OnModelChanged`
+### 3.2 `OnModelChanged`
 
 The builder accepts an `OnModelChanged` callback (`(M) -> void`). When the model
 setter accepts a new value, this callback is invoked AFTER the
 `PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
 
-## Readonly variant (`ReadonlyComponentVM<M>`)
+## 4. Readonly variant (`ReadonlyComponentVM<M>`)
 
 Same surface as `ComponentVM<M>` minus the `Model` setter. The model is provided at
 build time and is final. `ModeledHint` remains derived but stable (the model never
@@ -88,7 +88,7 @@ changes).
 
 `Type` equals `ReadOnlyComponent`.
 
-## Built-in commands
+## 5. Built-in commands
 
 | Command                 | Predicate                     | Task                                        |
 | ----------------------- | ----------------------------- | ------------------------------------------- |
@@ -101,7 +101,7 @@ changes).
 All five commands re-evaluate their predicates on every relevant `Status` change of
 the VM (via a trigger derived from `Status`).
 
-## Selection predicates
+## 6. Selection predicates
 
 ```
 can_select() returns true iff:
@@ -118,13 +118,13 @@ can_deselect() returns true iff:
 `parent.deselect_component(this)`. The selection contract is defined in
 `06-composite-vm.md`.
 
-## Construction
+## 7. Construction
 
 Construction in this variant amounts to publishing the status transitions. There is
 no child orchestration (components have no children). Override hooks for user code
 exist (`OnConstruct` / `OnDestruct` callbacks at build time) — see `10-builders.md`.
 
-## `IExpandable` integration (spec v2.0)
+## 8. `IExpandable` integration (spec v2.0)
 
 A consumer that wants a VM with expand/collapse semantics implements the
 `IExpandable` capability (see `14-capabilities.md`) and supplies an
@@ -146,7 +146,7 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 `walk_expanded` tree utility (see `13-tree-utilities.md`) recognizes any
 `IExpandable` implementation and gates descent on `IsExpanded`.
 
-## Conformance
+## 9. Conformance
 
 `CVM-001` through `CVM-006` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:

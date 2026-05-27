@@ -129,7 +129,7 @@ export {
 export {
   DerivedProperty,
   type DerivedFromSourcesOptions,
-  deriveFromSources,
+  fromSources,
 } from "./properties/index.js";
 
 // Localization (spec v2.0)

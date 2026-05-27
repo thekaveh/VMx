@@ -268,8 +268,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     // ── Lifecycle overrides ───────────────────────────────────────────────────
 
     /// <summary>
-    /// Overrides Construct to populate + construct every child (sequential for v1.0).
-    /// Called by the base Construct() between Constructing → Constructed transitions.
+    /// Overrides Construct to populate + construct every child sequentially
+    /// (see spec/06 §5 and ADR-0020). Called by the base Construct() between
+    /// Constructing → Constructed transitions.
     /// </summary>
     protected override void OnConstruct()
     {

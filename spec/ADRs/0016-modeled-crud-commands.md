@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor's modeled composite (`CompositionBase<M, VM, C, P>`)
 shipped three CRUD commands: `CreateNewCommand`, `UpdateCurrentCommand`, and
@@ -14,7 +14,7 @@ didn't need them.
 The current VMx has no equivalent — consumers wire CRUD commands manually
 against `RelayCommand` and the composite's `Current` slot.
 
-## Options considered
+## 2. Options considered
 
 1. **Restore CRUD commands on `CompositeVM<M, VM>` directly.** Always
    present, like the legacy predecessor. Grows the surface for consumers
@@ -24,7 +24,7 @@ against `RelayCommand` and the composite's `Current` slot.
    unchanged. Composes naturally with `ConfirmationDecoratorCommand`
    (cycle 4) for the legacy `.Confirm(...)` shape.
 
-## Decision
+## 3. Decision
 
 Option 2. The cycle ships `ModeledCrudCommands<M, VM>` per flavor. It
 exposes the three commands and takes:
@@ -38,7 +38,7 @@ exposes the three commands and takes:
 Consumers compose the helper into their modeled composite VM; the base
 type is unchanged.
 
-## Consequences
+## 4. Consequences
 
 - Six conformance IDs `COMP-019..COMP-024` cover the per-command behavior
   and the confirm-decorator integration.

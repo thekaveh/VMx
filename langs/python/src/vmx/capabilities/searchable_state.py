@@ -12,7 +12,7 @@ import reactivex as rx
 from reactivex import Observable
 from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
-from reactivex.scheduler import ImmediateScheduler
+from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import BehaviorSubject, Subject
 
 from vmx.capabilities.search import ISearchable
@@ -27,7 +27,9 @@ class SearchableState(ISearchable, Generic[T]):
         items: callable returning the current items to filter.
         predicate: filter function ``(item, term) -> bool``.
         debounce_seconds: debounce delay (default 1.0; pass 0 to disable).
-        scheduler: optional scheduler for the debounce (default: immediate).
+        scheduler: optional scheduler for the debounce (default:
+            TimeoutScheduler — required for real time delays; pass a
+            TestScheduler in tests that exercise debounce timing).
     """
 
     def __init__(
@@ -43,10 +45,10 @@ class SearchableState(ISearchable, Generic[T]):
         self._filtered_subject: BehaviorSubject[list[T]] = BehaviorSubject(self._apply_filter(""))
         self._force_search: Subject[None] = Subject()
         self._disposed = False
-        sched = scheduler or ImmediateScheduler()
+        sched = scheduler or TimeoutScheduler()
 
         if debounce_seconds > 0:
-            debounced = self._term_subject.pipe(ops.throttle_first(debounce_seconds, sched))
+            debounced = self._term_subject.pipe(ops.debounce(debounce_seconds, sched))
         else:
             debounced = self._term_subject
 

@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor put `IsExpanded` on every VM, plus
 `Expand`/`Collapse`/`ToggleExpansion` commands. The new VMx kept the VM
@@ -15,7 +15,7 @@ should land as `IExpandable` (which already exists from cycle 1), plus a
 default-implementation helper for VMs that opt in, plus a tree-traversal
 helper that respects the state.
 
-## Options considered
+## 2. Options considered
 
 1. **Add IsExpanded to every VM by default.** Symmetric with the legacy
    predecessor but violates the opt-in rule from chapter 14 and grows the
@@ -27,7 +27,7 @@ helper that respects the state.
 1. **Skip — leave expand/collapse to consumers entirely.** Misses the
    legacy parity goal and forces every consumer to invent the same wheel.
 
-## Decision
+## 3. Decision
 
 Option 2. The cycle ships:
 
@@ -39,7 +39,7 @@ Option 2. The cycle ships:
 - A new `walk_expanded` tree utility (chapter 13) that descends into
   children only when their parent reports as expanded.
 
-## Consequences
+## 4. Consequences
 
 - Five conformance IDs `EXP-001..EXP-005` cover the helper contract, the
   tree-walk behavior, and the rule "non-`IExpandable` nodes are treated as

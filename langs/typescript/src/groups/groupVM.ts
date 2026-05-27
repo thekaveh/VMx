@@ -154,7 +154,7 @@ export class GroupVM<VM extends ComponentVMBase>
     }
   }
 
-  private _emitCollectionChanged(event: CollectionChangedEvent): void {
+  protected _emitCollectionChanged(event: CollectionChangedEvent): void {
     if (this.#batchDepth > 0) {
       this.#batchDirty = true;
       return;

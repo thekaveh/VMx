@@ -3,15 +3,15 @@
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
 spec-compatible with the Python and TypeScript flavors.
 
-## Status
+## 1. Status
 
 **v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
-pass (166 test methods). Multi-targets `netstandard2.0` and `net8.0`.
+pass (171 test methods). Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
 `INotificationHub`).
 
-## Install
+## 2. Install
 
 ```bash
 dotnet add package VMx
@@ -20,7 +20,7 @@ dotnet add package VMx
 dotnet add package VMx.Extensions.DependencyInjection
 ```
 
-## Quick start
+## 3. Quick start
 
 ```csharp
 using VMx.Components;
@@ -56,7 +56,7 @@ hub.Dispose();
 See [docs/getting-started/csharp.md](../../docs/getting-started/csharp.md)
 for the full walkthrough.
 
-## API surface
+## 4. API surface
 
 The public API lives under the `VMx.*` namespaces:
 
@@ -104,9 +104,9 @@ The companion package `VMx.Notifications` (spec v2.0) adds:
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub` | Async notification hub + null variant |
 | `ConfirmHelper.MakeConfirm(hub, prompt)`                 | Bridge to `ConfirmationDecoratorCommand` |
 
-## Conformance
+## 5. Conformance
 
-All 152 conformance IDs from `spec/12-conformance.md` are covered (166 test
+All 152 conformance IDs from `spec/12-conformance.md` are covered (171 test
 methods, since some IDs are validated by multiple scenarios).
 
 ```
@@ -124,7 +124,7 @@ Run the suite:
 dotnet test
 ```
 
-## Development
+## 6. Development
 
 ```bash
 # From this directory
@@ -142,6 +142,6 @@ The `lifecycle-transitions.json` fixture from `spec/fixtures/` is embedded as
 a resource via `<EmbeddedResource>` in `VMx.csproj` and consumed at runtime
 by `LifecycleTransitionValidator`.
 
-## License
+## 7. License
 
 MIT — see [`LICENSE`](../../LICENSE).

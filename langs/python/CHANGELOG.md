@@ -4,6 +4,52 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [2.0.0] — 2026-05-25
+
+Implements spec v2.0.0 — capability micro-interfaces, derived properties,
+search/filter, expand/collapse, modeled-CRUD commands, null-object services,
+opt-in notifications sub-package, and a localization hook.
+
+### Added
+- **Capabilities** (`vmx.capabilities`): 20 opt-in micro-interfaces
+  (`ISearchable`, `IExpandable`, `ICollapsible`, `IExpansionTogglable`,
+  `IDirty`, `IDisposable`, `IBusy`, `IValidatable`, etc.) so consumers can
+  type-check VMs against narrow contracts.
+- **Helpers** (`vmx.capabilities`): `SearchableState[TItem]` (debounced
+  filter), `ExpandableState` (expand/collapse + observable change).
+- **Derived properties** (`vmx.properties`): `DerivedProperty[TValue]` +
+  `from_sources(*sources, transform)` factory for N-source computed values
+  with `distinct_until_changed` + optional write-back.
+- **Commands**: `ConfirmationDecoratorCommand` + the abstract
+  `DecoratorCommand` base, `make_confirm` helper,
+  `ModeledCrudCommands[M, VM]` for the CRUD trio
+  (create / update_current / delete_current) on modeled composites.
+- **Null-object services** (per ADR-0017): `NullMessageHub`, `NullDispatcher`,
+  `NullLocalizer`, plus `NullNotificationHub` (in the notifications package).
+- **Localization** (`vmx.localization`): `ILocalizer` Protocol and
+  `NullLocalizer` (identity translator) — the only opinionated localizer
+  shipped in core.
+- **Notifications sub-package** (`vmx.notifications`, opt-in): `Notification`,
+  `NotificationType`, `NotificationReaction`, `INotificationHub` +
+  `NotificationHub` reference impl + `NullNotificationHub`.
+- **Tree utilities**: `walk_expanded(root)` — variant of `walk` that only
+  descends into expanded composites (uses the new `IExpandable` capability).
+- **Conformance**: 77 new IDs (`CAP-NNN`, `DPROP-NNN`, `NOTIF-NNN`,
+  `LOC-NNN`, `COMP-014..024`, `GRP-007..010`) — total now 152 IDs.
+
+### Internal
+- `vmx.builders._validation.require_field` / `require_services` return
+  narrowed values for tighter mypy --strict downstream typing.
+- Dispose paths across `Modeled*` / `Searchable*` / `Expandable*` /
+  `Derived*` are guarded with `_disposed` for idempotence.
+
+### Notes
+- The legacy aliases `RelayCommandOfT` / `RelayCommandOfTBuilder` and
+  `AggregateVMBuilder1..5` continue to ship in v2.0.0; their removal has
+  been deferred to **vmx v3.0.0** (next major). See ADR-0009.
+
 ## [1.2.0] — 2026-05-23
 
 ### Added
@@ -65,5 +111,3 @@ All notable changes to the Python flavor are documented here. The format is base
 - `mypy --strict` clean across the entire `src/vmx/` tree.
 - Examples: `examples/python/hello_vmx/` (console) and `examples/python/tk_todo_app/` (tkinter MVVM).
 - Getting-started tutorial at `docs/getting-started/python.md`.
-
-## [Unreleased]

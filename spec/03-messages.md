@@ -4,7 +4,7 @@ VMx uses a single hot pub/sub stream — the message hub — to convey property 
 lifecycle status changes, and any future event types. Subscribers observe via an Rx
 `IObservable<IMessage>`.
 
-## `IMessage` shape
+## 1. `IMessage` shape
 
 Every message implements `IMessage` (rendered per language as `Message`):
 
@@ -24,11 +24,11 @@ IMessage<TSender> : IMessage:
 `SenderName` typically equals `Sender.Name`. `SenderObject` is the runtime sender
 without compile-time type information (used by polymorphic subscribers).
 
-## Concrete message types
+## 2. Concrete message types
 
-VMx 1.0 defines two concrete messages. Both are immutable.
+VMx defines two concrete messages. Both are immutable.
 
-### `PropertyChangedMessage<TSender>`
+### 2.1 `PropertyChangedMessage<TSender>`
 
 Emitted when a property's setter assigns a new value (a value not equal to the
 existing one). Carries:
@@ -40,7 +40,7 @@ PropertyChangedMessage<TSender> : IMessage<TSender>:
 
 A factory `Create(sender, senderName, propertyName)` exists per language.
 
-### `ConstructionStatusChangedMessage`
+### 2.2 `ConstructionStatusChangedMessage`
 
 Emitted on every legal `Status` transition (see `02-lifecycle.md`). Carries:
 
@@ -51,7 +51,7 @@ ConstructionStatusChangedMessage : IMessage:
 
 A factory `Create(sender, senderName, status)` exists per language.
 
-## The hub contract
+## 3. The hub contract
 
 `IMessageHub` exposes:
 
@@ -61,7 +61,7 @@ IMessageHub:
     Send<TMessage : IMessage>(message: TMessage) : void
 ```
 
-### Hot stream semantics
+### 3.1 Hot stream semantics
 
 The hub is a **hot** Rx stream:
 
@@ -69,14 +69,14 @@ The hub is a **hot** Rx stream:
 - A subscriber added after a `Send` call does NOT observe that message.
 - There is no replay buffer.
 
-### Ordering
+### 3.2 Ordering
 
 For a single producer (a single thread calling `Send` in sequence), every subscriber
 observes the messages in send order (FIFO). Across producers (concurrent `Send`
 calls), the hub MAY interleave but MUST preserve per-producer order: if producer P
 sends `A` then `B`, no subscriber observes `B` before `A`.
 
-### Subscriber resilience
+### 3.3 Subscriber resilience
 
 If a subscriber's handler raises, the hub MUST swallow the exception (the stream
 continues for other subscribers and for future `Send` calls). Raising subscribers
@@ -87,13 +87,13 @@ the handler calls `subscription.Dispose()`), the in-flight dispatch of *that* me
 completes normally for the subscriber; subsequent messages are not delivered to that
 subscriber. Other subscribers are unaffected.
 
-### Multiplicity
+### 3.4 Multiplicity
 
 A host application MAY create as many `IMessageHub` instances as it likes. The
 common pattern is one hub per VM tree (per "screen" or "feature"); shared root hubs
 across the whole app are also valid.
 
-## Threading
+## 4. Threading
 
 `Send` runs on the calling thread. Subscribers wishing to observe on a specific
 thread/scheduler MUST apply `.ObserveOn(scheduler)` themselves. VMx does not impose
@@ -104,7 +104,7 @@ dispatch the emission via `IDispatcher.Foreground` so subscribers can opt into
 foreground-thread delivery via `ObserveOn(dispatcher.Foreground)`. See
 `11-threading.md` for the full contract.
 
-## Fixture
+## 5. Fixture
 
 `fixtures/message-ordering.json` encodes the four scenarios that the `HUB-NNN`
 conformance tests load:
@@ -115,7 +115,7 @@ conformance tests load:
   message.
 - `unsubscribe-during-emit`: a subscriber disposing during delivery does not crash.
 
-## Null variant — `NullMessageHub` (spec v2.0)
+## 6. Null variant — `NullMessageHub` (spec v2.0)
 
 Every service contract in VMx has a **null-object** variant per ADR-0017. For
 `IMessageHub`, the variant is `NullMessageHub`:
@@ -132,7 +132,7 @@ tests; a stand-in when the hub injection chain is being torn down.
 
 The null variant is conformance-tested by `NULL-001`.
 
-## Conformance
+## 7. Conformance
 
 `HUB-001` through `HUB-007` and `PROP-001` through `PROP-004` in `12-conformance.md` cover:
 
