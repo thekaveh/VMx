@@ -27,6 +27,7 @@ export class ModeledCrudCommands<VM> {
   // Inner RelayCommands hold trigger subscriptions; track them so dispose()
   // can tear them down (parity with C# ModeledCrudCommands.Dispose).
   readonly #innerRelays: readonly RelayCommand[];
+  #disposed = false;
 
   constructor(opts: ModeledCrudCommandsOptions<VM>) {
     const create = RelayCommand.builder().task(opts.createNew).build();
@@ -58,6 +59,7 @@ export class ModeledCrudCommands<VM> {
 
   /**
    * Dispose the underlying RelayCommands and their trigger subscriptions.
+   * Idempotent: subsequent calls are a no-op.
    *
    * Note: `ConfirmationDecoratorCommand` wrappers (when `confirmUpdate` /
    * `confirmDelete` are supplied) are NOT tracked separately because they
@@ -67,6 +69,8 @@ export class ModeledCrudCommands<VM> {
    * that subscription explicitly.
    */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     for (const cmd of this.#innerRelays) cmd.dispose();
   }
 }

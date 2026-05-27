@@ -10,6 +10,7 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     private readonly Dictionary<Notification, TaskCompletionSource<NotificationReaction>> _waiters = new();
     private readonly BehaviorSubject<IReadOnlyList<Notification>> _pendingSubject =
         new(Array.Empty<Notification>());
+    private bool _disposed;
 
     /// <inheritdoc/>
     public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject;
@@ -45,12 +46,17 @@ public sealed class NotificationHub : INotificationHub, IDisposable
         tcs.TrySetResult(reaction);
     }
 
-    /// <summary>Completes the <see cref="Pending"/> observable and resolves any in-flight waiters with Pending.</summary>
+    /// <summary>
+    /// Completes the <see cref="Pending"/> observable and resolves any in-flight waiters with Pending.
+    /// Idempotent: subsequent calls are a no-op.
+    /// </summary>
     public void Dispose()
     {
         TaskCompletionSource<NotificationReaction>[] waiters;
         lock (_lock)
         {
+            if (_disposed) return;
+            _disposed = true;
             waiters = _waiters.Values.ToArray();
             _waiters.Clear();
             _pending.Clear();

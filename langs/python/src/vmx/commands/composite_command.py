@@ -26,6 +26,7 @@ class CompositeCommand:
     def __init__(self, *inner: Command) -> None:
         self._inner: Sequence[Command] = inner
         self._subscriptions: list[DisposableBase] = []
+        self._disposed = False
         self._can_execute_changed: Observable[None]
         if not inner:
             self._can_execute_changed = rx.never()
@@ -45,6 +46,10 @@ class CompositeCommand:
                 c.execute(parameter)
 
     def dispose(self) -> None:
+        """Dispose internal subscriptions. Idempotent."""
+        if self._disposed:
+            return
+        self._disposed = True
         for s in self._subscriptions:
             s.dispose()
         self._subscriptions.clear()

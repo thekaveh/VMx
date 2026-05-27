@@ -21,6 +21,7 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     public ICommand DeleteCurrentCommand { get; }
 
     private readonly List<IDisposable> _disposables = new();
+    private bool _disposed;
 
     /// <summary>Creates a new CRUD command set.</summary>
     /// <param name="current">Provider returning the current VM (or null).</param>
@@ -73,9 +74,11 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
         }
     }
 
-    /// <summary>Disposes the underlying commands.</summary>
+    /// <summary>Disposes the underlying commands. Idempotent.</summary>
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         foreach (var d in _disposables) d.Dispose();
     }
 }

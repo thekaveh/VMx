@@ -53,6 +53,7 @@ class ModeledCrudCommands(Generic[M, VM]):
         # Inner RelayCommands hold trigger subscriptions; track them so dispose()
         # can tear them down (parity with C# ModeledCrudCommands.Dispose).
         self._inner_relays = (create, update, delete)
+        self._disposed = False
 
         self.create_new_command = create
         self.update_current_command = (
@@ -69,6 +70,8 @@ class ModeledCrudCommands(Generic[M, VM]):
     def dispose(self) -> None:
         """Dispose the underlying RelayCommands and their trigger subscriptions.
 
+        Idempotent: subsequent calls are a no-op.
+
         Note: ``ConfirmationDecoratorCommand`` wrappers (when ``confirm_update`` /
         ``confirm_delete`` are supplied) are NOT tracked separately because they
         hold no subscriptions of their own — ``can_execute_changed`` is a direct
@@ -76,5 +79,8 @@ class ModeledCrudCommands(Generic[M, VM]):
         the wrapper subscribes to ``CanExecuteChanged`` events and must dispose
         that subscription explicitly.
         """
+        if self._disposed:
+            return
+        self._disposed = True
         for cmd in self._inner_relays:
             cmd.dispose()
