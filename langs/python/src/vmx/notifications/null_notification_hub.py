@@ -22,6 +22,11 @@ class NullNotificationHub:
         return self._pending
 
     def post(self, notification: Notification) -> asyncio.Future[NotificationReaction]:
+        """Post (a no-op) and return a pre-resolved Approve future.
+
+        MUST be called from within a running asyncio event loop; raises
+        :class:`RuntimeError` otherwise.
+        """
         loop = asyncio.get_running_loop()
         future: asyncio.Future[NotificationReaction] = loop.create_future()
         future.set_result(NotificationReaction.APPROVE)

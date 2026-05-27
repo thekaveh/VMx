@@ -46,6 +46,12 @@ class NotificationHub:
         return self._pending_subject
 
     def post(self, notification: Notification) -> asyncio.Future[NotificationReaction]:
+        """Post a notification and return a future that resolves on Resolve.
+
+        MUST be called from within a running asyncio event loop; raises
+        :class:`RuntimeError` otherwise. The returned future is created on
+        the running loop and is intended to be awaited from async code.
+        """
         loop = asyncio.get_running_loop()
         future: asyncio.Future[NotificationReaction] = loop.create_future()
         with self._lock:
