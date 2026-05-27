@@ -112,9 +112,9 @@ user_vm: ComponentVMOf[UserModel] = (
 )
 
 # Subscribe to hub messages BEFORE constructing so you don't miss any.
-hub.messages.pipe(
-    # reactivex.operators has no OfType; filter by isinstance directly.
-).subscribe(
+# reactivex.operators has no OfType; filter by isinstance directly in the
+# subscriber.
+hub.messages.subscribe(
     lambda msg: (
         isinstance(msg, PropertyChangedMessage)
         and msg.sender is user_vm
