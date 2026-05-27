@@ -199,3 +199,30 @@ describe("AggregateVM4 smoke", () => {
     expect(agg.status).toBe(ConstructionStatus.Destructed);
   });
 });
+
+describe("AggregateVM reconstruct disposes previous slot", () => {
+  it("AggregateVM1.reconstruct disposes the previous _component1", () => {
+    const hub = makeHub();
+    let nextName = 0;
+    const agg = AggregateVM1.builder<ComponentVM>()
+      .name("agg")
+      .services(hub, makeDisp())
+      .component1(() => makeChild(hub, `slot${++nextName}`))
+      .build();
+
+    agg.construct();
+    const first = agg.component1;
+    expect(first).not.toBeNull();
+    expect(first?.status).toBe(ConstructionStatus.Constructed);
+
+    // reconstruct() = destruct + construct; with the fix the previous
+    // slot is disposed before the factory yields a fresh instance.
+    agg.reconstruct();
+
+    const second = agg.component1;
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    expect(second?.status).toBe(ConstructionStatus.Constructed);
+    expect(first?.status).toBe(ConstructionStatus.Disposed);
+  });
+});

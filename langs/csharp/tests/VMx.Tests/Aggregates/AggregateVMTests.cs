@@ -296,5 +296,34 @@ public class AggregateVMTests
         propNames.Should().Contain("Component1");
         propNames.Should().Contain("Component2");
     }
+
+    // ── Reconstruct disposes the previous slot instance ───────────────────────
+
+    [Fact]
+    public void AggregateVM1_Reconstruct_Disposes_Previous_Slot()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var agg = AggregateVM1<ComponentVM<string>>.Builder()
+            .Name("agg").Services(hub, dispatcher)
+            .Component1(() => MakeLeaf(hub, dispatcher, "slot"))
+            .Build();
+
+        agg.Construct();
+        var first = agg.Component1;
+        first.Should().NotBeNull();
+        first!.Status.Should().Be(ConstructionStatus.Constructed);
+
+        // Reconstruct = Destruct + Construct; the fix in 560be45 disposes
+        // the previous slot before the factory yields a new instance, so
+        // hub subscriptions and command Subjects don't leak.
+        agg.Reconstruct();
+
+        var second = agg.Component1;
+        second.Should().NotBeNull();
+        second.Should().NotBeSameAs(first, "Reconstruct must produce a fresh slot");
+        second!.Status.Should().Be(ConstructionStatus.Constructed);
+        first.Status.Should().Be(ConstructionStatus.Disposed,
+            "previous slot must be Disposed, not lingering in Destructed");
+    }
 }
 #pragma warning restore CA1715
