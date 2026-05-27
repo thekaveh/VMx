@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-23)
 **Spec version:** introduced in 1.1.0
 
-## Context
+## 1. Context
 
 ADR-0006 establishes that each language flavor gets an idiomatic public surface:
 PascalCase in C#, snake_case in Python, camelCase in TypeScript. In practice
@@ -18,7 +18,7 @@ This ADR catalogues those divergences so future audits can distinguish
 Where a divergence is a known asymmetry that will be revisited, it is listed
 with a target version.
 
-## Decision
+## 2. Decision
 
 The following asymmetries are **accepted** as direct consequences of
 ADR-0006 and require no further action:
@@ -57,14 +57,14 @@ here so audits don't reopen them prematurely:
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
 
-### Resolved in v1.2.0
+### 2.1 Resolved in v1.2.0
 
 - C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
 - TypeScript `ConstructionStatusChangedMessage.sender` getter (additive).
 - C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
   on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
 
-## Rationale
+## 3. Rationale
 
 ADR-0006 already declares the principle; this ADR is its operational catalogue.
 Without it, every cross-flavor audit re-discovers the same divergences and asks
@@ -72,7 +72,7 @@ Without it, every cross-flavor audit re-discovers the same divergences and asks
 churn. The deferred-rename list keeps known asymmetries visible without forcing
 breaking changes in a maintenance pass.
 
-## Consequences
+## 4. Consequences
 
 - Future parity audits start with this table as the baseline expectation. Items
   not on it are presumed real drift and worth fixing.
@@ -82,7 +82,7 @@ breaking changes in a maintenance pass.
   utilities) remains agnostic of these per-flavor shapes — they are framed in
   terms of observable behavior, not method signatures.
 
-## Rejected alternatives
+## 5. Rejected alternatives
 
 - **Force exact name parity across flavors.** Would either pick a least-common
   denominator (ugly in every flavor) or violate the host language's

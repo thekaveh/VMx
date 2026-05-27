@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor put `SearchTerm`, `SearchPredicate`,
 `FilteredInnerCollection`, and `SearchCommand` directly on the composite
@@ -11,7 +11,7 @@ base class, with a 1-second Rx throttle on `SearchTerm` change events. The
 current VMx has no equivalent — consumers wanting a filtered tree-view
 build their own throttle, predicate, and filter pipeline.
 
-## Options considered
+## 2. Options considered
 
 1. **Skip — leave search to consumers.** Smallest spec surface; loses the
    legacy parity goal.
@@ -21,7 +21,7 @@ build their own throttle, predicate, and filter pipeline.
 1. **Provide a `SearchableState<TItem>` helper that implements `ISearchable`
    (from chapter 14) and composes with any iterable container.**
 
-## Decision
+## 3. Decision
 
 Option 3. The cycle ships a `SearchableState<TItem>` helper per flavor that:
 
@@ -38,7 +38,7 @@ by composing `SearchableState` with the container as the items source.
 The debounce default is **1 second** (matching the legacy predecessor) and
 is configurable via constructor/builder.
 
-## Consequences
+## 4. Consequences
 
 - Five conformance IDs `COMP-014..COMP-018` cover search/filter behavior in
   composite context.

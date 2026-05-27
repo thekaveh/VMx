@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor exposed three decorator commands:
 
@@ -18,7 +18,7 @@ The current VMx only ships `RelayCommand`. There is no way to express
 "execute these three commands as a batch" or "ask before invoking" without
 hand-rolling the wiring.
 
-## Options considered
+## 2. Options considered
 
 1. **Skip decorators; consumers compose by hand.** Existing reality. Keeps
    surface small but misses a frequently-needed composition pattern.
@@ -28,7 +28,7 @@ hand-rolling the wiring.
    slots.** Fewer types, more configuration. Less discoverable than three
    named types.
 
-## Decision
+## 3. Decision
 
 Option 2. Three concrete decorator types per flavor, matching the legacy
 naming. Each is built via a constructor / factory taking the inner command(s)
@@ -41,7 +41,7 @@ service (cycle 5). Consumers wanting a "show a confirmation dialog via the
 notification hub" can use a helper in the `vmx-notifications` sub-package
 that turns an `INotificationHub` interaction into a `Func<Task<bool>>`.
 
-## Consequences
+## 4. Consequences
 
 - An extended chapter `04-commands.md` documents the three decorators.
 - Nine conformance IDs `CMDD-001..CMDD-009` cover the per-decorator contract.

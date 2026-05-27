@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-05-25)
 **Spec version:** introduced in 2.0.0
 
-## Context
+## 1. Context
 
 The 2012 VMx predecessor exposed `TransformationProperty<S,P,V>` plus 1–5
 source overloads (`TransformationProperty<S1,P1,S2,P2,V>` etc., each adding
@@ -20,7 +20,7 @@ subscription code in the consuming VM.
 The VMx.old absorption goal calls for absorbing derived properties as a
 first-class primitive.
 
-## Options considered
+## 2. Options considered
 
 1. **1–5 source overloads (legacy parity).** Same as the 2012 predecessor.
    Predictable arity ceiling; same limitation. C# would need 5 overloads;
@@ -32,7 +32,7 @@ first-class primitive.
    compromise that's easier on the type system (each arity has its own
    transform signature). Loses the simple "any N" story.
 
-## Decision
+## 3. Decision
 
 Option 2. Every flavor exposes a single derived-property factory that
 accepts an unbounded list of source observables and a transform that takes
@@ -57,7 +57,7 @@ The factory internally uses each flavor's reactive `combineLatest` (or
 equivalent) plus `distinctUntilChanged` to ensure recompute-on-source-change
 and distinct emission.
 
-## Consequences
+## 4. Consequences
 
 - A new chapter `15-derived-properties.md` defines the contract.
 - A new fixture `spec/fixtures/derived-properties.json` encodes the
