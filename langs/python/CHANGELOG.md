@@ -11,6 +11,10 @@ All notable changes to the Python flavor are documented here. The format is base
 - `CompositeVM.__setitem__` now clears `current` to None when the
   replaced slot held the current selection, mirroring `_remove_at`.
   Previously `_current` would silently dangle on the removed child.
+- `AggregateVM1.._on_construct` now disposes the previous slot
+  instance before invoking the factory on Reconstruct, so the old
+  VM's hub subscriptions and command Subjects are released instead of
+  lingering until the hub itself is disposed. (Parity with the C# fix.)
 - `NotificationHub.resolve()` now schedules `future.set_result` via
   `loop.call_soon_threadsafe`, making `resolve()` safe to call from a
   thread other than the future's owning event loop (`asyncio.Future`

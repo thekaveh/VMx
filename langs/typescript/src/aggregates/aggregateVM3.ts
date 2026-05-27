@@ -38,6 +38,12 @@ export class AggregateVM3<
   get component3(): VM3 | null { return this.#component3; }
 
   protected override _onConstruct(): void {
+    // On Reconstruct, dispose previous slot instances before overwriting
+    // so their hub subscriptions and command Subjects don't leak.
+    this.#component1?.dispose();
+    this.#component2?.dispose();
+    this.#component3?.dispose();
+
     this.#component1 = this.#factory1();
     this._hub.send(PropertyChangedMessage.create(this, this._name, "Component1"));
     this._raisePropertyChanged("component1");

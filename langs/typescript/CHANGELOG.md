@@ -17,6 +17,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 - `CompositeVMBase.setAt` now clears `current` to null when the
   replaced slot held the current selection, mirroring `removeAt`.
+- `AggregateVM1..5._onConstruct` now disposes the previous slot
+  instance before invoking the factory on Reconstruct, so the old
+  VM's hub subscriptions and command Subjects are released instead of
+  lingering until the hub itself is disposed. (Parity with the C# fix.)
 - `SearchableState.searchTerm` setter no longer pushes the new value
   through the debounce/recompute pipeline when it equals the current
   value (spec wording: "emission on a new value").
