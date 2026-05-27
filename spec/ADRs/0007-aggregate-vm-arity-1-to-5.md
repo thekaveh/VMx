@@ -22,8 +22,11 @@ Option 1. Five explicit classes per language. The arity cap of 5 is a soft signa
 - `AggregateVM1` through `AggregateVM5` exist in every language flavor.
 - Beyond arity 5, users compose multiple aggregates or switch to composite/group.
 - The conformance catalog covers representative arities and cross-cutting behaviors via
-  `AGG-001` through `AGG-005` (arity-1 factory, arity-2 parallel construct, arity-5
-  ordering, parallel property-changes, parallel destruct). Arities 3 and 4 are implied
-  by the arity-N generalization and not separately enumerated in v1.0.
+  `AGG-001` through `AGG-005` (arity-1 factory, arity-2 children-reach-Constructed,
+  arity-5 ordering, `ComponentN` property-changes, destruct waits for all). Arities 3
+  and 4 are implied by the arity-N generalization and not separately enumerated.
+  Spec/08 §Construction / §Destruction documents that the reference implementations
+  drive the slots sequentially; the spec leaves ordering unspecified to allow a
+  future implementation to dispatch via `IDispatcher.Background`.
 - Any language flavor added under the new-language gate (ADR-0002) must implement all five arities before it can be considered conformant.
 - A future spec major version could lift the cap; that would be a v2.0 change.

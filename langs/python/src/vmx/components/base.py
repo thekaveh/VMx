@@ -412,9 +412,10 @@ class _ComponentVMBase(ABC):
     def _on_dispose(self) -> None:  # noqa: B027  — intentional override hook
         """Called by dispose() after status reaches Disposed. Override for cleanup."""
 
-    # -- SelectNext / SelectPrevious (not implemented in v1.0) ---------------
-    # Parent enumeration (sibling navigation) is not implemented in v1.0 — always
-    # returns False. The empty bodies below are intentional (B027 silenced).
+    # -- SelectNext / SelectPrevious ----------------------------------------
+    # Parent enumeration (sibling navigation) is intentionally not implemented
+    # in the base; subclasses with a known parent override these. The empty
+    # bodies below are intentional (B027 silenced).
     def _can_select_next(self) -> bool:
         return False
 

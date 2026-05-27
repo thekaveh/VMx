@@ -3,6 +3,47 @@
 All notable changes to the TypeScript flavor of vmx are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [2.0.0] — 2026-05-25
+
+Implements spec v2.0.0 — capability micro-interfaces, derived properties,
+search/filter, expand/collapse, modeled-CRUD commands, null-object services,
+opt-in notifications sub-package, and a localization hook.
+
+### Added
+- **Capabilities** (`vmx`): 20 opt-in micro-interfaces (`ISearchable`,
+  `IExpandable`, `ICollapsible`, `IExpansionTogglable`, `IDirty`,
+  `IDisposable`, `IBusy`, `IValidatable`, etc.).
+- **Helpers** (`vmx`): `SearchableState<TItem>` (real `debounceTime`,
+  trailing-edge), `ExpandableState`.
+- **Derived properties** (`vmx`): `DerivedProperty<TValue>` plus a
+  `fromSources(sources, transform, opts?)` factory for N-source
+  computed values with `distinctUntilChanged` + optional write-back.
+- **Commands**: `ConfirmationDecoratorCommand`, `LoggingDecoratorCommand`,
+  `makeConfirm` helper, `ModeledCrudCommands<M, VM>` (M is a phantom
+  type parameter mirroring the spec contract — see ADR-0016).
+- **Null-object services** (per ADR-0017): `NullMessageHub`,
+  `NullDispatcher`, `NullLocalizer`, plus `NullNotificationHub` (in the
+  notifications package).
+- **Localization** (`vmx`): `ILocalizer` interface and `NullLocalizer`
+  (identity translator).
+- **Notifications sub-package** (`vmx` namespace `notifications/`,
+  shipped in-package but tree-shakable): `Notification`, `NotificationType`,
+  `NotificationReaction`, `INotificationHub` + `NotificationHub` reference
+  impl + `NullNotificationHub`.
+- **Tree utilities**: `walkExpanded(root)` variant that descends only into
+  expanded composites.
+- **Conformance**: 77 new IDs added (total 152).
+
+### Changed (breaking)
+- `ModeledCrudCommands<VM>` is now `ModeledCrudCommands<M, VM>` (phantom
+  `M`). Update callsites from `new ModeledCrudCommands<MyVM>({...})` to
+  `new ModeledCrudCommands<MyModel, MyVM>({...})`.
+- `deriveFromSources(sources, transform, opts)` is renamed `fromSources`
+  to match the ADR-0006 idiom mapping (`from_sources` in Python).
+  Update imports.
+
 ## [1.2.0] — 2026-05-23
 
 ### Added
@@ -44,5 +85,3 @@ parity against the C# and Python flavors.
 - `walk(root)`, `find(root, predicate)` — DFS pre-order tree utilities.
 - Fluent immutable builders for every public type.
 - Dual ESM + CJS output via tsup; TypeScript declarations bundled.
-
-## [Unreleased]

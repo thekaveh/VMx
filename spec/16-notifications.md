@@ -65,6 +65,12 @@ INotificationHub:
 - Returns an awaitable that completes when `Resolve(notification, …)` is
   called for this exact instance. The completed value is the
   `NotificationReaction` passed to `Resolve`.
+- Posting the same `notification` instance while it is still pending is
+  implementation-defined; implementations SHOULD return the existing
+  awaitable rather than silently dropping it. Callers wanting two
+  independent posts MUST construct two `Notification` instances (see the
+  identity-distinctness rule above). A future minor version may strengthen
+  this to a normative no-op and add a covering conformance ID.
 
 ### `Resolve` semantics
 

@@ -26,7 +26,7 @@ without compile-time type information (used by polymorphic subscribers).
 
 ## Concrete message types
 
-VMx 1.0 defines two concrete messages. Both are immutable.
+VMx defines two concrete messages. Both are immutable.
 
 ### `PropertyChangedMessage<TSender>`
 

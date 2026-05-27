@@ -41,7 +41,7 @@ The builder accepts:
 - `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
 
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
-In v1.0 only the non-modeled variant ships.
+Only the non-modeled variant currently ships.
 
 ## Auto-construct on add (spec v1.1)
 

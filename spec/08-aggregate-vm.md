@@ -1,8 +1,7 @@
 # 08 — AggregateVM
 
 `AggregateVM<VM1..VMN>` is a fixed-arity tuple of heterogeneous component VMs. VMx
-v1.0 ships arities 1 through 5 (`AggregateVM1` through `AggregateVM5` — see
-ADR-0007).
+ships arities 1 through 5 (`AggregateVM1` through `AggregateVM5` — see ADR-0007).
 
 ## Members (arity N)
 
@@ -38,10 +37,14 @@ AggregateVM3.Builder()
 
 `construct()`:
 
-1. Invokes every component factory in parallel, populating the `ComponentN` slots.
+1. Invokes every component factory, populating the `ComponentN` slots.
 1. Subscribes to each child's `ConstructionStatusChangedMessage` on the hub.
 1. Waits for every child to reach `Constructed`.
 1. Transitions to `Constructed` and emits its own status message.
+
+The order in which the slots are populated and constructed is unspecified.
+The reference implementations in all three flavors drive them sequentially
+(mirroring `CompositeVM` / `GroupVM`; see chapter 06).
 
 On each successful slot population, the aggregate raises
 `PropertyChangedMessage("ComponentN")`.
@@ -50,9 +53,12 @@ On each successful slot population, the aggregate raises
 
 `destruct()`:
 
-1. Invokes `destruct()` on each `ComponentN` slot in parallel.
+1. Invokes `destruct()` on each `ComponentN` slot.
 1. Waits for every child to reach `Destructed`.
 1. Transitions to `Destructed`.
+
+As with `construct()`, the order is unspecified and the reference
+implementations drive the slots sequentially.
 
 ## Selection
 

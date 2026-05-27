@@ -5,7 +5,7 @@
 
 ## Context
 
-VMx ships in C#, Python, and future TypeScript. Two naming/structure philosophies are possible.
+VMx ships in C#, Python, and TypeScript. Two naming/structure philosophies are possible.
 
 ## Options considered
 

@@ -47,8 +47,11 @@ Per-flavor implementation notes:
   strongly-typed convenience; beyond 5, callers use the untyped form.
 - **Python**: `DerivedProperty[TValue]` with a factory
   `from_sources(*sources, transform)` (variadic `*sources`).
-- **TypeScript**: `DerivedProperty<TValue>` with a builder
-  `.sources(...)` taking a rest-parameter list and a transform.
+- **TypeScript**: `DerivedProperty<TValue>` plus a factory
+  `fromSources(sources: Observable<unknown>[], transform, opts?)` re-exported
+  from `vmx`. A rest-parameter signature was considered but rejected because
+  it conflicts with the trailing options object (`canSet`/`setAction`) the
+  factory accepts — TypeScript rest parameters must come last.
 
 The factory internally uses each flavor's reactive `combineLatest` (or
 equivalent) plus `distinctUntilChanged` to ensure recompute-on-source-change

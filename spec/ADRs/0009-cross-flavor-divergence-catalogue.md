@@ -43,11 +43,14 @@ The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
 
 - **`RelayCommandOfT` → `RelayCommandOf` rename** in Python. The new name shipped
-  as a canonical alias alongside the legacy `RelayCommandOfT` in **vmx v1.2.0**;
-  removal of the legacy name is deferred to **vmx v2.0.0** (breaking).
+  as a canonical alias alongside the legacy `RelayCommandOfT` in **vmx v1.2.0**.
+  The original v1.x plan deferred removal to vmx v2.0.0; that removal slipped
+  and the legacy alias still ships in v2.0.0 to preserve downstream code that
+  pinned to v1.x. Removal is now deferred to **vmx v3.0.0** (next major).
 - **`AggregateVMBuilderN` → `AggregateVMNBuilder` rename** in Python (e.g.
   `AggregateVMBuilder1` → `AggregateVM1Builder`). New names shipped alongside
-  the legacy ones in **vmx v1.2.0**; removal deferred to **vmx v2.0.0** (breaking).
+  the legacy ones in **vmx v1.2.0**; the v2.0.0 removal was likewise deferred
+  to **vmx v3.0.0** (next major).
 - **`Type(ViewModelType)` (C#) / `vm_type` (Python) on the modeled
   ComponentVM builder.** Surface intentionally retained as an advanced escape
   hatch — a non-leaf VM (e.g. an aggregate) that internally uses

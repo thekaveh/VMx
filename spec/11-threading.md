@@ -21,11 +21,11 @@ shares one across all trees).
 
 Each language flavor ships an `RxDispatcher` whose defaults are:
 
-| Language            | Foreground                                                                               | Background                  |
-| ------------------- | ---------------------------------------------------------------------------------------- | --------------------------- |
-| C#                  | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default` |
-| Python              | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`     |
-| TypeScript (future) | `queueScheduler` (microtask)                                                             | `asapScheduler`             |
+| Language   | Foreground                                                                               | Background                  |
+| ---------- | ---------------------------------------------------------------------------------------- | --------------------------- |
+| C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default` |
+| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`     |
+| TypeScript | `queueScheduler` (microtask)                                                             | `asapScheduler`             |
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.

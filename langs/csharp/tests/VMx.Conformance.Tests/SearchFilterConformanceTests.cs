@@ -132,4 +132,28 @@ public class SearchFilterConformanceTests
         s.Search();
         snap.Last().Should().Equal(3, 4);
     }
+
+    // ----- Dispose path — not a conformance ID, but a regression guard for
+    // the _disposed idempotence guard and the Subject completions in Dispose().
+    [Fact]
+    public void SearchableState_Dispose_IsIdempotent()
+    {
+        var items = new[] { "a" };
+        var s = new SearchableState<string>(() => items, CISubstr, debounce: TimeSpan.Zero);
+        s.Dispose();
+        // Second call must be a no-op (no double-OnCompleted on the BehaviorSubject).
+        Action act = () => s.Dispose();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void SearchableState_Dispose_CompletesFilteredStream()
+    {
+        var items = new[] { "a" };
+        var s = new SearchableState<string>(() => items, CISubstr, debounce: TimeSpan.Zero);
+        var completed = false;
+        using var sub = s.Filtered.Subscribe(_ => { }, () => completed = true);
+        s.Dispose();
+        completed.Should().BeTrue();
+    }
 }

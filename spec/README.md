@@ -10,7 +10,7 @@ flavor releases a stable version.
 
 ## 1. Contents
 
-### 1.1 Chapters (v1.x baseline)
+### 1.1 Chapters (foundational, v1.x)
 
 - `00-overview.md` — vision, scope, glossary.
 - `01-concepts.md` — VM hierarchy, MVVM role, dependency philosophy.
@@ -38,7 +38,8 @@ flavor releases a stable version.
 
 - `VERSION` — current spec SemVer (`2.0.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0019).
+- `ADRs/` — Architecture Decision Records (0001-0020); see
+  [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — deferred designs not yet promoted to chapters.
 
 ## 2. Versioning

@@ -20,5 +20,5 @@ Option 3. Rx ports exist and are stable in every language we care about. The ope
 ## Consequences
 
 - Every active language flavor depends on its language's Rx port (mandatory in `pyproject.toml` / `Directory.Packages.props` / `package.json`).
-- A new language flavor cannot be added unless a comparable Rx port exists; the playbook (§13 of the design doc) calls this out as the first gate. Languages without an Rx port (e.g., Rust, Go) require an ADR documenting the semantic mapping before they can join.
+- A new language flavor cannot be added unless a comparable Rx port exists; this gate is the first check before a new flavor is considered. Languages without an Rx port (e.g., Rust, Go) require an ADR documenting the semantic mapping before they can join.
 - Conformance tests pin Rx-specific semantics (hot streams, no replay, scheduler-aware delivery) so language ports cannot drift on these.
