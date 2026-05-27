@@ -5,7 +5,7 @@
 
 ## 1. Context
 
-VMx is built around a hot stream of `IMessage` events (the message hub) and observable command triggers (`IObservable<Unit>` re-evaluating `CanExecute`). The legacy library used System.Reactive 2.2.5. We need a reactive primitive that is available, mature, and semantically consistent across C#, Python, and future TypeScript / Kotlin / Swift.
+VMx is built around a hot stream of `IMessage` events (the message hub) and observable command triggers (`IObservable<Unit>` re-evaluating `CanExecute`). The legacy library used System.Reactive 2.2.5. We need a reactive primitive that is available, mature, and semantically consistent across C# (System.Reactive), Python (reactivex), and TypeScript (rxjs); future Kotlin / Swift flavors would need a comparable Rx port (see §4).
 
 ## 2. Options considered
 
