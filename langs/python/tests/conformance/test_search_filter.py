@@ -184,3 +184,27 @@ def test_searchable_state_dispose_completes_filtered_stream() -> None:
     s.filtered.subscribe(on_completed=on_completed)
     s.dispose()
     assert completed is True
+
+
+def test_searchable_state_search_term_setter_skips_noop_re_set() -> None:
+    """Setting search_term to its current value must not trigger a recompute.
+
+    Regression guard for the equality-guard in SearchableState.search_term.setter.
+    Spec wording: "emission on a new value".
+    """
+    items = ["apple", "banana"]
+    s = SearchableState(items=lambda: items, predicate=_ci_substr, debounce_seconds=0)
+    snapshots: list[list[str]] = []
+    s.filtered.subscribe(on_next=lambda v: snapshots.append(list(v)))
+    initial_count = len(snapshots)
+
+    s.search_term = "appl"
+    after_first = len(snapshots)
+    assert after_first > initial_count, "first set must emit"
+
+    s.search_term = "appl"  # same value
+    after_second = len(snapshots)
+    assert after_second == after_first, (
+        "setting search_term to the same value must NOT trigger a recompute "
+        f"(got {after_second - after_first} extra emission(s))"
+    )

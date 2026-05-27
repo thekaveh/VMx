@@ -156,4 +156,25 @@ public class SearchFilterConformanceTests
         s.Dispose();
         completed.Should().BeTrue();
     }
+
+    // ----- SearchTerm setter: equality guard — regression guard for the
+    // early-return in SearchableState.SearchTerm. Spec wording: "emission on a new value".
+    [Fact]
+    public void SearchableState_SearchTerm_Setter_Skips_NoOp_ReSet()
+    {
+        var items = new[] { "apple", "banana" };
+        using var s = new SearchableState<string>(
+            () => items, CISubstr, debounce: TimeSpan.Zero);
+        var snap = new List<IReadOnlyList<string>>();
+        using var sub = s.Filtered.Subscribe(snap.Add);
+        var initial = snap.Count;
+
+        s.SearchTerm = "appl";
+        var afterFirst = snap.Count;
+        afterFirst.Should().BeGreaterThan(initial, "first set must emit");
+
+        s.SearchTerm = "appl";  // same value
+        snap.Count.Should().Be(afterFirst,
+            "setting SearchTerm to the same value must NOT trigger a recompute");
+    }
 }
