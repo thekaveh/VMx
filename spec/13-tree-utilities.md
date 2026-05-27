@@ -11,6 +11,7 @@ This module shipped in spec v1.1.
 ```
 walk(root: IComponentVM) -> Iterable<IComponentVM>
 find(root: IComponentVM, predicate: (IComponentVM) -> bool) -> IComponentVM?
+walk_expanded(root: IComponentVM) -> Iterable<IComponentVM>      # spec v2.0
 ```
 
 ## 2. `walk`
@@ -50,11 +51,13 @@ Properties:
 
 ## 4. Idiomatic surface
 
-| Flavor     | Module     | Walk return                          | Find return            |
+| Flavor     | Module     | Walk / WalkExpanded return           | Find return            |
 | ---------- | ---------- | ------------------------------------ | ---------------------- |
 | C#         | `VMx.Tree` | `IEnumerable<IComponentVM>` (lazy)   | `IComponentVM?`        |
 | Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator) | `IComponentVM \| None` |
 | TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator) | `IComponentVM \| null` |
+
+`walk_expanded` (spec v2.0) shares the same return shape as `walk` per flavor.
 
 ## 5. Expand-aware traversal (spec v2.0)
 

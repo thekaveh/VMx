@@ -7,7 +7,8 @@ Builder naming
 The canonical builder names from v1.2.0 are ``AggregateVM1Builder`` through
 ``AggregateVM5Builder`` (matching the TypeScript flavor). The historical
 ``AggregateVMBuilder1`` through ``AggregateVMBuilder5`` names remain as identity
-aliases for backward compatibility and will be removed in vmx v2.0.0.
+aliases for backward compatibility; the originally planned v2.0.0 removal slipped
+and is deferred to vmx v3.0.0 per ADR-0009.
 
 See spec/08-aggregate-vm.md and ADR-0007.
 """

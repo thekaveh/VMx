@@ -335,7 +335,7 @@ from vmx.aggregates.aggregate_vm import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# Parity aliases (canonical from v1.2.0; old names removed in v2.0.0)
+# Parity aliases (canonical from v1.2.0; old-name removal deferred to v3.0.0)
 # ---------------------------------------------------------------------------
 #
 # TypeScript exposes ``AggregateVM1Builder``..``AggregateVM5Builder`` (number

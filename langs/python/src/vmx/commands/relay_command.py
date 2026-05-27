@@ -7,8 +7,10 @@ Naming
 The parameterised command is exposed under TWO names: ``RelayCommandOf`` (parity
 with the C# ``RelayCommand<T>`` / TypeScript ``RelayCommandOf`` surface; the
 canonical name from v1.2.0 onward) and ``RelayCommandOfT`` (the original v1.0.0
-name, preserved as an alias for backward compatibility). The legacy ``OfT`` name
-is slated for removal in vmx v2.0.0; new code should prefer ``RelayCommandOf``.
+name, preserved as an alias for backward compatibility). Removal of the legacy
+``OfT`` alias was originally planned for v2.0.0 but slipped to preserve downstream
+code; it is now deferred to vmx v3.0.0 per ADR-0009. New code should prefer
+``RelayCommandOf``.
 
 Behavior contract:
 - Predicate null → can_execute returns True unconditionally.
@@ -262,14 +264,15 @@ class RelayCommandOfTBuilder(Generic[T]):
 
 
 # ---------------------------------------------------------------------------
-# Parity aliases (canonical from v1.2.0; old `OfT` names removed in v2.0.0)
+# Parity aliases (canonical from v1.2.0; old `OfT` removal deferred to v3.0.0)
 # ---------------------------------------------------------------------------
 #
 # The C# flavor uses RelayCommand<T> and the TypeScript flavor uses RelayCommandOf.
 # Python's RelayCommandOfT trails the generic parameter to mirror C#'s syntax,
 # but ``OfT`` reads awkwardly in Python and diverges from TS. ``RelayCommandOf``
 # is the parity-aligned canonical name going forward; ``RelayCommandOfT`` and
-# ``RelayCommandOfTBuilder`` remain as identity aliases until vmx v2.0.0.
+# ``RelayCommandOfTBuilder`` remain as identity aliases (the originally planned
+# v2.0.0 removal slipped and is deferred to vmx v3.0.0 per ADR-0009).
 
 RelayCommandOf = RelayCommandOfT
 RelayCommandOfBuilder = RelayCommandOfTBuilder
