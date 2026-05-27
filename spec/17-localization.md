@@ -15,7 +15,7 @@ pluggable localizer hook) without the satellite shells.
 ```
 ILocalizer:
     Localize(key: string) : string                       # required
-    Localize(key: string, args: Iterable<object>) : string?   # optional, format with positional args
+    Localize(key: string, args: Iterable<object>) : string    # optional, format with positional args
 ```
 
 Semantics:

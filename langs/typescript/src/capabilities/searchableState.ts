@@ -14,6 +14,7 @@ import {
   Subject,
   Subscription,
 } from "rxjs";
+import { declareCapabilities } from "./registry.js";
 import type { ISearchable } from "./search.js";
 
 export interface SearchableStateOptions<T> {
@@ -35,6 +36,7 @@ export class SearchableState<T> implements ISearchable {
   constructor(opts: SearchableStateOptions<T>) {
     this.#items = opts.items;
     this.#predicate = opts.predicate;
+    declareCapabilities(this, "ISearchable");
     const debounceMs = opts.debounceMs ?? 1000;
     const scheduler = opts.scheduler ?? asyncScheduler;
     this.#filteredSubject = new BehaviorSubject<readonly T[]>(

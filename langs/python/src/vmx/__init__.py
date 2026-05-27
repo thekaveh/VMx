@@ -48,12 +48,14 @@ from vmx.capabilities import (
     ISelectable,
     ISelectionTogglable,
     IUpdatable,
+    SearchableState,
 )
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.commands import (
     CompositeCommand,
     ConfirmationDecoratorCommand,
     DecoratorCommand,
+    ModeledCrudCommands,
     RelayCommand,
     RelayCommandOf,
     RelayCommandOfBuilder,
@@ -158,6 +160,7 @@ __all__ = [
     "IUpdatable",
     "Message",
     "MessageHub",
+    "ModeledCrudCommands",
     "NullDispatcher",
     "NullLocalizer",
     "NullMessageHub",
@@ -169,6 +172,7 @@ __all__ = [
     "RelayCommandOfBuilder",
     "RelayCommandOfT",
     "RxDispatcher",
+    "SearchableState",
     "StatusTransitionError",
     "ViewModelType",
     "__min_spec_version__",

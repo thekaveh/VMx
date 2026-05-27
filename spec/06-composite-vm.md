@@ -89,15 +89,16 @@ Nested batches are ref-counted: only the outermost completion fires the `Reset`.
 children:
 
 - `construct()` proceeds through `Destructed → Constructing`. It calls `construct()`
-  on every child and listens on the message hub for each child's
-  `ConstructionStatusChangedMessage(Constructed)`. Once every child reaches
+  on every child; each call returns once that child has reached `Constructed`
+  (per the synchronous lifecycle contract — ADR-0008). Once every child is
   `Constructed`, the composite transitions to `Constructed` and emits its own
-  status message.
+  status message. An asynchronous flavor MAY instead observe the children's
+  `ConstructionStatusChangedMessage(Constructed)` on the hub; the synchronous
+  default is a strict subset of that behavior.
 - `destruct()` proceeds through `Constructed → Destructing`. If `Current != null`,
   the composite first sets `Current = null`. It then calls `destruct()` on every
-  child and waits for every child's
-  `ConstructionStatusChangedMessage(Destructed)`. Once every child reaches
-  `Destructed`, the composite transitions to `Destructed`.
+  child; each call returns once that child reaches `Destructed`. Once every
+  child is `Destructed`, the composite transitions to `Destructed`.
 
 The order in which children are visited is unspecified. The reference
 implementations in all three flavors drive them sequentially.

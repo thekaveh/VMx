@@ -38,9 +38,13 @@ AggregateVM3.Builder()
 `construct()`:
 
 1. Invokes every component factory, populating the `ComponentN` slots.
-1. Subscribes to each child's `ConstructionStatusChangedMessage` on the hub.
-1. Waits for every child to reach `Constructed`.
+1. Calls `construct()` on each child; each call returns once that child has
+   reached `Constructed` (per ADR-0008's synchronous lifecycle contract).
 1. Transitions to `Constructed` and emits its own status message.
+
+An asynchronous flavor MAY observe the children's
+`ConstructionStatusChangedMessage(Constructed)` on the hub instead; the
+synchronous default is a strict subset of that behavior.
 
 The order in which the slots are populated and constructed is unspecified.
 The reference implementations in all three flavors drive them sequentially
@@ -79,7 +83,7 @@ heterogeneous-base-type `VM`, or compose multiple aggregates.
 `AGG-001` through `AGG-005` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
-- arity-2 both components reach Constructed in parallel
+- arity-2 both components reach Constructed
 - arity-5 all five components reach Constructed before parent
 - ComponentN property change fires on construct
 - destruction waits for all children

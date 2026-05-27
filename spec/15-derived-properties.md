@@ -124,6 +124,7 @@ load. Each scenario has:
 - Mutation of any source recomputes
 - Default-built derived property is read-only (`CanSet` returns false)
 - Validator + write-back enables `SetValue`
+- Write-back action receives the value
 - `ValueChanged` emits on recompute
 - `ValueChanged` does NOT emit if recomputed value equals previous
 - `Dispose` ends subscriptions and `ValueChanged` completes

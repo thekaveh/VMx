@@ -21,8 +21,8 @@ opt-in notifications sub-package, and a localization hook.
 - **Derived properties** (`VMx.Properties`): `DerivedProperty<TValue>` plus
   strongly-typed `From<T1..T5,TValue>` overloads and an untyped `FromMany`
   for arbitrary N.
-- **Commands**: `ConfirmationDecoratorCommand`, `LoggingDecoratorCommand`,
-  `MakeConfirm` helper, `ModeledCrudCommands<M, VM>` for the CRUD trio.
+- **Commands**: `ConfirmationDecoratorCommand` + the abstract `DecoratorCommand`
+  base, `MakeConfirm` helper, `ModeledCrudCommands<M, VM>` for the CRUD trio.
 - **Null-object services** (per ADR-0017): `NullMessageHub`, `NullDispatcher`,
   `NullLocalizer`, plus `NullNotificationHub` (in the notifications package).
 - **Localization** (`VMx.Localization`): `ILocalizer` interface and

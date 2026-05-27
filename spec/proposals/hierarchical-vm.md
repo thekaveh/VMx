@@ -4,7 +4,7 @@
 **Source:** 2012 VMx predecessor `ToDo/HierarchicalViewModel<*>.cs` (commented-out)
 **Captured by:** absorption cycle 11 (ADR-0018 absorption goal)
 
-## Background
+## 1. Background
 
 The 2012 VMx predecessor's `ToDo/` directory contained a commented-out
 research draft for a `HierarchicalViewModel<THierarchicalModel, THierarchicalViewModel>` type, plus its companions `HierarchicalViewModelBase`
@@ -15,7 +15,7 @@ type — file-system trees, org charts, nested categories.
 The draft was never finished. The VMx absorption goal asks us to capture it
 as a proposal for future consideration, not to implement it in v2.0.
 
-## Use cases
+## 2. Use cases
 
 A HierarchicalViewModel would be valuable when:
 
@@ -29,7 +29,7 @@ In v2.0, consumers achieve the same effect by manually nesting
 `CompositeVM<M, VM>` instances. The recursion is workable but lacks the
 "this is a node in a tree" semantic.
 
-## Proposed shape
+## 3. Proposed shape
 
 ```
 HierarchicalVM<TModel, TVM>:
@@ -49,7 +49,7 @@ The type would integrate with:
 - `SearchableState` (cycle 7) for filtered tree views.
 - `ModeledCrudCommands` (cycle 8) for tree-mutation commands.
 
-## Open design questions
+## 4. Open design questions
 
 1. **Lazy vs eager child loading.** The 2012 draft was eager; modern tree
    UIs usually want lazy. Should `Children` be populated only on first
@@ -70,7 +70,7 @@ The type would integrate with:
    implement `IExpandable` (departing from cycle 1's "opt-in only" rule
    for tree-shaped VMs specifically)?
 
-## Status & next steps
+## 5. Status & next steps
 
 This document captures the predecessor's research draft. No ADR is being
 written; no code is being added. A future spec cycle (post-v2.0) MAY

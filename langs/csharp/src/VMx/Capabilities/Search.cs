@@ -5,7 +5,7 @@ namespace VMx.Capabilities;
 /// <summary>Capability: the implementer accepts a search term and exposes a search action.</summary>
 public interface ISearchable
 {
-    /// <summary>The current search term; setter emits a PropertyChangedMessage per spec.</summary>
+    /// <summary>The current search term.</summary>
     string SearchTerm { get; set; }
 
     /// <summary>Returns true when <see cref="Search"/> is valid to call.</summary>

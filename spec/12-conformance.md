@@ -544,7 +544,7 @@ ______________________________________________________________________
 **Then** `agg.Component1` is populated with the result of `makeVm1()`
 **And** `agg.Component1.Status == Constructed`
 
-### AGG-002 — Arity-2 both components reach Constructed in parallel
+### AGG-002 — Arity-2 both components reach Constructed
 
 **Given** an `AggregateVM2<VM1, VM2>` in `Destructed`
 **When** `agg.construct()` is called

@@ -40,7 +40,7 @@ language-neutral spec and are not required for cross-flavor parity.
   subscription in two or three lines. Adding a static convenience here
   would either pick a winner among multiple equally-idiomatic patterns or
   introduce a thin wrapper that consumers can write themselves.
-- **Cross-flavor conformance does not require them.** The 75-ID conformance
+- **Cross-flavor conformance does not require them.** The 152-ID conformance
   catalog tests observable behavior (state transitions, hub emissions,
   collection events); it does not test the calling convention of the
   trigger.

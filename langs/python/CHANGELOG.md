@@ -22,8 +22,9 @@ opt-in notifications sub-package, and a localization hook.
 - **Derived properties** (`vmx.properties`): `DerivedProperty[TValue]` +
   `from_sources(*sources, transform)` factory for N-source computed values
   with `distinct_until_changed` + optional write-back.
-- **Commands**: `ConfirmationDecoratorCommand`, `LoggingDecoratorCommand`,
-  `make_confirm` helper, `ModeledCrudCommands[M, VM]` for the CRUD trio
+- **Commands**: `ConfirmationDecoratorCommand` + the abstract
+  `DecoratorCommand` base, `make_confirm` helper,
+  `ModeledCrudCommands[M, VM]` for the CRUD trio
   (create / update_current / delete_current) on modeled composites.
 - **Null-object services** (per ADR-0017): `NullMessageHub`, `NullDispatcher`,
   `NullLocalizer`, plus `NullNotificationHub` (in the notifications package).
