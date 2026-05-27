@@ -54,6 +54,7 @@ class RelayCommand:
         self._task = task
         self._predicate = predicate
         self._can_execute_changed_subject: Subject[None] = Subject()
+        self._disposed = False
         self._subscriptions = [
             t.subscribe(lambda _: self._can_execute_changed_subject.on_next(None)) for t in triggers
         ]
@@ -92,7 +93,14 @@ class RelayCommand:
         return self._can_execute_changed_subject
 
     def dispose(self) -> None:
-        """Dispose all trigger subscriptions and complete the subject."""
+        """Dispose all trigger subscriptions and complete the subject.
+
+        Idempotent: subsequent calls are a no-op rather than raising
+        :class:`reactivex.internal.exceptions.DisposedException`.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
         for sub in self._subscriptions:
             sub.dispose()
         self._can_execute_changed_subject.on_completed()
@@ -160,6 +168,7 @@ class RelayCommandOfT(Generic[T]):
         self._task = task
         self._predicate = predicate
         self._can_execute_changed_subject: Subject[None] = Subject()
+        self._disposed = False
         self._subscriptions = [
             t.subscribe(lambda _: self._can_execute_changed_subject.on_next(None)) for t in triggers
         ]
@@ -197,7 +206,14 @@ class RelayCommandOfT(Generic[T]):
         return self._can_execute_changed_subject
 
     def dispose(self) -> None:
-        """Dispose all trigger subscriptions and complete the subject."""
+        """Dispose all trigger subscriptions and complete the subject.
+
+        Idempotent: subsequent calls are a no-op rather than raising
+        :class:`reactivex.internal.exceptions.DisposedException`.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
         for sub in self._subscriptions:
             sub.dispose()
         self._can_execute_changed_subject.on_completed()

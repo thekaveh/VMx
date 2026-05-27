@@ -59,9 +59,15 @@ disposed, if any mutations occurred a single
 `CollectionChanged(action=Reset)` MUST be raised. Nested batches are
 ref-counted.
 
+## Search / filter (spec v2.0)
+
+A group MAY opt into search/filter via the same `SearchableState` helper
+documented in `06-composite-vm.md` §"Search / filter". Behavior is identical
+in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
+
 ## Conformance
 
-`GRP-001` through `GRP-006` in `12-conformance.md` cover:
+`GRP-001` through `GRP-006` and `GRP-007` through `GRP-010` in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - absence of `Current`

@@ -26,8 +26,34 @@ from vmx.aggregates import (
     AggregateVMBuilder5,
 )
 from vmx.builders import BuilderValidationError
+from vmx.capabilities import (
+    ExpandableState,
+    IApprovable,
+    ICancelable,
+    IClosable,
+    ICollapsible,
+    IConstructable,
+    ICurrentDeletable,
+    ICurrentUpdatable,
+    IDeletable,
+    IDeselectable,
+    IDestructable,
+    IExpandable,
+    IExpansionTogglable,
+    IManagable,
+    INewCreatable,
+    IReconstructable,
+    ISavable,
+    ISearchable,
+    ISelectable,
+    ISelectionTogglable,
+    IUpdatable,
+)
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.commands import (
+    CompositeCommand,
+    ConfirmationDecoratorCommand,
+    DecoratorCommand,
     RelayCommand,
     RelayCommandOf,
     RelayCommandOfBuilder,
@@ -51,15 +77,27 @@ from vmx.composites import (
 from vmx.forwarding import ForwardingComponentVM, ForwardingCompositeVM
 from vmx.groups import GroupVM, GroupVMBuilder
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
+from vmx.localization import NULL_LOCALIZER, ILocalizer, NullLocalizer
 from vmx.messages import (
     ConstructionStatusChangedMessage,
     Message,
     PropertyChangedMessage,
 )
-from vmx.services import MessageHub, RxDispatcher
-from vmx.tree import find, walk
+from vmx.properties import DerivedProperty, from_sources
+from vmx.services import (
+    NULL_DISPATCHER,
+    NULL_MESSAGE_HUB,
+    MessageHub,
+    NullDispatcher,
+    NullMessageHub,
+    RxDispatcher,
+)
+from vmx.tree import find, walk, walk_expanded
 
 __all__ = [
+    "NULL_DISPATCHER",
+    "NULL_LOCALIZER",
+    "NULL_MESSAGE_HUB",
     "AggregateVM1",
     "AggregateVM1Builder",
     "AggregateVM2",
@@ -82,18 +120,47 @@ __all__ = [
     "ComponentVMBuilder",
     "ComponentVMOf",
     "ComponentVMOfBuilder",
+    "CompositeCommand",
     "CompositeVM",
     "CompositeVMBuilder",
     "CompositeVMOf",
     "CompositeVMOfBuilder",
+    "ConfirmationDecoratorCommand",
     "ConstructionStatus",
     "ConstructionStatusChangedMessage",
+    "DecoratorCommand",
+    "DerivedProperty",
+    "ExpandableState",
     "ForwardingComponentVM",
     "ForwardingCompositeVM",
     "GroupVM",
     "GroupVMBuilder",
+    "IApprovable",
+    "ICancelable",
+    "IClosable",
+    "ICollapsible",
+    "IConstructable",
+    "ICurrentDeletable",
+    "ICurrentUpdatable",
+    "IDeletable",
+    "IDeselectable",
+    "IDestructable",
+    "IExpandable",
+    "IExpansionTogglable",
+    "ILocalizer",
+    "IManagable",
+    "INewCreatable",
+    "IReconstructable",
+    "ISavable",
+    "ISearchable",
+    "ISelectable",
+    "ISelectionTogglable",
+    "IUpdatable",
     "Message",
     "MessageHub",
+    "NullDispatcher",
+    "NullLocalizer",
+    "NullMessageHub",
     "PropertyChangedMessage",
     "ReadonlyComponentVMOf",
     "ReadonlyComponentVMOfBuilder",
@@ -107,5 +174,19 @@ __all__ = [
     "__min_spec_version__",
     "__version__",
     "find",
+    "from_sources",
     "walk",
+    "walk_expanded",
 ]
+
+# Lifecycle capabilities are baseline: every core VM trivially satisfies them.
+# See spec/14-capabilities.md rule 2 and CAP-020.
+IConstructable.register(ComponentVM)
+IConstructable.register(ComponentVMOf)
+IConstructable.register(ReadonlyComponentVMOf)
+IDestructable.register(ComponentVM)
+IDestructable.register(ComponentVMOf)
+IDestructable.register(ReadonlyComponentVMOf)
+IReconstructable.register(ComponentVM)
+IReconstructable.register(ComponentVMOf)
+IReconstructable.register(ReadonlyComponentVMOf)

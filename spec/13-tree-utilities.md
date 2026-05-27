@@ -56,9 +56,37 @@ Properties:
 | Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator) | `IComponentVM \| None` |
 | TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator) | `IComponentVM \| null` |
 
+## Expand-aware traversal (spec v2.0)
+
+`walk_expanded` is a variant of `walk` that only descends into children whose
+parent reports as expanded:
+
+```
+walk_expanded(root) =
+    yield root
+    if root is IExpandable AND root.IsExpanded == false:
+        return                  # do not descend
+    if root has children:
+        for child in root.children: walk_expanded(child)
+```
+
+Properties:
+
+- A node that does NOT implement `IExpandable` is treated as always-expanded
+  (i.e., the traversal descends as `walk` would).
+- A node that DOES implement `IExpandable` gates descent on `IsExpanded`:
+  collapsed nodes contribute themselves to the iteration but contribute none
+  of their descendants.
+- Like `walk`, the iteration is lazy and deterministic, and triggers no
+  lifecycle transitions.
+
+This helper enables tree-view consumers to render only the visible portion
+of the VM tree without writing their own descent logic.
+
 ## Conformance
 
-`UTIL-001` through `UTIL-003` in `12-conformance.md` cover:
+`UTIL-001` through `UTIL-003` and `EXP-001` through `EXP-005` in
+`12-conformance.md` cover:
 
 - `walk` yields root, then every descendant, in DFS pre-order
 - `walk` skips empty aggregate slots

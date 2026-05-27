@@ -7,20 +7,29 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## Identifier prefixes
 
-| Prefix     | Area                                  | File                   |
-| ---------- | ------------------------------------- | ---------------------- |
-| `LIFE-NNN` | Lifecycle state machine               | `02-lifecycle.md`      |
-| `HUB-NNN`  | Message hub                           | `03-messages.md`       |
-| `PROP-NNN` | Property change notifications         | `03-messages.md`       |
-| `CMD-NNN`  | Commands                              | `04-commands.md`       |
-| `CVM-NNN`  | ComponentVM (incl. modeled, readonly) | `05-component-vm.md`   |
-| `COMP-NNN` | CompositeVM                           | `06-composite-vm.md`   |
-| `GRP-NNN`  | GroupVM                               | `07-group-vm.md`       |
-| `AGG-NNN`  | AggregateVM                           | `08-aggregate-vm.md`   |
-| `FWD-NNN`  | Forwarding decorators                 | `09-forwarding.md`     |
-| `BLD-NNN`  | Builders                              | `10-builders.md`       |
-| `THR-NNN`  | Threading & schedulers                | `11-threading.md`      |
-| `UTIL-NNN` | Tree utilities (spec v1.1)            | `13-tree-utilities.md` |
+| Prefix          | Area                                              | File                                          |
+| --------------- | ------------------------------------------------- | --------------------------------------------- |
+| `LIFE-NNN`      | Lifecycle state machine                           | `02-lifecycle.md`                             |
+| `HUB-NNN`       | Message hub                                       | `03-messages.md`                              |
+| `PROP-NNN`      | Property change notifications                     | `03-messages.md`                              |
+| `CMD-NNN`       | Commands                                          | `04-commands.md`                              |
+| `CVM-NNN`       | ComponentVM (incl. modeled, readonly)             | `05-component-vm.md`                          |
+| `COMP-NNN`      | CompositeVM                                       | `06-composite-vm.md`                          |
+| `GRP-NNN`       | GroupVM                                           | `07-group-vm.md`                              |
+| `AGG-NNN`       | AggregateVM                                       | `08-aggregate-vm.md`                          |
+| `FWD-NNN`       | Forwarding decorators                             | `09-forwarding.md`                            |
+| `BLD-NNN`       | Builders                                          | `10-builders.md`                              |
+| `THR-NNN`       | Threading & schedulers                            | `11-threading.md`                             |
+| `UTIL-NNN`      | Tree utilities (spec v1.1)                        | `13-tree-utilities.md`                        |
+| `CAP-NNN`       | Capability micro-interfaces                       | `14-capabilities.md`                          |
+| `NULL-NNN`      | Null-object service variants                      | `03-messages.md` + `11-threading.md`          |
+| `DPROP-NNN`     | Derived properties                                | `15-derived-properties.md`                    |
+| `CMDD-NNN`      | Command decorators (spec v2.0)                    | `04-commands.md`                              |
+| `NOTIF-NNN`     | Notification sub-package                          | `16-notifications.md`                         |
+| `EXP-NNN`       | Expand / collapse state                           | `05-component-vm.md` + `13-tree-utilities.md` |
+| `COMP-014..024` | CompositeVM v2.0 additions (search, modeled CRUD) | `06-composite-vm.md`                          |
+| `GRP-007..010`  | GroupVM v2.0 additions (search)                   | `07-group-vm.md`                              |
+| `LOC-NNN`       | Localization hooks                                | `17-localization.md`                          |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -693,3 +702,654 @@ root: CompositeVM
 **When** `find(root, predicate)` is called
 **Then** the result is `b1`
 **And** the predicate was invoked at most for `root`, `a`, `b`, `b1` — never for `b2`
+
+______________________________________________________________________
+
+## Capability micro-interfaces (`CAP-NNN`) — spec v2.0
+
+Each CAP-NNN test verifies (a) the capability interface is present in the
+flavor's public surface with the documented signature, and (b) a fixture class
+implementing the capability satisfies the per-interface semantic contract.
+
+### CAP-001 — ISelectable contract
+
+**Given** a fixture class `F` that implements `ISelectable` with
+`can_select() -> true` and `select()` recording one invocation
+**When** `f.select()` is called after asserting `f.can_select()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-002 — IDeselectable contract
+
+**Given** a fixture class `F` that implements `IDeselectable` with
+`can_deselect() -> true` and `deselect()` recording one invocation
+**When** `f.deselect()` is called after asserting `f.can_deselect()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-003 — ISelectionTogglable contract
+
+**Given** a fixture class `F` that implements `ISelectionTogglable` with
+`can_toggle_selection() -> true` and `toggle_selection()` flipping an internal
+`selected` flag
+**When** `f.toggle_selection()` is called twice, asserting `can_toggle_selection()` first
+**Then** the internal flag has returned to its initial value
+
+### CAP-004 — IExpandable contract
+
+**Given** a fixture class `F` that implements `IExpandable` with
+`IsExpanded == false`, `can_expand() -> true`, and `expand()` flipping
+`IsExpanded` to true
+**When** `f.expand()` is called after asserting `f.can_expand()` returns true
+**Then** `f.IsExpanded == true`
+
+### CAP-005 — ICollapsible contract
+
+**Given** a fixture class `F` that implements `ICollapsible` with
+`can_collapse() -> true` and `collapse()` recording one invocation
+**When** `f.collapse()` is called after asserting `f.can_collapse()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-006 — IExpansionTogglable contract
+
+**Given** a fixture class `F` that implements `IExpansionTogglable` with
+`can_toggle_expansion() -> true` and `toggle_expansion()` flipping an internal
+`expanded` flag
+**When** `f.toggle_expansion()` is called twice, asserting `can_toggle_expansion()` first
+**Then** the internal flag has returned to its initial value
+
+### CAP-007 — IClosable contract
+
+**Given** a fixture class `F` that implements `IClosable` with
+`can_close() -> true` and `close()` recording one invocation
+**When** `f.close()` is called after asserting `f.can_close()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-008 — ISearchable contract
+
+**Given** a fixture class `F` that implements `ISearchable` with `SearchTerm = ""`
+**When** `f.SearchTerm = "abc"` is set, then `f.search()` is called after
+asserting `f.can_search()` returns true
+**Then** `f.SearchTerm == "abc"`
+**And** the search recorder records the term `"abc"`
+
+### CAP-009 — IApprovable contract
+
+**Given** a fixture class `F` that implements `IApprovable` with
+`can_approve() -> true` and `approve()` recording one invocation
+**When** `f.approve()` is called after asserting `f.can_approve()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-010 — ICancelable contract
+
+**Given** a fixture class `F` that implements `ICancelable` with
+`can_cancel() -> true` and `cancel()` recording one invocation
+**When** `f.cancel()` is called after asserting `f.can_cancel()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-011 — ISavable<T> contract
+
+**Given** a fixture class `F` that implements `ISavable<T>` for some `T`
+with `can_save(item) -> true` and `save(item)` recording the item
+**When** `f.save(item_a)` is called after asserting `f.can_save(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-012 — IManagable<T> contract
+
+**Given** a fixture class `F` that implements `IManagable<T>` for some `T`
+with `can_manage(item) -> true` and `manage(item)` recording the item
+**When** `f.manage(item_a)` is called after asserting `f.can_manage(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-013 — INewCreatable contract
+
+**Given** a fixture class `F` that implements `INewCreatable` with
+`can_create_new() -> true` and `create_new()` recording one invocation
+**When** `f.create_new()` is called after asserting `f.can_create_new()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-014 — IDeletable<T> contract
+
+**Given** a fixture class `F` that implements `IDeletable<T>` for some `T`
+with `can_delete(item) -> true` and `delete(item)` recording the item
+**When** `f.delete(item_a)` is called after asserting `f.can_delete(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-015 — IUpdatable<T> contract
+
+**Given** a fixture class `F` that implements `IUpdatable<T>` for some `T`
+with `can_update(item) -> true` and `update(item)` recording the item
+**When** `f.update(item_a)` is called after asserting `f.can_update(item_a)` returns true
+**Then** the recorder records `item_a`
+
+### CAP-016 — ICurrentDeletable contract
+
+**Given** a fixture class `F` that implements `ICurrentDeletable` with
+`can_delete_current() -> true` and `delete_current()` recording one invocation
+**When** `f.delete_current()` is called after asserting `f.can_delete_current()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-017 — ICurrentUpdatable contract
+
+**Given** a fixture class `F` that implements `ICurrentUpdatable` with
+`can_update_current() -> true` and `update_current()` recording one invocation
+**When** `f.update_current()` is called after asserting `f.can_update_current()` returns true
+**Then** the recorder has exactly one invocation
+
+### CAP-018 — Lifecycle capability set
+
+**Given** a fixture class `F` that implements all three of `IConstructable`,
+`IDestructable`, and `IReconstructable`
+**When** the API surface is inspected
+**Then** `F` has `can_construct`, `construct`, `can_destruct`, `destruct`,
+`can_reconstruct`, and `reconstruct` members at the documented signatures
+
+### CAP-019 — A single VM may implement multiple capabilities
+
+**Given** a fixture class `F` declared as implementing
+`ISelectable, IExpandable, IClosable, IApprovable, ICancelable` simultaneously
+**When** the type is queried for each interface
+**Then** the answer is `true` for all five interfaces
+**And** invoking each interface's verb (after asserting its can\_-predicate)
+records an invocation on the correct recorder
+
+### CAP-020 — Core VM types do NOT implement non-baseline capabilities by default
+
+**Given** a default-built `ComponentVM` (non-modeled, base type)
+**When** the type is queried for `ISelectable`, `IExpandable`, `IClosable`,
+`INewCreatable`, `ICurrentDeletable`, `ISearchable`
+**Then** the answer is `false` for every one of those six
+**And** the base VM does still report `true` for `IConstructable`,
+`IDestructable`, and `IReconstructable` (lifecycle capabilities are baseline)
+
+______________________________________________________________________
+
+## Null-object service variants (`NULL-NNN`) — spec v2.0
+
+Each NULL-NNN test verifies a null-object variant satisfies its service
+contract as a safe no-op per ADR-0017.
+
+### NULL-001 — NullMessageHub is a safe no-op
+
+**Given** a `NullMessageHub` instance
+**And** a subscriber to `Messages` that records every emission and counts completion
+**When** `Send(message)` is called any number of times
+**Then** the subscriber records zero emissions
+**And** the subscription completes immediately upon subscribe (no values, no error)
+**And** no exception is raised by any of the calls
+
+### NULL-002 — NullDispatcher schedules synchronously on the calling thread
+
+**Given** a `NullDispatcher` instance
+**When** an action is scheduled on `Foreground` or on `Background`
+**Then** the action executes synchronously on the calling thread
+**And** by the time the schedule call returns, the action has completed
+
+### NULL-003 — Null-object convention is satisfied for every core service contract
+
+**Given** the set of core service contracts: `IMessageHub`, `IDispatcher`
+**When** the flavor's public surface is inspected
+**Then** each contract has a paired null variant (`NullMessageHub`,
+`NullDispatcher`) reachable from the public surface
+**And** the null variant satisfies the contract (its operations are total —
+they do not raise on any input)
+
+______________________________________________________________________
+
+## Derived properties (`DPROP-NNN`) — spec v2.0
+
+Each DPROP-NNN test verifies the `DerivedProperty<TValue>` contract from
+spec/15-derived-properties.md.
+
+### DPROP-001 — Single-source derived value computes on construction
+
+**Given** a single source observable `s1` whose latest value is `10`
+**And** a `DerivedProperty<int>` built from `s1` with transform `x => x * 2`
+**When** `Value` is read after the derived property is constructed
+**Then** `Value == 20`
+
+### DPROP-002 — Source change triggers recompute
+
+**Given** a `DerivedProperty<int>` built from source `s1` (initial `10`) with
+transform `x => x * 2`
+**When** `s1` emits the value `5`
+**Then** `Value == 10`
+
+### DPROP-003 — Two-source derived value
+
+**Given** sources `s1` (initial `3`) and `s2` (initial `4`)
+**And** a `DerivedProperty<int>` built from `(s1, s2)` with transform `(a, b) => a + b`
+**When** `Value` is read after construction
+**Then** `Value == 7`
+**When** `s2` emits `6`
+**Then** `Value == 9`
+
+### DPROP-004 — Five-source derived value (spec minimum)
+
+**Given** sources `s1..s5` with initial values `(1, 2, 3, 4, 5)`
+**And** a `DerivedProperty<int>` built from all five with transform `sum`
+**When** `Value` is read after construction
+**Then** `Value == 15`
+
+### DPROP-005 — Mutation of any source recomputes
+
+**Given** the five-source setup from DPROP-004
+**When** `s3` emits the value `30`
+**Then** `Value == 1 + 2 + 30 + 4 + 5 == 42`
+
+### DPROP-006 — Default-built derived property is read-only
+
+**Given** a `DerivedProperty<int>` built without a validator or write-back
+**When** `CanSet(any_value)` is queried
+**Then** the result is `false` for every input
+
+### DPROP-007 — Validator + write-back enables SetValue
+
+**Given** a `DerivedProperty<int>` built with validator `v => v > 0` and a
+recording write-back action
+**When** `SetValue(5)` is called
+**Then** the write-back action records `5`
+**And** when `SetValue(-1)` is called, the operation raises and the write-back
+is NOT invoked
+
+### DPROP-008 — Write-back action receives the value
+
+**Given** a `DerivedProperty<int>` built with validator `_ => true` and
+write-back action `v => recorder.Add(v)`
+**When** `SetValue(7)` is called
+**Then** the recorder has exactly one entry, equal to `7`
+
+### DPROP-009 — ValueChanged emits on recompute
+
+**Given** a `DerivedProperty<int>` from `s1` (initial `1`) and a subscriber
+to `ValueChanged`
+**When** `s1` emits `2`, then `3`
+**Then** the subscriber observes the sequence `[2, 3]`
+**And** the subscriber did NOT observe the initial value as an emission
+(only post-construction changes count)
+
+### DPROP-010 — ValueChanged does not emit when transform output is unchanged
+
+**Given** a `DerivedProperty<int>` from `(s1, s2)` with transform `(a, b) => a + b`
+and a subscriber to `ValueChanged`
+**And** initial values `s1=5, s2=5` so `Value == 10`
+**When** `s1` emits `3` (so the transform produces `3 + 5 == 8`) then `s2` emits `7`
+(so the transform produces `3 + 7 == 10` again)
+**Then** the subscriber observes exactly `[8, 10]` — the second mutation
+re-produces `10` and is not suppressed because the previous value was `8`
+**When** continuing with `s1` emits `3` again (same source value)
+**Then** no additional emission (transform output stays `10`)
+
+### DPROP-011 — Dispose ends subscriptions and ValueChanged completes
+
+**Given** a `DerivedProperty<int>` from `s1` (initial `1`) with a subscriber
+to `ValueChanged` that records completion
+**When** the derived property's `Dispose` is called
+**Then** the subscriber's `complete` (or equivalent) callback is invoked
+**And** subsequent emissions from `s1` do NOT update `Value` further
+
+### DPROP-012 — Derived-property scenarios match fixture
+
+**Given** the JSON fixture `spec/fixtures/derived-properties.json`
+**When** each scenario is exercised — initial values populate sources, the
+named transform is resolved, and the mutation sequence is replayed
+**Then** the sequence of `Value` reads (one initial, one after each mutation)
+matches `expected_values` exactly
+
+______________________________________________________________________
+
+## Command decorators (`CMDD-NNN`) — spec v2.0
+
+Each CMDD-NNN test verifies behaviour of the three decorators added in
+spec/04-commands.md §Decorators.
+
+### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
+
+**Given** a `CompositeCommand` aggregating inner commands `c1` (`CanExecute() == false`)
+and `c2` (`CanExecute() == true`)
+**When** `composite.CanExecute()` is called
+**Then** the result is `true`
+**And** when both inners return false, the result is `false`
+
+### CMDD-002 — CompositeCommand.Execute invokes only enabled inner commands
+
+**Given** a `CompositeCommand` aggregating `c1` (`CanExecute() == true`, records),
+`c2` (`CanExecute() == false`, records), and `c3` (`CanExecute() == true`, records)
+**When** `composite.Execute()` is called
+**Then** `c1` and `c3` each record one invocation
+**And** `c2` records zero invocations
+
+### CMDD-003 — CompositeCommand propagates inner CanExecuteChanged
+
+**Given** a `CompositeCommand` aggregating `c1` with a trigger, and a subscriber to
+the composite's `CanExecuteChanged`
+**When** `c1`'s trigger fires
+**Then** the subscriber observes a `CanExecuteChanged` emission
+
+### CMDD-004 — DecoratorCommand.CanExecute is inner AND extra-predicate
+
+**Given** a `DecoratorCommand` wrapping `inner` (`CanExecute() == true`) with extra
+predicate returning `false`
+**When** `decorator.CanExecute()` is called
+**Then** the result is `false`
+**And** when the extra predicate returns `true`, the result is `true`
+**And** when `inner.CanExecute()` is `false`, the result is `false` regardless of
+the extra predicate
+
+### CMDD-005 — DecoratorCommand.Execute invokes pre, inner, post in order
+
+**Given** a `DecoratorCommand` wrapping `inner` (records) with pre-action `pre`
+(records) and post-action `post` (records)
+**When** `decorator.Execute()` is called (and `CanExecute` is true)
+**Then** the recorded order is `[pre, inner, post]`
+
+### CMDD-006 — DecoratorCommand.Execute is no-op when CanExecute is false
+
+**Given** a `DecoratorCommand` wrapping `inner` (records) with extra predicate
+returning `false`
+**When** `decorator.Execute()` is called
+**Then** `inner`, `pre`, and `post` all record zero invocations
+
+### CMDD-007 — ConfirmationDecoratorCommand invokes inner only when confirmed
+
+**Given** a `ConfirmationDecoratorCommand` wrapping `inner` (records) with a confirm
+delegate that resolves `true`
+**When** `decorator.Execute()` is called and the resulting task is awaited
+**Then** `inner` records one invocation
+**And** when the confirm delegate resolves `false`, `inner` records zero invocations
+
+### CMDD-008 — ConfirmationDecoratorCommand.CanExecute delegates to inner
+
+**Given** a `ConfirmationDecoratorCommand` wrapping `inner` with no extra gating
+**When** `decorator.CanExecute()` is called
+**Then** the result equals `inner.CanExecute()` for any state of `inner`
+
+### CMDD-009 — Decorators compose (decorator of confirmation of relay)
+
+**Given** a `RelayCommand` `relay` (records) wrapped by `ConfirmationDecoratorCommand`
+`conf` (confirm returns `true`) wrapped by `DecoratorCommand` `dec` (no pre/post,
+no extra predicate)
+**When** `dec.Execute()` is called and awaited
+**Then** `relay` records exactly one invocation
+
+______________________________________________________________________
+
+## Notification sub-package (`NOTIF-NNN`) — spec v2.0
+
+Each NOTIF-NNN test verifies the `INotificationHub` contract from
+spec/16-notifications.md and ADR-0013.
+
+### NOTIF-001 — Post returns an awaitable that completes when Resolve is called
+
+**Given** a `NotificationHub` instance and a notification
+`n = Notification(Notification, "info")`
+**When** `task = hub.Post(n)` is called, then `hub.Resolve(n, Approve)` is called
+**Then** awaiting `task` yields `Approve`
+
+### NOTIF-002 — Post adds the notification to Pending
+
+**Given** a `NotificationHub` with a subscriber to `Pending`
+**When** `hub.Post(n)` is called
+**Then** the subscriber observes a new `Pending` snapshot whose contents include `n`
+
+### NOTIF-003 — Resolve removes the notification from Pending
+
+**Given** a `NotificationHub` with `n` posted and pending
+**And** a subscriber to `Pending` that captures every snapshot
+**When** `hub.Resolve(n, Approve)` is called
+**Then** the final observed `Pending` snapshot does NOT include `n`
+
+### NOTIF-004 — NotificationType has Error / Notification / Confirmation values
+
+**Given** the `NotificationType` enum
+**When** its values are enumerated
+**Then** the set is exactly `{Error, Notification, Confirmation}`
+
+### NOTIF-005 — NotificationReaction has Pending / Approve / Reject values
+
+**Given** the `NotificationReaction` enum
+**When** its values are enumerated
+**Then** the set is exactly `{Pending, Approve, Reject}`
+
+### NOTIF-006 — The resolved task carries the reaction value
+
+**Given** a `NotificationHub` with `n` posted and `task = hub.Post(n)`
+**When** `hub.Resolve(n, Reject)` is called
+**Then** awaiting `task` yields `Reject`
+
+### NOTIF-007 — Confirmation notifications can be resolved Approve or Reject
+
+**Given** a `NotificationHub`
+**And** `nApprove = Notification(Confirmation, "x")` posted via `taskA = hub.Post(nApprove)`
+**And** `nReject  = Notification(Confirmation, "y")` posted via `taskR = hub.Post(nReject)`
+**When** `hub.Resolve(nApprove, Approve)` and `hub.Resolve(nReject, Reject)`
+**Then** `taskA` yields `Approve`
+**And** `taskR` yields `Reject`
+
+### NOTIF-008 — Resolving a notification not in Pending is a no-op
+
+**Given** a `NotificationHub` and a fresh notification `n` that was never posted
+**When** `hub.Resolve(n, Approve)` is called
+**Then** no exception is raised
+**And** `Pending` is unchanged
+
+### NOTIF-009 — NullNotificationHub.Post resolves to Approve immediately
+
+**Given** a `NullNotificationHub` instance and a notification
+`n = Notification(Confirmation, "x")`
+**When** `task = hub.Post(n)` is called
+**Then** awaiting `task` yields `Approve`
+**And** the wait completes immediately (does not block on user input)
+
+### NOTIF-010 — make_confirm helper returns true iff resolved Approve
+
+**Given** a `NotificationHub` and the helper `confirm = make_confirm(hub, "ok?")`
+**When** the call `confirm()` is initiated and the next pending notification
+is resolved Approve
+**Then** awaiting `confirm()` yields `true`
+**And** when the next pending notification is resolved Reject instead, awaiting
+yields `false`
+
+______________________________________________________________________
+
+## CompositeVM v2.0 additions (`COMP-014..024`)
+
+Search/filter (COMP-014..018, see ADR-0014) and modeled CRUD (COMP-019..024,
+see ADR-0016) additions to chapter 06.
+
+### COMP-014 — SearchableState defaults to empty search term
+
+**Given** a `SearchableState` over a list of items
+**When** `SearchTerm` is read after construction
+**Then** the value is `""`
+**And** `Filtered` initially emits every item (predicate matches everything)
+
+### COMP-015 — Setting SearchTerm triggers a debounced recompute
+
+**Given** a `SearchableState` over `["apple", "banana", "cherry"]` with predicate
+"case-insensitive substring match" and debounce 0 (no delay, for the test)
+**And** a subscriber to `Filtered`
+**When** `SearchTerm = "an"` is set
+**Then** the subscriber observes a snapshot `["banana"]`
+
+### COMP-016 — search() forces immediate recompute, bypassing debounce
+
+**Given** a `SearchableState` over `["one", "two"]` with predicate "exact match"
+and a large debounce (1 second)
+**And** a subscriber to `Filtered`
+**When** `SearchTerm = "two"` is set, then `search()` is called immediately
+**Then** the subscriber observes a snapshot `["two"]` before the debounce window
+elapses
+
+### COMP-017 — Predicate is user-supplied
+
+**Given** a `SearchableState` constructed with predicate
+`(item, term) => item.length > term.length` over `["a", "bb", "ccc"]`
+**When** `SearchTerm = "bb"` is set and `search()` is called
+**Then** `Filtered` emits `["ccc"]`
+
+### COMP-018 — Filtered recomputes when Items source changes
+
+**Given** a `SearchableState` over an initial list `["one"]` with predicate
+"any match" and a search term of `"x"`
+**And** a subscriber to `Filtered`
+**When** the items source is updated to `["one", "two"]` and the helper is
+notified (via `search()` / explicit refresh)
+**Then** the subscriber observes a snapshot containing two items
+
+### COMP-019 — CreateNewCommand invokes create-new action
+
+**Given** a `ModeledCrudCommands` built with a recording `create_new` action
+**When** `CreateNewCommand.Execute()` is called
+**Then** the recorder has exactly one invocation
+
+### COMP-020 — UpdateCurrentCommand invokes update with current VM
+
+**Given** a `ModeledCrudCommands` with `current` returning `vm1` and a
+recording `update_current(vm)` action
+**When** `UpdateCurrentCommand.Execute()` is called
+**Then** the recorder records `vm1` once
+
+### COMP-021 — UpdateCurrentCommand.CanExecute false when current is null
+
+**Given** a `ModeledCrudCommands` with `current` returning `null`
+**When** `UpdateCurrentCommand.CanExecute()` is called
+**Then** the result is `false`
+
+### COMP-022 — DeleteCurrentCommand invokes delete with current VM
+
+**Given** a `ModeledCrudCommands` with `current = vm1` and a recording
+`delete_current(vm)` action
+**When** `DeleteCurrentCommand.Execute()` is called
+**Then** the recorder records `vm1` once
+
+### COMP-023 — DeleteCurrentCommand.CanExecute false when current is null
+
+**Given** a `ModeledCrudCommands` with `current` returning `null`
+**When** `DeleteCurrentCommand.CanExecute()` is called
+**Then** the result is `false`
+
+### COMP-024 — DeleteCurrentCommand confirm gate
+
+**Given** a `ModeledCrudCommands` with `current = vm1`, a recording
+`delete_current` action, and a confirm delegate that resolves `false`
+**When** `DeleteCurrentCommand.Execute()` is awaited
+**Then** the recorder is empty
+**And** when the confirm delegate resolves `true`, the recorder records `vm1`
+
+______________________________________________________________________
+
+## GroupVM v2.0 additions (`GRP-007..010`)
+
+Search/filter additions to chapter 07. The helper is the same
+`SearchableState<TItem>` documented for composites (see ADR-0014); group-context
+tests verify the helper behaves identically when items are group children.
+
+### GRP-007 — SearchableState defaults to empty search term (group context)
+
+**Given** a `SearchableState` over a list of group children
+**When** `SearchTerm` is read after construction
+**Then** the value is `""`
+
+### GRP-008 — Setting SearchTerm triggers debounced recompute (group context)
+
+**Given** a `SearchableState` over `["x", "yx", "z"]` with predicate
+"case-insensitive substring match" and debounce 0
+**And** a subscriber to `Filtered`
+**When** `SearchTerm = "x"` is set
+**Then** the subscriber observes a snapshot `["x", "yx"]`
+
+### GRP-009 — search() forces immediate recompute (group context)
+
+**Given** a `SearchableState` with a large debounce
+**When** `SearchTerm` is set then `search()` is called immediately
+**Then** the subscriber observes the filtered snapshot before the debounce
+window elapses
+
+### GRP-010 — Predicate is user-supplied (group context)
+
+**Given** a `SearchableState` with a custom predicate
+**When** `SearchTerm` is set and `search()` is called
+**Then** the filtered snapshot reflects the custom predicate's matches
+
+______________________________________________________________________
+
+## Expand / collapse (`EXP-NNN`) — spec v2.0
+
+Each EXP-NNN test verifies the `ExpandableState` helper and `walk_expanded`
+tree traversal from spec/05-component-vm.md and spec/13-tree-utilities.md.
+
+### EXP-001 — ExpandableState defaults to collapsed
+
+**Given** a freshly built `ExpandableState`
+**When** `IsExpanded` is read
+**Then** the value is `false`
+**And** `CanExpand()` returns `true`, `CanCollapse()` returns `false`
+
+### EXP-002 — Expand flips state and emits IsExpandedChanged
+
+**Given** an `ExpandableState` with `IsExpanded == false`
+**And** a subscriber to `IsExpandedChanged`
+**When** `Expand()` is called
+**Then** `IsExpanded == true`
+**And** the subscriber observes exactly one emission with value `true`
+**And** subsequent `Expand()` calls are no-ops (`IsExpanded` stays `true`, no
+additional emissions)
+
+### EXP-003 — Collapse flips state back
+
+**Given** an `ExpandableState` with `IsExpanded == true`
+**And** a subscriber to `IsExpandedChanged`
+**When** `Collapse()` is called
+**Then** `IsExpanded == false`
+**And** the subscriber observes exactly one emission with value `false`
+
+### EXP-004 — ToggleExpansion alternates state
+
+**Given** an `ExpandableState` with `IsExpanded == false`
+**When** `ToggleExpansion()` is called twice
+**Then** `IsExpanded == false`
+**And** when called a third time, `IsExpanded == true`
+
+### EXP-005 — walk_expanded skips descendants of collapsed nodes
+
+**Given** a tree:
+
+```
+root: CompositeVM with IExpandable wrapper, expanded
+  ├── a: ComponentVM (no IExpandable)
+  └── b: CompositeVM with IExpandable wrapper, COLLAPSED
+        ├── b1: ComponentVM
+        └── b2: ComponentVM
+```
+
+**When** `list(walk_expanded(root))` is materialized
+**Then** the sequence is `[root, a, b]` — b's children are NOT visited
+
+______________________________________________________________________
+
+## Localization (`LOC-NNN`) — spec v2.0
+
+Each LOC-NNN test verifies the `ILocalizer` contract and `NullLocalizer`
+null-default from spec/17-localization.md.
+
+### LOC-001 — ILocalizer.Localize returns a string
+
+**Given** a concrete `ILocalizer` implementation that returns `"hello"` for
+key `"greeting"`
+**When** `localizer.Localize("greeting")` is called
+**Then** the result is the string `"hello"`
+
+### LOC-002 — NullLocalizer.Localize returns the key verbatim
+
+**Given** a `NullLocalizer` instance
+**When** `localizer.Localize("some-key")` is called
+**Then** the result is `"some-key"` (the key is returned unchanged)
+**And** `localizer.Localize("some-key", [arg1, arg2])` also returns
+`"some-key"` (no formatting)
+
+### LOC-003 — Custom localizer can be substituted
+
+**Given** a fixture localizer that returns `"X:" + key` for every key
+**When** the fixture localizer is used in place of the null variant
+**Then** calling `Localize("foo")` returns `"X:foo"`
+**And** the framework's `ILocalizer` contract accepts the fixture without
+type errors

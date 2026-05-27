@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
-specification, three idiomatic language flavors, 75 cross-language conformance
+specification, three idiomatic language flavors, 152 cross-language conformance
 tests passing on every commit.
 
 ## Contents
@@ -46,8 +46,17 @@ makes no assumption about the UI layer. Every flavor exposes:
 - Four hierarchy primitives — leaf `ComponentVM`, selectable `CompositeVM`,
   peer `GroupVM`, fixed-arity `AggregateVM1..5` — plus forwarding decorators
   for instrumentation.
-- A `RelayCommand` with reactive `canExecute` triggers.
-- Tree utilities (`walk`, `find`) for introspection.
+- A `RelayCommand` with reactive `canExecute` triggers, plus v2.0 decorators
+  (`CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`)
+  and a modeled-CRUD helper (`ModeledCrudCommands`).
+- Tree utilities (`walk`, `find`, `walk_expanded`) for introspection.
+- 20 opt-in capability micro-interfaces (`ISelectable`, `IExpandable`,
+  `IClosable`, …) and helper state classes (`ExpandableState`,
+  `SearchableState`) for layering behaviour onto VMs additively.
+- `DerivedProperty<T>` for N-source computed values, an opt-in notification
+  sub-package (`INotificationHub`), null-object service variants
+  (`NullMessageHub`, `NullDispatcher`, `NullNotificationHub`,
+  `NullLocalizer`), and an `ILocalizer` hook for i18n.
 
 The shape is identical across flavors; only the surface idiom changes
 (PascalCase in C#, snake_case in Python, camelCase in TypeScript — codified in
@@ -67,8 +76,8 @@ a browsable HTML version with summary cards is at
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 14 markdown chapters, 9 ADRs,
-  3 JSON fixtures, 75 conformance IDs, version pinned in `spec/VERSION`.
+- **Spec** — `spec/` is the source of truth: 18 markdown chapters, 19 ADRs,
+  4 JSON fixtures, 152 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
@@ -95,20 +104,24 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Package                                                | Status   | Reactive primitive |
 | ---------- | ------------------------------------------------------ | -------- | ------------------ |
-| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet  | v1.2.0   | System.Reactive    |
-| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI         | v1.2.0   | reactivex          |
-| TypeScript | [`vmx`](https://www.npmjs.com/package/vmx) on npm      | v1.2.0   | rxjs               |
+| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet  | v2.0.0   | System.Reactive    |
+| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI         | v2.0.0   | reactivex          |
+| TypeScript | [`vmx`](https://www.npmjs.com/package/vmx) on npm      | v2.0.0   | rxjs               |
 
-The C# flavor multi-targets `netstandard2.0` and `net8.0` and ships an
-optional companion [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
-package with `services.AddVMx(...)`. The Python flavor supports Python
-3.10 through 3.13 and is `mypy --strict` clean. The TypeScript flavor
-targets Node ≥18 and emits dual ESM + CJS bundles.
+The C# flavor multi-targets `netstandard2.0` and `net8.0` and ships two
+companion assemblies:
+[`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
+(`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
+`INotificationHub`). The Python flavor supports Python 3.10 through 3.13,
+is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
+subpackage. The TypeScript flavor targets Node ≥18, emits dual ESM + CJS
+bundles, and exposes `vmx/notifications` as a sub-path export.
 
 ### 3.2 Spec ↔ flavor compatibility
 
 | spec  | csharp         | python         | typescript     |
 | ----- | -------------- | -------------- | -------------- |
+| 2.0.x | 2.0.0          | 2.0.0          | 2.0.0          |
 | 1.1.x | 1.1.0 – 1.2.0  | 1.1.0 – 1.2.0  | 1.1.0 – 1.2.0  |
 | 1.0.x | 1.0.0          | 1.0.0          | —              |
 
@@ -162,9 +175,10 @@ npm install vmx
 ```
 .
 ├── spec/                  language-neutral specification (source of truth)
-│   ├── 00-overview.md ... 13-tree-utilities.md
-│   ├── ADRs/              architecture decision records
+│   ├── 00-overview.md ... 17-localization.md
+│   ├── ADRs/              architecture decision records (0001..0019)
 │   ├── fixtures/          JSON test inputs shared across flavors
+│   ├── proposals/         deferred designs not yet promoted to chapters
 │   └── VERSION            spec SemVer
 ├── langs/
 │   ├── csharp/            VMx (NuGet)  + VMx.Extensions.DependencyInjection
@@ -191,10 +205,11 @@ compatible and ships in flavors as a minor bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 75 normative test scenarios keyed by ID
-(`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, …). Every flavor re-implements
-the catalog under `langs/<flavor>/tests/conformance/`, and
-`tools/check-conformance-coverage.py` enforces 100% coverage in CI.
+`spec/12-conformance.md` enumerates 152 normative test scenarios keyed by ID
+(`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
+`NOTIF-010`, …). Every flavor re-implements the catalog under
+`langs/<flavor>/tests/conformance/`, and `tools/check-conformance-coverage.py`
+enforces 100% coverage in CI.
 
 ```bash
 # Verify all three flavors are at full coverage

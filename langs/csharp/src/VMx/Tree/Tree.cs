@@ -1,3 +1,4 @@
+using VMx.Capabilities;
 using VMx.Components;
 
 namespace VMx.Tree;
@@ -48,6 +49,30 @@ public static class Tree
             if (predicate(node))
                 return node;
         return null;
+    }
+
+    /// <summary>
+    /// Yields <paramref name="root"/> then descends only into children whose parent
+    /// reports as expanded. A node that does NOT implement <see cref="IExpandable"/>
+    /// is treated as always-expanded. See spec/13-tree-utilities.md §Expand-aware traversal.
+    /// </summary>
+    public static IEnumerable<IComponentVM> WalkExpanded(IComponentVM root)
+    {
+        yield return root;
+        if (root is IExpandable expandable && !expandable.IsExpanded) yield break;
+
+        if (root is IEnumerable<IComponentVM> children)
+        {
+            foreach (var child in children)
+                foreach (var node in WalkExpanded(child))
+                    yield return node;
+        }
+        else
+        {
+            foreach (var slot in AggregateSlots(root))
+                foreach (var node in WalkExpanded(slot))
+                    yield return node;
+        }
     }
 
     // Enumerate Component1..Component5 on aggregate VMs via reflection, skipping nulls.

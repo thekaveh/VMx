@@ -1,6 +1,6 @@
 {
   "name": "vmx",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Hierarchical lifecycle-aware MVVM viewmodel framework",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./notifications": {
+      "types": "./dist/notifications.d.ts",
+      "import": "./dist/notifications.js",
+      "require": "./dist/notifications.cjs"
     }
   },
   "files": [

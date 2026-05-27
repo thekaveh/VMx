@@ -73,7 +73,8 @@ class RxDispatcher:
 
         Args:
             loop: Optional asyncio event loop to pass to ``AsyncIOScheduler``.
-                  When *None* ``asyncio.get_event_loop()`` is used.
+                  When *None*, a fresh loop is created via
+                  ``asyncio.new_event_loop()``.
         """
         resolved_loop: asyncio.AbstractEventLoop = (
             loop if loop is not None else asyncio.new_event_loop()

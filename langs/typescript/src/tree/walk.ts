@@ -1,8 +1,10 @@
 /**
- * walk / find — depth-first pre-order tree traversal.
+ * walk / find / walkExpanded — depth-first pre-order tree traversal.
  *
- * See spec/13-tree-utilities.md (UTIL-001..003).
+ * See spec/13-tree-utilities.md (UTIL-001..003, EXP-005).
  */
+import type { IExpandable } from "../capabilities/expansion.js";
+import { hasCapability } from "../capabilities/registry.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 
 export function* walk(root: ComponentVMBase): Iterable<ComponentVMBase> {
@@ -20,6 +22,19 @@ export function find(
     if (predicate(node)) return node;
   }
   return null;
+}
+
+export function* walkExpanded(
+  root: ComponentVMBase,
+): Iterable<ComponentVMBase> {
+  yield root;
+  if (hasCapability(root, "IExpandable")) {
+    const expandable = root as unknown as IExpandable;
+    if (!expandable.isExpanded) return;
+  }
+  for (const child of _children(root)) {
+    yield* walkExpanded(child);
+  }
 }
 
 function* _children(node: ComponentVMBase): Iterable<ComponentVMBase> {

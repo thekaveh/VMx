@@ -37,6 +37,8 @@ export type { IMessageHub } from "./services/messageHub.js";
 export { MessageHub } from "./services/messageHub.js";
 export type { IDispatcher } from "./services/dispatcher.js";
 export { RxDispatcher } from "./services/dispatcher.js";
+export { NullMessageHub } from "./services/nullMessageHub.js";
+export { NullDispatcher } from "./services/nullDispatcher.js";
 
 // Commands
 export type { ICommand, ICommandOf } from "./commands/types.js";
@@ -46,6 +48,19 @@ export {
   RelayCommandOf,
   RelayCommandOfBuilder,
 } from "./commands/relayCommand.js";
+export { CompositeCommand } from "./commands/compositeCommand.js";
+export {
+  DecoratorCommand,
+  type DecoratorCommandOptions,
+} from "./commands/decoratorCommand.js";
+export {
+  ConfirmationDecoratorCommand,
+  type ConfirmDelegate,
+} from "./commands/confirmationDecoratorCommand.js";
+export {
+  ModeledCrudCommands,
+  type ModeledCrudCommandsOptions,
+} from "./commands/modeledCrudCommands.js";
 
 // Components
 export { ViewModelType } from "./components/types.js";
@@ -99,4 +114,64 @@ export { ForwardingComponentVM } from "./forwarding/forwardingComponentVM.js";
 export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 
 // Tree utilities
-export { walk, find } from "./tree/walk.js";
+export { walk, find, walkExpanded } from "./tree/walk.js";
+
+// Expandable state helper (spec v2.0)
+export { ExpandableState } from "./capabilities/expandableState.js";
+
+// Searchable state helper (spec v2.0)
+export {
+  SearchableState,
+  type SearchableStateOptions,
+} from "./capabilities/searchableState.js";
+
+// Derived properties (spec v2.0)
+export {
+  DerivedProperty,
+  type DerivedFromSourcesOptions,
+  deriveFromSources,
+} from "./properties/index.js";
+
+// Localization (spec v2.0)
+export type { ILocalizer } from "./localization/localizer.js";
+export { NullLocalizer } from "./localization/nullLocalizer.js";
+
+// Capabilities (spec v2.0)
+export {
+  CAPABILITIES,
+  type CapabilityName,
+  declareCapabilities,
+  hasCapability,
+} from "./capabilities/registry.js";
+export type {
+  IDeselectable,
+  ISelectable,
+  ISelectionTogglable,
+} from "./capabilities/selection.js";
+export type {
+  ICollapsible,
+  IExpandable,
+  IExpansionTogglable,
+} from "./capabilities/expansion.js";
+export type {
+  IConstructable,
+  IDestructable,
+  IReconstructable,
+} from "./capabilities/lifecycleCapabilities.js";
+export type {
+  IApprovable,
+  ICancelable,
+  IClosable,
+} from "./capabilities/dialog.js";
+export type { ISearchable } from "./capabilities/search.js";
+export type {
+  IDeletable,
+  INewCreatable,
+  ISavable,
+  IUpdatable,
+} from "./capabilities/crud.js";
+export type {
+  ICurrentDeletable,
+  ICurrentUpdatable,
+} from "./capabilities/currentCrud.js";
+export type { IManagable } from "./capabilities/management.js";

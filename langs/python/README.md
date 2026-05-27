@@ -5,9 +5,10 @@ spec-compatible with the C# and TypeScript flavors.
 
 ## Status
 
-**v1.1.0** — implements `spec-v1.1.0` end-to-end. 75/75 conformance IDs pass
-(385 tests total across unit + conformance). Supports Python 3.10–3.13.
-`mypy --strict` clean.
+**v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
+pass (462 tests total across unit + conformance). Supports Python 3.10–3.13.
+`mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
+`INotificationHub` for async confirmations.
 
 ## Install
 
@@ -90,30 +91,51 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `ComponentVM`                   | Leaf viewmodel (no model)                         |
 | `ComponentVMOf[M]`              | Leaf viewmodel with a typed model                 |
 | `ReadonlyComponentVMOf[M]`      | Leaf VM with read-only model                      |
-| `CompositeVM[VM]`               | Ordered collection of children + current slot     |
-| `CompositeVMOf[M, VM]`          | Model-driven composite                            |
+| `CompositeVM[VM]` / `CompositeVMOf[M,VM]` | Ordered collection + current slot     |
 | `GroupVM[VM]`                   | Collection without current selection              |
 | `AggregateVM1..5[…]`            | Fixed-arity named component slots                 |
 | `ForwardingComponentVM`         | Decorator for `ComponentVMOfProto`                |
 | `ForwardingCompositeVM`         | Decorator for composites                          |
-| `RelayCommand`                  | Executable command with `can_execute` predicate   |
-| `RelayCommandOfT[T]`            | Typed command with an argument                    |
+| `RelayCommand` / `RelayCommandOf[T]` | Executable command with `can_execute` predicate |
+| `CompositeCommand`              | Aggregate N inner commands (spec v2.0)            |
+| `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate   |
+| `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm coroutine    |
+| `ModeledCrudCommands[M,VM]`     | Create / UpdateCurrent / DeleteCurrent helper     |
 | `MessageHub`                    | Pub/sub hub backed by `reactivex` `Subject`       |
+| `NullMessageHub` / `NULL_MESSAGE_HUB` | Null-object variant per ADR-0017            |
 | `RxDispatcher`                  | Foreground/background scheduler pair              |
+| `NullDispatcher` / `NULL_DISPATCHER` | Null-object variant per ADR-0017             |
 | `ConstructionStatus`            | 5-state lifecycle enum                            |
 | `StatusTransitionError`         | Raised on illegal lifecycle operations            |
 | `BuilderValidationError`        | Raised when a builder is missing required fields  |
 | `walk(root)`                    | DFS pre-order tree traversal generator            |
+| `walk_expanded(root)`           | DFS walk gated on `IExpandable.is_expanded` (v2.0) |
 | `find(root, predicate)`         | Short-circuit tree search                         |
+| `DerivedProperty[TValue]` / `from_sources(...)` | N-source computed value (spec v2.0) |
+| `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)   |
+| `SearchableState[T]`            | Debounced filter helper (spec v2.0)               |
+| `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default (v2.0) |
+| 20× capability ABCs             | `vmx.capabilities.*` — opt-in (spec v2.0)         |
+
+The opt-in `vmx.notifications` subpackage (spec v2.0) adds:
+
+| Export                                                            | Description                            |
+| ----------------------------------------------------------------- | -------------------------------------- |
+| `Notification` / `NotificationType` / `NotificationReaction`      | Notification primitives                |
+| `INotificationHub` / `NotificationHub` / `NullNotificationHub` / `NULL_NOTIFICATION_HUB` | Async notification hub + null variant |
+| `make_confirm(hub, prompt)`                                       | Bridge to `ConfirmationDecoratorCommand` |
 
 ## Conformance
 
-All 75 conformance IDs from `spec/12-conformance.md` are covered.
+All 152 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
-LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
-FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
+v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
+       CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
+       FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
+v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
+       NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
+       LOC-001..003
 ```
 
 Run the suite:

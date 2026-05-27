@@ -27,6 +27,7 @@ export class RelayCommand implements ICommand {
   readonly #predicate: (() => boolean) | null;
   readonly #canExecuteChangedSubject = new Subject<void>();
   readonly #subscriptions: Subscription[];
+  #disposed = false;
 
   constructor(
     task: (() => void) | null,
@@ -58,7 +59,10 @@ export class RelayCommand implements ICommand {
     return this.#canExecuteChangedSubject.asObservable();
   }
 
+  /** Idempotent: subsequent calls are a no-op. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     for (const sub of this.#subscriptions) sub.unsubscribe();
     this.#canExecuteChangedSubject.complete();
   }
@@ -116,6 +120,7 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
   readonly #predicate: ((p: T) => boolean) | null;
   readonly #canExecuteChangedSubject = new Subject<void>();
   readonly #subscriptions: Subscription[];
+  #disposed = false;
 
   constructor(
     task: ((p: T) => void) | null,
@@ -147,7 +152,10 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
     return this.#canExecuteChangedSubject.asObservable();
   }
 
+  /** Idempotent: subsequent calls are a no-op. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     for (const sub of this.#subscriptions) sub.unsubscribe();
     this.#canExecuteChangedSubject.complete();
   }

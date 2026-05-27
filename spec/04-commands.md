@@ -83,9 +83,53 @@ RelayCommand.Builder()
 trigger behavior, expected `CanExecute` return, whether `Execute` invokes the task,
 and whether `CanExecuteChanged` fires.
 
+## Decorators (spec v2.0)
+
+Three decorator commands wrap one or more inner commands, layering additional
+behavior on top. All three implement `ICommand` and may themselves be composed
+arbitrarily.
+
+### `CompositeCommand`
+
+Aggregates N inner commands. The composite's behavior:
+
+- `CanExecute` returns `true` iff at least one inner command's `CanExecute` returns
+  `true`.
+- `Execute` invokes every inner command whose `CanExecute` currently returns `true`.
+  Inner commands whose `CanExecute` returns `false` are skipped.
+- `CanExecuteChanged` fires on any inner command's `CanExecuteChanged`.
+
+### `DecoratorCommand`
+
+Wraps a single inner command, layering pre/post actions and an extra can-execute
+gate.
+
+- `CanExecute` returns `inner.CanExecute() && (extraPredicate?.Invoke() ?? true)`.
+- `Execute`:
+  1. If `CanExecute` returns `false`, returns immediately (no pre/post invoked).
+  1. Invokes the optional pre-execution action.
+  1. Invokes `inner.Execute()`.
+  1. Invokes the optional post-execution action.
+- `CanExecuteChanged` fires when `inner.CanExecuteChanged` fires.
+
+### `ConfirmationDecoratorCommand`
+
+Wraps a single inner command, gating `Execute` on a user-confirmation delegate.
+
+- Construction takes the inner command and a `confirm` delegate of shape
+  `() -> Task<bool>` (or per-language async-Boolean equivalent).
+- `CanExecute` returns `inner.CanExecute()`.
+- `Execute` invokes `confirm()`. If the awaited result is `true`, calls
+  `inner.Execute()`. If `false`, does nothing.
+
+Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
+depend on the notification service (cycle 5). Consumers may bridge it to
+`INotificationHub` via an optional helper in the notifications sub-package.
+
 ## Conformance
 
-`CMD-001` through `CMD-007` in `12-conformance.md` cover:
+`CMD-001` through `CMD-007` and `CMDD-001` through `CMDD-009` in `12-conformance.md`
+cover:
 
 - `Execute` invokes the configured task
 - `CanExecute` returns `true` with no predicate, and the predicate result otherwise

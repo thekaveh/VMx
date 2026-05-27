@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VMx\VMx.csproj" />
+    <ProjectReference Include="..\..\src\VMx.Notifications\VMx.Notifications.csproj" />
     <ProjectReference Include="..\VMx.Tests\VMx.Tests.csproj" />
   </ItemGroup>
 

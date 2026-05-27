@@ -1,0 +1,53 @@
+{
+  "fixture_name": "derived-properties",
+  "schema_version": 1,
+  "spec_version": "2.0.0",
+  "transforms": {
+    "sum": "(*xs) -> sum(xs)",
+    "concat": "(*xs) -> ''.join(str(x) for x in xs)"
+  },
+  "scenarios": [
+    {
+      "name": "single-source-initial-value",
+      "sources_initial": [10],
+      "transform": "sum",
+      "mutations": [],
+      "expected_values": [10]
+    },
+    {
+      "name": "single-source-one-mutation",
+      "sources_initial": [10],
+      "transform": "sum",
+      "mutations": [[0, 20]],
+      "expected_values": [10, 20]
+    },
+    {
+      "name": "two-sources-additive",
+      "sources_initial": [1, 2],
+      "transform": "sum",
+      "mutations": [[0, 5], [1, 7]],
+      "expected_values": [3, 7, 12]
+    },
+    {
+      "name": "five-sources-additive",
+      "sources_initial": [1, 2, 3, 4, 5],
+      "transform": "sum",
+      "mutations": [[2, 30]],
+      "expected_values": [15, 42]
+    },
+    {
+      "name": "distinct-until-changed",
+      "sources_initial": [5, 5],
+      "transform": "sum",
+      "mutations": [[0, 3], [1, 7]],
+      "expected_values": [10, 8, 10]
+    },
+    {
+      "name": "concat-string-sources",
+      "sources_initial": ["a", "b"],
+      "transform": "concat",
+      "mutations": [[1, "c"]],
+      "expected_values": ["ab", "ac"]
+    }
+  ]
+}

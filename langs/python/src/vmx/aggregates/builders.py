@@ -63,17 +63,16 @@ class AggregateVMBuilder1(Generic[V1]):
         Raises :class:`~vmx.builders.exceptions.BuilderValidationError`
         if a required field is missing.
         """
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
 
         return AggregateVM1(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             factory1=self._factory1,
         )
 
@@ -112,19 +111,18 @@ class AggregateVMBuilder2(Generic[V1, V2]):
         return dataclasses.replace(self, _factory2=factory)
 
     def build(self) -> AggregateVM2[V1, V2]:
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
             raise BuilderValidationError("component_2")
 
         return AggregateVM2(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             factory1=self._factory1,
             factory2=self._factory2,
         )
@@ -168,9 +166,8 @@ class AggregateVMBuilder3(Generic[V1, V2, V3]):
         return dataclasses.replace(self, _factory3=factory)
 
     def build(self) -> AggregateVM3[V1, V2, V3]:
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
@@ -179,10 +176,10 @@ class AggregateVMBuilder3(Generic[V1, V2, V3]):
             raise BuilderValidationError("component_3")
 
         return AggregateVM3(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             factory1=self._factory1,
             factory2=self._factory2,
             factory3=self._factory3,
@@ -231,9 +228,8 @@ class AggregateVMBuilder4(Generic[V1, V2, V3, V4]):
         return dataclasses.replace(self, _factory4=factory)
 
     def build(self) -> AggregateVM4[V1, V2, V3, V4]:
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
@@ -244,10 +240,10 @@ class AggregateVMBuilder4(Generic[V1, V2, V3, V4]):
             raise BuilderValidationError("component_4")
 
         return AggregateVM4(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             factory1=self._factory1,
             factory2=self._factory2,
             factory3=self._factory3,
@@ -301,9 +297,8 @@ class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
         return dataclasses.replace(self, _factory5=factory)
 
     def build(self) -> AggregateVM5[V1, V2, V3, V4, V5]:
-        _validation.require_field(self._name, "name")
-        _validation.require_services(self._hub, self._dispatcher)
-        assert self._name is not None and self._hub is not None and self._dispatcher is not None
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
         if self._factory1 is None:
             raise BuilderValidationError("component_1")
         if self._factory2 is None:
@@ -316,10 +311,10 @@ class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
             raise BuilderValidationError("component_5")
 
         return AggregateVM5(
-            name=self._name,
+            name=name,
             hint=self._hint,
-            hub=self._hub,
-            dispatcher=self._dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
             factory1=self._factory1,
             factory2=self._factory2,
             factory3=self._factory3,
