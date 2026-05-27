@@ -192,6 +192,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (old === undefined) throw new RangeError(`Index ${String(index)} out of range`);
     this._children[index] = value;
     old._parent = null;
+    // Mirror removeAt: if the slot we just replaced held the current
+    // selection, drop Current to null before subscribers see any
+    // CollectionChanged event for this replace.
+    if (this.#current === old) {
+      this._setCurrent(null, false);
+    }
     value._parent = this;
     this._emitCollectionChanged(
       makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),

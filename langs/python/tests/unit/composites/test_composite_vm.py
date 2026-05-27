@@ -417,6 +417,37 @@ def test_remove_current_child_clears_current() -> None:
     assert comp.current is None
 
 
+def test_setitem_replacing_current_clears_current() -> None:
+    comp, _ = _build_composite()
+    old_child = _build_child(name="old")
+    new_child = _build_child(name="new")
+    comp.append(old_child)
+    old_child.construct()
+    comp.current = old_child
+
+    comp[0] = new_child
+
+    assert comp.current is None, "current must be cleared when the slot holding it is replaced"
+    assert comp[0] is new_child
+    assert old_child._parent is None
+    assert new_child._parent is comp
+
+
+def test_setitem_replacing_non_current_leaves_current_intact() -> None:
+    comp, _ = _build_composite()
+    other = _build_child(name="other")
+    sticky = _build_child(name="sticky")
+    replacement = _build_child(name="replacement")
+    comp.append(other)
+    comp.append(sticky)
+    sticky.construct()
+    comp.current = sticky
+
+    comp[0] = replacement  # replace `other`, not `sticky`
+
+    assert comp.current is sticky, "current must survive when a different slot is replaced"
+
+
 # ---------------------------------------------------------------------------
 # Parent reference
 # ---------------------------------------------------------------------------

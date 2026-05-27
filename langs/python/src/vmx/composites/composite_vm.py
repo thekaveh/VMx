@@ -175,6 +175,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         old = self._children[index]
         self._children[index] = value
         old._set_parent(None)
+        # Mirror _remove_at: if the slot we just replaced held the current
+        # selection, drop Current to None before subscribers see any
+        # collection_changed event for this replace.
+        if self._current is old:
+            self._set_current(None, async_sel=False)
         value._set_parent(self)
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(old,), old_index=index)

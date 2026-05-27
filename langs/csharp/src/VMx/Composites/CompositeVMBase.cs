@@ -64,6 +64,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
             var old = _children[index];
             _children[index] = value;
             old.SetParent(null);
+            // Mirror RemoveAt: if the slot we just replaced held the current
+            // selection, drop Current to null before subscribers see any
+            // CollectionChanged event for this replace.
+            if (ReferenceEquals(_current, old))
+                SetCurrent(null, async: false);
             value.SetParent(this);
             MaybeAutoConstruct(value);
             // Notify replace as Remove then Add (standard INCC pattern).
