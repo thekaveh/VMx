@@ -6,7 +6,7 @@ spec-compatible with the Python and TypeScript flavors.
 ## 1. Status
 
 **v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
-pass (166 test methods). Multi-targets `netstandard2.0` and `net8.0`.
+pass (171 test methods). Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
 `INotificationHub`).
