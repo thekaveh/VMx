@@ -42,6 +42,7 @@ class SearchableState(ISearchable, Generic[T]):
         self._term_subject: BehaviorSubject[str] = BehaviorSubject("")
         self._filtered_subject: BehaviorSubject[list[T]] = BehaviorSubject(self._apply_filter(""))
         self._force_search: Subject[None] = Subject()
+        self._disposed = False
         sched = scheduler or ImmediateScheduler()
 
         if debounce_seconds > 0:
@@ -77,6 +78,10 @@ class SearchableState(ISearchable, Generic[T]):
         return [item for item in self._items_source() if self._predicate(item, term)]
 
     def dispose(self) -> None:
+        """Tear down internal subscriptions and complete the streams. Idempotent."""
+        if self._disposed:
+            return
+        self._disposed = True
         self._subscription.dispose()
         self._term_subject.on_completed()
         self._filtered_subject.on_completed()

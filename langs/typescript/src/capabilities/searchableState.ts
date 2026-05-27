@@ -30,6 +30,7 @@ export class SearchableState<T> implements ISearchable {
   readonly #filteredSubject: BehaviorSubject<readonly T[]>;
   readonly #forceSearchSubject = new Subject<void>();
   readonly #subscription: Subscription;
+  #disposed = false;
 
   constructor(opts: SearchableStateOptions<T>) {
     this.#items = opts.items;
@@ -83,7 +84,10 @@ export class SearchableState<T> implements ISearchable {
     return out;
   }
 
+  /** Idempotent: subsequent calls are a no-op. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#subscription.unsubscribe();
     this.#termSubject.complete();
     this.#filteredSubject.complete();

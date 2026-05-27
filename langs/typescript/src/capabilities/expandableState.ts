@@ -25,6 +25,7 @@ export class ExpandableState
 {
   #expanded: boolean;
   readonly #changes = new Subject<boolean>();
+  #disposed = false;
 
   constructor(initiallyExpanded = false) {
     this.#expanded = initiallyExpanded;
@@ -68,7 +69,10 @@ export class ExpandableState
     else this.expand();
   }
 
+  /** Idempotent: subsequent calls are a no-op. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#changes.complete();
   }
 }

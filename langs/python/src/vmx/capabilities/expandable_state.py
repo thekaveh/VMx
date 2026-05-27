@@ -22,6 +22,7 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
     def __init__(self, initially_expanded: bool = False) -> None:
         self._is_expanded = initially_expanded
         self._changes: Subject[bool] = Subject()
+        self._disposed = False
 
     @property
     def is_expanded(self) -> bool:
@@ -59,4 +60,8 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
             self.expand()
 
     def dispose(self) -> None:
+        """Complete the change observable. Idempotent."""
+        if self._disposed:
+            return
+        self._disposed = True
         self._changes.on_completed()
