@@ -30,7 +30,7 @@ export type {
   CollectionChangedEvent,
 } from "./collections/collectionChangedEvent.js";
 export { makeCollectionChangedEvent } from "./collections/collectionChangedEvent.js";
-export { BatchUpdateHandle } from "./collections/batchUpdateHandle.js";
+export { BatchUpdateHandle, type IBatchable } from "./collections/batchUpdateHandle.js";
 
 // Services
 export type { IMessageHub } from "./services/messageHub.js";
@@ -65,7 +65,7 @@ export {
 // Components
 export { ViewModelType } from "./components/types.js";
 export type { IComponentVM, IComponentVMOf } from "./components/types.js";
-export { ComponentVMBase } from "./components/componentVMBase.js";
+export { ComponentVMBase, type IParentVM } from "./components/componentVMBase.js";
 export { ComponentVM, ComponentVMBuilder } from "./components/componentVM.js";
 export {
   ComponentVMOf,

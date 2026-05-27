@@ -48,6 +48,10 @@ class DecoratorCommand:
             return
         if self._pre is not None:
             self._pre()
-        self._inner.execute(parameter)
-        if self._post is not None:
-            self._post()
+        try:
+            self._inner.execute(parameter)
+        finally:
+            # post runs whether or not the inner raised, so that a "busy"
+            # flag set in pre_execute always gets cleared.
+            if self._post is not None:
+                self._post()

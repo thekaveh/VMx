@@ -48,8 +48,16 @@ public sealed class DecoratorCommand : ICommand, IDisposable
     {
         if (!CanExecute(parameter)) return;
         _preExecute?.Invoke();
-        _inner.Execute(parameter);
-        _postExecute?.Invoke();
+        try
+        {
+            _inner.Execute(parameter);
+        }
+        finally
+        {
+            // postExecute runs whether or not the inner threw, so that a
+            // "busy" flag set in preExecute always gets cleared.
+            _postExecute?.Invoke();
+        }
     }
 
     /// <summary>Unsubscribes from the inner command's <c>CanExecuteChanged</c>.</summary>

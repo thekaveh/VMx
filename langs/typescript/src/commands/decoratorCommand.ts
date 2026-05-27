@@ -42,7 +42,12 @@ export class DecoratorCommand implements ICommand {
   execute(): void {
     if (!this.canExecute()) return;
     if (this.#pre) this.#pre();
-    this.#inner.execute();
-    if (this.#post) this.#post();
+    try {
+      this.#inner.execute();
+    } finally {
+      // post runs whether or not the inner threw, so that a "busy" flag set
+      // in preExecute always gets cleared.
+      if (this.#post) this.#post();
+    }
   }
 }

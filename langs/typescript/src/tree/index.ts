@@ -1,1 +1,1 @@
-export { walk, find } from "./walk.js";
+export { walk, walkExpanded, find } from "./walk.js";

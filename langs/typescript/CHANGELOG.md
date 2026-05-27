@@ -12,14 +12,19 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
-- **Capabilities** (`vmx`): 20 opt-in micro-interfaces (`ISearchable`,
-  `IExpandable`, `ICollapsible`, `IExpansionTogglable`, `IDirty`,
-  `IDisposable`, `IBusy`, `IValidatable`, etc.).
+- **Capabilities** (`vmx`): 20 opt-in micro-interfaces —
+  `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
+  `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
+  `IApprovable`, `ICancelable`, `INewCreatable`, `IDeletable`,
+  `IUpdatable`, `ISavable`, `ICurrentDeletable`, `ICurrentUpdatable`,
+  `IManagable`, `IConstructable`, `IDestructable`, `IReconstructable`
+  (see `src/capabilities/registry.ts`).
 - **Helpers** (`vmx`): `SearchableState<TItem>` (real `debounceTime`,
   trailing-edge), `ExpandableState`.
 - **Derived properties** (`vmx`): `DerivedProperty<TValue>` plus a
   `fromSources(sources, transform, opts?)` factory for N-source
-  computed values with `distinctUntilChanged` + optional write-back.
+  computed values, value-equality guard via `Object.is`, optional
+  write-back.
 - **Commands**: `ConfirmationDecoratorCommand` + the abstract
   `DecoratorCommand` base, `makeConfirm` helper, `ModeledCrudCommands<M, VM>`
   (M is a phantom type parameter mirroring the spec contract — see ADR-0016).

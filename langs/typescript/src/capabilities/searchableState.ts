@@ -62,6 +62,9 @@ export class SearchableState<T> implements ISearchable {
   }
 
   set searchTerm(value: string) {
+    // Spec wording is "emission on a new value" — guard against no-op
+    // re-sets so debounce + recompute don't fire when nothing changed.
+    if (value === this.#termSubject.value) return;
     this.#termSubject.next(value);
   }
 
