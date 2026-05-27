@@ -9,7 +9,7 @@
         <!-- Item template: checkbox (toggle Done) + title text -->
         <DataTemplate DataType="{x:Type local:TodoItemVM}">
             <StackPanel Orientation="Horizontal" Margin="4,2">
-                <CheckBox IsChecked="{Binding VM.IsConstructed, Mode=OneWay}"
+                <CheckBox IsChecked="{Binding Done, Mode=OneWay}"
                           Command="{Binding ToggleDoneCommand}"
                           VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center"

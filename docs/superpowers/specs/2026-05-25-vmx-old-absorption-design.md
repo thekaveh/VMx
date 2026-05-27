@@ -1,9 +1,11 @@
 # VMx.old Absorption — Design
 
+> **Status: COMPLETED — shipped in spec v2.0.0 / C# 2.0.0 / Python 2.0.0 / TypeScript 2.0.0 (2026-05-27).** Retained as a historical reference for the decisions and trade-offs that shaped v2.0; the spec chapters and ADRs are the live source of truth now.
+
 **Date:** 2026-05-25
-**Status:** Approved (brainstorming → ready for implementation plan)
+**Status:** Completed (spec v2.0.0 shipped 2026-05-27; see ADR-0010..0019 + ADR-0020)
 **Target spec version:** 2.0.0
-**Target branch:** `feat/absorb-vmx-old`
+**Target branch:** `feat/absorb-vmx-old` (merged)
 
 ______________________________________________________________________
 

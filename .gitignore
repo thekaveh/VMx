@@ -78,7 +78,7 @@ artifacts/
 *.snupkg
 .nuget/
 
-# ─── Node (future TS flavor) ──────────────────────────────────────────
+# ─── Node / TypeScript ────────────────────────────────────────────────
 node_modules/
 *.log
 npm-debug.log*

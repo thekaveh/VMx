@@ -1,9 +1,11 @@
 # Goal — Absorb VMx.old into current VMx (v2.0.0)
 
+> **Status: COMPLETED — spec v2.0.0 shipped 2026-05-27. All three flavors (C#, Python, TypeScript) at v2.0.0 with 152/152 conformance.** Checkboxes below are preserved unflipped as a historical snapshot of the original planning artefact; the spec chapters and ADRs (ADR-0010..0019 + ADR-0020) are the authoritative record of what landed.
+
 **Created:** 2026-05-25
 **Design doc:** [`docs/superpowers/specs/2026-05-25-vmx-old-absorption-design.md`](../specs/2026-05-25-vmx-old-absorption-design.md)
-**Branch:** `feat/absorb-vmx-old`
-**Resume rule:** On each `/goal` invocation, evaluate every condition in order. For any unmet condition, do the next concrete piece of work toward meeting it (do not skip ahead). Stop only when every condition in §2 and §3 is `MET`.
+**Branch:** `feat/absorb-vmx-old` (merged)
+**Resume rule:** Historical — no longer drives any work. Originally: "On each `/goal` invocation, evaluate every condition in order. For any unmet condition, do the next concrete piece of work toward meeting it (do not skip ahead). Stop only when every condition in §2 and §3 is `MET`."
 
 ______________________________________________________________________
 

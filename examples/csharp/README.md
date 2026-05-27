@@ -37,14 +37,21 @@ Cross-platform — runs anywhere the .NET SDK runs.
 
 ## 3. Example 2 — `WpfTodoApp/` (WPF + MVVM)
 
-Full MVVM todo app using WPF data binding. Demonstrates:
+A todo app that wires VMx into a WPF view. Demonstrates:
 
-- `TodoItemVM` subclassing `ComponentVM<TodoItem>` and exposing a
-  `ToggleDoneCommand`.
-- `MainWindowViewModel` holding a `CompositeVM<TodoItemVM>` and exposing
-  `AddCommand` / `RemoveCommand` for the view to bind to.
-- `MainWindow.xaml` — pure view; all logic lives in the ViewModel.
-- XAML data binding against `INotifyPropertyChanged` + `ICommand` surface.
+- `TodoItemVM` *composing* a `ComponentVM<TodoItem>` (rather than
+  subclassing it) and exposing `Title`/`Done`/`ToggleDoneCommand` for
+  the item template — illustrates the composition pattern when you need
+  view-only properties that aren't part of the model.
+- `MainWindowViewModel` holding an `ObservableCollection<TodoItemVM>`
+  bound to the ListBox plus a public `AddItem(string)` method invoked
+  from the Add button's click handler. (The Python `tk_todo_app`
+  example uses `CompositeVM<TodoItemVM>` + `RelayCommand` for the same
+  shape — both patterns are idiomatic; this one shows the lighter
+  WPF-flavoured wiring.)
+- `MainWindow.xaml` — pure view; XAML data binding against the inner
+  `ComponentVM`'s `INotifyPropertyChanged` surface plus the
+  `ICommand`-exposing `ToggleDoneCommand`.
 
 **Run (Windows only):**
 

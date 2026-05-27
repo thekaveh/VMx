@@ -8,7 +8,7 @@ from textual.containers import Vertical
 from textual.widgets import Footer, Header, Tree
 from textual.widgets.tree import TreeNode
 
-from vmx.components.base import _ComponentVMBase
+from vmx.components.protocols import ComponentVMProto
 from vmx.lifecycle import StatusTransitionError
 from vmx.messages.protocols import Message
 from vmx.tree import walk
@@ -19,14 +19,14 @@ from vmx_inspector.sample_tree import build_sample_tree
 from vmx_inspector.tree_view import populate_tree, refresh_node_label
 
 
-def _build_parent_map(root: _ComponentVMBase) -> dict[int, str]:
+def _build_parent_map(root: ComponentVMProto) -> dict[int, str]:
     """Return ``{id(child): parent.name}`` for every node reachable from *root*."""
     result: dict[int, str] = {}
     for node in walk(root):
         if hasattr(node, "__iter__"):
             try:
                 for child in node:
-                    if isinstance(child, _ComponentVMBase):
+                    if isinstance(child, ComponentVMProto):
                         result[id(child)] = node.name
             except TypeError:
                 pass
@@ -67,7 +67,7 @@ class VMxInspectorApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        tree: Tree[_ComponentVMBase] = Tree("VMx Tree", id="tree-pane")
+        tree: Tree[ComponentVMProto] = Tree("VMx Tree", id="tree-pane")
         tree.guide_depth = 2
         yield tree
         with Vertical(id="right-pane"):
@@ -98,20 +98,20 @@ class VMxInspectorApp(App[None]):
         tree = self.query_one(Tree)
         self._refresh_node_recursive(tree.root)
 
-    def _refresh_node_recursive(self, node: TreeNode[_ComponentVMBase]) -> None:
+    def _refresh_node_recursive(self, node: TreeNode[ComponentVMProto]) -> None:
         if node.data is not None:
             refresh_node_label(node)
         for child in node.children:
             self._refresh_node_recursive(child)
 
-    def _selected_vm(self) -> _ComponentVMBase | None:
+    def _selected_vm(self) -> ComponentVMProto | None:
         tree = self.query_one(Tree)
         node = tree.cursor_node
         if node is None:
             return None
         return node.data
 
-    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[_ComponentVMBase]) -> None:
+    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[ComponentVMProto]) -> None:
         details = self.query_one(DetailsView)
         details.selected_vm = event.node.data
 
