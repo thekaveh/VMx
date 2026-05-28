@@ -6,7 +6,7 @@ See spec/18-hierarchical-vm.md and ADR-0028.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
@@ -14,9 +14,6 @@ from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHub
-
-if TYPE_CHECKING:
-    pass
 
 TModel = TypeVar("TModel")
 TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")
