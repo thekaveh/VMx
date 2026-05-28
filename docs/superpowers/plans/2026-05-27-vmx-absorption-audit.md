@@ -893,9 +893,14 @@ Find next available CMD- ID. Add 4 IDs: `CMD-NNN.Confirm`, `CMD-NNN.Precede`, `C
 
 #### Task 1D.5: Implement in each flavor (TDD)
 
-- C#: `langs/csharp/src/VMx/Commands/FluentCommandExtensions.cs`
-- Python: `langs/python/src/vmx/commands/fluent.py`
-- TypeScript: `langs/typescript/src/commands/fluent.ts`
+- [x] **C#:** `langs/csharp/src/VMx/Commands/FluentCommandExtensions.cs` +
+  `langs/csharp/src/VMx.Notifications/FluentNotificationExtensions.cs`.
+  All 199 conformance tests pass; `dotnet format` clean.
+- [x] **Python:** `langs/python/src/vmx/commands/fluent.py`. All 601 tests pass;
+  `mypy --strict` clean; `ruff` clean.
+- [x] **TypeScript:** `langs/typescript/src/commands/fluent.ts`. All 292 tests
+  pass; typecheck + lint clean; build succeeds.
+- [x] Coverage tool: 179/179 across all three flavors.
 
 Follow 1A.5–1A.7 TDD cycle pattern per flavor.
 
