@@ -1592,3 +1592,23 @@ the local `CollectionChanged` event fires
 **When** the same four mutations are performed
 **Then** all mutations complete without raising any exception
 **And** no hub message is published
+
+### COL-023 — `ObservableList` batch-end `Count` notification
+
+**Given** an `ObservableList<T>` with at least one item already present
+**And** a subscriber recording `Reset` events and `PropertyChanged("Count")` events
+
+**When** a `batch_update`/`withBatch`/`BatchUpdate()` block contains mutations
+that change the collection's `Count` (e.g., at least one add or remove)
+**Then** the batch-end `Reset` is emitted first
+**And** a `PropertyChanged("Count")` notification is emitted immediately after
+**And** the `Count` value is already updated when the `PropertyChanged` fires
+
+**When** a `batch_update`/`withBatch`/`BatchUpdate()` block is empty (no mutations)
+**Then** no `Reset` is emitted
+**And** no `PropertyChanged("Count")` is emitted
+
+**When** a `batch_update`/`withBatch`/`BatchUpdate()` block contains only
+count-preserving mutations (e.g., only replace operations)
+**Then** a `Reset` is emitted (mutations occurred)
+**And** no `PropertyChanged("Count")` is emitted (count unchanged)
