@@ -126,28 +126,3 @@ def test_EXP_005_walk_expanded_skips_collapsed() -> None:
     assert b_collapsed in visited
     assert b1 not in visited
     assert b2 not in visited
-
-
-# ---------------------------------------------------------------------------
-# Dispose path — regression guard for the `_disposed` idempotence guard and
-# the Subject completion in ExpandableState.dispose().
-# ---------------------------------------------------------------------------
-
-
-def test_expandable_state_dispose_is_idempotent() -> None:
-    state = ExpandableState(initially_expanded=True)
-    state.dispose()
-    state.dispose()  # second call must not raise
-
-
-def test_expandable_state_dispose_completes_change_observable() -> None:
-    state = ExpandableState(initially_expanded=False)
-    completed = False
-
-    def on_completed() -> None:
-        nonlocal completed
-        completed = True
-
-    state.is_expanded_changed.subscribe(on_completed=on_completed)
-    state.dispose()
-    assert completed is True

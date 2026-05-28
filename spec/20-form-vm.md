@@ -92,7 +92,7 @@ stateDiagram-v2
     Pristine --> Dirty : mutate Model
     Dirty --> Approved : ApproveCommand (persist success)
     Dirty --> Pristine : DenyCommand (revert)
-    Approved --> Dirty : mutate Model again
+    Approved --> Dirty : mutate Model (again)
     Approved --> [*] : dispose
     Pristine --> [*] : dispose
 ```
