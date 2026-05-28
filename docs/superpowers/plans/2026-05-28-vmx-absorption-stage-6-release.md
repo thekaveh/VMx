@@ -74,8 +74,8 @@ ______________________________________________________________________
 - [x] **Substage 6A** — Version bumps (spec/VERSION + 4-5 package files + constants)
 - [x] **Substage 6B** — Documentation refresh (overview, concepts, README, compat matrix, ADR registry)
 - [x] **Substage 6C** — CHANGELOG entries
-- [ ] **Substage 6D** — Final cross-flavor audit (2 consecutive zero-finding passes)
-- [ ] **Substage 6E** — PR creation (DO NOT MERGE — user review)
+- [x] **Substage 6D** — Final cross-flavor audit (2 consecutive zero-finding passes)
+- [x] **Substage 6E** — PR creation (DO NOT MERGE — user review)
 
 ______________________________________________________________________
 
