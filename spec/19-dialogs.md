@@ -81,7 +81,7 @@ The rule of thumb:
 - **Informing without waiting?** Use `INotificationHub` (`Post`).
 - **Both can be injected** into the same ViewModel; they are orthogonal.
 
-See also `spec/16-notifications.md §N` for the companion distinction paragraph.
+See also `spec/16-notifications.md §5` for the companion distinction paragraph.
 
 ## 5. Reentrancy
 
