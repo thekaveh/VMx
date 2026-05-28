@@ -869,6 +869,20 @@ records an invocation on the correct recorder
 **And** setting `Filter` to `null`/`None` clears the filter (no predicate applied)
 **And** a VM that does NOT opt in reports `false` for `IFilterable<TItem>`
 
+### CAP-022 — `IPageable` capability contract surface and clamping/navigation behavior
+
+**Given** a fixture class `F` that implements `IPageable` with a minimal opt-in
+implementer
+**When** the API surface is inspected
+**Then** `F` exposes mutable `PageSize` and `CurrentPageIndex`, derived `PageCount`
+and `IsPagingEnabled`
+**And** setting `PageSize = 0` means "all items in one page" and disables paging
+(`IsPagingEnabled == false`)
+**And** `move_to_first_page()`, `move_to_previous_page()`, `move_to_next_page()`,
+and `move_to_last_page()` are present and behave as no-ops at their respective
+bounds
+**And** `CurrentPageIndex` is clamped to `[0, PageCount-1]` when `PageSize > 0`
+
 ______________________________________________________________________
 
 ## 16. Null-object service variants (`NULL-NNN`) — spec v2.0
