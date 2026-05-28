@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using VMx.Dialogs;
 
 namespace VMx.Commands;
 
@@ -16,6 +17,15 @@ public static class FluentCommandExtensions
     /// </summary>
     public static ICommand Confirm(this ICommand command, Func<Task<bool>> confirm)
         => new ConfirmationDecoratorCommand(command, confirm);
+
+    /// <summary>
+    /// Returns a <see cref="ConfirmationDecoratorCommand"/> that gates execution
+    /// of <paramref name="command"/> on <see cref="IDialogService.Confirm(string, string?)"/>
+    /// called with <paramref name="prompt"/>.
+    /// Equivalent to <c>command.Confirm(() => dialogService.Confirm(prompt))</c>.
+    /// </summary>
+    public static ICommand Confirm(this ICommand command, IDialogService dialogService, string prompt)
+        => command.Confirm(() => dialogService.Confirm(prompt));
 
     /// <summary>
     /// Returns a <see cref="CompositeCommand"/> where <paramref name="other"/> executes

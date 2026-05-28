@@ -20,6 +20,7 @@ export {
 } from "./modeledCrudCommands.js";
 export {
   confirm,
+  confirmWithDialogService,
   precedeWith,
   succeedWith,
   wrapWith,

@@ -15,6 +15,7 @@ from vmx.commands.composite_command import CompositeCommand
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.decorator_command import DecoratorCommand
 from vmx.commands.protocols import Command
+from vmx.dialogs.dialog_service import DialogService
 
 
 def confirm(
@@ -31,6 +32,28 @@ def confirm(
             returns ``True`` when the user accepts.
     """
     return ConfirmationDecoratorCommand(command, confirm_callback)
+
+
+def confirm_with_dialog_service(
+    command: Command,
+    dialog_service: DialogService,
+    prompt: str,
+) -> ConfirmationDecoratorCommand:
+    """Return a :class:`ConfirmationDecoratorCommand` that gates *command* via
+    :meth:`DialogService.confirm`.
+
+    Equivalent to ``confirm(command, lambda: dialog_service.confirm(prompt))``.
+
+    Args:
+        command: The inner command to gate.
+        dialog_service: The host-side dialog service (ADR-0029).
+        prompt: The confirmation message shown to the user.
+    """
+
+    async def _confirm_callback() -> bool:
+        return await dialog_service.confirm(prompt)
+
+    return confirm(command, _confirm_callback)
 
 
 def precede_with(command: Command, other: Command) -> CompositeCommand:

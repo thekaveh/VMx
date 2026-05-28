@@ -9,7 +9,13 @@ ADR-0009.
 from vmx.commands.composite_command import CompositeCommand
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.decorator_command import DecoratorCommand
-from vmx.commands.fluent import confirm, precede_with, succeed_with, wrap_with
+from vmx.commands.fluent import (
+    confirm,
+    confirm_with_dialog_service,
+    precede_with,
+    succeed_with,
+    wrap_with,
+)
 from vmx.commands.modeled_crud_commands import ModeledCrudCommands
 from vmx.commands.protocols import Command, ParameterizedCommand
 from vmx.commands.relay_command import (
@@ -35,6 +41,7 @@ __all__ = [
     "RelayCommandOfT",
     "RelayCommandOfTBuilder",
     "confirm",
+    "confirm_with_dialog_service",
     "precede_with",
     "succeed_with",
     "wrap_with",

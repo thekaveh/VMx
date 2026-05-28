@@ -14,6 +14,7 @@ import {
 } from "./confirmationDecoratorCommand.js";
 import { DecoratorCommand } from "./decoratorCommand.js";
 import type { ICommand } from "./types.js";
+import type { IDialogService } from "../dialogs/dialogService.js";
 
 /**
  * Returns a {@link ConfirmationDecoratorCommand} that gates execution of
@@ -26,6 +27,20 @@ export function confirm(
   confirmDelegate: ConfirmDelegate,
 ): ConfirmationDecoratorCommand {
   return new ConfirmationDecoratorCommand(command, confirmDelegate);
+}
+
+/**
+ * Returns a {@link ConfirmationDecoratorCommand} that gates execution of
+ * `command` on {@link IDialogService.confirm} called with `prompt`.
+ *
+ * Equivalent to `confirm(command, () => dialogService.confirm(prompt))`.
+ */
+export function confirmWithDialogService(
+  command: ICommand,
+  dialogService: IDialogService,
+  prompt: string,
+): ConfirmationDecoratorCommand {
+  return new ConfirmationDecoratorCommand(command, () => dialogService.confirm(prompt));
 }
 
 /**
