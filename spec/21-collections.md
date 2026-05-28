@@ -100,7 +100,8 @@ CollectionChangedMessage:
 Publication happens **on the same thread as the mutation**. The collection does
 not marshal to any scheduler and does not observe any `IDispatcher`. Consumers
 wanting foreground delivery subscribe via `ObserveOn(dispatcher.Foreground)`
-after the fact, as they would for any other hub message.
+after the fact, as they would for any other hub message
+(see [chapter 11 — threading](11-threading.md)).
 
 ### 2.6 Conformance
 
