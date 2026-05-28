@@ -18,3 +18,9 @@ export {
   ModeledCrudCommands,
   type ModeledCrudCommandsOptions,
 } from "./modeledCrudCommands.js";
+export {
+  confirm,
+  precedeWith,
+  succeedWith,
+  wrapWith,
+} from "./fluent.js";

@@ -82,6 +82,12 @@ export {
   ModeledCrudCommands,
   type ModeledCrudCommandsOptions,
 } from "./commands/modeledCrudCommands.js";
+export {
+  confirm,
+  precedeWith,
+  succeedWith,
+  wrapWith,
+} from "./commands/fluent.js";
 
 // Components
 export { ViewModelType } from "./components/types.js";
