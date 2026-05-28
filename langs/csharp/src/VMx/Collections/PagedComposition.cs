@@ -181,7 +181,6 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
 
     private void OnSourceCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        var newPageCount = PageCount;
         // Re-clamp: if CurrentPageIndex is now beyond the (possibly shrunken) PageCount
         var clamped = ClampIndex(_currentPageIndex);
         var indexChanged = clamped != _currentPageIndex;
@@ -190,7 +189,6 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
         OnPropertyChanged(nameof(PageCount));
         if (indexChanged) OnPropertyChanged(nameof(CurrentPageIndex));
         OnPropertyChanged(nameof(Items));
-        _ = newPageCount; // suppress unused-variable warning
     }
 
     private int SourceCount()
