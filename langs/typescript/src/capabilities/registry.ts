@@ -30,7 +30,8 @@ export type CapabilityName =
   | "ISavable"
   | "ICurrentDeletable"
   | "ICurrentUpdatable"
-  | "IManagable";
+  | "IManagable"
+  | "IFilterable";
 
 interface CapabilityHolder {
   [CAPABILITIES]?: Set<CapabilityName>;

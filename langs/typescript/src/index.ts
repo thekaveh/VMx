@@ -175,3 +175,4 @@ export type {
   ICurrentUpdatable,
 } from "./capabilities/currentCrud.js";
 export type { IManagable } from "./capabilities/management.js";
+export type { IFilterable } from "./capabilities/filter.js";

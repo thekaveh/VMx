@@ -35,6 +35,7 @@ export type {
   ICurrentUpdatable,
 } from "./currentCrud.js";
 export type { IManagable } from "./management.js";
+export type { IFilterable } from "./filter.js";
 export { ExpandableState } from "./expandableState.js";
 export {
   SearchableState,
