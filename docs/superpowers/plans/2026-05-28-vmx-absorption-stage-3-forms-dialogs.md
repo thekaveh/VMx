@@ -106,7 +106,7 @@ ______________________________________________________________________
 - [x] **Substage 3B** — Per-flavor IDialogService + NullDialogService (3 flavors)
 - [x] **Substage 3C** — Per-flavor FormVM (3 flavors)
 - [x] **Substage 3D** — Cross-chapter integration (16-notifications crossref + Confirm overload + integration test)
-- [ ] **Substage 3E** — Stage 3 audit close (2 consecutive zero-finding passes)
+- [x] **Substage 3E** — Stage 3 audit close (2 consecutive zero-finding passes)
 
 ______________________________________________________________________
 
