@@ -32,6 +32,8 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `LOC-NNN`       | Localization hooks                                | `17-localization.md`                          |
 | `COL-NNN`       | Collection primitives (spec v2.1)                 | `21-collections.md`                           |
 | `HIER-NNN`      | HierarchicalVM (recursive tree VM, spec v2.1)     | `18-hierarchical-vm.md`                       |
+| `DIA-NNN`       | IDialogService (host modal interactions, v2.1)    | `19-dialogs.md`                               |
+| `FORM-NNN`      | FormVM (snapshot/revert lifecycle, v2.1)          | `20-form-vm.md`                               |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -1737,3 +1739,190 @@ with `Source == parent` and `Affected == child`
 **When** `DeleteCurrentCommand` is executed on an existing child
 **Then** the child is removed from `Children`
 **And** a `TreeStructureChangedMessage` with `Change == Removed` is published
+
+## DIA — IDialogService (chapter 19)
+
+### DIA-001 — `PickFileToOpen` contract
+
+**Given** an `IDialogService` implementation
+**And** an optional `FileFilter` with description and extensions, and an optional title
+**When** `PickFileToOpen(filter, title)` is called
+**Then** it returns an awaitable that resolves to either a non-null path string (user
+selected a file) or `null` (user cancelled or no file was chosen)
+**And** all parameters are optional (calling with no arguments is valid)
+
+### DIA-002 — `PickFileToSave` contract
+
+**Given** an `IDialogService` implementation
+**And** optional `FileFilter`, optional title, and optional `suggestedName`
+**When** `PickFileToSave(filter, title, suggestedName)` is called
+**Then** it returns an awaitable that resolves to either a non-null path string (user
+confirmed a save path) or `null` on cancel
+**And** all parameters are optional (calling with no arguments is valid)
+
+### DIA-003 — `Confirm` contract
+
+**Given** an `IDialogService` implementation
+**And** a non-null message string and an optional title
+**When** `Confirm(message, title)` is called
+**Then** it returns an awaitable that resolves to `true` when the user confirms
+**And** resolves to `false` when the user cancels or dismisses the prompt
+**And** the title parameter is optional (calling with only message is valid)
+
+### DIA-004 — `Notify` contract
+
+**Given** an `IDialogService` implementation
+**And** a non-null message string, an optional title, and an optional severity
+**When** `Notify(message, title, severity)` is called with severity in
+`{Info, Warning, Error}`
+**Then** it returns an awaitable that completes without error
+**And** severity defaults to `Info` when not supplied
+**And** all optional parameters may be omitted
+
+### DIA-005 — `NullDialogService` null-object behavior
+
+**Given** a `NullDialogService` instance (per ADR-0017)
+**When** `PickFileToOpen()` is awaited
+**Then** the result is `null`
+**When** `PickFileToSave()` is awaited
+**Then** the result is `null`
+**When** `Confirm("any message")` is awaited
+**Then** the result is `false`
+**When** `Notify("any message")` is awaited
+**Then** the awaitable completes without error and without side-effects
+
+### DIA-006 — Reentrancy is implementation-defined
+
+**Given** a queueing `IDialogService` implementation that serialises concurrent calls
+**When** two `Confirm` calls are made concurrently
+**Then** both awaitables eventually resolve with valid values (`true` or `false`)
+**And** neither call raises an exception due to reentrancy
+
+**Given** an immediate-rejecting `IDialogService` implementation
+**When** a second `Confirm` call is made while the first is still pending
+**Then** the second call resolves immediately with `false` (safe default)
+**And** no exception is raised
+**And** the first call continues to completion unaffected
+
+### DIA-007 — Cancellation completes with safe default, does not throw
+
+**Given** an `IDialogService` implementation that supports `CancellationToken`
+**And** a `CancellationToken` that is cancelled before or during the dialog
+**When** `PickFileToOpen(cancellationToken: ct)` is awaited and the token is cancelled
+**Then** the awaitable completes with `null` (no file chosen)
+**And** no `OperationCancelledException` is raised by the awaitable itself
+**When** `Confirm(message, cancellationToken: ct)` is awaited and the token is cancelled
+**Then** the awaitable completes with `false`
+**And** no `OperationCancelledException` is raised
+
+### DIA-008 — `ConfirmationDecoratorCommand` integration
+
+**Given** an `ICommand` inner command
+**And** an `IDialogService` instance
+**When** `innerCommand.Confirm(() => dialogService.Confirm("Proceed?"))` is called
+(or the fluent `innerCommand.Confirm(dialogService, "Proceed?")` overload)
+**Then** the result is a valid `ICommand` whose `CanExecute` delegates to the inner
+command and whose `Execute` first awaits the dialog's `Confirm` result
+**And** the inner command is only executed when `Confirm` returns `true`
+**And** the inner command is NOT executed when `Confirm` returns `false`
+
+## FORM — FormVM (chapter 20)
+
+### FORM-001 — Snapshot captured at construct
+
+**Given** a `FormVM<TM>` constructed with an initial model `m0` and a no-op persister
+**When** `Snapshot` and `Model` are read immediately after construction
+**Then** `Snapshot == m0` (structurally equal to the initial value)
+**And** `Model == m0`
+**And** `IsDirty == false`
+
+### FORM-002 — Model mutation reflected in `IsDirty`
+
+**Given** a `FormVM<TM>` with initial model `m0`
+**When** `Model` is updated to a structurally different value `m1`
+**Then** `IsDirty == true`
+**And** `Model` equals `m1`
+**And** `Snapshot` still equals `m0` (unchanged)
+
+### FORM-003 — `IsDirty` derivation via structural inequality
+
+**Given** a `FormVM<TM>` with initial model `m0`
+**When** `Model` is updated to a value `m1` that is structurally equal to `m0`
+(same fields/values, different object reference if applicable)
+**Then** `IsDirty == false` (equal values are not dirty)
+**When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
+**Then** `IsDirty == true`
+
+### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
+
+**Given** a `FormVM<TM>` with initial model `m0`
+**And** `Model` has been updated to a different value `m1` (so `IsDirty == true`)
+**When** `DenyCommand.Execute()` is called
+**Then** `Model` is restored to a value structurally equal to `Snapshot`
+**And** `IsDirty == false`
+**And** the persister is NOT invoked
+
+### FORM-005 — `ApproveCommand` invokes persister; snapshot advances on success
+
+**Given** a `FormVM<TM>` with initial model `m0` and a persister that records its argument
+**And** `Model` has been updated to `m1`
+**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**Then** the persister was called with `m1`
+**And** `Snapshot` is updated to a value structurally equal to `m1`
+**And** `IsDirty == false` after the approve completes
+
+### FORM-006 — `OnApproved` fires only after successful persist
+
+**Given** a `FormVM<TM>` with a subscriber to `OnApproved`
+**And** `Model` has been updated to `m1`
+**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**Then** `OnApproved` fires exactly once with a value equal to `m1`
+
+**Given** a persister that throws an exception
+**When** `ApproveCommand.Execute()` is called
+**Then** `OnApproved` does NOT fire
+
+### FORM-007 — Persist failure leaves state unchanged
+
+**Given** a `FormVM<TM>` with a persister that throws `InvalidOperationException`
+**And** `Model` has been updated to `m1` (so `IsDirty == true`)
+**And** `Snapshot` equals `m0`
+**When** `ApproveCommand.Execute()` is called and the persister throws
+**Then** `Snapshot` is still `m0` (unchanged)
+**And** `Model` is still `m1` (unchanged)
+**And** `IsDirty` is still `true`
+**And** the exception propagates to the caller
+
+### FORM-008 — Hub messages on revert
+
+**Given** a `FormVM<TM>` connected to a message hub
+**And** `Model` has been updated to `m1`
+**And** subscribers are recording `FormRevertedMessage` and `PropertyChangedMessage`
+**When** `DenyCommand.Execute()` is called
+**Then** exactly one `FormRevertedMessage` is published with `Sender == formVm`
+**And** exactly one `PropertyChangedMessage` with `PropertyName == "Model"` is
+published after the revert
+
+### FORM-009 — Strict mode: `ApproveCommand.CanExecute` gates on `IsDirty`
+
+**Given** a `FormVM<TM>` constructed with `strict = true`
+**When** `IsDirty == false` (no mutations since last snapshot)
+**Then** `ApproveCommand.CanExecute()` returns `false`
+**When** `Model` is updated to a structurally different value (so `IsDirty == true`)
+**Then** `ApproveCommand.CanExecute()` returns `true`
+
+**Given** a `FormVM<TM>` constructed with `strict = false` (default)
+**When** `IsDirty == false`
+**Then** `ApproveCommand.CanExecute()` returns `true` (consumer-controlled)
+
+### FORM-010 — Integration with `IDialogService.Confirm`
+
+**Given** a `FormVM<TM>` with `Model` updated to `m1` (dirty)
+**And** a `NullDialogService` (whose `Confirm` always returns `false`)
+**And** a confirmation-decorated deny command:
+`confirmedDeny = denyCommand.Confirm(() => dialogService.Confirm("Discard changes?"))`
+**When** `confirmedDeny.Execute()` is called
+**Then** `Confirm` on the dialog service is called
+**And** because it returns `false`, `DenyCommand.Execute()` is NOT invoked
+**And** `Model` is still `m1` (not reverted)
+**And** `IsDirty` is still `true`
