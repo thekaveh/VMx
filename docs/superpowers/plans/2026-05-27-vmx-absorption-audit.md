@@ -717,6 +717,19 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
   page. The chapter §"Composition with other helpers" pins ordering.
 ```
 
+**Specification-phase progress (equivalent to 1A.1–1A.4):**
+
+- [x] **Step 1: Write ADR-0023.** `spec/ADRs/0023-paging-capability-and-paged-composition.md` created; registered in `spec/ADRs/README.md`.
+- [x] **Step 2: Add §2.10 to `spec/14-capabilities.md`.** Count updated to 22; §5 conformance range updated to CAP-001–CAP-022.
+- [x] **Step 3: Add CAP-022 to `spec/12-conformance.md`.** Given/When/Then entry added after CAP-021.
+- [x] **Step 4: Add CAP-022 stubs in all three flavors.** C# (`CapabilitiesConformanceTests.cs`), Python (`test_cap_022_pageable.py`), TypeScript (`cap-022-pageable.test.ts`). Coverage tool: 154/154 all flavors.
+
+**Implementation-phase steps (equivalent to 1A.5–1A.7 — deferred):**
+
+- [ ] **Step 5: Implement `IPageable` in C# (`langs/csharp/src/VMx/Capabilities/`).**
+- [ ] **Step 6: Implement `IPageable` in Python (`langs/python/src/vmx/capabilities/`).**
+- [ ] **Step 7: Implement `IPageable` in TypeScript (`langs/typescript/src/capabilities/`).**
+
 ### Substage 1B — Collections chapter and ADRs
 
 #### Task 1B.1: Write ADR-0024 (ServicedObservableCollection)
