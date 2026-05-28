@@ -472,4 +472,13 @@ public class CapabilitiesConformanceTests
         public Predicate<TItem>? Filter { get; set; }
         public bool CanFilter() => true;
     }
+
+    // ── CAP-022 ─────────────────────────────────────────────────────────────
+
+    /// <summary>CAP-022: IPageable capability contract surface and clamping/navigation behavior.</summary>
+    [Fact, Trait("Conformance", "CAP-022")]
+    public void CAP_022_IPageable_Contract_Surface()
+    {
+        throw new NotImplementedException("CAP-022 not yet implemented");
+    }
 }
