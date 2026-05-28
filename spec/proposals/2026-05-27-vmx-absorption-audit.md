@@ -208,7 +208,7 @@ PagedComposition<TVM>:
 **Spec impact:** Section in the new collections chapter `21-collections.md`
 (paging is a collection-view behavior; reduces chapter sprawl; conceptually
 cohesive with the other collection primitives in that chapter). Extends
-`14-capabilities.md` (`IPageable` joins the 20 capabilities — becomes 21).
+`14-capabilities.md` (`IPageable` joins the capability set — becomes the 22nd, after `IFilterable<T>` lands in Substage 1A as the 21st).
 
 **ADR:** *0024 — Paging helper (capability + decorator)*.
 
