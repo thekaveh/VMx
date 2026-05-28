@@ -5,7 +5,7 @@ namespace VMx.Commands;
 /// <summary>
 /// Ergonomic fluent extension methods over <see cref="ICommand"/>.
 /// These are pure syntactic shortcuts over the explicit decorator constructors —
-/// they add no new behaviour. See spec/04-commands.md §10 and ADR-0027.
+/// they add no new behaviour. See spec/04-commands.md §9 and ADR-0027.
 /// </summary>
 public static class FluentCommandExtensions
 {

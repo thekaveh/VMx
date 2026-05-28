@@ -4,7 +4,7 @@
  * Standalone named exports that are ergonomic shortcuts over the explicit
  * decorator constructors. They add no new behaviour.
  *
- * See spec/04-commands.md §10 and ADR-0027.
+ * See spec/04-commands.md §9 and ADR-0027.
  */
 
 import { CompositeCommand } from "./compositeCommand.js";

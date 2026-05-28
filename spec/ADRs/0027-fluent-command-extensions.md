@@ -79,7 +79,7 @@ Per-flavor surface idiom (ADR-0006):
 
 ## 4. Consequences
 
-1. `spec/04-commands.md` gains a new §10 "Fluent composition" subsection
+1. `spec/04-commands.md` gains a new §9 "Fluent composition" subsection
    documenting the four methods and their explicit-constructor equivalents.
 1. Four new conformance IDs `CMD-008..CMD-011` assert that each fluent
    form produces an object whose `CanExecute` / `Execute` graph is
