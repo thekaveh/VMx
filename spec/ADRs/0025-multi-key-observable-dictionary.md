@@ -59,9 +59,13 @@ Key rules:
 ## 4. Consequences
 
 - `spec/21-collections.md` §4 defines `ObservableDictionary` shape and key
-  rules.
+  rules, including the optional `hub` constructor parameter in §4.1.
 - Conformance IDs `COL-010..COL-015` cover: insert, remove, replace,
   distinct-key observable views, enumeration order, and clear.
+  `COL-022` covers hub injection: when a hub is provided, every mutation
+  publishes a `CollectionChangedMessage` to the hub after the local event
+  fires; with no hub, mutations succeed silently (null-hub fallback, mirroring
+  ADR-0024 pattern).
 - The cascading-insertion pattern from the 2012 predecessor is explicitly
   rejected. Any consumer needing that behavior must implement it in their
   domain layer.

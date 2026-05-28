@@ -193,6 +193,7 @@ two-key form). It is implemented as a thin typed wrapper over a base
 
 ```
 ObservableDictionary<TKey1, TKey2, TValue>:
+    constructor(hub?: IMessageHub)              # hub is optional; absence is a safe no-op
     this[key1: TKey1, key2: TKey2] : TValue    # per-flavor indexer
     TryGetValue(key1, key2, out value) : bool
     Add(key1: TKey1, key2: TKey2, value: TValue) : void
@@ -251,7 +252,7 @@ Null-hub fallback applies.
 
 ### 4.7 Conformance
 
-`COL-010` through `COL-015` in `12-conformance.md`.
+`COL-010` through `COL-015` and `COL-022` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -353,5 +354,5 @@ regardless of what filtering or paging is applied on top.
 
 ## 7. Conformance
 
-`COL-001` through `COL-021` in `12-conformance.md`. Applicable ADRs:
+`COL-001` through `COL-022` in `12-conformance.md`. Applicable ADRs:
 ADR-0024 (§2), ADR-0026 (§3), ADR-0025 (§4), ADR-0023 (§5).

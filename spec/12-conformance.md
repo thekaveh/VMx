@@ -739,7 +739,7 @@ root: CompositeVM
 
 ______________________________________________________________________
 
-## 15. Capability micro-interfaces (`CAP-NNN`) — spec v2.0
+## 15. Capability micro-interfaces (`CAP-NNN`) — spec v2.0 / v2.1
 
 Each CAP-NNN test verifies (a) the capability interface is present in the
 flavor's public surface with the documented signature, and (b) a fixture class
@@ -1576,3 +1576,19 @@ ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
 **Then** `PagedComposition.PageCount == 2` (ceil(4 / 3))
 **And** the first page yields the first 3 filtered items
 **And** `Items` does NOT include any items filtered out by `SearchableState`
+
+### COL-022 — `ObservableDictionary` hub publication
+
+**Given** an `ObservableDictionary<TKey1, TKey2, TValue>` constructed with an `IMessageHub`
+**And** a subscriber recording `CollectionChangedMessage` receipts from the hub
+**When** an entry is inserted, then a different entry is removed, then an existing entry is
+replaced, then `Clear()` is called
+**Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub after
+the local `CollectionChanged` event fires
+**And** the `Action` field carries the correct value (`Added`, `Removed`, `Replaced`,
+`Reset`) for each mutation
+
+**Given** an `ObservableDictionary` constructed with no hub (or an explicit null)
+**When** the same four mutations are performed
+**Then** all mutations complete without raising any exception
+**And** no hub message is published
