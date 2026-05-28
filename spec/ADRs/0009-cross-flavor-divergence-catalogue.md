@@ -83,6 +83,12 @@ ADR-0006 and require no further action:
 - **Rationale**: pure idiomatic adaptation; no semantic difference across
   flavors.
 
+### `ObservableList` mutation method name
+
+- **Spec / C# / Python**: `Add(item)` / `add(item)`.
+- **TypeScript**: `push(item)` (matching `Array.prototype.push`).
+- **Rationale**: Pure idiomatic adaptation. JS code reads `list.push(x)` naturally; `list.add(x)` would jar against developer expectations.
+
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
 
