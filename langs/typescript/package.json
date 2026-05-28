@@ -25,6 +25,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
     "lint": "eslint src tests",
     "test": "vitest run",
     "test:watch": "vitest",
