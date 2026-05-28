@@ -170,7 +170,7 @@ ______________________________________________________________________
 
 **New chapter introduced:** `21-collections.md` (per Stage 0 decision)
 
-**New ADRs introduced:** 0024 (paging), 0027 (fluent commands), 0028 (hub-aware collection), 0029 (multi-key dict), 0030 (granular list), 0031 (IFilterable)
+**New ADRs introduced:** 0022 (IFilterable), 0023 (paging), 0024 (hub-aware collection), 0025 (multi-key dict), 0026 (granular list), 0027 (fluent commands)
 
 **New conformance ID prefixes:** `COL-` (collections — I2 + I3 + I4 + paging C3); `CAP-` extensions for `CAP-021` (IFilterable) and `CAP-022` (IPageable); `CMD-` extensions for fluent commands.
 
@@ -180,27 +180,27 @@ ______________________________________________________________________
 
 Smallest, lowest-risk. Establishes the pattern for the rest of the stage.
 
-#### Task 1A.1: Write ADR-0031 for `IFilterable<T>`
+#### Task 1A.1: Write ADR-0022 for `IFilterable<T>`
 
 **Files:**
 
-- Create: `spec/ADRs/0031-filterable-capability.md`
+- Create: `spec/ADRs/0022-filterable-capability.md`
 
 - Modify: `spec/ADRs/README.md` (register the new ADR)
 
 - [x] **Step 1: Write the ADR.**
 
-Create `spec/ADRs/0031-filterable-capability.md` with the standard 4-section template (Context, Options, Decision, Consequences). Content sketch:
+Create `spec/ADRs/0022-filterable-capability.md` with the standard 4-section template (Context, Options, Decision, Consequences). Content sketch:
 
 ```markdown
-# ADR 0031 — `IFilterable<T>` capability
+# ADR 0022 — `IFilterable<T>` capability
 
 **Status:** Accepted (2026-05-27)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context
 
-`SearchableState<T>` (per ADR-0014) gives consumers a debounced search-string
+`SearchableState<TItem>` (per ADR-0014) gives consumers a debounced search-string
 filter with a consumer-supplied predicate builder. The underlying capability —
 "this collection/composition can be filtered by an arbitrary predicate" — is
 implicit, not surfaced. GuideArch and its predecessor both invented their own
@@ -213,7 +213,7 @@ were not search-string-shaped.
 1. **Skip — keep `SearchableState` as the only filter primitive.** Consumers
    who want a predicate-only filter wrap a no-op search term. Awkward.
 2. **Add `IFilterable<T>` as a 21st capability.** Surface the predicate
-   directly. `SearchableState<T>` is reframed as a predicate-builder over the
+   directly. `SearchableState<TItem>` is reframed as a predicate-builder over the
    capability — no breaking change to its surface.
 3. **Add a standalone `IPredicateFilter<T>` distinct from capabilities.**
    Avoids growing the capability set. Inconsistent with ADR-0010.
@@ -229,26 +229,26 @@ two members: `Filter: Predicate<T>?` (null means no filter) and
 - `spec/14-capabilities.md` adds a new 2.x subsection.
 - One new conformance ID `CAP-021` covers the capability's contract surface.
 - Each flavor's `capabilities/` directory adds an `IFilterable<T>` interface
-  declaration (no implementation; per ADR-0010 capabilities are opt-in).
-- `SearchableState<T>`'s public surface does not change; an internal cycle
+  declaration (no implementation; capabilities are opt-in per ADR-0010).
+- `SearchableState<TItem>`'s public surface does not change; an internal cycle
   may refactor it to implement `IFilterable<T>` in a future minor version.
 ```
 
 - [x] **Step 2: Register the ADR.**
 
-Edit `spec/ADRs/README.md` to add `0031-filterable-capability.md` to the registry.
+Edit `spec/ADRs/README.md` to add `0022-filterable-capability.md` to the registry.
 
 - [x] **Step 3: Verify pre-commit passes locally.**
 
 ```bash
-git add spec/ADRs/0031-filterable-capability.md spec/ADRs/README.md
+git add spec/ADRs/0022-filterable-capability.md spec/ADRs/README.md
 git diff --cached --check
 ```
 
 - [x] **Step 4: Commit.**
 
 ```bash
-git commit -m "spec(adr): add ADR-0031 IFilterable<T> capability"
+git commit -m "spec(adr): add ADR-0022 IFilterable<T> capability"
 git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG" || echo "clean"
 ```
 
@@ -285,7 +285,7 @@ observable, a paged slice, a snapshot) — that is the concrete collection's
 responsibility. `SearchableState<T>` (cycle 7) provides a string-debounced
 predicate builder over this capability.
 
-See ADR-0031.
+See ADR-0022.
 ```
 
 - [ ] **Step 3: Update the chapter intro to say "21 capability interfaces" instead of 20.**
@@ -514,7 +514,7 @@ Expected: FAIL with import error or `Filterable` not found.
 `langs/python/src/vmx/capabilities/filter.py`:
 
 ```python
-"""IFilterable capability (CAP-021, ADR-0031)."""
+"""IFilterable capability (CAP-021, ADR-0022)."""
 from __future__ import annotations
 
 from typing import Callable, Optional, Protocol, TypeVar, runtime_checkable
@@ -631,7 +631,7 @@ Expected: FAIL (no Filterable export).
 `langs/typescript/src/capabilities/filter.ts`:
 
 ```typescript
-/** IFilterable capability (CAP-021, ADR-0031). */
+/** IFilterable capability (CAP-021, ADR-0022). */
 export interface Filterable<T> {
   filter: ((item: T) => boolean) | null;
   canFilter(): boolean;
@@ -667,24 +667,24 @@ git add langs/typescript/src/capabilities/filter.ts langs/typescript/src/capabil
 git commit -m "feat(typescript,cap): implement Filterable (CAP-021)"
 ```
 
-#### Task 1A.8: Repeat the 1A.1–1A.7 sequence for `IPageable` (CAP-022, ADR-0024)
+#### Task 1A.8: Repeat the 1A.1–1A.7 sequence for `IPageable` (CAP-022, ADR-0023)
 
 **Important:** `IPageable` is *part of* the paging item (C3) but its capability-interface portion lands in Stage 1A alongside `IFilterable` because they're both capability additions and the pattern is identical. The `PagedComposition` helper lands in Substage 1C.
 
-ADR-0024 should be written here in scope of the capability portion; expand the ADR in Substage 1C when the helper lands. The recommended approach is one ADR covering both the capability + helper to avoid ADR fragmentation — see ADR-0024 draft below.
+ADR-0023 should be written here in scope of the capability portion; expand the ADR in Substage 1C when the helper lands. The recommended approach is one ADR covering both the capability + helper to avoid ADR fragmentation — see ADR-0023 draft below.
 
 Subagent: when expanding this task, mirror tasks 1A.1 through 1A.7 exactly, substituting:
 
-- ADR number: `0024`, title: `paging (IPageable capability + PagedComposition helper)`
+- ADR number: `0023`, title: `paging (IPageable capability + PagedComposition helper)`
 - Capability name: `IPageable`
 - Conformance ID: `CAP-022`
 - Capability members: `PageSize: int`, `CurrentPageIndex: int`, `PageCount: int` (derived), `IsPagingEnabled: bool` (derived), `MoveToFirstPage()`, `MoveToPreviousPage()`, `MoveToNextPage()`, `MoveToLastPage()`
-- For ADR-0024 §4 Consequences, note that the helper `PagedComposition<TVM>` will land in Substage 1C and add its own conformance IDs in the `COL-` block.
+- For ADR-0023 §4 Consequences, note that the helper `PagedComposition<TVM>` will land in Substage 1C and add its own conformance IDs in the `COL-` block.
 
-ADR-0024 draft (write in full):
+ADR-0023 draft (write in full):
 
 ```markdown
-# ADR 0024 — Paging (IPageable capability + PagedComposition helper)
+# ADR 0023 — Paging (IPageable capability + PagedComposition helper)
 
 **Status:** Accepted (2026-05-27)
 **Spec version:** introduced in 2.1.0
@@ -719,11 +719,11 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 
 ### Substage 1B — Collections chapter and ADRs
 
-#### Task 1B.1: Write ADR-0028 (ServicedObservableCollection)
+#### Task 1B.1: Write ADR-0024 (ServicedObservableCollection)
 
 **Files:**
 
-- Create: `spec/ADRs/0028-hub-aware-observable-collection.md`
+- Create: `spec/ADRs/0024-hub-aware-observable-collection.md`
 
 - Modify: `spec/ADRs/README.md`
 
@@ -738,7 +738,7 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 
 - [ ] **Step 3:** Commit.
 
-#### Task 1B.2: Write ADR-0029 (Multi-key ObservableDictionary)
+#### Task 1B.2: Write ADR-0025 (Multi-key ObservableDictionary)
 
 - [ ] **Step 1:** Write the ADR. Key decisions:
 
@@ -748,7 +748,7 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 
 - [ ] **Step 2:** Register, commit.
 
-#### Task 1B.3: Write ADR-0030 (Granular ObservableList)
+#### Task 1B.3: Write ADR-0026 (Granular ObservableList)
 
 - [ ] **Step 1:** Write the ADR. Key decisions:
 
@@ -769,10 +769,10 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 - [ ] **Step 1:** Author the chapter. Sections:
 
   - §1 — Overview & rationale (why a collections chapter; relationship to ADR-0010 capabilities; relationship to `CompositeVM`'s `BatchUpdate()`)
-  - §2 — `ServicedObservableCollection<T>` (per ADR-0028)
-  - §3 — `ObservableList<T>` granular events (per ADR-0030)
-  - §4 — Multi-key `ObservableDictionary` (per ADR-0029)
-  - §5 — Paging: `PagedComposition<TVM>` helper (per ADR-0024)
+  - §2 — `ServicedObservableCollection<T>` (per ADR-0024)
+  - §3 — `ObservableList<T>` granular events (per ADR-0026)
+  - §4 — Multi-key `ObservableDictionary` (per ADR-0025)
+  - §5 — Paging: `PagedComposition<TVM>` helper (per ADR-0023)
   - §6 — Composition rules (filter-then-page ordering, batch interaction)
 
 - [ ] **Step 2:** Add the chapter to `spec/README.md` §1.2 chapter list.
@@ -906,7 +906,7 @@ ______________________________________________________________________
 
 **New chapter:** `18-hierarchical-vm.md` (per Stage 0 numbering).
 
-**New ADR:** `0022-hierarchical-vm.md` resolving the 6 open design questions from the prior `hierarchical-vm.md` proposal (lazy vs eager loading, recursive generic constraint per flavor, construction order, hub messages on structural change, path semantics, IExpandable auto-implementation).
+**New ADR:** `0028-hierarchical-vm.md` resolving the 6 open design questions from the prior `hierarchical-vm.md` proposal (lazy vs eager loading, recursive generic constraint per flavor, construction order, hub messages on structural change, path semantics, IExpandable auto-implementation).
 
 **New conformance IDs:** ~12 `HIER-NNN` (identity, recursion invariants, parent/depth/path, eager-vs-lazy, construct order, structural-change messages, search/expand integration, lifecycle propagation, modeled-vs-non-modeled variant).
 
@@ -950,8 +950,8 @@ ______________________________________________________________________
 
 **New ADRs:**
 
-- `0023-dialog-service-in-core.md` (host-modal interactions; in core per user decision; null impl per ADR-0017 convention)
-- `0025-form-vm.md` (snapshot/revert; ORM-agnostic; configurable deep-vs-shallow snapshot policy)
+- `0029-dialog-service-in-core.md` (host-modal interactions; in core per user decision; null impl per ADR-0017 convention)
+- `0030-form-vm.md` (snapshot/revert; ORM-agnostic; configurable deep-vs-shallow snapshot policy)
 
 **New conformance IDs:** ~10 `FORM-NNN` + ~8 `DIA-NNN`.
 
@@ -985,7 +985,7 @@ renaming of the existing capability interfaces is required.
 - `IDialogService` vs `INotificationHub` responsibility split (ch.19)
 - `FormVM` state diagram: Pristine → Dirty → Approved / Reverted (ch.20)
 
-**Integration test:** `ConfirmationDecoratorCommand` wired to `IDialogService.Confirm()` (per ADR-0023 §4). Lives in each flavor's integration tests.
+**Integration test:** `ConfirmationDecoratorCommand` wired to `IDialogService.Confirm()` (per ADR-0029 §4). Lives in each flavor's integration tests.
 
 **Estimated stage size:** ~70 bite-sized tasks.
 
@@ -999,7 +999,7 @@ ______________________________________________________________________
 
 **Chapter extension:** `16-notifications.md` gains two subsections (NotificationVM, ConfirmationVM) and a "Patterns" section at the end with the service-as-VM recipe.
 
-**New ADR:** `0026-notification-rendering-vms.md`. I6 stays a recipe (no ADR) unless the writing-plans pass for this stage decides to formalize it (then `0032-service-as-vm-adapter.md`).
+**New ADR:** `0031-notification-rendering-vms.md`. I6 stays a recipe (no ADR) unless the writing-plans pass for this stage decides to formalize it (then `0032-service-as-vm-adapter.md`).
 
 **New conformance IDs:** ~6 extension to `NOTIF-` range (opacity decay, auto-dismiss, dual-action, manual dismiss cancels timer, hub resolution propagates, fake-clock determinism).
 

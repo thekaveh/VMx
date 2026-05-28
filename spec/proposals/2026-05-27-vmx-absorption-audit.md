@@ -111,7 +111,7 @@ reference design.
 
 **Spec impact:** New chapter `18-hierarchical-vm.md`. Extends `13-tree-utilities.md` (`walk`, `walk_expanded` natively support `HierarchicalVM`). Extends `06-composite-vm.md` (mention `HierarchicalVM` as the recursive specialization). Optionally extends `14-capabilities.md` (does `HierarchicalVM` auto-implement `IExpandable`? — design question retained from prior proposal).
 
-**ADR:** New ADR resolving the prior proposal's six open questions. Working title: *0022 — HierarchicalVM (recursive composite specialization)*.
+**ADR:** New ADR resolving the prior proposal's six open questions. Working title: *0028 — HierarchicalVM (recursive composite specialization)*.
 
 **Conformance IDs:** New prefix `HIER-NNN`. Suggested coverage ~12 IDs: identity, recursion, parent/depth/path invariants, eager-vs-lazy decision, construct order, hub messages on structural change, search/expand integration, lifecycle propagation, modeled vs non-modeled variant.
 
@@ -157,7 +157,7 @@ IDialogService:
 
 **Spec impact:** New chapter `19-dialogs.md`.
 
-**ADR:** *0023 — Dialog service in core (host-modal interactions distinct from notification hub)*.
+**ADR:** *0029 — Dialog service in core (host-modal interactions distinct from notification hub)*.
 
 **Conformance IDs:** New prefix `DIA-NNN`. Suggested ~8 IDs: contract surface, `NullDialogService` behaviour (no-op / returns sensible defaults), reentrancy guarantees, cancellation semantics, async ordering vs the notification hub.
 
@@ -210,7 +210,7 @@ PagedComposition<TVM>:
 cohesive with the other collection primitives in that chapter). Extends
 `14-capabilities.md` (`IPageable` joins the capability set — becomes the 22nd, after `IFilterable<T>` lands in Substage 1A as the 21st).
 
-**ADR:** *0024 — Paging helper (capability + decorator)*.
+**ADR:** *0023 — Paging helper (capability + decorator)*.
 
 **Conformance IDs:** `COL-NNN` range (paging folded into COL- per Stage 0 decision). Suggested ~6 IDs: clamping behavior,
 page-count derivation, navigation no-op at bounds, composition with `SearchableState`,
@@ -256,7 +256,7 @@ FormVM<TM>:
 
 **Spec impact:** New chapter `20-form-vm.md`.
 
-**ADR:** *0025 — FormVM (snapshot/revert edit lifecycle, ORM-agnostic)*.
+**ADR:** *0030 — FormVM (snapshot/revert edit lifecycle, ORM-agnostic)*.
 
 **Conformance IDs:** New prefix `FORM-NNN`. Suggested ~10 IDs: snapshot
 identity, deep-vs-shallow snapshot policy (configurable), revert behaviour,
@@ -307,7 +307,7 @@ ConfirmationVM : NotificationVM
 notification hub already has a chapter and these VMs are its rendering
 companions.
 
-**ADR:** *0026 — Notification rendering VMs (NotificationVM, ConfirmationVM)*.
+**ADR:** *0031 — Notification rendering VMs (NotificationVM, ConfirmationVM)*.
 
 **Conformance IDs:** Extension to existing `NOTIF-` range. Suggested ~6 new
 IDs: opacity decay, auto-dismiss on lifespan expiry, ConfirmationVM dual-action,
@@ -345,7 +345,7 @@ cmd.WrapWith(predicate, pre, post)    # → DecoratorCommand
 Pure ergonomics on top of the decorators already in v2.0. The `.Confirm()` form
 will hook into either a confirm delegate (matching `ConfirmationDecoratorCommand`'s
 delegate-shaped contract per ADR-0012) or into `IDialogService.Confirm` (per
-new ADR-0023). The choice — which is the default, which is opt-in — is the
+new ADR-0029). The choice — which is the default, which is opt-in — is the
 ADR-resolved question.
 
 **Spec impact:** Extends `04-commands.md` with a fluent-extensions subsection.
@@ -378,7 +378,7 @@ event-forwarding.
 
 **Spec impact:** Belongs in the new collections chapter `21-collections.md`.
 
-**ADR:** *0028 — Hub-aware observable collection*.
+**ADR:** *0024 — Hub-aware observable collection*.
 
 **Conformance IDs:** New prefix `COL-NNN` (shared with I3 and I4 since they
 all live in one collections chapter). Suggested IDs for this item: ~4 — basic
@@ -418,7 +418,7 @@ The ADR will pick. The audit slightly leans option 3 (ergonomic for the common c
 
 **Spec impact:** Section in collections chapter.
 
-**ADR:** *0029 — Multi-key observable dictionary*.
+**ADR:** *0025 — Multi-key observable dictionary*.
 
 **Conformance IDs:** `COL-NNN` range (shared). Suggested ~6 IDs: key insertion,
 key removal, value replacement, distinct-key observables (the 2012 design
@@ -451,7 +451,7 @@ fine-grained per-mutation events.
 
 **Spec impact:** Section in collections chapter.
 
-**ADR:** *0030 — Granular collection notifications (`ObservableList<T>`)*.
+**ADR:** *0026 — Granular collection notifications (`ObservableList<T>`)*.
 
 **Conformance IDs:** `COL-NNN` range. Suggested ~5 IDs: per-event payload
 shape, ordering with `PropertyChanged("Count")`, interaction with
@@ -488,7 +488,7 @@ IFilterable<T>:
 predicate-builder over `IFilterable<T>` (no breaking change — the
 `SearchableState` surface stays the same, the underlying capability is exposed).
 
-**ADR:** *0031 — `IFilterable<T>` capability*.
+**ADR:** *0022 — `IFilterable<T>` capability*.
 
 **Conformance IDs:** Extend `CAP-NNN` range (CAP-021).
 
@@ -678,7 +678,7 @@ This audit, if fully adopted, introduces:
 collection-view behavior, conceptually cohesive with `ServicedObservableCollection`,
 `ObservableList`, and `ObservableDictionary`. Folding it in reduces chapter sprawl
 and leaves the four new chapters as 18-hierarchical-vm, 19-dialogs, 20-form-vm,
-21-collections. ADR-0024 documents the capability + helper together.
+21-collections. ADR-0023 documents the capability + helper together.
 
 ## 10. Spec versioning
 
@@ -820,7 +820,7 @@ The whole adoption cycle is "done" when:
 - All new chapters are written, with diagrams.
 - `spec/README.md`, `spec/00-overview.md`, `spec/01-concepts.md`, `spec/ADRs/README.md` are updated.
 - Multi-agent parallel audit (per user preference) returns a clean punchlist at the required number of consecutive zero-finding passes.
-- The proposal file `spec/proposals/hierarchical-vm.md` is removed (superseded by chapter 18 + ADR 0022). This audit file itself becomes historical reference after acceptance.
+- The proposal file `spec/proposals/hierarchical-vm.md` is removed (superseded by chapter 18 + ADR 0028). This audit file itself becomes historical reference after acceptance.
 
 ## 15. References
 
