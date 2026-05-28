@@ -726,9 +726,9 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 
 **Implementation-phase steps (equivalent to 1A.5–1A.7 — deferred):**
 
-- [ ] **Step 5: Implement `IPageable` in C# (`langs/csharp/src/VMx/Capabilities/`).**
-- [ ] **Step 6: Implement `IPageable` in Python (`langs/python/src/vmx/capabilities/`).**
-- [ ] **Step 7: Implement `IPageable` in TypeScript (`langs/typescript/src/capabilities/`).**
+- [x] **Step 5: Implement `IPageable` in C# (`langs/csharp/src/VMx/Capabilities/`).**
+- [x] **Step 6: Implement `IPageable` in Python (`langs/python/src/vmx/capabilities/`).**
+- [x] **Step 7: Implement `IPageable` in TypeScript (`langs/typescript/src/capabilities/`).**
 
 ### Substage 1B — Collections chapter and ADRs
 
