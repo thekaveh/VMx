@@ -45,6 +45,8 @@ cross-references each ADR carries.
 | [0026](0026-granular-observable-list.md)                | `ObservableList<T>` granular events        | 2.1.0        | Accepted |
 | [0027](0027-fluent-command-extensions.md)               | Fluent command extension methods           | 2.1.0        | Accepted |
 | [0028](0028-hierarchical-vm.md)                         | `HierarchicalVM` (recursive composite)     | 2.1.0        | Accepted |
+| [0029](0029-dialog-service-in-core.md)                  | `IDialogService` in core                   | 2.1.0        | Accepted |
+| [0030](0030-form-vm.md)                                 | `FormVM<TM>` (snapshot/revert lifecycle)   | 2.1.0        | Accepted |
 
 ## 2. Format
 
