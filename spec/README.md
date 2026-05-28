@@ -42,6 +42,8 @@ flavor releases a stable version.
 - `19-dialogs.md` — `IDialogService`: host-side contract for modal interactions
   (file pick, confirm prompt, severity-tagged notify). `NullDialogService`
   per ADR-0017.
+- `20-form-vm.md` — `FormVM<TM>`: snapshot/revert edit lifecycle (ORM-agnostic);
+  `DenyCommand`, `ApproveCommand`, `OnApproved`, strict mode.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
 
