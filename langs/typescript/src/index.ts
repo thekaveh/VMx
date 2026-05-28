@@ -23,6 +23,8 @@ export {
 export type { IMessage, ITypedMessage } from "./messages/types.js";
 export { PropertyChangedMessage } from "./messages/propertyChanged.js";
 export { ConstructionStatusChangedMessage } from "./messages/constructionStatusChanged.js";
+export { TreeStructureChangedMessage } from "./messages/treeStructureChanged.js";
+export type { TreeStructureChange } from "./messages/treeStructureChanged.js";
 
 // Collections
 export type {
@@ -142,6 +144,10 @@ export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 
 // Tree utilities
 export { walk, find, walkExpanded } from "./tree/walk.js";
+
+// Hierarchical VM (spec v2.1)
+export { HierarchicalVM } from "./hierarchical/hierarchicalVm.js";
+export type { HierarchicalVMOptions } from "./hierarchical/hierarchicalVm.js";
 
 // Expandable state helper (spec v2.0)
 export { ExpandableState } from "./capabilities/expandableState.js";
