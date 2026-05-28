@@ -461,7 +461,7 @@ git commit -m "feat(csharp,cap): implement IFilterable<T> (CAP-021)"
 
 - Modify: `langs/python/tests/conformance/test_cap_021_filterable.py` (real test)
 
-- [ ] **Step 1: Replace the stub with the real failing test.**
+- [x] **Step 1: Replace the stub with the real failing test.**
 
 ```python
 import pytest
@@ -501,7 +501,7 @@ def test_filterable_contract_surface() -> None:
     assert sut.filter is None
 ```
 
-- [ ] **Step 2: Run the test, verify failure.**
+- [x] **Step 2: Run the test, verify failure.**
 
 ```bash
 cd langs/python && uv run pytest tests/conformance/test_cap_021_filterable.py -v
@@ -509,7 +509,7 @@ cd langs/python && uv run pytest tests/conformance/test_cap_021_filterable.py -v
 
 Expected: FAIL with import error or `Filterable` not found.
 
-- [ ] **Step 3: Create the protocol.**
+- [x] **Step 3: Create the protocol.**
 
 `langs/python/src/vmx/capabilities/filter.py`:
 
@@ -542,7 +542,7 @@ class Filterable(Protocol[T]):
         ...
 ```
 
-- [ ] **Step 4: Export from package init.**
+- [x] **Step 4: Export from package init.**
 
 Append to `langs/python/src/vmx/capabilities/__init__.py`:
 
@@ -554,13 +554,13 @@ __all__ = [*__all__, "Filterable"]  # adjust per existing __all__ convention
 
 (Inspect the existing `__init__.py` and follow its export pattern exactly.)
 
-- [ ] **Step 5: Run the test, verify pass.**
+- [x] **Step 5: Run the test, verify pass.**
 
 ```bash
 cd langs/python && uv run pytest tests/conformance/test_cap_021_filterable.py -v
 ```
 
-- [ ] **Step 6: Run mypy strict to verify type safety.**
+- [x] **Step 6: Run mypy strict to verify type safety.**
 
 ```bash
 cd langs/python && uv run mypy --strict src/vmx
@@ -568,13 +568,13 @@ cd langs/python && uv run mypy --strict src/vmx
 
 Expected: clean.
 
-- [ ] **Step 7: Run ruff.**
+- [x] **Step 7: Run ruff.**
 
 ```bash
 cd langs/python && uv run ruff check && uv run ruff format --check
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/python/src/vmx/capabilities/filter.py langs/python/src/vmx/capabilities/__init__.py langs/python/tests/conformance/test_cap_021_filterable.py
