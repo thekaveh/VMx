@@ -11,6 +11,10 @@ selected one.
 | `CompositeVM<VM>` (non-modeled) | builder factory `() -> Iterable<VM>`                 | yes       |
 | `CompositeVM<M, VM>` (modeled)  | model factory `() -> Iterable<M>` + mapper `M -> VM` | yes       |
 
+For domains that are natively recursive (trees), use `HierarchicalVM<TModel, TVM>` (chapter 18) instead of
+recursively nesting `CompositeVM<M, VM>`. `HierarchicalVM` provides built-in parent / depth / path semantics
+plus depth-first construction order.
+
 ## 2. Members
 
 ```
