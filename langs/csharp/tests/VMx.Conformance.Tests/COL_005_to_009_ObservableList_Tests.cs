@@ -118,4 +118,84 @@ public class COL_005_to_009_ObservableListTests
         granularEvents.Should().BeEmpty();
         resetCount.Should().Be(1);
     }
+
+    // ── COL-023 ──────────────────────────────────────────────────────────────
+
+    /// <summary>COL-023: Batch with count-changing mutations emits Reset then PropertyChanged("Count").</summary>
+    [Fact, Trait("Conformance", "COL-023")]
+    public void COL_023_BatchEnd_CountNotification_WhenCountChanges()
+    {
+        var sut = new ObservableList<int>();
+        sut.Add(10); // pre-populate: count = 1
+
+        var callOrder = new List<string>();
+        int countAtReset = -1;
+        int countAtPropertyChanged = -1;
+
+        sut.Reset += (_, _) =>
+        {
+            countAtReset = sut.Count;
+            callOrder.Add("reset");
+        };
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(sut.Count))
+            {
+                countAtPropertyChanged = sut.Count;
+                callOrder.Add($"property_changed:{e.PropertyName}");
+            }
+        };
+
+        // Add two items — count goes from 1 to 3
+        using (sut.BatchUpdate())
+        {
+            sut.Add(20);
+            sut.Add(30);
+        }
+
+        // Reset fires before PropertyChanged("Count") — ordering is normative
+        callOrder.Should().Equal("reset", "property_changed:Count");
+        // Count is already updated when both events fire
+        countAtReset.Should().Be(3);
+        countAtPropertyChanged.Should().Be(3);
+    }
+
+    /// <summary>COL-023: Empty batch emits neither Reset nor PropertyChanged("Count").</summary>
+    [Fact, Trait("Conformance", "COL-023")]
+    public void COL_023_EmptyBatch_EmitsNothing()
+    {
+        var sut = new ObservableList<int>();
+        sut.Add(1);
+
+        var events = new List<string>();
+        sut.Reset += (_, _) => events.Add("reset");
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => events.Add($"pc:{e.PropertyName}");
+
+        // Empty batch — no mutations
+        using (sut.BatchUpdate()) { /* nothing */ }
+
+        events.Should().BeEmpty();
+    }
+
+    /// <summary>COL-023: Count-preserving batch (replace only) emits Reset but NOT PropertyChanged("Count").</summary>
+    [Fact, Trait("Conformance", "COL-023")]
+    public void COL_023_CountPreservingBatch_EmitsResetButNotCountNotification()
+    {
+        var sut = new ObservableList<int>();
+        sut.Add(1);
+        sut.Add(2);
+
+        var events = new List<string>();
+        sut.Reset += (_, _) => events.Add("reset");
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => events.Add($"pc:{e.PropertyName}");
+
+        // Only a replace — count stays at 2
+        using (sut.BatchUpdate())
+        {
+            sut.Replace(0, 99);
+        }
+
+        // Reset fires because there was a mutation, but no Count notification
+        events.Should().Equal("reset");
+    }
 }
