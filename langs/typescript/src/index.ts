@@ -149,6 +149,14 @@ export { walk, find, walkExpanded } from "./tree/walk.js";
 export { HierarchicalVM } from "./hierarchical/hierarchicalVm.js";
 export type { HierarchicalVMOptions } from "./hierarchical/hierarchicalVm.js";
 
+// Dialogs (spec v2.1)
+export type {
+  IDialogService,
+  FileFilter,
+  NotificationSeverity,
+} from "./dialogs/dialogService.js";
+export { NullDialogService } from "./dialogs/nullDialogService.js";
+
 // Expandable state helper (spec v2.0)
 export { ExpandableState } from "./capabilities/expandableState.js";
 
