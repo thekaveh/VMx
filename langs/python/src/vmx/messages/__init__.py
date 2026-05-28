@@ -7,6 +7,8 @@ Public API
 - :class:`PropertyChangedMessage` — emitted when a VM property changes value
 - :class:`ConstructionStatusChangedMessage` — emitted on lifecycle transitions
 - :class:`CollectionChangedMessage` — emitted by ServicedObservableCollection
+- :class:`TreeStructureChangedMessage` — emitted on HierarchicalVM structural mutations
+- :class:`TreeStructureChange` — enum for tree mutation kind (ADDED / REMOVED / REPARENTED)
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from vmx.messages.protocols import (
     PropertyChangedMessageProto,
     TypedMessage,
 )
+from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
 
 __all__ = [
     "CollectionChangedMessage",
@@ -28,5 +31,7 @@ __all__ = [
     "Message",
     "PropertyChangedMessage",
     "PropertyChangedMessageProto",
+    "TreeStructureChange",
+    "TreeStructureChangedMessage",
     "TypedMessage",
 ]
