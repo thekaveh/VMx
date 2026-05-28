@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  type DictionaryEntry,
   type DictionaryItemAddedEvent,
   type DictionaryItemRemovedEvent,
   type DictionaryItemReplacedEvent,
@@ -226,45 +227,65 @@ describe("COL-015", () => {
 // ---------------------------------------------------------------------------
 
 describe("COL-022", () => {
-  it("mutations publish CollectionChangedMessage to the hub", () => {
+  it("mutations publish CollectionChangedMessage to the hub with keys + value in payload", () => {
     const hub = new MessageHub();
     const sut = new ObservableDictionary<string, number, number>(hub);
 
-    const received: CollectionChangedMessage<unknown>[] = [];
+    const received: CollectionChangedMessage<DictionaryEntry<string, number, number>>[] = [];
     hub.messages.subscribe((m) => {
       if (m instanceof CollectionChangedMessage) {
-        received.push(m as CollectionChangedMessage<unknown>);
+        received.push(m as CollectionChangedMessage<DictionaryEntry<string, number, number>>);
       }
     });
 
-    // Add — publishes an "add" message
+    // Add — publishes an "add" message; newItems[0] carries key1, key2, and value
     sut.set("alpha", 1, 3.14);
     expect(received).toHaveLength(1);
     expect(received[0]?.action).toBe("add");
     expect(received[0]?.senderObject).toBe(sut);
+    const addEntry = received[0]?.newItems[0];
+    expect(addEntry?.key1).toBe("alpha");
+    expect(addEntry?.key2).toBe(1);
+    expect(addEntry?.value).toBeCloseTo(3.14);
 
     received.length = 0;
 
-    // Replace via set on existing key — publishes a "replace" message
+    // Replace via set on existing key — publishes a "replace" message;
+    // newItems[0] carries the new value, oldItems[0] carries the old value.
+    // Both include keys so subscribers know which entry changed.
     sut.set("alpha", 1, 9.99);
     expect(received).toHaveLength(1);
     expect(received[0]?.action).toBe("replace");
+    const replaceNew = received[0]?.newItems[0];
+    const replaceOld = received[0]?.oldItems[0];
+    expect(replaceNew?.key1).toBe("alpha");
+    expect(replaceNew?.key2).toBe(1);
+    expect(replaceNew?.value).toBeCloseTo(9.99);
+    expect(replaceOld?.key1).toBe("alpha");
+    expect(replaceOld?.key2).toBe(1);
+    expect(replaceOld?.value).toBeCloseTo(3.14);
 
     received.length = 0;
 
-    // Remove — publishes a "remove" message
+    // Remove — publishes a "remove" message; oldItems[0] carries key1, key2, and value
     sut.delete("alpha", 1);
     expect(received).toHaveLength(1);
     expect(received[0]?.action).toBe("remove");
+    const removeEntry = received[0]?.oldItems[0];
+    expect(removeEntry?.key1).toBe("alpha");
+    expect(removeEntry?.key2).toBe(1);
+    expect(removeEntry?.value).toBeCloseTo(9.99);
 
     received.length = 0;
 
-    // Clear — publishes a "reset" message
+    // Clear — publishes a "reset" message (no items in newItems/oldItems)
     sut.set("beta", 2, 2.72);
     received.length = 0; // discard the Add from above
     sut.clear();
     expect(received).toHaveLength(1);
     expect(received[0]?.action).toBe("reset");
+    expect(received[0]?.newItems).toHaveLength(0);
+    expect(received[0]?.oldItems).toHaveLength(0);
   });
 
   it("no-hub construction: no errors and no publication", () => {

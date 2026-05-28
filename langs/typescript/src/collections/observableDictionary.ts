@@ -22,6 +22,22 @@ import { ObservableList } from "./observableList.js";
 
 // ── Payload shapes ────────────────────────────────────────────────────────────
 
+/**
+ * The element type carried in hub `CollectionChangedMessage` publications from
+ * `ObservableDictionary`. Both keys and the value are included so subscribers
+ * can recover the full identity of the mutated entry.
+ *
+ * C# equivalent: `KeyValuePair<(TKey1, TKey2), TValue>`
+ * Python equivalent: `(key1, key2, value)` tuple
+ * Per ADR-0006 each shape is flavor-idiomatic; per ADR-0009 the divergence is
+ * catalogued and accepted.
+ */
+export interface DictionaryEntry<TKey1, TKey2, TValue> {
+  readonly key1: TKey1;
+  readonly key2: TKey2;
+  readonly value: TValue;
+}
+
 export interface DictionaryItemAddedEvent<TKey1, TKey2, TValue> {
   readonly key1: TKey1;
   readonly key2: TKey2;
@@ -146,9 +162,15 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       this.#data.set(token, value);
       // 1. Local granular event first.
       this.#itemReplaced.next({ key1, key2, newValue: value, oldValue });
-      // 2. Publish to hub (if present).
+      // 2. Publish to hub (if present). Element type includes both keys so
+      //    subscribers can recover which entry was replaced.
       this.#hub?.send(
-        CollectionChangedMessage.forReplace(this, value, oldValue, -1),
+        CollectionChangedMessage.forReplace<DictionaryEntry<TKey1, TKey2, TValue>>(
+          this,
+          { key1, key2, value },
+          { key1, key2, value: oldValue },
+          -1,
+        ),
       );
     } else {
       this.#internalAdd(token, key1, key2, value);
@@ -182,9 +204,14 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
 
     // 1. Local granular event first.
     this.#itemRemoved.next({ key1, key2, value });
-    // 2. Publish to hub (if present).
+    // 2. Publish to hub (if present). Element type includes both keys so
+    //    subscribers can recover which entry was removed.
     this.#hub?.send(
-      CollectionChangedMessage.forRemove(this, value, -1),
+      CollectionChangedMessage.forRemove<DictionaryEntry<TKey1, TKey2, TValue>>(
+        this,
+        { key1, key2, value },
+        -1,
+      ),
     );
     return true;
   }
@@ -281,9 +308,14 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
 
     // 1. Local granular event first.
     this.#itemAdded.next({ key1, key2, value });
-    // 2. Publish to hub (if present).
+    // 2. Publish to hub (if present). Element type includes both keys + value
+    //    so hub subscribers can recover the full identity of the added entry.
     this.#hub?.send(
-      CollectionChangedMessage.forAdd(this, value, this.#keyOrder.length - 1),
+      CollectionChangedMessage.forAdd<DictionaryEntry<TKey1, TKey2, TValue>>(
+        this,
+        { key1, key2, value },
+        this.#keyOrder.length - 1,
+      ),
     );
   }
 
