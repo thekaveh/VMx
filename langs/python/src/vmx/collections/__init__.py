@@ -21,6 +21,7 @@ from vmx.collections.batch import BatchUpdateHandle
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.collections.observable_dictionary import ObservableDictionary
 from vmx.collections.observable_list import ObservableList
+from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.serviced_observable_collection import ServicedObservableCollection
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "CollectionChangedEvent",
     "ObservableDictionary",
     "ObservableList",
+    "PagedComposition",
     "ServicedObservableCollection",
 ]
