@@ -5,8 +5,8 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for the notifications sub-package, NOTIF-001..010.
-/// See spec/16-notifications.md and ADR-0013.
+/// Conformance tests for the notifications sub-package, NOTIF-001..016.
+/// See spec/16-notifications.md, ADR-0013, ADR-0031.
 /// </summary>
 public class NotificationsConformanceTests
 {
@@ -165,5 +165,59 @@ public class NotificationsConformanceTests
         var resultReject = await confirm();
         pendingReject.Dispose();
         resultReject.Should().BeFalse();
+    }
+
+    // ── NOTIF-011 ───────────────────────────────────────────────────────────
+
+    /// <summary>NOTIF-011: NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan.</summary>
+    [Fact(Skip = "NOTIF-011 not yet implemented"), Trait("Conformance", "NOTIF-011")]
+    public void NOTIF_011_NotificationVM_Opacity_Decays_Linearly()
+    {
+        throw new NotImplementedException("NOTIF-011: implement NotificationVM first (Substage 4B).");
+    }
+
+    // ── NOTIF-012 ───────────────────────────────────────────────────────────
+
+    /// <summary>NOTIF-012: NotificationVM auto-dismisses (resolves Approve) at expiry.</summary>
+    [Fact(Skip = "NOTIF-012 not yet implemented"), Trait("Conformance", "NOTIF-012")]
+    public void NOTIF_012_NotificationVM_AutoDismisses_On_Expiry()
+    {
+        throw new NotImplementedException("NOTIF-012: implement NotificationVM first (Substage 4B).");
+    }
+
+    // ── NOTIF-013 ───────────────────────────────────────────────────────────
+
+    /// <summary>NOTIF-013: ConfirmationVM exposes ApproveCommand + RejectCommand resolving with the corresponding NotificationReaction.</summary>
+    [Fact(Skip = "NOTIF-013 not yet implemented"), Trait("Conformance", "NOTIF-013")]
+    public void NOTIF_013_ConfirmationVM_ApproveCommand_And_RejectCommand()
+    {
+        throw new NotImplementedException("NOTIF-013: implement ConfirmationVM first (Substage 4B).");
+    }
+
+    // ── NOTIF-014 ───────────────────────────────────────────────────────────
+
+    /// <summary>NOTIF-014: Manual DismissCommand cancels the timer; subsequent ticks no-op.</summary>
+    [Fact(Skip = "NOTIF-014 not yet implemented"), Trait("Conformance", "NOTIF-014")]
+    public void NOTIF_014_Manual_DismissCommand_Cancels_Timer()
+    {
+        throw new NotImplementedException("NOTIF-014: implement NotificationVM first (Substage 4B).");
+    }
+
+    // ── NOTIF-015 ───────────────────────────────────────────────────────────
+
+    /// <summary>NOTIF-015: Hub-side Resolve() propagates to VM IsResolved state.</summary>
+    [Fact(Skip = "NOTIF-015 not yet implemented"), Trait("Conformance", "NOTIF-015")]
+    public void NOTIF_015_Hub_Resolve_Propagates_To_VM_IsResolved()
+    {
+        throw new NotImplementedException("NOTIF-015: implement NotificationVM first (Substage 4B).");
+    }
+
+    // ── NOTIF-016 ───────────────────────────────────────────────────────────
+
+    /// <summary>NOTIF-016: Deterministic behavior under injected TestScheduler / fake clock.</summary>
+    [Fact(Skip = "NOTIF-016 not yet implemented"), Trait("Conformance", "NOTIF-016")]
+    public void NOTIF_016_Deterministic_Under_TestScheduler()
+    {
+        throw new NotImplementedException("NOTIF-016: implement NotificationVM first (Substage 4B).");
     }
 }

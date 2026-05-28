@@ -1,5 +1,5 @@
-// Conformance tests: NOTIF-001..010 — notification sub-package.
-// See spec/16-notifications.md and ADR-0013.
+// Conformance tests: NOTIF-001..016 — notification sub-package.
+// See spec/16-notifications.md, ADR-0013, ADR-0031.
 
 import { describe, expect, it } from "vitest";
 
@@ -124,4 +124,40 @@ describe("NOTIF-010", () => {
     await expect(confirm()).resolves.toBe(false);
     subR.unsubscribe();
   });
+});
+
+describe("NOTIF-011", () => {
+  it.todo(
+    "NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan — implement NotificationVM first (Substage 4B)",
+  );
+});
+
+describe("NOTIF-012", () => {
+  it.todo(
+    "NotificationVM auto-dismisses (resolves Approve) at expiry — implement NotificationVM first (Substage 4B)",
+  );
+});
+
+describe("NOTIF-013", () => {
+  it.todo(
+    "ConfirmationVM exposes ApproveCommand + RejectCommand resolving with the corresponding NotificationReaction — implement ConfirmationVM first (Substage 4B)",
+  );
+});
+
+describe("NOTIF-014", () => {
+  it.todo(
+    "Manual DismissCommand cancels the timer; subsequent ticks no-op — implement NotificationVM first (Substage 4B)",
+  );
+});
+
+describe("NOTIF-015", () => {
+  it.todo(
+    "Hub-side Resolve() propagates to VM IsResolved state — implement NotificationVM first (Substage 4B)",
+  );
+});
+
+describe("NOTIF-016", () => {
+  it.todo(
+    "Deterministic behavior under injected TestScheduler / fake clock — implement NotificationVM first (Substage 4B)",
+  );
 });

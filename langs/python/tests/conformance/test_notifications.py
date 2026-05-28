@@ -1,6 +1,6 @@
-"""Conformance tests: NOTIF-001..010 — notification sub-package.
+"""Conformance tests: NOTIF-001..016 — notification sub-package.
 
-Per spec/16-notifications.md and ADR-0013.
+Per spec/16-notifications.md, ADR-0013, ADR-0031.
 """
 
 from __future__ import annotations
@@ -187,6 +187,72 @@ async def test_NOTIF_010_make_confirm_helper() -> None:
     )
     assert await confirm() is False
     sub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-011 — NotificationVM opacity decays linearly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-011")
+@pytest.mark.skip(reason="NOTIF-011: implement NotificationVM first (Substage 4B)")
+def test_NOTIF_011_notification_vm_opacity_decays_linearly() -> None:
+    raise NotImplementedError("NOTIF-011: implement NotificationVM first (Substage 4B).")
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-012 — NotificationVM auto-dismisses on expiry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-012")
+@pytest.mark.skip(reason="NOTIF-012: implement NotificationVM first (Substage 4B)")
+def test_NOTIF_012_notification_vm_auto_dismisses_on_expiry() -> None:
+    raise NotImplementedError("NOTIF-012: implement NotificationVM first (Substage 4B).")
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-013 — ConfirmationVM approve + reject commands
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-013")
+@pytest.mark.skip(reason="NOTIF-013: implement ConfirmationVM first (Substage 4B)")
+def test_NOTIF_013_confirmation_vm_approve_and_reject_commands() -> None:
+    raise NotImplementedError("NOTIF-013: implement ConfirmationVM first (Substage 4B).")
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-014 — Manual DismissCommand cancels the timer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-014")
+@pytest.mark.skip(reason="NOTIF-014: implement NotificationVM first (Substage 4B)")
+def test_NOTIF_014_manual_dismiss_cancels_timer() -> None:
+    raise NotImplementedError("NOTIF-014: implement NotificationVM first (Substage 4B).")
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-015 — Hub Resolve propagates to VM IsResolved
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-015")
+@pytest.mark.skip(reason="NOTIF-015: implement NotificationVM first (Substage 4B)")
+def test_NOTIF_015_hub_resolve_propagates_to_vm_is_resolved() -> None:
+    raise NotImplementedError("NOTIF-015: implement NotificationVM first (Substage 4B).")
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-016 — Deterministic behavior under TestScheduler / fake clock
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-016")
+@pytest.mark.skip(reason="NOTIF-016: implement NotificationVM first (Substage 4B)")
+def test_NOTIF_016_deterministic_under_test_scheduler() -> None:
+    raise NotImplementedError("NOTIF-016: implement NotificationVM first (Substage 4B).")
 
 
 # ---------------------------------------------------------------------------
