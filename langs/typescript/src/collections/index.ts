@@ -18,3 +18,7 @@ export {
   type DictionaryItemRemovedEvent,
   type DictionaryItemReplacedEvent,
 } from "./observableDictionary.js";
+export {
+  PagedComposition,
+  type PagedCompositionSource,
+} from "./pagedComposition.js";

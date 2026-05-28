@@ -44,6 +44,10 @@ export {
   type DictionaryItemRemovedEvent,
   type DictionaryItemReplacedEvent,
 } from "./collections/observableDictionary.js";
+export {
+  PagedComposition,
+  type PagedCompositionSource,
+} from "./collections/pagedComposition.js";
 
 // Collection messages
 export type { CollectionMutationAction, ICollectionChangedMessage } from "./messages/collectionChanged.js";
