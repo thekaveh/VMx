@@ -68,9 +68,14 @@ strongly typed mutation events and platform-event compatibility. Key rules:
 ## 4. Consequences
 
 - `spec/21-collections.md` §3 defines `ObservableList<T>` shape and semantics.
-- Conformance IDs `COL-005..COL-009` cover: `ItemAdded` payload, `ItemRemoved`
-  payload, `ItemReplaced` payload, `Reset` payload shape, `Count`/`PropertyChanged`
-  ordering, and batch suppression.
+- Conformance IDs `COL-005..COL-009` cover:
+  - `COL-005` — `ItemAdded` payload shape (item and insertion index).
+  - `COL-006` — `ItemRemoved` payload shape (item and pre-removal index).
+  - `COL-007` — `ItemReplaced` payload shape (new item, old item, index).
+  - `COL-008` — `Count`/`PropertyChanged` ordering after add (granular event
+    fires before `PropertyChanged("Count")`).
+  - `COL-009` — batch suppression: granular events suppressed during
+    `BatchUpdate()`; a single `Reset` fires on completion.
 - ADR-0025 (`ObservableDictionary`) depends on this ADR for its key-axis
   observable views (`Keys1`, `Keys2`).
 - Per-flavor placement: C# `VMx.Collections/`, Python `vmx.collections`,

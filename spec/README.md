@@ -24,7 +24,7 @@ flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (152 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (180 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -39,11 +39,18 @@ flavor releases a stable version.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
 
+The following existing chapters were also extended in v2.1:
+
+- `04-commands.md` — §9 "Fluent composition" (ADR-0027): four fluent extension
+  methods (`Confirm`, `PrecedeWith`, `SucceedWith`, `WrapWith`) over `ICommand`.
+- `14-capabilities.md` — §2.6 `IFilterable<T>` (ADR-0022, CAP-021) and §2.10
+  `IPageable` (ADR-0023, CAP-022).
+
 ### 1.4 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.1.0-dev`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0026); see
+- `ADRs/` — Architecture Decision Records (0001-0027); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — deferred designs not yet promoted to chapters.
 
