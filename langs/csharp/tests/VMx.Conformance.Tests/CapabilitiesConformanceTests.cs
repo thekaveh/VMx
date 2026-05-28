@@ -448,4 +448,28 @@ public class CapabilitiesConformanceTests
         (vm is IDestructable).Should().BeTrue();
         (vm is IReconstructable).Should().BeTrue();
     }
+
+    // ── CAP-021 ─────────────────────────────────────────────────────────────
+
+    /// <summary>CAP-021: IFilterable&lt;TItem&gt; contract surface and opt-in behavior.</summary>
+    [Fact, Trait("Conformance", "CAP-021")]
+    public void CAP_021_IFilterable_Contract_Surface()
+    {
+        var sut = new FilterableFixture<int>();
+        sut.Filter.Should().BeNull();
+        sut.CanFilter().Should().BeTrue();
+
+        Predicate<int> p = x => x > 0;
+        sut.Filter = p;
+        sut.Filter.Should().BeSameAs(p);
+
+        sut.Filter = null;
+        sut.Filter.Should().BeNull();
+    }
+
+    private sealed class FilterableFixture<TItem> : IFilterable<TItem>
+    {
+        public Predicate<TItem>? Filter { get; set; }
+        public bool CanFilter() => true;
+    }
 }
