@@ -141,9 +141,11 @@ opt-in notifications sub-package, and a localization hook.
 
 ### Deprecated
 - `RelayCommandOfT` and `RelayCommandOfTBuilder` remain as identity aliases for
-  backward compatibility. They will be removed in **vmx v2.0.0**.
+  backward compatibility. Removal deferred to **vmx v3.0.0** (was originally
+  targeted for v2.0.0; see v2.0.0 Notes and ADR-0009).
 - `AggregateVMBuilder1` through `AggregateVMBuilder5` remain as identity aliases
-  for backward compatibility. They will be removed in **vmx v2.0.0**.
+  for backward compatibility. Removal deferred to **vmx v3.0.0** (was originally
+  targeted for v2.0.0; see v2.0.0 Notes and ADR-0009).
 
 ### Internal
 - Per-suppression rationale comments added at every `# type: ignore` in
