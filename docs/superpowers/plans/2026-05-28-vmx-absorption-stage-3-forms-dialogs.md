@@ -105,7 +105,7 @@ ______________________________________________________________________
 - [x] **Substage 3A** — Spec foundation (ADR-0029 + ADR-0030 + chapters 19+20 + conformance IDs + stubs)
 - [x] **Substage 3B** — Per-flavor IDialogService + NullDialogService (3 flavors)
 - [x] **Substage 3C** — Per-flavor FormVM (3 flavors)
-- [ ] **Substage 3D** — Cross-chapter integration (16-notifications crossref + Confirm overload + integration test)
+- [x] **Substage 3D** — Cross-chapter integration (16-notifications crossref + Confirm overload + integration test)
 - [ ] **Substage 3E** — Stage 3 audit close (2 consecutive zero-finding passes)
 
 ______________________________________________________________________
@@ -1371,7 +1371,7 @@ ______________________________________________________________________
 
 - Modify: `spec/16-notifications.md`
 
-- [ ] **Step 1: Add a subsection distinguishing INotificationHub from IDialogService.**
+- [x] **Step 1: Add a subsection distinguishing INotificationHub from IDialogService.**
 
 Find the appropriate location in chapter 16 (probably §1 Overview or end of chapter). Add:
 
@@ -1385,7 +1385,7 @@ Find the appropriate location in chapter 16 (probably §1 Overview or end of cha
 A consumer-facing notification that requires user action goes through `IDialogService.Confirm`; an informational toast goes through `INotificationHub.Post`. The two services are orthogonal and may both be injected.
 ```
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add spec/16-notifications.md
@@ -1402,9 +1402,9 @@ git commit -m "spec(ch): distinguish INotificationHub from IDialogService (chapt
 
 - Modify: `langs/typescript/src/commands/fluent.ts` (add `confirmWithDialogService(command, dialogService, prompt)` function)
 
-- [ ] **Step 1: Read existing `confirm` / `confirmWithHub` overloads in each flavor** to mirror style.
+- [x] **Step 1: Read existing `confirm` / `confirmWithHub` overloads in each flavor** to mirror style.
 
-- [ ] **Step 2: Add new overload/function in each flavor.**
+- [x] **Step 2: Add new overload/function in each flavor.**
 
 C#:
 
@@ -1438,9 +1438,9 @@ export function confirmWithDialogService(
 }
 ```
 
-- [ ] **Step 3: Run all 3 flavor test suites to ensure no regressions.**
+- [x] **Step 3: Run all 3 flavor test suites to ensure no regressions.**
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add langs/csharp/src/VMx/Commands/FluentCommandExtensions.cs langs/python/src/vmx/commands/fluent.py langs/typescript/src/commands/fluent.ts
@@ -1449,7 +1449,7 @@ git commit -m "feat(cmd): add cmd.Confirm(dialogService, prompt) fluent overload
 
 ### Task 3D.3: Tick Substage 3D checkboxes
 
-- [ ] Commit: `docs(plan): tick Substage 3D — cross-chapter integration`
+- [x] Commit: `docs(plan): tick Substage 3D — cross-chapter integration`
 
 ______________________________________________________________________
 
