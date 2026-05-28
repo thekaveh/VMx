@@ -77,3 +77,12 @@ language and lives under `docs/`.
   language flavor renders these in its native syntax.
 - Cross-references use `§N` for sections of the same document and the filename
   (`02-lifecycle.md`) for sections of other documents.
+
+## 6. C#-only extensions
+
+The C# flavor ships one utility that has no counterpart in Python or TypeScript:
+`LinqHelpers` — a set of LINQ extension methods over `IObservableList<T>` and
+`ObservableDictionary` (e.g., `WhereObservable`, `SelectObservable`). These are
+idiomatic to C# and the `System.Reactive`/LINQ ecosystem; the other flavors
+cover the same use-cases through native comprehensions and `reactivex`/`rxjs`
+operators. This asymmetry is intentional and documented in ADR-0033.
