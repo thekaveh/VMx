@@ -353,6 +353,28 @@ describe("ObservableDictionary strict add()", () => {
   });
 });
 
+// ── Key-serialization collision safety ───────────────────────────────────────
+
+describe("ObservableDictionary key-serialization collision safety", () => {
+  it("distinguishes (k1='a\\x00', k2='b') from (k1='a', k2='\\x00b')", () => {
+    const sut = new ObservableDictionary<string, string, number>();
+    sut.set("a\x00", "b", 1);
+    sut.set("a", "\x00b", 2);
+
+    expect(sut.size).toBe(2);
+    expect(sut.get("a\x00", "b")).toBe(1);
+    expect(sut.get("a", "\x00b")).toBe(2);
+  });
+
+  it("does not treat NUL-straddling pairs as duplicates on add()", () => {
+    const sut = new ObservableDictionary<string, string, number>();
+    sut.add("a\x00", "b", 10);
+    // Must NOT throw — these are distinct key pairs.
+    expect(() => sut.add("a", "\x00b", 20)).not.toThrow();
+    expect(sut.size).toBe(2);
+  });
+});
+
 // ── Hub injection ─────────────────────────────────────────────────────────────
 
 describe("ObservableDictionary hub injection", () => {

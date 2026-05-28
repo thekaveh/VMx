@@ -59,9 +59,22 @@ export interface DictionaryItemReplacedEvent<TKey1, TKey2, TValue> {
 
 // ── Serialisation helper ──────────────────────────────────────────────────────
 
-/** Serialise a key pair to a string map key. */
+/**
+ * Serialise a key pair to a collision-proof string map key.
+ *
+ * Uses a length-prefix encoding: `"<len(k1)>:<k1><k2>"`.
+ * Because the boundary between k1 and k2 is fixed by the numeric prefix,
+ * two key pairs are equal only when both components are equal — regardless
+ * of whether the string representations of k1 or k2 contain separator
+ * characters (including NUL).
+ *
+ * Examples:
+ *   serializeKey("a\x00", "b")   → "3:a\x00b"
+ *   serializeKey("a",     "\x00b") → "1:a\x00b"   ← different prefix!
+ */
 function serializeKey(key1: unknown, key2: unknown): string {
-  return `${String(key1)}\x00${String(key2)}`;
+  const s1 = String(key1);
+  return String(s1.length) + ":" + s1 + String(key2);
 }
 
 // ── ObservableDictionary ──────────────────────────────────────────────────────
