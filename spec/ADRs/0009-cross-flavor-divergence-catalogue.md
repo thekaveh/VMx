@@ -85,9 +85,13 @@ ADR-0006 and require no further action:
 
 ### `ObservableList` mutation method name
 
-- **Spec / C# / Python**: `Add(item)` / `add(item)`.
+- **Spec / C#**: `Add(item)` / `Add(item)`.
+- **Python**: `add(item)` (spec-aligned) and `append(item)` (alias for
+  `list`-protocol compatibility — both are public).
 - **TypeScript**: `push(item)` (matching `Array.prototype.push`).
-- **Rationale**: Pure idiomatic adaptation. JS code reads `list.push(x)` naturally; `list.add(x)` would jar against developer expectations.
+- **Rationale**: Pure idiomatic adaptation. Python exposes `append` so the
+  type composes with code that targets the standard `list` API; JS code
+  reads `list.push(x)` naturally.
 
 ### `NotificationVM.NotifyExternalResolve()` visibility
 
