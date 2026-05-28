@@ -6,7 +6,8 @@
  *
  * Implements SchedulerLike so it can be injected into NotificationVM / ConfirmationVM.
  */
-import type { SchedulerAction, SchedulerLike, Subscription } from "rxjs";
+import { Subscription } from "rxjs";
+import type { SchedulerAction, SchedulerLike } from "rxjs";
 
 interface PendingAction {
   readonly dueTime: number;
@@ -14,15 +15,14 @@ interface PendingAction {
   cancelled: boolean;
 }
 
-class FakeSchedulerSubscription implements Subscription {
-  closed = false;
-  constructor(private readonly action: PendingAction) {}
-  unsubscribe(): void {
+class FakeSchedulerSubscription extends Subscription {
+  constructor(private readonly action: PendingAction) {
+    super();
+  }
+  override unsubscribe(): void {
     this.closed = true;
     this.action.cancelled = true;
   }
-  add(_subscription: Subscription): void {}
-  remove(_subscription: Subscription): void {}
 }
 
 export class FakeScheduler implements SchedulerLike {
@@ -39,10 +39,13 @@ export class FakeScheduler implements SchedulerLike {
     state?: T,
   ): Subscription {
     const dueTime = this.#currentTime + delay;
-    // Bind work to a minimal SchedulerAction-like object
+    // Bind work using a no-op SchedulerAction stub. The `as` cast is needed
+    // because SchedulerAction extends Subscription (which has private fields),
+    // making structural compatibility impossible without a runtime instance.
+    const stub = new Subscription() as SchedulerAction<T>;
     const action: PendingAction = {
       dueTime,
-      work: () => work.call({ schedule: () => ({} as Subscription), unsubscribe: () => {}, closed: false, add: () => {}, remove: () => {} }, state),
+      work: () => work.call(stub, state),
       cancelled: false,
     };
     this.#queue.push(action);
@@ -57,7 +60,7 @@ export class FakeScheduler implements SchedulerLike {
 
   /** Advance virtual time to exactly `targetMs`, firing all due callbacks in order. */
   advanceTo(targetMs: number): void {
-    while (this.#queue.length > 0 && this.#queue[0].dueTime <= targetMs) {
+    while (this.#queue.length > 0 && (this.#queue[0]?.dueTime ?? Infinity) <= targetMs) {
       const action = this.#queue.shift()!;
       if (!action.cancelled) {
         this.#currentTime = action.dueTime;
