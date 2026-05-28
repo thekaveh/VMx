@@ -6,7 +6,7 @@ do**, not what it is. They never alter the shape of an existing VM type; a
 chooses (or its consumer chooses, via a wrapper) to additionally implement one
 or more capabilities.
 
-This chapter lists the 20 capability interfaces, their members, and the rules
+This chapter lists the 21 capability interfaces, their members, and the rules
 that govern how they compose with the existing VM hierarchy.
 
 ## 1. Why capability interfaces
@@ -21,7 +21,7 @@ mutually exclusive: capability interfaces give consumers a way to write
 See ADR-0010 for the rationale and the decision to absorb these interfaces
 additively rather than restructuring the existing VM hierarchy around them.
 
-## 2. The 20 capabilities
+## 2. The 21 capabilities
 
 Capabilities are grouped by intent. Every capability is independently
 implementable; a VM may implement any subset.
@@ -108,7 +108,22 @@ ISearchable:
     search() : void          # apply current SearchTerm
 ```
 
-### 2.6 CRUD capabilities
+### 2.6 Filter capability
+
+```
+IFilterable<TItem>:
+    Filter : Predicate<TItem>?  # null means no filter; setter triggers re-filter
+    can_filter() : bool         # whether filtering is currently allowed
+```
+
+The capability says nothing about _how_ the filtered view is exposed (an
+observable, a paged slice, a snapshot) — that is the concrete collection's
+responsibility. `SearchableState<TItem>` (cycle 7) provides a string-debounced
+predicate builder over this capability.
+
+See ADR-0022.
+
+### 2.7 CRUD capabilities
 
 ```
 INewCreatable:
@@ -128,7 +143,7 @@ ISavable<T>:
     save(item: T) : void
 ```
 
-### 2.7 Container-current capabilities
+### 2.8 Container-current capabilities
 
 ```
 ICurrentDeletable:
@@ -140,7 +155,7 @@ ICurrentUpdatable:
     update_current() : void
 ```
 
-### 2.8 Generic management capability
+### 2.9 Generic management capability
 
 ```
 IManagable<T>:
@@ -191,7 +206,7 @@ concrete type.
 
 ## 5. Conformance
 
-`CAP-001` through `CAP-020` in `12-conformance.md` cover the 20 capability
+`CAP-001` through `CAP-021` in `12-conformance.md` cover the 21 capability
 interfaces. Each test verifies that:
 
 - the interface exists in the flavor's public surface
