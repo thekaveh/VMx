@@ -31,6 +31,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `GRP-007..010`  | GroupVM v2.0 additions (search)                   | `07-group-vm.md`                              |
 | `LOC-NNN`       | Localization hooks                                | `17-localization.md`                          |
 | `COL-NNN`       | Collection primitives (spec v2.1)                 | `21-collections.md`                           |
+| `HIER-NNN`      | HierarchicalVM (recursive tree VM, spec v2.1)     | `18-hierarchical-vm.md`                       |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -1612,3 +1613,127 @@ that change the collection's `Count` (e.g., at least one add or remove)
 count-preserving mutations (e.g., only replace operations)
 **Then** a `Reset` is emitted (mutations occurred)
 **And** no `PropertyChanged("Count")` is emitted (count unchanged)
+
+## HIER — HierarchicalVM (chapter 18)
+
+### HIER-001 — Recursive generic constraint compiles
+
+**Given** a concrete subclass `MyNode : HierarchicalVM<MyModel, MyNode>`
+(using per-flavor recursive-constraint idiom per ADR-0028 §3.2)
+**When** the type is instantiated with a model and a children factory
+**Then** it compiles and constructs without generic-bound errors
+**And** per-flavor idiomatic naming applies (C#/Python/TS conventions per ADR-0006)
+
+### HIER-002 — `Parent` is null for root, non-null for non-root
+
+**Given** a root node and one child node attached to it
+**When** `Parent` is read on each node
+**Then** the root's `Parent` is null
+**And** the child's `Parent` is a reference to the root node
+
+### HIER-003 — `Depth` derivation
+
+**Given** a tree with root, a child at depth 1, and a grandchild at depth 2
+**When** `Depth` is read on each node
+**Then** the root's `Depth` is 0
+**And** the child's `Depth` is 1
+**And** the grandchild's `Depth` is 2
+
+### HIER-004 — `Path` materialization and cache identity
+
+**Given** a three-level tree (root → child → grandchild)
+**When** `Path` is read on the grandchild
+**Then** the returned sequence is `[root, child, grandchild]` (root-first)
+**And** a second read of `Path` without any structural change returns an
+identical (identity-equal in the same materialization window) sequence
+**And** after the grandchild is reparented, the next read of `Path` returns
+the updated sequence
+
+### HIER-005 — `IsLeaf` and `IsRoot` derivation
+
+**Given** a root node with two children, where each child has no children
+**When** `IsRoot` and `IsLeaf` are read on each node
+**Then** the root's `IsRoot` is true and `IsLeaf` is false
+**And** each child's `IsRoot` is false and `IsLeaf` is true
+
+### HIER-006 — `IsFirst` and `IsLast` position predicates
+
+**Given** a parent with three children: A (index 0), B (index 1), C (index 2)
+**When** `IsFirst` and `IsLast` are read on each child
+**Then** A's `IsFirst` is true and `IsLast` is false
+**And** B's `IsFirst` is false and `IsLast` is false
+**And** C's `IsFirst` is false and `IsLast` is true
+**And** for the root node, both `IsFirst` and `IsLast` are false
+
+### HIER-007 — Default lazy child loading
+
+**Given** a node constructed with the default (lazy) mode
+**And** a children factory delegate that records whether it was invoked
+**When** the node is constructed and `Children` has NOT been accessed yet
+**Then** the children factory delegate has NOT been invoked
+**When** `Children` is accessed for the first time
+**Then** the children factory delegate IS invoked exactly once
+
+### HIER-008 — Eager child loading via builder option
+
+**Given** a tree constructed with `WithEagerChildren()` builder option
+**And** a children factory delegate that records invocations per node
+**When** the root node's `construct()` completes
+**Then** the children factory has been invoked for every node in the tree
+**And** all descendants are materialized without any explicit `Children` access
+
+### HIER-009 — Depth-first construction order (eager mode)
+
+**Given** a two-level eager tree: root with child A; A with child AA
+**And** a recorder observing `ConstructionStatus == Constructed` transitions
+**When** the root is constructed
+**Then** AA transitions to `Constructed` before A
+**And** A transitions to `Constructed` before root
+**And** root transitions to `Constructed` last
+
+### HIER-010 — `PropertyChangedMessage` on `Parent` change
+
+**Given** a node with a message hub subscriber recording `PropertyChangedMessage`
+**When** the node's `Parent` reference changes (e.g., it is reparented)
+**Then** a `PropertyChangedMessage` with `PropertyName == "Parent"` is published
+on the hub
+
+### HIER-011 — `TreeStructureChangedMessage` on structural mutations
+
+**Given** a parent node with a message hub subscriber recording
+`TreeStructureChangedMessage`
+**When** a child is added to the parent
+**Then** a `TreeStructureChangedMessage` with `Change == Added` is published
+with `Source == parent` and `Affected == child`
+**When** a child is removed from the parent
+**Then** a `TreeStructureChangedMessage` with `Change == Removed` is published
+**When** a child is reparented to a different parent
+**Then** a `TreeStructureChangedMessage` with `Change == Reparented` is published
+
+### HIER-012 — `walk_expanded` honors lazy boundaries via `ExpandableState`
+
+**Given** a three-level tree where the root has `ExpandableState` composed
+**And** the root's `IsExpanded` is false
+**When** `walk_expanded(root)` is called
+**Then** only the root is yielded; its children are NOT traversed
+**When** the root is expanded (IsExpanded set to true) and `walk_expanded` is called again
+**Then** the root and its direct children are yielded
+**And** `HierarchicalVM` does NOT auto-implement `IExpandable` (per ADR-0028 §3.6)
+
+### HIER-013 — Composition with `SearchableState` filters materialized portion
+
+**Given** a tree with several leaf nodes whose models have a `Name` property
+**And** a `SearchableState` composed on the tree VM with a name-matching predicate
+**When** a search term is set that matches only a subset of leaves
+**Then** the filtered view returned by `SearchableState` contains only matching nodes
+**And** un-materialized children (lazy nodes not yet accessed) are not included in results
+
+### HIER-014 — Composition with `ModeledCrudCommands` mutates the tree
+
+**Given** a parent node composed with `ModeledCrudCommands` targeting its `Children`
+**When** `CreateNewCommand` is executed with a new model
+**Then** a new child VM is added to the parent's `Children`
+**And** a `TreeStructureChangedMessage` with `Change == Added` is published
+**When** `DeleteCurrentCommand` is executed on an existing child
+**Then** the child is removed from `Children`
+**And** a `TreeStructureChangedMessage` with `Change == Removed` is published
