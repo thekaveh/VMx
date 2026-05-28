@@ -14,21 +14,15 @@ import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 export { CollectionChangedMessage };
 
 export class ServicedObservableCollection<T> {
-  readonly #name: string;
   readonly #hub: IMessageHub | null;
   readonly #items: T[] = [];
   readonly #subject = new Subject<CollectionChangedMessage<T>>();
 
-  constructor(name?: string, hub?: IMessageHub | null) {
-    this.#name = name ?? "ServicedObservableCollection";
+  constructor(hub?: IMessageHub | null) {
     this.#hub = hub ?? null;
   }
 
   // ── Public surface ──────────────────────────────────────────────────────
-
-  get name(): string {
-    return this.#name;
-  }
 
   /** Hot observable of CollectionChangedMessage events. */
   get collectionChanged(): Observable<CollectionChangedMessage<T>> {
@@ -59,7 +53,7 @@ export class ServicedObservableCollection<T> {
   push(item: T): void {
     const index = this.#items.length;
     this.#items.push(item);
-    this.#emit(CollectionChangedMessage.forAdd(this, this.#name, item, index));
+    this.#emit(CollectionChangedMessage.forAdd(this, item, index));
   }
 
   /** Remove and return the last item, or undefined if empty. */
@@ -68,7 +62,7 @@ export class ServicedObservableCollection<T> {
     const index = this.#items.length - 1;
     const item = this.#items[index] as T;
     this.#items.pop();
-    this.#emit(CollectionChangedMessage.forRemove(this, this.#name, item, index));
+    this.#emit(CollectionChangedMessage.forRemove(this, item, index));
     return item;
   }
 
@@ -81,10 +75,10 @@ export class ServicedObservableCollection<T> {
     const removed = this.#items.splice(start, deleteCount ?? this.#items.length, ...newItems);
     if (removed.length === 1 && newItems.length === 0) {
       this.#emit(
-        CollectionChangedMessage.forRemove(this, this.#name, removed[0] as T, start),
+        CollectionChangedMessage.forRemove(this, removed[0] as T, start),
       );
     } else {
-      this.#emit(CollectionChangedMessage.forReset(this, this.#name));
+      this.#emit(CollectionChangedMessage.forReset(this));
     }
     return removed;
   }
@@ -99,7 +93,6 @@ export class ServicedObservableCollection<T> {
     this.#emit(
       CollectionChangedMessage.forReplace(
         this,
-        this.#name,
         newItem,
         oldItem as T,
         index,
@@ -110,7 +103,7 @@ export class ServicedObservableCollection<T> {
   /** Remove all items. */
   clear(): void {
     this.#items.length = 0;
-    this.#emit(CollectionChangedMessage.forReset(this, this.#name));
+    this.#emit(CollectionChangedMessage.forReset(this));
   }
 
   // ── Internal ────────────────────────────────────────────────────────────

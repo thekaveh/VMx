@@ -10,7 +10,6 @@ namespace VMx.Messages;
 /// <typeparam name="T">Element type of the collection.</typeparam>
 public sealed record CollectionChangedMessage<T>(
     object Sender,
-    string SenderName,
     NotifyCollectionChangedAction Action,
     IReadOnlyList<T> NewItems,
     IReadOnlyList<T> OldItems,
@@ -19,25 +18,29 @@ public sealed record CollectionChangedMessage<T>(
     /// <inheritdoc/>
     public object SenderObject => Sender;
 
+    /// <inheritdoc/>
+    /// <remarks>Derived from the sender's runtime type name; no separate name field per spec §2.4.</remarks>
+    public string SenderName => Sender.GetType().Name;
+
 #pragma warning disable CA1000 // Static factories on generic type: intentional — mirrors PropertyChangedMessage<T> pattern
     /// <summary>Factory for Add.</summary>
-    public static CollectionChangedMessage<T> ForAdd(object sender, string senderName, T item, int index)
-        => new(sender, senderName, NotifyCollectionChangedAction.Add,
+    public static CollectionChangedMessage<T> ForAdd(object sender, T item, int index)
+        => new(sender, NotifyCollectionChangedAction.Add,
                new[] { item }, Array.Empty<T>(), index);
 
     /// <summary>Factory for Remove.</summary>
-    public static CollectionChangedMessage<T> ForRemove(object sender, string senderName, T item, int index)
-        => new(sender, senderName, NotifyCollectionChangedAction.Remove,
+    public static CollectionChangedMessage<T> ForRemove(object sender, T item, int index)
+        => new(sender, NotifyCollectionChangedAction.Remove,
                Array.Empty<T>(), new[] { item }, index);
 
     /// <summary>Factory for Replace.</summary>
-    public static CollectionChangedMessage<T> ForReplace(object sender, string senderName, T newItem, T oldItem, int index)
-        => new(sender, senderName, NotifyCollectionChangedAction.Replace,
+    public static CollectionChangedMessage<T> ForReplace(object sender, T newItem, T oldItem, int index)
+        => new(sender, NotifyCollectionChangedAction.Replace,
                new[] { newItem }, new[] { oldItem }, index);
 
     /// <summary>Factory for Reset.</summary>
-    public static CollectionChangedMessage<T> ForReset(object sender, string senderName)
-        => new(sender, senderName, NotifyCollectionChangedAction.Reset,
+    public static CollectionChangedMessage<T> ForReset(object sender)
+        => new(sender, NotifyCollectionChangedAction.Reset,
                Array.Empty<T>(), Array.Empty<T>(), -1);
 #pragma warning restore CA1000
 }

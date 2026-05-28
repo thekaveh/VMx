@@ -13,7 +13,7 @@ import { CollectionChangedMessage } from "../../src/messages/collectionChanged.j
 describe("COL-001", () => {
   it("ServicedObservableCollection publishes to hub after local CollectionChanged on add", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<string>("sut", hub);
+    const sut = new ServicedObservableCollection<string>(hub);
 
     const localEvents: CollectionChangedMessage<string>[] = [];
     const hubMessages: unknown[] = [];
@@ -37,7 +37,6 @@ describe("COL-001", () => {
     expect(cm.action).toBe("add");
     expect(cm.newItems).toEqual(["alpha"]);
     expect(cm.index).toBe(0);
-    expect(cm.senderName).toBe("sut");
   });
 });
 
@@ -48,7 +47,7 @@ describe("COL-001", () => {
 describe("COL-002", () => {
   it("ServicedObservableCollection publishes correct messages on remove and replace", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<string>("sut", hub);
+    const sut = new ServicedObservableCollection<string>(hub);
     sut.push("a");
     sut.push("b");
 
@@ -119,7 +118,7 @@ describe("COL-004", () => {
     // "Same-thread" means the hub handler runs synchronously inside push(),
     // i.e. before push() returns — no micro/macrotask deferral.
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<number>("sut", hub);
+    const sut = new ServicedObservableCollection<number>(hub);
 
     const callOrder: string[] = [];
 

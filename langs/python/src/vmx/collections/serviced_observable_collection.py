@@ -26,8 +26,6 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     Parameters
     ----------
-    name:
-        Human-readable identifier used in hub messages.
     hub:
         Optional hub.  Any object that exposes ``.send(message)`` is accepted.
         Pass ``None`` for standalone (no-publication) mode.
@@ -35,20 +33,13 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def __init__(
         self,
-        name: str = "ServicedObservableCollection",
         hub: object = None,
     ) -> None:
-        self._name = name
         self._hub = hub
         self._items: list[T] = []
         self._subject: Subject[CollectionChangedMessage[T]] = Subject()
 
     # ── Public surface ────────────────────────────────────────────────────────
-
-    @property
-    def name(self) -> str:
-        """Human-readable name used in hub messages."""
-        return self._name
 
     @property
     def on_collection_changed(self) -> rx.Observable[CollectionChangedMessage[T]]:
@@ -85,28 +76,26 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
             # Slice replacement: emit reset (coarse-grained)
             items: Iterable[T] = value  # type: ignore[assignment]
             self._items[index] = list(items)
-            self._emit(CollectionChangedMessage.for_reset(self, self._name))
+            self._emit(CollectionChangedMessage.for_reset(self))
         else:
             old_item: T = self._items[index]
             new_item: T = value  # type: ignore[assignment]
             self._items[index] = new_item
-            self._emit(
-                CollectionChangedMessage.for_replace(self, self._name, new_item, old_item, index)
-            )
+            self._emit(CollectionChangedMessage.for_replace(self, new_item, old_item, index))
 
     def __delitem__(self, index: int | slice) -> None:
         if isinstance(index, slice):
             del self._items[index]
-            self._emit(CollectionChangedMessage.for_reset(self, self._name))
+            self._emit(CollectionChangedMessage.for_reset(self))
         else:
             item: T = self._items[index]
             del self._items[index]
-            self._emit(CollectionChangedMessage.for_remove(self, self._name, item, index))
+            self._emit(CollectionChangedMessage.for_remove(self, item, index))
 
     def insert(self, index: int, value: T) -> None:
         """Insert *value* before *index*."""
         self._items.insert(index, value)
-        self._emit(CollectionChangedMessage.for_add(self, self._name, value, index))
+        self._emit(CollectionChangedMessage.for_add(self, value, index))
 
     # Override append/clear for direct index access (insert would work too)
 
@@ -114,18 +103,18 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         """Append *value* to the end of the collection."""
         index = len(self._items)
         self._items.append(value)
-        self._emit(CollectionChangedMessage.for_add(self, self._name, value, index))
+        self._emit(CollectionChangedMessage.for_add(self, value, index))
 
     def clear(self) -> None:
         """Remove all items and emit a Reset event."""
         self._items.clear()
-        self._emit(CollectionChangedMessage.for_reset(self, self._name))
+        self._emit(CollectionChangedMessage.for_reset(self))
 
     def remove(self, value: T) -> None:
         """Remove the first occurrence of *value*."""
         index = self._items.index(value)
         del self._items[index]
-        self._emit(CollectionChangedMessage.for_remove(self, self._name, value, index))
+        self._emit(CollectionChangedMessage.for_remove(self, value, index))
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

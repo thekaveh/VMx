@@ -17,8 +17,11 @@ export interface ICollectionChangedMessage<T> extends IMessage {
 }
 
 export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T> {
-  readonly senderName: string;
   readonly senderObject: object;
+  /** Derived from the sender's constructor name; no separate name field per spec §2.4. */
+  get senderName(): string {
+    return (this.senderObject as { constructor?: { name?: string } }).constructor?.name ?? "";
+  }
   readonly action: CollectionMutationAction;
   readonly newItems: readonly T[];
   readonly oldItems: readonly T[];
@@ -26,14 +29,12 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
 
   private constructor(
     sender: object,
-    senderName: string,
     action: CollectionMutationAction,
     newItems: readonly T[],
     oldItems: readonly T[],
     index: number,
   ) {
     this.senderObject = sender;
-    this.senderName = senderName;
     this.action = action;
     this.newItems = newItems;
     this.oldItems = oldItems;
@@ -42,32 +43,28 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
 
   static forAdd<T>(
     sender: object,
-    senderName: string,
     item: T,
     index: number,
   ): CollectionChangedMessage<T> {
-    return new CollectionChangedMessage(sender, senderName, "add", [item], [], index);
+    return new CollectionChangedMessage(sender, "add", [item], [], index);
   }
 
   static forRemove<T>(
     sender: object,
-    senderName: string,
     item: T,
     index: number,
   ): CollectionChangedMessage<T> {
-    return new CollectionChangedMessage(sender, senderName, "remove", [], [item], index);
+    return new CollectionChangedMessage(sender, "remove", [], [item], index);
   }
 
   static forReplace<T>(
     sender: object,
-    senderName: string,
     newItem: T,
     oldItem: T,
     index: number,
   ): CollectionChangedMessage<T> {
     return new CollectionChangedMessage(
       sender,
-      senderName,
       "replace",
       [newItem],
       [oldItem],
@@ -75,7 +72,7 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
     );
   }
 
-  static forReset<T>(sender: object, senderName: string): CollectionChangedMessage<T> {
-    return new CollectionChangedMessage(sender, senderName, "reset", [], [], -1);
+  static forReset<T>(sender: object): CollectionChangedMessage<T> {
+    return new CollectionChangedMessage(sender, "reset", [], [], -1);
   }
 }

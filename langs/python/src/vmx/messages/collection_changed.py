@@ -19,8 +19,6 @@ class CollectionChangedMessage(Generic[T]):
     ----------
     sender:
         The collection that changed.
-    sender_name:
-        Human-readable sender identifier.
     action:
         One of ``"add"``, ``"remove"``, ``"replace"``, or ``"reset"``.
     new_items:
@@ -32,11 +30,15 @@ class CollectionChangedMessage(Generic[T]):
     """
 
     sender: object
-    sender_name: str
     action: str
     new_items: tuple[T, ...] = field(default_factory=tuple)
     old_items: tuple[T, ...] = field(default_factory=tuple)
     index: int = -1
+
+    @property
+    def sender_name(self) -> str:
+        """Derived from the sender's runtime type name; no separate name field per spec §2.4."""
+        return type(self.sender).__name__
 
     @property
     def sender_object(self) -> object:
@@ -49,14 +51,12 @@ class CollectionChangedMessage(Generic[T]):
     def for_add(
         cls,
         sender: object,
-        sender_name: str,
         item: T,
         index: int,
     ) -> CollectionChangedMessage[T]:
         """Create an Add message."""
         return cls(
             sender=sender,
-            sender_name=sender_name,
             action="add",
             new_items=(item,),
             old_items=(),
@@ -67,14 +67,12 @@ class CollectionChangedMessage(Generic[T]):
     def for_remove(
         cls,
         sender: object,
-        sender_name: str,
         item: T,
         index: int,
     ) -> CollectionChangedMessage[T]:
         """Create a Remove message."""
         return cls(
             sender=sender,
-            sender_name=sender_name,
             action="remove",
             new_items=(),
             old_items=(item,),
@@ -85,7 +83,6 @@ class CollectionChangedMessage(Generic[T]):
     def for_replace(
         cls,
         sender: object,
-        sender_name: str,
         new_item: T,
         old_item: T,
         index: int,
@@ -93,7 +90,6 @@ class CollectionChangedMessage(Generic[T]):
         """Create a Replace message."""
         return cls(
             sender=sender,
-            sender_name=sender_name,
             action="replace",
             new_items=(new_item,),
             old_items=(old_item,),
@@ -104,12 +100,10 @@ class CollectionChangedMessage(Generic[T]):
     def for_reset(
         cls,
         sender: object,
-        sender_name: str,
     ) -> CollectionChangedMessage[T]:
         """Create a Reset message."""
         return cls(
             sender=sender,
-            sender_name=sender_name,
             action="reset",
             new_items=(),
             old_items=(),

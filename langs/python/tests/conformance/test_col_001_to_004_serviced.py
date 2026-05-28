@@ -29,15 +29,27 @@ def _hub() -> MessageHub[CollectionChangedMessage[str]]:
 
 @pytest.mark.conformance("COL-001")
 def test_COL_001_publishes_to_hub_after_local_event_on_add() -> None:
-    """COL-001: ServicedObservableCollection publishes to hub after local CollectionChanged."""
+    """COL-001: ServicedObservableCollection publishes to hub after local CollectionChanged.
+
+    ADR-0024 §4 Consequences: publish ordering — local before hub.
+    """
     hub: MessageHub[CollectionChangedMessage[str]] = _hub()
-    sut: ServicedObservableCollection[str] = ServicedObservableCollection(name="sut", hub=hub)
+    sut: ServicedObservableCollection[str] = ServicedObservableCollection(hub=hub)
 
     local_events: list[CollectionChangedMessage[str]] = []
     hub_messages: list[CollectionChangedMessage[str]] = []
+    call_order: list[str] = []
 
-    sut.on_collection_changed.subscribe(local_events.append)
-    hub.messages.subscribe(hub_messages.append)  # type: ignore[arg-type]
+    def on_local(e: CollectionChangedMessage[str]) -> None:
+        local_events.append(e)
+        call_order.append("local")
+
+    def on_hub(m: CollectionChangedMessage[str]) -> None:
+        hub_messages.append(m)
+        call_order.append("hub")
+
+    sut.on_collection_changed.subscribe(on_local)
+    hub.messages.subscribe(on_hub)  # type: ignore[arg-type]
 
     sut.append("alpha")
 
@@ -54,7 +66,9 @@ def test_COL_001_publishes_to_hub_after_local_event_on_add() -> None:
     assert msg.action == "add"
     assert msg.new_items == ("alpha",)
     assert msg.index == 0
-    assert msg.sender_name == "sut"
+
+    # Ordering: local handler must fire before hub subscriber (ADR-0024 §4)
+    assert call_order == ["local", "hub"]
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +80,7 @@ def test_COL_001_publishes_to_hub_after_local_event_on_add() -> None:
 def test_COL_002_publishes_on_remove_and_replace() -> None:
     """COL-002: ServicedObservableCollection publishes correct messages on remove and replace."""
     hub: MessageHub[CollectionChangedMessage[str]] = _hub()
-    sut: ServicedObservableCollection[str] = ServicedObservableCollection(name="sut", hub=hub)
+    sut: ServicedObservableCollection[str] = ServicedObservableCollection(hub=hub)
     sut.append("a")
     sut.append("b")
 
@@ -140,7 +154,7 @@ def test_COL_003_null_hub_fallback_no_publication_no_error() -> None:
 def test_COL_004_fires_on_caller_thread_no_marshal() -> None:
     """COL-004: ServicedObservableCollection fires hub message on the caller thread."""
     hub: MessageHub[CollectionChangedMessage[int]] = MessageHub()
-    sut: ServicedObservableCollection[int] = ServicedObservableCollection(name="sut", hub=hub)
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection(hub=hub)
 
     caller_tid = threading.current_thread().ident
     captured_tid: list[int | None] = []

@@ -17,19 +17,29 @@ public class COL_001_to_004_ServicedObservableCollectionTests
 
     /// <summary>
     /// COL-001: Inserting an item raises the local CollectionChanged event AND
-    /// publishes a CollectionChangedMessage to the hub.
+    /// publishes a CollectionChangedMessage to the hub, with local firing before hub
+    /// (ADR-0024 §4 Consequences: publish ordering — local before hub).
     /// </summary>
     [Fact, Trait("Conformance", "COL-001")]
     public void COL_001_PublishesToHubAfterLocalEventOnAdd()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<string>("sut", hub);
+        var sut = new ServicedObservableCollection<string>(hub);
 
         var localEvents = new List<NotifyCollectionChangedEventArgs>();
         var hubMessages = new List<IMessage>();
+        var callOrder = new List<string>();
 
-        sut.CollectionChanged += (_, args) => localEvents.Add(args);
-        hub.Messages.Subscribe(msg => hubMessages.Add(msg));
+        sut.CollectionChanged += (_, args) =>
+        {
+            localEvents.Add(args);
+            callOrder.Add("local");
+        };
+        hub.Messages.Subscribe(msg =>
+        {
+            hubMessages.Add(msg);
+            callOrder.Add("hub");
+        });
 
         sut.Add("alpha");
 
@@ -45,7 +55,9 @@ public class COL_001_to_004_ServicedObservableCollectionTests
         msg.Action.Should().Be(NotifyCollectionChangedAction.Add);
         msg.NewItems.Should().ContainSingle().Which.Should().Be("alpha");
         msg.Index.Should().Be(0);
-        msg.SenderName.Should().Be("sut");
+
+        // Ordering: local handler must fire before hub subscriber (ADR-0024 §4)
+        callOrder.Should().Equal("local", "hub");
     }
 
     // ── COL-002 ──────────────────────────────────────────────────────────────
@@ -57,7 +69,7 @@ public class COL_001_to_004_ServicedObservableCollectionTests
     public void COL_002_PublishesOnRemoveAndReplace()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<string>("sut", hub);
+        var sut = new ServicedObservableCollection<string>(hub);
         sut.Add("a");
         sut.Add("b");
 
@@ -127,7 +139,7 @@ public class COL_001_to_004_ServicedObservableCollectionTests
     public void COL_004_FiresOnCallerThread_NoMarshal()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<int>("sut", hub);
+        var sut = new ServicedObservableCollection<int>(hub);
 
         int? capturedThreadId = null;
         int callerThreadId = Environment.CurrentManagedThreadId;

@@ -63,7 +63,7 @@ public class ServicedObservableCollectionTests
     public void Hub_Add_PublishesAddMessage()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<string>("col", hub);
+        var sut = new ServicedObservableCollection<string>(hub);
         var msgs = new List<IMessage>();
         hub.Messages.Subscribe(msgs.Add);
 
@@ -80,7 +80,7 @@ public class ServicedObservableCollectionTests
     public void Hub_Remove_PublishesRemoveMessage()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<string>("col", hub);
+        var sut = new ServicedObservableCollection<string>(hub);
         sut.Add("y");
 
         var msgs = new List<IMessage>();
@@ -97,7 +97,7 @@ public class ServicedObservableCollectionTests
     public void Hub_Replace_PublishesReplaceMessage()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<string>("col", hub);
+        var sut = new ServicedObservableCollection<string>(hub);
         sut.Add("old");
 
         var msgs = new List<IMessage>();
@@ -115,7 +115,7 @@ public class ServicedObservableCollectionTests
     public void Hub_Clear_PublishesResetMessage()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<string>("col", hub);
+        var sut = new ServicedObservableCollection<string>(hub);
         sut.Add("a");
 
         var msgs = new List<IMessage>();
@@ -134,7 +134,7 @@ public class ServicedObservableCollectionTests
     public void Hub_BothLocalAndHubObserveBothAdd()
     {
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<int>("col", hub);
+        var sut = new ServicedObservableCollection<int>(hub);
 
         var localSaw = false;
         var hubSaw = false;
@@ -154,7 +154,7 @@ public class ServicedObservableCollectionTests
     {
         const int N = 10_000;
         var hub = new TestHub();
-        var sut = new ServicedObservableCollection<int>("stress", hub);
+        var sut = new ServicedObservableCollection<int>(hub);
         int hubCount = 0;
         hub.Messages.Subscribe(_ => hubCount++);
 
@@ -164,14 +164,5 @@ public class ServicedObservableCollectionTests
         sut.Should().BeEmpty();
         // N adds + 1 clear = N+1 messages
         hubCount.Should().Be(N + 1);
-    }
-
-    // ── Default name ─────────────────────────────────────────────────────────
-
-    [Fact]
-    public void DefaultName_IsFallback()
-    {
-        var sut = new ServicedObservableCollection<int>();
-        sut.Name.Should().NotBeNullOrEmpty();
     }
 }

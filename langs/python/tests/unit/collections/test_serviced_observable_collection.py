@@ -84,7 +84,7 @@ def test_no_hub_insert_emits_add() -> None:
 
 def test_hub_append_publishes_add_message() -> None:
     hub: MessageHub[CollectionChangedMessage[str]] = MessageHub()
-    sut: ServicedObservableCollection[str] = ServicedObservableCollection("col", hub)
+    sut: ServicedObservableCollection[str] = ServicedObservableCollection(hub)
     msgs: list[CollectionChangedMessage[str]] = []
     hub.messages.subscribe(msgs.append)  # type: ignore[arg-type]
 
@@ -98,7 +98,7 @@ def test_hub_append_publishes_add_message() -> None:
 
 def test_hub_remove_publishes_remove_message() -> None:
     hub: MessageHub[CollectionChangedMessage[str]] = MessageHub()
-    sut: ServicedObservableCollection[str] = ServicedObservableCollection("col", hub)
+    sut: ServicedObservableCollection[str] = ServicedObservableCollection(hub)
     sut.append("y")
 
     msgs: list[CollectionChangedMessage[str]] = []
@@ -112,7 +112,7 @@ def test_hub_remove_publishes_remove_message() -> None:
 
 def test_hub_setitem_publishes_replace_message() -> None:
     hub: MessageHub[CollectionChangedMessage[str]] = MessageHub()
-    sut: ServicedObservableCollection[str] = ServicedObservableCollection("col", hub)
+    sut: ServicedObservableCollection[str] = ServicedObservableCollection(hub)
     sut.append("old")
 
     msgs: list[CollectionChangedMessage[str]] = []
@@ -127,7 +127,7 @@ def test_hub_setitem_publishes_replace_message() -> None:
 
 def test_hub_clear_publishes_reset_message() -> None:
     hub: MessageHub[CollectionChangedMessage[str]] = MessageHub()
-    sut: ServicedObservableCollection[str] = ServicedObservableCollection("col", hub)
+    sut: ServicedObservableCollection[str] = ServicedObservableCollection(hub)
     sut.append("a")
 
     msgs: list[CollectionChangedMessage[str]] = []
@@ -143,7 +143,7 @@ def test_hub_clear_publishes_reset_message() -> None:
 
 def test_both_local_and_hub_observe_change() -> None:
     hub: MessageHub[CollectionChangedMessage[int]] = _hub()
-    sut: ServicedObservableCollection[int] = ServicedObservableCollection("col", hub)
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection(hub)
 
     local_saw: list[bool] = []
     hub_saw: list[bool] = []
@@ -163,7 +163,7 @@ def test_both_local_and_hub_observe_change() -> None:
 
 def test_stress_10k_appends_and_clear() -> None:
     hub: MessageHub[CollectionChangedMessage[int]] = _hub()
-    sut: ServicedObservableCollection[int] = ServicedObservableCollection("stress", hub)
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection(hub)
     hub_count: list[int] = [0]
     hub.messages.subscribe(lambda _: hub_count.__setitem__(0, hub_count[0] + 1))  # type: ignore[arg-type]
 
@@ -174,17 +174,6 @@ def test_stress_10k_appends_and_clear() -> None:
 
     assert len(sut) == 0
     assert hub_count[0] == n + 1  # n adds + 1 reset
-
-
-# ---------------------------------------------------------------------------
-# Default name
-# ---------------------------------------------------------------------------
-
-
-def test_default_name_is_non_empty() -> None:
-    sut: ServicedObservableCollection[int] = ServicedObservableCollection()
-    assert sut.name
-    assert isinstance(sut.name, str)
 
 
 # ---------------------------------------------------------------------------

@@ -55,7 +55,7 @@ describe("ServicedObservableCollection – null-hub fallback", () => {
 describe("ServicedObservableCollection – hub wiring", () => {
   it("push publishes add message to hub", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<string>("col", hub);
+    const sut = new ServicedObservableCollection<string>(hub);
     const msgs: unknown[] = [];
     hub.messages.subscribe((m) => msgs.push(m));
 
@@ -70,7 +70,7 @@ describe("ServicedObservableCollection – hub wiring", () => {
 
   it("pop publishes remove message to hub", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<string>("col", hub);
+    const sut = new ServicedObservableCollection<string>(hub);
     sut.push("y");
 
     const msgs: CollectionChangedMessage<string>[] = [];
@@ -84,7 +84,7 @@ describe("ServicedObservableCollection – hub wiring", () => {
 
   it("setAt publishes replace message to hub", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<string>("col", hub);
+    const sut = new ServicedObservableCollection<string>(hub);
     sut.push("old");
 
     const msgs: CollectionChangedMessage<string>[] = [];
@@ -99,7 +99,7 @@ describe("ServicedObservableCollection – hub wiring", () => {
 
   it("clear publishes reset message to hub", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<string>("col", hub);
+    const sut = new ServicedObservableCollection<string>(hub);
     sut.push("a");
 
     const msgs: CollectionChangedMessage<string>[] = [];
@@ -115,7 +115,7 @@ describe("ServicedObservableCollection – hub wiring", () => {
 
   it("both local and hub observers see the change", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<number>("col", hub);
+    const sut = new ServicedObservableCollection<number>(hub);
     let localSaw = false;
     let hubSaw = false;
     sut.collectionChanged.subscribe(() => { localSaw = true; });
@@ -135,7 +135,7 @@ describe("ServicedObservableCollection – hub wiring", () => {
 describe("ServicedObservableCollection – stress", () => {
   it("10k pushes + clear completes without error", () => {
     const hub = new MessageHub();
-    const sut = new ServicedObservableCollection<number>("stress", hub);
+    const sut = new ServicedObservableCollection<number>(hub);
     let hubCount = 0;
     hub.messages.subscribe(() => hubCount++);
 
@@ -145,23 +145,6 @@ describe("ServicedObservableCollection – stress", () => {
 
     expect(sut.length).toBe(0);
     expect(hubCount).toBe(n + 1); // n adds + 1 reset
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Default name
-// ---------------------------------------------------------------------------
-
-describe("ServicedObservableCollection – metadata", () => {
-  it("default name is non-empty", () => {
-    const sut = new ServicedObservableCollection<number>();
-    expect(sut.name).toBeTruthy();
-    expect(typeof sut.name).toBe("string");
-  });
-
-  it("custom name is returned via .name", () => {
-    const sut = new ServicedObservableCollection<number>("myCol");
-    expect(sut.name).toBe("myCol");
   });
 });
 

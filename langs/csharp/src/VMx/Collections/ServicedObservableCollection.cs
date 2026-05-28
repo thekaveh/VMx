@@ -21,18 +21,11 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>
     private readonly IMessageHub? _hub;
 
     /// <summary>
-    /// Human-readable name used as <c>SenderName</c> in published messages.
-    /// </summary>
-    public string Name { get; }
-
-    /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
-    /// <param name="name">Identifier used in hub messages. Defaults to the type name.</param>
     /// <param name="hub">Optional hub. Pass <c>null</c> for standalone (no publication) mode.</param>
-    public ServicedObservableCollection(string? name = null, IMessageHub? hub = null)
+    public ServicedObservableCollection(IMessageHub? hub = null)
     {
-        Name = name ?? nameof(ServicedObservableCollection<T>);
         _hub = hub;
     }
 
@@ -49,25 +42,25 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>
         {
             NotifyCollectionChangedAction.Add =>
                 CollectionChangedMessage<T>.ForAdd(
-                    this, Name,
+                    this,
                     (T)e.NewItems![0]!,
                     e.NewStartingIndex),
 
             NotifyCollectionChangedAction.Remove =>
                 CollectionChangedMessage<T>.ForRemove(
-                    this, Name,
+                    this,
                     (T)e.OldItems![0]!,
                     e.OldStartingIndex),
 
             NotifyCollectionChangedAction.Replace =>
                 CollectionChangedMessage<T>.ForReplace(
-                    this, Name,
+                    this,
                     (T)e.NewItems![0]!,
                     (T)e.OldItems![0]!,
                     e.NewStartingIndex),
 
             _ /* Reset */ =>
-                CollectionChangedMessage<T>.ForReset(this, Name),
+                CollectionChangedMessage<T>.ForReset(this),
         };
 
         _hub.Send(msg);
