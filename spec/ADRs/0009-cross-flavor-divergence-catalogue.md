@@ -244,7 +244,7 @@ here so audits don't reopen them prematurely:
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
 
-### 2.1 Resolved in v1.2.0
+### 2.1 Historical: divergences resolved in v1.2.0 (pre-v2 era)
 
 - C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
 - TypeScript `ConstructionStatusChangedMessage.sender` getter (additive).
