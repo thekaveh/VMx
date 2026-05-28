@@ -244,6 +244,30 @@ here so audits don't reopen them prematurely:
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
 
+### Command property declared types
+
+- **C#**: command properties on `ComponentVMBase`, `FormVM`, `NotificationVM`,
+  `ConfirmationVM`, `ModeledCrudCommands` are typed as `ICommand` (the
+  interface).
+- **Python**: command properties are typed as the concrete `RelayCommand`
+  (except `ModeledCrudCommands` which uses the `Command` Protocol).
+- **TypeScript**: command properties are typed as the concrete `RelayCommand`
+  (except `ModeledCrudCommands` which uses `ICommand`).
+- **Rationale**: .NET's strong "code to abstractions" culture leads to
+  interface-typed properties; Python/TS communities lean toward exposing the
+  concrete return type for IDE assistance and discoverability. Functionally
+  equivalent — every concrete command implements the interface.
+
+### `FormVM<TM>` constructor shape
+
+- **C# / Python**: positional constructor parameters
+  `(initial, persister, hub?, strict?, snapshotter?)`.
+- **TypeScript**: single options-bag parameter `FormVMOptions<TM>` with named
+  fields.
+- **Rationale**: Idiomatic per language. TS lacks named-argument constructor
+  syntax; the options-bag is the standard JS pattern for constructors with
+  many optional parameters.
+
 ### 2.1 Historical: divergences resolved in v1.2.0 (pre-v2 era)
 
 - C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
