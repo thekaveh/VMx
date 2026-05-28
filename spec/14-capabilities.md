@@ -6,7 +6,7 @@ do**, not what it is. They never alter the shape of an existing VM type; a
 chooses (or its consumer chooses, via a wrapper) to additionally implement one
 or more capabilities.
 
-This chapter lists the 21 capability interfaces, their members, and the rules
+This chapter lists the 22 capability interfaces, their members, and the rules
 that govern how they compose with the existing VM hierarchy.
 
 ## 1. Why capability interfaces
@@ -21,7 +21,7 @@ mutually exclusive: capability interfaces give consumers a way to write
 See ADR-0010 for the rationale and the decision to absorb these interfaces
 additively rather than restructuring the existing VM hierarchy around them.
 
-## 2. The 21 capabilities
+## 2. The 22 capabilities
 
 Capabilities are grouped by intent. Every capability is independently
 implementable; a VM may implement any subset.
@@ -163,6 +163,27 @@ IManagable<T>:
     manage(item: T) : void
 ```
 
+### 2.10 Paging capability
+
+```
+IPageable:
+    PageSize         : int   # mutable; 0 means "all items in one page"
+    CurrentPageIndex : int   # mutable; clamped to [0, PageCount-1]
+    PageCount        : int   # derived: ceil(itemCount / PageSize)
+    IsPagingEnabled  : bool  # derived: PageSize > 0
+    move_to_first_page()     # no-op when CurrentPageIndex == 0
+    move_to_previous_page()  # no-op at lower bound
+    move_to_next_page()      # no-op at upper bound
+    move_to_last_page()      # no-op when at last page
+```
+
+The capability describes the _navigation surface_ of a paged view; the
+underlying composition is not mutated. `PagedComposition<TVM>` (Substage 1C /
+chapter 21) is the canonical helper that decorates any composition with this
+capability.
+
+See ADR-0023.
+
 ## 3. Rules
 
 1. **Additive only.** Adding a capability interface to a VM type is a
@@ -206,7 +227,7 @@ concrete type.
 
 ## 5. Conformance
 
-`CAP-001` through `CAP-021` in `12-conformance.md` cover the 21 capability
+`CAP-001` through `CAP-022` in `12-conformance.md` cover the 22 capability
 interfaces. Each test verifies that:
 
 - the interface exists in the flavor's public surface
