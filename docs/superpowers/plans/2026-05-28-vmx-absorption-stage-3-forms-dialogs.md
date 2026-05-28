@@ -102,7 +102,7 @@ ______________________________________________________________________
 
 ## Stage 3 progress tracker
 
-- [ ] **Substage 3A** — Spec foundation (ADR-0029 + ADR-0030 + chapters 19+20 + conformance IDs + stubs)
+- [x] **Substage 3A** — Spec foundation (ADR-0029 + ADR-0030 + chapters 19+20 + conformance IDs + stubs)
 - [ ] **Substage 3B** — Per-flavor IDialogService + NullDialogService (3 flavors)
 - [ ] **Substage 3C** — Per-flavor FormVM (3 flavors)
 - [ ] **Substage 3D** — Cross-chapter integration (16-notifications crossref + Confirm overload + integration test)
@@ -120,7 +120,7 @@ ______________________________________________________________________
 
 - Modify: `spec/ADRs/README.md`
 
-- [ ] **Step 1: Write the ADR.**
+- [x] **Step 1: Write the ADR.**
 
 ```markdown
 # ADR 0029 — Dialog service in core
@@ -164,7 +164,7 @@ Host adapters (WPF/Avalonia/console/test) live downstream. Reentrancy is impleme
 
 Register in `spec/ADRs/README.md`.
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add spec/ADRs/0029-dialog-service-in-core.md spec/ADRs/README.md
@@ -182,7 +182,7 @@ If mdformat reformats: re-stage and re-commit (NEVER `--amend`).
 
 - Modify: `spec/ADRs/README.md`
 
-- [ ] **Step 1: Write the ADR.**
+- [x] **Step 1: Write the ADR.**
 
 ```markdown
 # ADR 0030 — `FormVM<TM>` (snapshot/revert edit lifecycle, ORM-agnostic)
@@ -228,7 +228,7 @@ Strict mode (opt-in): `Approve.CanExecute = IsDirty`. Default: consumer-controll
 
 Register in `spec/ADRs/README.md`.
 
-- [ ] **Step 2: Commit.**
+- [x] **Step 2: Commit.**
 
 ```bash
 git add spec/ADRs/0030-form-vm.md spec/ADRs/README.md
@@ -244,7 +244,7 @@ git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG" || echo "clean
 
 - Modify: `spec/README.md`
 
-- [ ] **Step 1: Author the chapter.**
+- [x] **Step 1: Author the chapter.**
 
 Sections: §1 Overview, §2 Contract surface, §3 NullDialogService, §4 IDialogService vs INotificationHub (with mermaid sequence diagram), §5 Reentrancy, §6 Cancellation, §7 ConfirmationDecoratorCommand integration, §8 Conformance.
 
@@ -259,9 +259,9 @@ graph TB
     User[User]
 ```
 
-- [ ] **Step 2: Add chapter 19 to `spec/README.md` v2.1 additions.**
+- [x] **Step 2: Add chapter 19 to `spec/README.md` v2.1 additions.**
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/19-dialogs.md spec/README.md
@@ -276,7 +276,7 @@ git commit -m "spec(ch): add chapter 19 IDialogService (host modal interactions)
 
 - Modify: `spec/README.md`
 
-- [ ] **Step 1: Author the chapter.**
+- [x] **Step 1: Author the chapter.**
 
 Sections: §1 Overview, §2 Shape (Model, Snapshot, IsDirty, DenyCommand, ApproveCommand, OnApproved), §3 Snapshot policy, §4 Dirty detection, §5 Lifecycle state diagram (mermaid), §6 IDialogService integration, §7 Hub messages (FormRevertedMessage, PropertyChangedMessage), §8 Strict mode, §9 Conformance.
 
@@ -293,9 +293,9 @@ stateDiagram-v2
     Pristine --> [*]: dispose
 ```
 
-- [ ] **Step 2: Add chapter 20 to `spec/README.md`.**
+- [x] **Step 2: Add chapter 20 to `spec/README.md`.**
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/20-form-vm.md spec/README.md
@@ -310,7 +310,7 @@ git commit -m "spec(ch): add chapter 20 FormVM (snapshot/revert edit lifecycle)"
 
 - Modify: `spec/README.md` (ID count 195 → 213)
 
-- [ ] **Step 1: Add DIA-001..DIA-008 entries to the catalog.**
+- [x] **Step 1: Add DIA-001..DIA-008 entries to the catalog.**
 
 | ID      | Coverage                                                                                                                                   |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -323,7 +323,7 @@ git commit -m "spec(ch): add chapter 20 FormVM (snapshot/revert edit lifecycle)"
 | DIA-007 | Cancellation: cancelling a pending dialog completes the awaitable with the cancellation result (null or false) without throwing            |
 | DIA-008 | `ConfirmationDecoratorCommand` with `() => dialogService.Confirm(prompt)` constructs a valid command graph                                 |
 
-- [ ] **Step 2: Add FORM-001..FORM-010 entries.**
+- [x] **Step 2: Add FORM-001..FORM-010 entries.**
 
 | ID       | Coverage                                                                                     |
 | -------- | -------------------------------------------------------------------------------------------- |
@@ -338,9 +338,9 @@ git commit -m "spec(ch): add chapter 20 FormVM (snapshot/revert edit lifecycle)"
 | FORM-009 | Strict mode: `Approve.CanExecute` is false when not dirty (opt-in)                           |
 | FORM-010 | Integration with `IDialogService.Confirm` in a `DenyCommand.Confirm(prompt)`-wrapped form    |
 
-- [ ] **Step 3: Update `spec/README.md` ID count from 195 to 213.**
+- [x] **Step 3: Update `spec/README.md` ID count from 195 to 213.**
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add spec/12-conformance.md spec/README.md
@@ -363,9 +363,9 @@ git commit -m "spec(conf): add DIA-001..008 and FORM-001..010 conformance IDs"
 
 - Create: `langs/typescript/tests/conformance/form-001-to-010-form-vm.test.ts`
 
-- [ ] **Step 1: Read existing stub pattern** (e.g., the HIER- stub file landed in Substage 2A for reference).
+- [x] **Step 1: Read existing stub pattern** (e.g., the HIER- stub file landed in Substage 2A for reference).
 
-- [ ] **Step 2: Create the 6 stub files** (3 flavors × 2 ID prefixes). Each contains the matching number of stubs (8 DIA / 10 FORM) using the recognized markers:
+- [x] **Step 2: Create the 6 stub files** (3 flavors × 2 ID prefixes). Each contains the matching number of stubs (8 DIA / 10 FORM) using the recognized markers:
 
 - C#: `[Fact(Skip = "DIA-NNN not yet implemented"), Trait("Conformance", "DIA-NNN")]`
 
@@ -373,7 +373,7 @@ git commit -m "spec(conf): add DIA-001..008 and FORM-001..010 conformance IDs"
 
 - TS: `describe("DIA-NNN", ...)` with `it.todo(...)`
 
-- [ ] **Step 3: Run conformance coverage tool.**
+- [x] **Step 3: Run conformance coverage tool.**
 
 ```bash
 uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript
@@ -381,7 +381,7 @@ uv --project langs/python run python tools/check-conformance-coverage.py --requi
 
 Expected: 213/213 in all 3 flavors.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add langs/csharp/tests/VMx.Conformance.Tests/DIA_001_to_008_*.cs \
@@ -393,7 +393,7 @@ git add langs/csharp/tests/VMx.Conformance.Tests/DIA_001_to_008_*.cs \
 git commit -m "test(conf): add DIA- and FORM- stubs in all three flavors"
 ```
 
-- [ ] **Step 5: Tick Substage 3A checkboxes; commit `docs(plan): tick Substage 3A`.**
+- [x] **Step 5: Tick Substage 3A checkboxes; commit `docs(plan): tick Substage 3A`.**
 
 ______________________________________________________________________
 
