@@ -310,14 +310,14 @@ git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG" || echo "clean
 
 - Modify: `spec/12-conformance.md`
 
-- [ ] **Step 1: Find the `CAP-` block in the conformance catalog.**
+- [x] **Step 1: Find the `CAP-` block in the conformance catalog.**
 
 ```bash
 grep -n '^### CAP' spec/12-conformance.md
 grep -n 'CAP-020' spec/12-conformance.md
 ```
 
-- [ ] **Step 2: Add `CAP-021` immediately after `CAP-020`** with text:
+- [x] **Step 2: Add `CAP-021` immediately after `CAP-020`** with text:
 
 ```markdown
 - `CAP-021` — `IFilterable<T>` capability contract surface and opt-in behavior.
@@ -326,7 +326,7 @@ grep -n 'CAP-020' spec/12-conformance.md
   Verified per flavor with a minimal `CompositeVM` wrapper that opts in.
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/12-conformance.md
@@ -343,7 +343,7 @@ git commit -m "spec(conf): add CAP-021 conformance ID for IFilterable<T>"
 
 - Create: `langs/typescript/tests/conformance/cap-021-filterable.test.ts`
 
-- [ ] **Step 1: Look at an existing CAP- stub in each flavor to copy the pattern.**
+- [x] **Step 1: Look at an existing CAP- stub in each flavor to copy the pattern.**
 
 ```bash
 find langs/csharp/tests/conformance -name 'CAP_020*' -exec cat {} \;
@@ -351,13 +351,13 @@ find langs/python/tests/conformance -name 'test_cap_020*' -exec cat {} \;
 find langs/typescript/tests/conformance -name 'cap-020*' -exec cat {} \;
 ```
 
-- [ ] **Step 2: Create the C# stub** mirroring the existing CAP-020 file structure (xUnit class + `[Trait("Conformance", "CAP-021")]`, single test method that throws `NotImplementedException` or asserts `Assert.True(false, "not yet implemented")`).
+- [x] **Step 2: Create the C# stub** mirroring the existing CAP-020 file structure (xUnit class + `[Trait("Conformance", "CAP-021")]`, single test method that throws `NotImplementedException` or asserts `Assert.True(false, "not yet implemented")`).
 
-- [ ] **Step 3: Create the Python stub** with `@pytest.mark.conformance("CAP-021")` and an `xfail` or `pytest.skip("not yet implemented")` body.
+- [x] **Step 3: Create the Python stub** with `@pytest.mark.conformance("CAP-021")` and an `xfail` or `pytest.skip("not yet implemented")` body.
 
-- [ ] **Step 4: Create the TypeScript stub** with `describe("CAP-021", ...)` and a single `it.todo("verify IFilterable contract surface")`.
+- [x] **Step 4: Create the TypeScript stub** with `describe("CAP-021", ...)` and a single `it.todo("verify IFilterable contract surface")`.
 
-- [ ] **Step 5: Run conformance coverage tool to verify CI rule passes.**
+- [x] **Step 5: Run conformance coverage tool to verify CI rule passes.**
 
 ```bash
 uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript
@@ -365,7 +365,7 @@ uv --project langs/python run python tools/check-conformance-coverage.py --requi
 
 Expected: exits 0 (no missing IDs in any flavor).
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add langs/csharp/tests/conformance/CAP_021_Filterable_Tests.cs langs/python/tests/conformance/test_cap_021_filterable.py langs/typescript/tests/conformance/cap-021-filterable.test.ts
