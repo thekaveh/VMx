@@ -113,7 +113,29 @@ load. Each scenario has:
 - `mutations`: ordered `(source_index, new_value)` events.
 - `expected_values`: the expected `Value` after each mutation.
 
-## 8. Conformance
+## 8. Recipe: avoiding double-subscription on lazy initialization (spec v2.1)
+
+A common pattern in pre-Rx ViewModel code is to manage a per-property `IDisposable`
+token (an "initialization token") that is set on first access and disposed on
+reinitialization. This pattern is **unnecessary** when using `DerivedProperty`.
+
+`DerivedProperty` subscribes to its source observables **once**, in its constructor,
+regardless of how many consumers later subscribe to `ValueChanged`. Internally it
+routes source emissions through a single `Subject<TValue>` (or per-flavor equivalent)
+that acts as a shared multicast channel — multiple subscribers to `ValueChanged` share
+that one source subscription rather than creating independent ones.
+
+If you find yourself wanting an init-token pattern:
+
+- Use a `DerivedProperty<T>` instead. It memoizes the source subscription and shares
+  value emissions across all consumers via its internal subject.
+- Dispose the `DerivedProperty` instance when its owning VM disposes; the source
+  subscription releases automatically (see §4 above).
+
+The `InitializationTokens` dictionary pattern found in some GuideArch-era codebases
+is therefore obsolete in v2.x and should be replaced with `DerivedProperty`.
+
+## 9. Conformance
 
 `DPROP-001` through `DPROP-012` in `12-conformance.md` cover:
 

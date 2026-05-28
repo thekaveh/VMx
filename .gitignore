@@ -11,6 +11,7 @@
 # ─── Claude Code session state ─────────────────────────────────────────
 .claude/
 CLAUDE.md
+docs/superpowers/
 
 # ─── Python ───────────────────────────────────────────────────────────
 __pycache__/

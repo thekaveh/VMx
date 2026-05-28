@@ -5,8 +5,8 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for the notifications sub-package, NOTIF-001..010.
-/// See spec/16-notifications.md and ADR-0013.
+/// Conformance tests for the notifications sub-package, NOTIF-001..016.
+/// See spec/16-notifications.md, ADR-0013, ADR-0031.
 /// </summary>
 public class NotificationsConformanceTests
 {
@@ -166,4 +166,6 @@ public class NotificationsConformanceTests
         pendingReject.Dispose();
         resultReject.Should().BeFalse();
     }
+
+    // NOTIF-011..016 live in NOTIF_011_to_016_RenderingVMs_Tests.cs
 }

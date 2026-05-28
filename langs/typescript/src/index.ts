@@ -22,7 +22,10 @@ export {
 // Messages
 export type { IMessage, ITypedMessage } from "./messages/types.js";
 export { PropertyChangedMessage } from "./messages/propertyChanged.js";
+export { propertyValueChangedMessagesFor } from "./messages/propertyValueChanged.js";
 export { ConstructionStatusChangedMessage } from "./messages/constructionStatusChanged.js";
+export { TreeStructureChangedMessage } from "./messages/treeStructureChanged.js";
+export type { TreeStructureChange } from "./messages/treeStructureChanged.js";
 
 // Collections
 export type {
@@ -31,6 +34,27 @@ export type {
 } from "./collections/collectionChangedEvent.js";
 export { makeCollectionChangedEvent } from "./collections/collectionChangedEvent.js";
 export { BatchUpdateHandle, type IBatchable } from "./collections/batchUpdateHandle.js";
+export { ServicedObservableCollection } from "./collections/servicedObservableCollection.js";
+export {
+  ObservableList,
+  type ItemAddedEvent,
+  type ItemRemovedEvent,
+  type ItemReplacedEvent,
+} from "./collections/observableList.js";
+export {
+  ObservableDictionary,
+  type DictionaryItemAddedEvent,
+  type DictionaryItemRemovedEvent,
+  type DictionaryItemReplacedEvent,
+} from "./collections/observableDictionary.js";
+export {
+  PagedComposition,
+  type PagedCompositionSource,
+} from "./collections/pagedComposition.js";
+
+// Collection messages
+export type { CollectionMutationAction, ICollectionChangedMessage } from "./messages/collectionChanged.js";
+export { CollectionChangedMessage } from "./messages/collectionChanged.js";
 
 // Services
 export type { IMessageHub } from "./services/messageHub.js";
@@ -61,6 +85,13 @@ export {
   ModeledCrudCommands,
   type ModeledCrudCommandsOptions,
 } from "./commands/modeledCrudCommands.js";
+export {
+  confirm,
+  confirmWithDialogService,
+  precedeWith,
+  succeedWith,
+  wrapWith,
+} from "./commands/fluent.js";
 
 // Components
 export { ViewModelType } from "./components/types.js";
@@ -115,6 +146,23 @@ export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 
 // Tree utilities
 export { walk, find, walkExpanded } from "./tree/walk.js";
+
+// Hierarchical VM (spec v2.1)
+export { HierarchicalVM } from "./hierarchical/hierarchicalVm.js";
+export type { HierarchicalVMOptions } from "./hierarchical/hierarchicalVm.js";
+
+// Dialogs (spec v2.1)
+export type {
+  IDialogService,
+  FileFilter,
+  NotificationSeverity,
+} from "./dialogs/dialogService.js";
+export { NullDialogService } from "./dialogs/nullDialogService.js";
+
+// Forms (spec v2.1)
+export { FormVM } from "./forms/formVm.js";
+export type { FormVMOptions, Persister, Snapshotter } from "./forms/formVm.js";
+export { FormRevertedMessage } from "./messages/formReverted.js";
 
 // Expandable state helper (spec v2.0)
 export { ExpandableState } from "./capabilities/expandableState.js";
@@ -175,3 +223,5 @@ export type {
   ICurrentUpdatable,
 } from "./capabilities/currentCrud.js";
 export type { IManagable } from "./capabilities/management.js";
+export type { IFilterable } from "./capabilities/filter.js";
+export type { IPageable } from "./capabilities/pageable.js";

@@ -20,9 +20,18 @@ in multiple language flavors with semantically equivalent behavior.
   lifecycle status changes.
 - Fluent immutable builders for every viewmodel and command type.
 - Capability micro-interfaces, helpers (`SearchableState`, `ExpandableState`,
-  `DerivedProperty`, `ModeledCrudCommands`), null-object services, optional
-  `INotificationHub` sub-package, and `ILocalizer` hook (introduced in spec v2.0,
-  detailed in chapters 14–17).
+  `DerivedProperty`, `ModeledCrudCommands`, `IFilterable<T>`, `IPageable`),
+  null-object services, optional `INotificationHub` sub-package, and `ILocalizer`
+  hook (introduced in spec v2.0, detailed in chapters 14–17).
+- **v2.1 additions** (chapters 18–21): `HierarchicalVM<TModel, TVM>` — first-class
+  recursive tree VM with lazy/eager child loading and `TreeStructureChangedMessage`;
+  `IDialogService` — host-side modal interactions distinct from `INotificationHub`;
+  `FormVM<TM>` — snapshot/revert edit lifecycle with approve/deny commands and
+  `FormRevertedMessage`; `NotificationVM` + `ConfirmationVM` — render-side VMs with
+  auto-dismiss lifecycle; collection primitives `ServicedObservableCollection<T>`,
+  `ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, and
+  `PagedComposition<TVM>`; fluent command extensions (`Confirm`, `PrecedeWith`,
+  `SucceedWith`, `WrapWith`).
 
 ## 2. Out of scope
 
@@ -68,3 +77,12 @@ language and lives under `docs/`.
   language flavor renders these in its native syntax.
 - Cross-references use `§N` for sections of the same document and the filename
   (`02-lifecycle.md`) for sections of other documents.
+
+## 6. C#-only extensions
+
+The C# flavor ships one utility that has no counterpart in Python or TypeScript:
+`LinqHelpers` — a set of LINQ extension methods over `IObservableList<T>` and
+`ObservableDictionary` (e.g., `WhereObservable`, `SelectObservable`). These are
+idiomatic to C# and the `System.Reactive`/LINQ ecosystem; the other flavors
+cover the same use-cases through native comprehensions and `reactivex`/`rxjs`
+operators. This asymmetry is intentional and documented in ADR-0033.

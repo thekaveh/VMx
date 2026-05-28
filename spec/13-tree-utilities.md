@@ -86,7 +86,19 @@ Properties:
 This helper enables tree-view consumers to render only the visible portion
 of the VM tree without writing their own descent logic.
 
-## 6. Conformance
+## 6. Integration with `HierarchicalVM`
+
+When applied to a `HierarchicalVM<TModel, TVM>` instance:
+
+- `walk(node)` yields depth-first descendants including the root. Order is
+  `parent → children[0] → children[0].children[0] → … → children[1] → …`.
+- `walk_expanded(node)` honors the lazy boundary: an `ExpandableState`-composed
+  node whose `IsExpanded == false` does NOT yield its children. Useful for
+  tree-view rendering that should only show expanded branches.
+
+See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
+
+## 7. Conformance
 
 `UTIL-001` through `UTIL-003` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:

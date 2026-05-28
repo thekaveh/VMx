@@ -448,4 +448,159 @@ public class CapabilitiesConformanceTests
         (vm is IDestructable).Should().BeTrue();
         (vm is IReconstructable).Should().BeTrue();
     }
+
+    // ── CAP-021 ─────────────────────────────────────────────────────────────
+
+    /// <summary>CAP-021: IFilterable&lt;TItem&gt; contract surface and opt-in behavior.</summary>
+    [Fact, Trait("Conformance", "CAP-021")]
+    public void CAP_021_IFilterable_Contract_Surface()
+    {
+        var sut = new FilterableFixture<int>();
+        sut.Filter.Should().BeNull();
+        sut.CanFilter().Should().BeTrue();
+
+        Predicate<int> p = x => x > 0;
+        sut.Filter = p;
+        sut.Filter.Should().BeSameAs(p);
+
+        sut.Filter = null;
+        sut.Filter.Should().BeNull();
+    }
+
+    private sealed class FilterableFixture<TItem> : IFilterable<TItem>
+    {
+        public Predicate<TItem>? Filter { get; set; }
+        public bool CanFilter() => true;
+    }
+
+    // ── CAP-022 ─────────────────────────────────────────────────────────────
+
+    /// <summary>CAP-022: IPageable capability contract surface and clamping/navigation behavior.</summary>
+    [Fact, Trait("Conformance", "CAP-022")]
+    public void CAP_022_IPageable_Contract_Surface()
+    {
+        // ── 1. Initial state ────────────────────────────────────────────────
+        var sut = new PageableFixture(itemCount: 25);
+        sut.PageSize.Should().Be(10);
+        sut.CurrentPageIndex.Should().Be(0);
+        sut.IsPagingEnabled.Should().BeTrue();
+        sut.PageCount.Should().Be(3);  // ceil(25/10)
+
+        // ── 2. PageSize = 0 ─────────────────────────────────────────────────
+        sut.PageSize = 0;
+        sut.IsPagingEnabled.Should().BeFalse();
+        sut.PageCount.Should().Be(1);  // disabled → everything is one page
+
+        // Navigation while paging disabled — no-ops, index stays 0
+        sut.MoveToFirstPage();
+        sut.MoveToLastPage();
+        sut.CurrentPageIndex.Should().Be(0);
+
+        // ── 3. Clamping CurrentPageIndex ────────────────────────────────────
+        sut.PageSize = 10;  // re-enable; PageCount = 3 again
+        sut.CurrentPageIndex = 99;
+        sut.CurrentPageIndex.Should().Be(2);  // clamped to PageCount - 1
+
+        sut.CurrentPageIndex = -1;
+        sut.CurrentPageIndex.Should().Be(0);  // clamped to 0
+
+        // ── 4. Navigation ───────────────────────────────────────────────────
+        sut.CurrentPageIndex = 1;
+        sut.MoveToFirstPage();
+        sut.CurrentPageIndex.Should().Be(0);
+
+        sut.MoveToLastPage();
+        sut.CurrentPageIndex.Should().Be(2);
+
+        // MoveToNextPage at upper bound is a no-op
+        sut.MoveToNextPage();
+        sut.CurrentPageIndex.Should().Be(2);
+
+        // MoveToPreviousPage
+        sut.MoveToPreviousPage();
+        sut.CurrentPageIndex.Should().Be(1);
+
+        // MoveToPreviousPage at lower bound is a no-op
+        sut.MoveToFirstPage();
+        sut.MoveToPreviousPage();
+        sut.CurrentPageIndex.Should().Be(0);
+
+        // MoveToNextPage advances
+        sut.MoveToNextPage();
+        sut.CurrentPageIndex.Should().Be(1);
+
+        // ── 5. PageSize resize clamps CurrentPageIndex ──────────────────────
+        sut.CurrentPageIndex = 2;  // move to page 3 of 3
+        sut.PageSize = 20;         // now PageCount = ceil(25/20) = 2 → pages 0..1
+        sut.CurrentPageIndex.Should().Be(1);  // clamped from 2 to 1
+
+        // ── 6. PageCount derivation: itemCount=0 with PageSize>0 yields PageCount=0 ─
+        var empty = new PageableFixture(itemCount: 0);
+        empty.PageSize = 5;
+        empty.PageCount.Should().Be(0);  // ceil(0/5) = 0 (empty source has no pages)
+    }
+
+    /// <summary>
+    /// Minimal opt-in implementer of IPageable used only by CAP-022.
+    /// Demonstrates correct clamping, navigation, and PageCount derivation.
+    /// </summary>
+    private sealed class PageableFixture : IPageable
+    {
+        private int _itemCount;
+        private int _pageSize;
+        private int _currentPageIndex;
+
+        public PageableFixture(int itemCount)
+        {
+            _itemCount = itemCount;
+            _pageSize = 10;
+            _currentPageIndex = 0;
+        }
+
+        public int PageSize
+        {
+            get => _pageSize;
+            set
+            {
+                _pageSize = value < 0 ? 0 : value;
+                // Clamp CurrentPageIndex after page size change
+                _currentPageIndex = ClampIndex(_currentPageIndex);
+            }
+        }
+
+        public int CurrentPageIndex
+        {
+            get => _currentPageIndex;
+            set => _currentPageIndex = ClampIndex(value);
+        }
+
+        public int PageCount => _pageSize > 0
+            ? (int)Math.Ceiling((double)_itemCount / _pageSize)
+            : 1;
+
+        public bool IsPagingEnabled => _pageSize > 0;
+
+        public void MoveToFirstPage() => _currentPageIndex = 0;
+
+        public void MoveToPreviousPage()
+        {
+            if (_currentPageIndex > 0) _currentPageIndex--;
+        }
+
+        public void MoveToNextPage()
+        {
+            if (_currentPageIndex < PageCount - 1) _currentPageIndex++;
+        }
+
+        public void MoveToLastPage() => _currentPageIndex = PageCount - 1;
+
+        private int ClampIndex(int index)
+        {
+            if (PageCount == 0) return 0;  // empty source: index stays at 0
+            var max = PageCount - 1;
+            if (index < 0) return 0;
+            if (index > max) return max;
+            return index;
+        }
+    }
 }

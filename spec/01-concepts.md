@@ -8,14 +8,26 @@ onwards) give precise normative definitions; this document is the orientation.
 VMx defines the following viewmodel types (five families, plus a pair of
 forwarding decorators that wrap an inner viewmodel):
 
-| Family                                            | Role                                  | Children                | Typical use                           |
-| ------------------------------------------------- | ------------------------------------- | ----------------------- | ------------------------------------- |
-| `ComponentVM`                                     | leaf                                  | none                    | a single addressable VM with state    |
-| `ReadonlyComponentVM`                             | leaf, immutable model                 | none                    | read-only view of a model             |
-| `CompositeVM`                                     | container with selection              | `IList<VM>` + `Current` | a tab strip, a navigation tree        |
-| `GroupVM`                                         | container without selection           | `IList<VM>`             | peers shown side-by-side              |
-| `AggregateVM<VM1..VM5>`                           | fixed tuple of heterogeneous children | 1–5 typed slots         | a screen composed of distinct sub-VMs |
-| `ForwardingComponentVM` / `ForwardingCompositeVM` | decorator                             | wraps another VM        | proxies, caching, instrumentation     |
+| Family                                            | Role                                  | Children                        | Typical use                            |
+| ------------------------------------------------- | ------------------------------------- | ------------------------------- | -------------------------------------- |
+| `ComponentVM`                                     | leaf                                  | none                            | a single addressable VM with state     |
+| `ReadonlyComponentVM`                             | leaf, immutable model                 | none                            | read-only view of a model              |
+| `CompositeVM`                                     | container with selection              | `IList<VM>` + `Current`         | a tab strip, a navigation tree         |
+| `GroupVM`                                         | container without selection           | `IList<VM>`                     | peers shown side-by-side               |
+| `AggregateVM<VM1..VM5>`                           | fixed tuple of heterogeneous children | 1–5 typed slots                 | a screen composed of distinct sub-VMs  |
+| `ForwardingComponentVM` / `ForwardingCompositeVM` | decorator                             | wraps another VM                | proxies, caching, instrumentation      |
+| `HierarchicalVM<TModel, TVM>` (v2.1)              | recursive tree VM                     | lazy/eager `IList<TVM>` subtree | file-system tree, org-chart, menu      |
+| `FormVM<TM>` (v2.1)                               | snapshot/revert edit VM               | none (embeds model snapshot)    | edit forms with approve/deny lifecycle |
+
+`HierarchicalVM` is specified in chapter 18; `FormVM` in chapter 20.
+
+**Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
+are render-side VMs with auto-dismiss lifecycle, suitable for toast/banner UI.
+
+**Collection primitives** (opt-in, chapter 21): `ServicedObservableCollection<T>`,
+`ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, and `PagedComposition<TVM>` sit
+above the standard language collection types and integrate with the message hub and
+paging capability.
 
 Every VM is also a `ComponentVM` (inheritance / protocol composition per language). A
 composite's children are themselves VMs and may be composites, components, etc.

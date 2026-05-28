@@ -399,7 +399,7 @@ class TestGroupVMLifecycle:
         assert grp.status == ConstructionStatus.DISPOSED
 
     def test_dispose_cascade_is_depth_first(self) -> None:
-        from vmx.messages.construction_status import ConstructionStatusChangedMessage
+        from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 
         h = _hub()
         grp, _ = _make_group(hub=h)

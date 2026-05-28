@@ -15,7 +15,7 @@ import pytest
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
-from vmx.messages.construction_status import ConstructionStatusChangedMessage
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub

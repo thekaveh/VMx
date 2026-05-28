@@ -3,8 +3,11 @@
 Public API is organised by responsibility under sub-packages: ``vmx.lifecycle``,
 ``vmx.messages``, ``vmx.services``, ``vmx.commands``, ``vmx.components``,
 ``vmx.composites``, ``vmx.groups``, ``vmx.aggregates``, ``vmx.forwarding``,
-``vmx.builders``, ``vmx.tree``, ``vmx.collections``. The full set of public
-types is re-exported here so ``from vmx import ...`` reaches every primitive.
+``vmx.builders``, ``vmx.tree``, ``vmx.collections``, ``vmx.capabilities``,
+``vmx.properties``, ``vmx.localization``, ``vmx.hierarchical``, ``vmx.dialogs``,
+``vmx.forms``. The ``vmx.notifications`` sub-package is opt-in and must be
+imported explicitly. The full set of public types is re-exported here so
+``from vmx import ...`` reaches every primitive.
 """
 
 from vmx.__about__ import __min_spec_version__, __version__
@@ -28,6 +31,7 @@ from vmx.aggregates import (
 from vmx.builders import BuilderValidationError
 from vmx.capabilities import (
     ExpandableState,
+    Filterable,
     IApprovable,
     ICancelable,
     IClosable,
@@ -48,9 +52,17 @@ from vmx.capabilities import (
     ISelectable,
     ISelectionTogglable,
     IUpdatable,
+    Pageable,
     SearchableState,
 )
-from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
+from vmx.collections import (
+    BatchUpdateHandle,
+    CollectionChangedEvent,
+    ObservableDictionary,
+    ObservableList,
+    PagedComposition,
+    ServicedObservableCollection,
+)
 from vmx.commands import (
     Command,
     CompositeCommand,
@@ -79,14 +91,29 @@ from vmx.composites import (
     CompositeVMOf,
     CompositeVMOfBuilder,
 )
+from vmx.dialogs import (
+    NULL_DIALOG_SERVICE,
+    DialogService,
+    FileFilter,
+    NotificationSeverity,
+    NullDialogService,
+)
+from vmx.forms import FormVM
 from vmx.forwarding import ForwardingComponentVM, ForwardingCompositeVM
 from vmx.groups import GroupVM, GroupVMBuilder
+from vmx.hierarchical import HierarchicalVM
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
 from vmx.localization import NULL_LOCALIZER, ILocalizer, NullLocalizer
 from vmx.messages import (
+    CollectionChangedMessage,
     ConstructionStatusChangedMessage,
+    FormRevertedMessage,
     Message,
     PropertyChangedMessage,
+    TreeStructureChange,
+    TreeStructureChangedMessage,
+    TypedMessage,
+    property_value_changed_messages_for,
 )
 from vmx.properties import DerivedProperty, from_sources
 from vmx.services import (
@@ -100,6 +127,7 @@ from vmx.services import (
 from vmx.tree import find, walk, walk_expanded
 
 __all__ = [
+    "NULL_DIALOG_SERVICE",
     "NULL_DISPATCHER",
     "NULL_LOCALIZER",
     "NULL_MESSAGE_HUB",
@@ -121,6 +149,7 @@ __all__ = [
     "BatchUpdateHandle",
     "BuilderValidationError",
     "CollectionChangedEvent",
+    "CollectionChangedMessage",
     "Command",
     "ComponentVM",
     "ComponentVMBuilder",
@@ -136,11 +165,17 @@ __all__ = [
     "ConstructionStatusChangedMessage",
     "DecoratorCommand",
     "DerivedProperty",
+    "DialogService",
     "ExpandableState",
+    "FileFilter",
+    "Filterable",
+    "FormRevertedMessage",
+    "FormVM",
     "ForwardingComponentVM",
     "ForwardingCompositeVM",
     "GroupVM",
     "GroupVMBuilder",
+    "HierarchicalVM",
     "IApprovable",
     "ICancelable",
     "IClosable",
@@ -165,9 +200,15 @@ __all__ = [
     "Message",
     "MessageHub",
     "ModeledCrudCommands",
+    "NotificationSeverity",
+    "NullDialogService",
     "NullDispatcher",
     "NullLocalizer",
     "NullMessageHub",
+    "ObservableDictionary",
+    "ObservableList",
+    "Pageable",
+    "PagedComposition",
     "ParameterizedCommand",
     "PropertyChangedMessage",
     "ReadonlyComponentVMOf",
@@ -179,12 +220,17 @@ __all__ = [
     "RelayCommandOfT",
     "RxDispatcher",
     "SearchableState",
+    "ServicedObservableCollection",
     "StatusTransitionError",
+    "TreeStructureChange",
+    "TreeStructureChangedMessage",
+    "TypedMessage",
     "ViewModelType",
     "__min_spec_version__",
     "__version__",
     "find",
     "from_sources",
+    "property_value_changed_messages_for",
     "walk",
     "walk_expanded",
 ]

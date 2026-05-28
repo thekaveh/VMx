@@ -132,7 +132,28 @@ tests; a stand-in when the hub injection chain is being torn down.
 
 The null variant is conformance-tested by `NULL-001`.
 
-## 7. Conformance
+## 7. Convenience helpers (spec v2.1, informative)
+
+Each flavor ships a small `PropertyValueChangedMessagesFor` (or per-flavor analog)
+helper over the hub. Instead of filtering the full message stream and projecting the
+property value manually, the helper returns `IObservable<TProperty>` (or equivalent)
+directly by:
+
+1. Filtering `Messages` to `PropertyChangedMessage` instances whose sender is
+   reference-equal to the given object and whose `PropertyName` matches.
+1. Snapshotting the current property value from the sender at delivery time.
+
+Per-flavor names and shapes (all informative — no conformance IDs):
+
+| Flavor     | Name                                  | Entry point                             |
+| ---------- | ------------------------------------- | --------------------------------------- |
+| C#         | `PropertyValueChangedMessagesFor`     | Extension method on `IMessageHub`       |
+| Python     | `property_value_changed_messages_for` | Module-level function in `vmx.messages` |
+| TypeScript | `propertyValueChangedMessagesFor`     | Named export from `src/messages`        |
+
+See ADR-0032 for the rationale and full per-flavor signature table.
+
+## 8. Conformance
 
 `HUB-001` through `HUB-007` and `PROP-001` through `PROP-004` in `12-conformance.md` cover:
 

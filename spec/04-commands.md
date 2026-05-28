@@ -53,6 +53,37 @@ Triggers do NOT carry data — only the fact that re-evaluation should happen. T
 typical pattern: derive a trigger from a property's change stream
 (`vm.Status.Where(s => s == Constructed).Select(_ => Unit.Default)`).
 
+### 4.1 Recipe: trigger from a hub property change
+
+A common pattern is firing `CanExecuteChanged` whenever a specific ViewModel
+property changes. Compose the hub's `Messages` stream (or the per-flavor
+`PropertyValueChangedMessagesFor` convenience helper) as the trigger:
+
+```
+# C# — filter the hub stream and project to Unit
+hub.Messages
+   .OfType<PropertyChangedMessage<TSource>>()
+   .Where(m => ReferenceEquals(m.Sender, this) && m.PropertyName == nameof(IsValid))
+   .Select(_ => Unit.Default)
+
+# Python — triggers accept Observable[object]; any emission suffices
+hub.messages.pipe(
+    ops.filter(lambda m: isinstance(m, PropertyChangedMessage)
+                         and m.sender is self
+                         and m.property_name == "is_valid")
+)
+
+# TypeScript — same idea
+hub.messages.pipe(
+    filter(m => m instanceof PropertyChangedMessage
+             && m.sender === this
+             && m.propertyName === "isValid"),
+)
+```
+
+No new helper is needed — the existing `triggers` parameter and the
+`Messages`/`messages` stream compose naturally.
+
 ## 5. RelayCommand
 
 `RelayCommand` is the concrete `ICommand` implementation, built via a fluent
@@ -126,10 +157,60 @@ Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
 depend on the notification service (cycle 5). Consumers may bridge it to
 `INotificationHub` via an optional helper in the notifications sub-package.
 
-## 9. Conformance
+## 9. Fluent composition (spec v2.1)
 
-`CMD-001` through `CMD-007` and `CMDD-001` through `CMDD-009` in `12-conformance.md`
-cover:
+Four fluent helper methods provide ergonomic shortcuts over the decorator
+constructors introduced in §8. Per ADR-0027, these are normative API in every
+active flavor. All four are pure convenience — they produce exactly the same
+object graph as the equivalent explicit constructor call.
+
+Per-flavor surface (ADR-0006): C# exposes them as static extension methods on
+`ICommand`; Python as module-level functions; TypeScript as named exports.
+
+### 9.1 `Confirm(confirm)`
+
+```
+cmd.Confirm(confirm)
+  ≡ new ConfirmationDecoratorCommand(cmd, confirm)
+```
+
+`confirm` is a delegate of shape `() -> Task<bool>` (async-Boolean per flavor).
+An optional second overload accepts an `INotificationHub` and constructs the
+delegate via the bridge helper in the `vmx-notifications` sub-package; that
+overload is defined in the sub-package, not in the core commands module.
+
+### 9.2 `PrecedeWith(other)`
+
+```
+cmd.PrecedeWith(other)
+  ≡ new CompositeCommand(other, cmd)
+```
+
+`other` executes first; `cmd` executes second.
+
+### 9.3 `SucceedWith(other)`
+
+```
+cmd.SucceedWith(other)
+  ≡ new CompositeCommand(cmd, other)
+```
+
+`cmd` executes first; `other` executes second.
+
+### 9.4 `WrapWith(predicate?, pre?, post?)`
+
+```
+cmd.WrapWith(predicate, pre, post)
+  ≡ new DecoratorCommand(cmd, predicate, pre, post)
+```
+
+All three arguments are optional/nullable. Passing all defaults is valid and
+yields a semantically transparent decorator (no extra gate, no pre/post hooks).
+
+## 10. Conformance
+
+`CMD-001` through `CMD-011` and `CMDD-001` through `CMDD-009` in
+`12-conformance.md` cover:
 
 - `Execute` invokes the configured task
 - `CanExecute` returns `true` with no predicate, and the predicate result otherwise
@@ -138,3 +219,4 @@ cover:
 - null task is a no-op (no exception)
 - `Execute` is a no-op when the predicate returns `false`
 - table-driven configurations from `fixtures/command-truthtable.json`
+- `CMD-008..CMD-011` — each fluent method produces an equivalent object graph

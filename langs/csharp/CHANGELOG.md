@@ -6,12 +6,49 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-28
+
+Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
+
 ### Added
 
+- **`HierarchicalVM<TModel, TVM>`** (`VMx.Hierarchical`) — first-class recursive
+  tree VM with lazy/eager child loading, depth-first construction, materialized
+  path, parent-change and structural-change hub messages.
+  `TreeStructureChangedMessage` new message type. (ADR-0028; HIER-001..014)
+- **`IDialogService`** + **`NullDialogService`** (`VMx.Services`) — host-side
+  contract for modal interactions (file pick, confirm prompt, severity-tagged
+  notify) distinct from `INotificationHub`. (ADR-0029; DIA-001..008)
+- **`FormVM<TM>`** (`VMx.Forms`) — snapshot/revert edit lifecycle (ORM-agnostic).
+  `DenyCommand`, `ApproveCommand`, `OnApproved` event, optional strict mode.
+  `FormRevertedMessage` new type. (ADR-0030; FORM-001..010)
+- **`NotificationVM`** + **`ConfirmationVM`** (`VMx.Notifications`) — render-side
+  VMs with auto-dismiss (60s/300s default), opacity decay, dismiss/approve/reject
+  commands. (ADR-0031; NOTIF-011..016)
+- **`ServicedObservableCollection<T>`** (`VMx.Collections`) — observable collection
+  with hub publication. (ADR-0024; COL-001..004)
+- **`ObservableList<T>`** (`VMx.Collections`) — granular per-mutation events
+  (ItemAdded/Removed/Replaced/Reset) with batch suppression. (ADR-0026;
+  COL-005..009, COL-023)
+- **`ObservableDictionary<K1, K2, V>`** (`VMx.Collections`) — composite-key
+  observable dictionary with observable Keys1/Keys2 views and hub publication.
+  (ADR-0025; COL-010..015, COL-022)
+- **`PagedComposition<TVM>`** (`VMx.Collections`) — paging decorator over any
+  composition implementing `IPageable`. (ADR-0023; COL-016..021)
+- **`IFilterable<T>`** + **`IPageable`** (`VMx.Capabilities`) — two new
+  capability micro-interfaces. (ADR-0022, ADR-0023; CAP-021, CAP-022)
+- **Fluent command extensions** (`VMx.Commands`) — `Confirm(…)`, `PrecedeWith`,
+  `SucceedWith`, `WrapWith` over `ICommand`. (ADR-0027; CMD-008..011)
+- **`PropertyValueChangedMessagesFor`** helper (`VMx.Properties`) —
+  convenience wrapper for publishing `PropertyValueChangedMessage` sequences.
+  (ADR-0032; informative)
+- **LINQ helpers** (`VMx.Extensions`) — `CartesianProduct`, `Sample`, `Product`
+  extension methods. (ADR-0033; C# only)
 - `RxDispatcher.Immediate()` — static factory returning a dispatcher with
-  `ImmediateScheduler.Instance` on both Foreground and Background. Parity
-  with Python `RxDispatcher.immediate()` and TypeScript
+  `ImmediateScheduler.Instance` on both Foreground and Background. Cross-flavor
+  parity with Python `RxDispatcher.immediate()` and TypeScript
   `RxDispatcher.immediate()`.
+- **Conformance**: 67 new IDs (total 219).
 
 ### Fixed
 

@@ -1,6 +1,6 @@
 {
   "name": "vmx",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Hierarchical lifecycle-aware MVVM viewmodel framework",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,6 +25,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
     "lint": "eslint src tests",
     "test": "vitest run",
     "test:watch": "vitest",

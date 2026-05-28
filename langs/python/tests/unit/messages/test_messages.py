@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from vmx.lifecycle.status import ConstructionStatus
-from vmx.messages.construction_status import ConstructionStatusChangedMessage
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 
 # ---------------------------------------------------------------------------

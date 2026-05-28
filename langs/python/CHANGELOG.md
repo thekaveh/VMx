@@ -6,6 +6,45 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-28
+
+Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
+
+### Added
+
+- **`HierarchicalVM`** (`vmx.hierarchical`) — first-class recursive tree VM with
+  lazy/eager child loading, depth-first construction, materialized path,
+  parent-change and structural-change hub messages. `TreeStructureChangedMessage`
+  new type. (ADR-0028; HIER-001..014)
+- **`IDialogService`** + **`NullDialogService`** (`vmx.services`) — host-side
+  contract for modal interactions (file pick, confirm prompt, severity-tagged
+  notify) distinct from `INotificationHub`. (ADR-0029; DIA-001..008)
+- **`FormVM`** (`vmx.forms`) — snapshot/revert edit lifecycle (ORM-agnostic).
+  `deny_command`, `approve_command`, `on_approved` event, optional strict mode.
+  `FormRevertedMessage` new type. (ADR-0030; FORM-001..010)
+- **`NotificationVM`** + **`ConfirmationVM`** (`vmx.notifications`) — render-side
+  VMs with auto-dismiss (60s/300s default), opacity decay, dismiss/approve/reject
+  commands. (ADR-0031; NOTIF-011..016)
+- **`ServicedObservableCollection`** (`vmx.collections`) — observable collection
+  with hub publication. (ADR-0024; COL-001..004)
+- **`ObservableList`** (`vmx.collections`) — granular per-mutation events
+  (item_added/removed/replaced/reset) with batch suppression. (ADR-0026;
+  COL-005..009, COL-023)
+- **`ObservableDictionary`** (`vmx.collections`) — composite-key observable
+  dictionary with observable keys1/keys2 views and hub publication. (ADR-0025;
+  COL-010..015, COL-022)
+- **`PagedComposition`** (`vmx.collections`) — paging decorator over any
+  composition implementing `IPageable`. (ADR-0023; COL-016..021)
+- **`IFilterable`** + **`IPageable`** (`vmx.capabilities`) — two new capability
+  protocols. (ADR-0022, ADR-0023; CAP-021, CAP-022)
+- **Fluent command helpers** (`vmx.commands`) — `confirm(…)`, `precede_with`,
+  `succeed_with`, `wrap_with` extension helpers over commands. (ADR-0027;
+  CMD-008..011)
+- **`property_value_changed_messages_for`** helper (`vmx.properties`) —
+  convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
+  informative)
+- **Conformance**: 67 new IDs (total 219).
+
 ### Fixed
 
 - `CompositeVM.__setitem__` now clears `current` to None when the
@@ -102,9 +141,11 @@ opt-in notifications sub-package, and a localization hook.
 
 ### Deprecated
 - `RelayCommandOfT` and `RelayCommandOfTBuilder` remain as identity aliases for
-  backward compatibility. They will be removed in **vmx v2.0.0**.
+  backward compatibility. Removal deferred to **vmx v3.0.0** (was originally
+  targeted for v2.0.0; see v2.0.0 Notes and ADR-0009).
 - `AggregateVMBuilder1` through `AggregateVMBuilder5` remain as identity aliases
-  for backward compatibility. They will be removed in **vmx v2.0.0**.
+  for backward compatibility. Removal deferred to **vmx v3.0.0** (was originally
+  targeted for v2.0.0; see v2.0.0 Notes and ADR-0009).
 
 ### Internal
 - Per-suppression rationale comments added at every `# type: ignore` in

@@ -6,6 +6,7 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp         | python         | typescript     |
 | ----- | -------------- | -------------- | -------------- |
+| 2.1.x | 2.1.0          | 2.1.0          | 2.1.0          |
 | 2.0.x | 2.0.0          | 2.0.0          | 2.0.0          |
 | 1.1.x | 1.1.0 – 1.2.0  | 1.1.0 – 1.2.0  | 1.1.0 – 1.2.0  |
 | 1.0.x | 1.0.0          | 1.0.0          | —              |
@@ -24,5 +25,5 @@ version it implements.
 
 | Package                                                                                       | Current | Spec |
 | --------------------------------------------------------------------------------------------- | ------- | ---- |
-| [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.0.0   | 2.0.x |
-| [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                      | 1.0.0   | 2.0.x |
+| [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.1.0   | 2.1.x |
+| [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                      | 1.1.0   | 2.1.x |

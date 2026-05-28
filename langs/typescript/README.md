@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C# and Python flavors.
 
 ## 1. Status
 
-**v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
+**v2.1.0** — implements `spec-v2.1.0` end-to-end. 219/219 conformance IDs
 pass. Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `vmx/notifications` ships an `INotificationHub`.
@@ -94,7 +94,7 @@ Key exports:
 | `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)  |
 | `SearchableState<T>`            | Debounced filter helper (spec v2.0)              |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)             |
-| 20× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in v2.0 |
+| 22× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in v2.0+ |
 
 The opt-in `vmx/notifications` sub-path export (spec v2.0) adds:
 
@@ -106,7 +106,7 @@ The opt-in `vmx/notifications` sub-path export (spec v2.0) adds:
 
 ## 5. Conformance
 
-All 152 conformance IDs from `spec/12-conformance.md` are covered.
+All 219 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -115,6 +115,8 @@ v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
 v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
        LOC-001..003
+v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
+       COL-001..023   CMD-008..011  CAP-021..022
 ```
 
 Run the suite:

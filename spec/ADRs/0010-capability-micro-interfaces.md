@@ -67,3 +67,13 @@ inheritance rules.
 - This ADR does not introduce new event channels. Property-change messages
   for capability-defined state (e.g., `ISearchable.SearchTerm`) flow through
   the existing `IMessageHub` per ADR-0002 and the rules in chapter 03.
+
+## 5. Amendments
+
+- **ADR-0022** (2026-05-27, spec v2.1.0): added `IFilterable<T>` (CAP-021) — a generic
+  capability for collection VMs that support item filtering. Implemented by
+  `PagedComposition<TVM>` via the `IPageable` contract.
+- **ADR-0023** (2026-05-27, spec v2.1.0): added `IPageable` (CAP-022) — marks a
+  collection VM as pageable (page size, page index, total count). Used by
+  `PagedComposition<TVM>`. Together with `IFilterable<T>`, brings the total to
+  22 capability interfaces (from the original 20 defined in this ADR).

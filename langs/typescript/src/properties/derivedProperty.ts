@@ -6,58 +6,62 @@
 import { combineLatest, map, Observable, Subject, Subscription } from "rxjs";
 
 export class DerivedProperty<TValue> {
-  private _value: TValue | undefined;
-  private _hasValue = false;
-  private readonly _changes = new Subject<TValue>();
-  private readonly _subscription: Subscription;
-  private _disposed = false;
+  #value: TValue | undefined;
+  #hasValue = false;
+  readonly #changes = new Subject<TValue>();
+  readonly #subscription: Subscription;
+  #disposed = false;
+  readonly #canSet: ((v: TValue) => boolean) | null;
+  readonly #setAction: ((v: TValue) => void) | null;
 
   constructor(
     derivedStream: Observable<TValue>,
-    private readonly _canSet: ((v: TValue) => boolean) | null = null,
-    private readonly _setAction: ((v: TValue) => void) | null = null,
+    canSet: ((v: TValue) => boolean) | null = null,
+    setAction: ((v: TValue) => void) | null = null,
   ) {
-    this._subscription = derivedStream.subscribe((v) => {
-      if (!this._hasValue) {
-        this._value = v;
-        this._hasValue = true;
+    this.#canSet = canSet;
+    this.#setAction = setAction;
+    this.#subscription = derivedStream.subscribe((v) => {
+      if (!this.#hasValue) {
+        this.#value = v;
+        this.#hasValue = true;
         return;
       }
-      if (Object.is(v, this._value)) return;
-      this._value = v;
-      this._changes.next(v);
+      if (Object.is(v, this.#value)) return;
+      this.#value = v;
+      this.#changes.next(v);
     });
   }
 
   get value(): TValue {
-    if (!this._hasValue) {
+    if (!this.#hasValue) {
       throw new Error(
         "Derived property has no value yet — no source has emitted.",
       );
     }
-    return this._value as TValue;
+    return this.#value as TValue;
   }
 
   get valueChanged(): Observable<TValue> {
-    return this._changes.asObservable();
+    return this.#changes.asObservable();
   }
 
   canSet(value: TValue): boolean {
-    return this._canSet ? this._canSet(value) : false;
+    return this.#canSet ? this.#canSet(value) : false;
   }
 
   setValue(value: TValue): void {
     if (!this.canSet(value)) {
       throw new Error("canSet returned false for the given value");
     }
-    if (this._setAction) this._setAction(value);
+    if (this.#setAction) this.#setAction(value);
   }
 
   dispose(): void {
-    if (this._disposed) return;
-    this._disposed = true;
-    this._subscription.unsubscribe();
-    this._changes.complete();
+    if (this.#disposed) return;
+    this.#disposed = true;
+    this.#subscription.unsubscribe();
+    this.#changes.complete();
   }
 }
 

@@ -5,13 +5,51 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-28
+
+Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
+
 ### Added
 
+- **`HierarchicalVM<TModel, TVM>`** (`vmx` — `hierarchical/`) — first-class
+  recursive tree VM with lazy/eager child loading, depth-first construction,
+  materialized path, parent-change and structural-change hub messages.
+  `TreeStructureChangedMessage` new type. (ADR-0028; HIER-001..014)
+- **`IDialogService`** + **`NullDialogService`** (`vmx` — `services/`) —
+  host-side contract for modal interactions (file pick, confirm prompt,
+  severity-tagged notify) distinct from `INotificationHub`. (ADR-0029;
+  DIA-001..008)
+- **`FormVM<TM>`** (`vmx` — `forms/`) — snapshot/revert edit lifecycle
+  (ORM-agnostic). `denyCommand`, `approveCommand`, `onApproved` event,
+  optional strict mode. `FormRevertedMessage` new type. (ADR-0030;
+  FORM-001..010)
+- **`NotificationVM`** + **`ConfirmationVM`** (`vmx/notifications`) —
+  render-side VMs with auto-dismiss (60s/300s default), opacity decay,
+  dismiss/approve/reject commands. (ADR-0031; NOTIF-011..016)
+- **`ServicedObservableCollection<T>`** (`vmx` — `collections/`) —
+  observable collection with hub publication. (ADR-0024; COL-001..004)
+- **`ObservableList<T>`** (`vmx` — `collections/`) — granular per-mutation
+  events (itemAdded/Removed/Replaced/Reset) with batch suppression.
+  (ADR-0026; COL-005..009, COL-023)
+- **`ObservableDictionary<K1, K2, V>`** (`vmx` — `collections/`) —
+  composite-key observable dictionary with observable keys1/keys2 views and
+  hub publication. (ADR-0025; COL-010..015, COL-022)
+- **`PagedComposition<TVM>`** (`vmx` — `collections/`) — paging decorator
+  over any composition implementing `IPageable`. (ADR-0023; COL-016..021)
+- **`IFilterable<T>`** + **`IPageable`** (`vmx` — `capabilities/`) — two new
+  capability interfaces. (ADR-0022, ADR-0023; CAP-021, CAP-022)
+- **Fluent command helpers** (`vmx` — `commands/`) — `confirm(…)`,
+  `precedeWith`, `succeedWith`, `wrapWith` extension helpers over commands.
+  (ADR-0027; CMD-008..011)
+- **`propertyValueChangedMessagesFor`** helper (`vmx` — `properties/`) —
+  convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
+  informative)
 - Re-exports of `IBatchable` (collections) and `IParentVM` (components)
   from the main `vmx` barrel for parity with the rest of the public
   surface — previously only reachable via deep sub-path imports.
 - `tree/index.ts` re-exports `walkExpanded` alongside `walk` and `find`
   for sub-index completeness.
+- **Conformance**: 67 new IDs (total 219).
 
 ### Fixed
 

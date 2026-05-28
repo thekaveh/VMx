@@ -7,29 +7,31 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## 1. Identifier prefixes
 
-| Prefix          | Area                                              | File                                          |
-| --------------- | ------------------------------------------------- | --------------------------------------------- |
-| `LIFE-NNN`      | Lifecycle state machine                           | `02-lifecycle.md`                             |
-| `HUB-NNN`       | Message hub                                       | `03-messages.md`                              |
-| `PROP-NNN`      | Property change notifications                     | `03-messages.md`                              |
-| `CMD-NNN`       | Commands                                          | `04-commands.md`                              |
-| `CVM-NNN`       | ComponentVM (incl. modeled, readonly)             | `05-component-vm.md`                          |
-| `COMP-NNN`      | CompositeVM                                       | `06-composite-vm.md`                          |
-| `GRP-NNN`       | GroupVM                                           | `07-group-vm.md`                              |
-| `AGG-NNN`       | AggregateVM                                       | `08-aggregate-vm.md`                          |
-| `FWD-NNN`       | Forwarding decorators                             | `09-forwarding.md`                            |
-| `BLD-NNN`       | Builders                                          | `10-builders.md`                              |
-| `THR-NNN`       | Threading & schedulers                            | `11-threading.md`                             |
-| `UTIL-NNN`      | Tree utilities (spec v1.1)                        | `13-tree-utilities.md`                        |
-| `CAP-NNN`       | Capability micro-interfaces                       | `14-capabilities.md`                          |
-| `NULL-NNN`      | Null-object service variants                      | `03-messages.md` + `11-threading.md`          |
-| `DPROP-NNN`     | Derived properties                                | `15-derived-properties.md`                    |
-| `CMDD-NNN`      | Command decorators (spec v2.0)                    | `04-commands.md`                              |
-| `NOTIF-NNN`     | Notification sub-package                          | `16-notifications.md`                         |
-| `EXP-NNN`       | Expand / collapse state                           | `05-component-vm.md` + `13-tree-utilities.md` |
-| `COMP-014..024` | CompositeVM v2.0 additions (search, modeled CRUD) | `06-composite-vm.md`                          |
-| `GRP-007..010`  | GroupVM v2.0 additions (search)                   | `07-group-vm.md`                              |
-| `LOC-NNN`       | Localization hooks                                | `17-localization.md`                          |
+| Prefix      | Area                                                 | File                                          |
+| ----------- | ---------------------------------------------------- | --------------------------------------------- |
+| `LIFE-NNN`  | Lifecycle state machine                              | `02-lifecycle.md`                             |
+| `HUB-NNN`   | Message hub                                          | `03-messages.md`                              |
+| `PROP-NNN`  | Property change notifications                        | `03-messages.md`                              |
+| `CMD-NNN`   | Commands                                             | `04-commands.md`                              |
+| `CVM-NNN`   | ComponentVM (incl. modeled, readonly)                | `05-component-vm.md`                          |
+| `COMP-NNN`  | CompositeVM                                          | `06-composite-vm.md`                          |
+| `GRP-NNN`   | GroupVM                                              | `07-group-vm.md`                              |
+| `AGG-NNN`   | AggregateVM                                          | `08-aggregate-vm.md`                          |
+| `FWD-NNN`   | Forwarding decorators                                | `09-forwarding.md`                            |
+| `BLD-NNN`   | Builders                                             | `10-builders.md`                              |
+| `THR-NNN`   | Threading & schedulers                               | `11-threading.md`                             |
+| `UTIL-NNN`  | Tree utilities (spec v1.1)                           | `13-tree-utilities.md`                        |
+| `CAP-NNN`   | Capability micro-interfaces                          | `14-capabilities.md`                          |
+| `NULL-NNN`  | Null-object service variants                         | `03-messages.md` + `11-threading.md`          |
+| `DPROP-NNN` | Derived properties                                   | `15-derived-properties.md`                    |
+| `CMDD-NNN`  | Command decorators (spec v2.0)                       | `04-commands.md`                              |
+| `NOTIF-NNN` | Notification sub-package (hub v2.0; render VMs v2.1) | `16-notifications.md`                         |
+| `EXP-NNN`   | Expand / collapse state                              | `05-component-vm.md` + `13-tree-utilities.md` |
+| `LOC-NNN`   | Localization hooks                                   | `17-localization.md`                          |
+| `COL-NNN`   | Collection primitives (spec v2.1)                    | `21-collections.md`                           |
+| `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
+| `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
+| `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -309,6 +311,39 @@ ______________________________________________________________________
 **When** every row is exercised against a freshly built `RelayCommand`
 **Then** the row's expected `can_execute`, `execute_invokes_task`, and
 `can_execute_changed_fires` results all hold
+
+### CMD-008 — `Confirm(delegate)` is equivalent to explicit `ConfirmationDecoratorCommand`
+
+**Given** an `ICommand` `cmd`
+**And** a `confirm` delegate of shape `() -> Task<bool>`
+**When** `cmd.Confirm(confirm)` is called
+**Then** the returned command's `CanExecute` and `Execute` graph is identical to
+`new ConfirmationDecoratorCommand(cmd, confirm)` — i.e., `CanExecute` delegates to
+`cmd.CanExecute`, and `Execute` invokes `confirm()` then `cmd.Execute()` only when
+`confirm` resolves to `true`
+
+### CMD-009 — `PrecedeWith(other)` is equivalent to `CompositeCommand(other, receiver)`
+
+**Given** two commands `cmd` and `other`
+**When** `cmd.PrecedeWith(other)` is called
+**Then** the returned command is equivalent to `new CompositeCommand(other, cmd)` —
+i.e., `other.Execute()` is invoked before `cmd.Execute()` when both are executable
+
+### CMD-010 — `SucceedWith(other)` is equivalent to `CompositeCommand(receiver, other)`
+
+**Given** two commands `cmd` and `other`
+**When** `cmd.SucceedWith(other)` is called
+**Then** the returned command is equivalent to `new CompositeCommand(cmd, other)` —
+i.e., `cmd.Execute()` is invoked before `other.Execute()` when both are executable
+
+### CMD-011 — `WrapWith(predicate?, pre?, post?)` is equivalent to explicit `DecoratorCommand`
+
+**Given** an `ICommand` `cmd`
+**And** optional extra predicate, pre-action, and post-action arguments
+**When** `cmd.WrapWith(predicate, pre, post)` is called
+**Then** the returned command is equivalent to `new DecoratorCommand(cmd, predicate, pre, post)` —
+including the case where all three arguments are null/absent, which yields a
+transparent decorator
 
 ______________________________________________________________________
 
@@ -705,7 +740,7 @@ root: CompositeVM
 
 ______________________________________________________________________
 
-## 15. Capability micro-interfaces (`CAP-NNN`) — spec v2.0
+## 15. Capability micro-interfaces (`CAP-NNN`) — spec v2.0 / v2.1
 
 Each CAP-NNN test verifies (a) the capability interface is present in the
 flavor's public surface with the documented signature, and (b) a fixture class
@@ -859,6 +894,29 @@ records an invocation on the correct recorder
 **Then** the answer is `false` for every one of those six
 **And** the base VM does still report `true` for `IConstructable`,
 `IDestructable`, and `IReconstructable` (lifecycle capabilities are baseline)
+
+### CAP-021 — `IFilterable<TItem>` capability contract surface and opt-in behavior
+
+**Given** a fixture class `F` that implements `IFilterable<TItem>` and a minimal
+`CompositeVM` wrapper that opts in by declaring the capability
+**When** the API surface is inspected
+**Then** `F` exposes a settable `Filter` predicate and a `can_filter()` decision
+**And** setting `Filter` to `null`/`None` clears the filter (no predicate applied)
+**And** a VM that does NOT opt in reports `false` for `IFilterable<TItem>`
+
+### CAP-022 — `IPageable` capability contract surface and clamping/navigation behavior
+
+**Given** a fixture class `F` that implements `IPageable` with a minimal opt-in
+implementer
+**When** the API surface is inspected
+**Then** `F` exposes mutable `PageSize` and `CurrentPageIndex`, derived `PageCount`
+and `IsPagingEnabled`
+**And** setting `PageSize = 0` means "all items in one page" and disables paging
+(`IsPagingEnabled == false`)
+**And** `move_to_first_page()`, `move_to_previous_page()`, `move_to_next_page()`,
+and `move_to_last_page()` are present and behave as no-ops at their respective
+bounds
+**And** `CurrentPageIndex` is clamped to `[0, PageCount-1]` when `PageSize > 0`
 
 ______________________________________________________________________
 
@@ -1150,6 +1208,64 @@ is resolved Approve
 **And** when the next pending notification is resolved Reject instead, awaiting
 yields `false`
 
+### NOTIF-011 — `NotificationVM` opacity decays linearly from 1.0 to 0.0 over `Lifespan` — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` constructed under a `TestScheduler`
+**When** `Opacity` is read at construction time
+**Then** `Opacity` is `1.0`
+**When** the scheduler is advanced by 5 s
+**Then** `Opacity` is approximately `0.5` (±0.01)
+**When** the scheduler is advanced to the full 10 s mark
+**Then** `Opacity` is approximately `0.0` (±0.01)
+
+### NOTIF-012 — `NotificationVM` auto-dismisses (resolves Approve) when `RemainingTime` reaches 0 — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = 5 s` under a `TestScheduler`
+**And** the notification has been posted to a `NotificationHub`
+**When** the scheduler is advanced by 5 s
+**Then** `IsResolved` is `true`
+**And** the hub notification is resolved with `NotificationReaction.Approve`
+
+### NOTIF-013 — `ConfirmationVM` exposes `ApproveCommand` and `RejectCommand`; each resolves with the corresponding `NotificationReaction` — spec v2.1
+
+**Given** a `ConfirmationVM` wrapping a posted notification
+**When** `ApproveCommand.Execute()` is called
+**Then** the hub notification is resolved with `NotificationReaction.Approve`
+**And** `IsResolved` is `true`
+
+**Given** a second `ConfirmationVM` wrapping a different posted notification
+**When** `RejectCommand.Execute()` is called
+**Then** the hub notification is resolved with `NotificationReaction.Reject`
+**And** `IsResolved` is `true`
+
+### NOTIF-014 — Manual `DismissCommand` cancels the lifespan timer; subsequent timer ticks have no effect — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` under a `TestScheduler`
+**And** the notification has been posted to a `NotificationHub`
+**When** `DismissCommand.Execute()` is called at time 0
+**And** the scheduler is advanced past the full 10 s lifespan
+**Then** the hub notification is resolved exactly once (not twice)
+**And** `IsResolved` is `true`
+
+### NOTIF-015 — Hub-side `Resolve()` on the notification propagates to VM `IsResolved` state — spec v2.1
+
+**Given** a `NotificationVM` wrapping a posted notification
+**And** `IsResolved` is initially `false`
+**When** `hub.Resolve(notification, NotificationReaction.Approve)` is called externally
+(not through the VM's own commands)
+**Then** `IsResolved` becomes `true`
+**And** the lifespan timer is cancelled (no further auto-dismiss effects)
+
+### NOTIF-016 — Deterministic behavior under injected `TestScheduler` / fake clock — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = L` under a `TestScheduler` starting at
+virtual time 0
+**When** the scheduler is advanced to exactly `L`
+**Then** `RemainingTime` is 0
+**And** `Opacity` is 0.0
+**And** auto-dismiss fires exactly once
+**And** no further effects occur when the scheduler advances beyond `L`
+
 ______________________________________________________________________
 
 ## 20. CompositeVM v2.0 additions (`COMP-014..024`)
@@ -1355,3 +1471,514 @@ key `"greeting"`
 **Then** calling `Localize("foo")` returns `"X:foo"`
 **And** the framework's `ILocalizer` contract accepts the fixture without
 type errors
+
+______________________________________________________________________
+
+## 24. Collection primitives (`COL-NNN`) — spec v2.1
+
+Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
+See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
+ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
+
+### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
+
+**Given** a `ServicedObservableCollection<T>` constructed with a hub
+**And** a subscriber that records the order of local `CollectionChanged` and hub `CollectionChangedMessage` receipts
+**When** an item is added
+**Then** the local `CollectionChanged` event fires before the hub message is published
+**And** the hub `CollectionChangedMessage` carries `Action == Added` and the correct `NewItems` and `StartingIndex`
+
+### COL-002 — `ServicedObservableCollection<T>` publishes on remove and replace
+
+**Given** a `ServicedObservableCollection<T>` constructed with a hub and containing items
+**When** an item is removed, then another is replaced
+**Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub
+**And** the `Action` field equals `Removed` for the removal and `Replaced` for the replacement
+**And** `OldItems` is populated for the removal and both `OldItems` / `NewItems` are populated for the replacement
+
+### COL-003 — Null-hub fallback: no hub means no publication, no error
+
+**Given** a `ServicedObservableCollection<T>` constructed with no hub (or an explicit null)
+**When** items are added, removed, and replaced
+**Then** all mutations complete without raising any exception
+**And** local `CollectionChanged` events fire normally for each mutation
+**And** no hub message is published (no hub is present)
+
+### COL-004 — `ServicedObservableCollection<T>` does not marshal; fires on caller thread
+
+**Given** a `ServicedObservableCollection<T>` with a hub
+**And** a subscriber that records the thread ID of each hub `CollectionChangedMessage` receipt
+**When** an item is added on thread T
+**Then** the hub message is received on thread T
+**And** no scheduler or dispatcher is involved in the delivery
+
+### COL-005 — `ObservableList<T>` `ItemAdded` payload shape
+
+**Given** an `ObservableList<T>` with a subscriber to `ItemAdded`
+**When** `Add(item)` is called
+**Then** `ItemAdded` emits exactly once with `item` equal to the added item
+**And** the `index` in the payload equals the position at which the item was inserted (zero-based)
+
+### COL-006 — `ObservableList<T>` `ItemRemoved` payload shape
+
+**Given** an `ObservableList<T>` containing `[a, b, c]` with a subscriber to `ItemRemoved`
+**When** `RemoveAt(1)` is called (removing `b`)
+**Then** `ItemRemoved` emits with `item == b` and `index == 1` (position before removal)
+
+### COL-007 — `ObservableList<T>` `ItemReplaced` payload shape
+
+**Given** an `ObservableList<T>` containing `[a, b]` with a subscriber to `ItemReplaced`
+**When** `Replace(0, c)` is called (replacing `a` with `c`)
+**Then** `ItemReplaced` emits with `newItem == c`, `oldItem == a`, and `index == 0`
+
+### COL-008 — `ObservableList<T>` `Count` / `PropertyChanged` ordering after add
+
+**Given** an `ObservableList<T>` with a subscriber that records the sequence of `ItemAdded` and `PropertyChanged("Count")` events
+**When** `Add(item)` is called
+**Then** `ItemAdded` fires before `PropertyChanged("Count")`
+**And** `Count` reflects the new value by the time `PropertyChanged("Count")` fires
+
+### COL-009 — `ObservableList<T>` batch suppression: only `Reset` fires inside `BatchUpdate`
+
+**Given** a VM with an `ObservableList<T>` and a subscriber recording `ItemAdded`, `ItemRemoved`, and `Reset` events
+**When** a `BatchUpdate()` scope is entered and three items are added and one removed inside the batch
+**Then** no `ItemAdded` or `ItemRemoved` events fire during the batch
+**And** exactly one `Reset` event fires when the batch completes
+
+### COL-010 — `ObservableDictionary` insert and retrieve
+
+**Given** an `ObservableDictionary<TKey1, TKey2, TValue>` (empty)
+**When** `Add(k1, k2, v)` is called
+**Then** `ContainsKey(k1, k2)` returns true
+**And** the indexer `[k1, k2]` returns `v`
+**And** `Count == 1`
+
+### COL-011 — `ObservableDictionary` remove
+
+**Given** an `ObservableDictionary` containing `(k1, k2) → v`
+**When** `Remove(k1, k2)` is called
+**Then** `ContainsKey(k1, k2)` returns false
+**And** `Count == 0`
+
+### COL-012 — `ObservableDictionary` replace
+
+**Given** an `ObservableDictionary` containing `(k1, k2) → v1`
+**When** the entry is replaced with `v2` (via indexer or `Add` after remove)
+**Then** `[k1, k2]` returns `v2`
+**And** `Count` remains unchanged
+
+### COL-013 — `ObservableDictionary` distinct-key observable views stay in sync
+
+**Given** an `ObservableDictionary<string, int, string>` with subscribers to `Keys1` (`ItemAdded`, `ItemRemoved`) and `Keys2`
+**When** `Add("a", 1, "x")` then `Add("a", 2, "y")` then `Remove("a", 1)` are called
+**Then** `Keys1` contains `["a"]` (only one entry; "a" appeared once and survives while any (a,?) entry exists)
+**And** `Keys2` contains `[2]` (1 was removed because no other entry uses key2=1)
+
+### COL-014 — `ObservableDictionary` enumeration order is insertion order
+
+**Given** an `ObservableDictionary` with entries inserted in order `(k1, k2a)`, `(k2, k2b)`, `(k3, k2c)`
+**When** the dictionary is enumerated
+**Then** entries appear in insertion order: `(k1, k2a)`, `(k2, k2b)`, `(k3, k2c)`
+
+### COL-015 — `ObservableDictionary` clear empties keys views
+
+**Given** an `ObservableDictionary` containing multiple entries and subscribers to `Keys1` and `Keys2`
+**When** `Clear()` is called
+**Then** `Count == 0`
+**And** `Keys1` and `Keys2` are both empty
+**And** `Keys1` and `Keys2` each emitted the appropriate removal events
+
+### COL-016 — `PagedComposition<TVM>` clamps `CurrentPageIndex` when source shrinks
+
+**Given** a `PagedComposition<TVM>` wrapping a 10-item source with `PageSize == 3` and `CurrentPageIndex == 2` (last page)
+**When** items are removed from the source until 4 items remain (2 full pages)
+**Then** `PageCount == 2`
+**And** `CurrentPageIndex` is clamped to `1` (the new upper bound)
+
+### COL-017 — `PagedComposition<TVM>` `PageCount` derivation under add and remove
+
+**Given** a `PagedComposition<TVM>` wrapping a source with `PageSize == 5`
+**When** the source starts empty, then 5 items are added, then 1 more is added
+**Then** `PageCount` transitions: `0` → `1` → `2`
+**And** when 1 item is removed, `PageCount` drops back to `1`
+
+### COL-018 — `PagedComposition<TVM>` navigation no-ops at bounds
+
+**Given** a `PagedComposition<TVM>` with `PageSize == 3` over an 8-item source (`PageCount == 3`)
+**When** `move_to_first_page()` is called while `CurrentPageIndex == 0`
+**Then** `CurrentPageIndex` remains `0`
+**When** `move_to_last_page()` is called while `CurrentPageIndex == PageCount - 1`
+**Then** `CurrentPageIndex` remains unchanged
+
+### COL-019 — `PagedComposition<TVM>` `PageSize == 0` passes through all items
+
+**Given** a `PagedComposition<TVM>` wrapping a 7-item source with `PageSize == 0`
+**Then** `IsPagingEnabled == false`
+**And** `PageCount == 1`
+**And** `CurrentPageIndex == 0`
+**And** `Items` yields all 7 items
+
+### COL-020 — `PagedComposition<TVM>` empty-source behavior
+
+**Given** a `PagedComposition<TVM>` wrapping an empty source with `PageSize == 5`
+**Then** `PageCount == 0`
+**And** `CurrentPageIndex == 0`
+**And** `Items` yields no items
+**And** all four navigation verbs are no-ops (no exception raised)
+
+### COL-021 — `PagedComposition<TVM>` composition with `SearchableState<T>`
+
+**Given** a source composition of 10 items
+**And** a `SearchableState<ItemVM>` wrapping the source that filters to 4 items
+**And** a `PagedComposition<ItemVM>` wrapping the `SearchableState` filtered view with `PageSize == 3`
+**When** the filter is applied
+**Then** `PagedComposition.PageCount == 2` (ceil(4 / 3))
+**And** the first page yields the first 3 filtered items
+**And** `Items` does NOT include any items filtered out by `SearchableState`
+
+### COL-022 — `ObservableDictionary` hub publication
+
+**Given** an `ObservableDictionary<TKey1, TKey2, TValue>` constructed with an `IMessageHub`
+**And** a subscriber recording `CollectionChangedMessage` receipts from the hub
+**When** an entry is inserted, then a different entry is removed, then an existing entry is
+replaced, then `Clear()` is called
+**Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub after
+the local `CollectionChanged` event fires
+**And** the `Action` field carries the correct value (`Added`, `Removed`, `Replaced`,
+`Reset`) for each mutation
+
+**Given** an `ObservableDictionary` constructed with no hub (or an explicit null)
+**When** the same four mutations are performed
+**Then** all mutations complete without raising any exception
+**And** no hub message is published
+
+### COL-023 — `ObservableList` batch-end `Count` notification
+
+**Given** an `ObservableList<T>` with at least one item already present
+**And** a subscriber recording `Reset` events and `PropertyChanged("Count")` events
+
+**When** a `batch_update`/`withBatch`/`BatchUpdate()` block contains mutations
+that change the collection's `Count` (e.g., at least one add or remove)
+**Then** the batch-end `Reset` is emitted first
+**And** a `PropertyChanged("Count")` notification is emitted immediately after
+**And** the `Count` value is already updated when the `PropertyChanged` fires
+
+**When** a `batch_update`/`withBatch`/`BatchUpdate()` block is empty (no mutations)
+**Then** no `Reset` is emitted
+**And** no `PropertyChanged("Count")` is emitted
+
+**When** a `batch_update`/`withBatch`/`BatchUpdate()` block contains only
+count-preserving mutations (e.g., only replace operations)
+**Then** a `Reset` is emitted (mutations occurred)
+**And** no `PropertyChanged("Count")` is emitted (count unchanged)
+
+## HIER — HierarchicalVM (chapter 18)
+
+### HIER-001 — Recursive generic constraint compiles
+
+**Given** a concrete subclass `MyNode : HierarchicalVM<MyModel, MyNode>`
+(using per-flavor recursive-constraint idiom per ADR-0028 §3.2)
+**When** the type is instantiated with a model and a children factory
+**Then** it compiles and constructs without generic-bound errors
+**And** per-flavor idiomatic naming applies (C#/Python/TS conventions per ADR-0006)
+
+### HIER-002 — `Parent` is null for root, non-null for non-root
+
+**Given** a root node and one child node attached to it
+**When** `Parent` is read on each node
+**Then** the root's `Parent` is null
+**And** the child's `Parent` is a reference to the root node
+
+### HIER-003 — `Depth` derivation
+
+**Given** a tree with root, a child at depth 1, and a grandchild at depth 2
+**When** `Depth` is read on each node
+**Then** the root's `Depth` is 0
+**And** the child's `Depth` is 1
+**And** the grandchild's `Depth` is 2
+
+### HIER-004 — `Path` materialization and cache identity
+
+**Given** a three-level tree (root → child → grandchild)
+**When** `Path` is read on the grandchild
+**Then** the returned sequence is `[root, child, grandchild]` (root-first)
+**And** a second read of `Path` without any structural change returns an
+identical (identity-equal in the same materialization window) sequence
+**And** after the grandchild is reparented, the next read of `Path` returns
+the updated sequence
+
+### HIER-005 — `IsLeaf` and `IsRoot` derivation
+
+**Given** a root node with two children, where each child has no children
+**When** `IsRoot` and `IsLeaf` are read on each node
+**Then** the root's `IsRoot` is true and `IsLeaf` is false
+**And** each child's `IsRoot` is false and `IsLeaf` is true
+
+### HIER-006 — `IsFirst` and `IsLast` position predicates
+
+**Given** a parent with three children: A (index 0), B (index 1), C (index 2)
+**When** `IsFirst` and `IsLast` are read on each child
+**Then** A's `IsFirst` is true and `IsLast` is false
+**And** B's `IsFirst` is false and `IsLast` is false
+**And** C's `IsFirst` is false and `IsLast` is true
+**And** for the root node, both `IsFirst` and `IsLast` are false
+
+### HIER-007 — Default lazy child loading
+
+**Given** a node constructed with the default (lazy) mode
+**And** a children factory delegate that records whether it was invoked
+**When** the node is constructed and `Children` has NOT been accessed yet
+**Then** the children factory delegate has NOT been invoked
+**When** `Children` is accessed for the first time
+**Then** the children factory delegate IS invoked exactly once
+
+### HIER-008 — Eager child loading via builder option
+
+**Given** a tree constructed with `WithEagerChildren()` builder option
+**And** a children factory delegate that records invocations per node
+**When** the root node's `construct()` completes
+**Then** the children factory has been invoked for every node in the tree
+**And** all descendants are materialized without any explicit `Children` access
+
+### HIER-009 — Depth-first construction order (eager mode)
+
+**Given** a two-level eager tree: root with child A; A with child AA
+**And** a recorder observing `ConstructionStatus == Constructed` transitions
+**When** the root is constructed
+**Then** AA transitions to `Constructed` before A
+**And** A transitions to `Constructed` before root
+**And** root transitions to `Constructed` last
+
+### HIER-010 — `PropertyChangedMessage` on `Parent` change
+
+**Given** a node with a message hub subscriber recording `PropertyChangedMessage`
+**When** the node's `Parent` reference changes (e.g., it is reparented)
+**Then** a `PropertyChangedMessage` with `PropertyName == "Parent"` is published
+on the hub
+
+### HIER-011 — `TreeStructureChangedMessage` on structural mutations
+
+**Given** a parent node with a message hub subscriber recording
+`TreeStructureChangedMessage`
+**When** a child is added to the parent
+**Then** a `TreeStructureChangedMessage` with `Change == Added` is published
+with `Source == parent` and `Affected == child`
+**When** a child is removed from the parent
+**Then** a `TreeStructureChangedMessage` with `Change == Removed` is published
+**When** a child is reparented to a different parent
+**Then** a `TreeStructureChangedMessage` with `Change == Reparented` is published
+
+### HIER-012 — `walk_expanded` honors lazy boundaries via `ExpandableState`
+
+**Given** a three-level tree where the root has `ExpandableState` composed
+**And** the root's `IsExpanded` is false
+**When** `walk_expanded(root)` is called
+**Then** only the root is yielded; its children are NOT traversed
+**When** the root is expanded (IsExpanded set to true) and `walk_expanded` is called again
+**Then** the root and its direct children are yielded
+**And** `HierarchicalVM` does NOT auto-implement `IExpandable` (per ADR-0028 §3.6)
+
+### HIER-013 — Composition with `SearchableState` filters materialized portion
+
+**Given** a tree with several leaf nodes whose models have a `Name` property
+**And** a `SearchableState` composed on the tree VM with a name-matching predicate
+**When** a search term is set that matches only a subset of leaves
+**Then** the filtered view returned by `SearchableState` contains only matching nodes
+**And** un-materialized children (lazy nodes not yet accessed) are not included in results
+
+### HIER-014 — Composition with `ModeledCrudCommands` mutates the tree
+
+**Given** a parent node composed with `ModeledCrudCommands` targeting its `Children`
+**When** `CreateNewCommand` is executed with a new model
+**Then** a new child VM is added to the parent's `Children`
+**And** a `TreeStructureChangedMessage` with `Change == Added` is published
+**When** `DeleteCurrentCommand` is executed on an existing child
+**Then** the child is removed from `Children`
+**And** a `TreeStructureChangedMessage` with `Change == Removed` is published
+
+## DIA — IDialogService (chapter 19)
+
+### DIA-001 — `PickFileToOpen` contract
+
+**Given** an `IDialogService` implementation
+**And** an optional `FileFilter` with description and extensions, and an optional title
+**When** `PickFileToOpen(filter, title)` is called
+**Then** it returns an awaitable that resolves to either a non-null path string (user
+selected a file) or `null` (user cancelled or no file was chosen)
+**And** all parameters are optional (calling with no arguments is valid)
+
+### DIA-002 — `PickFileToSave` contract
+
+**Given** an `IDialogService` implementation
+**And** optional `FileFilter`, optional title, and optional `suggestedName`
+**When** `PickFileToSave(filter, title, suggestedName)` is called
+**Then** it returns an awaitable that resolves to either a non-null path string (user
+confirmed a save path) or `null` on cancel
+**And** all parameters are optional (calling with no arguments is valid)
+
+### DIA-003 — `Confirm` contract
+
+**Given** an `IDialogService` implementation
+**And** a non-null message string and an optional title
+**When** `Confirm(message, title)` is called
+**Then** it returns an awaitable that resolves to `true` when the user confirms
+**And** resolves to `false` when the user cancels or dismisses the prompt
+**And** the title parameter is optional (calling with only message is valid)
+
+### DIA-004 — `Notify` contract
+
+**Given** an `IDialogService` implementation
+**And** a non-null message string, an optional title, and an optional severity
+**When** `Notify(message, title, severity)` is called with severity in
+`{Info, Warning, Error}`
+**Then** it returns an awaitable that completes without error
+**And** severity defaults to `Info` when not supplied
+**And** all optional parameters may be omitted
+
+### DIA-005 — `NullDialogService` null-object behavior
+
+**Given** a `NullDialogService` instance (per ADR-0017)
+**When** `PickFileToOpen()` is awaited
+**Then** the result is `null`
+**When** `PickFileToSave()` is awaited
+**Then** the result is `null`
+**When** `Confirm("any message")` is awaited
+**Then** the result is `false`
+**When** `Notify("any message")` is awaited
+**Then** the awaitable completes without error and without side-effects
+
+### DIA-006 — Reentrancy is implementation-defined
+
+**Given** a queueing `IDialogService` implementation that serialises concurrent calls
+**When** two `Confirm` calls are made concurrently
+**Then** both awaitables eventually resolve with valid values (`true` or `false`)
+**And** neither call raises an exception due to reentrancy
+
+**Given** an immediate-rejecting `IDialogService` implementation
+**When** a second `Confirm` call is made while the first is still pending
+**Then** the second call resolves immediately with `false` (safe default)
+**And** no exception is raised
+**And** the first call continues to completion unaffected
+
+### DIA-007 — Cancellation completes with safe default, does not throw
+
+**Given** an `IDialogService` implementation that supports `CancellationToken`
+**And** a `CancellationToken` that is cancelled before or during the dialog
+**When** `PickFileToOpen(cancellationToken: ct)` is awaited and the token is cancelled
+**Then** the awaitable completes with `null` (no file chosen)
+**And** no `OperationCancelledException` is raised by the awaitable itself
+**When** `Confirm(message, cancellationToken: ct)` is awaited and the token is cancelled
+**Then** the awaitable completes with `false`
+**And** no `OperationCancelledException` is raised
+
+### DIA-008 — `ConfirmationDecoratorCommand` integration
+
+**Given** an `ICommand` inner command
+**And** an `IDialogService` instance
+**When** `innerCommand.Confirm(() => dialogService.Confirm("Proceed?"))` is called
+(or the fluent `innerCommand.Confirm(dialogService, "Proceed?")` overload)
+**Then** the result is a valid `ICommand` whose `CanExecute` delegates to the inner
+command and whose `Execute` first awaits the dialog's `Confirm` result
+**And** the inner command is only executed when `Confirm` returns `true`
+**And** the inner command is NOT executed when `Confirm` returns `false`
+
+## FORM — FormVM (chapter 20)
+
+### FORM-001 — Snapshot captured at construct
+
+**Given** a `FormVM<TM>` constructed with an initial model `m0` and a no-op persister
+**When** `Snapshot` and `Model` are read immediately after construction
+**Then** `Snapshot == m0` (structurally equal to the initial value)
+**And** `Model == m0`
+**And** `IsDirty == false`
+
+### FORM-002 — Model mutation reflected in `IsDirty`
+
+**Given** a `FormVM<TM>` with initial model `m0`
+**When** `Model` is updated to a structurally different value `m1`
+**Then** `IsDirty == true`
+**And** `Model` equals `m1`
+**And** `Snapshot` still equals `m0` (unchanged)
+
+### FORM-003 — `IsDirty` derivation via structural inequality
+
+**Given** a `FormVM<TM>` with initial model `m0`
+**When** `Model` is updated to a value `m1` that is structurally equal to `m0`
+(same fields/values, different object reference if applicable)
+**Then** `IsDirty == false` (equal values are not dirty)
+**When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
+**Then** `IsDirty == true`
+
+### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
+
+**Given** a `FormVM<TM>` with initial model `m0`
+**And** `Model` has been updated to a different value `m1` (so `IsDirty == true`)
+**When** `DenyCommand.Execute()` is called
+**Then** `Model` is restored to a value structurally equal to `Snapshot`
+**And** `IsDirty == false`
+**And** the persister is NOT invoked
+
+### FORM-005 — `ApproveCommand` invokes persister; snapshot advances on success
+
+**Given** a `FormVM<TM>` with initial model `m0` and a persister that records its argument
+**And** `Model` has been updated to `m1`
+**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**Then** the persister was called with `m1`
+**And** `Snapshot` is updated to a value structurally equal to `m1`
+**And** `IsDirty == false` after the approve completes
+
+### FORM-006 — `OnApproved` fires only after successful persist
+
+**Given** a `FormVM<TM>` with a subscriber to `OnApproved`
+**And** `Model` has been updated to `m1`
+**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**Then** `OnApproved` fires exactly once with a value equal to `m1`
+
+**Given** a persister that throws an exception
+**When** `ApproveCommand.Execute()` is called
+**Then** `OnApproved` does NOT fire
+
+### FORM-007 — Persist failure leaves state unchanged
+
+**Given** a `FormVM<TM>` with a persister that throws `InvalidOperationException`
+**And** `Model` has been updated to `m1` (so `IsDirty == true`)
+**And** `Snapshot` equals `m0`
+**When** `ApproveCommand.Execute()` is called and the persister throws
+**Then** `Snapshot` is still `m0` (unchanged)
+**And** `Model` is still `m1` (unchanged)
+**And** `IsDirty` is still `true`
+**And** the exception propagates to the caller
+
+### FORM-008 — Hub messages on revert
+
+**Given** a `FormVM<TM>` connected to a message hub
+**And** `Model` has been updated to `m1`
+**And** subscribers are recording `FormRevertedMessage` and `PropertyChangedMessage`
+**When** `DenyCommand.Execute()` is called
+**Then** exactly one `FormRevertedMessage` is published with `Sender == formVm`
+**And** exactly one `PropertyChangedMessage` with `PropertyName == "Model"` is
+published after the revert
+
+### FORM-009 — Strict mode: `ApproveCommand.CanExecute` gates on `IsDirty`
+
+**Given** a `FormVM<TM>` constructed with `strict = true`
+**When** `IsDirty == false` (no mutations since last snapshot)
+**Then** `ApproveCommand.CanExecute()` returns `false`
+**When** `Model` is updated to a structurally different value (so `IsDirty == true`)
+**Then** `ApproveCommand.CanExecute()` returns `true`
+
+**Given** a `FormVM<TM>` constructed with `strict = false` (default)
+**When** `IsDirty == false`
+**Then** `ApproveCommand.CanExecute()` returns `true` (consumer-controlled)
+
+### FORM-010 — Integration with `IDialogService.Confirm`
+
+**Given** a `FormVM<TM>` with `Model` updated to `m1` (dirty)
+**And** a `NullDialogService` (whose `Confirm` always returns `false`)
+**And** a confirmation-decorated deny command:
+`confirmedDeny = denyCommand.Confirm(() => dialogService.Confirm("Discard changes?"))`
+**When** `confirmedDeny.Execute()` is called
+**Then** `Confirm` on the dialog service is called
+**And** because it returns `false`, `DenyCommand.Execute()` is NOT invoked
+**And** `Model` is still `m1` (not reverted)
+**And** `IsDirty` is still `true`

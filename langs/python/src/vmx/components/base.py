@@ -24,7 +24,7 @@ from vmx.commands.relay_command import RelayCommand
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.lifecycle.transition_validator import require
-from vmx.messages.construction_status import ConstructionStatusChangedMessage
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher

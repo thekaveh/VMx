@@ -37,7 +37,6 @@ class ForwardingComponentVM(Generic[M]):
 
             @property
             def hint(self) -> str:
-                print("hint accessed")
                 return super().hint
     """
 
