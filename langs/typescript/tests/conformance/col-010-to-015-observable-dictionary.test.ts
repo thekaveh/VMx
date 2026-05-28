@@ -218,3 +218,13 @@ describe("COL-015", () => {
     expect(granular).toHaveLength(0); // Clear must NOT fire per-entry events
   });
 });
+
+// ---------------------------------------------------------------------------
+// COL-022 — ObservableDictionary hub publication (stub — implementation pending)
+// ---------------------------------------------------------------------------
+
+describe("COL-022", () => {
+  it.todo(
+    "ObservableDictionary hub publication — implementation pending (Substage 1C)",
+  );
+});

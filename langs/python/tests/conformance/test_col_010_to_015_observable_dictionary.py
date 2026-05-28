@@ -233,3 +233,14 @@ def test_COL_015_clear_empties_key_views() -> None:
 
     # No individual added/removed events fired during clear
     assert granular == [], "Clear must NOT fire per-entry on_item_removed events"
+
+
+# ---------------------------------------------------------------------------
+# COL-022 — ObservableDictionary hub publication (stub — implementation pending)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("COL-022")
+def test_COL_022_hub_publication() -> None:
+    """COL-022: ObservableDictionary hub publication — implementation pending."""
+    pytest.skip("COL-022 stub: ObservableDictionary hub injection not yet implemented")

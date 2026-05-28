@@ -227,4 +227,13 @@ public class COL_010_to_015_ObservableDictionaryTests
         // No individual ItemAdded/ItemRemoved events fired during Clear
         granularEvents.Should().BeEmpty("Clear must NOT fire per-entry ItemRemoved events");
     }
+
+    // ── COL-022 ──────────────────────────────────────────────────────────────
+
+    /// <summary>COL-022: ObservableDictionary hub publication — stub; implementation pending (Substage 1C).</summary>
+    [Fact(Skip = "COL-022 stub: ObservableDictionary hub injection not yet implemented"), Trait("Conformance", "COL-022")]
+    public void COL_022_Hub_Publication()
+    {
+        throw new NotImplementedException("COL-022: ObservableDictionary hub injection not yet implemented");
+    }
 }
