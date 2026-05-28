@@ -126,3 +126,78 @@ def test_COL_009_batch_suppression_only_reset_fires() -> None:
     # Granular events suppressed; only one Reset fires at the end
     assert granular_events == []
     assert len(resets) == 1
+
+
+# ---------------------------------------------------------------------------
+# COL-023 — ObservableList batch-end Count notification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("COL-023")
+def test_COL_023_batch_end_count_notification_when_count_changes() -> None:
+    """COL-023: Batch with count-changing mutations emits Reset then PropertyChanged('Count')."""
+    sut: ObservableList[int] = ObservableList()
+    sut.append(10)  # pre-populate: count = 1
+
+    call_order: list[str] = []
+    count_at_reset: list[int] = []
+    count_at_prop_changed: list[int] = []
+
+    sut.on_reset.subscribe(lambda _: (call_order.append("reset"), count_at_reset.append(sut.count)))
+    sut.on_property_changed.subscribe(
+        lambda name: (
+            (
+                call_order.append(f"property_changed:{name}"),
+                count_at_prop_changed.append(sut.count),
+            )
+            if name == "Count"
+            else None
+        )
+    )
+
+    # Add two items — count goes from 1 to 3
+    with sut.batch_update():
+        sut.append(20)
+        sut.append(30)
+
+    # Reset fires before PropertyChanged("Count") — ordering is normative
+    assert call_order == ["reset", "property_changed:Count"]
+    # Count is already updated when both events fire
+    assert count_at_reset == [3]
+    assert count_at_prop_changed == [3]
+
+
+@pytest.mark.conformance("COL-023")
+def test_COL_023_empty_batch_emits_nothing() -> None:
+    """COL-023: Empty batch emits neither Reset nor PropertyChanged('Count')."""
+    sut: ObservableList[int] = ObservableList()
+    sut.append(1)
+
+    events: list[str] = []
+    sut.on_reset.subscribe(lambda _: events.append("reset"))
+    sut.on_property_changed.subscribe(lambda name: events.append(f"pc:{name}"))
+
+    # Empty batch — no mutations
+    with sut.batch_update():
+        pass
+
+    assert events == []
+
+
+@pytest.mark.conformance("COL-023")
+def test_COL_023_count_preserving_batch_emits_reset_but_not_count() -> None:
+    """COL-023: Replace-only batch emits Reset but NOT PropertyChanged('Count')."""
+    sut: ObservableList[int] = ObservableList()
+    sut.append(1)
+    sut.append(2)
+
+    events: list[str] = []
+    sut.on_reset.subscribe(lambda _: events.append("reset"))
+    sut.on_property_changed.subscribe(lambda name: events.append(f"pc:{name}"))
+
+    # Only a replace — count stays at 2
+    with sut.batch_update():
+        sut.replace(0, 99)
+
+    # Reset fires because there was a mutation, but no Count notification
+    assert events == ["reset"]
