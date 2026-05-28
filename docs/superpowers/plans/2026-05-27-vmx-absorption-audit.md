@@ -53,7 +53,7 @@ ______________________________________________________________________
 ## Stage progress tracker
 
 - [x] **Stage 0** — Pre-work and decisions
-- [ ] **Stage 1** — Foundations: capabilities (I5 `IFilterable`, IPageable), collections chapter (I2, I3, I4), paging (C3), fluent command extensions (I1)
+- [x] **Stage 1** — Foundations: capabilities (I5 `IFilterable`, IPageable), collections chapter (I2, I3, I4), paging (C3), fluent command extensions (I1)
 - [ ] **Stage 2** — `HierarchicalVM` (C1)
 - [ ] **Stage 3** — Forms & Dialogs (C4 `FormVM`, C2 `IDialogService`)
 - [ ] **Stage 4** — Notification rendering VMs (C5, I6)
