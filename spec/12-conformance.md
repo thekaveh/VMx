@@ -311,6 +311,39 @@ ______________________________________________________________________
 **Then** the row's expected `can_execute`, `execute_invokes_task`, and
 `can_execute_changed_fires` results all hold
 
+### CMD-008 — `Confirm(delegate)` is equivalent to explicit `ConfirmationDecoratorCommand`
+
+**Given** an `ICommand` `cmd`
+**And** a `confirm` delegate of shape `() -> Task<bool>`
+**When** `cmd.Confirm(confirm)` is called
+**Then** the returned command's `CanExecute` and `Execute` graph is identical to
+`new ConfirmationDecoratorCommand(cmd, confirm)` — i.e., `CanExecute` delegates to
+`cmd.CanExecute`, and `Execute` invokes `confirm()` then `cmd.Execute()` only when
+`confirm` resolves to `true`
+
+### CMD-009 — `PrecedeWith(other)` is equivalent to `CompositeCommand(other, receiver)`
+
+**Given** two commands `cmd` and `other`
+**When** `cmd.PrecedeWith(other)` is called
+**Then** the returned command is equivalent to `new CompositeCommand(other, cmd)` —
+i.e., `other.Execute()` is invoked before `cmd.Execute()` when both are executable
+
+### CMD-010 — `SucceedWith(other)` is equivalent to `CompositeCommand(receiver, other)`
+
+**Given** two commands `cmd` and `other`
+**When** `cmd.SucceedWith(other)` is called
+**Then** the returned command is equivalent to `new CompositeCommand(cmd, other)` —
+i.e., `cmd.Execute()` is invoked before `other.Execute()` when both are executable
+
+### CMD-011 — `WrapWith(predicate?, pre?, post?)` is equivalent to explicit `DecoratorCommand`
+
+**Given** an `ICommand` `cmd`
+**And** optional extra predicate, pre-action, and post-action arguments
+**When** `cmd.WrapWith(predicate, pre, post)` is called
+**Then** the returned command is equivalent to `new DecoratorCommand(cmd, predicate, pre, post)` —
+including the case where all three arguments are null/absent, which yields a
+transparent decorator
+
 ______________________________________________________________________
 
 ## 7. ComponentVM (`CVM-NNN`)
