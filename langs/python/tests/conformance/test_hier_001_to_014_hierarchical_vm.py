@@ -268,7 +268,7 @@ def test_hier_008_eager_child_loading_via_builder() -> None:
 def test_hier_009_depth_first_construction_order() -> None:
     """HIER-009: in eager mode, deepest node reaches Constructed before root."""
     from vmx.lifecycle.status import ConstructionStatus
-    from vmx.messages.construction_status import ConstructionStatusChangedMessage
+    from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 
     hub = make_hub()
     dispatcher = make_dispatcher()

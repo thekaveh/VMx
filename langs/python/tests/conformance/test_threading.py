@@ -182,7 +182,7 @@ def test_THR_004_subscriber_observes_on_chosen_scheduler_via_observe_on() -> Non
     Then   handler is not invoked before advancing the scheduler
     And    handler is invoked after advancing by 1 tick with the same message
     """
-    from vmx.messages.construction_status import ConstructionStatusChangedMessage
+    from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 
     hub: MessageHub[object] = MessageHub()
     sched: TestScheduler = TestScheduler()

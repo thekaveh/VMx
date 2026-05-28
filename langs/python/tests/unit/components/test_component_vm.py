@@ -18,7 +18,7 @@ from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
-from vmx.messages.construction_status import (
+from vmx.messages.construction_status_changed import (
     ConstructionStatusChangedMessage,
 )
 from vmx.messages.property_changed import PropertyChangedMessage

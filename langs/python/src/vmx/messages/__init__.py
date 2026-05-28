@@ -17,7 +17,7 @@ Public API
 from __future__ import annotations
 
 from vmx.messages.collection_changed import CollectionChangedMessage
-from vmx.messages.construction_status import ConstructionStatusChangedMessage
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.property_value_changed import property_value_changed_messages_for
