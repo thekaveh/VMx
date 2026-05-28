@@ -6,3 +6,4 @@ export { CollectionChangedMessage } from "./collectionChanged.js";
 export { TreeStructureChangedMessage } from "./treeStructureChanged.js";
 export type { TreeStructureChange } from "./treeStructureChanged.js";
 export { FormRevertedMessage } from "./formReverted.js";
+export { propertyValueChangedMessagesFor } from "./propertyValueChanged.js";
