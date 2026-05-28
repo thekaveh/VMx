@@ -76,9 +76,7 @@ Two decisions and one verification block the rest of the plan. Resolve all three
 
 - [ ] **Step 1: Make the call.**
 
-Decision needed: does paging (C3) get its own chapter `20-paging.md`, or land as a section inside `22-collections.md`?
-
-Recommended call: **section in collections** (paging is a collection-view behavior; reduces chapter sprawl; conceptually cohesive with `ServicedObservableCollection`, `ObservableList`, multi-key `ObservableDictionary`). The remaining four new chapters become 18 (hierarchical), 19 (dialogs), 20 (forms), 21 (collections — renumber from 22).
+**Decision (made):** Paging (C3) lands as a section inside `21-collections.md` (not a standalone chapter). Rationale: paging is a collection-view behavior; conceptually cohesive with `ServicedObservableCollection`, `ObservableList`, multi-key `ObservableDictionary`; reduces chapter sprawl. The four new chapters are: 18-hierarchical-vm, 19-dialogs, 20-form-vm, 21-collections.
 
 - [ ] **Step 2: Record the decision.**
 

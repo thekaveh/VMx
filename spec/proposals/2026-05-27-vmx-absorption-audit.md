@@ -205,10 +205,10 @@ PagedComposition<TVM>:
     # exposes IPageable surface
 ```
 
-**Spec impact:** Either a new chapter `20-paging.md` or a section in the new
-collections chapter `22-collections.md`. The chapter-vs-section decision is
-open and discussed in §9 below. Extends `14-capabilities.md` (`IPageable`
-joins the 20 capabilities — becomes 21).
+**Spec impact:** Section in the new collections chapter `21-collections.md`
+(paging is a collection-view behavior; reduces chapter sprawl; conceptually
+cohesive with the other collection primitives in that chapter). Extends
+`14-capabilities.md` (`IPageable` joins the 20 capabilities — becomes 21).
 
 **ADR:** *0024 — Paging helper (capability + decorator)*.
 
@@ -256,7 +256,7 @@ FormVM<TM>:
     OnApproved: event/observable   # fires after successful persist
 ```
 
-**Spec impact:** New chapter `21-form-vm.md`.
+**Spec impact:** New chapter `20-form-vm.md`.
 
 **ADR:** *0025 — FormVM (snapshot/revert edit lifecycle, ORM-agnostic)*.
 
@@ -378,7 +378,7 @@ addition to (or instead of — design choice for ADR) the local events. Useful
 when collection mutations need to drive cross-VM messaging without bespoke
 event-forwarding.
 
-**Spec impact:** Belongs in the new collections chapter `22-collections.md`.
+**Spec impact:** Belongs in the new collections chapter `21-collections.md`.
 
 **ADR:** *0028 — Hub-aware observable collection*.
 
@@ -660,27 +660,27 @@ asymmetry.
 
 This audit, if fully adopted, introduces:
 
-- **5 new chapters** at the next available numbers (current top is `17-localization.md`):
+- **4 new chapters** at the next available numbers (current top is `17-localization.md`):
   - `18-hierarchical-vm.md` (C1)
   - `19-dialogs.md` (C2)
-  - `20-paging.md` (C3) *— or fold into 22-collections.md, see below*
-  - `21-form-vm.md` (C4)
-  - `22-collections.md` (I2, I3, I4 — and possibly C3 paging)
+  - `20-form-vm.md` (C4)
+  - `21-collections.md` (I2, I3, I4 — and C3 paging as §5)
 - **Extensions to existing chapters:**
   - `04-commands.md` — fluent extensions (I1), `RelayCommand` triggers example (M3)
   - `06-composite-vm.md` — cross-reference HierarchicalVM
   - `13-tree-utilities.md` — `walk` / `walk_expanded` extension to HierarchicalVM
-  - `14-capabilities.md` — adds `IPageable` (C3) and `IFilterable<T>` (I5) — capabilities 21 and 22
+  - `14-capabilities.md` — adds `IPageable` (C3, capability 21) and `IFilterable<T>` (I5, capability 22)
   - `15-derived-properties.md` — init-token recipe (M2)
   - `16-notifications.md` — NotificationVM / ConfirmationVM (C5), service-as-VM recipe (I6)
 - **13 new ADRs** (0022-0034) per the per-candidate listings above. Recipe-only items (I6, M2, M3) may not need an ADR; the final count depends on those decisions.
 - **~65 new conformance IDs** (rough breakdown: HIER ~12, DIA ~8, FORM ~10, COL ~15, PAG ~8, extensions to CMD/CAP/NOTIF ~12). Exact counts will be set per-ADR.
 
-**Placement question for review:** Should paging (C3) be a standalone chapter
-`20-paging.md`, or a section within `22-collections.md`? The audit slightly
-prefers the latter for conceptual cohesion (paging is a collection-view
-behavior) but does not insist. The chapter-or-section decision can be made
-when ADR-0024 is written.
+**Paging placement (decided — Stage 0):** Paging (C3) lands as §5 of
+`21-collections.md`, not as a standalone chapter. Rationale: paging is a
+collection-view behavior, conceptually cohesive with `ServicedObservableCollection`,
+`ObservableList`, and `ObservableDictionary`. Folding it in reduces chapter sprawl
+and leaves the four new chapters as 18-hierarchical-vm, 19-dialogs, 20-form-vm,
+21-collections. ADR-0024 documents the capability + helper together.
 
 ## 10. Spec versioning
 
@@ -691,7 +691,7 @@ to 2.1.0**, not a major bump.
 
 However, two arguments for 3.0.0 exist:
 
-1. The change introduces 5 new chapters and ~75 new conformance IDs — a
+1. The change introduces 4 new chapters and ~75 new conformance IDs — a
    substantial size for a minor bump. Major-bumping signals to downstream
    consumers that the surface has grown materially.
 1. Several new capabilities (`IPageable`, `IFilterable<T>`) join the
@@ -738,7 +738,7 @@ checked when implementing):
 1. `HierarchicalVM` tree structure + construct-order sequence — for `18-hierarchical-vm.md`.
 1. `IDialogService` vs `INotificationHub` responsibility split — for `19-dialogs.md`.
 1. `PagedComposition` slicing — for paging section.
-1. `FormVM` state diagram (`Pristine` → `Dirty` → `Approved` / `Reverted`) — for `21-form-vm.md`.
+1. `FormVM` state diagram (`Pristine` → `Dirty` → `Approved` / `Reverted`) — for `20-form-vm.md`.
 1. `NotificationVM` lifespan / opacity timeline — for `16-notifications.md` extension.
 1. Multi-key dictionary grid — for collections chapter.
 
