@@ -75,7 +75,7 @@ ______________________________________________________________________
 
 ## Stage 2 progress tracker
 
-- [ ] **Substage 2A** — Spec foundation (ADR + chapter + IDs + stubs)
+- [x] **Substage 2A** — Spec foundation (ADR + chapter + IDs + stubs)
 - [ ] **Substage 2B** — Cross-chapter integration (06, 13, 14) + diagrams
 - [ ] **Substage 2C** — Per-flavor implementation (C# / Python / TypeScript)
 - [ ] **Substage 2D** — Cleanup (delete superseded proposal)
@@ -93,7 +93,7 @@ ______________________________________________________________________
 
 - Modify: `spec/ADRs/README.md`
 
-- [ ] **Step 1: Write the ADR.**
+- [x] **Step 1: Write the ADR.**
 
 Create `spec/ADRs/0028-hierarchical-vm.md` with the standard 4-section template. Use the exact format of ADR-0022 / ADR-0024 (read both for style reference). The Decision section MUST record all 6 answers from the §"Six design decisions" table above.
 
@@ -140,11 +140,11 @@ Option 3, with the following six specific resolutions:
 - Cross-flavor recursive-generic-constraint divergence is noted in ADR-0009.
 ```
 
-- [ ] **Step 2: Register ADR-0028 in `spec/ADRs/README.md`.**
+- [x] **Step 2: Register ADR-0028 in `spec/ADRs/README.md`.**
 
 Add a new row matching the format of existing rows (link, title, spec version 2.1.0, status Accepted).
 
-- [ ] **Step 3: Pre-commit + commit.**
+- [x] **Step 3: Pre-commit + commit.**
 
 ```bash
 git add spec/ADRs/0028-hierarchical-vm.md spec/ADRs/README.md
@@ -162,7 +162,7 @@ If mdformat reformats: re-stage and re-commit (NEVER `--amend`).
 
 - Modify: `spec/README.md` (TOC update)
 
-- [ ] **Step 1: Author the chapter.**
+- [x] **Step 1: Author the chapter.**
 
 Create `spec/18-hierarchical-vm.md`. Read `spec/13-tree-utilities.md` and `spec/15-derived-properties.md` for style reference (recent chapter additions). Structure:
 
@@ -250,11 +250,11 @@ Index : int # index in Children list (-1 for Reparented if N/A)
 - `HIER-014` — Composition with `ModeledCrudCommands` mutates the tree.
 ```
 
-- [ ] **Step 2: Add chapter 18 to `spec/README.md`.**
+- [x] **Step 2: Add chapter 18 to `spec/README.md`.**
 
 Add to the v2.1 additions section. Verify the existing chapter list still has clean numbering and the new entry's hyperlink resolves.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/18-hierarchical-vm.md spec/README.md
@@ -268,13 +268,13 @@ git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG" || echo "clean
 
 - Modify: `spec/12-conformance.md`
 
-- [ ] **Step 1: Find insertion point** (after the COL- block):
+- [x] **Step 1: Find insertion point** (after the COL- block):
 
 ```bash
 grep -n '^### COL-023' spec/12-conformance.md
 ```
 
-- [ ] **Step 2: Add a new HIER- section** with entries HIER-001 through HIER-014. Use the Given/When/Then prose pattern of existing entries. Each entry's body restates the corresponding chapter 18 §8 bullet expanded into a verifiable statement.
+- [x] **Step 2: Add a new HIER- section** with entries HIER-001 through HIER-014. Use the Given/When/Then prose pattern of existing entries. Each entry's body restates the corresponding chapter 18 §8 bullet expanded into a verifiable statement.
 
 Example for HIER-001:
 
@@ -289,11 +289,11 @@ And: per-flavor idiomatic naming applies (C#/Python/TS conventions).
 
 Produce all 14 IDs in this style.
 
-- [ ] **Step 3: Update `spec/README.md` ID count line.**
+- [x] **Step 3: Update `spec/README.md` ID count line.**
 
 Current is 181. New count is 195.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add spec/12-conformance.md spec/README.md
@@ -310,7 +310,7 @@ git commit -m "spec(conf): add HIER-001..HIER-014 conformance IDs"
 
 - Create: `langs/typescript/tests/conformance/hier-001-to-014-hierarchical-vm.test.ts`
 
-- [ ] **Step 1: Look at existing CAP-021 / COL- stubs for the canonical pattern per flavor.**
+- [x] **Step 1: Look at existing CAP-021 / COL- stubs for the canonical pattern per flavor.**
 
 ```bash
 cat langs/csharp/tests/VMx.Conformance.Tests/CapabilitiesConformanceTests.cs | grep -A5 'CAP-021' | head -20
@@ -318,7 +318,7 @@ cat langs/python/tests/conformance/test_cap_021_filterable.py
 cat langs/typescript/tests/conformance/cap-021-filterable.test.ts
 ```
 
-- [ ] **Step 2: Create the C# grouped stub file.**
+- [x] **Step 2: Create the C# grouped stub file.**
 
 Each method follows:
 
@@ -330,7 +330,7 @@ public void HIER_NNN_DescriptiveName() { throw new System.NotImplementedExceptio
 
 Produce 14 methods (one per HIER-001..014). Use the matching xUnit Skip+Trait pattern that COL stubs used.
 
-- [ ] **Step 3: Create the Python stub file.**
+- [x] **Step 3: Create the Python stub file.**
 
 ```python
 """HIER-001..HIER-014 stubs — VMx absorption audit Stage 2."""
@@ -347,7 +347,7 @@ def test_hier_001_recursive_generic_constraint() -> None:
 # ... and so on for HIER-002..HIER-014
 ```
 
-- [ ] **Step 4: Create the TypeScript stub file.**
+- [x] **Step 4: Create the TypeScript stub file.**
 
 ```typescript
 import { describe, it } from "vitest";
@@ -359,7 +359,7 @@ describe("HIER-001", () => {
 // ... and so on for HIER-002..HIER-014
 ```
 
-- [ ] **Step 5: Run conformance coverage tool.**
+- [x] **Step 5: Run conformance coverage tool.**
 
 ```bash
 uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript
@@ -367,7 +367,7 @@ uv --project langs/python run python tools/check-conformance-coverage.py --requi
 
 Expected: 195/195 in all three flavors.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add langs/csharp/tests/VMx.Conformance.Tests/HIER_001_to_014_HierarchicalVM_Tests.cs \
@@ -376,7 +376,7 @@ git add langs/csharp/tests/VMx.Conformance.Tests/HIER_001_to_014_HierarchicalVM_
 git commit -m "test(conf): add HIER-001..HIER-014 stubs in all three flavors"
 ```
 
-- [ ] **Step 7: Tick Substage 2A checkboxes in this plan; commit `docs(plan): tick Substage 2A`.**
+- [x] **Step 7: Tick Substage 2A checkboxes in this plan; commit `docs(plan): tick Substage 2A`.**
 
 ______________________________________________________________________
 
