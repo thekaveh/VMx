@@ -29,13 +29,19 @@ Key properties:
 
 ```
 FormVM<TM>:
-    Model          : TM            # live, editable
+    Model          : TM            # live, editable (read-only; mutate via SetModel)
     Snapshot       : TM            # read-only after construct (until next approve)
     IsDirty        : bool          # Model != Snapshot (structural equality)
     DenyCommand    : ICommand      # reverts Model to Snapshot; publishes hub messages
     ApproveCommand : ICommand      # invokes persister; updates Snapshot on success
     OnApproved     : event/obs     # fires after successful persist
+
+    SetModel(newModel : TM) -> void   # mutator (per-flavor idiomatic name)
+    ApproveAsync() -> Task            # awaitable entry-point for the persist flow
 ```
+
+`ApproveCommand` invokes `ApproveAsync` internally; consumers may either bind the
+command or call the awaitable directly when finer control is needed.
 
 Constructor parameters (per-flavor idiomatic):
 
@@ -44,7 +50,8 @@ FormVM(
     initial     : TM,
     persister   : Func<TM, Task>,   # or IFormPersister<TM>
     strict?     : bool = false,
-    snapshotter?: Func<TM, TM>      # custom snapshot function (opt-in)
+    snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in)
+    hub?        : IMessageHub       # optional hub; default is the null hub
 )
 ```
 
