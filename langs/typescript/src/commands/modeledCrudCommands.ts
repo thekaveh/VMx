@@ -21,6 +21,10 @@ export interface ModeledCrudCommandsOptions<M, VM> {
   deleteCurrent: (vm: VM) => void;
   confirmUpdate?: ConfirmDelegate;
   confirmDelete?: ConfirmDelegate;
+  /**
+   * @internal Phantom field to pin the `M` type parameter so it is not erased
+   * by the TypeScript compiler. Never read at runtime; always undefined.
+   */
   _model?: M;
 }
 

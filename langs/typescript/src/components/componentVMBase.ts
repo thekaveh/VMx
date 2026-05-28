@@ -42,6 +42,7 @@ export abstract class ComponentVMBase {
   #status: ConstructionStatus = ConstructionStatus.Destructed;
   #inFlight = false;
   #isCurrent = false;
+  /** @internal Set by CompositeVMBase / GroupVM to wire parent-child selection delegation. */
   _parent: IParentVM | null = null;
 
   readonly #propertyChangedSubject = new Subject<string>();
