@@ -96,3 +96,75 @@ describe("COL-009", () => {
     expect(resets).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// COL-023 — ObservableList batch-end Count notification
+// ---------------------------------------------------------------------------
+
+describe("COL-023", () => {
+  it("batch with count-changing mutations emits Reset then PropertyChanged('Count')", () => {
+    const sut = new ObservableList<number>();
+    sut.push(10); // pre-populate: count = 1
+
+    const callOrder: string[] = [];
+    let countAtReset = -1;
+    let countAtPropertyChanged = -1;
+
+    sut.reset.subscribe(() => {
+      countAtReset = sut.length;
+      callOrder.push("reset");
+    });
+    sut.propertyChanged.subscribe((name) => {
+      if (name === "Count") {
+        countAtPropertyChanged = sut.length;
+        callOrder.push("property_changed:Count");
+      }
+    });
+
+    // Add two items — count goes from 1 to 3
+    sut.withBatch(() => {
+      sut.push(20);
+      sut.push(30);
+    });
+
+    // Reset fires before PropertyChanged("Count") — ordering is normative
+    expect(callOrder).toEqual(["reset", "property_changed:Count"]);
+    // Count is already updated when both events fire
+    expect(countAtReset).toBe(3);
+    expect(countAtPropertyChanged).toBe(3);
+  });
+
+  it("empty batch emits neither Reset nor PropertyChanged('Count')", () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+
+    const events: string[] = [];
+    sut.reset.subscribe(() => events.push("reset"));
+    sut.propertyChanged.subscribe((name) => events.push(`pc:${name}`));
+
+    // Empty batch — no mutations
+    sut.withBatch(() => {
+      /* nothing */
+    });
+
+    expect(events).toEqual([]);
+  });
+
+  it("count-preserving batch (replace only) emits Reset but NOT PropertyChanged('Count')", () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+    sut.push(2);
+
+    const events: string[] = [];
+    sut.reset.subscribe(() => events.push("reset"));
+    sut.propertyChanged.subscribe((name) => events.push(`pc:${name}`));
+
+    // Only a replace — count stays at 2
+    sut.withBatch(() => {
+      sut.replace(0, 99);
+    });
+
+    // Reset fires because there was a mutation, but no Count notification
+    expect(events).toEqual(["reset"]);
+  });
+});
