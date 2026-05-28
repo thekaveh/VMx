@@ -22,6 +22,7 @@ export {
 // Messages
 export type { IMessage, ITypedMessage } from "./messages/types.js";
 export { PropertyChangedMessage } from "./messages/propertyChanged.js";
+export { propertyValueChangedMessagesFor } from "./messages/propertyValueChanged.js";
 export { ConstructionStatusChangedMessage } from "./messages/constructionStatusChanged.js";
 export { TreeStructureChangedMessage } from "./messages/treeStructureChanged.js";
 export type { TreeStructureChange } from "./messages/treeStructureChanged.js";
