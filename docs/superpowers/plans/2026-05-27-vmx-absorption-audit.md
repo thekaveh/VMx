@@ -132,7 +132,7 @@ git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG" || echo "clean
 
 - Modify: this plan file (Stage 3 outline) to record the disambiguation
 
-- [ ] **Step 1: Read the existing Dialog capability in all three flavors.**
+- [x] **Step 1: Read the existing Dialog capability in all three flavors.**
 
 ```bash
 sed -n '1,80p' langs/csharp/src/VMx/Capabilities/Dialog.cs
@@ -141,11 +141,11 @@ sed -n '1,80p' langs/typescript/src/capabilities/dialog.ts
 grep -n -A 20 'Dialog' spec/14-capabilities.md
 ```
 
-- [ ] **Step 2: Record what it actually is.**
+- [x] **Step 2: Record what it actually is.**
 
 Append a paragraph to this plan's Stage 3 outline (below) stating: existing `Dialog` capability is a VM-side participant contract for X (whatever X turns out to be); the new `IDialogService` (C2) is a host-side modal-interaction service — distinct names, distinct files, no conflict. If they DO conflict, escalate before proceeding.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-05-27-vmx-absorption-audit.md
@@ -955,7 +955,23 @@ ______________________________________________________________________
 
 **New conformance IDs:** ~10 `FORM-NNN` + ~8 `DIA-NNN`.
 
-**Disambiguation prerequisite** (from Stage 0 task 0.3): the existing `Dialog` capability is distinct from the new `IDialogService`. Stage 3 must start by confirming the disambiguation result and choosing non-conflicting names (e.g., capability remains `IDialogParticipant` or whatever it is, service is `IDialogService`).
+**Disambiguation note** (resolved in Stage 0 task 0.3 — no conflict):
+
+The three files `langs/csharp/src/VMx/Capabilities/Dialog.cs`,
+`langs/python/src/vmx/capabilities/dialog.py`, and
+`langs/typescript/src/capabilities/dialog.ts` implement the
+**spec/14-capabilities.md §2.4 "Dialog / form capabilities"** group. They
+define three fine-grained VM-side participant interfaces that a ViewModel class
+opts into: `IClosable` (`can_close()` / `close()`), `IApprovable`
+(`can_approve()` / `approve()`), and `ICancelable` (`can_cancel()` /
+`cancel()`). These describe what a ViewModel *can do* when hosted in a dialog
+shell — they carry no host-side plumbing.
+
+The new `IDialogService` (item C2) is an entirely different concept: a
+**host-side service** injected into ViewModels to trigger modal interactions
+(Confirm, PickFileToOpen, etc.). It belongs in a new `dialogs/` directory, not
+in `capabilities/`. Names, files, and responsibilities are orthogonal; no
+renaming of the existing capability interfaces is required.
 
 **Per-flavor work:**
 
