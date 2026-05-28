@@ -215,6 +215,10 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md).
+- Per-flavor CHANGELOGs (release history):
+  [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
+  [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
+  [`langs/typescript/CHANGELOG.md`](langs/typescript/CHANGELOG.md).
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
   [`docs/getting-started/python.md`](docs/getting-started/python.md),
