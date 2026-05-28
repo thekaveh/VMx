@@ -33,7 +33,7 @@ ADR-0006 and require no further action:
 | `CollectionChanged` event shape                                | `event NotifyCollectionChangedEventHandler`                                        | `Observable[CollectionChangedEvent]`                                 | `Observable<CollectionChangedEvent>`                                     | C# binds to WPF/MAUI/Avalonia which expect the BCL contract.                                                                                                               |
 | `CollectionChangedEvent` record                                | BCL `NotifyCollectionChangedEventArgs`                                             | `vmx.collections.CollectionChangedEvent`                             | `CollectionChangedEvent`                                                 | Same reason as above; C# defers to the BCL payload.                                                                                                                        |
 | `MessageHub` parameterisation                                  | `IMessageHub.Send<TMessage>` (per-call generic)                                    | `MessageHub[Message]` (class-generic)                                | `send(message: IMessage)` (no generic)                                   | Each shape is the most idiomatic for its language's type system.                                                                                                           |
-| `BatchUpdate()` return type                                    | `IDisposable`                                                                      | `BatchUpdateHandle` (context-manager)                                | `BatchUpdateHandle` (TC39 `[Symbol.dispose]`)                            | `using` in C# accepts any `IDisposable`; named class adds nothing.                                                                                                         |
+| `BatchUpdate()` / batch API                                    | `BatchUpdate(): IDisposable`                                                       | `batch_update()` context-manager (`BatchUpdateHandle`)               | `withBatch(callback: () => void): void` (callback, no return value)      | C# returns a disposable token; Python exposes a context-manager; TS inverts control with a callback — no handle object is returned or needed.                              |
 | Async lifecycle methods                                        | `ConstructAsync()` etc. ship on `IComponentVM`                                     | Not provided                                                         | Not provided                                                             | See ADR-0008 — TAP is .NET-specific affordance.                                                                                                                            |
 | `ViewModelType` casing                                         | `ViewModelType.Component`                                                          | `ViewModelType.COMPONENT`                                            | `ViewModelType.Component`                                                | Python convention is ALL_CAPS for enum members.                                                                                                                            |
 | `CompositeVM` index-set syntax                                 | `vm[i] = x` (indexer)                                                              | `vm[i] = x` (`__setitem__`)                                          | `setAt(i, x)` (named method)                                             | JS lacks operator overloading; named method is the only option.                                                                                                            |
@@ -121,6 +121,110 @@ ADR-0006 and require no further action:
 - **Rationale**: JS idiomatic helpers. Event emission follows spec semantics:
   single-item operations emit `Added`/`Removed`/`Replaced`; multi-item splice
   emits `Reset`. Not normative; the spec does not enumerate these methods.
+
+### `ObservableDictionary` remove/delete naming
+
+- **C#**: `Remove(key1, key2) -> bool`
+- **Python**: `remove(key1, key2) -> bool`
+- **TypeScript**: `delete(key1, key2): boolean` (matches `Map.prototype.delete`)
+- **Rationale**: TS uses the `Map`-idiomatic name; C# and Python follow the BCL/collection
+  `Remove` convention.
+
+### `ObservableDictionary` contains-key naming
+
+- **C#**: `ContainsKey(key1, key2) -> bool`
+- **Python**: `contains_key(key1, key2) -> bool`
+- **TypeScript**: `has(key1, key2): boolean` (matches `Map.prototype.has`)
+- **Rationale**: TS uses the `Map`-idiomatic name.
+
+### `ObservableDictionary` upsert path
+
+- **C#**: indexer `this[key1, key2] = value`
+- **Python**: `__setitem__` via `dict[key1, key2] = value`
+- **TypeScript**: `set(key1, key2, value): void` (matches `Map.prototype.set`)
+- `add(key1, key2, value)` (strict-insert, throws on duplicate) uses the same name
+  across all three flavors and is already noted in the table above.
+- **Rationale**: JS lacks operator overloading; `set` is the idiomatic `Map` name.
+
+### `ObservableDictionary` get / read semantics
+
+- **C#**: indexer `this[key1, key2]` throws `KeyNotFoundException` on miss;
+  `TryGetValue` is the safe-read path.
+- **Python**: `get(key1, key2)` throws `KeyError` on miss; `__getitem__` also throws.
+- **TypeScript**: `get(key1, key2): TValue | undefined` returns `undefined` on miss
+  (does NOT throw); a `tryGet` helper with a `found` discriminator is provided for
+  typed safe-read.
+- **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
+  match the dictionary-throws idiom of their standard libraries.
+
+### `ServicedObservableCollection` append method
+
+- **C#**: `Add(item)` (inherited from `ObservableCollection<T>`)
+- **Python**: `append(item)`
+- **TypeScript**: `push(item)`
+- **Rationale**: Same idiomatic-array rationale as the `ObservableList` `push`
+  divergence catalogued above.
+
+### `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript only)
+
+- **TypeScript**: adds `at(index: number): T | undefined` and `toArray(): T[]` on
+  both `ObservableList` and `ServicedObservableCollection`.
+- **C# / Python**: absent; consumers use the indexer and iteration directly.
+- **Rationale**: `Array.prototype.at` and spread/slice patterns are the JS idiomatic
+  equivalents. Additive; does not alter spec-observable behavior for callers that
+  do not use them.
+
+### `ServicedObservableCollection` mutation observable name
+
+- **C#**: fires the BCL `CollectionChanged` event (`INotifyCollectionChanged`); no
+  additional Rx observable is exposed on the public surface.
+- **Python**: `on_collection_changed: Observable[CollectionChangedMessage[T]]`
+- **TypeScript**: `collectionChanged: Observable<CollectionChangedMessage<T>>`
+- **Rationale**: C# uses the .NET-standard event surface expected by WPF/MAUI/Avalonia
+  data-binding. Python/TS expose a first-class Rx observable directly (same rationale
+  as the `CollectionChanged` row in the table above).
+
+### `PagedComposition` property-changed shape
+
+- **C#**: `INotifyPropertyChanged.PropertyChanged` event
+  (`event PropertyChangedEventHandler?`)
+- **Python**: `on_property_changed: Observable[str]` (emits the changed property name)
+- **TypeScript**: `propertyChanged: Observable<string>` (emits the changed property name)
+- **Rationale**: C# implements the .NET-standard `INotifyPropertyChanged` contract
+  required by XAML binding. Python/TS expose an Rx observable — same pattern as the
+  `CollectionChanged` and `ServicedObservableCollection` observable divergences.
+
+### `FormVM<TM>` persister overload (C# only)
+
+- **C#**: provides a second constructor overload accepting `IFormPersister<TM>`
+  alongside the primary `Func<TM, Task>` constructor.
+- **Python**: accepts only `Callable[[TM], Awaitable[None]]`.
+- **TypeScript**: accepts only a `Persister<TM>` function type.
+- **Rationale**: The `IFormPersister<TM>` overload is a DI-ecosystem convenience
+  idiomatic to .NET; it wraps the interface into the delegate form internally and
+  adds no new behavior. Python and TypeScript have no comparable DI container
+  convention that would motivate a parallel interface.
+
+### `NullDialogService` singleton accessor
+
+- **C#**: `NullDialogService.Instance` (static property, PascalCase — .NET convention)
+- **Python**: module-level constant `NULL_DIALOG_SERVICE` (Python convention for
+  module-level singletons)
+- **TypeScript**: `NullDialogService.INSTANCE` (static readonly field, ALL_CAPS —
+  JS class-static constant convention)
+- **Rationale**: Each flavor uses its language's idiomatic name for a shared stateless
+  singleton. The value is identical; only the accessor form differs.
+
+### Fluent `Confirm` overload with `IDialogService`
+
+- **C#**: extension-method overload `Confirm(this ICommand, IDialogService, string)`
+  on `FluentCommandExtensions` (same `Confirm` name; C# method overloading
+  distinguishes by parameter types).
+- **Python**: standalone function `confirm_with_dialog_service(command, dialog_service, prompt)` in `vmx.commands`; distinct name because Python lacks function overloading.
+- **TypeScript**: standalone function `confirmWithDialogService(command, dialogService, prompt)` exported from `@vmx/core`; distinct name for the same reason.
+- **Rationale**: C# method overloading lets the `IDialogService` variant share the
+  `Confirm` name. Python and TypeScript lack overloading with distinct implementations
+  and therefore require a distinct function name.
 
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
