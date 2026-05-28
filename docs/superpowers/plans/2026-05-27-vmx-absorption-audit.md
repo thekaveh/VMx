@@ -102,15 +102,15 @@ git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG: AI attribution
 
 - Modify: this plan file (header references)
 
-- [ ] **Step 1: Make the call.**
+- [x] **Step 1: Make the call.**
 
 Recommended: **2.1.0**. The change is purely additive (no removed/renamed contracts). 3.0.0 is defensible only as a marketing-the-size signal. Going with 2.1.0 keeps the SemVer policy clean and matches the spec README's stated rule.
 
-- [ ] **Step 2: Lock the decision.**
+- [x] **Step 2: Lock the decision.**
 
 Edit proposal §10 to remove the alternative-discussed framing and state 2.1.0 as the target. Per-flavor versions: each flavor moves to its own 2.1.0 (matching the lockstep convention used through v2.0).
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/proposals/2026-05-27-vmx-absorption-audit.md

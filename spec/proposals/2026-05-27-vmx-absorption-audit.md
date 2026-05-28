@@ -2,7 +2,7 @@
 
 **Status:** Proposal (not yet accepted)
 **Date:** 2026-05-27
-**Target spec version:** 2.1.0 candidate (see §10 — 3.0.0 alternative discussed)
+**Target spec version:** 2.1.0
 **Sources audited:**
 
 - `/Users/kaveh/repos/VMx.old/` — the 2012 C# WPF/Silverlight predecessor
@@ -683,29 +683,28 @@ and leaves the four new chapters as 18-hierarchical-vm, 19-dialogs, 20-form-vm,
 
 ## 10. Spec versioning
 
+**Decision:** The target spec version is **2.1.0**. Each active flavor moves
+to its own **2.1.0**, matching the lockstep convention used through v2.0.
+
 This change is **additive** — no existing IDs change, no existing contracts
-break, no existing API is removed. By the SemVer policy referenced in the spec
-README (`spec/README.md` §2), additive changes warrant a **spec minor bump
-to 2.1.0**, not a major bump.
+break, no existing API is removed. By the SemVer policy in `spec/README.md`
+§2, additive changes warrant a spec minor bump, not a major bump.
 
-However, two arguments for 3.0.0 exist:
-
-1. The change introduces 4 new chapters and ~75 new conformance IDs — a
-   substantial size for a minor bump. Major-bumping signals to downstream
-   consumers that the surface has grown materially.
-1. Several new capabilities (`IPageable`, `IFilterable<T>`) join the
-   capability set documented in `ADR-0010` — that ADR is informational about
-   the count of capabilities. Bumping makes the catalog-shift visible.
-
-**Recommendation:** **2.1.0** unless the maintainer wants to use the audit as
-the occasion for a clean 3.0.0 reset. The decision is recorded in the
-audit's first ADR (0022) with cross-references.
+**Considered and rejected: 3.0.0.** Two arguments were raised for a major
+bump: (1) the audit introduces 4 new chapters and ~75 new conformance IDs —
+a materially larger surface than a typical minor; (2) several new capabilities
+(`IPageable`, `IFilterable<T>`) join the capability set in `ADR-0010`,
+making the catalog-shift visible. Neither argument outweighs SemVer-policy
+alignment: size is not a SemVer trigger; the catalog growth is additive, not
+breaking. Using 3.0.0 as a size signal would violate the policy's stated rule
+and set a precedent that decouples version semantics from compatibility
+guarantees. 3.0.0 is therefore rejected.
 
 Per `CLAUDE.md`, each flavor versions independently but a spec major bump
 forces a major bump in every active flavor. With a 2.1.0 minor bump, each
-flavor is free to choose its own next version — typically a minor (2.1.0)
-across csharp/python/typescript, but the matrix-row decision is per-flavor and
-will be recorded in `compatibility-matrix.md` as part of the release stage.
+flavor is free to choose its own next version. All three active flavors
+(csharp, python, typescript) will move to 2.1.0. This will be recorded in
+`compatibility-matrix.md` as part of the release stage.
 
 ## 11. Documentation and diagram update plan
 
