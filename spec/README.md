@@ -2,8 +2,8 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.0.0,
-Python `vmx` v2.0.0, TypeScript `vmx` v2.0.0 — declares the spec version it
+This directory is the contract. Every published package — C# `VMx` v2.1.0,
+Python `vmx` v2.1.0, TypeScript `vmx` v2.1.0 — declares the spec version it
 implements. Conformance tests under `langs/<lang>/tests/conformance/`
 re-implement the catalog at `12-conformance.md` and must pass before any
 flavor releases a stable version.
@@ -56,9 +56,9 @@ The following existing chapters were also extended in v2.1:
 
 ### 1.4 Supporting artefacts
 
-- `VERSION` — current spec SemVer (`2.1.0-dev`).
+- `VERSION` — current spec SemVer (`2.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0028); see
+- `ADRs/` — Architecture Decision Records (0001-0033); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — deferred designs not yet promoted to chapters.
 
