@@ -4,10 +4,9 @@ Per spec/14-capabilities.md §2.10 and ADR-0023, Pageable exposes mutable
 page_size and current_page_index, derived page_count and is_paging_enabled,
 and four navigation methods that are no-ops at their respective bounds.
 
-PageCount rule chosen for this test:
-    max(1, ceil(item_count / page_size))  when page_size > 0
-    1                                     when page_size == 0 (paging disabled)
-This means there is always at least one page (even with item_count == 0).
+PageCount rule (per spec §5.4):
+    ceil(item_count / page_size)  when page_size > 0  (0 when source is empty)
+    1                             when page_size == 0 (paging disabled)
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ class _PageableFixture(Pageable):
     def page_count(self) -> int:
         if self._page_size <= 0:
             return 1
-        return max(1, math.ceil(self._item_count / self._page_size))
+        return math.ceil(self._item_count / self._page_size)
 
     @property
     def is_paging_enabled(self) -> bool:
@@ -84,6 +83,8 @@ class _PageableFixture(Pageable):
     # ── helpers ──────────────────────────────────────────────────────────────
 
     def _clamp(self, index: int) -> int:
+        if self.page_count == 0:
+            return 0  # empty source: index stays at 0
         max_idx = self.page_count - 1
         if index < 0:
             return 0
@@ -107,7 +108,7 @@ def test_CAP_022_pageable_contract() -> None:
     3. Clamping current_page_index: above max clamps down; below 0 clamps up.
     4. Navigation: first/last/next/previous work; no-ops at bounds.
     5. page_size resize clamps current_page_index if out of range.
-    6. item_count=0 with page_size>0 yields page_count=1.
+    6. item_count=0 with page_size>0 yields page_count=0 (empty source).
     """
     # ── 1. Initial state ─────────────────────────────────────────────────────
     sut = _PageableFixture(item_count=25)
@@ -164,7 +165,7 @@ def test_CAP_022_pageable_contract() -> None:
     sut.page_size = 20  # now page_count = ceil(25/20) = 2 → pages 0..1
     assert sut.current_page_index == 1  # clamped from 2 to 1
 
-    # ── 6. item_count=0 with page_size>0 yields page_count=1 ─────────────────
+    # ── 6. item_count=0 with page_size>0 yields page_count=0 ─────────────────
     empty = _PageableFixture(item_count=0)
     empty.page_size = 5
-    assert empty.page_count == 1  # max(1, ceil(0/5)) = max(1, 0) = 1
+    assert empty.page_count == 0  # ceil(0/5) = 0 (empty source has no pages)

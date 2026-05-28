@@ -37,7 +37,7 @@ class PageableFixture implements IPageable {
 
   get pageCount(): number {
     if (this._pageSize <= 0) return 1;
-    return Math.max(1, Math.ceil(this._itemCount / this._pageSize));
+    return Math.ceil(this._itemCount / this._pageSize);
   }
 
   get isPagingEnabled(): boolean {
@@ -61,6 +61,7 @@ class PageableFixture implements IPageable {
   }
 
   private clamp(index: number): number {
+    if (this.pageCount === 0) return 0; // empty source: index stays at 0
     const max = this.pageCount - 1;
     if (index < 0) return 0;
     if (index > max) return max;
@@ -137,9 +138,9 @@ describe("CAP-022", () => {
     expect(sut.currentPageIndex).toBe(1); // clamped from 2 to 1
   });
 
-  it("IPageable contract: itemCount=0 with pageSize>0 yields pageCount=1", () => {
+  it("IPageable contract: itemCount=0 with pageSize>0 yields pageCount=0", () => {
     const empty = new PageableFixture(0);
     empty.pageSize = 5;
-    expect(empty.pageCount).toBe(1); // max(1, ceil(0/5)) = max(1, 0) = 1
+    expect(empty.pageCount).toBe(0); // ceil(0/5) = 0 (empty source has no pages)
   });
 });

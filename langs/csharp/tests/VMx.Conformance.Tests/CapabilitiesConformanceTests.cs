@@ -534,10 +534,10 @@ public class CapabilitiesConformanceTests
         sut.PageSize = 20;         // now PageCount = ceil(25/20) = 2 → pages 0..1
         sut.CurrentPageIndex.Should().Be(1);  // clamped from 2 to 1
 
-        // ── 6. PageCount derivation: itemCount=0 with PageSize>0 yields PageCount=1 ─
+        // ── 6. PageCount derivation: itemCount=0 with PageSize>0 yields PageCount=0 ─
         var empty = new PageableFixture(itemCount: 0);
         empty.PageSize = 5;
-        empty.PageCount.Should().Be(1);  // max(1, ceil(0/5)) = max(1, 0) = 1
+        empty.PageCount.Should().Be(0);  // ceil(0/5) = 0 (empty source has no pages)
     }
 
     /// <summary>
@@ -575,7 +575,7 @@ public class CapabilitiesConformanceTests
         }
 
         public int PageCount => _pageSize > 0
-            ? Math.Max(1, (int)Math.Ceiling((double)_itemCount / _pageSize))
+            ? (int)Math.Ceiling((double)_itemCount / _pageSize)
             : 1;
 
         public bool IsPagingEnabled => _pageSize > 0;
@@ -596,6 +596,7 @@ public class CapabilitiesConformanceTests
 
         private int ClampIndex(int index)
         {
+            if (PageCount == 0) return 0;  // empty source: index stays at 0
             var max = PageCount - 1;
             if (index < 0) return 0;
             if (index > max) return max;
