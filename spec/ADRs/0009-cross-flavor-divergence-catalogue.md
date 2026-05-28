@@ -43,6 +43,46 @@ ADR-0006 and require no further action:
 | `ObservableDictionary` hub message element type                | `KeyValuePair<(TKey1, TKey2), TValue>` — standard BCL pair of compound key + value | `(key1, key2, value)` 3-tuple                                        | `{ key1, key2, value }` object (`DictionaryEntry<TKey1, TKey2, TValue>`) | All three shapes preserve both keys and the value (spec §4.7); the concrete form is the most idiomatic representation of a key-value pair for each language. Per ADR-0006. |
 | LINQ utility helpers (`CartesianProduct`, `Sample`, `Product`) | `LinqHelpers` static class in `VMx.Extensions`                                     | Not provided (use `itertools.product`, slice-with-step, `math.prod`) | Not provided (consumer uses `flatMap`/`filter`+modulo/`reduce`)          | Python and TypeScript cover these natively; adding wrappers would duplicate built-ins. Per ADR-0033.                                                                       |
 
+### `TreeStructureChangedMessage` field name
+
+- **Spec**: §18 defines the field as `Source`.
+- **C#**: implements `Source` (faithful to spec text).
+- **Python / TypeScript**: use `sender` / `senderName` to match the in-flavor
+  convention shared by all other message types (`FormRevertedMessage.sender`,
+  `CollectionChangedMessage.sender`, etc.). Subscribers using the
+  `sender_name` / `senderName` derived property work uniformly across all
+  message types in those flavors.
+- **Rationale**: per-flavor internal consistency outweighs spec-name fidelity
+  in flavors where every other message uses `sender`.
+
+### `NotificationVM` / `ConfirmationVM` time properties (TypeScript)
+
+- **Spec / C# / Python**: `Lifespan`, `RemainingTime` typed as
+  `TimeSpan` / `timedelta`.
+- **TypeScript**: `lifespanMs`, `remainingMs` typed as `number` (milliseconds).
+- **Rationale**: JavaScript has no native duration type; numbers-as-milliseconds
+  is the standard convention (used by `setTimeout`, `Date.now()`, etc.).
+  The `Ms` suffix makes the unit explicit.
+
+### `HierarchicalVM` parent property name (C#)
+
+- **Spec / Python / TypeScript**: `Parent` / `parent`.
+- **C#**: `HierarchicalParent`.
+- **Rationale**: `ComponentVMBase` in C# already exposes a `Parent` property
+  (the composite-parent context). Renaming to `HierarchicalParent` avoids
+  shadowing/hiding warnings (`CS0108`) and makes the tree-parent semantics
+  explicit at the call site.
+
+### Collection size property name
+
+- **C#**: `Count` (matches `ICollection<T>`).
+- **Python**: `count` / `len()` via `__len__` (idiomatic).
+- **TypeScript**: `length` for list-like types (`ObservableList`, matching
+  `Array.prototype.length`), `size` for map-like types
+  (`ObservableDictionary`, matching `Map.prototype.size`).
+- **Rationale**: pure idiomatic adaptation; no semantic difference across
+  flavors.
+
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
 
