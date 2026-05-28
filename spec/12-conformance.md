@@ -30,6 +30,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `COMP-014..024` | CompositeVM v2.0 additions (search, modeled CRUD) | `06-composite-vm.md`                          |
 | `GRP-007..010`  | GroupVM v2.0 additions (search)                   | `07-group-vm.md`                              |
 | `LOC-NNN`       | Localization hooks                                | `17-localization.md`                          |
+| `COL-NNN`       | Collection primitives (spec v2.1)                 | `21-collections.md`                           |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -1378,3 +1379,167 @@ key `"greeting"`
 **Then** calling `Localize("foo")` returns `"X:foo"`
 **And** the framework's `ILocalizer` contract accepts the fixture without
 type errors
+
+______________________________________________________________________
+
+## 24. Collection primitives (`COL-NNN`) — spec v2.1
+
+Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
+See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
+ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
+
+### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
+
+**Given** a `ServicedObservableCollection<T>` constructed with a hub
+**And** a subscriber that records the order of local `CollectionChanged` and hub `CollectionChangedMessage` receipts
+**When** an item is added
+**Then** the local `CollectionChanged` event fires before the hub message is published
+**And** the hub `CollectionChangedMessage` carries `Action == Added` and the correct `NewItems` and `StartingIndex`
+
+### COL-002 — `ServicedObservableCollection<T>` publishes on remove and replace
+
+**Given** a `ServicedObservableCollection<T>` constructed with a hub and containing items
+**When** an item is removed, then another is replaced
+**Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub
+**And** the `Action` field equals `Removed` for the removal and `Replaced` for the replacement
+**And** `OldItems` is populated for the removal and both `OldItems` / `NewItems` are populated for the replacement
+
+### COL-003 — Null-hub fallback: no hub means no publication, no error
+
+**Given** a `ServicedObservableCollection<T>` constructed with no hub (or an explicit null)
+**When** items are added, removed, and replaced
+**Then** all mutations complete without raising any exception
+**And** local `CollectionChanged` events fire normally for each mutation
+**And** no hub message is published (no hub is present)
+
+### COL-004 — `ServicedObservableCollection<T>` does not marshal; fires on caller thread
+
+**Given** a `ServicedObservableCollection<T>` with a hub
+**And** a subscriber that records the thread ID of each hub `CollectionChangedMessage` receipt
+**When** an item is added on thread T
+**Then** the hub message is received on thread T
+**And** no scheduler or dispatcher is involved in the delivery
+
+### COL-005 — `ObservableList<T>` `ItemAdded` payload shape
+
+**Given** an `ObservableList<T>` with a subscriber to `ItemAdded`
+**When** `Add(item)` is called
+**Then** `ItemAdded` emits exactly once with `item` equal to the added item
+**And** the `index` in the payload equals the position at which the item was inserted (zero-based)
+
+### COL-006 — `ObservableList<T>` `ItemRemoved` payload shape
+
+**Given** an `ObservableList<T>` containing `[a, b, c]` with a subscriber to `ItemRemoved`
+**When** `RemoveAt(1)` is called (removing `b`)
+**Then** `ItemRemoved` emits with `item == b` and `index == 1` (position before removal)
+
+### COL-007 — `ObservableList<T>` `ItemReplaced` payload shape
+
+**Given** an `ObservableList<T>` containing `[a, b]` with a subscriber to `ItemReplaced`
+**When** `Replace(0, c)` is called (replacing `a` with `c`)
+**Then** `ItemReplaced` emits with `newItem == c`, `oldItem == a`, and `index == 0`
+
+### COL-008 — `ObservableList<T>` `Count` / `PropertyChanged` ordering after add
+
+**Given** an `ObservableList<T>` with a subscriber that records the sequence of `ItemAdded` and `PropertyChanged("Count")` events
+**When** `Add(item)` is called
+**Then** `ItemAdded` fires before `PropertyChanged("Count")`
+**And** `Count` reflects the new value by the time `PropertyChanged("Count")` fires
+
+### COL-009 — `ObservableList<T>` batch suppression: only `Reset` fires inside `BatchUpdate`
+
+**Given** a VM with an `ObservableList<T>` and a subscriber recording `ItemAdded`, `ItemRemoved`, and `Reset` events
+**When** a `BatchUpdate()` scope is entered and three items are added and one removed inside the batch
+**Then** no `ItemAdded` or `ItemRemoved` events fire during the batch
+**And** exactly one `Reset` event fires when the batch completes
+
+### COL-010 — `ObservableDictionary` insert and retrieve
+
+**Given** an `ObservableDictionary<TKey1, TKey2, TValue>` (empty)
+**When** `Add(k1, k2, v)` is called
+**Then** `ContainsKey(k1, k2)` returns true
+**And** the indexer `[k1, k2]` returns `v`
+**And** `Count == 1`
+
+### COL-011 — `ObservableDictionary` remove
+
+**Given** an `ObservableDictionary` containing `(k1, k2) → v`
+**When** `Remove(k1, k2)` is called
+**Then** `ContainsKey(k1, k2)` returns false
+**And** `Count == 0`
+
+### COL-012 — `ObservableDictionary` replace
+
+**Given** an `ObservableDictionary` containing `(k1, k2) → v1`
+**When** the entry is replaced with `v2` (via indexer or `Add` after remove)
+**Then** `[k1, k2]` returns `v2`
+**And** `Count` remains unchanged
+
+### COL-013 — `ObservableDictionary` distinct-key observable views stay in sync
+
+**Given** an `ObservableDictionary<string, int, string>` with subscribers to `Keys1` (`ItemAdded`, `ItemRemoved`) and `Keys2`
+**When** `Add("a", 1, "x")` then `Add("a", 2, "y")` then `Remove("a", 1)` are called
+**Then** `Keys1` contains `["a"]` (only one entry; "a" appeared once and survives while any (a,?) entry exists)
+**And** `Keys2` contains `[2]` (1 was removed because no other entry uses key2=1)
+
+### COL-014 — `ObservableDictionary` enumeration order is insertion order
+
+**Given** an `ObservableDictionary` with entries inserted in order `(k1, k2a)`, `(k2, k2b)`, `(k3, k2c)`
+**When** the dictionary is enumerated
+**Then** entries appear in insertion order: `(k1, k2a)`, `(k2, k2b)`, `(k3, k2c)`
+
+### COL-015 — `ObservableDictionary` clear empties keys views
+
+**Given** an `ObservableDictionary` containing multiple entries and subscribers to `Keys1` and `Keys2`
+**When** `Clear()` is called
+**Then** `Count == 0`
+**And** `Keys1` and `Keys2` are both empty
+**And** `Keys1` and `Keys2` each emitted the appropriate removal events
+
+### COL-016 — `PagedComposition<TVM>` clamps `CurrentPageIndex` when source shrinks
+
+**Given** a `PagedComposition<TVM>` wrapping a 10-item source with `PageSize == 3` and `CurrentPageIndex == 2` (last page)
+**When** items are removed from the source until 4 items remain (2 full pages)
+**Then** `PageCount == 2`
+**And** `CurrentPageIndex` is clamped to `1` (the new upper bound)
+
+### COL-017 — `PagedComposition<TVM>` `PageCount` derivation under add and remove
+
+**Given** a `PagedComposition<TVM>` wrapping a source with `PageSize == 5`
+**When** the source starts empty, then 5 items are added, then 1 more is added
+**Then** `PageCount` transitions: `0` → `1` → `2`
+**And** when 1 item is removed, `PageCount` drops back to `1`
+
+### COL-018 — `PagedComposition<TVM>` navigation no-ops at bounds
+
+**Given** a `PagedComposition<TVM>` with `PageSize == 3` over an 8-item source (`PageCount == 3`)
+**When** `move_to_first_page()` is called while `CurrentPageIndex == 0`
+**Then** `CurrentPageIndex` remains `0`
+**When** `move_to_last_page()` is called while `CurrentPageIndex == PageCount - 1`
+**Then** `CurrentPageIndex` remains unchanged
+
+### COL-019 — `PagedComposition<TVM>` `PageSize == 0` passes through all items
+
+**Given** a `PagedComposition<TVM>` wrapping a 7-item source with `PageSize == 0`
+**Then** `IsPagingEnabled == false`
+**And** `PageCount == 1`
+**And** `CurrentPageIndex == 0`
+**And** `Items` yields all 7 items
+
+### COL-020 — `PagedComposition<TVM>` empty-source behavior
+
+**Given** a `PagedComposition<TVM>` wrapping an empty source with `PageSize == 5`
+**Then** `PageCount == 0`
+**And** `CurrentPageIndex == 0`
+**And** `Items` yields no items
+**And** all four navigation verbs are no-ops (no exception raised)
+
+### COL-021 — `PagedComposition<TVM>` composition with `SearchableState<T>`
+
+**Given** a source composition of 10 items
+**And** a `SearchableState<ItemVM>` wrapping the source that filters to 4 items
+**And** a `PagedComposition<ItemVM>` wrapping the `SearchableState` filtered view with `PageSize == 3`
+**When** the filter is applied
+**Then** `PagedComposition.PageCount == 2` (ceil(4 / 3))
+**And** the first page yields the first 3 filtered items
+**And** `Items` does NOT include any items filtered out by `SearchableState`
