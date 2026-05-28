@@ -1,4 +1,4 @@
-// Conformance tests: COL-010..COL-015 — ObservableDictionary (multi-key).
+// Conformance tests: COL-010..COL-015 + COL-022 — ObservableDictionary (multi-key).
 // See spec/21-collections.md §4 and ADR-0025.
 
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,8 @@ import {
   type DictionaryItemReplacedEvent,
   ObservableDictionary,
 } from "../../src/collections/observableDictionary.js";
+import { CollectionChangedMessage } from "../../src/messages/collectionChanged.js";
+import { MessageHub } from "../../src/services/messageHub.js";
 
 describe("COL-010", () => {
   it("ObservableDictionary insert sets has() and get() returns value", () => {
@@ -220,11 +222,60 @@ describe("COL-015", () => {
 });
 
 // ---------------------------------------------------------------------------
-// COL-022 — ObservableDictionary hub publication (stub — implementation pending)
+// COL-022 — ObservableDictionary hub publication
 // ---------------------------------------------------------------------------
 
 describe("COL-022", () => {
-  it.todo(
-    "ObservableDictionary hub publication — implementation pending (Substage 1C)",
-  );
+  it("mutations publish CollectionChangedMessage to the hub", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+
+    const received: CollectionChangedMessage<unknown>[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage) {
+        received.push(m as CollectionChangedMessage<unknown>);
+      }
+    });
+
+    // Add — publishes an "add" message
+    sut.set("alpha", 1, 3.14);
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("add");
+    expect(received[0]?.senderObject).toBe(sut);
+
+    received.length = 0;
+
+    // Replace via set on existing key — publishes a "replace" message
+    sut.set("alpha", 1, 9.99);
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("replace");
+
+    received.length = 0;
+
+    // Remove — publishes a "remove" message
+    sut.delete("alpha", 1);
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("remove");
+
+    received.length = 0;
+
+    // Clear — publishes a "reset" message
+    sut.set("beta", 2, 2.72);
+    received.length = 0; // discard the Add from above
+    sut.clear();
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("reset");
+  });
+
+  it("no-hub construction: no errors and no publication", () => {
+    // Construct without hub — must not throw on any mutation.
+    const sut = new ObservableDictionary<string, number, number>();
+    expect(() => {
+      sut.set("x", 1, 1.0);
+      sut.set("x", 1, 2.0);
+      sut.delete("x", 1);
+      sut.set("y", 2, 3.0);
+      sut.clear();
+    }).not.toThrow();
+  });
 });

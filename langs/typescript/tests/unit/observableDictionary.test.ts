@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 import { ObservableDictionary } from "../../src/collections/observableDictionary.js";
+import { CollectionChangedMessage } from "../../src/messages/collectionChanged.js";
+import { MessageHub } from "../../src/services/messageHub.js";
 
 // ── Basic CRUD — no subscribers ───────────────────────────────────────────────
 
@@ -262,5 +264,115 @@ describe("ObservableDictionary edge cases", () => {
 
     expect(result).toBe(false);
     expect(events).toHaveLength(0);
+  });
+});
+
+// ── tryGetValue ───────────────────────────────────────────────────────────────
+
+describe("ObservableDictionary tryGetValue", () => {
+  it("returns found=true and value when present", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    sut.set("a", 1, 42.0);
+    const result = sut.tryGetValue("a", 1);
+    expect(result.found).toBe(true);
+    expect(result.value).toBeCloseTo(42.0);
+  });
+
+  it("returns found=false and value=undefined when absent", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    const result = sut.tryGetValue("missing", 99);
+    expect(result.found).toBe(false);
+    expect(result.value).toBeUndefined();
+  });
+
+  it("throws when key1 is null", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    const badKey1: string = null as unknown as string;
+    expect(() => sut.tryGetValue(badKey1, 1)).toThrow();
+  });
+
+  it("throws when key2 is undefined", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    const badKey2: number = undefined as unknown as number;
+    expect(() => sut.tryGetValue("a", badKey2)).toThrow();
+  });
+});
+
+// ── Hub injection ─────────────────────────────────────────────────────────────
+
+describe("ObservableDictionary hub injection", () => {
+  it("publishes add message on set (new key)", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+    const received: CollectionChangedMessage<unknown>[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage)
+        received.push(m as CollectionChangedMessage<unknown>);
+    });
+
+    sut.set("a", 1, 42.0);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("add");
+    expect(received[0]?.senderObject).toBe(sut);
+  });
+
+  it("publishes replace message on set (existing key)", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+    sut.set("a", 1, 1.0);
+    const received: CollectionChangedMessage<unknown>[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage)
+        received.push(m as CollectionChangedMessage<unknown>);
+    });
+
+    sut.set("a", 1, 9.9);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("replace");
+  });
+
+  it("publishes remove message on delete", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+    sut.set("a", 1, 1.0);
+    const received: CollectionChangedMessage<unknown>[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage)
+        received.push(m as CollectionChangedMessage<unknown>);
+    });
+
+    sut.delete("a", 1);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("remove");
+  });
+
+  it("publishes reset message on clear", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+    sut.set("a", 1, 1.0);
+    const received: CollectionChangedMessage<unknown>[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage)
+        received.push(m as CollectionChangedMessage<unknown>);
+    });
+
+    sut.clear();
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.action).toBe("reset");
+  });
+
+  it("no hub: no errors on any mutation", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    expect(() => {
+      sut.set("a", 1, 1.0);
+      sut.set("a", 1, 2.0);
+      sut.delete("a", 1);
+      sut.set("b", 2, 3.0);
+      sut.clear();
+    }).not.toThrow();
   });
 });

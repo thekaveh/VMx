@@ -44,6 +44,7 @@ export class ObservableList<T> {
   readonly #items: T[] = [];
   #batchDepth = 0;
   #mutatedInBatch = false;
+  #countAtBatchStart = 0;
 
   readonly #itemAdded = new Subject<ItemAddedEvent<T>>();
   readonly #itemRemoved = new Subject<ItemRemovedEvent<T>>();
@@ -174,17 +175,26 @@ export class ObservableList<T> {
   /**
    * Execute *callback*, suppressing granular events during execution.
    * On completion of the outermost batch (ref-counted), a single reset fires
-   * if any mutations occurred.
+   * if any mutations occurred. If the count changed, propertyChanged("Count")
+   * also fires (spec §3.3).
    */
   withBatch(callback: () => void): void {
+    if (this.#batchDepth === 0) {
+      this.#countAtBatchStart = this.#items.length;
+    }
     this.#batchDepth++;
     try {
       callback();
     } finally {
       this.#batchDepth--;
       if (this.#batchDepth === 0 && this.#mutatedInBatch) {
+        const finalCount = this.#items.length;
         this.#mutatedInBatch = false;
         this.#reset.next();
+        // Emit Count notification only if count actually changed (spec §3.3).
+        if (finalCount !== this.#countAtBatchStart) {
+          this.#propertyChanged.next("Count");
+        }
       }
     }
   }

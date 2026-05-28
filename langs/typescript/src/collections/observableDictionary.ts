@@ -16,6 +16,8 @@
  */
 
 import { Observable, Subject } from "rxjs";
+import type { IMessageHub } from "../services/messageHub.js";
+import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import { ObservableList } from "./observableList.js";
 
 // ── Payload shapes ────────────────────────────────────────────────────────────
@@ -49,6 +51,8 @@ function serializeKey(key1: unknown, key2: unknown): string {
 // ── ObservableDictionary ──────────────────────────────────────────────────────
 
 export class ObservableDictionary<TKey1, TKey2, TValue> {
+  readonly #hub: IMessageHub | null;
+
   /** Insertion-ordered list of composite keys (as string tokens). */
   readonly #keyOrder: string[] = [];
   /** Map from serialised key to value. */
@@ -67,6 +71,14 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   readonly #itemReplaced =
     new Subject<DictionaryItemReplacedEvent<TKey1, TKey2, TValue>>();
   readonly #reset = new Subject<void>();
+
+  /**
+   * Create a new ObservableDictionary.
+   * @param hub Optional hub. Pass null/undefined for standalone (no publication) mode.
+   */
+  constructor(hub?: IMessageHub | null) {
+    this.#hub = hub ?? null;
+  }
 
   // ── Observables ─────────────────────────────────────────────────────────────
 
@@ -132,7 +144,12 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     if (this.#data.has(token)) {
       const oldValue = this.#data.get(token) as TValue;
       this.#data.set(token, value);
+      // 1. Local granular event first.
       this.#itemReplaced.next({ key1, key2, newValue: value, oldValue });
+      // 2. Publish to hub (if present).
+      this.#hub?.send(
+        CollectionChangedMessage.forReplace(this, value, oldValue, -1),
+      );
     } else {
       this.#internalAdd(token, key1, key2, value);
     }
@@ -163,7 +180,12 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     );
     if (!key2StillPresent) this.#keys2.remove(key2);
 
+    // 1. Local granular event first.
     this.#itemRemoved.next({ key1, key2, value });
+    // 2. Publish to hub (if present).
+    this.#hub?.send(
+      CollectionChangedMessage.forRemove(this, value, -1),
+    );
     return true;
   }
 
@@ -174,6 +196,22 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   get(key1: TKey1, key2: TKey2): TValue | undefined {
     this.#requireKeys(key1, key2);
     return this.#data.get(serializeKey(key1, key2));
+  }
+
+  /**
+   * Try to get the value for (key1, key2).
+   * Returns { found: true, value } if found, { found: false, value: undefined } if absent.
+   */
+  tryGetValue(
+    key1: TKey1,
+    key2: TKey2,
+  ): { found: boolean; value: TValue | undefined } {
+    this.#requireKeys(key1, key2);
+    const token = serializeKey(key1, key2);
+    if (this.#data.has(token)) {
+      return { found: true, value: this.#data.get(token) };
+    }
+    return { found: false, value: undefined };
   }
 
   /** Returns true if an entry exists for (key1, key2). */
@@ -189,7 +227,10 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#keyOrder.length = 0;
     this.#keys1.clear();
     this.#keys2.clear();
+    // 1. Local event first.
     this.#reset.next();
+    // 2. Publish to hub (if present).
+    this.#hub?.send(CollectionChangedMessage.forReset(this));
   }
 
   // ── Enumeration ──────────────────────────────────────────────────────────────
@@ -230,17 +271,20 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#keyPairs.set(token, [key1, key2]);
 
     // Update key-axis views on first appearance only.
-    const key1AlreadyPresent = [...this.#keyPairs.values()].filter(
-      ([k1]) => k1 === key1,
-    ).length > 1;
+    const key1AlreadyPresent =
+      [...this.#keyPairs.values()].filter(([k1]) => k1 === key1).length > 1;
     if (!key1AlreadyPresent) this.#keys1.push(key1);
 
-    const key2AlreadyPresent = [...this.#keyPairs.values()].filter(
-      ([, k2]) => k2 === key2,
-    ).length > 1;
+    const key2AlreadyPresent =
+      [...this.#keyPairs.values()].filter(([, k2]) => k2 === key2).length > 1;
     if (!key2AlreadyPresent) this.#keys2.push(key2);
 
+    // 1. Local granular event first.
     this.#itemAdded.next({ key1, key2, value });
+    // 2. Publish to hub (if present).
+    this.#hub?.send(
+      CollectionChangedMessage.forAdd(this, value, this.#keyOrder.length - 1),
+    );
   }
 
   #requireKeys(key1: TKey1, key2: TKey2): void {

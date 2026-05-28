@@ -407,3 +407,84 @@ describe("ObservableList – edge cases", () => {
     expect(sut.length).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// withBatch Count notification (spec §3.3)
+// ---------------------------------------------------------------------------
+
+describe("ObservableList – withBatch Count notification", () => {
+  it("emits propertyChanged('Count') when count grew during batch", () => {
+    const sut = new ObservableList<number>();
+    const propChanges: string[] = [];
+    sut.propertyChanged.subscribe((n) => propChanges.push(n));
+
+    sut.withBatch(() => {
+      sut.push(1);
+      sut.push(2);
+    });
+
+    expect(propChanges).toContain("Count");
+  });
+
+  it("emits propertyChanged('Count') when count shrank during batch", () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+    sut.push(2);
+    sut.push(3);
+    const propChanges: string[] = [];
+    sut.propertyChanged.subscribe((n) => propChanges.push(n));
+
+    sut.withBatch(() => {
+      sut.removeAt(0);
+      sut.removeAt(0);
+    });
+
+    expect(propChanges).toContain("Count");
+  });
+
+  it("does NOT emit propertyChanged('Count') when count is unchanged (replace-only batch)", () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+    sut.push(2);
+    const propChanges: string[] = [];
+    sut.propertyChanged.subscribe((n) => propChanges.push(n));
+
+    sut.withBatch(() => {
+      sut.replace(0, 10);
+      sut.replace(1, 20);
+    });
+
+    expect(propChanges.filter((p) => p === "Count")).toHaveLength(0);
+  });
+
+  it("does NOT emit propertyChanged('Count') when add and remove net to zero", () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+    const propChanges: string[] = [];
+    sut.propertyChanged.subscribe((n) => propChanges.push(n));
+
+    sut.withBatch(() => {
+      sut.push(99);
+      sut.removeAt(1); // net count change = 0
+    });
+
+    expect(propChanges.filter((p) => p === "Count")).toHaveLength(0);
+  });
+
+  it("emits propertyChanged('Count') on outermost batch exit for nested batches", () => {
+    const sut = new ObservableList<number>();
+    const propChanges: string[] = [];
+    sut.propertyChanged.subscribe((n) => propChanges.push(n));
+
+    sut.withBatch(() => {
+      sut.withBatch(() => {
+        sut.push(1);
+      });
+      // inner exited — no Count notification yet
+      expect(propChanges.filter((p) => p === "Count")).toHaveLength(0);
+    });
+
+    // outermost exited — count changed (0 → 1), notification fires
+    expect(propChanges).toContain("Count");
+  });
+});
