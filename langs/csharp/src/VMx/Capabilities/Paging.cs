@@ -47,8 +47,9 @@ public interface IPageable
 
     /// <summary>
     /// Total number of pages.
-    /// Derived as <c>max(1, ceil(itemCount / PageSize))</c> when
-    /// <see cref="IsPagingEnabled"/> is true; 1 when paging is disabled.
+    /// Derived as <c>ceil(itemCount / PageSize)</c> when
+    /// <see cref="IsPagingEnabled"/> is true (0 when the source is empty);
+    /// 1 when paging is disabled (<see cref="PageSize"/> == 0).
     /// </summary>
     int PageCount { get; }
 

@@ -33,8 +33,8 @@ export interface IPageable {
 
   /**
    * Total number of pages.
-   * Derived as `max(1, ceil(itemCount / pageSize))` when paging is enabled;
-   * 1 when paging is disabled.
+   * Derived as `ceil(itemCount / pageSize)` when paging is enabled
+   * (0 when the source is empty); 1 when paging is disabled (`pageSize === 0`).
    */
   readonly pageCount: number;
 

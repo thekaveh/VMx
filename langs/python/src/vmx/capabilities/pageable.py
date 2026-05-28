@@ -22,6 +22,7 @@ class Pageable(ABC):
 
     When ``page_size`` is 0 paging is disabled: every item fits in a single
     page (``page_count == 1``, ``is_paging_enabled == False``).
+    When ``page_size > 0`` and the source is empty, ``page_count == 0``.
     """
 
     @property
@@ -57,8 +58,9 @@ class Pageable(ABC):
     def page_count(self) -> int:
         """Total number of pages.
 
-        Derived as ``max(1, ceil(item_count / page_size))`` when paging is
-        enabled; 1 when paging is disabled.
+        Derived as ``ceil(item_count / page_size)`` when paging is enabled
+        (0 when the source is empty); 1 when paging is disabled
+        (``page_size == 0``).
         """
         ...
 
