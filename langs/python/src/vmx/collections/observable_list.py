@@ -40,6 +40,7 @@ class ObservableList(Generic[T]):
         self._items: list[T] = []
         self._batch_depth: int = 0
         self._mutated_in_batch: bool = False
+        self._count_at_batch_start: int = 0
 
         # Granular event subjects
         self._added_subject: Subject[tuple[T, int]] = Subject()
@@ -151,16 +152,23 @@ class ObservableList(Generic[T]):
         """Context manager that suppresses granular events during the block.
 
         On exit of the outermost batch (ref-counted), a single ``Reset`` is
-        emitted if any mutations occurred.
+        emitted if any mutations occurred. If the count actually changed during
+        the batch, a ``PropertyChanged("Count")`` is also emitted (spec §3.3).
         """
+        if self._batch_depth == 0:
+            self._count_at_batch_start = len(self._items)
         self._batch_depth += 1
         try:
             yield
         finally:
             self._batch_depth -= 1
             if self._batch_depth == 0 and self._mutated_in_batch:
+                final_count = len(self._items)
                 self._mutated_in_batch = False
                 self._reset_subject.on_next(None)
+                # Emit Count notification only if count actually changed (spec §3.3).
+                if final_count != self._count_at_batch_start:
+                    self._prop_changed_subject.on_next("Count")
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

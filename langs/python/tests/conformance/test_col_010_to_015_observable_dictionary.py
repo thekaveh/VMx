@@ -1,4 +1,4 @@
-"""Conformance tests: COL-010..COL-015 — ObservableDictionary (multi-key).
+"""Conformance tests: COL-010..COL-015 + COL-022 — ObservableDictionary (multi-key).
 
 Per spec/21-collections.md §4 and ADR-0025.
 """
@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from vmx.collections import ObservableDictionary
+from vmx.messages.collection_changed import CollectionChangedMessage
+from vmx.services.message_hub import MessageHub
 
 # ---------------------------------------------------------------------------
 # COL-010 — insert and retrieve
@@ -236,11 +238,59 @@ def test_COL_015_clear_empties_key_views() -> None:
 
 
 # ---------------------------------------------------------------------------
-# COL-022 — ObservableDictionary hub publication (stub — implementation pending)
+# COL-022 — ObservableDictionary hub publication
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("COL-022")
-def test_COL_022_hub_publication() -> None:
-    """COL-022: ObservableDictionary hub publication — implementation pending."""
-    pytest.skip("COL-022 stub: ObservableDictionary hub injection not yet implemented")
+def test_COL_022_hub_publication_mutations_publish_to_hub() -> None:
+    """COL-022: ObservableDictionary mutations publish CollectionChangedMessage to hub."""
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
+
+    received: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(lambda m: received.append(m))  # type: ignore[arg-type]
+
+    # Add — publishes an "add" message
+    sut.add("alpha", 1, 3.14)
+    assert len(received) == 1
+    msg = received[0]
+    assert isinstance(msg, CollectionChangedMessage)
+    assert msg.action == "add"
+    assert msg.sender_object is sut
+
+    received.clear()
+
+    # Replace via __setitem__ — publishes a "replace" message
+    sut["alpha", 1] = 9.99
+    assert len(received) == 1
+    assert received[0].action == "replace"
+
+    received.clear()
+
+    # Remove — publishes a "remove" message
+    sut.remove("alpha", 1)
+    assert len(received) == 1
+    assert received[0].action == "remove"
+
+    received.clear()
+
+    # Clear — publishes a "reset" message
+    sut.add("beta", 2, 2.72)
+    received.clear()  # discard the Add from above
+    sut.clear()
+    assert len(received) == 1
+    assert received[0].action == "reset"
+
+
+@pytest.mark.conformance("COL-022")
+def test_COL_022_no_hub_no_publication_no_errors() -> None:
+    """COL-022 (no-hub path): ObservableDictionary with hub=None does not raise."""
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary()
+
+    # All mutations must be silent (no hub, no errors)
+    sut.add("x", 1, 1.0)
+    sut["x", 1] = 2.0
+    sut.remove("x", 1)
+    sut.add("y", 2, 3.0)
+    sut.clear()

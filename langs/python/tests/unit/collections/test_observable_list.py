@@ -365,3 +365,79 @@ def test_iter() -> None:
     sut.append("a")
     sut.append("b")
     assert list(sut) == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# Batch Count notification (spec §3.3)
+# ---------------------------------------------------------------------------
+
+
+def test_batch_count_grew_emits_property_changed_count() -> None:
+    sut: ObservableList[int] = ObservableList()
+    prop_changes: list[str] = []
+    sut.on_property_changed.subscribe(prop_changes.append)
+
+    with sut.batch_update():
+        sut.append(1)
+        sut.append(2)
+
+    assert "Count" in prop_changes
+
+
+def test_batch_count_shrank_emits_property_changed_count() -> None:
+    sut: ObservableList[int] = ObservableList()
+    sut.append(1)
+    sut.append(2)
+    sut.append(3)
+    prop_changes: list[str] = []
+    sut.on_property_changed.subscribe(prop_changes.append)
+
+    with sut.batch_update():
+        sut.remove_at(0)
+        sut.remove_at(0)
+
+    assert "Count" in prop_changes
+
+
+def test_batch_count_unchanged_replace_only_does_not_emit_count() -> None:
+    sut: ObservableList[int] = ObservableList()
+    sut.append(1)
+    sut.append(2)
+    prop_changes: list[str] = []
+    sut.on_property_changed.subscribe(prop_changes.append)
+
+    # Replace operations keep count the same
+    with sut.batch_update():
+        sut.replace(0, 10)
+        sut.replace(1, 20)
+
+    assert "Count" not in prop_changes
+
+
+def test_batch_add_and_remove_net_zero_does_not_emit_count() -> None:
+    sut: ObservableList[int] = ObservableList()
+    sut.append(1)
+    prop_changes: list[str] = []
+    sut.on_property_changed.subscribe(prop_changes.append)
+
+    # Add one, remove one — net count change = 0
+    with sut.batch_update():
+        sut.append(99)
+        sut.remove_at(1)
+
+    assert "Count" not in prop_changes
+
+
+def test_batch_nested_count_changed_emits_on_outermost_exit() -> None:
+    sut: ObservableList[int] = ObservableList()
+    prop_changes: list[str] = []
+    sut.on_property_changed.subscribe(prop_changes.append)
+
+    with sut.batch_update():
+        with sut.batch_update():
+            sut.append(1)
+        # inner exited — no Count notification yet
+        assert "Count" not in prop_changes
+
+    # outermost exited — count changed (0 → 1), notification fires
+    assert "Count" in prop_changes

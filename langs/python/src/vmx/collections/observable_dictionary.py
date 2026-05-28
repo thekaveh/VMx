@@ -5,13 +5,14 @@ See spec/21-collections.md §4 and ADR-0025.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Generic, TypeVar
 
 import reactivex as rx
 from reactivex.subject import Subject
 
 from vmx.collections.observable_list import ObservableList
+from vmx.messages.collection_changed import CollectionChangedMessage
 
 TKey1 = TypeVar("TKey1")
 TKey2 = TypeVar("TKey2")
@@ -35,10 +36,17 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     Null (``None``) keys are not permitted; a :class:`TypeError` is raised.
 
+    When *hub* is provided every mutation also publishes a
+    :class:`~vmx.messages.collection_changed.CollectionChangedMessage` to the hub
+    (local granular event fires first, then hub publication — same thread).
+
     See spec/21-collections.md §4 and ADR-0025.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, hub: object = None) -> None:
+        # Optional hub — any object with a .send(message) method.
+        self._hub = hub
+
         # Insertion-ordered backing: list for order, dict for O(1) lookup.
         self._key_order: list[tuple[TKey1, TKey2]] = []
         self._data: dict[tuple[TKey1, TKey2], TValue] = {}
@@ -126,6 +134,21 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if key2 is None:
             raise TypeError("key2 must not be None")
         return self._data[(key1, key2)]
+
+    def try_get_value(self, key1: TKey1, key2: TKey2) -> tuple[bool, TValue | None]:
+        """Try to get the value for ``(key1, key2)``.
+
+        Returns ``(True, value)`` if found, ``(False, None)`` if absent.
+        Equivalent to :meth:`get` plus try/except but without raising.
+        """
+        if key1 is None:
+            raise TypeError("key1 must not be None")
+        if key2 is None:
+            raise TypeError("key2 must not be None")
+        value = self._data.get((key1, key2))
+        if value is not None or (key1, key2) in self._data:
+            return True, value
+        return False, None
 
     def __getitem__(self, key: tuple[TKey1, TKey2]) -> TValue:
         k1, k2 = key
@@ -228,14 +251,38 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def _keys2_contains(self, key2: TKey2) -> bool:
         return any(k == key2 for k in self._keys2)
 
+    def _publish_to_hub(self, msg: CollectionChangedMessage[object]) -> None:
+        """Send *msg* to the hub if one is wired (no-op otherwise)."""
+        if self._hub is not None:
+            hub_send: Callable[[CollectionChangedMessage[object]], None] = self._hub.send  # type: ignore[attr-defined]
+            hub_send(msg)
+
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+        # 1. Local granular event first.
         self._added_subject.on_next((key1, key2, value))
+        # 2. Publish to hub (if present).
+        self._publish_to_hub(
+            CollectionChangedMessage.for_add(self, (key1, key2, value), len(self._key_order) - 1)
+        )
 
     def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+        # 1. Local granular event first.
         self._removed_subject.on_next((key1, key2, value))
+        # 2. Publish to hub (if present).
+        self._publish_to_hub(CollectionChangedMessage.for_remove(self, (key1, key2, value), -1))
 
     def _on_replaced(self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue) -> None:
+        # 1. Local granular event first.
         self._replaced_subject.on_next((key1, key2, new_value, old_value))
+        # 2. Publish to hub (if present).
+        self._publish_to_hub(
+            CollectionChangedMessage.for_replace(
+                self, (key1, key2, new_value), (key1, key2, old_value), -1
+            )
+        )
 
     def _on_reset(self) -> None:
+        # 1. Local event first.
         self._reset_subject.on_next(None)
+        # 2. Publish to hub (if present).
+        self._publish_to_hub(CollectionChangedMessage.for_reset(self))

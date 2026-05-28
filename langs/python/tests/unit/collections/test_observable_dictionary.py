@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from vmx.collections import ObservableDictionary
+from vmx.messages.collection_changed import CollectionChangedMessage
+from vmx.services.message_hub import MessageHub
 
 # ---------------------------------------------------------------------------
 # Basic CRUD — no subscribers
@@ -297,3 +299,102 @@ def test_items_method_yields_triples_in_insertion_order() -> None:
     result = list(sut.items())
     assert result[0] == ("a", 1, pytest.approx(1.0))
     assert result[1] == ("b", 2, pytest.approx(2.0))
+
+
+# ---------------------------------------------------------------------------
+# try_get_value
+# ---------------------------------------------------------------------------
+
+
+def test_try_get_value_returns_true_and_value_when_present() -> None:
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary()
+    sut.add("a", 1, 42.0)
+    found, value = sut.try_get_value("a", 1)
+    assert found is True
+    assert value == pytest.approx(42.0)
+
+
+def test_try_get_value_returns_false_and_none_when_absent() -> None:
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary()
+    found, value = sut.try_get_value("missing", 99)
+    assert found is False
+    assert value is None
+
+
+def test_try_get_value_raises_for_none_key1() -> None:
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary()
+    with pytest.raises(TypeError):
+        sut.try_get_value(None, 1)  # type: ignore[arg-type]
+
+
+def test_try_get_value_raises_for_none_key2() -> None:
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary()
+    with pytest.raises(TypeError):
+        sut.try_get_value("a", None)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Hub injection
+# ---------------------------------------------------------------------------
+
+
+def test_hub_injection_publishes_add_message_on_add() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
+    received: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(lambda m: received.append(m))  # type: ignore[arg-type]
+
+    sut.add("a", 1, 42.0)
+
+    assert len(received) == 1
+    assert isinstance(received[0], CollectionChangedMessage)
+    assert received[0].action == "add"
+    assert received[0].sender_object is sut
+
+
+def test_hub_injection_publishes_remove_message_on_remove() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
+    sut.add("a", 1, 1.0)
+    received: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(lambda m: received.append(m))  # type: ignore[arg-type]
+
+    sut.remove("a", 1)
+
+    assert len(received) == 1
+    assert received[0].action == "remove"
+
+
+def test_hub_injection_publishes_replace_message_on_setitem() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
+    sut.add("a", 1, 1.0)
+    received: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(lambda m: received.append(m))  # type: ignore[arg-type]
+
+    sut["a", 1] = 9.9
+
+    assert len(received) == 1
+    assert received[0].action == "replace"
+
+
+def test_hub_injection_publishes_reset_message_on_clear() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
+    sut.add("a", 1, 1.0)
+    received: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(lambda m: received.append(m))  # type: ignore[arg-type]
+
+    sut.clear()
+
+    assert len(received) == 1
+    assert received[0].action == "reset"
+
+
+def test_hub_none_does_not_throw_on_any_mutation() -> None:
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary()
+    sut.add("a", 1, 1.0)
+    sut["a", 1] = 2.0
+    sut.remove("a", 1)
+    sut.add("b", 2, 3.0)
+    sut.clear()
