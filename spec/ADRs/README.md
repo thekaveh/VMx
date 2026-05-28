@@ -40,6 +40,9 @@ cross-references each ADR carries.
 | [0021](0021-post-v2.0-editorial-polish.md)              | Post-v2.0 editorial polish                 | 2.0.0        | Accepted |
 | [0022](0022-filterable-capability.md)                   | `IFilterable<T>` capability                | 2.1.0        | Accepted |
 | [0023](0023-paging-capability-and-paged-composition.md) | Paging (`IPageable` + `PagedComposition`)  | 2.1.0        | Accepted |
+| [0024](0024-hub-aware-observable-collection.md)         | `ServicedObservableCollection<T>`          | 2.1.0        | Accepted |
+| [0025](0025-multi-key-observable-dictionary.md)         | `ObservableDictionary` (multi-key)         | 2.1.0        | Accepted |
+| [0026](0026-granular-observable-list.md)                | `ObservableList<T>` granular events        | 2.1.0        | Accepted |
 
 ## 2. Format
 
