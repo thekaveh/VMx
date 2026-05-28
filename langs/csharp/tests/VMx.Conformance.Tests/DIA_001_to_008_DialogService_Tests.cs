@@ -100,7 +100,7 @@ public class DIA_001_to_008_DialogService_Tests
     [Trait("Conformance", "DIA-005")]
     public async Task DIA_005_NullDialogService_Null_Object_Behavior()
     {
-        var sut = new NullDialogService();   // also constructible directly (for tests)
+        var sut = NullDialogService.Instance;
 
         (await sut.PickFileToOpen()).Should().BeNull("PickFileToOpen returns null per ADR-0017");
         (await sut.PickFileToSave()).Should().BeNull("PickFileToSave returns null per ADR-0017");

@@ -30,11 +30,11 @@ class Node extends HierarchicalVM<Model, Node> {
     super({
       model: opts.model ?? { tag: "" },
       childrenFactory: opts.childrenFactory ?? (() => []),
-      hub: opts.hub,
-      dispatcher: opts.dispatcher,
-      name: opts.name,
-      hint: opts.hint,
-      eagerChildren: opts.eagerChildren,
+      ...(opts.hub !== undefined ? { hub: opts.hub } : {}),
+      ...(opts.dispatcher !== undefined ? { dispatcher: opts.dispatcher } : {}),
+      ...(opts.name !== undefined ? { name: opts.name } : {}),
+      ...(opts.hint !== undefined ? { hint: opts.hint } : {}),
+      ...(opts.eagerChildren !== undefined ? { eagerChildren: opts.eagerChildren } : {}),
     });
   }
 
@@ -44,11 +44,17 @@ class Node extends HierarchicalVM<Model, Node> {
 }
 
 function leaf(hub?: IMessageHub, name?: string): Node {
-  return new Node({ hub, name });
+  return new Node({
+    ...(hub !== undefined ? { hub } : {}),
+    ...(name !== undefined ? { name } : {}),
+  });
 }
 
 function parentOf(children: Node[], hub?: IMessageHub): Node {
-  return new Node({ childrenFactory: () => children, hub });
+  return new Node({
+    childrenFactory: () => children,
+    ...(hub !== undefined ? { hub } : {}),
+  });
 }
 
 function makeHub(): IMessageHub {

@@ -11,8 +11,7 @@ public sealed class NullDialogService : IDialogService
     /// <summary>Shared singleton instance (the service holds no state).</summary>
     public static NullDialogService Instance { get; } = new();
 
-    /// <summary>Creates a new <see cref="NullDialogService"/>. Use <see cref="Instance"/> to share a singleton.</summary>
-    public NullDialogService() { }
+    private NullDialogService() { }
 
     /// <inheritdoc/>
     public Task<string?> PickFileToOpen(FileFilter? filter = null, string? title = null)

@@ -43,11 +43,11 @@ class MyNode extends HierarchicalVM<MyModel, MyNode> {
     super({
       model: opts.model ?? makeModel(),
       childrenFactory: opts.childrenFactory ?? (() => []),
-      hub: opts.hub,
-      dispatcher: opts.dispatcher,
-      name: opts.name,
-      hint: opts.hint,
-      eagerChildren: opts.eagerChildren,
+      ...(opts.hub !== undefined ? { hub: opts.hub } : {}),
+      ...(opts.dispatcher !== undefined ? { dispatcher: opts.dispatcher } : {}),
+      ...(opts.name !== undefined ? { name: opts.name } : {}),
+      ...(opts.hint !== undefined ? { hint: opts.hint } : {}),
+      ...(opts.eagerChildren !== undefined ? { eagerChildren: opts.eagerChildren } : {}),
     });
   }
 
@@ -69,7 +69,11 @@ function leafNode(
   dispatcher?: IDispatcher,
   name?: string,
 ): MyNode {
-  return new MyNode({ hub, dispatcher, name });
+  return new MyNode({
+    ...(hub !== undefined ? { hub } : {}),
+    ...(dispatcher !== undefined ? { dispatcher } : {}),
+    ...(name !== undefined ? { name } : {}),
+  });
 }
 
 function parentNode(
@@ -77,7 +81,11 @@ function parentNode(
   hub?: IMessageHub,
   eagerChildren = false,
 ): MyNode {
-  return new MyNode({ childrenFactory: () => children, hub, eagerChildren });
+  return new MyNode({
+    childrenFactory: () => children,
+    ...(hub !== undefined ? { hub } : {}),
+    eagerChildren,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -514,12 +522,12 @@ describe("HIER-014", () => {
     });
 
     // Create
-    crud.createNewCommand.execute(null);
+    crud.createNewCommand.execute();
     expect(root.children).toHaveLength(1);
     expect(current).not.toBeNull();
 
     // Delete
-    crud.deleteCurrentCommand.execute(null);
+    crud.deleteCurrentCommand.execute();
     expect(root.children).toHaveLength(0);
     expect(current).toBeNull();
 

@@ -271,9 +271,10 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         TVM? node = (TVM)this;
         while (node is not null)
         {
-            chain.Insert(0, node);
+            chain.Add(node);
             node = node._hierarchicalParent;
         }
+        chain.Reverse();
         return chain.AsReadOnly();
     }
 

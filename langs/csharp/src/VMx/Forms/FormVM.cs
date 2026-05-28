@@ -196,7 +196,7 @@ public sealed class FormVM<TM> : IDisposable
         if (_strict && wasDirty != IsDirty)
             _canExecuteChangedTrigger.OnNext(Unit.Default);
 
-        _onApproved.OnNext(_model);
+        _onApproved.OnNext(current);
     }
 
     private static TM DefaultSnapshotter(TM model)
