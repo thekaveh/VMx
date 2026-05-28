@@ -62,7 +62,7 @@ ______________________________________________________________________
 - [x] **Substage 5A** — M1: `PropertyValueChangedMessages<P>` helper
 - [x] **Substage 5B** — M2: verify-first reactive-init-token (recipe or helper)
 - [x] **Substage 5C** — M3: verify-first RelayCommand auto-resubscribe (recipe or overload)
-- [ ] **Substage 5D** — M4: C#-only LINQ helpers (`CartesianProduct`, `Sample`, `Product`)
+- [x] **Substage 5D** — M4: C#-only LINQ helpers (`CartesianProduct`, `Sample`, `Product`)
 - [ ] **Substage 5E** — Stage 5 audit close (2 consecutive zero-finding passes)
 
 ______________________________________________________________________
