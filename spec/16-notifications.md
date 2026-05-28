@@ -111,7 +111,22 @@ The helper posts a `Notification(Confirmation, prompt)`, awaits resolution,
 and returns `true` iff the resolution is `Approve`. This is the canonical
 way to wire a UI-driven confirmation gate through the notification hub.
 
-## 5. Conformance
+## 5. Distinction from `IDialogService`
+
+`INotificationHub` carries **fire-and-forget** notifications: toast/banner
+messages that the user may dismiss but is not required to respond to. The hub
+is hot — subscribers see messages as they happen.
+
+`IDialogService` (chapter 19) is for **modal** host interactions where the
+consumer awaits a user response (file pick, confirm Yes/No, severity-tagged
+notify). The dialog service is request/response.
+
+A consumer-facing notification that requires user action goes through
+`IDialogService.Confirm`; an informational toast goes through
+`INotificationHub.Post`. The two services are orthogonal and may both be
+injected.
+
+## 6. Conformance
 
 `NOTIF-001` through `NOTIF-010` in `12-conformance.md` cover the contract,
 the null variant, the type/reaction enums, and the command-decorator bridge.
