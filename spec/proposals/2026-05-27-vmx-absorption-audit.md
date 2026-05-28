@@ -1,6 +1,6 @@
 # Proposal — VMx Absorption Audit (Post-v2.0)
 
-**Status:** Proposal (not yet accepted)
+**Status:** Historical (all items accepted and landed in v2.1.0 — see ADRs 0022-0033 and chapters 18-21)
 **Date:** 2026-05-27
 **Target spec version:** 2.1.0
 **Sources audited:**
