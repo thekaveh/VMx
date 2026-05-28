@@ -298,6 +298,61 @@ describe("ObservableDictionary tryGetValue", () => {
   });
 });
 
+// ── Strict add ───────────────────────────────────────────────────────────────
+
+describe("ObservableDictionary strict add()", () => {
+  it("add inserts a new entry and increments size", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    sut.add("a", 1, 1.0);
+    expect(sut.size).toBe(1);
+    expect(sut.get("a", 1)).toBeCloseTo(1.0);
+  });
+
+  it("add fires itemAdded with correct payload", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    const events: Array<{ key1: string; key2: number; value: number }> = [];
+    sut.itemAdded.subscribe((e) =>
+      events.push({ key1: e.key1, key2: e.key2, value: e.value }),
+    );
+
+    sut.add("x", 5, 42.0);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.key1).toBe("x");
+    expect(events[0]!.key2).toBe(5);
+    expect(events[0]!.value).toBeCloseTo(42.0);
+  });
+
+  it("add throws when the key pair already exists", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    sut.add("a", 1, 1.0);
+    expect(() => sut.add("a", 1, 2.0)).toThrow();
+  });
+
+  it("add throws for null key1", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    expect(() =>
+      sut.add(null as unknown as string, 1, 0.0),
+    ).toThrow();
+  });
+
+  it("add throws for null key2", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    expect(() =>
+      sut.add("a", null as unknown as number, 0.0),
+    ).toThrow();
+  });
+
+  it("add does not replace: size remains 1 on duplicate-key attempt", () => {
+    const sut = new ObservableDictionary<string, number, number>();
+    sut.add("a", 1, 1.0);
+    expect(() => sut.add("a", 1, 2.0)).toThrow();
+    // original value must be unchanged
+    expect(sut.get("a", 1)).toBeCloseTo(1.0);
+    expect(sut.size).toBe(1);
+  });
+});
+
 // ── Hub injection ─────────────────────────────────────────────────────────────
 
 describe("ObservableDictionary hub injection", () => {

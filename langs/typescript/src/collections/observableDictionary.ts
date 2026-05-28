@@ -155,9 +155,10 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   // ── Mutations ────────────────────────────────────────────────────────────────
 
   /**
-   * Insert a new entry.
+   * Insert or replace an entry.
    * Throws Error if key1 or key2 is null/undefined.
-   * Throws Error if the key pair already exists.
+   * If the key pair already exists, the value is replaced and itemReplaced emits.
+   * To guard against overwriting an existing entry, use {@link add} instead.
    */
   set(key1: TKey1, key2: TKey2, value: TValue): void {
     this.#requireKeys(key1, key2);
@@ -180,6 +181,22 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     } else {
       this.#internalAdd(token, key1, key2, value);
     }
+  }
+
+  /**
+   * Strict-insert an entry.
+   * Throws Error if key1 or key2 is null/undefined.
+   * Throws Error if the key pair already exists (use {@link set} for upsert behaviour).
+   *
+   * Mirrors `Add()` in C# and `add()` in Python, which both throw on duplicate keys.
+   */
+  add(key1: TKey1, key2: TKey2, value: TValue): void {
+    this.#requireKeys(key1, key2);
+    const token = serializeKey(key1, key2);
+    if (this.#data.has(token)) {
+      throw new Error(`Key (${String(key1)}, ${String(key2)}) already exists`);
+    }
+    this.#internalAdd(token, key1, key2, value);
   }
 
   /**
