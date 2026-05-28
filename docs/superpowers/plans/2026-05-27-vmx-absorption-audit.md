@@ -740,36 +740,36 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 
 - Modify: `spec/ADRs/README.md`
 
-- [ ] **Step 1:** Write the ADR using the 4-section template. Key decisions to record:
+- [x] **Step 1:** Write the ADR using the 4-section template. Key decisions to record:
 
   - Naming: `ServicedObservableCollection<T>` (matches the 2012 name; recognizable to readers of legacy code).
   - Hub publication: in addition to (not instead of) local `CollectionChanged` events.
   - Null-hub behavior: if no hub injected, behaves exactly like `ObservableCollection<T>` (no publication, no errors).
   - Threading: publication happens on the same thread as the mutation (not marshaled).
 
-- [ ] **Step 2:** Register in `spec/ADRs/README.md`.
+- [x] **Step 2:** Register in `spec/ADRs/README.md`.
 
-- [ ] **Step 3:** Commit.
+- [x] **Step 3:** Commit.
 
 #### Task 1B.2: Write ADR-0025 (Multi-key ObservableDictionary)
 
-- [ ] **Step 1:** Write the ADR. Key decisions:
+- [x] **Step 1:** Write the ADR. Key decisions:
 
   - Surface: `ObservableDictionary<TKey1, TKey2, TValue>` as the documented common case, with a `ObservableDictionary<TKey, TValue>` base where `TKey` is a per-flavor tuple type (option 3 from proposal §6).
   - Distinct-key observables: yes (mirror legacy `Keys1`, `Keys2`).
   - Cascading insertion (legacy `Dictionary<K1,K2,V>` auto-creates entries on Key1 add): **no** — too domain-specific; consumers do it explicitly.
 
-- [ ] **Step 2:** Register, commit.
+- [x] **Step 2:** Register, commit.
 
 #### Task 1B.3: Write ADR-0026 (Granular ObservableList)
 
-- [ ] **Step 1:** Write the ADR. Key decisions:
+- [x] **Step 1:** Write the ADR. Key decisions:
 
   - Surface: `ObservableList<T>` with per-mutation events (`ItemAdded`, `ItemRemoved`, `ItemReplaced`, `Reset`).
   - Relationship to `INotifyCollectionChanged`: also raises the standard event (compatibility) — flavor-idiomatic where the standard event exists.
   - Interaction with `BatchUpdate()` semantics (defined in `06-composite-vm.md`): inside a batch, only the final `Reset` fires; granular events are suppressed.
 
-- [ ] **Step 2:** Register, commit.
+- [x] **Step 2:** Register, commit.
 
 #### Task 1B.4: Write `spec/21-collections.md`
 
@@ -779,7 +779,7 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
 
 - Modify: `spec/README.md` (add to TOC §1.2)
 
-- [ ] **Step 1:** Author the chapter. Sections:
+- [x] **Step 1:** Author the chapter. Sections:
 
   - §1 — Overview & rationale (why a collections chapter; relationship to ADR-0010 capabilities; relationship to `CompositeVM`'s `BatchUpdate()`)
   - §2 — `ServicedObservableCollection<T>` (per ADR-0024)
@@ -788,13 +788,13 @@ in `21-collections.md` §"Paging" with conformance IDs in the `COL-` block.
   - §5 — Paging: `PagedComposition<TVM>` helper (per ADR-0023)
   - §6 — Composition rules (filter-then-page ordering, batch interaction)
 
-- [ ] **Step 2:** Add the chapter to `spec/README.md` §1.2 chapter list.
+- [x] **Step 2:** Add the chapter to `spec/README.md` §1.3 chapter list (v2.1 additions).
 
-- [ ] **Step 3:** Commit.
+- [x] **Step 3:** Commit.
 
 #### Task 1B.5: Add `COL-NNN` conformance IDs to `spec/12-conformance.md`
 
-Specific IDs (16 total, mapped to the chapter's sections):
+Specific IDs (21 total, mapped to the chapter's sections):
 
 - `COL-001..COL-004` — `ServicedObservableCollection` (publish on add/remove/replace/reset; ordering vs local handlers; null-hub no-op; threading non-marshal)
 
@@ -804,9 +804,9 @@ Specific IDs (16 total, mapped to the chapter's sections):
 
 - `COL-016..COL-021` — `PagedComposition` (clamping; page-count derivation under add/remove; nav no-op at bounds; `PageSize=0` semantics; empty source; composition with `SearchableState`)
 
-- [ ] **Step 1:** Add all IDs as a new `### COL-` section in `12-conformance.md` with one-paragraph descriptions each.
+- [x] **Step 1:** Add all IDs as a new `### COL-` section in `12-conformance.md` with one-paragraph descriptions each.
 
-- [ ] **Step 2:** Commit.
+- [x] **Step 2:** Commit.
 
 #### Task 1B.6: Add stubs for all 21 `COL-NNN` IDs in all three flavors
 
@@ -818,11 +818,11 @@ This produces 63 new stub test files (21 IDs × 3 flavors). Group by ID prefix i
 
 Group sub-batches: 001-004 (serviced), 005-009 (granular list), 010-015 (multi-key dict), 016-021 (paged composition). 4 groups × 3 flavors = 12 files (each with 4-6 stubs inside).
 
-- [ ] **Step 1:** Create 4 grouped stub files per flavor following each flavor's existing conformance stub idioms.
+- [x] **Step 1:** Create 4 grouped stub files per flavor following each flavor's existing conformance stub idioms.
 
-- [ ] **Step 2:** Run conformance coverage tool — must pass.
+- [x] **Step 2:** Run conformance coverage tool — 175/175 in each flavor.
 
-- [ ] **Step 3:** Commit (one commit per flavor for clarity).
+- [x] **Step 3:** Commit (one commit per flavor for clarity).
 
 ### Substage 1C — Implementation per item, per flavor (TDD)
 
