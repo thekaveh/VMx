@@ -47,8 +47,8 @@ jobs:
         run: uv --project langs/python run pytest tools/tests/ -v
 
       - name: Enforce conformance coverage (csharp + python + typescript)
-        # All three flavors (csharp / python / typescript) ship at v2.0.0. CI
-        # enforces 100% conformance coverage (152 / 152) for all three
+        # All three flavors (csharp / python / typescript) ship at v2.1.0. CI
+        # enforces 100% conformance coverage (219 / 219) for all three
         # languages. The tool exits non-zero if any required language falls
         # below full coverage.
         run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript
