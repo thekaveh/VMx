@@ -9,12 +9,14 @@ Public API
 - :class:`CollectionChangedMessage` — emitted by ServicedObservableCollection
 - :class:`TreeStructureChangedMessage` — emitted on HierarchicalVM structural mutations
 - :class:`TreeStructureChange` — enum for tree mutation kind (ADDED / REMOVED / REPARENTED)
+- :class:`FormRevertedMessage` — emitted when a FormVM reverts its Model to Snapshot
 """
 
 from __future__ import annotations
 
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.messages.construction_status import ConstructionStatusChangedMessage
+from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import (
     ConstructionStatusChangedMessageProto,
@@ -28,6 +30,7 @@ __all__ = [
     "CollectionChangedMessage",
     "ConstructionStatusChangedMessage",
     "ConstructionStatusChangedMessageProto",
+    "FormRevertedMessage",
     "Message",
     "PropertyChangedMessage",
     "PropertyChangedMessageProto",
