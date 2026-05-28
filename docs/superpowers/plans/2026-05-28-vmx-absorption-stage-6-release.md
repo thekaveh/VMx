@@ -71,7 +71,7 @@ ______________________________________________________________________
 
 ## Stage 6 progress tracker
 
-- [ ] **Substage 6A** — Version bumps (spec/VERSION + 4-5 package files + constants)
+- [x] **Substage 6A** — Version bumps (spec/VERSION + 4-5 package files + constants)
 - [ ] **Substage 6B** — Documentation refresh (overview, concepts, README, compat matrix, ADR registry)
 - [ ] **Substage 6C** — CHANGELOG entries
 - [ ] **Substage 6D** — Final cross-flavor audit (2 consecutive zero-finding passes)
