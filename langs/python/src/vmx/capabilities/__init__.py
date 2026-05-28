@@ -16,6 +16,7 @@ from vmx.capabilities.current_crud import ICurrentDeletable, ICurrentUpdatable
 from vmx.capabilities.dialog import IApprovable, ICancelable, IClosable
 from vmx.capabilities.expandable_state import ExpandableState
 from vmx.capabilities.expansion import ICollapsible, IExpandable, IExpansionTogglable
+from vmx.capabilities.filter import Filterable
 from vmx.capabilities.lifecycle_capabilities import (
     IConstructable,
     IDestructable,
@@ -28,6 +29,7 @@ from vmx.capabilities.selection import IDeselectable, ISelectable, ISelectionTog
 
 __all__ = [
     "ExpandableState",
+    "Filterable",
     "IApprovable",
     "ICancelable",
     "IClosable",
