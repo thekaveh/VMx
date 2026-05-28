@@ -176,3 +176,4 @@ export type {
 } from "./capabilities/currentCrud.js";
 export type { IManagable } from "./capabilities/management.js";
 export type { IFilterable } from "./capabilities/filter.js";
+export type { IPageable } from "./capabilities/pageable.js";
