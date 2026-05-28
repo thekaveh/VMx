@@ -591,7 +591,7 @@ git commit -m "feat(python,cap): implement Filterable (CAP-021)"
 
 - Modify: `langs/typescript/tests/conformance/cap-021-filterable.test.ts` (real test)
 
-- [ ] **Step 1: Real failing test.**
+- [x] **Step 1: Real failing test.**
 
 ```typescript
 import { describe, it, expect } from "vitest";
@@ -618,7 +618,7 @@ describe("CAP-021", () => {
 });
 ```
 
-- [ ] **Step 2: Run test, verify failure.**
+- [x] **Step 2: Run test, verify failure.**
 
 ```bash
 cd langs/typescript && npm test -- cap-021
@@ -626,7 +626,7 @@ cd langs/typescript && npm test -- cap-021
 
 Expected: FAIL (no Filterable export).
 
-- [ ] **Step 3: Create the interface.**
+- [x] **Step 3: Create the interface.**
 
 `langs/typescript/src/capabilities/filter.ts`:
 
@@ -638,7 +638,7 @@ export interface Filterable<T> {
 }
 ```
 
-- [ ] **Step 4: Export from capabilities index.**
+- [x] **Step 4: Export from capabilities index.**
 
 Append to `langs/typescript/src/capabilities/index.ts`:
 
@@ -648,19 +648,19 @@ export type { Filterable } from "./filter";
 
 (Inspect existing index.ts to match its export style — `export *` vs named.)
 
-- [ ] **Step 5: Run test, verify pass.**
+- [x] **Step 5: Run test, verify pass.**
 
 ```bash
 cd langs/typescript && npm test -- cap-021
 ```
 
-- [ ] **Step 6: Typecheck + lint.**
+- [x] **Step 6: Typecheck + lint.**
 
 ```bash
 cd langs/typescript && npm run typecheck && npm run lint
 ```
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add langs/typescript/src/capabilities/filter.ts langs/typescript/src/capabilities/index.ts langs/typescript/tests/conformance/cap-021-filterable.test.ts
