@@ -36,6 +36,9 @@ flavor releases a stable version.
 
 ### 1.3 Chapters (v2.1 additions)
 
+- `18-hierarchical-vm.md` — `HierarchicalVM<TModel, TVM>`: first-class recursive
+  tree VM with lazy/eager children, depth-first construction, materialized path,
+  and `TreeStructureChangedMessage`.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
 
