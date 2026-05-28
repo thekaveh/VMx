@@ -47,6 +47,7 @@ cross-references each ADR carries.
 | [0028](0028-hierarchical-vm.md)                         | `HierarchicalVM` (recursive composite)     | 2.1.0        | Accepted |
 | [0029](0029-dialog-service-in-core.md)                  | `IDialogService` in core                   | 2.1.0        | Accepted |
 | [0030](0030-form-vm.md)                                 | `FormVM<TM>` (snapshot/revert lifecycle)   | 2.1.0        | Accepted |
+| [0031](0031-notification-rendering-vms.md)              | Notification rendering VMs                 | 2.1.0        | Accepted |
 
 ## 2. Format
 
