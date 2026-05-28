@@ -77,7 +77,7 @@ ______________________________________________________________________
 
 - [x] **Substage 2A** — Spec foundation (ADR + chapter + IDs + stubs)
 - [x] **Substage 2B** — Cross-chapter integration (06, 13, 14) + diagrams
-- [ ] **Substage 2C** — Per-flavor implementation (C# / Python / TypeScript)
+- [x] **Substage 2C** — Per-flavor implementation (C# / Python / TypeScript)
 - [ ] **Substage 2D** — Cleanup (delete superseded proposal)
 - [ ] **Substage 2E** — Stage 2 audit close (2 consecutive zero-finding passes)
 
@@ -523,7 +523,7 @@ This substage has three large sub-deliverables (one per flavor). Each follows th
 
 - Create: `langs/csharp/tests/VMx.Tests/Hierarchical/HierarchicalVMTests.cs` (unit tests)
 
-- [ ] **Step 1: Look at existing recursive base patterns in the codebase.**
+- [x] **Step 1: Look at existing recursive base patterns in the codebase.**
 
 ```bash
 ls langs/csharp/src/VMx/Components/ langs/csharp/src/VMx/Composites/
@@ -532,7 +532,7 @@ grep -l 'where T' langs/csharp/src/VMx/*.cs langs/csharp/src/VMx/**/*.cs
 
 `ComponentVM` and `CompositeVM` are reference patterns; HierarchicalVM is a sibling shape.
 
-- [ ] **Step 2: Replace HIER-001 stub with a real failing test that exercises the recursive constraint.**
+- [x] **Step 2: Replace HIER-001 stub with a real failing test that exercises the recursive constraint.**
 
 In `HIER_001_to_014_HierarchicalVM_Tests.cs` find `HIER_001_*` and replace its body with:
 
@@ -555,7 +555,7 @@ private sealed class MyNode : HierarchicalVM<MyModel, MyNode>
 }
 ```
 
-- [ ] **Step 3: Run test, verify FAIL.**
+- [x] **Step 3: Run test, verify FAIL.**
 
 ```bash
 cd langs/csharp && dotnet test --filter "Conformance=HIER-001" 2>&1 | tail -8
@@ -563,7 +563,7 @@ cd langs/csharp && dotnet test --filter "Conformance=HIER-001" 2>&1 | tail -8
 
 Expected: FAIL (HierarchicalVM doesn't exist yet).
 
-- [ ] **Step 4: Create `HierarchicalVM.cs` with the minimum to compile.**
+- [x] **Step 4: Create `HierarchicalVM.cs` with the minimum to compile.**
 
 ```csharp
 namespace VMx.Hierarchical;
@@ -602,13 +602,13 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVM<TModel>
 
 (Adapt to existing `ComponentVM<TModel>` constructor signature — read `ComponentVM.cs` first.)
 
-- [ ] **Step 5: Run HIER-001, verify PASS.**
+- [x] **Step 5: Run HIER-001, verify PASS.**
 
-- [ ] **Step 6: Implement HIER-002 (Parent), HIER-003 (Depth), HIER-005 (IsLeaf / IsRoot), HIER-006 (IsFirst / IsLast).**
+- [x] **Step 6: Implement HIER-002 (Parent), HIER-003 (Depth), HIER-005 (IsLeaf / IsRoot), HIER-006 (IsFirst / IsLast).**
 
 Replace each test stub with a real assertion; verify each passes against the current implementation. Add minimal implementation code as needed.
 
-- [ ] **Step 7: Implement HIER-004 (Path materialization with cache + invalidation).**
+- [x] **Step 7: Implement HIER-004 (Path materialization with cache + invalidation).**
 
 Add cache field `_path` + invalidation hook in the parent-set path. The conformance test should verify:
 
@@ -616,15 +616,15 @@ Add cache field `_path` + invalidation hook in the parent-set path. The conforma
 1. Subsequent calls return the cached snapshot.
 1. After `Parent` change, the cache is invalidated and recomputed.
 
-- [ ] **Step 8: Implement HIER-007 (lazy default) and HIER-008 (eager builder).**
+- [x] **Step 8: Implement HIER-007 (lazy default) and HIER-008 (eager builder).**
 
 Add a `WithEagerChildren()` builder method (or a constructor flag). The conformance test for HIER-007 verifies the children-factory delegate is NOT invoked until `Children` is first accessed. HIER-008 verifies eager materialization.
 
-- [ ] **Step 9: Implement HIER-009 (depth-first construction).**
+- [x] **Step 9: Implement HIER-009 (depth-first construction).**
 
 Override `OnConstructed()` or similar lifecycle hook. Eager mode constructs children depth-first; lazy mode does not. The conformance test verifies a 3-deep tree's deepest leaf reaches `Constructed` before the root.
 
-- [ ] **Step 10: Implement `TreeStructureChangedMessage` and HIER-010 + HIER-011 (hub messages).**
+- [x] **Step 10: Implement `TreeStructureChangedMessage` and HIER-010 + HIER-011 (hub messages).**
 
 Create `TreeStructureChangedMessage.cs`:
 
@@ -647,25 +647,25 @@ public enum TreeStructureChange { Added, Removed, Reparented }
 
 Wire publication into HierarchicalVM's add-child / remove-child / reparent paths. HIER-010 verifies `PropertyChangedMessage` on Parent change; HIER-011 verifies the new message type.
 
-- [ ] **Step 11: Implement HIER-012/013/014 — integration with `walk_expanded`, `SearchableState`, `ModeledCrudCommands`.**
+- [x] **Step 11: Implement HIER-012/013/014 — integration with `walk_expanded`, `SearchableState`, `ModeledCrudCommands`.**
 
 Tests should verify the integration works WITHOUT HierarchicalVM auto-implementing IExpandable (per ADR-0028 §3.6). Consumer composes ExpandableState explicitly. The conformance test instantiates the composition and verifies behavior.
 
-- [ ] **Step 12: Add unit tests in `HierarchicalVMTests.cs`** for edge cases: empty children factory, single-node tree, reparenting, multiple lazy access calls, path cache invalidation across a chain.
+- [x] **Step 12: Add unit tests in `HierarchicalVMTests.cs`** for edge cases: empty children factory, single-node tree, reparenting, multiple lazy access calls, path cache invalidation across a chain.
 
-- [ ] **Step 13: Run full flavor tooling.**
+- [x] **Step 13: Run full flavor tooling.**
 
 ```bash
 cd langs/csharp && dotnet build && dotnet test && dotnet format --verify-no-changes
 ```
 
-- [ ] **Step 14: Coverage tool 195/195 C#.**
+- [x] **Step 14: Coverage tool 195/195 C#.**
 
 ```bash
 uv --project langs/python run python tools/check-conformance-coverage.py --require csharp 2>&1 | tail -5
 ```
 
-- [ ] **Step 15: Commit.**
+- [x] **Step 15: Commit.**
 
 ```bash
 git add langs/csharp/src/VMx/Hierarchical/ langs/csharp/tests/VMx.Conformance.Tests/HIER_001_to_014_HierarchicalVM_Tests.cs langs/csharp/tests/VMx.Tests/Hierarchical/HierarchicalVMTests.cs
@@ -691,9 +691,9 @@ If pre-commit (mdformat / dotnet format) reformats, re-stage and re-commit (NO `
 
 - Create: `langs/python/tests/unit/hierarchical/test_hierarchical_vm.py`
 
-- [ ] **Step 1: Mirror Stage 1's Python TDD process** (see Task 1A.6 in the master plan). Read existing `ComponentVM`-equivalent module structure in Python (`langs/python/src/vmx/components/`) for style.
+- [x] **Step 1: Mirror Stage 1's Python TDD process** (see Task 1A.6 in the master plan). Read existing `ComponentVM`-equivalent module structure in Python (`langs/python/src/vmx/components/`) for style.
 
-- [ ] **Step 2: Replace HIER-001 stub with real test.**
+- [x] **Step 2: Replace HIER-001 stub with real test.**
 
 ```python
 from typing import Any
@@ -716,13 +716,13 @@ def test_hier_001_recursive_generic_constraint() -> None:
     assert node.depth == 0
 ```
 
-- [ ] **Step 3: Run test, verify FAIL.**
+- [x] **Step 3: Run test, verify FAIL.**
 
 ```bash
 cd langs/python && uv run pytest tests/conformance/test_hier_001_to_014_hierarchical_vm.py::test_hier_001_recursive_generic_constraint -v
 ```
 
-- [ ] **Step 4: Create `hierarchical_vm.py` with the minimum interface.**
+- [x] **Step 4: Create `hierarchical_vm.py` with the minimum interface.**
 
 ```python
 """HierarchicalVM<TModel, TVM> (ADR-0028, chapter 18)."""
@@ -794,7 +794,7 @@ class HierarchicalVM(ComponentVM[TModel], Generic[TModel, TVM]):
         return self._parent is not None and self._parent.children[-1] is self
 ```
 
-- [ ] **Step 5: Export from `langs/python/src/vmx/hierarchical/__init__.py`:**
+- [x] **Step 5: Export from `langs/python/src/vmx/hierarchical/__init__.py`:**
 
 ```python
 """Hierarchical (recursive tree) ViewModels — chapter 18."""
@@ -804,9 +804,9 @@ from vmx.hierarchical.hierarchical_vm import HierarchicalVM
 __all__ = ["HierarchicalVM"]
 ```
 
-- [ ] **Step 6: Run test, verify PASS.**
+- [x] **Step 6: Run test, verify PASS.**
 
-- [ ] **Step 7: Implement HIER-002..014 one-by-one** (analogous to C# steps 6-11). For HIER-004 path cache: invalidate `_path_cache` whenever `_parent` changes. For HIER-010/011: implement `TreeStructureChangedMessage` and publish via the message hub.
+- [x] **Step 7: Implement HIER-002..014 one-by-one** (analogous to C# steps 6-11). For HIER-004 path cache: invalidate `_path_cache` whenever `_parent` changes. For HIER-010/011: implement `TreeStructureChangedMessage` and publish via the message hub.
 
 `langs/python/src/vmx/messages/tree_structure_changed.py`:
 
@@ -840,17 +840,17 @@ class TreeStructureChangedMessage:
 
 Export from `langs/python/src/vmx/messages/__init__.py`.
 
-- [ ] **Step 8: Unit tests** at `tests/unit/hierarchical/test_hierarchical_vm.py` for edge cases (analogous to C# Step 12).
+- [x] **Step 8: Unit tests** at `tests/unit/hierarchical/test_hierarchical_vm.py` for edge cases (analogous to C# Step 12).
 
-- [ ] **Step 9: Run tooling.**
+- [x] **Step 9: Run tooling.**
 
 ```bash
 cd langs/python && uv run pytest && uv run mypy --strict src/vmx && uv run ruff check && uv run ruff format --check
 ```
 
-- [ ] **Step 10: Coverage 195/195 Python.**
+- [x] **Step 10: Coverage 195/195 Python.**
 
-- [ ] **Step 11: Commit.**
+- [x] **Step 11: Commit.**
 
 ```bash
 git add langs/python/src/vmx/hierarchical/ langs/python/src/vmx/messages/ langs/python/tests/
@@ -875,9 +875,9 @@ git commit -m "feat(python,hier): implement HierarchicalVM[TModel, TVM] (HIER-00
 
 - Create: `langs/typescript/tests/unit/hierarchicalVm.test.ts`
 
-- [ ] **Step 1: Mirror C# / Python pattern.** Read `langs/typescript/src/components/` for `ComponentVM` style.
+- [x] **Step 1: Mirror C# / Python pattern.** Read `langs/typescript/src/components/` for `ComponentVM` style.
 
-- [ ] **Step 2: Replace HIER-001 stub with real failing test.**
+- [x] **Step 2: Replace HIER-001 stub with real failing test.**
 
 ```typescript
 import { describe, expect, it } from "vitest";
@@ -905,9 +905,9 @@ describe("HIER-001", () => {
 });
 ```
 
-- [ ] **Step 3: Run test, verify FAIL.**
+- [x] **Step 3: Run test, verify FAIL.**
 
-- [ ] **Step 4: Create `hierarchicalVm.ts`.**
+- [x] **Step 4: Create `hierarchicalVm.ts`.**
 
 ```typescript
 import { ComponentVM } from "../components/componentVm.js";
@@ -962,7 +962,7 @@ export abstract class HierarchicalVM<TModel, TVM extends HierarchicalVM<TModel, 
 }
 ```
 
-- [ ] **Step 5: Export from `langs/typescript/src/hierarchical/index.ts`:**
+- [x] **Step 5: Export from `langs/typescript/src/hierarchical/index.ts`:**
 
 ```typescript
 export { HierarchicalVM } from "./hierarchicalVm.js";
@@ -970,11 +970,11 @@ export { HierarchicalVM } from "./hierarchicalVm.js";
 
 And re-export from `langs/typescript/src/index.ts`.
 
-- [ ] **Step 6: Run test, verify PASS.**
+- [x] **Step 6: Run test, verify PASS.**
 
-- [ ] **Step 7: Implement HIER-002..014** one-by-one analogous to C#/Python steps.
+- [x] **Step 7: Implement HIER-002..014** one-by-one analogous to C#/Python steps.
 
-- [ ] **Step 8: Create `treeStructureChanged.ts`.**
+- [x] **Step 8: Create `treeStructureChanged.ts`.**
 
 ```typescript
 export type TreeStructureChange = "added" | "removed" | "reparented";
@@ -995,28 +995,28 @@ export class TreeStructureChangedMessage<T> {
 
 Export from `langs/typescript/src/messages/index.ts` and top-level `src/index.ts`.
 
-- [ ] **Step 9: Unit tests** at `tests/unit/hierarchicalVm.test.ts`.
+- [x] **Step 9: Unit tests** at `tests/unit/hierarchicalVm.test.ts`.
 
-- [ ] **Step 10: Run tooling.**
+- [x] **Step 10: Run tooling.**
 
 ```bash
 cd langs/typescript && npm run typecheck && npm run lint && npm test
 ```
 
-- [ ] **Step 11: Coverage 195/195 TypeScript.**
+- [x] **Step 11: Coverage 195/195 TypeScript.**
 
-- [ ] **Step 12: Commit.**
+- [x] **Step 12: Commit.**
 
 ```bash
 git add langs/typescript/src/hierarchical/ langs/typescript/src/messages/ langs/typescript/src/index.ts langs/typescript/tests/
 git commit -m "feat(typescript,hier): implement HierarchicalVM<TModel, TVM> (HIER-001..014)"
 ```
 
-- [ ] **Step 13: Tick Substage 2C checkboxes in this plan; commit `docs(plan): tick Substage 2C`.**
+- [x] **Step 13: Tick Substage 2C checkboxes in this plan; commit `docs(plan): tick Substage 2C`.**
 
 ______________________________________________________________________
 
-# Substage 2D — Cleanup
+# Substage 2D# Substage 2D — Cleanup
 
 ### Task 2D.1: Delete the superseded `spec/proposals/hierarchical-vm.md`
 
