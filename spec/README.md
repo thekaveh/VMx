@@ -29,12 +29,17 @@ flavor releases a stable version.
 
 ### 1.2 Chapters (v2.0 additions)
 
-- `14-capabilities.md` — 20 opt-in capability micro-interfaces.
+- `14-capabilities.md` — 22 opt-in capability micro-interfaces (incl. `IFilterable<T>` and `IPageable`).
 - `15-derived-properties.md` — `DerivedProperty<TValue>` N-source computed values.
 - `16-notifications.md` — opt-in `INotificationHub` sub-package.
 - `17-localization.md` — `ILocalizer` hook + `NullLocalizer` default.
 
-### 1.3 Supporting artefacts
+### 1.3 Chapters (v2.1 additions)
+
+- `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
+  `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
+
+### 1.4 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.0.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
