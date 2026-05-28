@@ -74,7 +74,7 @@ ______________________________________________________________________
 
 ## Stage 4 progress tracker
 
-- [ ] **Substage 4A** — Spec extension (ADR-0031 + ch.16 extension + 6 NOTIF IDs + stubs in 3 flavors)
+- [x] **Substage 4A** — Spec extension (ADR-0031 + ch.16 extension + 6 NOTIF IDs + stubs in 3 flavors)
 - [ ] **Substage 4B** — Per-flavor NotificationVM + ConfirmationVM (3 flavors)
 - [ ] **Substage 4C** — Service-as-VM recipe section + Stage 4 audit close
 
@@ -92,7 +92,7 @@ ______________________________________________________________________
 
 - Modify: `spec/16-notifications.md` (new subsections)
 
-- [ ] **Step 1: Write the ADR.**
+- [x] **Step 1: Write the ADR.**
 
 ```markdown
 # ADR 0031 — Notification rendering VMs (NotificationVM, ConfirmationVM)
@@ -145,7 +145,7 @@ Scheduler is an injected `IScheduler` / `Scheduler` parameter — tests use
 
 Register in `spec/ADRs/README.md`.
 
-- [ ] **Step 2: Extend `spec/16-notifications.md`.**
+- [x] **Step 2: Extend `spec/16-notifications.md`.**
 
 Add subsections after the existing hub material (likely near §3 or §4 — read the chapter first). Three new subsections:
 
@@ -229,7 +229,7 @@ collection. Not a normative spec addition — just a documented composition.
 - `NOTIF-016` — Deterministic behavior under injected TestScheduler / fake clock.
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/ADRs/0031-notification-rendering-vms.md spec/ADRs/README.md spec/16-notifications.md
@@ -247,11 +247,11 @@ If mdformat reformats: re-stage and re-commit (NEVER `--amend`).
 
 - Modify: `spec/README.md` (ID count 213 → 219)
 
-- [ ] **Step 1: Add 6 new entries** to the NOTIF block in `spec/12-conformance.md`. Use Given/When/Then style of existing NOTIF entries.
+- [x] **Step 1: Add 6 new entries** to the NOTIF block in `spec/12-conformance.md`. Use Given/When/Then style of existing NOTIF entries.
 
-- [ ] **Step 2: Update `spec/README.md` ID count.**
+- [x] **Step 2: Update `spec/README.md` ID count.**
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/12-conformance.md spec/README.md
@@ -268,7 +268,7 @@ git commit -m "spec(conf): add NOTIF-011..016 conformance IDs (NotificationVM/Co
 
 - Modify or create: `langs/typescript/tests/conformance/notif-*.test.ts`
 
-- [ ] **Step 1: Locate existing NOTIF stub/test files** in each flavor:
+- [x] **Step 1: Locate existing NOTIF stub/test files** in each flavor:
 
 ```bash
 ls langs/csharp/tests/VMx.Conformance.Tests/ | grep -i NOTIF
@@ -276,7 +276,7 @@ ls langs/python/tests/conformance/ | grep notif
 ls langs/typescript/tests/conformance/ | grep -i notif
 ```
 
-- [ ] **Step 2: Add 6 new stubs in each flavor**, either appended to the existing NOTIF file or in a new grouped file (e.g., `NOTIF_011_to_016_RenderingVMs_Tests.cs`). Use recognized markers:
+- [x] **Step 2: Add 6 new stubs in each flavor**, either appended to the existing NOTIF file or in a new grouped file (e.g., `NOTIF_011_to_016_RenderingVMs_Tests.cs`). Use recognized markers:
 
 - C#: `[Fact(Skip = "NOTIF-NNN not yet implemented"), Trait("Conformance", "NOTIF-NNN")]`
 
@@ -284,7 +284,7 @@ ls langs/typescript/tests/conformance/ | grep -i notif
 
 - TS: `describe("NOTIF-NNN", ...)` + `it.todo(...)`
 
-- [ ] **Step 3: Run conformance coverage.**
+- [x] **Step 3: Run conformance coverage.**
 
 ```bash
 uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript
@@ -292,14 +292,14 @@ uv --project langs/python run python tools/check-conformance-coverage.py --requi
 
 Expected: 219/219 in all 3 flavors.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add langs/csharp/tests/VMx.Conformance.Tests/NOTIF_*.cs langs/python/tests/conformance/test_notif_*.py langs/typescript/tests/conformance/notif-*.test.ts
 git commit -m "test(conf): add NOTIF-011..016 stubs in all three flavors"
 ```
 
-- [ ] **Step 5: Tick Substage 4A checkboxes; commit `docs(plan): tick Substage 4A`.**
+- [x] **Step 5: Tick Substage 4A checkboxes; commit `docs(plan): tick Substage 4A`.**
 
 ______________________________________________________________________
 
