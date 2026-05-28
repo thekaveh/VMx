@@ -84,6 +84,7 @@ public sealed class ObservableList<T> :
     private readonly List<T> _items = [];
     private int _batchDepth;
     private bool _mutatedInBatch;
+    private int _countAtBatchStart;
 
     // ── Granular events ───────────────────────────────────────────────────────
 
@@ -190,6 +191,8 @@ public sealed class ObservableList<T> :
         internal BatchToken(ObservableList<T> owner)
         {
             _owner = owner;
+            if (_owner._batchDepth == 0)
+                _owner._countAtBatchStart = _owner._items.Count;
             _owner._batchDepth++;
         }
 
@@ -200,11 +203,15 @@ public sealed class ObservableList<T> :
             _owner._batchDepth--;
             if (_owner._batchDepth == 0 && _owner._mutatedInBatch)
             {
+                int finalCount = _owner._items.Count;
                 _owner._mutatedInBatch = false;
                 _owner.Reset?.Invoke(_owner, EventArgs.Empty);
                 _owner.CollectionChanged?.Invoke(
                     _owner,
                     new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+                // Emit Count notification only if count actually changed (spec §3.3).
+                if (finalCount != _owner._countAtBatchStart)
+                    _owner.PropertyChanged?.Invoke(_owner, new PropertyChangedEventArgs(nameof(Count)));
             }
         }
     }

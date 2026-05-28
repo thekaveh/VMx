@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Specialized;
+using VMx.Messages;
+using VMx.Services;
 
 #pragma warning disable CA1711 // 'Dictionary' suffix: spec-mandated type name per spec/21-collections.md §4
 
@@ -105,6 +107,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     where TKey1 : notnull
     where TKey2 : notnull
 {
+    private readonly IMessageHub? _hub;
+
     // Insertion-ordered backing store: list of keys + dict for O(1) lookup.
     private readonly List<(TKey1, TKey2)> _keyOrder = [];
     private readonly Dictionary<(TKey1, TKey2), TValue> _data = [];
@@ -112,6 +116,15 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     // Distinct-key views (live ObservableLists).
     private readonly ObservableList<TKey1> _keys1 = new();
     private readonly ObservableList<TKey2> _keys2 = new();
+
+    /// <summary>
+    /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
+    /// </summary>
+    /// <param name="hub">Optional hub. Pass <c>null</c> for standalone (no publication) mode.</param>
+    public ObservableDictionary(IMessageHub? hub = null)
+    {
+        _hub = hub;
+    }
 
     // ── Granular events ───────────────────────────────────────────────────────
 
@@ -276,33 +289,55 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
 
     private void OnAdded(TKey1 key1, TKey2 key2, TValue value)
     {
+        // 1. Raise granular local event first.
         ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value));
         CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Add,
             new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value)));
+        // 2. Publish to hub (if present).
+        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
+            this,
+            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value),
+            _keyOrder.Count - 1));
     }
 
     private void OnRemoved(TKey1 key1, TKey2 key2, TValue value)
     {
+        // 1. Raise granular local event first.
         ItemRemoved?.Invoke(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value));
         CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Remove,
             new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value)));
+        // 2. Publish to hub (if present).
+        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(
+            this,
+            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value),
+            -1));
     }
 
     private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue)
     {
+        // 1. Raise granular local event first.
         ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue));
         CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Replace,
             new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue),
             new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue)));
+        // 2. Publish to hub (if present).
+        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(
+            this,
+            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue),
+            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue),
+            -1));
     }
 
     private void OnReset()
     {
+        // 1. Raise local events first.
         Reset?.Invoke(this, EventArgs.Empty);
         CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Reset));
+        // 2. Publish to hub (if present).
+        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReset(this));
     }
 }

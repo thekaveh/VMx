@@ -398,6 +398,101 @@ public class ObservableListTests
             .Which.Should().Be(NotifyCollectionChangedAction.Reset);
     }
 
+    // ── BatchUpdate Count notification (spec §3.3) ────────────────────────────
+
+    [Fact]
+    public void BatchUpdate_CountGrew_EmitsPropertyChangedCount()
+    {
+        var sut = new ObservableList<int>();
+        var propChanges = new List<string?>();
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propChanges.Add(e.PropertyName);
+
+        using (sut.BatchUpdate())
+        {
+            sut.Add(1);
+            sut.Add(2);
+        }
+
+        propChanges.Should().Contain("Count");
+    }
+
+    [Fact]
+    public void BatchUpdate_CountShrank_EmitsPropertyChangedCount()
+    {
+        var sut = new ObservableList<int>();
+        sut.Add(1);
+        sut.Add(2);
+        sut.Add(3);
+        var propChanges = new List<string?>();
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propChanges.Add(e.PropertyName);
+
+        using (sut.BatchUpdate())
+        {
+            sut.RemoveAt(0);
+            sut.RemoveAt(0);
+        }
+
+        propChanges.Should().Contain("Count");
+    }
+
+    [Fact]
+    public void BatchUpdate_CountUnchanged_DoesNotEmitPropertyChangedCount()
+    {
+        var sut = new ObservableList<int>();
+        sut.Add(1);
+        sut.Add(2);
+        var propChanges = new List<string?>();
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propChanges.Add(e.PropertyName);
+
+        // Replace operations keep count the same; net change = 0.
+        using (sut.BatchUpdate())
+        {
+            sut.Replace(0, 10);
+            sut.Replace(1, 20);
+        }
+
+        propChanges.Where(p => p == "Count").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BatchUpdate_AddAndRemoveNetZero_DoesNotEmitPropertyChangedCount()
+    {
+        var sut = new ObservableList<int>();
+        sut.Add(1);
+        var propChanges = new List<string?>();
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propChanges.Add(e.PropertyName);
+
+        // Add one, remove one — net count change = 0.
+        using (sut.BatchUpdate())
+        {
+            sut.Add(99);
+            sut.RemoveAt(1);
+        }
+
+        propChanges.Where(p => p == "Count").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BatchUpdate_Nested_CountChanged_EmitsPropertyChangedCountOnOutermostExit()
+    {
+        var sut = new ObservableList<int>();
+        var propChanges = new List<string?>();
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propChanges.Add(e.PropertyName);
+
+        using (var outer = sut.BatchUpdate())
+        {
+            using (var inner = sut.BatchUpdate())
+            {
+                sut.Add(1);
+            }
+            // inner disposed — no Count notification yet
+            propChanges.Where(p => p == "Count").Should().BeEmpty();
+        }
+
+        // outermost disposed — Count changed (0 → 1), so notification fires
+        propChanges.Should().Contain("Count");
+    }
+
     // ── Edge cases ────────────────────────────────────────────────────────────
 
     [Fact]

@@ -1,6 +1,8 @@
 using System.Collections.Specialized;
 using FluentAssertions;
 using VMx.Collections;
+using VMx.Messages;
+using VMx.Services;
 using Xunit;
 
 namespace VMx.Tests.Collections;
@@ -98,6 +100,86 @@ public class ObservableDictionaryTests
     {
         var sut = new ObservableDictionary<string, int, double>();
         sut.TryGetValue("missing", 99, out _).Should().BeFalse();
+    }
+
+    // ── Hub injection ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Hub_Injection_PublishesAddMessageOnAdd()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+        var received = new List<IMessage>();
+        hub.Messages.Subscribe(m => received.Add(m));
+
+        sut.Add("a", 1, 42.0);
+
+        received.Should().ContainSingle()
+            .Which.Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(NotifyCollectionChangedAction.Add);
+    }
+
+    [Fact]
+    public void Hub_Injection_PublishesRemoveMessageOnRemove()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+        sut.Add("a", 1, 1.0);
+        var received = new List<IMessage>();
+        hub.Messages.Subscribe(m => received.Add(m));
+
+        sut.Remove("a", 1);
+
+        received.Should().ContainSingle()
+            .Which.Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(NotifyCollectionChangedAction.Remove);
+    }
+
+    [Fact]
+    public void Hub_Injection_PublishesReplaceMessageOnIndexerSet()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+        sut.Add("a", 1, 1.0);
+        var received = new List<IMessage>();
+        hub.Messages.Subscribe(m => received.Add(m));
+
+        sut["a", 1] = 9.9;
+
+        received.Should().ContainSingle()
+            .Which.Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(NotifyCollectionChangedAction.Replace);
+    }
+
+    [Fact]
+    public void Hub_Injection_PublishesResetMessageOnClear()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+        sut.Add("a", 1, 1.0);
+        var received = new List<IMessage>();
+        hub.Messages.Subscribe(m => received.Add(m));
+
+        sut.Clear();
+
+        received.Should().ContainSingle()
+            .Which.Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(NotifyCollectionChangedAction.Reset);
+    }
+
+    [Fact]
+    public void Hub_Null_DoesNotThrowOnAnyMutation()
+    {
+        var sut = new ObservableDictionary<string, int, double>();
+        var act = () =>
+        {
+            sut.Add("a", 1, 1.0);
+            sut["a", 1] = 2.0;
+            sut.Remove("a", 1);
+            sut.Add("b", 2, 3.0);
+            sut.Clear();
+        };
+        act.Should().NotThrow();
     }
 
     [Fact]

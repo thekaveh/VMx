@@ -1,5 +1,7 @@
 using FluentAssertions;
 using VMx.Collections;
+using VMx.Messages;
+using VMx.Services;
 using Xunit;
 
 namespace VMx.Conformance.Tests;
@@ -230,10 +232,73 @@ public class COL_010_to_015_ObservableDictionaryTests
 
     // ── COL-022 ──────────────────────────────────────────────────────────────
 
-    /// <summary>COL-022: ObservableDictionary hub publication — stub; implementation pending (Substage 1C).</summary>
-    [Fact(Skip = "COL-022 stub: ObservableDictionary hub injection not yet implemented"), Trait("Conformance", "COL-022")]
+    /// <summary>COL-022: ObservableDictionary hub publication — mutations publish CollectionChangedMessage to the hub.</summary>
+    [Fact, Trait("Conformance", "COL-022")]
     public void COL_022_Hub_Publication()
     {
-        throw new NotImplementedException("COL-022: ObservableDictionary hub injection not yet implemented");
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+
+        var received = new List<IMessage>();
+        hub.Messages.Subscribe(m => received.Add(m));
+
+        // Add — publishes an Add message
+        sut.Add("alpha", 1, 3.14);
+        received.Should().HaveCount(1);
+        var addMsg = received[0]
+            .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Subject;
+        addMsg.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Add);
+        addMsg.SenderObject.Should().BeSameAs(sut);
+        addMsg.NewItems.Should().ContainSingle()
+            .Which.Should().Be(new KeyValuePair<(string, int), double>(("alpha", 1), 3.14));
+
+        received.Clear();
+
+        // Replace (indexer set) — publishes a Replace message
+        sut["alpha", 1] = 9.99;
+        received.Should().HaveCount(1);
+        received[0]
+            .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Replace);
+
+        received.Clear();
+
+        // Remove — publishes a Remove message
+        sut.Remove("alpha", 1);
+        received.Should().HaveCount(1);
+        received[0]
+            .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Remove);
+
+        received.Clear();
+
+        // Clear — publishes a Reset message
+        sut.Add("beta", 2, 2.72);
+        received.Clear(); // discard the Add from above
+        sut.Clear();
+        received.Should().HaveCount(1);
+        received[0]
+            .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Which.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+    }
+
+    /// <summary>COL-022 (no-hub path): ObservableDictionary with null hub does not throw and does not publish.</summary>
+    [Fact, Trait("Conformance", "COL-022")]
+    public void COL_022_NoHub_NoPublicationNoErrors()
+    {
+        // Construct without hub — must not throw on any mutation.
+        var sut = new ObservableDictionary<string, int, double>();
+
+        var act = () =>
+        {
+            sut.Add("x", 1, 1.0);
+            sut["x", 1] = 2.0;
+            sut.Remove("x", 1);
+            sut.Add("y", 2, 3.0);
+            sut.Clear();
+        };
+
+        act.Should().NotThrow();
     }
 }
