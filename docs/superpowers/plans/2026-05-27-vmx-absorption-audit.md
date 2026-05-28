@@ -74,19 +74,19 @@ Two decisions and one verification block the rest of the plan. Resolve all three
 
 - Modify: this plan file (sync the decision)
 
-- [ ] **Step 1: Make the call.**
+- [x] **Step 1: Make the call.**
 
 **Decision (made):** Paging (C3) lands as a section inside `21-collections.md` (not a standalone chapter). Rationale: paging is a collection-view behavior; conceptually cohesive with `ServicedObservableCollection`, `ObservableList`, multi-key `ObservableDictionary`; reduces chapter sprawl. The four new chapters are: 18-hierarchical-vm, 19-dialogs, 20-form-vm, 21-collections.
 
-- [ ] **Step 2: Record the decision.**
+- [x] **Step 2: Record the decision.**
 
 Edit `spec/proposals/2026-05-27-vmx-absorption-audit.md` §3, §5 (C3), §6 (I2), §9 to reflect: paging is a section in the new collections chapter; new chapters are 18-hierarchical-vm, 19-dialogs, 20-form-vm, 21-collections (four, not five).
 
-- [ ] **Step 3: Sync this plan.**
+- [x] **Step 3: Sync this plan.**
 
 Update §"Stage progress tracker" and stage outlines below to say "4 new chapters" instead of "5".
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add spec/proposals/2026-05-27-vmx-absorption-audit.md docs/superpowers/plans/2026-05-27-vmx-absorption-audit.md

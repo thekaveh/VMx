@@ -212,9 +212,8 @@ cohesive with the other collection primitives in that chapter). Extends
 
 **ADR:** *0024 — Paging helper (capability + decorator)*.
 
-**Conformance IDs:** New prefix `PAG-NNN`. Suggested ~8 IDs: clamping behavior,
-page-count derivation, navigation no-op at bounds, hub messages on
-`CurrentPageIndex` change, composition with `SearchableState`,
+**Conformance IDs:** `COL-NNN` range (paging folded into COL- per Stage 0 decision). Suggested ~6 IDs: clamping behavior,
+page-count derivation, navigation no-op at bounds, composition with `SearchableState`,
 `PageSize = 0` semantics, empty-source behavior.
 
 **Per-flavor impact:** New file(s) in `composites/` or `collections/` (TBD —
@@ -673,7 +672,7 @@ This audit, if fully adopted, introduces:
   - `15-derived-properties.md` — init-token recipe (M2)
   - `16-notifications.md` — NotificationVM / ConfirmationVM (C5), service-as-VM recipe (I6)
 - **13 new ADRs** (0022-0034) per the per-candidate listings above. Recipe-only items (I6, M2, M3) may not need an ADR; the final count depends on those decisions.
-- **~65 new conformance IDs** (rough breakdown: HIER ~12, DIA ~8, FORM ~10, COL ~15, PAG ~8, extensions to CMD/CAP/NOTIF ~12). Exact counts will be set per-ADR.
+- **~65 new conformance IDs** (rough breakdown: HIER ~12, DIA ~8, FORM ~10, COL ~21 [including ~6 for paging], extensions to CMD/CAP/NOTIF ~12). Exact counts will be set per-ADR.
 
 **Paging placement (decided — Stage 0):** Paging (C3) lands as §5 of
 `21-collections.md`, not as a standalone chapter. Rationale: paging is a
