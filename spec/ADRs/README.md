@@ -44,6 +44,7 @@ cross-references each ADR carries.
 | [0025](0025-multi-key-observable-dictionary.md)         | `ObservableDictionary` (multi-key)         | 2.1.0        | Accepted |
 | [0026](0026-granular-observable-list.md)                | `ObservableList<T>` granular events        | 2.1.0        | Accepted |
 | [0027](0027-fluent-command-extensions.md)               | Fluent command extension methods           | 2.1.0        | Accepted |
+| [0028](0028-hierarchical-vm.md)                         | `HierarchicalVM` (recursive composite)     | 2.1.0        | Accepted |
 
 ## 2. Format
 
