@@ -5,8 +5,8 @@ spec-compatible with the Python and TypeScript flavors.
 
 ## 1. Status
 
-**v2.0.0** — implements `spec-v2.0.0` end-to-end. 152/152 conformance IDs
-pass (171 test methods). Multi-targets `netstandard2.0` and `net8.0`.
+**v2.1.0** — implements `spec-v2.1.0` end-to-end. 219/219 conformance IDs
+pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
 `INotificationHub`).
@@ -88,7 +88,7 @@ The public API lives under the `VMx.*` namespaces:
 | `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)   |
 | `SearchableState<TItem>`        | Debounced filter helper (spec v2.0)               |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)              |
-| 20× capability interfaces       | `VMx.Capabilities.*` — opt-in (spec v2.0)         |
+| 22× capability interfaces       | `VMx.Capabilities.*` — opt-in (spec v2.0+)        |
 
 The companion package `VMx.Extensions.DependencyInjection` adds:
 
@@ -106,8 +106,7 @@ The companion package `VMx.Notifications` (spec v2.0) adds:
 
 ## 5. Conformance
 
-All 152 conformance IDs from `spec/12-conformance.md` are covered (171 test
-methods, since some IDs are validated by multiple scenarios).
+All 219 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -116,6 +115,8 @@ v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
 v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
        LOC-001..003
+v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
+       COL-001..023   CMD-008..011  CAP-021..022
 ```
 
 Run the suite:
