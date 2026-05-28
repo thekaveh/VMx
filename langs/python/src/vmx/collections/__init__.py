@@ -10,18 +10,23 @@ See spec/21-collections.md §2 and ADR-0024.
 
 :class:`ObservableList` is a standalone observable list with granular per-mutation
 events. See spec/21-collections.md §3 and ADR-0026.
+
+:class:`ObservableDictionary` is a two-key observable dictionary with distinct-key
+observable views. See spec/21-collections.md §4 and ADR-0025.
 """
 
 from __future__ import annotations
 
 from vmx.collections.batch import BatchUpdateHandle
 from vmx.collections.collection_changed import CollectionChangedEvent
+from vmx.collections.observable_dictionary import ObservableDictionary
 from vmx.collections.observable_list import ObservableList
 from vmx.collections.serviced_observable_collection import ServicedObservableCollection
 
 __all__ = [
     "BatchUpdateHandle",
     "CollectionChangedEvent",
+    "ObservableDictionary",
     "ObservableList",
     "ServicedObservableCollection",
 ]
