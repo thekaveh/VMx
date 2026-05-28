@@ -860,6 +860,15 @@ records an invocation on the correct recorder
 **And** the base VM does still report `true` for `IConstructable`,
 `IDestructable`, and `IReconstructable` (lifecycle capabilities are baseline)
 
+### CAP-021 — `IFilterable<TItem>` capability contract surface and opt-in behavior
+
+**Given** a fixture class `F` that implements `IFilterable<TItem>` and a minimal
+`CompositeVM` wrapper that opts in by declaring the capability
+**When** the API surface is inspected
+**Then** `F` exposes a settable `Filter` predicate and a `can_filter()` decision
+**And** setting `Filter` to `null`/`None` clears the filter (no predicate applied)
+**And** a VM that does NOT opt in reports `false` for `IFilterable<TItem>`
+
 ______________________________________________________________________
 
 ## 16. Null-object service variants (`NULL-NNN`) — spec v2.0
