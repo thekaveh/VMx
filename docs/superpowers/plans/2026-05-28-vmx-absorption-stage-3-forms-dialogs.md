@@ -104,7 +104,7 @@ ______________________________________________________________________
 
 - [x] **Substage 3A** — Spec foundation (ADR-0029 + ADR-0030 + chapters 19+20 + conformance IDs + stubs)
 - [x] **Substage 3B** — Per-flavor IDialogService + NullDialogService (3 flavors)
-- [ ] **Substage 3C** — Per-flavor FormVM (3 flavors)
+- [x] **Substage 3C** — Per-flavor FormVM (3 flavors)
 - [ ] **Substage 3D** — Cross-chapter integration (16-notifications crossref + Confirm overload + integration test)
 - [ ] **Substage 3E** — Stage 3 audit close (2 consecutive zero-finding passes)
 
@@ -817,7 +817,7 @@ This substage implements `FormVM<TM>` in all three flavors. The contract has 5 m
 
 - Create: `langs/csharp/tests/VMx.Tests/Forms/FormVMTests.cs` (unit tests)
 
-- [ ] **Step 1: Replace FORM-001 stub with real failing test.**
+- [x] **Step 1: Replace FORM-001 stub with real failing test.**
 
 ```csharp
 public sealed record Person(string Name, int Age);
@@ -834,9 +834,9 @@ public void FORM_001_Snapshot_Captured_At_Construct()
 }
 ```
 
-- [ ] **Step 2: Run test, verify FAIL.**
+- [x] **Step 2: Run test, verify FAIL.**
 
-- [ ] **Step 3: Create the FormVM implementation.**
+- [x] **Step 3: Create the FormVM implementation.**
 
 `langs/csharp/src/VMx/Forms/IFormPersister.cs`:
 
@@ -936,9 +936,9 @@ public sealed class FormVM<TM> : ComponentVM<TM> where TM : notnull
 
 (Adapt to the actual `ComponentVM<TM>` / `RelayCommand` / `IMessage` / Hub APIs in the repo. Read those first.)
 
-- [ ] **Step 4: Run test, verify PASS.**
+- [x] **Step 4: Run test, verify PASS.**
 
-- [ ] **Step 5: Implement FORM-002..010** one by one.
+- [x] **Step 5: Implement FORM-002..010** one by one.
 
 FORM-002 (mutation tracked):
 
@@ -1055,15 +1055,15 @@ public async Task FORM_010_DenyConfirmed_Via_DialogService()
 
 (Note: `cmd.Confirm(Func<Task<bool>>)` already exists from ADR-0027; the FORM-010 test uses that.)
 
-- [ ] **Step 6: Add unit tests** in `FormVMTests.cs` for edge cases (re-approve same snapshot, nested mutations, multiple snapshots, equality for value vs reference models).
+- [x] **Step 6: Add unit tests** in `FormVMTests.cs` for edge cases (re-approve same snapshot, nested mutations, multiple snapshots, equality for value vs reference models).
 
-- [ ] **Step 7: Run tooling.**
+- [x] **Step 7: Run tooling.**
 
 ```bash
 cd langs/csharp && dotnet build && dotnet test && dotnet format --verify-no-changes
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/csharp/src/VMx/Forms/ langs/csharp/tests/VMx.Conformance.Tests/FORM_001_to_010_*.cs langs/csharp/tests/VMx.Tests/Forms/
@@ -1088,7 +1088,7 @@ Mirror C# work:
 
 - Create: `langs/python/tests/unit/forms/test_form_vm.py`
 
-- [ ] **Step 1: Real test for FORM-001:**
+- [x] **Step 1: Real test for FORM-001:**
 
 ```python
 from dataclasses import dataclass
@@ -1117,9 +1117,9 @@ def test_form_001_snapshot_at_construct() -> None:
     assert sut.is_dirty is False
 ```
 
-- [ ] **Step 2: Run test, verify FAIL.**
+- [x] **Step 2: Run test, verify FAIL.**
 
-- [ ] **Step 3: Create `form_vm.py` and `form_reverted.py`.**
+- [x] **Step 3: Create `form_vm.py` and `form_reverted.py`.**
 
 `langs/python/src/vmx/messages/form_reverted.py`:
 
@@ -1200,19 +1200,19 @@ class FormVM(ComponentVM[TM], Generic[TM]):
 
 (Adapt to actual hub / RelayCommand API.)
 
-- [ ] **Step 4: Run test, verify PASS.**
+- [x] **Step 4: Run test, verify PASS.**
 
-- [ ] **Step 5: Implement FORM-002..010** analogous to C#.
+- [x] **Step 5: Implement FORM-002..010** analogous to C#.
 
-- [ ] **Step 6: Unit tests at `tests/unit/forms/test_form_vm.py`.**
+- [x] **Step 6: Unit tests at `tests/unit/forms/test_form_vm.py`.**
 
-- [ ] **Step 7: Run tooling.**
+- [x] **Step 7: Run tooling.**
 
 ```bash
 cd langs/python && uv run pytest && uv run mypy --strict src/vmx && uv run ruff check && uv run ruff format --check
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/python/src/vmx/forms/ langs/python/src/vmx/messages/ langs/python/tests/conformance/test_form_001_to_010_*.py langs/python/tests/unit/forms/
@@ -1239,7 +1239,7 @@ Mirror C# work:
 
 - Create: `langs/typescript/tests/unit/forms/formVm.test.ts`
 
-- [ ] **Step 1: Real test for FORM-001.**
+- [x] **Step 1: Real test for FORM-001.**
 
 ```typescript
 import { describe, expect, it } from "vitest";
@@ -1261,9 +1261,9 @@ describe("FORM-001", () => {
 });
 ```
 
-- [ ] **Step 2: Run test, verify FAIL.**
+- [x] **Step 2: Run test, verify FAIL.**
 
-- [ ] **Step 3: Create `formVm.ts` and `formReverted.ts`.**
+- [x] **Step 3: Create `formVm.ts` and `formReverted.ts`.**
 
 `langs/typescript/src/messages/formReverted.ts`:
 
@@ -1340,26 +1340,26 @@ export type { FormVMOptions } from "./formVm.js";
 
 Re-export from `langs/typescript/src/index.ts`.
 
-- [ ] **Step 4: Run test, verify PASS.**
+- [x] **Step 4: Run test, verify PASS.**
 
-- [ ] **Step 5: Implement FORM-002..010** analogous to C# / Python.
+- [x] **Step 5: Implement FORM-002..010** analogous to C# / Python.
 
-- [ ] **Step 6: Unit tests.**
+- [x] **Step 6: Unit tests.**
 
-- [ ] **Step 7: Run tooling.**
+- [x] **Step 7: Run tooling.**
 
 ```bash
 cd langs/typescript && npm run typecheck && npm run lint && npm test -- forms
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/typescript/src/forms/ langs/typescript/src/messages/ langs/typescript/src/index.ts langs/typescript/tests/
 git commit -m "feat(typescript,form): implement FormVM<TM> (FORM-001..010)"
 ```
 
-- [ ] **Step 9: Tick Substage 3C checkboxes; commit `docs(plan): tick Substage 3C`.**
+- [x] **Step 9: Tick Substage 3C checkboxes; commit `docs(plan): tick Substage 3C`.**
 
 ______________________________________________________________________
 
