@@ -78,7 +78,7 @@ ______________________________________________________________________
 - [x] **Substage 2A** — Spec foundation (ADR + chapter + IDs + stubs)
 - [x] **Substage 2B** — Cross-chapter integration (06, 13, 14) + diagrams
 - [x] **Substage 2C** — Per-flavor implementation (C# / Python / TypeScript)
-- [ ] **Substage 2D** — Cleanup (delete superseded proposal)
+- [x] **Substage 2D** — Cleanup (delete superseded proposal)
 - [ ] **Substage 2E** — Stage 2 audit close (2 consecutive zero-finding passes)
 
 ______________________________________________________________________
