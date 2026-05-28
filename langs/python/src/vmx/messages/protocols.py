@@ -4,7 +4,6 @@ from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 from vmx.lifecycle.status import ConstructionStatus
 
-Sender = TypeVar("Sender", covariant=True)
 TSender = TypeVar("TSender", covariant=True)
 
 
@@ -24,14 +23,14 @@ class Message(Protocol):
 
 
 @runtime_checkable
-class TypedMessage(Message, Protocol, Generic[Sender]):
+class TypedMessage(Message, Protocol, Generic[TSender]):
     """Typed hub message protocol carrying a strongly-typed Sender.
 
     See spec/03-messages.md §IMessage shape.
     """
 
     @property
-    def sender(self) -> Sender:
+    def sender(self) -> TSender:
         """Should return the sender, typed according to the Sender type variable."""
         ...
 
