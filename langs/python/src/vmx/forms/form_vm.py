@@ -5,6 +5,7 @@ See spec/20-form-vm.md and ADR-0030.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 from collections.abc import Awaitable, Callable
 from typing import Any, Generic, TypeVar
@@ -183,12 +184,10 @@ class FormVM(Generic[TM]):
         Called by the RelayCommand (which expects a sync callable).
         Fire-and-forget; use :meth:`approve_async` in tests for awaitable behavior.
         """
-        import asyncio
-
         try:
             loop = asyncio.get_running_loop()
             _task = loop.create_task(self.approve_async())
-            # Store the reference to prevent garbage-collection before completion.
-            _task.add_done_callback(lambda _t: None)
+            # Retrieve any exception so Python does not log "exception never retrieved".
+            _task.add_done_callback(lambda _t: _t.exception())
         except RuntimeError:
             asyncio.run(self.approve_async())

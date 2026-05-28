@@ -37,7 +37,9 @@ class ConfirmationDecoratorCommand:
     def execute(self, parameter: Any = None) -> None:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop."""
         try:
-            asyncio.get_running_loop().create_task(self.execute_async(parameter))
+            task = asyncio.get_running_loop().create_task(self.execute_async(parameter))
+            # Retrieve any exception so Python does not log "exception never retrieved".
+            task.add_done_callback(lambda t: t.exception())
         except RuntimeError:
             asyncio.run(self.execute_async(parameter))
 
