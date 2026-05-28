@@ -76,7 +76,7 @@ ______________________________________________________________________
 ## Stage 2 progress tracker
 
 - [x] **Substage 2A** — Spec foundation (ADR + chapter + IDs + stubs)
-- [ ] **Substage 2B** — Cross-chapter integration (06, 13, 14) + diagrams
+- [x] **Substage 2B** — Cross-chapter integration (06, 13, 14) + diagrams
 - [ ] **Substage 2C** — Per-flavor implementation (C# / Python / TypeScript)
 - [ ] **Substage 2D** — Cleanup (delete superseded proposal)
 - [ ] **Substage 2E** — Stage 2 audit close (2 consecutive zero-finding passes)
@@ -388,15 +388,15 @@ ______________________________________________________________________
 
 - Modify: `spec/06-composite-vm.md`
 
-- [ ] **Step 1: Find the section that introduces `CompositeVM<M, VM>` recursion patterns (or, if no such section exists, the chapter summary at §1).**
+- [x] **Step 1: Find the section that introduces `CompositeVM<M, VM>` recursion patterns (or, if no such section exists, the chapter summary at §1).**
 
-- [ ] **Step 2: Add a paragraph at the bottom of §1 (or end of chapter):**
+- [x] **Step 2: Add a paragraph at the bottom of §1 (or end of chapter):**
 
 ```markdown
 For domains that are natively recursive (trees), use `HierarchicalVM<TModel, TVM>` (chapter 18) instead of recursively nesting `CompositeVM<M, VM>`. `HierarchicalVM` provides built-in parent / depth / path semantics plus depth-first construction order.
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/06-composite-vm.md
@@ -409,13 +409,13 @@ git commit -m "spec(ch): cross-reference HierarchicalVM from chapter 06"
 
 - Modify: `spec/13-tree-utilities.md`
 
-- [ ] **Step 1: Read the current chapter to find where `walk` / `walk_expanded` are introduced.**
+- [x] **Step 1: Read the current chapter to find where `walk` / `walk_expanded` are introduced.**
 
 ```bash
 grep -n '^## ' spec/13-tree-utilities.md
 ```
 
-- [ ] **Step 2: Add a subsection (or paragraph at the end of the relevant existing section):**
+- [x] **Step 2: Add a subsection (or paragraph at the end of the relevant existing section):**
 
 ```markdown
 ## N. Integration with `HierarchicalVM`
@@ -428,7 +428,7 @@ When applied to a `HierarchicalVM<TModel, TVM>` instance:
 See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
 ```
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add spec/13-tree-utilities.md
@@ -445,7 +445,7 @@ git commit -m "spec(ch): document walk/walk_expanded over HierarchicalVM (chapte
 
 - Modify: `spec/18-hierarchical-vm.md` (link to the diagrams)
 
-- [ ] **Step 1: Confirm whether `spec/diagrams/` exists.**
+- [x] **Step 1: Confirm whether `spec/diagrams/` exists.**
 
 ```bash
 ls spec/diagrams/ 2>&1
@@ -459,7 +459,7 @@ grep -rn 'mermaid\|\.svg' spec/ 2>/dev/null | head
 
 If no convention exists yet, prefer inline mermaid in the chapter file (simpler; no new directory).
 
-- [ ] **Step 2: Author the tree-structure diagram (inline mermaid in chapter 18 §2).**
+- [x] **Step 2: Author the tree-structure diagram (inline mermaid in chapter 18 §2).**
 
 ```mermaid
 graph TD
@@ -476,7 +476,7 @@ graph TD
     B --> BA
 ```
 
-- [ ] **Step 3: Author the construct-order sequence diagram (inline mermaid in chapter 18 §3).**
+- [x] **Step 3: Author the construct-order sequence diagram (inline mermaid in chapter 18 §3).**
 
 ```mermaid
 sequenceDiagram
@@ -490,20 +490,20 @@ sequenceDiagram
     Note over Root: All children Constructed → Root transitions to Constructed
 ```
 
-- [ ] **Step 4: Verify markdown renders by running pre-commit (mdformat handles fenced code blocks).**
+- [x] **Step 4: Verify markdown renders by running pre-commit (mdformat handles fenced code blocks).**
 
 ```bash
 pre-commit run --files spec/18-hierarchical-vm.md
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add spec/18-hierarchical-vm.md
 git commit -m "spec(ch): add HierarchicalVM tree + construct-order mermaid diagrams"
 ```
 
-- [ ] **Step 6: Tick Substage 2B checkboxes in this plan; commit `docs(plan): tick Substage 2B`.**
+- [x] **Step 6: Tick Substage 2B checkboxes in this plan; commit `docs(plan): tick Substage 2B`.**
 
 ______________________________________________________________________
 
