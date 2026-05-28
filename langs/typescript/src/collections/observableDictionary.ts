@@ -69,7 +69,7 @@ export interface DictionaryItemReplacedEvent<TKey1, TKey2, TValue> {
  * characters (including NUL).
  *
  * Examples:
- *   serializeKey("a\x00", "b")   → "3:a\x00b"
+ *   serializeKey("a\x00", "b")   → "2:a\x00b"
  *   serializeKey("a",     "\x00b") → "1:a\x00b"   ← different prefix!
  */
 function serializeKey(key1: unknown, key2: unknown): string {

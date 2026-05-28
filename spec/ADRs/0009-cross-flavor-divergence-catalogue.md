@@ -152,7 +152,7 @@ ADR-0006 and require no further action:
   `TryGetValue` is the safe-read path.
 - **Python**: `get(key1, key2)` throws `KeyError` on miss; `__getitem__` also throws.
 - **TypeScript**: `get(key1, key2): TValue | undefined` returns `undefined` on miss
-  (does NOT throw); a `tryGet` helper with a `found` discriminator is provided for
+  (does NOT throw); a `tryGetValue` helper with a `found` discriminator is provided for
   typed safe-read.
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
