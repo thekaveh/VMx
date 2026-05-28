@@ -185,6 +185,35 @@ public class CompositeVMTests
         evt!.Action.Should().Be(NotifyCollectionChangedAction.Reset);
     }
 
+    [Fact]
+    public void Clear_When_Child_Is_Current_Clears_IsCurrent_And_Fires_Hub_Message()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var child = BuildChild(hub, dispatcher);
+        composite.Add(child);
+        composite.Construct();
+        composite.Current = child;
+
+        var propChangedNames = new List<string>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IPropertyChangedMessage<IComponentVM> pcm)
+                propChangedNames.Add(pcm.PropertyName);
+        });
+        var raisedProps = new List<string>();
+        ((System.ComponentModel.INotifyPropertyChanged)composite).PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is not null) raisedProps.Add(e.PropertyName);
+        };
+
+        composite.Clear();
+
+        child.IsCurrent.Should().BeFalse("Clear must deselect the previously-current child");
+        composite.Current.Should().BeNull();
+        raisedProps.Should().Contain("Current", "PropertyChanged(\"Current\") must fire");
+        propChangedNames.Should().Contain("Current", "hub must publish PropertyChangedMessage for \"Current\"");
+    }
+
     // ── Current / Selection ──────────────────────────────────────────────────
 
     [Fact]

@@ -188,7 +188,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         foreach (var child in _children)
             child.SetParent(null);
         _children.Clear();
-        _current = null;
+        SetCurrent(null, async: false);
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Reset));
     }
@@ -317,15 +317,16 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     /// <summary>
     /// Dispose cascade (LIFE-013): recursively dispose each child depth-first, then self.
     /// </summary>
+#pragma warning disable CA1816 // base.Dispose() already calls GC.SuppressFinalize(this)
     public override void Dispose()
     {
         // Depth-first: dispose each child before self.
         foreach (var child in _children)
             child.Dispose();
 
-        base.Dispose();
-        GC.SuppressFinalize(this);
+        base.Dispose(); // calls GC.SuppressFinalize(this)
     }
+#pragma warning restore CA1816
 
     // ── IComponentVM.Type ─────────────────────────────────────────────────────
 
