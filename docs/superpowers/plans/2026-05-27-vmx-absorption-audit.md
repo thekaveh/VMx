@@ -260,14 +260,14 @@ If mdformat reformats: re-stage, re-commit (do NOT --amend).
 
 - Modify: `spec/14-capabilities.md` (add subsection 2.x)
 
-- [ ] **Step 1: Find the insertion point.**
+- [x] **Step 1: Find the insertion point.**
 
 ```bash
 grep -n '^## 2\.' spec/14-capabilities.md
 grep -n '^### 2\.' spec/14-capabilities.md
 ```
 
-- [ ] **Step 2: Insert a new subsection at an appropriate spot** (likely after the search-related capabilities subsection).
+- [x] **Step 2: Insert a new subsection at an appropriate spot** (likely after the search-related capabilities subsection).
 
 ```markdown
 ### 2.X Filter capability
@@ -288,7 +288,7 @@ predicate builder over this capability.
 See ADR-0022.
 ```
 
-- [ ] **Step 3: Update the chapter intro to say "21 capability interfaces" instead of 20.**
+- [x] **Step 3: Update the chapter intro to say "21 capability interfaces" instead of 20.**
 
 ```bash
 grep -n '20 capability' spec/14-capabilities.md
@@ -296,7 +296,7 @@ grep -n '20 capability' spec/14-capabilities.md
 
 Replace each occurrence with "21" (in §1 and any other counts).
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add spec/14-capabilities.md
