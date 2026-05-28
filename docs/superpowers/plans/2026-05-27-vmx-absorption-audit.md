@@ -380,7 +380,7 @@ git commit -m "test(conf): add CAP-021 stubs in all three flavors"
 
 - Modify: `langs/csharp/tests/conformance/CAP_021_Filterable_Tests.cs` (turn stub into real test)
 
-- [ ] **Step 1: Write the failing real conformance test.**
+- [x] **Step 1: Write the failing real conformance test.**
 
 Replace the stub body with a real test that constructs a minimal opt-in implementer and verifies `Filter` getter/setter and `CanFilter()`.
 
@@ -408,7 +408,7 @@ private sealed class TestFilterable<T> : IFilterable<T>
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails.**
+- [x] **Step 2: Run the test to verify it fails.**
 
 ```bash
 cd langs/csharp && dotnet test --filter "Conformance=CAP-021"
@@ -416,7 +416,7 @@ cd langs/csharp && dotnet test --filter "Conformance=CAP-021"
 
 Expected: FAIL (interface IFilterable<T> does not exist).
 
-- [ ] **Step 3: Create the interface.**
+- [x] **Step 3: Create the interface.**
 
 `langs/csharp/src/VMx/Capabilities/Filter.cs`:
 
@@ -430,7 +430,7 @@ public interface IFilterable<T>
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes.**
+- [x] **Step 4: Run the test to verify it passes.**
 
 ```bash
 cd langs/csharp && dotnet test --filter "Conformance=CAP-021"
@@ -438,13 +438,13 @@ cd langs/csharp && dotnet test --filter "Conformance=CAP-021"
 
 Expected: PASS.
 
-- [ ] **Step 5: Verify lint.**
+- [x] **Step 5: Verify lint.**
 
 ```bash
 cd langs/csharp && dotnet format --verify-no-changes
 ```
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add langs/csharp/src/VMx/Capabilities/Filter.cs langs/csharp/tests/conformance/CAP_021_Filterable_Tests.cs
