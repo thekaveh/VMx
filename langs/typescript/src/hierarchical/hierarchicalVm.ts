@@ -271,9 +271,10 @@ export abstract class HierarchicalVM<
     const chain: TVM[] = [];
     let node: TVM | null = this as unknown as TVM;
     while (node !== null) {
-      chain.unshift(node);
+      chain.push(node);
       node = node.#hierarchicalParent;
     }
+    chain.reverse();
     return chain;
   }
 

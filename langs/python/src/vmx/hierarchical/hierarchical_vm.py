@@ -261,8 +261,9 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         chain: list[Any] = []
         node: Any = self
         while node is not None:
-            chain.insert(0, node)
+            chain.append(node)
             node = node._hierarchical_parent
+        chain.reverse()
         return chain
 
     def _set_hierarchical_parent(self, parent: TVM | None) -> None:
