@@ -76,6 +76,11 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   /** Map from serialised key to original key pair (for enumeration). */
   readonly #keyPairs = new Map<string, [TKey1, TKey2]>();
 
+  /** Reference counts for distinct key1 values (for O(1) key-axis upkeep). */
+  readonly #key1Counts = new Map<TKey1, number>();
+  /** Reference counts for distinct key2 values (for O(1) key-axis upkeep). */
+  readonly #key2Counts = new Map<TKey2, number>();
+
   /** Distinct-key observable views. */
   readonly #keys1 = new ObservableList<TKey1>();
   readonly #keys2 = new ObservableList<TKey2>();
@@ -191,16 +196,22 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#keyPairs.delete(token);
     this.#keyOrder.splice(this.#keyOrder.indexOf(token), 1);
 
-    // Update key-axis views: drop only when no other entry uses this key.
-    const key1StillPresent = [...this.#keyPairs.values()].some(
-      ([k1]) => k1 === key1,
-    );
-    if (!key1StillPresent) this.#keys1.remove(key1);
+    // Update key-axis views: decrement refcount; drop from list when count reaches 0.
+    const newKey1Count = (this.#key1Counts.get(key1) ?? 1) - 1;
+    if (newKey1Count <= 0) {
+      this.#key1Counts.delete(key1);
+      this.#keys1.remove(key1);
+    } else {
+      this.#key1Counts.set(key1, newKey1Count);
+    }
 
-    const key2StillPresent = [...this.#keyPairs.values()].some(
-      ([, k2]) => k2 === key2,
-    );
-    if (!key2StillPresent) this.#keys2.remove(key2);
+    const newKey2Count = (this.#key2Counts.get(key2) ?? 1) - 1;
+    if (newKey2Count <= 0) {
+      this.#key2Counts.delete(key2);
+      this.#keys2.remove(key2);
+    } else {
+      this.#key2Counts.set(key2, newKey2Count);
+    }
 
     // 1. Local granular event first.
     this.#itemRemoved.next({ key1, key2, value });
@@ -252,6 +263,8 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#data.clear();
     this.#keyPairs.clear();
     this.#keyOrder.length = 0;
+    this.#key1Counts.clear();
+    this.#key2Counts.clear();
     this.#keys1.clear();
     this.#keys2.clear();
     // 1. Local event first.
@@ -297,14 +310,14 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#data.set(token, value);
     this.#keyPairs.set(token, [key1, key2]);
 
-    // Update key-axis views on first appearance only.
-    const key1AlreadyPresent =
-      [...this.#keyPairs.values()].filter(([k1]) => k1 === key1).length > 1;
-    if (!key1AlreadyPresent) this.#keys1.push(key1);
+    // Update key-axis views and refcounts: push to list only on first appearance.
+    const key1Count = this.#key1Counts.get(key1) ?? 0;
+    this.#key1Counts.set(key1, key1Count + 1);
+    if (key1Count === 0) this.#keys1.push(key1);
 
-    const key2AlreadyPresent =
-      [...this.#keyPairs.values()].filter(([, k2]) => k2 === key2).length > 1;
-    if (!key2AlreadyPresent) this.#keys2.push(key2);
+    const key2Count = this.#key2Counts.get(key2) ?? 0;
+    this.#key2Counts.set(key2, key2Count + 1);
+    if (key2Count === 0) this.#keys2.push(key2);
 
     // 1. Local granular event first.
     this.#itemAdded.next({ key1, key2, value });
