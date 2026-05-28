@@ -156,7 +156,7 @@ time advancement.
 gantt
     title NotificationVM lifecycle (60 s default)
     dateFormat X
-    axisFormat %S s
+    axisFormat %Ss
     section Visible
     Full opacity (1.0)       :a1, 0, 1
     Linear decay 1.0 → 0.0  :a2, 1, 60
@@ -183,6 +183,27 @@ externally.
 
 `DismissCommand` (inherited) still resolves with `Approve` and cancels the
 timer if the consumer provides a dismiss affordance.
+
+### 7.1 Lifespan comparison
+
+Both VM types use a countdown timer, but differ in what happens at expiry:
+
+```mermaid
+gantt
+    title NotificationVM vs ConfirmationVM lifespan
+    dateFormat X
+    axisFormat %Ss
+    section NotificationVM (60 s default)
+    Opacity decay       :a1, 0, 60
+    Auto-dismiss        :milestone, 60, 1
+    section ConfirmationVM (300 s default)
+    Awaiting decision   :b1, 0, 300
+    Timer expires (no auto-resolve) :milestone, 300, 1
+```
+
+Key difference: `NotificationVM` auto-resolves (`Approve`) at timer expiry;
+`ConfirmationVM` does not — it stays pending until the user takes an explicit
+action (`ApproveCommand`, `RejectCommand`, or `DismissCommand`).
 
 ## 8. Patterns
 
