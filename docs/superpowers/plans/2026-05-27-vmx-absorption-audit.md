@@ -58,7 +58,7 @@ ______________________________________________________________________
 - [x] **Stage 3** — Forms & Dialogs (C4 `FormVM`, C2 `IDialogService`)
 - [x] **Stage 4** — Notification rendering VMs (C5, I6)
 - [x] **Stage 5** — Minors (M1, M2, M3, M4)
-- [ ] **Stage 6** — Release (version bumps, docs, compatibility matrix, final audit, merge to main)
+- [x] **Stage 6** — Release (version bumps, docs, compatibility matrix, final audit, merge to main)
 
 ______________________________________________________________________
 
