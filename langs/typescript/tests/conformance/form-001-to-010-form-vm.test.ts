@@ -211,9 +211,12 @@ describe("FORM-008", () => {
 
     expect(messages).toHaveLength(2);
 
-    const revertMsg = messages.find((m) => m instanceof FormRevertedMessage);
+    const revertMsg = messages.find(
+      (m): m is FormRevertedMessage => m instanceof FormRevertedMessage,
+    );
     expect(revertMsg).toBeDefined();
     expect(revertMsg?.sender).toBe(sut);
+    expect(revertMsg?.senderName).toBe("FormVM");
 
     const propMsg = messages.find((m) => m instanceof PropertyChangedMessage) as
       | PropertyChangedMessage<object>
