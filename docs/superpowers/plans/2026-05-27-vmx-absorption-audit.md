@@ -861,13 +861,13 @@ This substage executes 4 items × 3 flavors = 12 implementation tracks. Each tra
 
 - Modify: `spec/ADRs/README.md`
 
-- [ ] **Step 1:** Write the ADR. Key decisions:
+- [x] **Step 1:** Write the ADR. Key decisions:
 
   - Methods: `Confirm(prompt)`, `PrecedeWith(other)`, `SucceedWith(other)`, `WrapWith(predicate?, pre?, post?)`.
   - For `Confirm`: the *default* form uses the confirm-delegate shape from ADR-0012 (delegate-shaped, no notification-hub dependency). An *optional* overload takes a notification hub and constructs the delegate from it.
   - Per-flavor idiom: C# extension methods on `ICommand`; Python module-level functions in `vmx.commands.fluent`; TypeScript standalone exports.
 
-- [ ] **Step 2:** Register, commit.
+- [x] **Step 2:** Register, commit.
 
 #### Task 1D.2: Extend `spec/04-commands.md`
 
@@ -875,21 +875,21 @@ This substage executes 4 items × 3 flavors = 12 implementation tracks. Each tra
 
 - Modify: `spec/04-commands.md` — add a new §"Fluent composition" subsection.
 
-- [ ] **Step 1:** Add the subsection documenting the 4 methods and their equivalence to explicit constructor calls.
+- [x] **Step 1:** Add the subsection documenting the 4 methods and their equivalence to explicit constructor calls.
 
-- [ ] **Step 2:** Commit.
+- [x] **Step 2:** Commit.
 
 #### Task 1D.3: Add `CMD-NNN` conformance IDs (extend existing CMD- range)
 
 Find next available CMD- ID. Add 4 IDs: `CMD-NNN.Confirm`, `CMD-NNN.Precede`, `CMD-NNN.Succeed`, `CMD-NNN.Wrap` — each asserting "fluent form produces equivalent command graph to explicit constructor".
 
-- [ ] **Step 1:** Add to `spec/12-conformance.md`.
+- [x] **Step 1:** Add to `spec/12-conformance.md`.
 
-- [ ] **Step 2:** Commit.
+- [x] **Step 2:** Commit.
 
 #### Task 1D.4: Stubs in all 3 flavors
 
-- [ ] One grouped stub file per flavor with 4 stubs each.
+- [x] One grouped stub file per flavor with 4 stubs each.
 
 #### Task 1D.5: Implement in each flavor (TDD)
 
