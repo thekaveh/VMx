@@ -89,6 +89,39 @@ ADR-0006 and require no further action:
 - **TypeScript**: `push(item)` (matching `Array.prototype.push`).
 - **Rationale**: Pure idiomatic adaptation. JS code reads `list.push(x)` naturally; `list.add(x)` would jar against developer expectations.
 
+### `NotificationVM.NotifyExternalResolve()` visibility
+
+- **C# / Python**: `NotifyExternalResolve()` / `notify_external_resolve()` are
+  public methods.
+- **TypeScript**: `#notifyExternalResolve()` is a private ES class field.
+- **Rationale**: The method handles a hub-side Resolve event propagating into VM
+  state (NOTIF-015). C# and Python expose it so that hosts and test harnesses
+  can drive external resolution directly; TypeScript keeps it private and routes
+  all external resolution exclusively through the hub subscription. Both shapes
+  satisfy NOTIF-015; the spec (chapter 16 + ADR-0031) does not mandate a
+  particular visibility.
+
+### `ObservableList.pop()` (TypeScript only)
+
+- **TypeScript**: adds `pop(): T | undefined` (mirrors `Array.prototype.pop`),
+  emitting an `ItemRemoved` event.
+- **C# / Python**: no equivalent; consumers use `RemoveAt(Count - 1)` /
+  `del list[-1]` instead.
+- **Rationale**: JavaScript code reads `list.pop()` idiomatically. The additive
+  method is fully consistent with the spec's `ItemRemoved` event semantics and
+  does not alter observable behavior for callers that do not use it. Not
+  normative per spec §21 §3.2 (mutation table does not enumerate `pop`).
+
+### `ServicedObservableCollection.splice()` and `setAt()` (TypeScript only)
+
+- **TypeScript**: adds `splice(start, deleteCount?, ...items)` (mirrors
+  `Array.prototype.splice`) and `setAt(index, item)` (mirrors bracket-assign).
+- **C# / Python**: no equivalents; consumers use `RemoveAt`/`Insert`/the
+  indexer.
+- **Rationale**: JS idiomatic helpers. Event emission follows spec semantics:
+  single-item operations emit `Added`/`Removed`/`Replaced`; multi-item splice
+  emits `Reset`. Not normative; the spec does not enumerate these methods.
+
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
 
