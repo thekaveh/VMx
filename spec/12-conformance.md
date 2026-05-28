@@ -7,33 +7,33 @@ verifies this via `tools/check-conformance-coverage.py`.
 
 ## 1. Identifier prefixes
 
-| Prefix          | Area                                              | File                                          |
-| --------------- | ------------------------------------------------- | --------------------------------------------- |
-| `LIFE-NNN`      | Lifecycle state machine                           | `02-lifecycle.md`                             |
-| `HUB-NNN`       | Message hub                                       | `03-messages.md`                              |
-| `PROP-NNN`      | Property change notifications                     | `03-messages.md`                              |
-| `CMD-NNN`       | Commands                                          | `04-commands.md`                              |
-| `CVM-NNN`       | ComponentVM (incl. modeled, readonly)             | `05-component-vm.md`                          |
-| `COMP-NNN`      | CompositeVM                                       | `06-composite-vm.md`                          |
-| `GRP-NNN`       | GroupVM                                           | `07-group-vm.md`                              |
-| `AGG-NNN`       | AggregateVM                                       | `08-aggregate-vm.md`                          |
-| `FWD-NNN`       | Forwarding decorators                             | `09-forwarding.md`                            |
-| `BLD-NNN`       | Builders                                          | `10-builders.md`                              |
-| `THR-NNN`       | Threading & schedulers                            | `11-threading.md`                             |
-| `UTIL-NNN`      | Tree utilities (spec v1.1)                        | `13-tree-utilities.md`                        |
-| `CAP-NNN`       | Capability micro-interfaces                       | `14-capabilities.md`                          |
-| `NULL-NNN`      | Null-object service variants                      | `03-messages.md` + `11-threading.md`          |
-| `DPROP-NNN`     | Derived properties                                | `15-derived-properties.md`                    |
-| `CMDD-NNN`      | Command decorators (spec v2.0)                    | `04-commands.md`                              |
-| `NOTIF-NNN`     | Notification sub-package                          | `16-notifications.md`                         |
-| `EXP-NNN`       | Expand / collapse state                           | `05-component-vm.md` + `13-tree-utilities.md` |
-| `COMP-014..024` | CompositeVM v2.0 additions (search, modeled CRUD) | `06-composite-vm.md`                          |
-| `GRP-007..010`  | GroupVM v2.0 additions (search)                   | `07-group-vm.md`                              |
-| `LOC-NNN`       | Localization hooks                                | `17-localization.md`                          |
-| `COL-NNN`       | Collection primitives (spec v2.1)                 | `21-collections.md`                           |
-| `HIER-NNN`      | HierarchicalVM (recursive tree VM, spec v2.1)     | `18-hierarchical-vm.md`                       |
-| `DIA-NNN`       | IDialogService (host modal interactions, v2.1)    | `19-dialogs.md`                               |
-| `FORM-NNN`      | FormVM (snapshot/revert lifecycle, v2.1)          | `20-form-vm.md`                               |
+| Prefix          | Area                                                 | File                                          |
+| --------------- | ---------------------------------------------------- | --------------------------------------------- |
+| `LIFE-NNN`      | Lifecycle state machine                              | `02-lifecycle.md`                             |
+| `HUB-NNN`       | Message hub                                          | `03-messages.md`                              |
+| `PROP-NNN`      | Property change notifications                        | `03-messages.md`                              |
+| `CMD-NNN`       | Commands                                             | `04-commands.md`                              |
+| `CVM-NNN`       | ComponentVM (incl. modeled, readonly)                | `05-component-vm.md`                          |
+| `COMP-NNN`      | CompositeVM                                          | `06-composite-vm.md`                          |
+| `GRP-NNN`       | GroupVM                                              | `07-group-vm.md`                              |
+| `AGG-NNN`       | AggregateVM                                          | `08-aggregate-vm.md`                          |
+| `FWD-NNN`       | Forwarding decorators                                | `09-forwarding.md`                            |
+| `BLD-NNN`       | Builders                                             | `10-builders.md`                              |
+| `THR-NNN`       | Threading & schedulers                               | `11-threading.md`                             |
+| `UTIL-NNN`      | Tree utilities (spec v1.1)                           | `13-tree-utilities.md`                        |
+| `CAP-NNN`       | Capability micro-interfaces                          | `14-capabilities.md`                          |
+| `NULL-NNN`      | Null-object service variants                         | `03-messages.md` + `11-threading.md`          |
+| `DPROP-NNN`     | Derived properties                                   | `15-derived-properties.md`                    |
+| `CMDD-NNN`      | Command decorators (spec v2.0)                       | `04-commands.md`                              |
+| `NOTIF-NNN`     | Notification sub-package (hub v2.0; render VMs v2.1) | `16-notifications.md`                         |
+| `EXP-NNN`       | Expand / collapse state                              | `05-component-vm.md` + `13-tree-utilities.md` |
+| `COMP-014..024` | CompositeVM v2.0 additions (search, modeled CRUD)    | `06-composite-vm.md`                          |
+| `GRP-007..010`  | GroupVM v2.0 additions (search)                      | `07-group-vm.md`                              |
+| `LOC-NNN`       | Localization hooks                                   | `17-localization.md`                          |
+| `COL-NNN`       | Collection primitives (spec v2.1)                    | `21-collections.md`                           |
+| `HIER-NNN`      | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
+| `DIA-NNN`       | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
+| `FORM-NNN`      | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -1209,6 +1209,64 @@ is resolved Approve
 **Then** awaiting `confirm()` yields `true`
 **And** when the next pending notification is resolved Reject instead, awaiting
 yields `false`
+
+### NOTIF-011 — `NotificationVM` opacity decays linearly from 1.0 to 0.0 over `Lifespan` — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` constructed under a `TestScheduler`
+**When** `Opacity` is read at construction time
+**Then** `Opacity` is `1.0`
+**When** the scheduler is advanced by 5 s
+**Then** `Opacity` is approximately `0.5` (±0.01)
+**When** the scheduler is advanced to the full 10 s mark
+**Then** `Opacity` is approximately `0.0` (±0.01)
+
+### NOTIF-012 — `NotificationVM` auto-dismisses (resolves Approve) when `RemainingTime` reaches 0 — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = 5 s` under a `TestScheduler`
+**And** the notification has been posted to a `NotificationHub`
+**When** the scheduler is advanced by 5 s
+**Then** `IsResolved` is `true`
+**And** the hub notification is resolved with `NotificationReaction.Approve`
+
+### NOTIF-013 — `ConfirmationVM` exposes `ApproveCommand` and `RejectCommand`; each resolves with the corresponding `NotificationReaction` — spec v2.1
+
+**Given** a `ConfirmationVM` wrapping a posted notification
+**When** `ApproveCommand.Execute()` is called
+**Then** the hub notification is resolved with `NotificationReaction.Approve`
+**And** `IsResolved` is `true`
+
+**Given** a second `ConfirmationVM` wrapping a different posted notification
+**When** `RejectCommand.Execute()` is called
+**Then** the hub notification is resolved with `NotificationReaction.Reject`
+**And** `IsResolved` is `true`
+
+### NOTIF-014 — Manual `DismissCommand` cancels the lifespan timer; subsequent timer ticks have no effect — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` under a `TestScheduler`
+**And** the notification has been posted to a `NotificationHub`
+**When** `DismissCommand.Execute()` is called at time 0
+**And** the scheduler is advanced past the full 10 s lifespan
+**Then** the hub notification is resolved exactly once (not twice)
+**And** `IsResolved` is `true`
+
+### NOTIF-015 — Hub-side `Resolve()` on the notification propagates to VM `IsResolved` state — spec v2.1
+
+**Given** a `NotificationVM` wrapping a posted notification
+**And** `IsResolved` is initially `false`
+**When** `hub.Resolve(notification, NotificationReaction.Approve)` is called externally
+(not through the VM's own commands)
+**Then** `IsResolved` becomes `true`
+**And** the lifespan timer is cancelled (no further auto-dismiss effects)
+
+### NOTIF-016 — Deterministic behavior under injected `TestScheduler` / fake clock — spec v2.1
+
+**Given** a `NotificationVM` with `Lifespan = L` under a `TestScheduler` starting at
+virtual time 0
+**When** the scheduler is advanced to exactly `L`
+**Then** `RemainingTime` is 0
+**And** `Opacity` is 0.0
+**And** auto-dismiss fires exactly once
+**And** no further effects occur when the scheduler advances beyond `L`
 
 ______________________________________________________________________
 
