@@ -172,13 +172,17 @@ When a `BatchUpdate()` scope is active on the owning VM:
 - A single `Reset` is emitted when the batch completes.
 - In C#, the platform `CollectionChanged` event follows the same suppression
   rule.
+- When a batch completes, if `Count` changed during the batch, the
+  implementation MUST emit a `PropertyChanged("Count")` notification after
+  firing `Reset`. When the batch is empty or count-preserving (e.g., only
+  replace operations), no `Count` notification is emitted.
 
 Consumers who need per-item granularity inside a batch must collect mutations
 themselves.
 
 ### 3.6 Conformance
 
-`COL-005` through `COL-009` in `12-conformance.md`.
+`COL-005` through `COL-009` and `COL-023` in `12-conformance.md`.
 
 ## 4. `ObservableDictionary`
 
@@ -250,7 +254,23 @@ If a hub is provided at construction time (following the same pattern as
 `CollectionChangedMessage` to the hub after the local `CollectionChanged` event.
 Null-hub fallback applies.
 
-### 4.7 Conformance
+### 4.7 Hub message element shape
+
+The `CollectionChangedMessage` element type carries the full dictionary entry —
+both keys and the value — so subscribers can recover the full identity of the
+mutated entry without additional context. The concrete payload shape is
+flavor-idiomatic per ADR-0006:
+
+- **C#**: `KeyValuePair<(TKey1, TKey2), TValue>` — key tuple + value.
+- **Python**: `(key1, key2, value)` tuple.
+- **TypeScript**: `{ key1: TKey1; key2: TKey2; value: TValue }` object
+  (`DictionaryEntry<TKey1, TKey2, TValue>`).
+
+For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
+`OldItems` arrays (no entry data is needed because the entire collection is
+cleared). This divergence between flavors is catalogued in ADR-0009.
+
+### 4.9 Conformance
 
 `COL-010` through `COL-015` and `COL-022` in `12-conformance.md`.
 
@@ -354,5 +374,5 @@ regardless of what filtering or paging is applied on top.
 
 ## 7. Conformance
 
-`COL-001` through `COL-022` in `12-conformance.md`. Applicable ADRs:
+`COL-001` through `COL-023` in `12-conformance.md`. Applicable ADRs:
 ADR-0024 (§2), ADR-0026 (§3), ADR-0025 (§4), ADR-0023 (§5).
