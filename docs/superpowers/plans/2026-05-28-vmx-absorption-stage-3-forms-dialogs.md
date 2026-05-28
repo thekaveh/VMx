@@ -103,7 +103,7 @@ ______________________________________________________________________
 ## Stage 3 progress tracker
 
 - [x] **Substage 3A** — Spec foundation (ADR-0029 + ADR-0030 + chapters 19+20 + conformance IDs + stubs)
-- [ ] **Substage 3B** — Per-flavor IDialogService + NullDialogService (3 flavors)
+- [x] **Substage 3B** — Per-flavor IDialogService + NullDialogService (3 flavors)
 - [ ] **Substage 3C** — Per-flavor FormVM (3 flavors)
 - [ ] **Substage 3D** — Cross-chapter integration (16-notifications crossref + Confirm overload + integration test)
 - [ ] **Substage 3E** — Stage 3 audit close (2 consecutive zero-finding passes)
@@ -417,7 +417,7 @@ This substage implements `IDialogService` + `NullDialogService` in all three fla
 
 - Create: `langs/csharp/tests/VMx.Tests/Dialogs/NullDialogServiceTests.cs`
 
-- [ ] **Step 1: Replace DIA-001 stub with real failing test.**
+- [x] **Step 1: Replace DIA-001 stub with real failing test.**
 
 ```csharp
 [Fact]
@@ -430,9 +430,9 @@ public async Task DIA_001_PickFileToOpen_Contract()
 }
 ```
 
-- [ ] **Step 2: Run test, verify FAIL** (IDialogService / NullDialogService don't exist).
+- [x] **Step 2: Run test, verify FAIL** (IDialogService / NullDialogService don't exist).
 
-- [ ] **Step 3: Create the contract.**
+- [x] **Step 3: Create the contract.**
 
 `langs/csharp/src/VMx/Dialogs/NotificationSeverity.cs`:
 
@@ -490,9 +490,9 @@ public sealed class NullDialogService : IDialogService
 }
 ```
 
-- [ ] **Step 4: Run test, verify PASS.**
+- [x] **Step 4: Run test, verify PASS.**
 
-- [ ] **Step 5: Implement DIA-002..DIA-008** one by one. Each conformance test:
+- [x] **Step 5: Implement DIA-002..DIA-008** one by one. Each conformance test:
 
 - DIA-002: `PickFileToSave` returns null in null impl.
 
@@ -508,15 +508,15 @@ public sealed class NullDialogService : IDialogService
 
 - DIA-008: `ConfirmationDecoratorCommand(() => dialogService.Confirm("ok?"), innerCmd)` constructs a valid command graph; CanExecute and Execute behave as documented.
 
-- [ ] **Step 6: Add unit tests** in `NullDialogServiceTests.cs` for: default Severity, null filter/title, multiple successive calls.
+- [x] **Step 6: Add unit tests** in `NullDialogServiceTests.cs` for: default Severity, null filter/title, multiple successive calls.
 
-- [ ] **Step 7: Run tooling.**
+- [x] **Step 7: Run tooling.**
 
 ```bash
 cd langs/csharp && dotnet build && dotnet test --filter "Conformance~DIA-" && dotnet format --verify-no-changes
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/csharp/src/VMx/Dialogs/ langs/csharp/tests/VMx.Conformance.Tests/DIA_001_to_008_DialogService_Tests.cs langs/csharp/tests/VMx.Tests/Dialogs/NullDialogServiceTests.cs
@@ -538,7 +538,7 @@ git log -1 --format='%B' | grep -i 'co-authored-by' && echo "BUG" || echo "clean
 
 - Create: `langs/python/tests/unit/dialogs/test_null_dialog_service.py`
 
-- [ ] **Step 1: Replace DIA-001 stub with real failing test.**
+- [x] **Step 1: Replace DIA-001 stub with real failing test.**
 
 ```python
 import pytest
@@ -556,9 +556,9 @@ async def test_dia_001_pick_file_to_open_contract() -> None:
 
 If the project doesn't use `pytest-asyncio`, use `asyncio.run` instead.
 
-- [ ] **Step 2: Run test, verify FAIL.**
+- [x] **Step 2: Run test, verify FAIL.**
 
-- [ ] **Step 3: Create the contract and null impl.**
+- [x] **Step 3: Create the contract and null impl.**
 
 `langs/python/src/vmx/dialogs/dialog_service.py`:
 
@@ -666,19 +666,19 @@ from vmx.dialogs.null_dialog_service import NullDialogService
 __all__ = ["DialogService", "FileFilter", "NotificationSeverity", "NullDialogService"]
 ```
 
-- [ ] **Step 4: Run test, verify PASS.**
+- [x] **Step 4: Run test, verify PASS.**
 
-- [ ] **Step 5: Implement DIA-002..008** analogous to C# (Step 5 above).
+- [x] **Step 5: Implement DIA-002..008** analogous to C# (Step 5 above).
 
-- [ ] **Step 6: Add unit tests** at `langs/python/tests/unit/dialogs/test_null_dialog_service.py`.
+- [x] **Step 6: Add unit tests** at `langs/python/tests/unit/dialogs/test_null_dialog_service.py`.
 
-- [ ] **Step 7: Run tooling.**
+- [x] **Step 7: Run tooling.**
 
 ```bash
 cd langs/python && uv run pytest tests/conformance/test_dia_001_to_008_dialog_service.py tests/unit/dialogs/ && uv run mypy --strict src/vmx && uv run ruff check && uv run ruff format --check
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/python/src/vmx/dialogs/ langs/python/tests/conformance/test_dia_001_to_008_*.py langs/python/tests/unit/dialogs/
@@ -701,7 +701,7 @@ git commit -m "feat(python,dia): implement DialogService + NullDialogService (DI
 
 - Create: `langs/typescript/tests/unit/dialogs/nullDialogService.test.ts`
 
-- [ ] **Step 1: Replace DIA-001 stub with real failing test.**
+- [x] **Step 1: Replace DIA-001 stub with real failing test.**
 
 ```typescript
 import { describe, expect, it } from "vitest";
@@ -716,9 +716,9 @@ describe("DIA-001", () => {
 });
 ```
 
-- [ ] **Step 2: Run test, verify FAIL.**
+- [x] **Step 2: Run test, verify FAIL.**
 
-- [ ] **Step 3: Create the contract and null impl.**
+- [x] **Step 3: Create the contract and null impl.**
 
 `langs/typescript/src/dialogs/dialogService.ts`:
 
@@ -776,26 +776,26 @@ export { NullDialogService } from "./nullDialogService.js";
 
 Re-export from `langs/typescript/src/index.ts`.
 
-- [ ] **Step 4: Run test, verify PASS.**
+- [x] **Step 4: Run test, verify PASS.**
 
-- [ ] **Step 5: Implement DIA-002..008** analogous to C# / Python.
+- [x] **Step 5: Implement DIA-002..008** analogous to C# / Python.
 
-- [ ] **Step 6: Unit tests** at `langs/typescript/tests/unit/dialogs/nullDialogService.test.ts`.
+- [x] **Step 6: Unit tests** at `langs/typescript/tests/unit/dialogs/nullDialogService.test.ts`.
 
-- [ ] **Step 7: Run tooling.**
+- [x] **Step 7: Run tooling.**
 
 ```bash
 cd langs/typescript && npm run typecheck && npm run lint && npm test -- dialogs
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add langs/typescript/src/dialogs/ langs/typescript/src/index.ts langs/typescript/tests/
 git commit -m "feat(typescript,dia): implement IDialogService + NullDialogService (DIA-001..008)"
 ```
 
-- [ ] **Step 9: Tick Substage 3B checkboxes; commit `docs(plan): tick Substage 3B`.**
+- [x] **Step 9: Tick Substage 3B checkboxes; commit `docs(plan): tick Substage 3B`.**
 
 ______________________________________________________________________
 
