@@ -76,7 +76,7 @@ ______________________________________________________________________
 
 - [x] **Substage 4A** — Spec extension (ADR-0031 + ch.16 extension + 6 NOTIF IDs + stubs in 3 flavors)
 - [x] **Substage 4B** — Per-flavor NotificationVM + ConfirmationVM (3 flavors)
-- [ ] **Substage 4C** — Service-as-VM recipe section + Stage 4 audit close
+- [x] **Substage 4C** — Service-as-VM recipe section + Stage 4 audit close
 
 ______________________________________________________________________
 
