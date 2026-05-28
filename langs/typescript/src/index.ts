@@ -32,6 +32,12 @@ export type {
 export { makeCollectionChangedEvent } from "./collections/collectionChangedEvent.js";
 export { BatchUpdateHandle, type IBatchable } from "./collections/batchUpdateHandle.js";
 export { ServicedObservableCollection } from "./collections/servicedObservableCollection.js";
+export {
+  ObservableList,
+  type ItemAddedEvent,
+  type ItemRemovedEvent,
+  type ItemReplacedEvent,
+} from "./collections/observableList.js";
 
 // Collection messages
 export type { CollectionMutationAction, ICollectionChangedMessage } from "./messages/collectionChanged.js";
