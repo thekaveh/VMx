@@ -55,7 +55,7 @@ export abstract class HierarchicalVM<
     const hub = opts.hub ?? new MessageHub();
     const dispatcher = opts.dispatcher ?? RxDispatcher.immediate();
     super({
-      name: opts.name ?? "HierarchicalVM",
+      name: opts.name ?? new.target.name,
       hint: opts.hint ?? "",
       hub,
       dispatcher,

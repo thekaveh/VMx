@@ -53,7 +53,7 @@ The following existing chapters were also extended in v2.1:
 
 - `VERSION` — current spec SemVer (`2.1.0-dev`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0027); see
+- `ADRs/` — Architecture Decision Records (0001-0028); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — deferred designs not yet promoted to chapters.
 
