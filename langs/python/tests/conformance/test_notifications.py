@@ -5,13 +5,18 @@ Per spec/16-notifications.md, ADR-0013, ADR-0031.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
+from reactivex.testing import TestScheduler
 
 from vmx.notifications import (
+    ConfirmationVM,
     Notification,
     NotificationHub,
     NotificationReaction,
     NotificationType,
+    NotificationVM,
     NullNotificationHub,
     make_confirm,
 )
@@ -195,9 +200,27 @@ async def test_NOTIF_010_make_confirm_helper() -> None:
 
 
 @pytest.mark.conformance("NOTIF-011")
-@pytest.mark.skip(reason="NOTIF-011: implement NotificationVM first (Substage 4B)")
-def test_NOTIF_011_notification_vm_opacity_decays_linearly() -> None:
-    raise NotImplementedError("NOTIF-011: implement NotificationVM first (Substage 4B).")
+async def test_NOTIF_011_notification_vm_opacity_decays_linearly() -> None:
+    """NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "hi")
+    hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+    assert abs(sut.opacity - 1.0) < 1e-9, "at t=0 opacity is 1.0"
+
+    scheduler.advance_by(5)  # 5 ticks = 5 seconds
+    assert abs(sut.opacity - 0.5) < 0.01, f"at t=5s opacity is 0.5, got {sut.opacity}"
+
+    scheduler.advance_by(5)  # total 10 seconds = lifespan
+    assert abs(sut.opacity) < 0.01, f"at t=10s opacity is 0.0, got {sut.opacity}"
+    sut.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +229,26 @@ def test_NOTIF_011_notification_vm_opacity_decays_linearly() -> None:
 
 
 @pytest.mark.conformance("NOTIF-012")
-@pytest.mark.skip(reason="NOTIF-012: implement NotificationVM first (Substage 4B)")
-def test_NOTIF_012_notification_vm_auto_dismisses_on_expiry() -> None:
-    raise NotImplementedError("NOTIF-012: implement NotificationVM first (Substage 4B).")
+async def test_NOTIF_012_notification_vm_auto_dismisses_on_expiry() -> None:
+    """NotificationVM auto-dismisses (resolves Approve) at Lifespan expiry."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "auto")
+    task = hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+    assert not sut.is_resolved, "not resolved at t=0"
+
+    scheduler.advance_by(10)  # advance to lifespan
+
+    assert sut.is_resolved, "auto-dismissed at lifespan expiry"
+    assert await task == NotificationReaction.APPROVE, "hub task resolved with Approve"
+    sut.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +257,29 @@ def test_NOTIF_012_notification_vm_auto_dismisses_on_expiry() -> None:
 
 
 @pytest.mark.conformance("NOTIF-013")
-@pytest.mark.skip(reason="NOTIF-013: implement ConfirmationVM first (Substage 4B)")
-def test_NOTIF_013_confirmation_vm_approve_and_reject_commands() -> None:
-    raise NotImplementedError("NOTIF-013: implement ConfirmationVM first (Substage 4B).")
+async def test_NOTIF_013_confirmation_vm_approve_and_reject_commands() -> None:
+    """ConfirmationVM exposes approve_command + reject_command resolving correctly."""
+    scheduler = TestScheduler()
+
+    # ApproveCommand resolves with APPROVE
+    hub_a = NotificationHub()
+    n_a = Notification(NotificationType.CONFIRMATION, "approve me")
+    task_a = hub_a.post(n_a)
+    sut_a = ConfirmationVM(notification=n_a, hub=hub_a, scheduler=scheduler)
+    sut_a.approve_command.execute()
+    assert sut_a.is_resolved
+    assert await task_a == NotificationReaction.APPROVE
+    sut_a.dispose()
+
+    # RejectCommand resolves with REJECT
+    hub_r = NotificationHub()
+    n_r = Notification(NotificationType.CONFIRMATION, "reject me")
+    task_r = hub_r.post(n_r)
+    sut_r = ConfirmationVM(notification=n_r, hub=hub_r, scheduler=scheduler)
+    sut_r.reject_command.execute()
+    assert sut_r.is_resolved
+    assert await task_r == NotificationReaction.REJECT
+    sut_r.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +288,32 @@ def test_NOTIF_013_confirmation_vm_approve_and_reject_commands() -> None:
 
 
 @pytest.mark.conformance("NOTIF-014")
-@pytest.mark.skip(reason="NOTIF-014: implement NotificationVM first (Substage 4B)")
-def test_NOTIF_014_manual_dismiss_cancels_timer() -> None:
-    raise NotImplementedError("NOTIF-014: implement NotificationVM first (Substage 4B).")
+async def test_NOTIF_014_manual_dismiss_cancels_timer() -> None:
+    """Manual dismiss_command cancels the timer; subsequent ticks no-op."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "dismiss me")
+    hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+    # Dismiss manually at t=0
+    sut.dismiss_command.execute()
+    assert sut.is_resolved, "resolved by manual dismiss"
+
+    # Advance past lifespan — timer must not double-resolve
+    scheduler.advance_by(20)  # well past lifespan
+
+    # Still resolved (idempotent), notification is out of pending
+    assert sut.is_resolved
+    pending_items: list[Notification] = []
+    hub.pending.subscribe(on_next=lambda lst: pending_items.extend(lst))
+    assert notification not in pending_items, "notification removed from pending on dismiss"
+    sut.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +322,30 @@ def test_NOTIF_014_manual_dismiss_cancels_timer() -> None:
 
 
 @pytest.mark.conformance("NOTIF-015")
-@pytest.mark.skip(reason="NOTIF-015: implement NotificationVM first (Substage 4B)")
-def test_NOTIF_015_hub_resolve_propagates_to_vm_is_resolved() -> None:
-    raise NotImplementedError("NOTIF-015: implement NotificationVM first (Substage 4B).")
+async def test_NOTIF_015_hub_resolve_propagates_to_vm_is_resolved() -> None:
+    """Hub-side resolve() propagates to VM is_resolved state."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "hub resolves")
+    hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=60),
+    )
+
+    assert not sut.is_resolved, "not resolved yet"
+
+    # External resolve via hub
+    hub.resolve(notification, NotificationReaction.APPROVE)
+
+    assert sut.is_resolved, "is_resolved propagated from hub resolve"
+
+    # Advance past lifespan — timer must not re-fire
+    scheduler.advance_by(60)
+    assert sut.is_resolved, "still resolved after timer advance"
+    sut.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +354,37 @@ def test_NOTIF_015_hub_resolve_propagates_to_vm_is_resolved() -> None:
 
 
 @pytest.mark.conformance("NOTIF-016")
-@pytest.mark.skip(reason="NOTIF-016: implement NotificationVM first (Substage 4B)")
-def test_NOTIF_016_deterministic_under_test_scheduler() -> None:
-    raise NotImplementedError("NOTIF-016: implement NotificationVM first (Substage 4B).")
+async def test_NOTIF_016_deterministic_under_test_scheduler() -> None:
+    """Deterministic behavior under injected TestScheduler / fake clock."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "tick")
+    hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+    # t=0: opacity 1.0, not resolved
+    assert abs(sut.opacity - 1.0) < 1e-9
+    assert not sut.is_resolved
+
+    # t=5s: opacity 0.5
+    scheduler.advance_by(5)
+    assert abs(sut.opacity - 0.5) < 0.01
+    assert not sut.is_resolved
+
+    # t=10s: auto-dismissed exactly at lifespan
+    scheduler.advance_by(5)
+    assert sut.is_resolved, "auto-dismissed exactly at lifespan"
+    assert abs(sut.opacity) < 0.01
+
+    # No double-resolve: advancing further does nothing
+    scheduler.advance_by(100)
+    assert sut.is_resolved
+    sut.dispose()
 
 
 # ---------------------------------------------------------------------------

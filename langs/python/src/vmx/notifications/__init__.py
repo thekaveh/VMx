@@ -8,10 +8,12 @@ but is NOT imported by ``import vmx``. Consumers must ``import vmx.notifications
 from __future__ import annotations
 
 from vmx.notifications.confirm_helper import make_confirm
+from vmx.notifications.confirmation_vm import ConfirmationVM
 from vmx.notifications.notification import Notification
 from vmx.notifications.notification_hub import INotificationHub, NotificationHub
 from vmx.notifications.notification_reaction import NotificationReaction
 from vmx.notifications.notification_type import NotificationType
+from vmx.notifications.notification_vm import NotificationVM
 from vmx.notifications.null_notification_hub import (
     NULL_NOTIFICATION_HUB,
     NullNotificationHub,
@@ -19,11 +21,13 @@ from vmx.notifications.null_notification_hub import (
 
 __all__ = [
     "NULL_NOTIFICATION_HUB",
+    "ConfirmationVM",
     "INotificationHub",
     "Notification",
     "NotificationHub",
     "NotificationReaction",
     "NotificationType",
+    "NotificationVM",
     "NullNotificationHub",
     "make_confirm",
 ]
