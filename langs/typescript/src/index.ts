@@ -38,6 +38,12 @@ export {
   type ItemRemovedEvent,
   type ItemReplacedEvent,
 } from "./collections/observableList.js";
+export {
+  ObservableDictionary,
+  type DictionaryItemAddedEvent,
+  type DictionaryItemRemovedEvent,
+  type DictionaryItemReplacedEvent,
+} from "./collections/observableDictionary.js";
 
 // Collection messages
 export type { CollectionMutationAction, ICollectionChangedMessage } from "./messages/collectionChanged.js";

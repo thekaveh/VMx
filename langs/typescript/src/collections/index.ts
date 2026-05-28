@@ -12,3 +12,9 @@ export {
   type ItemRemovedEvent,
   type ItemReplacedEvent,
 } from "./observableList.js";
+export {
+  ObservableDictionary,
+  type DictionaryItemAddedEvent,
+  type DictionaryItemRemovedEvent,
+  type DictionaryItemReplacedEvent,
+} from "./observableDictionary.js";
