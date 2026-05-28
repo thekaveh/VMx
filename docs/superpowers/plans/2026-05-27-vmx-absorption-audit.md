@@ -188,7 +188,7 @@ Smallest, lowest-risk. Establishes the pattern for the rest of the stage.
 
 - Modify: `spec/ADRs/README.md` (register the new ADR)
 
-- [ ] **Step 1: Write the ADR.**
+- [x] **Step 1: Write the ADR.**
 
 Create `spec/ADRs/0031-filterable-capability.md` with the standard 4-section template (Context, Options, Decision, Consequences). Content sketch:
 
@@ -234,18 +234,18 @@ two members: `Filter: Predicate<T>?` (null means no filter) and
   may refactor it to implement `IFilterable<T>` in a future minor version.
 ```
 
-- [ ] **Step 2: Register the ADR.**
+- [x] **Step 2: Register the ADR.**
 
 Edit `spec/ADRs/README.md` to add `0031-filterable-capability.md` to the registry.
 
-- [ ] **Step 3: Verify pre-commit passes locally.**
+- [x] **Step 3: Verify pre-commit passes locally.**
 
 ```bash
 git add spec/ADRs/0031-filterable-capability.md spec/ADRs/README.md
 git diff --cached --check
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git commit -m "spec(adr): add ADR-0031 IFilterable<T> capability"
