@@ -39,6 +39,9 @@ flavor releases a stable version.
 - `18-hierarchical-vm.md` — `HierarchicalVM<TModel, TVM>`: first-class recursive
   tree VM with lazy/eager children, depth-first construction, materialized path,
   and `TreeStructureChangedMessage`.
+- `19-dialogs.md` — `IDialogService`: host-side contract for modal interactions
+  (file pick, confirm prompt, severity-tagged notify). `NullDialogService`
+  per ADR-0017.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
 
