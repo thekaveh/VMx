@@ -53,6 +53,37 @@ Triggers do NOT carry data — only the fact that re-evaluation should happen. T
 typical pattern: derive a trigger from a property's change stream
 (`vm.Status.Where(s => s == Constructed).Select(_ => Unit.Default)`).
 
+### 4.1 Recipe: trigger from a hub property change
+
+A common pattern is firing `CanExecuteChanged` whenever a specific ViewModel
+property changes. Compose the hub's `Messages` stream (or the per-flavor
+`PropertyValueChangedMessagesFor` convenience helper) as the trigger:
+
+```
+# C# — filter the hub stream and project to Unit
+hub.Messages
+   .OfType<PropertyChangedMessage<TSource>>()
+   .Where(m => ReferenceEquals(m.Sender, this) && m.PropertyName == nameof(IsValid))
+   .Select(_ => Unit.Default)
+
+# Python — triggers accept Observable[object]; any emission suffices
+hub.messages.pipe(
+    ops.filter(lambda m: isinstance(m, PropertyChangedMessage)
+                         and m.sender is self
+                         and m.property_name == "is_valid")
+)
+
+# TypeScript — same idea
+hub.messages.pipe(
+    filter(m => m instanceof PropertyChangedMessage
+             && m.sender === this
+             && m.propertyName === "isValid"),
+)
+```
+
+No new helper is needed — the existing `triggers` parameter and the
+`Messages`/`messages` stream compose naturally.
+
 ## 5. RelayCommand
 
 `RelayCommand` is the concrete `ICommand` implementation, built via a fluent
