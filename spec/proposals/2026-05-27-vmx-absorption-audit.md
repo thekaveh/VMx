@@ -216,8 +216,7 @@ cohesive with the other collection primitives in that chapter). Extends
 page-count derivation, navigation no-op at bounds, composition with `SearchableState`,
 `PageSize = 0` semantics, empty-source behavior.
 
-**Per-flavor impact:** New file(s) in `composites/` or `collections/` (TBD —
-ADR will decide).
+**Per-flavor impact:** New file in `collections/` per Stage 1 Substage 1C.
 
 **Diagrams:** Diagram showing how `PagedComposition` slices a
 `CompositeVM<M, VM>` without mutating it; interaction with `SearchableState`.
@@ -668,7 +667,7 @@ This audit, if fully adopted, introduces:
   - `04-commands.md` — fluent extensions (I1), `RelayCommand` triggers example (M3)
   - `06-composite-vm.md` — cross-reference HierarchicalVM
   - `13-tree-utilities.md` — `walk` / `walk_expanded` extension to HierarchicalVM
-  - `14-capabilities.md` — adds `IPageable` (C3, capability 21) and `IFilterable<T>` (I5, capability 22)
+  - `14-capabilities.md` — adds `IFilterable<T>` (I5, capability 21) and `IPageable` (C3, capability 22)
   - `15-derived-properties.md` — init-token recipe (M2)
   - `16-notifications.md` — NotificationVM / ConfirmationVM (C5), service-as-VM recipe (I6)
 - **13 new ADRs** (0022-0034) per the per-candidate listings above. Recipe-only items (I6, M2, M3) may not need an ADR; the final count depends on those decisions.

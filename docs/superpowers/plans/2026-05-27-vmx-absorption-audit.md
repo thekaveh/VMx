@@ -52,7 +52,7 @@ ______________________________________________________________________
 
 ## Stage progress tracker
 
-- [ ] **Stage 0** — Pre-work and decisions
+- [x] **Stage 0** — Pre-work and decisions
 - [ ] **Stage 1** — Foundations: capabilities (I5 `IFilterable`, IPageable), collections chapter (I2, I3, I4), paging (C3), fluent command extensions (I1)
 - [ ] **Stage 2** — `HierarchicalVM` (C1)
 - [ ] **Stage 3** — Forms & Dialogs (C4 `FormVM`, C2 `IDialogService`)
@@ -168,11 +168,11 @@ ______________________________________________________________________
 - **I4** — `ObservableList<T>` (granular collection notifications)
 - **I1** — Fluent command extensions
 
-**New chapter introduced:** `21-collections.md` (assuming Stage 0 renumbering)
+**New chapter introduced:** `21-collections.md` (per Stage 0 decision)
 
 **New ADRs introduced:** 0024 (paging), 0027 (fluent commands), 0028 (hub-aware collection), 0029 (multi-key dict), 0030 (granular list), 0031 (IFilterable)
 
-**New conformance ID prefixes:** `COL-` (collections — I2 + I3 + I4 + paging C3); `CAP-` extensions for `CAP-021` (IPageable) and `CAP-022` (IFilterable); `CMD-` extensions for fluent commands.
+**New conformance ID prefixes:** `COL-` (collections — I2 + I3 + I4 + paging C3); `CAP-` extensions for `CAP-021` (IFilterable) and `CAP-022` (IPageable); `CMD-` extensions for fluent commands.
 
 **Estimated stage size:** ~60 bite-sized tasks across 6 substages.
 
