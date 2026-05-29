@@ -59,11 +59,11 @@ FormVM(
 
 The default snapshot is a **per-flavor idiomatic shallow copy**:
 
-| Flavor     | Default mechanism                       |
-| ---------- | --------------------------------------- |
-| C#         | `with` expression (record types)        |
-| Python     | `dataclasses.replace` semantics         |
-| TypeScript | `structuredClone` (plain object models) |
+| Flavor     | Default mechanism                                                       |
+| ---------- | ----------------------------------------------------------------------- |
+| C#         | reflective `MemberwiseClone` (equivalent to `with {}` for record types) |
+| Python     | `copy.copy` (`__copy__` if defined, else shallow attribute copy)        |
+| TypeScript | `structuredClone` (plain object models)                                 |
 
 Consumers whose model type requires a different strategy supply a custom
 `snapshotter: Func<TM, TM>` at construction time. The snapshotter is also applied
