@@ -28,14 +28,14 @@ in multiple language flavors with semantically equivalent behavior.
   `TreeStructureChangedMessage`; `IDialogService` — host-side modal
   interactions distinct from `INotificationHub`; `FormVM<TM>` — snapshot/revert
   edit lifecycle with approve/deny commands and `FormRevertedMessage`;
-  `NotificationVM` + `ConfirmationVM` — render-side VMs with auto-dismiss
-  lifecycle; collection primitives `ServicedObservableCollection<T>`,
-  `ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, and
-  `PagedComposition<TVM>`. Extensions to existing chapters: two new capability
-  micro-interfaces `IFilterable<T>` (chapter 14 §2.6, ADR-0022) and
-  `IPageable` (chapter 14 §2.10, ADR-0023) joining at positions 21 and 22;
-  fluent command extensions `Confirm`, `PrecedeWith`, `SucceedWith`,
-  `WrapWith` (chapter 04 §9, ADR-0027).
+  collection primitives `ServicedObservableCollection<T>`, `ObservableList<T>`,
+  `ObservableDictionary<K1,K2,V>`, and `PagedComposition<TVM>`. Extensions to
+  existing chapters: two new capability micro-interfaces `IFilterable<T>`
+  (chapter 14 §2.6, ADR-0022) and `IPageable` (chapter 14 §2.10, ADR-0023)
+  joining at positions 21 and 22; fluent command extensions `Confirm`,
+  `PrecedeWith`, `SucceedWith`, `WrapWith` (chapter 04 §9, ADR-0027);
+  `NotificationVM` + `ConfirmationVM` render-side VMs with auto-dismiss
+  lifecycle (chapter 16 §6–§7, ADR-0031).
 
 ## 2. Out of scope
 
