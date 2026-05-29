@@ -41,7 +41,17 @@
     "reactive",
     "rxjs"
   ],
+  "author": "Kaveh Razavi",
   "license": "MIT",
+  "homepage": "https://github.com/thekaveh/VMx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thekaveh/VMx.git",
+    "directory": "langs/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/thekaveh/VMx/issues"
+  },
   "engines": {
     "node": ">=18"
   },
