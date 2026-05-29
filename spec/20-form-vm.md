@@ -43,15 +43,16 @@ FormVM<TM>:
 `ApproveCommand` invokes `ApproveAsync` internally; consumers may either bind the
 command or call the awaitable directly when finer control is needed.
 
-Constructor parameters (per-flavor idiomatic):
+Constructor parameters (per-flavor idiomatic; order matches shipped C# / Python
+constructors — also catalogued in ADR-0009 §"FormVM<TM> constructor shape"):
 
 ```
 FormVM(
     initial     : TM,
     persister   : Func<TM, Task>,   # or IFormPersister<TM>
+    hub?        : IMessageHub,      # optional hub; default is the null hub
     strict?     : bool = false,
-    snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in)
-    hub?        : IMessageHub       # optional hub; default is the null hub
+    snapshotter?: Func<TM, TM>      # custom snapshot function (opt-in)
 )
 ```
 
