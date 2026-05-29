@@ -176,7 +176,7 @@ cmd.Confirm(confirm)
 
 `confirm` is a delegate of shape `() -> Task<bool>` (async-Boolean per flavor).
 An optional second overload accepts an `INotificationHub` and constructs the
-delegate via the bridge helper in the `vmx-notifications` sub-package; that
+delegate via the bridge helper in the notifications sub-package; that
 overload is defined in the sub-package, not in the core commands module.
 The overload is C#-only; Python and TypeScript use the explicit two-step
 composition `command.confirm(make_confirm(hub, prompt))` /
