@@ -30,10 +30,12 @@ in multiple language flavors with semantically equivalent behavior.
   edit lifecycle with approve/deny commands and `FormRevertedMessage`;
   collection primitives `ServicedObservableCollection<T>`, `ObservableList<T>`,
   `ObservableDictionary<K1,K2,V>`, and `PagedComposition<TVM>`. Extensions to
-  existing chapters: two new capability micro-interfaces `IFilterable<T>`
-  (chapter 14 §2.6, ADR-0022) and `IPageable` (chapter 14 §2.10, ADR-0023)
-  joining at positions 21 and 22; fluent command extensions `Confirm`,
-  `PrecedeWith`, `SucceedWith`, `WrapWith` (chapter 04 §9, ADR-0027);
+  existing chapters: `PropertyValueChangedMessagesFor` batch publisher
+  (chapter 03 §7, ADR-0032, informative); fluent command extensions `Confirm`,
+  `PrecedeWith`, `SucceedWith`, `WrapWith` (chapter 04 §9, ADR-0027); two new
+  capability micro-interfaces `IFilterable<T>` (chapter 14 §2.6, ADR-0022) and
+  `IPageable` (chapter 14 §2.10, ADR-0023) joining at positions 21 and 22; a
+  lazy-initialization recipe for derived properties (chapter 15 §8);
   `NotificationVM` + `ConfirmationVM` render-side VMs with auto-dismiss
   lifecycle (chapter 16 §6–§7, ADR-0031).
 
