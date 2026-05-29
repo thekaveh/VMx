@@ -20,10 +20,12 @@ in multiple language flavors with semantically equivalent behavior.
   lifecycle status changes.
 - Fluent immutable builders for every viewmodel and command type.
 - Capability micro-interfaces, helpers (`SearchableState`, `ExpandableState`,
-  `DerivedProperty`, `ModeledCrudCommands`, `IFilterable<T>`, `IPageable`),
-  null-object services, optional `INotificationHub` sub-package, and `ILocalizer`
-  hook (introduced in spec v2.0, detailed in chapters 14–17).
-- **v2.1 additions** (chapters 18–21): `HierarchicalVM<TModel, TVM>` — first-class
+  `DerivedProperty`, `ModeledCrudCommands`), null-object services, optional
+  `INotificationHub` sub-package, and `ILocalizer` hook (introduced in spec
+  v2.0, detailed in chapters 14–17).
+- **v2.1 additions** (chapters 18–21): two new capability micro-interfaces
+  (`IFilterable<T>` and `IPageable`, joining at positions 21 and 22 per
+  ADR-0022 / ADR-0023); `HierarchicalVM<TModel, TVM>` — first-class
   recursive tree VM with lazy/eager child loading and `TreeStructureChangedMessage`;
   `IDialogService` — host-side modal interactions distinct from `INotificationHub`;
   `FormVM<TM>` — snapshot/revert edit lifecycle with approve/deny commands and
