@@ -8,9 +8,12 @@ namespace WpfTodoApp;
 /// Top-level ViewModel for <see cref="MainWindow"/>.
 ///
 /// Holds an <see cref="ObservableCollection{T}"/> of <see cref="TodoItemVM"/> instances
-/// so WPF's ListBox can bind directly via ItemsSource. A <see cref="VMx.Composites.CompositeVM{VM}"/>
-/// manages the shared <see cref="IMessageHub"/> so every child VM participates in the
-/// same hub — demonstrating cross-VM message flow without extra wiring.
+/// so WPF's ListBox can bind directly via ItemsSource. Each child VM is constructed
+/// with the same <see cref="IMessageHub"/> instance owned by this VM, so all children
+/// publish into the same hub — demonstrating cross-VM message flow without extra
+/// wiring. (Cf. the Python <c>tk_todo_app</c> example, which uses
+/// <c>CompositeVM[TodoItemVM]</c> instead; here we lean on
+/// <see cref="ObservableCollection{T}"/> directly for WPF data-binding ergonomics.)
 /// </summary>
 public sealed class MainWindowViewModel
 {
