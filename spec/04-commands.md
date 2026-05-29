@@ -201,8 +201,13 @@ cmd.SucceedWith(other)
 
 ```
 cmd.WrapWith(predicate, pre, post)
-  ≡ new DecoratorCommand(cmd, predicate, pre, post)
+  ≡ new DecoratorCommand(cmd, pre, post, predicate)
 ```
+
+The shipped C# / Python `DecoratorCommand` constructor takes
+`(inner, preExecute, postExecute, extraPredicate)`; the fluent extension
+keeps the user-facing predicate-first ordering for ergonomic reasons and
+maps to the constructor's pre/post/predicate positions.
 
 All three arguments are optional/nullable. Passing all defaults is valid and
 yields a semantically transparent decorator (no extra gate, no pre/post hooks).
