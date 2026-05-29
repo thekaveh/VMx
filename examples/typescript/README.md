@@ -51,5 +51,7 @@ npx tsx hello-vmx/index.ts
 examples/typescript/
 ├── README.md          # this file
 └── hello-vmx/
-    └── index.ts       # entry point
+    ├── index.ts       # entry point
+    ├── package.json   # standalone npm workspace (file: dep on ../../../langs/typescript)
+    └── tsconfig.json  # ES2022 + bundler module resolution for `tsx index.ts`
 ```

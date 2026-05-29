@@ -60,7 +60,8 @@ The following existing chapters were also extended in v2.1:
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
 - `ADRs/` — Architecture Decision Records (0001-0033); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
-- `proposals/` — deferred designs not yet promoted to chapters.
+- `proposals/` — historical planning artifacts (accepted proposals that landed
+  in past releases); not part of the published spec.
 
 ## 2. Versioning
 

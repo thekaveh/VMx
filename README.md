@@ -238,7 +238,7 @@ Each language flavor versions independently in SemVer. The spec versions
 independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
 `__minSpecVersion__` in TypeScript). A spec major bump triggers a major bump
-in every active flavor; a spec minor bump (like v1.1.0) is fully backwards
+in every active flavor; a spec minor bump (like v2.1.0) is fully backwards
 compatible and ships in flavors as a minor bump.
 
 ### 6.2 Conformance catalog
