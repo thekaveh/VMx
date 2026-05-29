@@ -26,7 +26,7 @@ against `RelayCommand` and the composite's `Current` slot.
 
 ## 3. Decision
 
-Option 2. The cycle ships `ModeledCrudCommands<M, VM>` per flavor. It
+Option 2. Ship `ModeledCrudCommands<M, VM>` per flavor. It
 exposes the three commands and takes:
 
 - A `current` provider function.

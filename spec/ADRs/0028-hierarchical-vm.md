@@ -9,8 +9,8 @@ The 2012 VMx predecessor included a commented-out `HierarchicalViewModel<...>`
 research draft (`ToDo/HierarchicalViewModel*.cs`) — a first-class tree-structured
 VM whose nodes were themselves containers of the same type. A prior `hierarchical-vm`
 proposal (subsumed by `spec/proposals/2026-05-27-vmx-absorption-audit.md` and
-removed in this cycle) captured the draft but deferred six design questions to a
-later cycle.
+removed during the v2.1 absorption) captured the draft but deferred six
+design questions to v2.1.
 
 In v2.0, consumers achieve tree shape by manually recursing
 `CompositeVM<M, VM>`. The recursion works but lacks "this is a tree node" semantic,
@@ -70,6 +70,6 @@ Option 3, with the following six specific resolutions:
    `SearchableState`, `ModeledCrudCommands`.
 1. New `TreeStructureChangedMessage` type per flavor.
 1. Per-flavor implementations in `langs/<flavor>/<src>/hierarchical/`.
-1. The prior `hierarchical-vm` proposal was removed in this cycle (superseded
-   by chapter 18 and this ADR).
+1. The prior `hierarchical-vm` proposal was removed during the v2.1
+   absorption (superseded by chapter 18 and this ADR).
 1. Cross-flavor recursive-generic-constraint divergence is noted in ADR-0009.

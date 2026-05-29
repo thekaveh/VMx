@@ -27,7 +27,7 @@ localizer, those strings ship raw.
 
 ## 3. Decision
 
-Option 2. The cycle adds:
+Option 2. Add:
 
 - A minimal `ILocalizer` contract in the core package per flavor.
 - A `NullLocalizer` null-object variant (per ADR-0017) that returns input
