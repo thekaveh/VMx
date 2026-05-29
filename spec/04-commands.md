@@ -154,7 +154,7 @@ Wraps a single inner command, gating `Execute` on a user-confirmation delegate.
   `inner.Execute()`. If `false`, does nothing.
 
 Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
-depend on the notification service (cycle 5). Consumers may bridge it to
+depend on the notification service (chapter 16). Consumers may bridge it to
 `INotificationHub` via an optional helper in the notifications sub-package.
 
 ## 9. Fluent composition (spec v2.1)
