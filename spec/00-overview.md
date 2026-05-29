@@ -81,8 +81,9 @@ language and lives under `docs/`.
 ## 6. C#-only extensions
 
 The C# flavor ships one utility that has no counterpart in Python or TypeScript:
-`LinqHelpers` — a set of LINQ extension methods over `IObservableList<T>` and
-`ObservableDictionary` (e.g., `WhereObservable`, `SelectObservable`). These are
-idiomatic to C# and the `System.Reactive`/LINQ ecosystem; the other flavors
-cover the same use-cases through native comprehensions and `reactivex`/`rxjs`
-operators. This asymmetry is intentional and documented in ADR-0033.
+`LinqHelpers` (in `VMx.Extensions`) — a small set of LINQ utility methods over
+`IEnumerable<T>`: `CartesianProduct`, `Sample`, and `Product`. The other
+flavors cover the same use-cases through language built-ins
+(`itertools.product` / slice-with-step / `math.prod` in Python; `flatMap` /
+`filter` + modulo / `reduce` in TypeScript). This asymmetry is intentional
+and documented in ADR-0033.
