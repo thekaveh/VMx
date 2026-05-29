@@ -123,7 +123,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `ObservableDictionary[K1, K2, V]` | Multi-key observable dictionary (spec v2.1)     |
 | `PagedComposition[TVM]`         | Pageable iterable decorator (spec v2.1)           |
 | Fluent command helpers          | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
-| `property_value_changed_messages_for` | Batch helper for `PropertyValueChangedMessage` (spec v2.1) |
+| `property_value_changed_messages_for` | Hub helper yielding an observable of property-value snapshots (spec v2.1) |
 
 The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 

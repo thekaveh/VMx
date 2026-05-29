@@ -41,8 +41,9 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   `succeed_with`, `wrap_with` extension helpers over commands. (ADR-0027;
   CMD-008..011)
 - **`property_value_changed_messages_for`** helper (`vmx.messages`) —
-  convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
-  informative)
+  function that filters `PropertyChangedMessage` events for a given
+  sender + property name and returns an observable stream of the
+  property's value snapshots. (ADR-0032; informative)
 - **Conformance**: 67 new IDs (total 219).
 
 ### Fixed

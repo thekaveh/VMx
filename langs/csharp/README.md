@@ -98,7 +98,7 @@ The public API lives under the `VMx.*` namespaces:
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
 | Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` (spec v2.1) |
-| `PropertyValueChangedMessagesFor` | Batch helper for `PropertyValueChangedMessage` (spec v2.1) |
+| `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
 
 The companion package `VMx.Extensions.DependencyInjection` adds:
 

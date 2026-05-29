@@ -105,7 +105,7 @@ Key exports:
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
-| `propertyValueChangedMessagesFor` | Batch helper for `PropertyValueChangedMessage` (spec v2.1) |
+| `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
 
 The opt-in `vmx/notifications` sub-path export (spec v2.0+) adds:
 

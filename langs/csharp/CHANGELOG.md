@@ -40,7 +40,9 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
 - **Fluent command extensions** (`VMx.Commands`) — `Confirm(…)`, `PrecedeWith`,
   `SucceedWith`, `WrapWith` over `ICommand`. (ADR-0027; CMD-008..011)
 - **`PropertyValueChangedMessagesFor`** helper (`VMx.Messages`) —
-  convenience wrapper for publishing `PropertyValueChangedMessage` sequences.
+  extension method on `IMessageHub` that filters `PropertyChangedMessage`
+  events for a given sender + property name and returns
+  `IObservable<TProperty>` snapshots of the property value.
   (ADR-0032; informative)
 - **LINQ helpers** (`VMx.Extensions`) — `CartesianProduct`, `Sample`, `Product`
   extension methods. (ADR-0033; C# only)

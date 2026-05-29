@@ -42,8 +42,9 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   `precedeWith`, `succeedWith`, `wrapWith` extension helpers over commands.
   (ADR-0027; CMD-008..011)
 - **`propertyValueChangedMessagesFor`** helper (`vmx` — `messages/`) —
-  convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
-  informative)
+  function that filters `PropertyChangedMessage` events for a given
+  sender + property name and returns an observable stream of the
+  property's value snapshots. (ADR-0032; informative)
 - Re-exports of `IBatchable` (collections) and `IParentVM` (components)
   from the main `vmx` barrel for parity with the rest of the public
   surface — previously only reachable via deep sub-path imports.
