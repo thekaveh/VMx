@@ -241,7 +241,7 @@ describe("HIER-007", () => {
 // ---------------------------------------------------------------------------
 
 describe("HIER-008", () => {
-  it("Eager child loading via withEagerChildren() builder option", () => {
+  it("Eager child loading via eagerChildren constructor option", () => {
     let factoryInvoked = false;
     const leaf = leafNode();
 

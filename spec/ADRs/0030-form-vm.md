@@ -34,8 +34,9 @@ Option 3 (ORM-agnostic). `FormVM<TM>` members:
 
 Snapshot policy: per-flavor idiomatic shallow copy (C# `with` expression on records;
 Python `dataclass.replace` semantics or `Snapshotter<TM>` delegate; TypeScript
-`structuredClone` for plain object models). Custom `Snapshotter<TM>` is opt-in via
-builder.
+`structuredClone` for plain object models). Custom `Snapshotter<TM>` is opt-in
+at construction time (constructor argument in C# / Python, `FormVMOptions`
+field in TS).
 
 Strict mode (opt-in): `Approve.CanExecute = IsDirty`. Default mode:
 consumer-controlled (`Approve.CanExecute = true`).
