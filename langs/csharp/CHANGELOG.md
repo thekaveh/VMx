@@ -16,7 +16,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   tree VM with lazy/eager child loading, depth-first construction, materialized
   path, parent-change and structural-change hub messages.
   `TreeStructureChangedMessage` new message type. (ADR-0028; HIER-001..014)
-- **`IDialogService`** + **`NullDialogService`** (`VMx.Services`) — host-side
+- **`IDialogService`** + **`NullDialogService`** (`VMx.Dialogs`) — host-side
   contract for modal interactions (file pick, confirm prompt, severity-tagged
   notify) distinct from `INotificationHub`. (ADR-0029; DIA-001..008)
 - **`FormVM<TM>`** (`VMx.Forms`) — snapshot/revert edit lifecycle (ORM-agnostic).
