@@ -73,6 +73,21 @@ ADR-0006 and require no further action:
   shadowing/hiding warnings (`CS0108`) and makes the tree-parent semantics
   explicit at the call site.
 
+### `HierarchicalVM` recursive-generic constraint (Python)
+
+- **C#**: `where TVM : HierarchicalVM<TModel, TVM>` — true F-bounded
+  generic constraint enforced by the compiler.
+- **TypeScript**: `TVM extends HierarchicalVM<TModel, TVM>` — equivalent
+  F-bounded constraint enforced by the type checker.
+- **Python**: `TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")` —
+  weaker bound; `TypeVar` cannot express the self-referential parameter
+  binding back to the enclosing class's own type parameters.
+- **Rationale**: Python's `typing.TypeVar` `bound=` argument is a single
+  type expression evaluated in the enclosing scope; it has no syntax for
+  a self-referential, parameter-bound recursion the way the nominal type
+  systems do. The runtime/subclass contract is still enforced by
+  convention and by `mypy --strict` against concrete subclasses.
+
 ### Collection size property name
 
 - **C#**: `Count` (matches `ICollection<T>`).
