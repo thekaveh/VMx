@@ -91,7 +91,6 @@ Per-flavor surface idiom (ADR-0006):
    form produces an object whose `CanExecute` / `Execute` graph is
    equivalent to the explicit constructor call.
 1. Each flavor adds the four helpers to its `commands/` module.
-   Implementation is deferred to the execution phase of Substage 1D.
 1. The `Confirm(INotificationHub)` overload lives in the notifications
    sub-package in each flavor (it must not create a hard dependency from
    the core commands module on the sub-package).

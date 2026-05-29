@@ -37,7 +37,7 @@ plus the decorator-specific arguments.
 `ConfirmationDecoratorCommand` takes its confirm gate as a generic
 delegate-shaped argument (`Func<Task<bool>>` / `Callable[[], Awaitable[bool]]` /
 `() => Promise<boolean>`). It deliberately does NOT depend on the notification
-service (cycle 5). Consumers wanting a "show a confirmation dialog via the
+service (chapter 16 / ADR-0013). Consumers wanting a "show a confirmation dialog via the
 notification hub" can use a helper in the notifications sub-package
 (per-flavor names per ADR-0013) that turns an `INotificationHub` interaction
 into a `Func<Task<bool>>`.

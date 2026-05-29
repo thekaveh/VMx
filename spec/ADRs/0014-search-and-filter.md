@@ -23,9 +23,9 @@ build their own throttle, predicate, and filter pipeline.
 
 ## 3. Decision
 
-Option 3. The cycle ships a `SearchableState<TItem>` helper per flavor that:
+Option 3. Ship a `SearchableState<TItem>` helper per flavor that:
 
-- Implements `ISearchable` (from cycle 1).
+- Implements `ISearchable` (per ADR-0010).
 - Holds the current `SearchTerm` and an Rx-style debounce.
 - Holds the user-supplied `Predicate(TItem, string) -> bool`.
 - Holds the current `Items` source (an iterable, typically the container).

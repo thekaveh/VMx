@@ -36,7 +36,7 @@ name is `NullX` where `X` is the contract's short name:
 
 - `IMessageHub` → `NullMessageHub`
 - `IDispatcher` → `NullDispatcher`
-- `INotificationHub` (added in absorption cycle 5) → `NullNotificationHub`
+- `INotificationHub` (added in ADR-0013) → `NullNotificationHub`
 
 The convention is normative: any new service contract added to the core spec
 MUST come with a paired null variant. The same rule extends to the
@@ -45,7 +45,7 @@ notifications sub-package added in spec 2.0.
 ## 4. Consequences
 
 - Two new public types per flavor today (`NullMessageHub`, `NullDispatcher`);
-  a third (`NullNotificationHub`) in cycle 5.
+  a third (`NullNotificationHub`) in ADR-0013.
 - Spec extensions to chapters 03 and 11 describe the null variants in their
   respective sections.
 - Three new conformance IDs (`NULL-001..NULL-003`) verify the contract per
