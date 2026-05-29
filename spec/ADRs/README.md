@@ -4,10 +4,11 @@ Architecture Decision Records (ADRs) for the VMx spec. Each ADR is a small,
 self-contained markdown file numbered `NNNN-kebab-title.md`.
 
 ADRs capture the *why* behind every normative spec change. Per the spec
-discipline rule in `CLAUDE.md`, any modification to a `spec/NN-*.md` chapter
-requires a new ADR in the same PR. The exemption list (typos, README,
-VERSION, fixtures, the conformance catalog) is enforced by
-`.github/workflows/spec-discipline.yml`.
+discipline rule in [`CONTRIBUTING.md`](../../CONTRIBUTING.md) §3, any
+modification to a `spec/NN-*.md` chapter requires a new ADR in the same PR.
+The exemption list (README, VERSION, ADRs themselves, fixtures, the
+conformance catalog, historical proposals) is enforced by
+[`.github/workflows/spec-discipline.yml`](../../.github/workflows/spec-discipline.yml).
 
 ## 1. Index
 
@@ -64,13 +65,13 @@ Each ADR starts with a YAML-like preamble:
 ## 1. Context
 ...
 
-## 2. Decision
+## 2. Options considered
 ...
 
-## 3. Consequences
+## 3. Decision
 ...
 
-## 4. Rejected alternatives (optional)
+## 4. Consequences
 ...
 ```
 
