@@ -60,7 +60,7 @@ export class NotificationVM {
     this.#startTime = scheduler.now();
 
     this.dismissCommand = new RelayCommandBuilder(null, null, [])
-      .task(() => this.dismiss())
+      .task(() => this.#dismiss())
       .build();
 
     // Schedule auto-dismiss at lifespan expiry.
