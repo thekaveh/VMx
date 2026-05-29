@@ -35,7 +35,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   COL-010..015, COL-022)
 - **`PagedComposition`** (`vmx.collections`) — paging decorator over any
   composition implementing `IPageable`. (ADR-0023; COL-016..021)
-- **`IFilterable`** + **`IPageable`** (`vmx.capabilities`) — two new capability
+- **`Filterable`** + **`Pageable`** (`vmx.capabilities`) — two new capability
   protocols. (ADR-0022, ADR-0023; CAP-021, CAP-022)
 - **Fluent command helpers** (`vmx.commands`) — `confirm(…)`, `precede_with`,
   `succeed_with`, `wrap_with` extension helpers over commands. (ADR-0027;
