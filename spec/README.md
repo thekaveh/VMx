@@ -29,7 +29,7 @@ flavor releases a stable version.
 
 ### 1.2 Chapters (v2.0 additions)
 
-- `14-capabilities.md` — 22 opt-in capability micro-interfaces (incl. `IFilterable<T>` and `IPageable`).
+- `14-capabilities.md` — 20 opt-in capability micro-interfaces (extended to 22 in v2.1; see §1.3).
 - `15-derived-properties.md` — `DerivedProperty<TValue>` N-source computed values.
 - `16-notifications.md` — opt-in `INotificationHub` sub-package.
 - `17-localization.md` — `ILocalizer` hook + `NullLocalizer` default.

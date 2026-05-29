@@ -235,7 +235,7 @@ This README is the entry point; the documents below add focused detail.
 
 ### 6.1 SemVer policy
 
-Each language flavor versions independently in SemVer. The spec versions
+Each language flavor versions independently in SemVer. The spec also versions
 independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
 `__minSpecVersion__` in TypeScript). A spec major bump triggers a major bump
