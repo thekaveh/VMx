@@ -40,7 +40,7 @@ name is `NullX` where `X` is the contract's short name:
 
 The convention is normative: any new service contract added to the core spec
 MUST come with a paired null variant. The same rule extends to the
-notifications sub-package added in spec 2.0.
+notifications sub-package added in spec v2.0.
 
 ## 4. Consequences
 
