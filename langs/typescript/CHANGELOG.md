@@ -41,7 +41,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
 - **Fluent command helpers** (`vmx` — `commands/`) — `confirm(…)`,
   `precedeWith`, `succeedWith`, `wrapWith` extension helpers over commands.
   (ADR-0027; CMD-008..011)
-- **`propertyValueChangedMessagesFor`** helper (`vmx` — `properties/`) —
+- **`propertyValueChangedMessagesFor`** helper (`vmx` — `messages/`) —
   convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
   informative)
 - Re-exports of `IBatchable` (collections) and `IParentVM` (components)

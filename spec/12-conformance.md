@@ -652,7 +652,7 @@ inequality in C#)
 
 **Given** a builder missing one required field (e.g., no `Services` call)
 **When** `.Build()` is called
-**Then** a `BuilderValidationError` / `InvalidOperationException` is raised
+**Then** a `BuilderValidationError` (Python / TS) / `BuilderValidationException` (C#) is raised
 **And** the exception message identifies which field is missing
 
 ### BLD-003 — Repeated identical Build calls produce equivalent VMs

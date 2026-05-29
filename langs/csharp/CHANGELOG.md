@@ -39,7 +39,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   capability micro-interfaces. (ADR-0022, ADR-0023; CAP-021, CAP-022)
 - **Fluent command extensions** (`VMx.Commands`) — `Confirm(…)`, `PrecedeWith`,
   `SucceedWith`, `WrapWith` over `ICommand`. (ADR-0027; CMD-008..011)
-- **`PropertyValueChangedMessagesFor`** helper (`VMx.Properties`) —
+- **`PropertyValueChangedMessagesFor`** helper (`VMx.Messages`) —
   convenience wrapper for publishing `PropertyValueChangedMessage` sequences.
   (ADR-0032; informative)
 - **LINQ helpers** (`VMx.Extensions`) — `CartesianProduct`, `Sample`, `Product`
