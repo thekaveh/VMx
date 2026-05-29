@@ -2,6 +2,12 @@ name: spec-discipline
 
 on:
   pull_request:
+    # Default types are [opened, synchronize, reopened]; add labeled/unlabeled
+    # so the 'no-adr-needed' bypass that this workflow advertises actually
+    # re-evaluates when the maintainer applies/removes that label on an open
+    # PR. Without these, a label added after the last sync is never seen by
+    # the runner (the event payload is frozen at trigger time).
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - "spec/**"
 
