@@ -83,7 +83,7 @@ strongly typed mutation events and platform-event compatibility. Key rules:
 - ADR-0025 (`ObservableDictionary`) depends on this ADR for its key-axis
   observable views (`Keys1`, `Keys2`).
 - Per-flavor placement: C# `VMx.Collections/`, Python `vmx.collections`,
-  TypeScript `vmx/collections`. Implementation is deferred to Substage 1C.
+  TypeScript `vmx/collections`.
 - The platform-compatibility rule is flavor-idiomatic per ADR-0006: C# raises
   `INotifyCollectionChanged.CollectionChanged`; Python and TypeScript have no
   equivalent platform contract and therefore omit it.

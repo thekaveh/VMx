@@ -62,7 +62,8 @@ Properties:
 ## 5. Expand-aware traversal (spec v2.0)
 
 `walk_expanded` is a variant of `walk` that only descends into children whose
-parent reports as expanded:
+parent reports as expanded (per ADR-0015 and the `IExpandable` capability
+in `14-capabilities.md`):
 
 ```
 walk_expanded(root) =

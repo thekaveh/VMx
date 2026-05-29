@@ -56,10 +56,16 @@ Option 3. Four fluent extension methods are part of the normative
    wrapping the receiver, with the given `confirm` delegate of shape
    `() -> Task<bool>` (or per-language async-Boolean equivalent).
    An optional overload accepts an `INotificationHub` and constructs the
-   delegate from it via the bridge helper in the `vmx-notifications`
-   sub-package (ADR-0013). This overload is the only fluent method that
+   delegate from it via the bridge helper in the notifications sub-package
+   (per-flavor: `VMx.Notifications` / `vmx.notifications` /
+   `vmx/notifications` per ADR-0013). This overload is the only fluent method that
    touches the notifications sub-package and it is therefore optional:
    if the sub-package is absent, only the delegate overload is available.
+   The overload is C#-only; Python and TypeScript express the same
+   intent as the explicit composition
+   `command.confirm(make_confirm(hub, prompt))` /
+   `command.confirm(makeConfirm(hub, prompt))` — catalogued in ADR-0009
+   §"Fluent `Confirm` overload with `INotificationHub`".
 1. **`PrecedeWith(other)`** — returns `CompositeCommand(other, receiver)`.
    The `other` command executes first.
 1. **`SucceedWith(other)`** — returns `CompositeCommand(receiver, other)`.
@@ -85,7 +91,6 @@ Per-flavor surface idiom (ADR-0006):
    form produces an object whose `CanExecute` / `Execute` graph is
    equivalent to the explicit constructor call.
 1. Each flavor adds the four helpers to its `commands/` module.
-   Implementation is deferred to the execution phase of Substage 1D.
 1. The `Confirm(INotificationHub)` overload lives in the notifications
    sub-package in each flavor (it must not create a hard dependency from
    the core commands module on the sub-package).

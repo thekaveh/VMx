@@ -7,17 +7,18 @@
 
 The 2012 VMx predecessor included a commented-out `HierarchicalViewModel<...>`
 research draft (`ToDo/HierarchicalViewModel*.cs`) — a first-class tree-structured
-VM whose nodes were themselves containers of the same type. The previous absorption
-cycle (per `spec/proposals/hierarchical-vm.md`) captured the draft but deferred six
-design questions to a later cycle.
+VM whose nodes were themselves containers of the same type. A prior `hierarchical-vm`
+proposal (subsumed by `spec/proposals/2026-05-27-vmx-absorption-audit.md` and
+removed during the v2.1 absorption) captured the draft but deferred six
+design questions to v2.1.
 
 In v2.0, consumers achieve tree shape by manually recursing
 `CompositeVM<M, VM>`. The recursion works but lacks "this is a tree node" semantic,
 doesn't compose with `walk`/`walk_expanded`, and forces consumers to re-invent
 parent / depth / path bookkeeping.
 
-The current absorption audit (see
-`docs/superpowers/plans/2026-05-27-vmx-absorption-audit.md` item C1) elevates
+The v2.1 absorption audit (see
+`spec/proposals/2026-05-27-vmx-absorption-audit.md` item C1) elevates
 HierarchicalVM to a first-class chapter, resolving the six open questions.
 
 ## 2. Options considered
@@ -34,11 +35,13 @@ Option 3, with the following six specific resolutions:
 
 1. **Lazy child loading by default.** Children are not materialized until
    `Children` is first accessed or `Expand()` is invoked (if the VM also
-   implements `IExpandable`). A builder option enables eager loading for
+   implements `IExpandable`). A constructor option (`eagerChildren` in
+   C# / TS, `eager_children` in Python) enables eager loading for
    consumers who want it.
 1. **Recursive generic constraint.** Per-flavor: C#
    `where TVM : HierarchicalVM<TModel, TVM>`, Python
-   `TVM = TypeVar("TVM", bound="HierarchicalVM[Any, TVM]")`, TS
+   `TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")` (the weaker
+   bound — `TypeVar` cannot express self-referential parameter binding), TS
    `TVM extends HierarchicalVM<TModel, TVM>`. Cross-flavor divergence is
    noted in ADR-0009.
 1. **Depth-first construction order.** A parent transitions to `Constructed`
@@ -46,7 +49,7 @@ Option 3, with the following six specific resolutions:
    depth-first dispose order; preserves invariant "children exist before
    parent reports ready".
 1. **Hub messages.** Parent changes emit a standard `PropertyChangedMessage`
-   (per ADR-0013 + chapter 03 rules). Structural changes (add/remove/reparent
+   (per chapter 03 §2.1 rules). Structural changes (add/remove/reparent
    of descendants) emit a dedicated `TreeStructureChangedMessage` with
    `(Source, Change: Added | Removed | Reparented, Affected, Index)` payload.
 1. **Path materialized + cached.** `Path` returns a read-only snapshot of
@@ -67,6 +70,6 @@ Option 3, with the following six specific resolutions:
    `SearchableState`, `ModeledCrudCommands`.
 1. New `TreeStructureChangedMessage` type per flavor.
 1. Per-flavor implementations in `langs/<flavor>/<src>/hierarchical/`.
-1. `spec/proposals/hierarchical-vm.md` is removed (superseded by chapter 18
-   and this ADR).
+1. The prior `hierarchical-vm` proposal was removed during the v2.1
+   absorption (superseded by chapter 18 and this ADR).
 1. Cross-flavor recursive-generic-constraint divergence is noted in ADR-0009.

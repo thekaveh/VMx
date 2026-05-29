@@ -16,7 +16,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   lazy/eager child loading, depth-first construction, materialized path,
   parent-change and structural-change hub messages. `TreeStructureChangedMessage`
   new type. (ADR-0028; HIER-001..014)
-- **`IDialogService`** + **`NullDialogService`** (`vmx.services`) — host-side
+- **`DialogService`** + **`NullDialogService`** (`vmx.dialogs`) — host-side
   contract for modal interactions (file pick, confirm prompt, severity-tagged
   notify) distinct from `INotificationHub`. (ADR-0029; DIA-001..008)
 - **`FormVM`** (`vmx.forms`) — snapshot/revert edit lifecycle (ORM-agnostic).
@@ -34,15 +34,16 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   dictionary with observable keys1/keys2 views and hub publication. (ADR-0025;
   COL-010..015, COL-022)
 - **`PagedComposition`** (`vmx.collections`) — paging decorator over any
-  composition implementing `IPageable`. (ADR-0023; COL-016..021)
-- **`IFilterable`** + **`IPageable`** (`vmx.capabilities`) — two new capability
+  composition implementing `Pageable`. (ADR-0023; COL-016..021)
+- **`Filterable`** + **`Pageable`** (`vmx.capabilities`) — two new capability
   protocols. (ADR-0022, ADR-0023; CAP-021, CAP-022)
 - **Fluent command helpers** (`vmx.commands`) — `confirm(…)`, `precede_with`,
   `succeed_with`, `wrap_with` extension helpers over commands. (ADR-0027;
   CMD-008..011)
-- **`property_value_changed_messages_for`** helper (`vmx.properties`) —
-  convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
-  informative)
+- **`property_value_changed_messages_for`** helper (`vmx.messages`) —
+  function that filters `PropertyChangedMessage` events for a given
+  sender + property name and returns an observable stream of the
+  property's value snapshots. (ADR-0032; informative)
 - **Conformance**: 67 new IDs (total 219).
 
 ### Fixed

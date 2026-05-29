@@ -12,5 +12,6 @@
 docs/**       linguist-documentation
 spec/**       linguist-documentation
 examples/**   linguist-vendored=false
-langs/csharp/**  linguist-detectable=true
-langs/python/**  linguist-detectable=true
+langs/csharp/**      linguist-detectable=true
+langs/python/**      linguist-detectable=true
+langs/typescript/**  linguist-detectable=true

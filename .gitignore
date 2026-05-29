@@ -87,6 +87,9 @@ yarn-debug.log*
 yarn-error.log*
 .npm/
 .pnpm-store/
+# Only the library's lockfile is tracked (langs/typescript/package-lock.json);
+# example lockfiles are generated locally by `npm install` and never committed.
+examples/typescript/*/package-lock.json
 
 # ─── Build / coverage artifacts ───────────────────────────────────────
 coverage/

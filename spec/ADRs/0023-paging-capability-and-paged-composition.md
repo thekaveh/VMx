@@ -27,18 +27,16 @@ but does not page.
 
 Option 3. `IPageable` joins the capability set (ADR-0010) as the 22nd member;
 `PagedComposition<TVM>` lands in `spec/21-collections.md` §"Paging" with its
-own conformance IDs in the `COL-` block (Substage 1C).
+own conformance IDs in the `COL-` block.
 
 ## 4. Consequences
 
 - `spec/14-capabilities.md` adds `IPageable` as the 22nd capability (§2.X).
 - One conformance ID `CAP-022` covers the capability's contract surface.
-- `spec/21-collections.md` (created in Substage 1B) will define
-  `PagedComposition<TVM>` and contribute `COL-NNN` IDs in the paging range
-  (count finalized in Substage 1C).
+- `spec/21-collections.md` defines `PagedComposition<TVM>` and contributes
+  `COL-NNN` IDs in the paging range.
 - Per-flavor implementation: `IPageable` interface in `capabilities/`;
-  `PagedComposition<TVM>` in `collections/` (or per-flavor equivalent). The
-  helper is deferred to Substage 1C.
+  `PagedComposition<TVM>` in `collections/` (or per-flavor equivalent).
 - Composition with `SearchableState<TItem>` is well-defined: filter first,
   then page. The chapter §"Composition with other helpers" pins ordering.
   See also ADR-0014 for `SearchableState` context.

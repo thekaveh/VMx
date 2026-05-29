@@ -12,7 +12,7 @@ default command labels, confirmation prompts. The shells were never filled
 in; localization was deferred indefinitely.
 
 The current VMx has no localization contract. User-visible strings emerge
-from notifications (cycle 5) and confirmation prompts (cycle 4); without a
+from notifications (ADR-0013) and confirmation prompts (ADR-0012); without a
 localizer, those strings ship raw.
 
 ## 2. Options considered
@@ -27,7 +27,7 @@ localizer, those strings ship raw.
 
 ## 3. Decision
 
-Option 2. The cycle adds:
+Option 2. Add:
 
 - A minimal `ILocalizer` contract in the core package per flavor.
 - A `NullLocalizer` null-object variant (per ADR-0017) that returns input

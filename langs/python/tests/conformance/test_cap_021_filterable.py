@@ -1,7 +1,9 @@
-"""Conformance tests: CAP-021 — IFilterable[TItem] capability contract.
+"""Conformance tests: CAP-021 — ``Filterable[TItem]`` capability contract.
 
-Per spec/14-capabilities.md §Filterable and ADR-0022, IFilterable[T] exposes
-a settable filter predicate and a can_filter() decision method.
+Per spec/14-capabilities.md §Filterable and ADR-0022, ``Filterable[T]``
+(spec-canonical name ``IFilterable<T>``; Python omits the I-prefix per
+ADR-0009) exposes a settable filter predicate and a can_filter() decision
+method.
 """
 
 from __future__ import annotations
@@ -13,13 +15,13 @@ import pytest
 from vmx.capabilities import Filterable
 
 # ---------------------------------------------------------------------------
-# CAP-021 — IFilterable[TItem] capability contract surface and opt-in behavior
+# CAP-021 — Filterable[TItem] capability contract surface and opt-in behavior
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("CAP-021")
-def test_CAP_021_ifilterable_contract() -> None:
-    """CAP-021: IFilterable[TItem] contract surface.
+def test_CAP_021_filterable_contract() -> None:
+    """CAP-021: ``Filterable[TItem]`` contract surface.
 
     Verifies:
     - F exposes a settable filter predicate and a can_filter() decision.

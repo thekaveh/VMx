@@ -69,12 +69,12 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
         _component2?.Dispose();
 
         _component1 = _factory1();
-        RaisePropertyChanged(nameof(Component1));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));
+        RaisePropertyChanged(nameof(Component1));
 
         _component2 = _factory2();
-        RaisePropertyChanged(nameof(Component2));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component2)));
+        RaisePropertyChanged(nameof(Component2));
 
         _component1.Construct();
         _component2.Construct();
@@ -87,14 +87,17 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
         _component2?.Destruct();
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Dispose cascade (LIFE-013): dispose each component slot depth-first, then self.
+    /// </summary>
+#pragma warning disable CA1816 // base.Dispose() already calls GC.SuppressFinalize(this)
     public override void Dispose()
     {
         _component1?.Dispose();
         _component2?.Dispose();
-        base.Dispose();
-        GC.SuppressFinalize(this);
+        base.Dispose(); // calls GC.SuppressFinalize(this)
     }
+#pragma warning restore CA1816
 
     // ── Builder factory ─────────────────────────────────────────────────────
 

@@ -46,6 +46,13 @@ describe("ServicedObservableCollection – null-hub fallback", () => {
       sut.clear();
     }).not.toThrow();
   });
+
+  it("setAt rejects negative and out-of-range indices", () => {
+    const sut = new ServicedObservableCollection<number>();
+    sut.push(1);
+    expect(() => sut.setAt(-1, 99)).toThrow(RangeError);
+    expect(() => sut.setAt(1, 99)).toThrow(RangeError);
+  });
 });
 
 // ---------------------------------------------------------------------------

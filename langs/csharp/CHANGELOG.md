@@ -16,7 +16,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   tree VM with lazy/eager child loading, depth-first construction, materialized
   path, parent-change and structural-change hub messages.
   `TreeStructureChangedMessage` new message type. (ADR-0028; HIER-001..014)
-- **`IDialogService`** + **`NullDialogService`** (`VMx.Services`) — host-side
+- **`IDialogService`** + **`NullDialogService`** (`VMx.Dialogs`) — host-side
   contract for modal interactions (file pick, confirm prompt, severity-tagged
   notify) distinct from `INotificationHub`. (ADR-0029; DIA-001..008)
 - **`FormVM<TM>`** (`VMx.Forms`) — snapshot/revert edit lifecycle (ORM-agnostic).
@@ -39,8 +39,10 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   capability micro-interfaces. (ADR-0022, ADR-0023; CAP-021, CAP-022)
 - **Fluent command extensions** (`VMx.Commands`) — `Confirm(…)`, `PrecedeWith`,
   `SucceedWith`, `WrapWith` over `ICommand`. (ADR-0027; CMD-008..011)
-- **`PropertyValueChangedMessagesFor`** helper (`VMx.Properties`) —
-  convenience wrapper for publishing `PropertyValueChangedMessage` sequences.
+- **`PropertyValueChangedMessagesFor`** helper (`VMx.Messages`) —
+  extension method on `IMessageHub` that filters `PropertyChangedMessage`
+  events for a given sender + property name and returns
+  `IObservable<TProperty>` snapshots of the property value.
   (ADR-0032; informative)
 - **LINQ helpers** (`VMx.Extensions`) — `CartesianProduct`, `Sample`, `Product`
   extension methods. (ADR-0033; C# only)

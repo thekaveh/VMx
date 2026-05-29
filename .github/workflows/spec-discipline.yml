@@ -2,6 +2,12 @@ name: spec-discipline
 
 on:
   pull_request:
+    # Default types are [opened, synchronize, reopened]; add labeled/unlabeled
+    # so the 'no-adr-needed' bypass that this workflow advertises actually
+    # re-evaluates when the maintainer applies/removes that label on an open
+    # PR. Without these, a label added after the last sync is never seen by
+    # the runner (the event payload is frozen at trigger time).
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - "spec/**"
 
@@ -24,12 +30,15 @@ jobs:
           # - spec/fixtures/** (machine-checkable test inputs; tweakable alongside spec text)
           # - spec/12-conformance.md (test catalog; adding IDs is governed by the
           #   separate "Require conformance stubs" step below, not by ADRs)
+          # - spec/proposals/** (historical planning artifacts; landed proposals are
+          #   already covered by the ADR they introduced)
           changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ \
             | grep -v '^spec/README.md$' \
             | grep -v '^spec/VERSION$' \
             | grep -v '^spec/ADRs/' \
             | grep -v '^spec/fixtures/' \
             | grep -v '^spec/12-conformance.md$' \
+            | grep -v '^spec/proposals/' \
             || true)
 
           # Newly added ADRs satisfy the rule.

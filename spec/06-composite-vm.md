@@ -135,7 +135,7 @@ model.
 ## 7. Modeled CRUD commands (spec v2.0)
 
 A modeled composite (`CompositeVM<M, VM>`) MAY opt into a CRUD command set via
-the `ModeledCrudCommands<M, VM>` helper:
+the `ModeledCrudCommands<M, VM>` helper (designed in ADR-0016):
 
 ```
 ModeledCrudCommands<M, VM>:
@@ -167,7 +167,7 @@ The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 ## 8. Search / filter (spec v2.0)
 
 A composite (or group) MAY opt into search/filter via the `SearchableState`
-helper, which implements `ISearchable` from chapter 14:
+helper, which implements `ISearchable` from chapter 14 (designed in ADR-0014):
 
 ```
 SearchableState<TItem>:

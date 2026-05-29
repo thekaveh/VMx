@@ -87,6 +87,7 @@ Key exports:
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Raised on illegal lifecycle operations           |
+| `BuilderValidationError`        | Raised when a builder is missing required fields |
 | `walk(root)`                    | DFS pre-order tree traversal generator           |
 | `walkExpanded(root)`            | DFS walk gated on `IExpandable.isExpanded` (v2.0) |
 | `find(root, predicate)`         | Short-circuit tree search                        |
@@ -95,14 +96,26 @@ Key exports:
 | `SearchableState<T>`            | Debounced filter helper (spec v2.0)              |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)             |
 | 22× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in v2.0+ |
+| `HierarchicalVM<TModel, TVM>`   | Recursive tree-structured VM (spec v2.1)         |
+| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)  |
+| `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
+| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
+| `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)    |
+| `ObservableList<T>`             | Granular per-mutation events (spec v2.1)         |
+| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
+| `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
+| Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
+| `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
 
-The opt-in `vmx/notifications` sub-path export (spec v2.0) adds:
+The opt-in `vmx/notifications` sub-path export (spec v2.0+) adds:
 
 | Export                                                            | Description                            |
 | ----------------------------------------------------------------- | -------------------------------------- |
 | `Notification` / `NotificationType` / `NotificationReaction`      | Notification primitives                |
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub`    | Async notification hub + null variant  |
 | `makeConfirm(hub, prompt)`                                        | Bridge to `ConfirmationDecoratorCommand` |
+| `NotificationVM`                                                  | Render-side VM for `Notification` (spec v2.1) |
+| `ConfirmationVM`                                                  | Render-side VM with Approve/Reject (spec v2.1) |
 
 ## 5. Conformance
 

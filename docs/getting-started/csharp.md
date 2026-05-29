@@ -35,13 +35,11 @@ viewmodels and a dispatcher that knows about your UI thread.
 ### 2.1 Option A — manual construction (console / tests)
 
 ```csharp
-using System.Reactive.Concurrency;
 using VMx.Services;
 
-// Foreground = immediate (no real UI thread in a console app)
-IDispatcher dispatcher = new RxDispatcher(
-    foreground: ImmediateScheduler.Instance,
-    background: TaskPoolScheduler.Default);
+// Both foreground and background = immediate (deterministic for console / tests).
+// Mirrors RxDispatcher.immediate() in Python and TypeScript.
+IDispatcher dispatcher = RxDispatcher.Immediate();
 
 IMessageHub hub = new MessageHub();
 ```
@@ -140,6 +138,7 @@ and a set of `IObservable<Unit>` triggers that re-evaluate `CanExecute`.
 ```csharp
 using System.Reactive;
 using System.Reactive.Subjects;
+using System.Windows.Input;
 using VMx.Commands;
 using VMx.Services;
 

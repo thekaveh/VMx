@@ -89,6 +89,16 @@ The public API lives under the `VMx.*` namespaces:
 | `SearchableState<TItem>`        | Debounced filter helper (spec v2.0)               |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)              |
 | 22× capability interfaces       | `VMx.Capabilities.*` — opt-in (spec v2.0+)        |
+| `HierarchicalVM<TModel, TVM>`   | Recursive tree-structured VM (spec v2.1)          |
+| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
+| `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
+| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
+| `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)     |
+| `ObservableList<T>`             | Granular per-mutation events (spec v2.1)          |
+| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
+| `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
+| Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` (spec v2.1) |
+| `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
 
 The companion package `VMx.Extensions.DependencyInjection` adds:
 
@@ -96,13 +106,15 @@ The companion package `VMx.Extensions.DependencyInjection` adds:
 | ------------------------------ | ------------------------------------------------- |
 | `services.AddVMx(…)`           | Registers `IMessageHub` and `IDispatcher`         |
 
-The companion package `VMx.Notifications` (spec v2.0) adds:
+The companion package `VMx.Notifications` (spec v2.0+) adds:
 
 | Export                                                   | Description                            |
 | -------------------------------------------------------- | -------------------------------------- |
 | `Notification` / `NotificationType` / `NotificationReaction` | Notification primitives            |
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub` | Async notification hub + null variant |
 | `ConfirmHelper.MakeConfirm(hub, prompt)`                 | Bridge to `ConfirmationDecoratorCommand` |
+| `NotificationVM`                                         | Render-side VM for `Notification` (spec v2.1) |
+| `ConfirmationVM`                                         | Render-side VM with Approve/Reject (spec v2.1) |
 
 ## 5. Conformance
 

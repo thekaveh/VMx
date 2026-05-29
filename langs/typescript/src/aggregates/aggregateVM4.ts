@@ -79,11 +79,13 @@ export class AggregateVM4<
     this.#component4?.destruct();
   }
 
-  protected override _onDispose(): void {
+  override dispose(): void {
+    // Depth-first dispose (LIFE-013): each component slot first, then self.
     this.#component1?.dispose();
     this.#component2?.dispose();
     this.#component3?.dispose();
     this.#component4?.dispose();
+    super.dispose();
   }
 
   static builder<

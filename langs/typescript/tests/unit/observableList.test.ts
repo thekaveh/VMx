@@ -52,9 +52,12 @@ describe("ObservableList – basic mutations", () => {
     expect(sut.toArray()).toEqual([10, 30]);
   });
 
-  it("removeAt throws RangeError on out-of-bounds index", () => {
+  it("removeAt throws RangeError on negative and out-of-bounds indices", () => {
     const sut = new ObservableList<number>();
     expect(() => sut.removeAt(0)).toThrow(RangeError);
+    sut.push(1);
+    expect(() => sut.removeAt(-1)).toThrow(RangeError);
+    expect(() => sut.removeAt(1)).toThrow(RangeError);
   });
 
   it("remove returns true when item found", () => {
@@ -77,9 +80,12 @@ describe("ObservableList – basic mutations", () => {
     expect(sut.length).toBe(1);
   });
 
-  it("replace throws RangeError on out-of-bounds index", () => {
+  it("replace throws RangeError on negative and out-of-bounds indices", () => {
     const sut = new ObservableList<string>();
     expect(() => sut.replace(0, "x")).toThrow(RangeError);
+    sut.push("a");
+    expect(() => sut.replace(-1, "x")).toThrow(RangeError);
+    expect(() => sut.replace(1, "x")).toThrow(RangeError);
   });
 
   it("clear empties the list", () => {

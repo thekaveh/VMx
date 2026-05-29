@@ -214,13 +214,16 @@ Hub state — e.g., `INotificationHub.Pending` — can be projected into a
 collection of pending notifications as the composite's source and
 `NotificationVM` construction as the child factory.
 
-Per-flavor idiomatic sketch:
+Per-flavor idiomatic sketch (showing the actual modeled-composite builder
+methods — see chapter 10 for the full surface):
 
 ```
-CompositeVM<Notification, NotificationVM>(
-    source       = hub.Pending,
-    childFactory = notif => new NotificationVM(notif, hub, scheduler)
-)
+CompositeVM<Notification, NotificationVM>.Builder()
+    .ChildrenModels(() => hub.Pending.Value)          # observed-list snapshot
+    .ChildModelToChildViewModel(notif =>              # notification → VM
+        new NotificationVM(notif, hub, scheduler))
+    .Services(hub, dispatcher)
+    .Build()
 ```
 
 This pattern generalises to any service whose state is an observable collection

@@ -75,6 +75,12 @@ from vmx.commands import (
     RelayCommandOf,
     RelayCommandOfBuilder,
     RelayCommandOfT,
+    RelayCommandOfTBuilder,
+    confirm,
+    confirm_with_dialog_service,
+    precede_with,
+    succeed_with,
+    wrap_with,
 )
 from vmx.components import (
     ComponentVM,
@@ -218,6 +224,7 @@ __all__ = [
     "RelayCommandOf",
     "RelayCommandOfBuilder",
     "RelayCommandOfT",
+    "RelayCommandOfTBuilder",
     "RxDispatcher",
     "SearchableState",
     "ServicedObservableCollection",
@@ -228,11 +235,16 @@ __all__ = [
     "ViewModelType",
     "__min_spec_version__",
     "__version__",
+    "confirm",
+    "confirm_with_dialog_service",
     "find",
     "from_sources",
+    "precede_with",
     "property_value_changed_messages_for",
+    "succeed_with",
     "walk",
     "walk_expanded",
+    "wrap_with",
 ]
 
 # Lifecycle capabilities are baseline: every core VM trivially satisfies them.

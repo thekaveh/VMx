@@ -118,8 +118,8 @@ IFilterable<TItem>:
 
 The capability says nothing about _how_ the filtered view is exposed (an
 observable, a paged slice, a snapshot) — that is the concrete collection's
-responsibility. `SearchableState<TItem>` (cycle 7) provides a string-debounced
-predicate builder over this capability.
+responsibility. `SearchableState<TItem>` (per ADR-0014) provides a
+string-debounced predicate builder over this capability.
 
 See ADR-0022.
 
@@ -178,9 +178,9 @@ IPageable:
 ```
 
 The capability describes the _navigation surface_ of a paged view; the
-underlying composition is not mutated. `PagedComposition<TVM>` (Substage 1C /
-chapter 21) is the canonical helper that decorates any composition with this
-capability.
+underlying composition is not mutated. `PagedComposition<TVM>` (see
+chapter 21) is the canonical helper that decorates any composition with
+this capability.
 
 See ADR-0023.
 

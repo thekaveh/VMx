@@ -5,7 +5,7 @@
  */
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
-import { RelayCommand, RelayCommandBuilder } from "../commands/relayCommand.js";
+import { RelayCommand } from "../commands/relayCommand.js";
 import { FormRevertedMessage } from "../messages/formReverted.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
@@ -31,7 +31,10 @@ export interface FormVMOptions<TM> {
    */
   strict?: boolean;
   /**
-   * Custom snapshot function. Defaults to `structuredClone` (shallow-enough for plain objects).
+   * Custom snapshot function. Defaults to `structuredClone` — a structured
+   * deep clone; nested references are independent between Model and Snapshot.
+   * Supply a custom snapshotter if you need shallow semantics or your model
+   * contains values structuredClone cannot serialize.
    */
   snapshotter?: Snapshotter<TM>;
 }
@@ -76,11 +79,11 @@ export class FormVM<TM> {
     this.#model = initial;
     this.#snapshot = this.#snapshotter(initial);
 
-    this.denyCommand = new RelayCommandBuilder(null, null, [])
+    this.denyCommand = RelayCommand.builder()
       .task(() => this.#deny())
       .build();
 
-    this.approveCommand = new RelayCommandBuilder(null, null, [])
+    this.approveCommand = RelayCommand.builder()
       .task(() => {
         void this.approveAsync();
       })

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Reactive.Concurrency;
 using VMx.Services;
 
@@ -8,14 +9,18 @@ namespace WpfTodoApp;
 /// Top-level ViewModel for <see cref="MainWindow"/>.
 ///
 /// Holds an <see cref="ObservableCollection{T}"/> of <see cref="TodoItemVM"/> instances
-/// so WPF's ListBox can bind directly via ItemsSource. A <see cref="VMx.Composites.CompositeVM{VM}"/>
-/// manages the shared <see cref="IMessageHub"/> so every child VM participates in the
-/// same hub — demonstrating cross-VM message flow without extra wiring.
+/// so WPF's ListBox can bind directly via ItemsSource. Each child VM is constructed
+/// with the same <see cref="IMessageHub"/> instance owned by this VM, so all children
+/// publish into the same hub — demonstrating cross-VM message flow without extra
+/// wiring. (Cf. the Python <c>tk_todo_app</c> example, which uses
+/// <c>CompositeVM[TodoItemVM]</c> instead; here we lean on
+/// <see cref="ObservableCollection{T}"/> directly for WPF data-binding ergonomics.)
 /// </summary>
-public sealed class MainWindowViewModel
+public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private readonly IMessageHub _hub;
     private readonly IDispatcher _dispatcher;
+    private string _newItemTitle = string.Empty;
 
     /// <summary>
     /// Collection of to-do items displayed by the ListBox.
@@ -24,7 +29,18 @@ public sealed class MainWindowViewModel
     public ObservableCollection<TodoItemVM> Items { get; } = new();
 
     /// <summary>Text entered in the "New item" TextBox; bound two-way.</summary>
-    public string NewItemTitle { get; set; } = string.Empty;
+    public string NewItemTitle
+    {
+        get => _newItemTitle;
+        set
+        {
+            if (_newItemTitle == value) return;
+            _newItemTitle = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(NewItemTitle)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public MainWindowViewModel()
     {
@@ -55,12 +71,16 @@ public sealed class MainWindowViewModel
     }
 
     /// <summary>
-    /// Destructs all child VMs and disposes the hub. Call from Window.Closed.
+    /// Destructs and disposes all child VMs and disposes the hub.
+    /// Call from Window.Closed.
     /// </summary>
     public void Shutdown()
     {
         foreach (var item in Items)
+        {
             item.Destruct();
+            item.Dispose();
+        }
 
         _hub.Dispose();
     }

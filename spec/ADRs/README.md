@@ -4,10 +4,11 @@ Architecture Decision Records (ADRs) for the VMx spec. Each ADR is a small,
 self-contained markdown file numbered `NNNN-kebab-title.md`.
 
 ADRs capture the *why* behind every normative spec change. Per the spec
-discipline rule in `CLAUDE.md`, any modification to a `spec/NN-*.md` chapter
-requires a new ADR in the same PR. The exemption list (typos, README,
-VERSION, fixtures, the conformance catalog) is enforced by
-`.github/workflows/spec-discipline.yml`.
+discipline rule in [`CONTRIBUTING.md`](../../CONTRIBUTING.md) §3, any
+modification to a `spec/NN-*.md` chapter requires a new ADR in the same PR.
+The exemption list (README, VERSION, ADRs themselves, fixtures, the
+conformance catalog, historical proposals) is enforced by
+[`.github/workflows/spec-discipline.yml`](../../.github/workflows/spec-discipline.yml).
 
 ## 1. Index
 
@@ -26,7 +27,7 @@ cross-references each ADR carries.
 | [0007](0007-aggregate-vm-arity-1-to-5.md)               | `AggregateVM` arities 1–5                           | 1.0.0        | Accepted |
 | [0008](0008-async-lifecycle-methods.md)                 | Async lifecycle methods                             | 1.0.0        | Accepted |
 | [0009](0009-cross-flavor-divergence-catalogue.md)       | Cross-flavor divergence catalogue                   | 1.1.0        | Accepted |
-| [0010](0010-capability-micro-interfaces.md)             | 20 capability micro-interfaces                      | 2.0.0        | Accepted |
+| [0010](0010-capability-micro-interfaces.md)             | Capability micro-interfaces (additive)              | 2.0.0        | Accepted |
 | [0011](0011-derived-properties.md)                      | N-source derived properties                         | 2.0.0        | Accepted |
 | [0012](0012-command-decorators.md)                      | Command decorators (Confirmation, Logging)          | 2.0.0        | Accepted |
 | [0013](0013-notification-service.md)                    | Opt-in `VMx.Notifications` sub-package              | 2.0.0        | Accepted |
@@ -64,13 +65,13 @@ Each ADR starts with a YAML-like preamble:
 ## 1. Context
 ...
 
-## 2. Decision
+## 2. Options considered
 ...
 
-## 3. Consequences
+## 3. Decision
 ...
 
-## 4. Rejected alternatives (optional)
+## 4. Consequences
 ...
 ```
 

@@ -15,7 +15,7 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
   recursive tree VM with lazy/eager child loading, depth-first construction,
   materialized path, parent-change and structural-change hub messages.
   `TreeStructureChangedMessage` new type. (ADR-0028; HIER-001..014)
-- **`IDialogService`** + **`NullDialogService`** (`vmx` — `services/`) —
+- **`IDialogService`** + **`NullDialogService`** (`vmx` — `dialogs/`) —
   host-side contract for modal interactions (file pick, confirm prompt,
   severity-tagged notify) distinct from `INotificationHub`. (ADR-0029;
   DIA-001..008)
@@ -41,9 +41,10 @@ Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.
 - **Fluent command helpers** (`vmx` — `commands/`) — `confirm(…)`,
   `precedeWith`, `succeedWith`, `wrapWith` extension helpers over commands.
   (ADR-0027; CMD-008..011)
-- **`propertyValueChangedMessagesFor`** helper (`vmx` — `properties/`) —
-  convenience wrapper for `PropertyValueChangedMessage` sequences. (ADR-0032;
-  informative)
+- **`propertyValueChangedMessagesFor`** helper (`vmx` — `messages/`) —
+  function that filters `PropertyChangedMessage` events for a given
+  sender + property name and returns an observable stream of the
+  property's value snapshots. (ADR-0032; informative)
 - Re-exports of `IBatchable` (collections) and `IParentVM` (components)
   from the main `vmx` barrel for parity with the rest of the public
   surface — previously only reachable via deep sub-path imports.

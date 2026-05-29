@@ -63,6 +63,7 @@ export class ForwardingCompositeVM<VM extends ComponentVMBase> {
 
   add(item: VM): void { this._wrapped.add(item); }
   insert(index: number, item: VM): void { this._wrapped.insert(index, item); }
+  setAt(index: number, item: VM): void { this._wrapped.setAt(index, item); }
   remove(item: VM): boolean { return this._wrapped.remove(item); }
   removeAt(index: number): void { this._wrapped.removeAt(index); }
   clear(): void { this._wrapped.clear(); }

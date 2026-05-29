@@ -6,7 +6,9 @@ onwards) give precise normative definitions; this document is the orientation.
 ## 1. The viewmodel hierarchy
 
 VMx defines the following viewmodel types (five families, plus a pair of
-forwarding decorators that wrap an inner viewmodel):
+forwarding decorators that wrap an inner viewmodel). The flat shape — five
+independent families rather than a single inheritance chain — is the
+canonical decision documented in ADR-0018:
 
 | Family                                            | Role                                  | Children                        | Typical use                            |
 | ------------------------------------------------- | ------------------------------------- | ------------------------------- | -------------------------------------- |

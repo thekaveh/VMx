@@ -1,4 +1,7 @@
-"""Ref-counted batch-update token used by CompositeVM and GroupVM."""
+"""Ref-counted batch-update token used by CompositeVM and GroupVM.
+
+See spec/06-composite-vm.md §Batch updates (spec v1.1).
+"""
 
 from __future__ import annotations
 

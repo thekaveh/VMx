@@ -64,7 +64,14 @@ On each successful slot population, the aggregate raises
 As with `construct()`, the order is unspecified and the reference
 implementations drive the slots sequentially.
 
-## 4. Selection
+## 4. Disposal
+
+`dispose()` invokes `dispose()` on each `ComponentN` slot before the aggregate
+itself transitions to `Disposed`. This mirrors the depth-first cascade specified
+by LIFE-013 for `CompositeVM` / `GroupVM`: child `Disposed` transitions are
+observed before the aggregate's own. The order across slots is unspecified.
+
+## 5. Selection
 
 The aggregate itself can be selected (via its parent's `Current`), and like any other
 `IComponentVM` it exposes `SelectCommand`, `DeselectCommand`, `SelectNextCommand`, and
@@ -72,13 +79,13 @@ The aggregate itself can be selected (via its parent's `Current`), and like any 
 slots, however, are not selectable — they are the aggregate's fixed structure, not
 navigable peers, so there are no `select_component` / `deselect_component` methods.
 
-## 5. Arity rationale
+## 6. Arity rationale
 
 ADR-0007 documents why arities 1–5 are the supported range. For more than 5
 heterogeneous children, prefer `CompositeVM<VM>` or `GroupVM<VM>` with a
 heterogeneous-base-type `VM`, or compose multiple aggregates.
 
-## 6. Conformance
+## 7. Conformance
 
 `AGG-001` through `AGG-005` in `12-conformance.md` cover:
 

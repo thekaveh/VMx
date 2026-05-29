@@ -65,7 +65,7 @@
         <div class="pulse-dot"></div>
         <h1>VMx Architecture</h1>
       </div>
-      <p class="subtitle">spec v2.0.0 — one neutral specification, three idiomatic flavors, 152 cross-language conformance IDs</p>
+      <p class="subtitle">spec v2.1.0 — one neutral specification, three idiomatic flavors, 219 cross-language conformance IDs</p>
     </div>
 
     <div class="diagram-container">
@@ -83,8 +83,8 @@
         <!-- LAYER 1 — SPEC -->
         <rect x="30" y="30" width="1040" height="78" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
         <text x="550" y="54" fill="white" font-size="13" font-weight="700" text-anchor="middle">spec/ — source of truth</text>
-        <text x="550" y="74" fill="#fbbf24" font-size="10" text-anchor="middle">18 chapters · 20 ADRs · 4 JSON fixtures · 152 conformance IDs · spec/VERSION = 2.0.0</text>
-        <text x="550" y="94" fill="#94a3b8" font-size="9" text-anchor="middle">00-overview · 01-concepts · 02-lifecycle · 03-messages · 04-commands · 05..09 VMs · 10 builders · 11 threading · 12 conformance · 13 tree · 14 capabilities · 15 derived · 16 notifications · 17 localization</text>
+        <text x="550" y="74" fill="#fbbf24" font-size="10" text-anchor="middle">22 chapters · 33 ADRs · 4 JSON fixtures · 219 conformance IDs · spec/VERSION = 2.1.0</text>
+        <text x="550" y="94" fill="#94a3b8" font-size="9" text-anchor="middle">00-overview · 01-concepts · 02-lifecycle · 03-messages · 04-commands · 05..09 VMs · 10 builders · 11 threading · 12 conformance · 13 tree · 14 capabilities · 15 derived · 16 notifications · 17 localization · 18 hierarchical · 19 dialogs · 20 form-vm · 21 collections</text>
 
         <line x1="550" y1="108" x2="550" y2="138" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
         <text x="565" y="125" fill="#94a3b8" font-size="9">implements (parity per ADR-0006)</text>
@@ -93,17 +93,17 @@
         <rect x="30" y="145" width="333" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
         <text x="196" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/csharp — VMx</text>
         <text x="196" y="184" fill="#94a3b8" font-size="9" text-anchor="middle">netstandard2.0 + net8.0 · PascalCase · System.Reactive</text>
-        <text x="196" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.0.0 on NuGet</text>
+        <text x="196" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.1.0 on NuGet</text>
 
         <rect x="383" y="145" width="334" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
         <text x="550" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/python — vmx</text>
         <text x="550" y="184" fill="#94a3b8" font-size="9" text-anchor="middle">Python 3.10..3.13 · snake_case · reactivex · mypy --strict</text>
-        <text x="550" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.0.0 on PyPI</text>
+        <text x="550" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.1.0 on PyPI</text>
 
         <rect x="737" y="145" width="333" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
         <text x="903" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/typescript — vmx</text>
         <text x="903" y="184" fill="#94a3b8" font-size="9" text-anchor="middle">Node ≥18 · camelCase · rxjs · dual ESM + CJS</text>
-        <text x="903" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.0.0 on npm</text>
+        <text x="903" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.1.0 on npm</text>
 
         <line x1="196" y1="208" x2="196" y2="232" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <line x1="550" y1="208" x2="550" y2="232" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
@@ -167,7 +167,7 @@
         <rect x="50" y="506" width="240" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="170" y="525" fill="white" font-size="11" font-weight="600" text-anchor="middle">RelayCommand / RelayCommand&lt;T&gt;</text>
         <text x="170" y="542" fill="#94a3b8" font-size="9" text-anchor="middle">predicate · task · reactive triggers</text>
-        <text x="170" y="556" fill="#34d399" font-size="8" text-anchor="middle">spec/04 · CMD-001..007</text>
+        <text x="170" y="556" fill="#34d399" font-size="8" text-anchor="middle">spec/04 · CMD-001..007 (CMD-008..011 in v2.1 box)</text>
 
         <rect x="305" y="506" width="240" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="425" y="525" fill="white" font-size="11" font-weight="600" text-anchor="middle">Forwarding decorators</text>
@@ -183,16 +183,16 @@
         <text x="62" y="596" fill="#fb923c" font-size="9" font-weight="600">Null-object variants (ADR-0017):</text>
         <text x="232" y="596" fill="#94a3b8" font-size="9">NullMessageHub  ·  NullDispatcher  ·  NullLocalizer  ·  NullNotificationHub</text>
 
-        <!-- LAYER 4 — v2.0 ADDITIONS -->
+        <!-- LAYER 4 — v2.0+v2.1 ADDITIONS -->
         <rect x="850" y="238" width="220" height="380" rx="12" fill="rgba(15, 23, 42, 0.3)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="870" y="260" fill="#a78bfa" font-size="11" font-weight="700">v2.0 additions (opt-in)</text>
+        <text x="870" y="260" fill="#a78bfa" font-size="11" font-weight="700">v2.0+v2.1 additions (opt-in)</text>
 
         <rect x="870" y="278" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="960" y="296" fill="white" font-size="11" font-weight="600" text-anchor="middle">Capability interfaces</text>
-        <text x="960" y="313" fill="#94a3b8" font-size="9" text-anchor="middle">20 micro-contracts: opt-in</text>
+        <text x="960" y="313" fill="#94a3b8" font-size="9" text-anchor="middle">22 micro-contracts: opt-in</text>
         <text x="960" y="325" fill="#94a3b8" font-size="8" text-anchor="middle">ISelectable · IExpandable · IClosable</text>
-        <text x="960" y="337" fill="#94a3b8" font-size="8" text-anchor="middle">IConstructable · INewCreatable · …</text>
-        <text x="960" y="354" fill="#a78bfa" font-size="8" text-anchor="middle">spec/14 · CAP-001..020</text>
+        <text x="960" y="337" fill="#94a3b8" font-size="8" text-anchor="middle">IFilterable · IPageable (v2.1) · …</text>
+        <text x="960" y="354" fill="#a78bfa" font-size="8" text-anchor="middle">spec/14 · CAP-001..022</text>
 
         <rect x="870" y="384" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="960" y="402" fill="white" font-size="11" font-weight="600" text-anchor="middle">State helpers</text>
@@ -204,16 +204,16 @@
         <rect x="870" y="490" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="960" y="508" fill="white" font-size="11" font-weight="600" text-anchor="middle">Command decorators</text>
         <text x="960" y="525" fill="#94a3b8" font-size="9" text-anchor="middle">CompositeCommand · Decorator</text>
-        <text x="960" y="537" fill="#94a3b8" font-size="9" text-anchor="middle">ConfirmationDecoratorCommand</text>
+        <text x="960" y="537" fill="#94a3b8" font-size="9" text-anchor="middle">ConfirmationDecorator · fluent (v2.1)</text>
         <text x="960" y="549" fill="#94a3b8" font-size="9" text-anchor="middle">ModeledCrudCommands&lt;M,VM&gt;</text>
-        <text x="960" y="566" fill="#a78bfa" font-size="8" text-anchor="middle">CMDD-001..009 · COMP-019..024</text>
+        <text x="960" y="566" fill="#a78bfa" font-size="8" text-anchor="middle">CMDD-001..009 · CMD-008..011 · COMP-019..024</text>
 
         <rect x="870" y="586" width="180" height="20" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
         <text x="960" y="600" fill="#fb923c" font-size="9" text-anchor="middle">ILocalizer (spec/17 · LOC-001..003)</text>
 
         <!-- LAYER 5 — OPT-IN SUB-PACKAGE -->
         <rect x="30" y="650" width="1040" height="100" rx="12" fill="rgba(136, 19, 55, 0.2)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
-        <text x="50" y="672" fill="#fb7185" font-size="11" font-weight="700">Opt-in sub-package (spec/16 · NOTIF-001..010 · ADR-0013)</text>
+        <text x="50" y="672" fill="#fb7185" font-size="11" font-weight="700">Opt-in sub-package (spec/16 · NOTIF-001..016 · ADR-0013 + ADR-0031)</text>
         <text x="50" y="688" fill="#94a3b8" font-size="9">C# separate assembly · Python sub-package · TS sub-path export</text>
 
         <rect x="50" y="700" width="240" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
@@ -248,7 +248,7 @@
         <text x="456" y="812" fill="#94a3b8" font-size="9">Core (v1.x baseline)</text>
 
         <rect x="600" y="802" width="18" height="12" rx="3" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="626" y="812" fill="#94a3b8" font-size="9">v2.0 additions (opt-in)</text>
+        <text x="626" y="812" fill="#94a3b8" font-size="9">v2.0+v2.1 additions (opt-in)</text>
 
         <rect x="780" y="802" width="18" height="12" rx="3" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="3,3"/>
         <text x="806" y="812" fill="#94a3b8" font-size="9">Sub-package (separate dist)</text>
@@ -277,10 +277,10 @@
           <h3>1. Spec is the source of truth</h3>
         </div>
         <ul>
-          <li>• 18 markdown chapters under <code>spec/</code></li>
-          <li>• 20 ADRs in <code>spec/ADRs/</code></li>
+          <li>• 22 markdown chapters under <code>spec/</code></li>
+          <li>• 33 ADRs in <code>spec/ADRs/</code></li>
           <li>• 4 JSON fixtures shared across flavors</li>
-          <li>• 152 conformance IDs; CI enforces 100% coverage</li>
+          <li>• 219 conformance IDs; CI enforces 100% coverage</li>
           <li>• Behaviour changes start here; ADR + conformance ID, then code</li>
         </ul>
       </div>
@@ -301,21 +301,22 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>3. v2.0 absorption (opt-in)</h3>
+          <h3>3. v2.0+v2.1 additions (opt-in)</h3>
         </div>
         <ul>
-          <li>• 20 capability micro-interfaces (selection, expansion, lifecycle, dialog, CRUD)</li>
+          <li>• 22 capability micro-interfaces (selection, expansion, lifecycle, dialog, filter, paging, CRUD)</li>
           <li>• <code>DerivedProperty</code> — N-source computed values</li>
           <li>• <code>ExpandableState</code>, <code>SearchableState</code> helpers</li>
-          <li>• Command decorators + <code>ModeledCrudCommands</code></li>
+          <li>• Command decorators + <code>ModeledCrudCommands</code> + v2.1 fluent extensions: <code>Confirm</code>, <code>PrecedeWith</code>, <code>SucceedWith</code>, <code>WrapWith</code></li>
           <li>• Null-object service convention (<code>NullX</code> per contract)</li>
-          <li>• Notifications sub-package + <code>ILocalizer</code> hook</li>
+          <li>• Notifications sub-package + <code>NotificationVM</code>/<code>ConfirmationVM</code> (v2.1) + <code>ILocalizer</code> hook</li>
+          <li>• v2.1 first-class surfaces: <code>HierarchicalVM</code> (HIER-001..014), <code>FormVM&lt;M&gt;</code> (FORM-001..010), <code>IDialogService</code> (DIA-001..008), observable collections (COL-001..023)</li>
         </ul>
       </div>
     </div>
 
     <p class="footer">
-      VMx · spec v2.0.0 · all flavors v2.0.0 · 152/152 conformance IDs passing
+      VMx · spec v2.1.0 · all flavors v2.1.0 · 219/219 conformance IDs passing
     </p>
   </div>
 </body>
