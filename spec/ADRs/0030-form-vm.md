@@ -32,12 +32,14 @@ Option 3 (ORM-agnostic). `FormVM<TM>` members:
   `Snapshot` to current `Model` and raises `OnApproved`
 - `OnApproved` event/observable — fires only after a successful persist
 
-Snapshot policy: per-flavor idiomatic shallow copy. The defaults are reflective
-`MemberwiseClone` in C# (equivalent to `with {}` for record types), `copy.copy`
-in Python (`__copy__` if defined, else shallow attribute copy), and
-`structuredClone` in TypeScript (for plain object models). See spec/20 §3 for
-the canonical table. Custom `Snapshotter<TM>` is opt-in at construction time
-(constructor argument in C# / Python, `FormVMOptions` field in TS).
+Snapshot policy: per-flavor idiomatic value-copy. C# and Python defaults are
+shallow (reflective `MemberwiseClone` and `copy.copy` respectively — nested
+mutable references are shared between `Model` and `Snapshot`); the TypeScript
+default is a structured deep clone (`structuredClone`, nested references
+independent). See spec/20 §3 for the canonical table and the consumer note
+about choosing a custom snapshotter when nested-state semantics matter.
+Custom `Snapshotter<TM>` is opt-in at construction time (constructor argument
+in C# / Python, `FormVMOptions` field in TS).
 
 Strict mode (opt-in): `Approve.CanExecute = IsDirty`. Default mode:
 consumer-controlled (`Approve.CanExecute = true`).
