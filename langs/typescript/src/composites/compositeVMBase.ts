@@ -171,8 +171,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   removeAt(index: number): void {
-    const item = this._children[index];
-    if (item === undefined) throw new RangeError(`Index ${String(index)} out of range`);
+    if (index < 0 || index >= this._children.length) {
+      throw new RangeError(`Index ${String(index)} out of range`);
+    }
+    const item = this._children[index] as VM;
     this._children.splice(index, 1);
     item._parent = null;
     if (this.#current === item) {
@@ -188,8 +190,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
-    const old = this._children[index];
-    if (old === undefined) throw new RangeError(`Index ${String(index)} out of range`);
+    if (index < 0 || index >= this._children.length) {
+      throw new RangeError(`Index ${String(index)} out of range`);
+    }
+    const old = this._children[index] as VM;
     this._children[index] = value;
     old._parent = null;
     // Mirror removeAt: if the slot we just replaced held the current
