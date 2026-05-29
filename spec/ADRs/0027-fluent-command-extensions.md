@@ -60,6 +60,11 @@ Option 3. Four fluent extension methods are part of the normative
    sub-package (ADR-0013). This overload is the only fluent method that
    touches the notifications sub-package and it is therefore optional:
    if the sub-package is absent, only the delegate overload is available.
+   The overload is C#-only; Python and TypeScript express the same
+   intent as the explicit composition
+   `command.confirm(make_confirm(hub, prompt))` /
+   `command.confirm(makeConfirm(hub, prompt))` — catalogued in ADR-0009
+   §"Fluent `Confirm` overload with `INotificationHub`".
 1. **`PrecedeWith(other)`** — returns `CompositeCommand(other, receiver)`.
    The `other` command executes first.
 1. **`SucceedWith(other)`** — returns `CompositeCommand(receiver, other)`.
