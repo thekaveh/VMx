@@ -44,7 +44,8 @@ A derived property is built from:
 
 A factory per flavor provides the canonical build entry point. The factory
 takes a sequence of sources and a transform; validator and write-back are
-added via chained builder methods.
+passed as additional factory arguments (optional `canSet` / `setAction`
+parameters in C# / Python, an options-bag field in TS).
 
 ## 3. Source semantics
 

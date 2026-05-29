@@ -1862,14 +1862,19 @@ confirmed a save path) or `null` on cancel
 
 ### DIA-007 — Cancellation completes with safe default, does not throw
 
-**Given** an `IDialogService` implementation that supports `CancellationToken`
-**And** a `CancellationToken` that is cancelled before or during the dialog
-**When** `PickFileToOpen(cancellationToken: ct)` is awaited and the token is cancelled
+The `IDialogService` contract does not include a cancellation parameter; this
+scenario applies to implementations that opt into a cancellation channel
+(e.g., a custom subtype that adds a `CancellationToken` / `AbortSignal`
+overload, or a host that disposes the awaiting context).
+
+**Given** an opt-in cancellable dialog implementation
+**And** a cancellation signal that fires before or during the dialog
+**When** the file-pick await is cancelled
 **Then** the awaitable completes with `null` (no file chosen)
-**And** no `OperationCancelledException` is raised by the awaitable itself
-**When** `Confirm(message, cancellationToken: ct)` is awaited and the token is cancelled
+**And** no cancellation exception is raised by the awaitable itself
+**When** the confirm await is cancelled
 **Then** the awaitable completes with `false`
-**And** no `OperationCancelledException` is raised
+**And** no cancellation exception is raised
 
 ### DIA-008 — `ConfirmationDecoratorCommand` integration
 
