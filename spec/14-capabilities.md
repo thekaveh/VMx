@@ -178,9 +178,9 @@ IPageable:
 ```
 
 The capability describes the _navigation surface_ of a paged view; the
-underlying composition is not mutated. `PagedComposition<TVM>` (Substage 1C /
-chapter 21) is the canonical helper that decorates any composition with this
-capability.
+underlying composition is not mutated. `PagedComposition<TVM>` (see
+chapter 21) is the canonical helper that decorates any composition with
+this capability.
 
 See ADR-0023.
 
