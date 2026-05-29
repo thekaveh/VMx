@@ -270,6 +270,27 @@ ADR-0006 and require no further action:
   `Confirm` name. Python and TypeScript lack overloading with distinct implementations
   and therefore require a distinct function name.
 
+### Fluent `Confirm` overload with `INotificationHub`
+
+- **C#**: extension-method overload `Confirm(this ICommand, INotificationHub, string)`
+  on `FluentNotificationExtensions` in the `VMx.Notifications` companion
+  assembly (same `Confirm` name; C# method overloading distinguishes by
+  parameter types).
+- **Python / TypeScript**: no dedicated fluent hub-overload function ships in
+  the notifications sub-package. The equivalent composition is the explicit
+  two-step form using the bridge helper:
+  `command.confirm(make_confirm(hub, prompt))` (Python) /
+  `command.confirm(makeConfirm(hub, prompt))` (TypeScript). The bridge
+  helpers (`make_confirm` / `makeConfirm`) are already exported from
+  `vmx.notifications` / `vmx/notifications`.
+- **Rationale**: C# method overloading lets the `INotificationHub` variant
+  share the `Confirm` name without polluting the core command surface. In
+  Python and TypeScript a single named composition (`confirm(make_confirm(…))`)
+  is no less ergonomic than a new function, so a dedicated
+  `confirm_with_notification_hub` / `confirmWithNotificationHub` was
+  intentionally not introduced for v2.1 — readers should treat the
+  two-line composition as the canonical idiom.
+
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
 
