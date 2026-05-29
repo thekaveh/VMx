@@ -1134,7 +1134,7 @@ no extra predicate)
 
 ______________________________________________________________________
 
-## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0
+## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0 / v2.1
 
 Each NOTIF-NNN test verifies the `INotificationHub` contract from
 spec/16-notifications.md and ADR-0013.
