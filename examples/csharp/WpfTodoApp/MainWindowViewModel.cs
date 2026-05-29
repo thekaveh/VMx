@@ -58,12 +58,16 @@ public sealed class MainWindowViewModel
     }
 
     /// <summary>
-    /// Destructs all child VMs and disposes the hub. Call from Window.Closed.
+    /// Destructs and disposes all child VMs and disposes the hub.
+    /// Call from Window.Closed.
     /// </summary>
     public void Shutdown()
     {
         foreach (var item in Items)
+        {
             item.Destruct();
+            item.Dispose();
+        }
 
         _hub.Dispose();
     }
