@@ -24,12 +24,15 @@ jobs:
           # - spec/fixtures/** (machine-checkable test inputs; tweakable alongside spec text)
           # - spec/12-conformance.md (test catalog; adding IDs is governed by the
           #   separate "Require conformance stubs" step below, not by ADRs)
+          # - spec/proposals/** (historical planning artifacts; landed proposals are
+          #   already covered by the ADR they introduced)
           changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ \
             | grep -v '^spec/README.md$' \
             | grep -v '^spec/VERSION$' \
             | grep -v '^spec/ADRs/' \
             | grep -v '^spec/fixtures/' \
             | grep -v '^spec/12-conformance.md$' \
+            | grep -v '^spec/proposals/' \
             || true)
 
           # Newly added ADRs satisfy the rule.
