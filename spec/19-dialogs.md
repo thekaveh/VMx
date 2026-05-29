@@ -102,7 +102,7 @@ When a pending dialog call is cancelled via a `CancellationToken` (where support
 
 - The awaitable **completes** with the cancellation result (`null` for `PickFile*`,
   `false` for `Confirm`).
-- The awaitable does **not** throw `OperationCancelledException` unless the
+- The awaitable does **not** throw `OperationCanceledException` unless the
   host adapter explicitly opts into that behavior.
 
 This keeps callers simple: when an implementation surfaces cancellation, the
