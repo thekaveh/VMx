@@ -138,6 +138,7 @@ and a set of `IObservable<Unit>` triggers that re-evaluate `CanExecute`.
 ```csharp
 using System.Reactive;
 using System.Reactive.Subjects;
+using System.Windows.Input;
 using VMx.Commands;
 using VMx.Services;
 

@@ -218,7 +218,7 @@ Per-flavor idiomatic sketch (showing the actual modeled-composite builder
 methods — see chapter 10 for the full surface):
 
 ```
-CompositeVMOf<Notification, NotificationVM>.Builder()
+CompositeVM<Notification, NotificationVM>.Builder()
     .ChildrenModels(() => hub.Pending.Value)          # observed-list snapshot
     .ChildModelToChildViewModel(notif =>              # notification → VM
         new NotificationVM(notif, hub, scheduler))
