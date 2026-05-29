@@ -26,7 +26,14 @@ without compile-time type information (used by polymorphic subscribers).
 
 ## 2. Concrete message types
 
-VMx defines two concrete messages. Both are immutable.
+This chapter defines two **core** concrete messages — the framework-wide
+property-change and lifecycle-transition signals — that ship in every VMx
+binary regardless of opt-in features. Both are immutable. Additional
+domain-specific messages introduced in later spec versions
+(`TreeStructureChangedMessage` per chapter 18, `FormRevertedMessage` per
+chapter 20, and `CollectionChangedMessage` per chapter 21) follow the
+same `IMessage` contract documented here and are specified in their
+respective chapters.
 
 ### 2.1 `PropertyChangedMessage<TSender>`
 
