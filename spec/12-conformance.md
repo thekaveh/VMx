@@ -163,8 +163,9 @@ non-trivial transitions; the full `reconstruct` sequence is normatively defined 
 
 ### LIFE-013 — dispose on a parent disposes every child depth-first
 
-**Given** a `CompositeVM<VM>` in `Constructed` state with N children all `Constructed`,
-each child itself a `CompositeVM<VM>` with M grand-children all `Constructed`
+**Given** a container VM (`CompositeVM<VM>`, `GroupVM<VM>`, or `AggregateVMN<…>`)
+in `Constructed` state with all children/component slots themselves `Constructed`,
+each child itself a container with grand-children all `Constructed`
 **When** `parent.dispose()` is called
 **Then** when it returns, every child and every grand-child has `Status == Disposed`
 **And** the disposal order is depth-first (grand-children before children before parent)
