@@ -70,13 +70,16 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
         _component1?.Destruct();
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Dispose cascade (LIFE-013): dispose each component slot depth-first, then self.
+    /// </summary>
+#pragma warning disable CA1816 // base.Dispose() already calls GC.SuppressFinalize(this)
     public override void Dispose()
     {
         _component1?.Dispose();
-        base.Dispose();
-        GC.SuppressFinalize(this);
+        base.Dispose(); // calls GC.SuppressFinalize(this)
     }
+#pragma warning restore CA1816
 
     // ── Builder factory ─────────────────────────────────────────────────────
 
