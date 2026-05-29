@@ -117,7 +117,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `HierarchicalVM[TModel, TVM]`   | Recursive tree-structured VM (spec v2.1)          |
 | `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
 | `FormVM[TM]`                    | Snapshot/revert form lifecycle (spec v2.1)        |
-| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
+| `DialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
 | `ServicedObservableCollection[T]` | Hub-aware observable collection (spec v2.1)     |
 | `ObservableList[T]`             | Granular per-mutation events (spec v2.1)          |
 | `ObservableDictionary[K1, K2, V]` | Multi-key observable dictionary (spec v2.1)     |
