@@ -270,7 +270,7 @@ For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
 `OldItems` arrays (no entry data is needed because the entire collection is
 cleared). This divergence between flavors is catalogued in ADR-0009.
 
-### 4.9 Conformance
+### 4.8 Conformance
 
 `COL-010` through `COL-015` and `COL-022` in `12-conformance.md`.
 
