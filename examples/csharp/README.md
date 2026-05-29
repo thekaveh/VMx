@@ -50,9 +50,11 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   example uses `CompositeVM<TodoItemVM>` + `RelayCommand` for the same
   shape — both patterns are idiomatic; this one shows the lighter
   WPF-flavoured wiring.)
-- `MainWindow.xaml` — pure view; XAML data binding against the inner
-  `ComponentVM`'s `INotifyPropertyChanged` surface plus the
-  `ICommand`-exposing `ToggleDoneCommand`.
+- `MainWindow.xaml` — pure view; XAML data binding against
+  `TodoItemVM`'s `INotifyPropertyChanged` surface (the outer wrapper
+  forwards the inner `ComponentVM<TodoItem>`'s hub-published
+  `PropertyChangedMessage("Model")` to standard INPC for `Title` /
+  `Done`) plus the `ICommand`-exposing `ToggleDoneCommand`.
 
 **Run (Windows only):**
 
