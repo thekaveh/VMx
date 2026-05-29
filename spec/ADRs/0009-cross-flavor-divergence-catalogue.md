@@ -93,14 +93,19 @@ ADR-0006 and require no further action:
 - **C# / TypeScript**: all interfaces / Protocols use the canonical `I`-prefix
   (`ISelectable`, `IExpandable`, `IFilterable`, `IPageable`, `IDialogService`,
   `INotificationHub`, `ILocalizer`, …).
-- **Python**: split convention. The v2.0 capability ABCs and shared services
-  retain the I-prefix for stability (`IClosable`, `IApprovable`, `INewCreatable`,
-  `IUpdatable`, `IDeletable`, `ISavable`, `IManagable`, `IConstructable`,
-  `IDestructable`, `IReconstructable`, `ISelectable`, `IDeselectable`,
-  `ISelectionTogglable`, `IExpandable`, `ICollapsible`, `ISearchable`,
-  plus `INotificationHub` and `ILocalizer`). The v2.1 additions ship bare,
-  following modern Python ABC/Protocol idiom (`Filterable`, `Pageable`,
-  `DialogService`).
+- **Python**: split convention. All 20 v2.0 capability ABCs (per ADR-0010)
+  and the v2.0 shared services retain the I-prefix for stability:
+  `IConstructable`, `IDestructable`, `IReconstructable` (lifecycle);
+  `ISelectable`, `IDeselectable`, `ISelectionTogglable` (selection);
+  `IExpandable`, `ICollapsible`, `IExpansionTogglable` (expansion);
+  `IClosable`, `IApprovable`, `ICancelable` (dialog/form);
+  `INewCreatable`, `IDeletable`, `IUpdatable`, `ISavable` (CRUD);
+  `ICurrentDeletable`, `ICurrentUpdatable` (container-current CRUD);
+  `IManagable` (generic management); `ISearchable` (search); plus shared
+  services `INotificationHub` and `ILocalizer`. The v2.1 additions ship
+  bare, following modern Python ABC/Protocol idiom: `Filterable`,
+  `Pageable` (per ADR-0022 / ADR-0023; CAP-021 / CAP-022) and
+  `DialogService` (per ADR-0029).
 - **Rationale**: the v2.0 names were established when the Python flavor
   first ported the C# I-prefix convention literally; renaming them on the
   v2.1 minor bump would have been breaking. The v2.1 additions adopt the
