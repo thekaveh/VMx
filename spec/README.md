@@ -49,10 +49,16 @@ flavor releases a stable version.
 
 The following existing chapters were also extended in v2.1:
 
+- `03-messages.md` — §7 Convenience helpers (ADR-0032, informative):
+  `PropertyValueChangedMessagesFor` batch publisher.
 - `04-commands.md` — §9 "Fluent composition" (ADR-0027): four fluent extension
   methods (`Confirm`, `PrecedeWith`, `SucceedWith`, `WrapWith`) over `ICommand`.
 - `14-capabilities.md` — §2.6 `IFilterable<T>` (ADR-0022, CAP-021) and §2.10
   `IPageable` (ADR-0023, CAP-022).
+- `15-derived-properties.md` — §8 Recipe for avoiding double-subscription on
+  lazy initialization.
+- `16-notifications.md` — §6–§7 render-side VMs `NotificationVM` and
+  `ConfirmationVM` (ADR-0031, NOTIF-011..016) with auto-dismiss lifecycle.
 
 ### 1.4 Supporting artefacts
 
