@@ -309,6 +309,21 @@ here so audits don't reopen them prematurely:
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
 
+### `FormVM.OnApproved` emitted value
+
+- **C#**: emits the **pre-await captured** model snapshot
+  (`_onApproved.OnNext(current)` in `FormVM<TM>.ApproveAsync`).
+- **Python / TypeScript**: emit the **live** `self._model` / `this.#model`
+  after the persister await completes.
+- **Rationale**: spec FORM-006 only asserts that the event fires after a
+  successful persist; it does not pin which model value is emitted.
+  Conformance tests verify the post-state without inspecting the emitted
+  payload, so both forms are spec-compliant. The Python / TS form is
+  marginally easier to reason about (the value is always the current
+  `Model`); the C# form is deterministic against concurrent re-mutation
+  during the await. Aligning the three flavors is deferred to a future
+  release.
+
 ### Command property declared types
 
 - **C#**: command properties on `ComponentVMBase`, `FormVM`, `NotificationVM`,
