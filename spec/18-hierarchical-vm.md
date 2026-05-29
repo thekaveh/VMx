@@ -32,7 +32,7 @@ subclass; the recursive constraint is enforced per flavor (ADR-0028 §3.2).
 HierarchicalVM<TModel, TVM>:
     Model    : TModel                  # per-node domain model
     Parent   : TVM?                    # null when IsRoot
-    Children : IReadOnlyList<TVM>      # lazy by default; eager via builder
+    Children : IReadOnlyList<TVM>      # lazy by default; eager via constructor option
     Depth    : int                     # 0 for root; Parent.Depth + 1 otherwise
     Path     : IReadOnlyList<TVM>      # materialized snapshot: root, …, self
     IsRoot   : bool                    # Parent is null
@@ -91,10 +91,10 @@ sequenceDiagram
 Default: **lazy.** `Children` is materialized on first access by invoking the
 children factory delegate.
 
-Builder option `WithEagerChildren()` flips to **eager**: the entire tree is
-materialized at construct time using depth-first traversal. Eager mode is required
-if the consumer wants depth-first construction to apply to the whole tree at
-startup.
+Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True` (Python)
+flips to **eager**: the entire tree is materialized at construct time using
+depth-first traversal. Eager mode is required if the consumer wants
+depth-first construction to apply to the whole tree at startup.
 
 ## 5. Hub messages
 
@@ -145,8 +145,9 @@ TreeStructureChangedMessage:
 - `HIER-006` — `IsFirst` and `IsLast` position predicates.
 - `HIER-007` — Default lazy child loading: `Children` is not materialized until
   first access.
-- `HIER-008` — Eager child loading: `WithEagerChildren()` builder option
-  materializes the full tree at construct.
+- `HIER-008` — Eager child loading: `eagerChildren=true` (C# / TS) /
+  `eager_children=True` (Python) constructor option materializes the full
+  tree at construct.
 - `HIER-009` — Depth-first construction: a parent reports `Constructed` only
   after every (eager) descendant.
 - `HIER-010` — `PropertyChangedMessage` on `Parent` change.

@@ -81,8 +81,7 @@ Each flavor uses its idiomatic equality operator/method:
 
 - C#: `object.Equals` (record types use structural equality by default).
 - Python: `__eq__` (`@dataclass(eq=True)` or `@dataclass(frozen=True)` by default).
-- TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects;
-  consumers may substitute a custom comparer via the builder.
+- TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects.
 
 ## 5. Lifecycle state diagram
 

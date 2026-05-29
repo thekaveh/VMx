@@ -1734,7 +1734,7 @@ the updated sequence
 
 ### HIER-008 — Eager child loading via builder option
 
-**Given** a tree constructed with `WithEagerChildren()` builder option
+**Given** a tree constructed with the `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) constructor option
 **And** a children factory delegate that records invocations per node
 **When** the root node's `construct()` completes
 **Then** the children factory has been invoked for every node in the tree

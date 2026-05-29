@@ -35,11 +35,13 @@ Option 3, with the following six specific resolutions:
 
 1. **Lazy child loading by default.** Children are not materialized until
    `Children` is first accessed or `Expand()` is invoked (if the VM also
-   implements `IExpandable`). A builder option enables eager loading for
+   implements `IExpandable`). A constructor option (`eagerChildren` in
+   C# / TS, `eager_children` in Python) enables eager loading for
    consumers who want it.
 1. **Recursive generic constraint.** Per-flavor: C#
    `where TVM : HierarchicalVM<TModel, TVM>`, Python
-   `TVM = TypeVar("TVM", bound="HierarchicalVM[Any, TVM]")`, TS
+   `TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")` (the weaker
+   bound — `TypeVar` cannot express self-referential parameter binding), TS
    `TVM extends HierarchicalVM<TModel, TVM>`. Cross-flavor divergence is
    noted in ADR-0009.
 1. **Depth-first construction order.** A parent transitions to `Constructed`

@@ -240,7 +240,7 @@ ADR-0006 and require no further action:
   on `FluentCommandExtensions` (same `Confirm` name; C# method overloading
   distinguishes by parameter types).
 - **Python**: standalone function `confirm_with_dialog_service(command, dialog_service, prompt)` in `vmx.commands`; distinct name because Python lacks function overloading.
-- **TypeScript**: standalone function `confirmWithDialogService(command, dialogService, prompt)` exported from `@vmx/core`; distinct name for the same reason.
+- **TypeScript**: standalone function `confirmWithDialogService(command, dialogService, prompt)` exported from `vmx`; distinct name for the same reason.
 - **Rationale**: C# method overloading lets the `IDialogService` variant share the
   `Confirm` name. Python and TypeScript lack overloading with distinct implementations
   and therefore require a distinct function name.
