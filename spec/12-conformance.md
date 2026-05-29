@@ -1732,7 +1732,7 @@ the updated sequence
 **When** `Children` is accessed for the first time
 **Then** the children factory delegate IS invoked exactly once
 
-### HIER-008 — Eager child loading via builder option
+### HIER-008 — Eager child loading via constructor option
 
 **Given** a tree constructed with the `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) constructor option
 **And** a children factory delegate that records invocations per node
