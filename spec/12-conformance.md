@@ -1950,11 +1950,13 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **Given** a `FormVM<TM>` with a persister that throws `InvalidOperationException`
 **And** `Model` has been updated to `m1` (so `IsDirty == true`)
 **And** `Snapshot` equals `m0`
-**When** `ApproveCommand.Execute()` is called and the persister throws
+**When** `ApproveAsync()` is awaited and the persister throws
 **Then** `Snapshot` is still `m0` (unchanged)
 **And** `Model` is still `m1` (unchanged)
 **And** `IsDirty` is still `true`
-**And** the exception propagates to the caller
+**And** the awaitable surfaces the exception to the caller (the exception
+is observable via the awaitable entry-point only; `ApproveCommand.Execute()`
+dispatches the persist call fire-and-forget per chapter 20 §2)
 
 ### FORM-008 — Hub messages on revert
 
