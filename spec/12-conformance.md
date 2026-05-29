@@ -1674,7 +1674,7 @@ count-preserving mutations (e.g., only replace operations)
 **Then** a `Reset` is emitted (mutations occurred)
 **And** no `PropertyChanged("Count")` is emitted (count unchanged)
 
-## HIER — HierarchicalVM (chapter 18)
+## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
 
@@ -1798,7 +1798,7 @@ with `Source == parent` and `Affected == child`
 **Then** the child is removed from `Children`
 **And** a `TreeStructureChangedMessage` with `Change == Removed` is published
 
-## DIA — IDialogService (chapter 19)
+## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract
 
@@ -1889,7 +1889,7 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **And** the inner command is only executed when `Confirm` returns `true`
 **And** the inner command is NOT executed when `Confirm` returns `false`
 
-## FORM — FormVM (chapter 20)
+## 27. FORM — FormVM (chapter 20) — spec v2.1
 
 ### FORM-001 — Snapshot captured at construct
 
