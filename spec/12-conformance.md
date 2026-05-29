@@ -1929,7 +1929,7 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Given** a `FormVM<TM>` with initial model `m0` and a persister that records its argument
 **And** `Model` has been updated to `m1`
-**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**When** `ApproveAsync()` is awaited and the persister succeeds
 **Then** the persister was called with `m1`
 **And** `Snapshot` is updated to a value structurally equal to `m1`
 **And** `IsDirty == false` after the approve completes
@@ -1938,11 +1938,11 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Given** a `FormVM<TM>` with a subscriber to `OnApproved`
 **And** `Model` has been updated to `m1`
-**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**When** `ApproveAsync()` is awaited and the persister succeeds
 **Then** `OnApproved` fires exactly once with a value equal to `m1`
 
 **Given** a persister that throws an exception
-**When** `ApproveCommand.Execute()` is called
+**When** `ApproveAsync()` is awaited
 **Then** `OnApproved` does NOT fire
 
 ### FORM-007 — Persist failure leaves state unchanged
