@@ -23,17 +23,19 @@ in multiple language flavors with semantically equivalent behavior.
   `DerivedProperty`, `ModeledCrudCommands`), null-object services, optional
   `INotificationHub` sub-package, and `ILocalizer` hook (introduced in spec
   v2.0, detailed in chapters 14–17).
-- **v2.1 additions** (chapters 18–21): two new capability micro-interfaces
-  (`IFilterable<T>` and `IPageable`, joining at positions 21 and 22 per
-  ADR-0022 / ADR-0023); `HierarchicalVM<TModel, TVM>` — first-class
-  recursive tree VM with lazy/eager child loading and `TreeStructureChangedMessage`;
-  `IDialogService` — host-side modal interactions distinct from `INotificationHub`;
-  `FormVM<TM>` — snapshot/revert edit lifecycle with approve/deny commands and
-  `FormRevertedMessage`; `NotificationVM` + `ConfirmationVM` — render-side VMs with
-  auto-dismiss lifecycle; collection primitives `ServicedObservableCollection<T>`,
+- **v2.1 additions**. New chapters 18–21: `HierarchicalVM<TModel, TVM>` —
+  first-class recursive tree VM with lazy/eager child loading and
+  `TreeStructureChangedMessage`; `IDialogService` — host-side modal
+  interactions distinct from `INotificationHub`; `FormVM<TM>` — snapshot/revert
+  edit lifecycle with approve/deny commands and `FormRevertedMessage`;
+  `NotificationVM` + `ConfirmationVM` — render-side VMs with auto-dismiss
+  lifecycle; collection primitives `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, and
-  `PagedComposition<TVM>`; fluent command extensions (`Confirm`, `PrecedeWith`,
-  `SucceedWith`, `WrapWith`).
+  `PagedComposition<TVM>`. Extensions to existing chapters: two new capability
+  micro-interfaces `IFilterable<T>` (chapter 14 §2.6, ADR-0022) and
+  `IPageable` (chapter 14 §2.10, ADR-0023) joining at positions 21 and 22;
+  fluent command extensions `Confirm`, `PrecedeWith`, `SucceedWith`,
+  `WrapWith` (chapter 04 §9, ADR-0027).
 
 ## 2. Out of scope
 
