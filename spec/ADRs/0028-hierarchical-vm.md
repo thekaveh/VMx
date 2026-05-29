@@ -49,7 +49,7 @@ Option 3, with the following six specific resolutions:
    depth-first dispose order; preserves invariant "children exist before
    parent reports ready".
 1. **Hub messages.** Parent changes emit a standard `PropertyChangedMessage`
-   (per ADR-0013 + chapter 03 rules). Structural changes (add/remove/reparent
+   (per chapter 03 §2.1 rules). Structural changes (add/remove/reparent
    of descendants) emit a dedicated `TreeStructureChangedMessage` with
    `(Source, Change: Added | Removed | Reparented, Affected, Index)` payload.
 1. **Path materialized + cached.** `Path` returns a read-only snapshot of
