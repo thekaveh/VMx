@@ -69,7 +69,7 @@ def test_scrape_python_tests_finds_marks(tmp_path: Path) -> None:
     test_file = tmp_path / "test_lifecycle.py"
     test_file.write_text(
         textwrap.dedent(
-            '''\
+            """\
             import pytest
 
             @pytest.mark.conformance("LIFE-001")
@@ -96,7 +96,7 @@ def test_scrape_python_tests_finds_marks(tmp_path: Path) -> None:
 
             def test_unrelated_helper():
                 pass
-            '''
+            """
         ),
         encoding="utf-8",
     )
@@ -110,7 +110,7 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
     test_file = tmp_path / "LifecycleTests.cs"
     test_file.write_text(
         textwrap.dedent(
-            '''\
+            """\
             using Xunit;
 
             public class LifecycleTests
@@ -135,7 +135,7 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
                 // This must NOT match — Trait outside brackets is not an attribute
                 public Trait fake = new Trait("Conformance", "LIFE-999");
             }
-            '''
+            """
         ),
         encoding="utf-8",
     )
@@ -152,7 +152,7 @@ def test_scrape_typescript_tests_finds_describe_ids(tmp_path: Path) -> None:
     test_file = tmp_path / "lifecycle.test.ts"
     test_file.write_text(
         textwrap.dedent(
-            '''\
+            """\
             import { describe, it, expect } from "vitest";
 
             describe("LIFE-001", () => {
@@ -165,7 +165,7 @@ def test_scrape_typescript_tests_finds_describe_ids(tmp_path: Path) -> None:
 
             // Not a conformance ID — should be ignored
             describe("some helper", () => {});
-            '''
+            """
         ),
         encoding="utf-8",
     )
@@ -256,9 +256,7 @@ def test_render_report_shows_missing_ids() -> None:
 
 
 def test_render_report_full_coverage_has_no_missing_line() -> None:
-    report = ccc.render_report(
-        {"LIFE-001"}, {"python": {"LIFE-001"}}, {}
-    )
+    report = ccc.render_report({"LIFE-001"}, {"python": {"LIFE-001"}}, {})
     assert "MISSING" not in report
     assert "1/1 covered" in report
 

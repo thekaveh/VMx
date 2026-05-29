@@ -41,7 +41,14 @@ jobs:
         # The conformance-coverage tool lives at the repo root (outside the
         # langs/python lint scope) but is CI-critical; lint it here so style
         # regressions in this script don't slip past every other workflow.
-        run: uv --project langs/python run ruff check tools/
+        # `--config` is required because ruff auto-discovery starts at the
+        # invocation CWD (repo root), never finds langs/python/pyproject.toml,
+        # and silently falls back to defaults instead of our chosen rules.
+        run: uv --project langs/python run ruff check --config langs/python/pyproject.toml tools/
+        # Also enforce formatting so style regressions in this script can't
+        # slip past CI silently.
+      - name: Ruff format check tools/
+        run: uv --project langs/python run ruff format --check --config langs/python/pyproject.toml tools/
 
       - name: Run tool's own unit tests
         run: uv --project langs/python run pytest tools/tests/ -v
