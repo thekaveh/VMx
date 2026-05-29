@@ -426,17 +426,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         SetStatus(ConstructionStatus.Disposed);
 
+        // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
+        // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
+        // status reaches Disposed and *before* the status trigger is
+        // completed, so a subclass override can still publish a final
+        // status value or touch hub-published subjects during cleanup.
+        OnDispose();
+
         if (!_triggerDisposed)
         {
             _triggerDisposed = true;
             _statusTrigger.OnCompleted();
             _statusTrigger.Dispose();
         }
-
-        // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
-        // TS `_onDispose` (componentVMBase.ts). Runs after the status reaches
-        // Disposed and before per-command disposal.
-        OnDispose();
 
         (_selectCommand as IDisposable)?.Dispose();
         (_deselectCommand as IDisposable)?.Dispose();
