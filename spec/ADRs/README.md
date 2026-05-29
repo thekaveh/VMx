@@ -27,7 +27,7 @@ cross-references each ADR carries.
 | [0007](0007-aggregate-vm-arity-1-to-5.md)               | `AggregateVM` arities 1–5                           | 1.0.0        | Accepted |
 | [0008](0008-async-lifecycle-methods.md)                 | Async lifecycle methods                             | 1.0.0        | Accepted |
 | [0009](0009-cross-flavor-divergence-catalogue.md)       | Cross-flavor divergence catalogue                   | 1.1.0        | Accepted |
-| [0010](0010-capability-micro-interfaces.md)             | 20 capability micro-interfaces                      | 2.0.0        | Accepted |
+| [0010](0010-capability-micro-interfaces.md)             | Capability micro-interfaces (additive)              | 2.0.0        | Accepted |
 | [0011](0011-derived-properties.md)                      | N-source derived properties                         | 2.0.0        | Accepted |
 | [0012](0012-command-decorators.md)                      | Command decorators (Confirmation, Logging)          | 2.0.0        | Accepted |
 | [0013](0013-notification-service.md)                    | Opt-in `VMx.Notifications` sub-package              | 2.0.0        | Accepted |
