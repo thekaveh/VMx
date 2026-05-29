@@ -1,6 +1,7 @@
-"""DIA-001..DIA-008 — VMx IDialogService conformance tests.
+"""DIA-001..DIA-008 — VMx ``DialogService`` conformance tests.
 
-Per spec/19-dialogs.md and ADR-0029.
+Spec-canonical name is ``IDialogService``; Python flavor omits the
+I-prefix per ADR-0009. See spec/19-dialogs.md and ADR-0029.
 """
 
 from __future__ import annotations

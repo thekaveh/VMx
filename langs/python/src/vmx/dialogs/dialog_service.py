@@ -1,7 +1,9 @@
-"""IDialogService contract (chapter 19, ADR-0029).
+"""``DialogService`` contract (chapter 19, ADR-0029).
 
 Host-side modal interaction contract: file pick, confirm prompt, and
-severity-tagged notify. See spec/19-dialogs.md and ADR-0029.
+severity-tagged notify. The spec-canonical name is ``IDialogService``;
+the Python flavor exports the bare ``DialogService`` per ADR-0009.
+See spec/19-dialogs.md and ADR-0029.
 """
 
 from __future__ import annotations
