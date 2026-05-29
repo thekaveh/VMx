@@ -114,14 +114,26 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `SearchableState[T]`            | Debounced filter helper (spec v2.0)               |
 | `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default (v2.0) |
 | 22× capability ABCs             | `vmx.capabilities.*` — opt-in (spec v2.0+)        |
+| `HierarchicalVM[TModel, TVM]`   | Recursive tree-structured VM (spec v2.1)          |
+| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
+| `FormVM[TM]`                    | Snapshot/revert form lifecycle (spec v2.1)        |
+| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
+| `ServicedObservableCollection[T]` | Hub-aware observable collection (spec v2.1)     |
+| `ObservableList[T]`             | Granular per-mutation events (spec v2.1)          |
+| `ObservableDictionary[K1, K2, V]` | Multi-key observable dictionary (spec v2.1)     |
+| `PagedComposition[TVM]`         | Pageable iterable decorator (spec v2.1)           |
+| Fluent command helpers          | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
+| `property_value_changed_messages_for` | Batch helper for `PropertyValueChangedMessage` (spec v2.1) |
 
-The opt-in `vmx.notifications` subpackage (spec v2.0) adds:
+The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 | Export                                                            | Description                            |
 | ----------------------------------------------------------------- | -------------------------------------- |
 | `Notification` / `NotificationType` / `NotificationReaction`      | Notification primitives                |
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub` / `NULL_NOTIFICATION_HUB` | Async notification hub + null variant |
 | `make_confirm(hub, prompt)`                                       | Bridge to `ConfirmationDecoratorCommand` |
+| `NotificationVM`                                                  | Render-side VM for `Notification` (spec v2.1) |
+| `ConfirmationVM`                                                  | Render-side VM with Approve/Reject (spec v2.1) |
 
 ## 5. Conformance
 
