@@ -1,3 +1,4 @@
+using VMx.Components;
 using VMx.Messages;
 
 namespace VMx.Hierarchical;
@@ -35,7 +36,14 @@ public sealed record TreeStructureChangedMessage(
     int Index) : IMessage
 {
     /// <inheritdoc/>
-    public string SenderName => Source.GetType().Name;
+    /// <remarks>
+    /// Reads <see cref="IComponentVM.Name"/> when the source implements
+    /// <see cref="IComponentVM"/> (the canonical case), matching Python
+    /// (`hierarchical_vm.py`) and TypeScript (`hierarchicalVm.ts`) which both
+    /// emit the VM's configured name. Falls back to the runtime type name
+    /// for the rare case where a non-VM source is supplied.
+    /// </remarks>
+    public string SenderName => (Source as IComponentVM)?.Name ?? Source.GetType().Name;
 
     /// <summary>The source cast to <see cref="object"/> (satisfies <see cref="IMessage"/> protocol).</summary>
     public object SenderObject => Source;

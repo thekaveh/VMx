@@ -433,6 +433,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             _statusTrigger.Dispose();
         }
 
+        // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
+        // TS `_onDispose` (componentVMBase.ts). Runs after the status reaches
+        // Disposed and before per-command disposal.
+        OnDispose();
+
         (_selectCommand as IDisposable)?.Dispose();
         (_deselectCommand as IDisposable)?.Dispose();
         (_selectNextCommand as IDisposable)?.Dispose();
