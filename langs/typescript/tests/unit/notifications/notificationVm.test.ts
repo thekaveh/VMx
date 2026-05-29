@@ -159,6 +159,28 @@ describe("NotificationVM dismissCommand", () => {
     expect(vm.isResolved).toBe(true);
     vm.dispose();
   });
+
+  it("routes through protected dismiss() so subclass overrides participate", () => {
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notif = new Notification(NotificationType.Notification, "x");
+    hub.post(notif);
+
+    let overrideCalled = 0;
+    class DismissOverrideVM extends NotificationVM {
+      protected override dismiss(): void {
+        overrideCalled++;
+        super.dismiss();
+      }
+    }
+
+    const vm = new DismissOverrideVM(notif, hub, scheduler, 10_000);
+    vm.dismissCommand.execute();
+
+    expect(overrideCalled).toBe(1);
+    expect(vm.isResolved).toBe(true);
+    vm.dispose();
+  });
 });
 
 // ---------------------------------------------------------------------------

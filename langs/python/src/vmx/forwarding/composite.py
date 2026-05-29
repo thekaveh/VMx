@@ -179,6 +179,9 @@ class ForwardingCompositeVM(Generic[VM]):
     def __getitem__(self, index: int) -> VM:
         return cast(VM, self._wrapped[index])  # type: ignore[index]
 
+    def __setitem__(self, index: int, value: VM) -> None:
+        self._wrapped[index] = value  # type: ignore[index]
+
     def __contains__(self, item: object) -> bool:
         return bool(item in self._wrapped)  # type: ignore[operator]
 

@@ -85,10 +85,10 @@ export class ServicedObservableCollection<T> {
 
   /** Replace the item at *index*. */
   setAt(index: number, newItem: T): void {
-    const oldItem = this.#items[index];
-    if (oldItem === undefined && index >= this.#items.length) {
+    if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
+    const oldItem = this.#items[index];
     this.#items[index] = newItem;
     this.#emit(
       CollectionChangedMessage.forReplace(
