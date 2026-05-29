@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from vmx.components.component_vm import ComponentVMOf
-from vmx.messages.construction_status import ConstructionStatusChangedMessage
+from vmx.messages import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
