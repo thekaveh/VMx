@@ -186,7 +186,14 @@ class ForwardingCompositeVM(Generic[VM]):
         return bool(item in self._wrapped)  # type: ignore[operator]
 
     def index_of(self, item: VM) -> int:
-        return int(self._wrapped.index_of(item))  # type: ignore[attr-defined]
+        # CompositeVM exposes the standard MutableSequence `index()` which
+        # raises ValueError on absence; convert to -1 to mirror C# `IList<T>.
+        # IndexOf` semantics (and GroupVM's own `index_of`). The `index_of`
+        # name on the wrapper matches the spec-canonical surface (chapter 06).
+        try:
+            return int(self._wrapped.index(item))  # type: ignore[attr-defined]
+        except ValueError:
+            return -1
 
     # ── CompositeVM: collection mutation ──────────────────────────────────────
     # Same Protocol-gap reasoning as above for the mutation surface.
