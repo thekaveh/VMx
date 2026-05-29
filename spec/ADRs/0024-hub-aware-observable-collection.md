@@ -63,6 +63,7 @@ defined in `spec/21-collections.md` §2. Key rules:
 - Consumers who want cross-collection hub visibility pass their hub at
   construction time; consumers who do not care pass nothing. No new required
   service contract; no breaking change to existing VM types.
-- `IMessageHub` and `CollectionChangedMessage` are defined in `spec/03-messages.md`
-  (the message hub) and referenced here. Flavors that already have a typed
-  message catalog add `CollectionChangedMessage` there.
+- `IMessageHub` is defined in `spec/03-messages.md` and referenced here.
+  `CollectionChangedMessage` is defined in `spec/21-collections.md` §2.4 as a
+  v2.1 domain-specific message (per chapter 03 §2). Flavors add the type to
+  their existing typed-message catalog.
