@@ -341,7 +341,9 @@ i.e., `cmd.Execute()` is invoked before `other.Execute()` when both are executab
 **Given** an `ICommand` `cmd`
 **And** optional extra predicate, pre-action, and post-action arguments
 **When** `cmd.WrapWith(predicate, pre, post)` is called
-**Then** the returned command is equivalent to `new DecoratorCommand(cmd, predicate, pre, post)` —
+**Then** the returned command is equivalent to
+`new DecoratorCommand(cmd, pre, post, predicate)` (the shipped C# / Python
+constructor takes `(inner, preExecute, postExecute, extraPredicate)`) —
 including the case where all three arguments are null/absent, which yields a
 transparent decorator
 
