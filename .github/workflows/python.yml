@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "langs/python/**"
+      - "examples/python/vmx_inspector/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   pull_request:
     paths:
       - "langs/python/**"
+      - "examples/python/vmx_inspector/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   workflow_dispatch:
@@ -66,3 +68,12 @@ jobs:
           files: langs/python/coverage.xml
           flags: python
           fail_ci_if_error: false
+
+      - name: vmx_inspector smoke test
+        # Smoke-tests the Textual-TUI example app to keep it from rotting
+        # against the core vmx package it depends on (file:../../../langs/python).
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        working-directory: examples/python/vmx_inspector
+        run: |
+          uv sync --extra dev
+          uv run pytest -q
