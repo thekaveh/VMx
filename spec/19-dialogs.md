@@ -105,8 +105,9 @@ When a pending dialog call is cancelled via a `CancellationToken` (where support
 - The awaitable does **not** throw `OperationCancelledException` unless the
   host adapter explicitly opts into that behavior.
 
-This keeps callers simple: `var path = await svc.PickFileToOpen(ct: ct)` returns
-`null` on cancel rather than requiring a try/catch.
+This keeps callers simple: when an implementation surfaces cancellation, the
+awaited `PickFile*` returns `null` and `Confirm` returns `false` on cancel
+rather than requiring a try/catch.
 
 ## 7. `ConfirmationDecoratorCommand` integration
 
