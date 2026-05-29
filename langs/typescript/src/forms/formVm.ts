@@ -31,7 +31,10 @@ export interface FormVMOptions<TM> {
    */
   strict?: boolean;
   /**
-   * Custom snapshot function. Defaults to `structuredClone` (shallow-enough for plain objects).
+   * Custom snapshot function. Defaults to `structuredClone` — a structured
+   * deep clone; nested references are independent between Model and Snapshot.
+   * Supply a custom snapshotter if you need shallow semantics or your model
+   * contains values structuredClone cannot serialize.
    */
   snapshotter?: Snapshotter<TM>;
 }
