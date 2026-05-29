@@ -18,4 +18,6 @@ vmx = { path = "../../langs/python", editable = true }
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
+# vmx_inspector is a separate uv project (see examples/python/vmx_inspector/pyproject.toml)
+# and is intentionally excluded from this aggregate examples wheel.
 packages = ["hello_vmx", "tk_todo_app"]
