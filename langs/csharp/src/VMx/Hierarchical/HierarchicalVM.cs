@@ -254,8 +254,13 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     private List<TVM> MaterializeChildren()
     {
         var list = new List<TVM>(_childrenFactory((TVM)this));
+        // Direct-assign during initial factory hydration: parents do not
+        // *change* on first materialization, so emitting `HierarchicalParent`
+        // PropertyChangedMessage here would publish N spurious events on
+        // the first lazy access (or eager construct). Python and TypeScript
+        // do the same direct-assign — this keeps the three flavors in sync.
         foreach (var child in list)
-            child.SetHierarchicalParent((TVM)this);
+            child._hierarchicalParent = (TVM)this;
         return list;
     }
 
