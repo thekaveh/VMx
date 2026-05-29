@@ -22,7 +22,8 @@ Minimal console demo. Demonstrates:
 2. Subscribing to hub messages (`ConstructionStatusChangedMessage` and
    `PropertyChangedMessage`).
 3. The full lifecycle: construct → model mutations → destruct → dispose.
-4. A `RelayCommand` whose `CanExecute` reacts to a property change.
+4. The equality guard: setting the same model value emits **no** hub
+   message.
 
 **Run:**
 
