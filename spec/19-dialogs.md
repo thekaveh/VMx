@@ -116,7 +116,7 @@ rather than requiring a try/catch.
 
 ```
 // Pseudo-code (per-flavor idiomatic)
-var safDelete = deleteCommand.Confirm(() => dialogService.Confirm("Delete this item?"));
+var safeDelete = deleteCommand.Confirm(() => dialogService.Confirm("Delete this item?"));
 ```
 
 The fluent overload `cmd.Confirm(dialogService, prompt)` (ADR-0027 / ADR-0029) is
