@@ -114,9 +114,9 @@
   <text x="62" y="596" fill="#fb923c" font-size="9" font-weight="600">Null-object variants (ADR-0017):</text>
   <text x="232" y="596" fill="#94a3b8" font-size="9">NullMessageHub  ·  NullDispatcher  ·  NullLocalizer  ·  NullNotificationHub</text>
 
-  <!-- LAYER 4 — v2.0 ADDITIONS -->
+  <!-- LAYER 4 — v2.0+v2.1 ADDITIONS -->
   <rect x="850" y="238" width="220" height="380" rx="12" fill="rgba(15, 23, 42, 0.3)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
-  <text x="870" y="260" fill="#a78bfa" font-size="11" font-weight="700">v2.0 additions (opt-in)</text>
+  <text x="870" y="260" fill="#a78bfa" font-size="11" font-weight="700">v2.0+v2.1 additions (opt-in)</text>
 
   <rect x="870" y="278" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
   <text x="960" y="296" fill="white" font-size="11" font-weight="600" text-anchor="middle">Capability interfaces</text>
@@ -135,16 +135,16 @@
   <rect x="870" y="490" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
   <text x="960" y="508" fill="white" font-size="11" font-weight="600" text-anchor="middle">Command decorators</text>
   <text x="960" y="525" fill="#94a3b8" font-size="9" text-anchor="middle">CompositeCommand · Decorator</text>
-  <text x="960" y="537" fill="#94a3b8" font-size="9" text-anchor="middle">ConfirmationDecoratorCommand</text>
+  <text x="960" y="537" fill="#94a3b8" font-size="9" text-anchor="middle">ConfirmationDecorator · fluent (v2.1)</text>
   <text x="960" y="549" fill="#94a3b8" font-size="9" text-anchor="middle">ModeledCrudCommands&lt;M,VM&gt;</text>
-  <text x="960" y="566" fill="#a78bfa" font-size="8" text-anchor="middle">CMDD-001..009 · COMP-019..024</text>
+  <text x="960" y="566" fill="#a78bfa" font-size="8" text-anchor="middle">CMDD-001..009 · CMD-008..011 · COMP-019..024</text>
 
   <rect x="870" y="586" width="180" height="20" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
   <text x="960" y="600" fill="#fb923c" font-size="9" text-anchor="middle">ILocalizer (spec/17 · LOC-001..003)</text>
 
   <!-- LAYER 5 — OPT-IN SUB-PACKAGE -->
   <rect x="30" y="650" width="1040" height="100" rx="12" fill="rgba(136, 19, 55, 0.2)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
-  <text x="50" y="672" fill="#fb7185" font-size="11" font-weight="700">Opt-in sub-package (spec/16 · NOTIF-001..010 · ADR-0013)</text>
+  <text x="50" y="672" fill="#fb7185" font-size="11" font-weight="700">Opt-in sub-package (spec/16 · NOTIF-001..016 · ADR-0013 + ADR-0031)</text>
   <text x="50" y="688" fill="#94a3b8" font-size="9">C# separate assembly · Python sub-package · TS sub-path export</text>
 
   <rect x="50" y="700" width="240" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
@@ -179,7 +179,7 @@
   <text x="456" y="812" fill="#94a3b8" font-size="9">Core (v1.x baseline)</text>
 
   <rect x="600" y="802" width="18" height="12" rx="3" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="626" y="812" fill="#94a3b8" font-size="9">v2.0 additions (opt-in)</text>
+  <text x="626" y="812" fill="#94a3b8" font-size="9">v2.0+v2.1 additions (opt-in)</text>
 
   <rect x="780" y="802" width="18" height="12" rx="3" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="3,3"/>
   <text x="806" y="812" fill="#94a3b8" font-size="9">Sub-package (separate dist)</text>
