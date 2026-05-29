@@ -1,6 +1,8 @@
 /**
  * Bridge from INotificationHub Confirmation to the async predicate used
  * by ConfirmationDecoratorCommand.
+ *
+ * See spec/16-notifications.md §"Bridging command decorators".
  */
 import {
   Notification,
