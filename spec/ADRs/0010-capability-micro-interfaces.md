@@ -60,8 +60,8 @@ inheritance rules.
   `capabilities/` in Python and TypeScript) containing the interface
   declarations only — no implementations.
 - Consumers can begin writing capability-based code without waiting for any
-  other absorption cycle.
-- Subsequent cycles (Item 6 expand/collapse, Item 7 modeled CRUD) extend
+  other absorption work.
+- Follow-on ADRs (ADR-0015 expand/collapse, ADR-0016 modeled CRUD) extend
   existing VM types to additively implement specific capabilities. Each such
   extension is itself a non-breaking change.
 - This ADR does not introduce new event channels. Property-change messages

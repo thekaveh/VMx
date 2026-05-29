@@ -74,11 +74,11 @@ historical reference; no code change accompanies this ADR.
 
 ## 3. Consequences
 
-- No code change in this cycle; the ADR is documentation.
+- No code change in this ADR; it is documentation only.
 - Consumers migrating from a hypothetical legacy-VMx project can use the
   mapping table to find the modern equivalent of each predecessor concept.
 - Future ADRs are free to revisit any individual decision in the "Rejected"
   column if a strong concrete need emerges; the current ADR is descriptive
   of v2.0 reality, not prescriptive against future change.
-- The chain-vs-flat decision is the cycle's "best-effort" absorption of
+- The chain-vs-flat decision is the absorption's "best-effort" capture of
   the predecessor's philosophy — captured rather than restored.
