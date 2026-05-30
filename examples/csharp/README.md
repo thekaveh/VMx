@@ -45,7 +45,7 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   view-only properties that aren't part of the model.
 - `MainWindowViewModel` holding an `ObservableCollection<TodoItemVM>`
   bound to the ListBox plus a public `AddItem(string)` method invoked
-  from the Add button's click handler. (The Python `tk_todo_app`
+  from the Add button's click handler. (The Python `tk/todo_app`
   example uses `CompositeVM<TodoItemVM>` + `RelayCommand` for the same
   shape — both patterns are idiomatic; this one shows the lighter
   WPF-flavoured wiring.)
