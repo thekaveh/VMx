@@ -45,12 +45,52 @@ npx tsx console/hello-vmx/index.ts
 
 ---
 
-## 3. Project layout
+## 3. Example 2 — `react/notes-showcase/` (React 18 + Vite, flagship)
+
+The Notes Workspace flagship app — a single-page web app on React 18 + Vite
+that exercises **15 distinct VMx features** in one cohesive scenario
+(notebooks tree, paged + filterable notes list, FormVM editor,
+capability-aware action bar, notifications, async lifecycle, dialogs,
+`AggregateVM6` root). Pure-VM contract enforced via ESLint's
+`no-restricted-imports` rule — view components never call `useState` /
+`useReducer`.
+
+**Run (dev server):**
+
+```bash
+cd react/notes-showcase
+npm install
+npm run dev         # http://localhost:5173
+```
+
+**Production build:**
+
+```bash
+cd react/notes-showcase
+npm run build       # static bundle in dist/
+```
+
+See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for
+the project layout, feature-traceability, keybindings (`Mod+N`, `Mod+S`,
+etc.), and a note on the temporary Vite plugin stubbing `node:fs|path|url`
+for browser builds. Cross-flavor parity is documented in
+[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
+scenario contract lives at
+[`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
+
+---
+
+## 4. Project layout
 
 ```
 examples/typescript/
 ├── README.md              # this file
-└── console/
-    └── hello-vmx/
-        └── index.ts       # entry point
+├── console/
+│   └── hello-vmx/
+│       └── index.ts       # entry point
+└── react/
+    └── notes-showcase/
+        ├── package.json, vite.config.ts, tsconfig.json
+        ├── src/{models,viewmodels,views}/
+        └── tests/{models,viewmodels,views}/
 ```

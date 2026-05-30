@@ -65,12 +65,37 @@ launches on Windows because of the WPF target.
 
 ---
 
-## 4. IDE workflow
+## 4. Example 3 — `avalonia/NotesShowcase/` (Avalonia + MVVM, flagship)
 
-Open `Examples.sln` in Visual Studio or Rider to step through both
+The Notes Workspace flagship app — a cross-platform XAML editor on
+Avalonia 11 + .NET 8 that exercises **15 distinct VMx features** in one
+cohesive scenario (notebooks tree, paged + filterable notes list, FormVM
+editor, capability-aware action bar, notifications, async lifecycle,
+dialogs, `AggregateVM6` root). Pure-VM contract enforced; every `*.axaml.cs`
+code-behind is `InitializeComponent()`-only.
+
+**Run (macOS / Linux / Windows):**
+
+```bash
+cd ../../    # repo root
+dotnet run --project examples/csharp/avalonia/NotesShowcase
+```
+
+See [`avalonia/NotesShowcase/README.md`](avalonia/NotesShowcase/README.md)
+for the project layout, feature-traceability table, and keyboard shortcuts.
+Cross-flavor parity is documented in
+[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
+scenario contract lives at
+[`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
+
+---
+
+## 5. IDE workflow
+
+Open `Examples.sln` in Visual Studio or Rider to step through all three
 projects with the debugger attached.
 
-## 5. Project layout
+## 6. Project layout
 
 ```
 examples/csharp/
@@ -79,7 +104,12 @@ examples/csharp/
 ├── console/
 │   └── HelloVMx/
 │       └── HelloVMx.csproj
-└── wpf/
-    └── TodoApp/
-        └── WpfTodoApp.csproj
+├── wpf/
+│   └── TodoApp/
+│       └── WpfTodoApp.csproj
+└── avalonia/
+    ├── NotesShowcase/
+    │   └── NotesShowcase.csproj
+    └── NotesShowcase.Tests/
+        └── NotesShowcase.Tests.csproj
 ```

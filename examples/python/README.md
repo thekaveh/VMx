@@ -99,7 +99,31 @@ uv run --project examples/python/textual/inspector python -m vmx_inspector
 
 ---
 
-## 5. Project layout
+## 5. Example 4 — `textual/notes_showcase` (Textual TUI, flagship)
+
+The Notes Workspace flagship app — a TUI on Textual ≥ 0.80 that exercises
+**15 distinct VMx features** in one cohesive scenario (notebooks tree,
+paged + filterable notes list, FormVM editor, capability-aware action bar,
+notifications, async lifecycle, dialogs, `AggregateVM6` root). Pure-VM
+contract enforced; widget classes expose only `compose()` / `on_mount()` /
+one-statement `action_*()`.
+
+`textual/notes_showcase/` is its own uv project — run it from the repo root:
+
+```bash
+uv run --project examples/python/textual/notes_showcase python -m notes_showcase
+```
+
+See [`textual/notes_showcase/README.md`](textual/notes_showcase/README.md)
+for project layout, feature-traceability, and keybindings (`Ctrl+S` to save,
+`Ctrl+F` to search, etc.). Cross-flavor parity is documented in
+[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
+scenario contract lives at
+[`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
+
+---
+
+## 6. Project layout
 
 ```
 examples/python/
@@ -114,9 +138,14 @@ examples/python/
 │       ├── __init__.py
 │       └── __main__.py         # entry point: python -m todo_app
 └── textual/
-    └── inspector/              # stand-alone uv project (Textual)
+    ├── inspector/              # stand-alone uv project (Textual)
+    │   ├── pyproject.toml
+    │   ├── README.md
+    │   ├── src/vmx_inspector/
+    │   └── tests/
+    └── notes_showcase/         # stand-alone uv project (Textual flagship)
         ├── pyproject.toml
         ├── README.md
-        ├── src/vmx_inspector/
+        ├── src/notes_showcase/
         └── tests/
 ```

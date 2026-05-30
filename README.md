@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
-specification, three idiomatic language flavors, 219 cross-language conformance
+specification, three idiomatic language flavors, 220 cross-language conformance
 tests passing on every commit.
 
 ## Contents
@@ -46,7 +46,7 @@ makes no assumption about the UI layer. Every flavor exposes:
   `ConstructionStatusChangedMessage`, plus collection-change events on
   container VMs.
 - Four hierarchy primitives — leaf `ComponentVM`, selectable `CompositeVM`,
-  peer `GroupVM`, fixed-arity `AggregateVM1..5` — plus forwarding decorators
+  peer `GroupVM`, fixed-arity `AggregateVM1..6` — plus forwarding decorators
   for instrumentation.
 - A `RelayCommand` with reactive `canExecute` triggers, plus v2.0 decorators
   (`CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`)
@@ -79,14 +79,14 @@ a browsable HTML version with summary cards is at
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 22 markdown chapters, 33 ADRs,
-  4 JSON fixtures, 219 conformance IDs, version pinned in `spec/VERSION`.
+- **Spec** — `spec/` is the source of truth: 22 markdown chapters, 34 ADRs,
+  4 JSON fixtures, 220 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
   override, or composition.
 - **ViewModel hierarchy** — `ComponentVM<M>`, `CompositeVM<VM>`,
-  `GroupVM<VM>`, `AggregateVM1..5`.
+  `GroupVM<VM>`, `AggregateVM1..6`.
 - **Commands** — `RelayCommand` and `RelayCommand<T>` with `execute`,
   `canExecute`, and reactive trigger observables.
 - **Messages and collection events** — `PropertyChangedMessage`,
@@ -162,6 +162,28 @@ npm install vmx
 
 ### 4.3 Examples
 
+The three **flagship Notes Workspace** apps — one per language flavor, one
+per UI framework — implement the same scenario from a single language-neutral
+VM API surface, exercising **15 distinct VMx features** (notebooks tree,
+paged + filterable notes list, FormVM editor, capability-aware action bar,
+notifications, async lifecycle, dialogs, `AggregateVM6` root). See
+[`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) for
+the cross-flavor feature matrix and
+[`spec/proposals/2026-05-29-notes-showcase-scenario.md`](spec/proposals/2026-05-29-notes-showcase-scenario.md)
+for the canonical scenario contract.
+
+- [`examples/csharp/avalonia/NotesShowcase/`](examples/csharp/avalonia/NotesShowcase/)
+  — Notes Workspace flagship on Avalonia 11 + .NET 8 (cross-platform XAML).
+  Run: `dotnet run --project examples/csharp/avalonia/NotesShowcase`.
+- [`examples/python/textual/notes_showcase/`](examples/python/textual/notes_showcase/)
+  — Notes Workspace flagship on Textual ≥ 0.80 (TUI). Run:
+  `uv run --project examples/python/textual/notes_showcase python -m notes_showcase`.
+- [`examples/typescript/react/notes-showcase/`](examples/typescript/react/notes-showcase/)
+  — Notes Workspace flagship on React 18 + Vite. Run: `npm install && npm run dev`
+  from the example dir; production bundle via `npm run build`.
+
+Smaller per-flavor demos:
+
 - [`examples/csharp/console/HelloVMx/`](examples/csharp/console/HelloVMx/) — console.
 - [`examples/csharp/wpf/TodoApp/`](examples/csharp/wpf/TodoApp/) — WPF + MVVM
   (Windows only).
@@ -180,7 +202,7 @@ npm install vmx
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 21-collections.md   (22 chapters)
-│   ├── ADRs/              architecture decision records (0001..0033)
+│   ├── ADRs/              architecture decision records (0001..0034)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         historical planning artifacts (not part of published docs)
 │   └── VERSION            spec SemVer
@@ -208,8 +230,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 22 chapters, 33 ADRs,
-  4 fixtures, and the 219-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 22 chapters, 34 ADRs,
+  4 fixtures, and the 220-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
   [`langs/csharp/README.md`](langs/csharp/README.md),
@@ -243,9 +265,9 @@ compatible and ships in flavors as a minor bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 219 normative test scenarios keyed by ID
+`spec/12-conformance.md` enumerates 220 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
-`NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, …). Every flavor re-implements the catalog under
+`NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `AGG-006`, …). Every flavor re-implements the catalog under
 `langs/<flavor>/tests/conformance/`, and `tools/check-conformance-coverage.py`
 enforces 100% coverage in CI.
 
