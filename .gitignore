@@ -92,6 +92,7 @@ yarn-error.log*
 coverage/
 *.coverage
 *.lcov
+*.cobertura.xml
 
 # ─── Docs builds ──────────────────────────────────────────────────────
 docs/_build/

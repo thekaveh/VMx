@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      Phase 3.a ships a HEADLESS VM tree only: no UI. We target a plain Library
+      so the test project can reference us cross-platform (Phase 5.a will flip
+      this to WinExe + Avalonia.Desktop). See plan §3.a and §5.a.
+    -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>NotesShowcase</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Examples are not subject to the library's strict warning policy. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
+    <ProjectReference Include="../../../../langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj" />
+  </ItemGroup>
+</Project>
