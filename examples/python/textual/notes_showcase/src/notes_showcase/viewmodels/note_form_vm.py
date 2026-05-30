@@ -23,6 +23,7 @@ from vmx import (
     MessageHub,
     PropertyChangedMessage,
     RelayCommand,
+    RelayCommandOf,
     RxDispatcher,
     from_sources,
 )
@@ -88,10 +89,20 @@ class NoteFormVM(ComponentVM, IReconstructable):
             .task(self._add_tag)
             .build()
         )
-        self._remove_tag_command_of_t: RelayCommand = (
-            # Simple non-parameterised: caller passes tag via remove_tag() method.
-            RelayCommand.builder().task(lambda: None).build()
+        # Parameterised remove-tag command — parity with C# RemoveTagCommand
+        # (RelayCommand<string?>) and TS removeTagCommand (RelayCommandOf<string>).
+        # Spec §6.2 requires NoteFormVM to expose this as a public VM member.
+        self._remove_tag_command: RelayCommandOf[str] = (
+            RelayCommandOf[str]
+            .builder()
+            .predicate(lambda tag: self.has_bound_note and bool(tag))
+            .task(self._remove_tag)
+            .build()
         )
+        # No-op fallback returned by ``deny_command`` when no form is bound,
+        # so views can bind unconditionally. Matches C# ``_noopCommand``
+        # (NoteFormVM.cs:118) and TS ``#noopCommand`` (noteFormVM.ts:54).
+        self._noop_command: RelayCommand = RelayCommand.builder().task(lambda: None).build()
 
     # ── Convenience hub accessor ───────────────────────────────────────────
     @property
@@ -194,19 +205,35 @@ class NoteFormVM(ComponentVM, IReconstructable):
     def deny_command(self) -> RelayCommand:
         if self._form is None:
             # Return a permanent no-op command so views can bind unconditionally.
-            return self._remove_tag_command_of_t
+            return self._noop_command
         return self._form.deny_command
 
     @property
     def add_tag_command(self) -> RelayCommand:
         return self._add_tag_command
 
+    @property
+    def remove_tag_command(self) -> RelayCommandOf[str]:
+        """Parameterised remove-tag command — invoke with the tag string to
+        drop. Parity with C# ``RemoveTagCommand`` and TS ``removeTagCommand``.
+        """
+        return self._remove_tag_command
+
     def remove_tag(self, tag: str) -> None:
-        """Imperative tag removal (caller provides the tag)."""
+        """Imperative tag removal (caller provides the tag).
+
+        Equivalent to ``remove_tag_command.execute(tag)``; kept as a thin
+        Python-side helper for tests and ad-hoc callers.
+        """
+        self._remove_tag(tag)
+
+    def _remove_tag(self, tag: str | None) -> None:
         if not self.has_bound_note or not tag:
             return
         current = self.draft
         new_tags = tuple(t for t in current.tags if t.lower() != tag.lower())
+        if new_tags == current.tags:
+            return
         self.draft = self._replace_tags(current, new_tags)
 
     def _add_tag(self) -> None:
@@ -308,7 +335,8 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._form.dispose()
         self._approve_command.dispose()
         self._add_tag_command.dispose()
-        self._remove_tag_command_of_t.dispose()
+        self._remove_tag_command.dispose()
+        self._noop_command.dispose()
         self._is_dirty.dispose()
         self._is_valid.dispose()
         self._self_subject.on_completed()

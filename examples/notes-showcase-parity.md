@@ -45,9 +45,11 @@ renders, headless smoke covers it.
   added via ADR-0034 as a non-breaking minor bump (`spec-v2.2.0`) so that
   `WorkspaceVM` could compose its six heterogeneous children without a
   synthetic chrome wrapper.
-- **Screenshots.** Reference screenshots live in
-  [`assets/notes-showcase/`](../assets/notes-showcase/) (one PNG per flavor,
-  captured manually).
+- **Screenshots.** Reference screenshots will live in
+  [`assets/notes-showcase/`](../assets/notes-showcase/) once captured (one
+  PNG per flavor, captured manually). They are pending capture as of
+  2026-05-30 — see [`assets/notes-showcase/README.md`](../assets/notes-showcase/README.md)
+  for the placeholder note and capture convention.
 
 [^hier]: All three flavors implement an equivalent flat-collection +
     parent-id navigation pattern instead of subclassing

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ConfirmationDecoratorCommand,
   hasCapability,
   MessageHub,
   PropertyChangedMessage,
   RxDispatcher,
 } from "vmx";
+import { NotificationHub } from "vmx/notifications";
 
 import type { NoteModel } from "../../src/models/noteModel.js";
 import { NoteVM } from "../../src/viewmodels/noteVM.js";
@@ -136,5 +138,65 @@ describe("NoteVM", () => {
 
   it("builder validates required fields", () => {
     expect(() => NoteVM.builder().build()).toThrow();
+  });
+
+  // ── Audit-round-2 Imp-4: ConfirmationDecoratorCommand parity (mirrors C# trio) ──
+
+  it("deleteCommand with confirm returning false does NOT invoke onDelete", async () => {
+    const onDelete = vi.fn();
+    const vm = NoteVM.builder()
+      .name("note")
+      .model(model())
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .onDelete(onDelete)
+      .confirmDelete(async () => false) // user clicks "No"
+      .build();
+    vm.construct();
+
+    expect(vm.deleteCommand).toBeInstanceOf(ConfirmationDecoratorCommand);
+    await (vm.deleteCommand as ConfirmationDecoratorCommand).executeAsync();
+
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("deleteCommand with confirm returning true invokes onDelete", async () => {
+    const onDelete = vi.fn();
+    const vm = NoteVM.builder()
+      .name("note")
+      .model(model())
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .onDelete(onDelete)
+      .confirmDelete(async () => true) // user clicks "Yes"
+      .build();
+    vm.construct();
+
+    expect(vm.deleteCommand).toBeInstanceOf(ConfirmationDecoratorCommand);
+    await (vm.deleteCommand as ConfirmationDecoratorCommand).executeAsync();
+
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onDelete).toHaveBeenCalledWith(vm);
+  });
+
+  it("deleteCommand with confirm returning true publishes a 'Note deleted' notification", async () => {
+    const notifs = new NotificationHub();
+    const observed: string[] = [];
+    notifs.pending.subscribe((snapshot) => {
+      for (const n of snapshot) if (!observed.includes(n.message)) observed.push(n.message);
+    });
+    const vm = NoteVM.builder()
+      .name("note")
+      .model(model({ title: "Important" }))
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .onDelete(() => {})
+      .confirmDelete(async () => true)
+      .notificationHub(notifs)
+      .build();
+    vm.construct();
+
+    await (vm.deleteCommand as ConfirmationDecoratorCommand).executeAsync();
+
+    expect(
+      observed.some((m) => m.includes("Note deleted") && m.includes("Important")),
+    ).toBe(true);
   });
 });

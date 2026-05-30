@@ -107,9 +107,9 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Package                                                | Status   | Reactive primitive |
 | ---------- | ------------------------------------------------------ | -------- | ------------------ |
-| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet  | v2.1.0   | System.Reactive    |
-| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI         | v2.1.0   | reactivex          |
-| TypeScript | [`vmx`](https://www.npmjs.com/package/vmx) on npm      | v2.1.0   | rxjs               |
+| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet  | v2.2.0   | System.Reactive    |
+| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI         | v2.2.0   | reactivex          |
+| TypeScript | [`vmx`](https://www.npmjs.com/package/vmx) on npm      | v2.2.0   | rxjs               |
 
 The C# flavor multi-targets `netstandard2.0` and `net8.0` and ships two
 companion assemblies:
@@ -124,6 +124,7 @@ bundles, and exposes `vmx/notifications` as a sub-path export.
 
 | spec  | csharp         | python         | typescript     |
 | ----- | -------------- | -------------- | -------------- |
+| 2.2.x | 2.2.0          | 2.2.0          | 2.2.0          |
 | 2.1.x | 2.1.0          | 2.1.0          | 2.1.0          |
 | 2.0.x | 2.0.0          | 2.0.0          | 2.0.0          |
 | 1.1.x | 1.1.0 – 1.2.0  | 1.1.0 – 1.2.0  | 1.1.0 – 1.2.0  |

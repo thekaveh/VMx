@@ -9,10 +9,15 @@ The widgets here two-way bind to those scalars, so typing into the Title
 Status-line ``editing_text`` is a :class:`DerivedProperty`, so we route it
 through ``bind_derived_property`` (Phase 5.b binding-gap #3) — the
 ``PropertyChangedMessage`` channel is not used.
+
+Subscription hygiene (audit round 2 Imp-5): every ``bind_*`` returns a
+``Disposable`` that we collect into a ``CompositeDisposable`` and dispose
+in ``on_unmount`` so subscriptions don't outlive the widget.
 """
 
 from __future__ import annotations
 
+from reactivex.disposable import CompositeDisposable
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Checkbox, Input, Static, TextArea
@@ -26,12 +31,48 @@ from notes_showcase.views.adapter import (
 )
 
 
+def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
+    vm = view._vm
+    return CompositeDisposable(
+        # Two-way scalar bindings (binding-gap #1 fix).
+        bind_property_two_way(
+            view.query_one("#form_title", Input), "value", vm, "title"
+        ),
+        bind_property_two_way(
+            view.query_one("#form_starred", Checkbox), "value", vm, "starred"
+        ),
+        bind_property_two_way(
+            view.query_one("#form_body", TextArea), "text", vm, "body"
+        ),
+        # Tag draft (text input) + add/save/revert commands.
+        bind_property_two_way(
+            view.query_one("#form_tag_draft", Input), "value", vm, "tag_draft"
+        ),
+        bind_command(view.query_one("#form_add_tag", Button), vm.add_tag_command),
+        bind_command(view.query_one("#form_save", Button), vm.approve_command),
+        bind_command(view.query_one("#form_revert", Button), vm.deny_command),
+        # Tag chip strip — one-way bound to ``tags`` (re-rendered as a flat
+        # string for simplicity; the C# flavor renders chips, the Textual flavor
+        # uses a comma-joined static, which keeps the widget class minimal).
+        bind_property(
+            view.query_one("#form_tag_chips", Static), "renderable", vm, "tags"
+        ),
+        # Dirty marker ← DerivedProperty (binding-gap #3 fix). Uses the
+        # bridge that subscribes to ``DerivedProperty.value_changed`` rather
+        # than the hub (DerivedProperty does not publish PropertyChangedMessage).
+        bind_derived_property(
+            view.query_one("#form_status", Static), "renderable", vm.is_dirty
+        ),
+    )
+
+
 class NoteFormView(Vertical):
     """Editor pane bound to a :class:`NoteFormVM`."""
 
     def __init__(self, vm: NoteFormVM) -> None:
         super().__init__(id="form_pane")
         self._vm = vm
+        self._disposables: CompositeDisposable = CompositeDisposable()
 
     def compose(self) -> ComposeResult:
         yield Static("Note", classes="pane_title")
@@ -52,42 +93,7 @@ class NoteFormView(Vertical):
         )
 
     def on_mount(self) -> None:
-        # Two-way scalar bindings (binding-gap #1 fix).
-        bind_property_two_way(
-            self.query_one("#form_title", Input), "value", self._vm, "title"
-        )
-        bind_property_two_way(
-            self.query_one("#form_starred", Checkbox),
-            "value",
-            self._vm,
-            "starred",
-        )
-        bind_property_two_way(
-            self.query_one("#form_body", TextArea), "text", self._vm, "body"
-        )
-        # Tag draft (text input) + add/save/revert commands.
-        bind_property_two_way(
-            self.query_one("#form_tag_draft", Input),
-            "value",
-            self._vm,
-            "tag_draft",
-        )
-        bind_command(
-            self.query_one("#form_add_tag", Button), self._vm.add_tag_command
-        )
-        bind_command(self.query_one("#form_save", Button), self._vm.approve_command)
-        bind_command(self.query_one("#form_revert", Button), self._vm.deny_command)
-        # Tag chip strip — one-way bound to ``tags`` (re-rendered as a flat
-        # string for simplicity; the C# flavor renders chips, the Textual flavor
-        # uses a comma-joined static, which keeps the widget class minimal).
-        bind_property(
-            self.query_one("#form_tag_chips", Static), "renderable", self._vm, "tags"
-        )
-        # Dirty marker ← DerivedProperty (binding-gap #3 fix). Uses the
-        # bridge that subscribes to ``DerivedProperty.value_changed`` rather
-        # than the hub (DerivedProperty does not publish PropertyChangedMessage).
-        bind_derived_property(
-            self.query_one("#form_status", Static),
-            "renderable",
-            self._vm.is_dirty,
-        )
+        self._disposables = _wire_bindings(self)
+
+    def on_unmount(self) -> None:
+        self._disposables.dispose()

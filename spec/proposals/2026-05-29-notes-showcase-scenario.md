@@ -1,6 +1,6 @@
 # Proposal — Notes Workspace showcase: cross-flavor flagship examples
 
-**Status:** Accepted (2026-05-30; implementation in progress on `examples-notes-showcase`)
+**Status:** Accepted (2026-05-30; implementation complete on `examples-notes-showcase` — audit gate in progress)
 **Date:** 2026-05-29
 **Target spec version:** 2.2.0 (minor bump — adds `AggregateVM6`)
 **Branch:** `examples-notes-showcase` off `main`
@@ -71,8 +71,10 @@ exercised by the example.
   `vmx-avalonia`, `vmx-textual`). Adapters live inside each example as
   demonstrative code, ≤ ~250 lines. Promoting them to libraries is a future
   PR.
-- N2. Adding entries to `spec/12-conformance.md`. Examples are not normative;
-  conformance stays at 219 IDs.
+- N2. Adding **example-driven** entries to `spec/12-conformance.md`. Examples
+  are not normative; the AGG-006 addition is driven by the `AggregateVM6`
+  spec extension (Phase 2.s), not by the example apps themselves.
+  Conformance is at 220 IDs after this branch lands.
 - N3. Pixel-perfect visual parity or visual regression tests. Three screenshots
   in `assets/notes-showcase/` are the manual reference.
 - N4. End-to-end simulated-user tests (Playwright / FlaUI / pyautogui). Headless

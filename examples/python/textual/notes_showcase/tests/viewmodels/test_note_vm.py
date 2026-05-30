@@ -132,3 +132,95 @@ def test_builder_requires_name_and_model() -> None:
         NoteVM.builder().build()
     with pytest.raises(ValueError, match="model"):
         NoteVM.builder().name("x").build()
+
+
+# ── Audit-round-2 Imp-4: ConfirmationDecoratorCommand parity with C# trio ──
+#
+# These mirror NotesShowcase.Tests.ViewModels.NoteVMTests
+# (DeleteCommand_with_confirm_returning_{false,true}_* + the
+# Note-deleted notification on success). Indirect coverage exists via
+# test_notes_view_vm.py, but the contract deserves dedicated NoteVM-level
+# assertions so a regression in the wrapping logic surfaces here first.
+
+
+def _build_with_confirm(
+    *,
+    confirm: bool,
+    on_delete: object | None = None,
+    notification_hub: object | None = None,
+) -> NoteVM:
+    """Construct a NoteVM whose DeleteCommand is wrapped in a
+    ConfirmationDecoratorCommand returning ``confirm``.
+    """
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(
+        foreground=ImmediateScheduler(), background=ImmediateScheduler()
+    )
+
+    async def _confirm(_vm: NoteVM) -> bool:
+        return confirm
+
+    builder = (
+        NoteVM.builder()
+        .name("note")
+        .services(hub, dispatcher)
+        .model(_model())
+        .confirm_delete(_confirm)
+    )
+    if on_delete is not None:
+        builder = builder.on_delete(on_delete)  # type: ignore[arg-type]
+    if notification_hub is not None:
+        builder = builder.notification_hub(notification_hub)  # type: ignore[arg-type]
+    vm = builder.build()
+    vm.construct()
+    return vm
+
+
+async def test_delete_command_with_confirm_false_does_not_invoke_on_delete() -> None:
+    """User clicks 'No' in the confirm dialog → on_delete must NOT fire."""
+    from vmx.commands import ConfirmationDecoratorCommand
+
+    captured: list[NoteVM] = []
+    vm = _build_with_confirm(confirm=False, on_delete=lambda v: captured.append(v))
+
+    assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
+    await vm.delete_command.execute_async()  # type: ignore[union-attr]
+
+    assert captured == []  # delete rejected by the confirm gate
+
+
+async def test_delete_command_with_confirm_true_invokes_on_delete() -> None:
+    """User clicks 'Yes' in the confirm dialog → on_delete fires with self."""
+    from vmx.commands import ConfirmationDecoratorCommand
+
+    captured: list[NoteVM] = []
+    vm = _build_with_confirm(confirm=True, on_delete=lambda v: captured.append(v))
+
+    assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
+    await vm.delete_command.execute_async()  # type: ignore[union-attr]
+
+    assert captured == [vm]
+
+
+async def test_delete_command_with_confirm_true_publishes_note_deleted_notification() -> None:
+    """Successful confirmed delete + a NotificationHub posts 'Note deleted'."""
+    from vmx.commands import ConfirmationDecoratorCommand
+    from vmx.notifications import NotificationHub
+
+    notification_hub = NotificationHub()
+    observed: list[str] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snapshot: observed.extend(
+            n.message for n in snapshot if n.message not in observed
+        )
+    )
+    vm = _build_with_confirm(
+        confirm=True,
+        on_delete=lambda _v: None,
+        notification_hub=notification_hub,
+    )
+
+    assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
+    await vm.delete_command.execute_async()  # type: ignore[union-attr]
+
+    assert any("Note deleted" in msg and "Hello" in msg for msg in observed)
