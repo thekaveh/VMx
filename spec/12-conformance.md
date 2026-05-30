@@ -611,6 +611,10 @@ ONLY AFTER every `ComponentI.Status` has reached `Constructed`
 `agg.Component2.Status == Destructed`
 **And** `agg.Status == Destructed`
 
+- **AGG-006:** `AggregateVM6` arity-6 ordering — given 6 distinct child VMs,
+  `construct()` drives all six to `Constructed`; `destruct()` waits for all
+  six to reach `Destructed`. (Added in spec 2.2.0 per ADR-0034.)
+
 ______________________________________________________________________
 
 ## 11. Forwarding (`FWD-NNN`)

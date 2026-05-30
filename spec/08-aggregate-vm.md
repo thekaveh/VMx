@@ -1,7 +1,7 @@
 # 08 — AggregateVM
 
 `AggregateVM<VM1..VMN>` is a fixed-arity tuple of heterogeneous component VMs. VMx
-ships arities 1 through 5 (`AggregateVM1` through `AggregateVM5` — see ADR-0007).
+ships arities 1 through 6 (`AggregateVM1` through `AggregateVM6` — see ADR-0007 and ADR-0034).
 
 ## 1. Members (arity N)
 
@@ -18,6 +18,7 @@ AggregateVMN<VM1..VMN> : IComponentVM:
     Component3 : VM3   # only on arity ≥ 3
     Component4 : VM4   # only on arity ≥ 4
     Component5 : VM5   # only on arity ≥ 5
+    Component6 : VM6   # only on arity ≥ 6
 ```
 
 A child slot is populated by invoking a lazy factory at construct time. The factory
@@ -74,16 +75,19 @@ navigable peers, so there are no `select_component` / `deselect_component` metho
 
 ## 5. Arity rationale
 
-ADR-0007 documents why arities 1–5 are the supported range. For more than 5
-heterogeneous children, prefer `CompositeVM<VM>` or `GroupVM<VM>` with a
-heterogeneous-base-type `VM`, or compose multiple aggregates.
+ADR-0007 documents why arities 1–5 were the original supported range, and
+ADR-0034 extends the cap to 6. For more than 6 heterogeneous children,
+prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
+`VM`, or compose multiple aggregates.
 
 ## 6. Conformance
 
-`AGG-001` through `AGG-005` in `12-conformance.md` cover:
+`AGG-001` through `AGG-006` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
 - arity-2 both components reach Constructed
-- arity-5 all five components reach Constructed before parent
+- arity-5 all five components reach Constructed before parent (arity-6
+  follows the same pattern)
 - ComponentN property change fires on construct
 - destruction waits for all children
+- arity-6 construction and destruction ordering

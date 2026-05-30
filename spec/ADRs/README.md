@@ -50,6 +50,7 @@ cross-references each ADR carries.
 | [0031](0031-notification-rendering-vms.md)              | Notification rendering VMs                          | 2.1.0        | Accepted |
 | [0032](0032-property-value-changed-messages.md)         | `PropertyValueChangedMessages` helper (informative) | 2.1.0        | Accepted |
 | [0033](0033-linq-utility-helpers-csharp-only.md)        | LINQ utility helpers (C# only)                      | 2.1.0        | Accepted |
+| [0034](0034-aggregate-vm6.md)                           | Extend `AggregateVM` arity to 6                     | 2.2.0        | Accepted |
 
 ## 2. Format
 
