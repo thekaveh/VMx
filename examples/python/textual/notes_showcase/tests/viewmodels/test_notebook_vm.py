@@ -135,3 +135,32 @@ def test_builder_requires_name_and_model() -> None:
         NotebookVM.builder().build()
     with pytest.raises(ValueError, match="model"):
         NotebookVM.builder().name("x").build()
+
+
+# ── Phase 5.b binding-gap #2: children accessor ─────────────────────────────
+
+
+def test_children_is_empty_when_no_getter_supplied() -> None:
+    vm = _build()
+    assert vm.children == []
+
+
+def test_children_getter_late_bind_returns_supplied_list() -> None:
+    parent = _build(notebook_id="nb-parent")
+    child_a = _build(notebook_id="nb-a")
+    child_b = _build(notebook_id="nb-b")
+    parent.set_children_getter(lambda _: [child_a, child_b])
+    assert parent.children == [child_a, child_b]
+
+
+def test_children_getter_via_builder() -> None:
+    child = _build(notebook_id="nb-c")
+    vm = (
+        NotebookVM.builder()
+        .name("parent")
+        .services(MessageHub[Message](), RxDispatcher.immediate())
+        .model(NotebookModel(id="nb-parent", name="P", parent_id=None))
+        .children_getter(lambda _: [child])
+        .build()
+    )
+    assert vm.children == [child]

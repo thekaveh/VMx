@@ -205,6 +205,18 @@ class WorkspaceVM:
         return self._agg.component_6
 
     @property
+    def dialog_service(self) -> IDialogService:
+        """Currently-bound :class:`IDialogService` (may be late-swapped)."""
+        return self._dialog_service
+
+    @dialog_service.setter
+    def dialog_service(self, value: IDialogService) -> None:
+        """Late-bind the dialog service (used by the composition root once
+        the host UI exists — Avalonia / Textual / React).
+        """
+        self._dialog_service = value
+
+    @property
     def focused_vm(self) -> object | None:
         return self._focused
 

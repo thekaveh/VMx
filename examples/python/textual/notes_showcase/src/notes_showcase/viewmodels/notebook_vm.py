@@ -12,6 +12,7 @@ are layered on via MRO; ``ExpandableState`` provides the expand/collapse mix-in.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 from vmx import (
     ComponentVMOf,
@@ -50,6 +51,7 @@ class NotebookVM(
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
         initially_expanded: bool = False,
+        children_getter: Callable[["NotebookVM"], list["NotebookVM"]] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -61,6 +63,11 @@ class NotebookVM(
             dispatcher=dispatcher,
         )
         self._expansion = ExpandableState(initially_expanded)
+        # Phase 5.b binding gap #2: expose child notebooks so the tree
+        # widget can walk a real hierarchy. The owner (NotebooksRootVM)
+        # injects a callback that closes over the flat collection and
+        # filters by parent_id.
+        self._children_getter = children_getter
 
     # ── Convenience accessors ──────────────────────────────────────────────
     @property
@@ -72,6 +79,25 @@ class NotebookVM(
     def notebook_name(self) -> str:
         """Derived display name (proxy on :attr:`model`)."""
         return str(self.model.name)
+
+    @property
+    def children(self) -> list["NotebookVM"]:
+        """Child notebook VMs (``parent_id`` walk via the owner-supplied getter).
+
+        Returns an empty list when no getter was supplied (standalone VMs do
+        not know about siblings). See Phase 5.b binding gap #2 — the Textual
+        ``Tree`` widget uses this to build a real hierarchy from what is, on
+        disk, a flat ``parent_id`` graph.
+        """
+        if self._children_getter is None:
+            return []
+        return self._children_getter(self)
+
+    def set_children_getter(
+        self, getter: Callable[["NotebookVM"], list["NotebookVM"]] | None
+    ) -> None:
+        """Late-bind the children resolver (used by :class:`NotebooksRootVM`)."""
+        self._children_getter = getter
 
     # ── IExpandable / ICollapsible / IExpansionTogglable ───────────────────
     @property
@@ -146,6 +172,7 @@ class NotebookVMBuilder:
     _hub: MessageHub[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _initially_expanded: bool = False
+    _children_getter: Callable[[NotebookVM], list[NotebookVM]] | None = None
 
     def name(self, value: str) -> NotebookVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -164,6 +191,11 @@ class NotebookVMBuilder:
     def initially_expanded(self, value: bool) -> NotebookVMBuilder:
         return dataclasses.replace(self, _initially_expanded=value)
 
+    def children_getter(
+        self, getter: Callable[[NotebookVM], list[NotebookVM]]
+    ) -> NotebookVMBuilder:
+        return dataclasses.replace(self, _children_getter=getter)
+
     def build(self) -> NotebookVM:
         if self._name is None:
             raise ValueError("name is required")
@@ -178,4 +210,5 @@ class NotebookVMBuilder:
             hub=hub,
             dispatcher=dispatcher,
             initially_expanded=self._initially_expanded,
+            children_getter=self._children_getter,
         )

@@ -8,6 +8,13 @@ filters on ``isinstance(message, PropertyChangedMessage)`` *and* identity of
 into unrelated widgets. The widget's attribute is seeded with the current VM
 value *before* subscribing — that mirrors INPC's "initial render" guarantee
 and means callers do not need a separate read after binding.
+
+``bind_derived_property`` is the companion bridge for :class:`DerivedProperty`
+values (Phase 5.b binding gap #3). ``DerivedProperty`` does **not** publish
+``PropertyChangedMessage`` on its owner's hub — it exposes its own
+``value_changed`` observable. The status-bar reads (``note_count_text``,
+``editing_text``, …) and ``NoteFormVM.is_dirty`` / ``is_valid`` are all
+``DerivedProperty`` instances, so the view-layer subscribes here instead.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from typing import Any
 from reactivex.abc import DisposableBase
 
 from vmx.messages.property_changed import PropertyChangedMessage
+from vmx.properties.derived import DerivedProperty
 
 from notes_showcase.views.adapter._hub_accessor import resolve_hub
 
@@ -79,3 +87,53 @@ def bind_property_two_way(
 
     setattr(widget, f"watch_{widget_attr}", _watcher)
     return disposable
+
+
+def bind_derived_property(
+    widget: Any,
+    attr: str,
+    derived: DerivedProperty[Any],
+) -> DisposableBase:
+    """One-way bind a :class:`DerivedProperty` → ``widget.<attr>``.
+
+    ``DerivedProperty`` lives outside the hub message graph: it owns its own
+    ``value_changed`` :class:`reactivex.Observable` and never publishes
+    ``PropertyChangedMessage``. This bridge subscribes there directly.
+
+    Seeds ``widget.attr`` from ``derived.value`` (when the derived has emitted
+    at least once — otherwise leaves the widget attribute untouched, mirroring
+    the spec ch. 15 "no value yet" semantics).
+    """
+    try:
+        setattr(widget, attr, derived.value)
+    except RuntimeError:
+        # Derived has not received a first emission yet — that's fine; the
+        # subscription below will seed on the next tick.
+        pass
+
+    def _on_next(value: object) -> None:
+        setattr(widget, attr, value)
+
+    return derived.value_changed.subscribe(on_next=_on_next)
+
+
+def on_derived_change(
+    derived: DerivedProperty[Any],
+    callback: Any,
+) -> DisposableBase:
+    """Subscribe a free-form ``callback(value)`` to a :class:`DerivedProperty`.
+
+    Used when a widget needs to *react* to a derived change with more than a
+    simple ``setattr`` — e.g. rebuilding child widgets from a derived list.
+    The widget delegates here rather than touching the hub directly so the
+    Phase 6 "no hub subscriptions in widgets" grep stays green.
+
+    Fires once eagerly with the current ``derived.value`` (if seeded) so the
+    caller does not need a separate ``callback(derived.value)`` after binding.
+    """
+    try:
+        callback(derived.value)
+    except RuntimeError:
+        pass
+
+    return derived.value_changed.subscribe(on_next=callback)

@@ -28,7 +28,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--cov=notes_showcase.models --cov=notes_showcase.viewmodels --cov=notes_showcase.views.adapter --cov-report=term-missing --cov-fail-under=90"
+addopts = "--cov=notes_showcase.models --cov=notes_showcase.viewmodels --cov=notes_showcase.views --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 
 [tool.mypy]

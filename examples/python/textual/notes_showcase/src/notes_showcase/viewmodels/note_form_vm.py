@@ -114,6 +114,46 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._form.set_model(value)
         self._emit_draft_changes()
 
+    # Phase 5.b binding gap #1: NoteModel is an immutable record, so widgets
+    # cannot two-way bind to ``draft.title`` (the chain is read-only). Expose
+    # per-field scalar setters on the form itself so the Textual ``Input`` /
+    # ``TextArea`` / ``Checkbox`` widgets can ``bind_property_two_way`` to
+    # ``title`` / ``body`` / ``starred`` and edits actually round-trip back
+    # into the form.
+    @property
+    def title(self) -> str:
+        return self.draft.title
+
+    @title.setter
+    def title(self, value: str) -> None:
+        if self._form is None or self.draft.title == value:
+            return
+        self.draft = dataclasses.replace(self.draft, title=value)
+
+    @property
+    def body(self) -> str:
+        return self.draft.body
+
+    @body.setter
+    def body(self, value: str) -> None:
+        if self._form is None or self.draft.body == value:
+            return
+        self.draft = dataclasses.replace(self.draft, body=value)
+
+    @property
+    def starred(self) -> bool:
+        return self.draft.starred
+
+    @starred.setter
+    def starred(self, value: bool) -> None:
+        if self._form is None or self.draft.starred == value:
+            return
+        self.draft = dataclasses.replace(self.draft, starred=value)
+
+    @property
+    def tags(self) -> tuple[str, ...]:
+        return self.draft.tags
+
     @property
     def snapshot(self) -> NoteModel:
         return self._form.snapshot if self._form is not None else _EMPTY_NOTE
@@ -246,7 +286,19 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     def _emit_draft_changes(self) -> None:
         self._self_subject.on_next(self)
-        for prop in ("draft", "snapshot", "is_dirty", "is_valid"):
+        # Includes the per-field scalars (title/body/starred/tags) so widgets
+        # two-way bound via the adapter receive PropertyChangedMessage and
+        # re-read. See Phase 5.b binding gap #1.
+        for prop in (
+            "draft",
+            "snapshot",
+            "is_dirty",
+            "is_valid",
+            "title",
+            "body",
+            "starred",
+            "tags",
+        ):
             self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
             self._raise_property_changed(prop)
 

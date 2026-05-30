@@ -177,3 +177,57 @@ def test_dispose_releases_form_and_commands() -> None:
     from vmx import ConstructionStatus
 
     assert vm.status == ConstructionStatus.DISPOSED
+
+
+# ── Phase 5.b binding-gap #1: per-field scalar setters ───────────────────────
+
+
+def test_title_scalar_setter_updates_draft_and_flips_dirty() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note(title="Original"))
+    assert vm.title == "Original"
+    vm.title = "Edited"
+    assert vm.title == "Edited"
+    assert vm.draft.title == "Edited"
+    assert vm.is_dirty.value is True
+
+
+def test_body_scalar_setter_updates_draft() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    vm.body = "new body text"
+    assert vm.body == "new body text"
+    assert vm.draft.body == "new body text"
+    assert vm.is_dirty.value is True
+
+
+def test_starred_scalar_setter_updates_draft() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    assert vm.starred is False
+    vm.starred = True
+    assert vm.starred is True
+    assert vm.draft.starred is True
+    assert vm.is_dirty.value is True
+
+
+def test_scalar_setters_are_no_ops_on_equal_value() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note(title="Same"))
+    vm.title = "Same"
+    assert vm.is_dirty.value is False
+
+
+def test_scalar_setters_are_no_ops_when_unbound() -> None:
+    vm, _ = _build_vm()
+    # No bound note → setters silently no-op (matches draft.setter contract).
+    vm.title = "x"
+    vm.body = "y"
+    vm.starred = True
+    assert vm.has_bound_note is False
+
+
+def test_tags_accessor_proxies_to_draft() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    assert vm.tags == ("alpha",)

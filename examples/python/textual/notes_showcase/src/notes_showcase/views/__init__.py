@@ -6,10 +6,12 @@ Per scenario §6.1 / §8.1, the view layer owns:
   VM's hub. It translates VMx primitives (``PropertyChangedMessage``,
   ``RelayCommand``, ``CollectionChangedEvent``, ``IDialogService``,
   ``Dispatcher``) into Textual-native widget state.
-* widget views (composed in Phase 5.b — not present yet).
-* modal screens (Phase 5.b).
-
-Phase 4.b ships only the adapter. Importing :mod:`notes_showcase.views.adapter`
-does not pull in any Textual widget code beyond what the bridges require, so
-the existing VM tests remain runtime-isolated from the UI.
+* widget views (Phase 5.b — ``NotesShowcaseApp`` + ``MainScreen`` + per-pane
+  Textual widget classes).
+* modal screens (Phase 5.b — :mod:`notes_showcase.views.modals`).
 """
+
+from notes_showcase.views.app import NotesShowcaseApp
+from notes_showcase.views.main_screen import MainScreen
+
+__all__ = ["MainScreen", "NotesShowcaseApp"]

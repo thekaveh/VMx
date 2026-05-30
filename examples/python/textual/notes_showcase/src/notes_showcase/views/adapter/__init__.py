@@ -18,17 +18,28 @@ Public surface (plan §4.b, scenario §7.3):
 
 from __future__ import annotations
 
-from notes_showcase.views.adapter.collection import bind_collection
+from notes_showcase.views.adapter.collection import (
+    bind_collection,
+    bind_observable_list,
+)
 from notes_showcase.views.adapter.command import bind_command
 from notes_showcase.views.adapter.dialog import TextualDialogService
 from notes_showcase.views.adapter.dispatcher import TextualDispatcher
-from notes_showcase.views.adapter.property import bind_property, bind_property_two_way
+from notes_showcase.views.adapter.property import (
+    bind_derived_property,
+    bind_property,
+    bind_property_two_way,
+    on_derived_change,
+)
 
 __all__ = [
     "TextualDialogService",
     "TextualDispatcher",
     "bind_collection",
     "bind_command",
+    "bind_derived_property",
+    "bind_observable_list",
     "bind_property",
     "bind_property_two_way",
+    "on_derived_change",
 ]

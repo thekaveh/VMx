@@ -127,3 +127,46 @@ def _index_of_current(vm_collection: Any) -> int | None:
         if child is current:
             return i
     return None
+
+
+def bind_observable_list(
+    list_view: Any,
+    observable_list: Any,
+    factory: Callable[[Any], Any],
+) -> DisposableBase:
+    """Bind a :class:`vmx.ObservableList` ``[T]`` → Textual ``ListView`` rows.
+
+    Companion to :func:`bind_collection` for collections that do not implement
+    the :class:`CompositeVM` shape (no ``current`` slot, no
+    ``on_collection_changed`` channel). The bridge subscribes to the four
+    granular event observables published by ``ObservableList``:
+    ``on_item_added`` / ``on_item_removed`` / ``on_item_replaced`` /
+    ``on_reset``, and applies the corresponding mutation to the widget.
+
+    Used by ``NotesViewVM.inner`` (centre pane note list — Phase 5.b).
+    """
+    # Initial seed.
+    list_view.clear()
+    for item in observable_list:
+        list_view.append(factory(item))
+
+    subs = CompositeDisposable()
+    subs.add(
+        observable_list.on_item_added.subscribe(
+            on_next=lambda evt: list_view.append(factory(evt[0]))
+        )
+    )
+    subs.add(
+        observable_list.on_item_removed.subscribe(
+            on_next=lambda evt: list_view.pop(evt[1])
+        )
+    )
+
+    def _rebuild_full(_: object = None) -> None:
+        list_view.clear()
+        for item in observable_list:
+            list_view.append(factory(item))
+
+    subs.add(observable_list.on_item_replaced.subscribe(on_next=_rebuild_full))
+    subs.add(observable_list.on_reset.subscribe(on_next=_rebuild_full))
+    return subs
