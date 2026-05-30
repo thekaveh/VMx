@@ -1,10 +1,10 @@
-"""Immutable fluent builders for AggregateVM1 through AggregateVM5.
+"""Immutable fluent builders for AggregateVM1 through AggregateVM6.
 
 Each setter returns a NEW builder instance via ``dataclasses.replace`` (BLD-001).
 ``build()`` validates required fields and raises ``BuilderValidationError`` on failure
 (BLD-002).
 
-See spec/08-aggregate-vm.md and spec/10-builders.md.
+See spec/08-aggregate-vm.md and spec/10-builders.md (arity 6 added per ADR-0034).
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ V2 = TypeVar("V2", bound=ComponentVMProto)
 V3 = TypeVar("V3", bound=ComponentVMProto)
 V4 = TypeVar("V4", bound=ComponentVMProto)
 V5 = TypeVar("V5", bound=ComponentVMProto)
+V6 = TypeVar("V6", bound=ComponentVMProto)
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +324,88 @@ class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
         )
 
 
+# ---------------------------------------------------------------------------
+# AggregateVMBuilder6
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class AggregateVMBuilder6(Generic[V1, V2, V3, V4, V5, V6]):
+    """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM6`.
+
+    Added in spec 2.2.0 per ADR-0034.
+    """
+
+    _name: str | None = dataclasses.field(default=None)
+    _hint: str = dataclasses.field(default="")
+    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _dispatcher: Dispatcher | None = dataclasses.field(default=None)
+    _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
+    _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
+    _factory3: Callable[[], V3] | None = dataclasses.field(default=None)
+    _factory4: Callable[[], V4] | None = dataclasses.field(default=None)
+    _factory5: Callable[[], V5] | None = dataclasses.field(default=None)
+    _factory6: Callable[[], V6] | None = dataclasses.field(default=None)
+
+    def name(self, value: str) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _name=value)
+
+    def hint(self, value: str) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _hint=value)
+
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
+
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _factory1=factory)
+
+    def component_2(self, factory: Callable[[], V2]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _factory2=factory)
+
+    def component_3(self, factory: Callable[[], V3]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _factory3=factory)
+
+    def component_4(self, factory: Callable[[], V4]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _factory4=factory)
+
+    def component_5(self, factory: Callable[[], V5]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _factory5=factory)
+
+    def component_6(self, factory: Callable[[], V6]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+        return dataclasses.replace(self, _factory6=factory)
+
+    def build(self) -> AggregateVM6[V1, V2, V3, V4, V5, V6]:
+        name = _validation.require_field(self._name, "name")
+        hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
+        if self._factory1 is None:
+            raise BuilderValidationError("component_1")
+        if self._factory2 is None:
+            raise BuilderValidationError("component_2")
+        if self._factory3 is None:
+            raise BuilderValidationError("component_3")
+        if self._factory4 is None:
+            raise BuilderValidationError("component_4")
+        if self._factory5 is None:
+            raise BuilderValidationError("component_5")
+        if self._factory6 is None:
+            raise BuilderValidationError("component_6")
+
+        return AggregateVM6(
+            name=name,
+            hint=self._hint,
+            hub=hub,
+            dispatcher=dispatcher,
+            factory1=self._factory1,
+            factory2=self._factory2,
+            factory3=self._factory3,
+            factory4=self._factory4,
+            factory5=self._factory5,
+            factory6=self._factory6,
+        )
+
+
 # Forward references — the VM classes are defined in aggregate_vm.py which
 # imports from this module's dependencies only (not this file), so we import
 # here for type annotations.
@@ -332,6 +415,7 @@ from vmx.aggregates.aggregate_vm import (  # noqa: E402
     AggregateVM3,
     AggregateVM4,
     AggregateVM5,
+    AggregateVM6,
 )
 
 # ---------------------------------------------------------------------------
@@ -349,6 +433,7 @@ AggregateVM2Builder = AggregateVMBuilder2
 AggregateVM3Builder = AggregateVMBuilder3
 AggregateVM4Builder = AggregateVMBuilder4
 AggregateVM5Builder = AggregateVMBuilder5
+AggregateVM6Builder = AggregateVMBuilder6
 
 __all__ = [
     "AggregateVM1Builder",
@@ -356,9 +441,11 @@ __all__ = [
     "AggregateVM3Builder",
     "AggregateVM4Builder",
     "AggregateVM5Builder",
+    "AggregateVM6Builder",
     "AggregateVMBuilder1",
     "AggregateVMBuilder2",
     "AggregateVMBuilder3",
     "AggregateVMBuilder4",
     "AggregateVMBuilder5",
+    "AggregateVMBuilder6",
 ]

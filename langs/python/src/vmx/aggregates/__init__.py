@@ -1,16 +1,16 @@
 """vmx.aggregates — fixed-arity heterogeneous component VM tuples.
 
-Exports AggregateVM1 through AggregateVM5 and their corresponding builders.
+Exports AggregateVM1 through AggregateVM6 and their corresponding builders.
 
 Builder naming
 --------------
 The canonical builder names from v1.2.0 are ``AggregateVM1Builder`` through
-``AggregateVM5Builder`` (matching the TypeScript flavor). The historical
-``AggregateVMBuilder1`` through ``AggregateVMBuilder5`` names remain as identity
+``AggregateVM6Builder`` (matching the TypeScript flavor). The historical
+``AggregateVMBuilder1`` through ``AggregateVMBuilder6`` names remain as identity
 aliases for backward compatibility; the originally planned v2.0.0 removal slipped
 and is deferred to vmx v3.0.0 per ADR-0009.
 
-See spec/08-aggregate-vm.md and ADR-0007.
+See spec/08-aggregate-vm.md and ADR-0007 (arity 6 added per ADR-0034).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from vmx.aggregates.aggregate_vm import (
     AggregateVM3,
     AggregateVM4,
     AggregateVM5,
+    AggregateVM6,
 )
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
@@ -28,11 +29,13 @@ from vmx.aggregates.builders import (
     AggregateVM3Builder,
     AggregateVM4Builder,
     AggregateVM5Builder,
+    AggregateVM6Builder,
     AggregateVMBuilder1,
     AggregateVMBuilder2,
     AggregateVMBuilder3,
     AggregateVMBuilder4,
     AggregateVMBuilder5,
+    AggregateVMBuilder6,
 )
 
 __all__ = [
@@ -46,9 +49,12 @@ __all__ = [
     "AggregateVM4Builder",
     "AggregateVM5",
     "AggregateVM5Builder",
+    "AggregateVM6",
+    "AggregateVM6Builder",
     "AggregateVMBuilder1",
     "AggregateVMBuilder2",
     "AggregateVMBuilder3",
     "AggregateVMBuilder4",
     "AggregateVMBuilder5",
+    "AggregateVMBuilder6",
 ]

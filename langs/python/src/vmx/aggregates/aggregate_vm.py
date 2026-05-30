@@ -1,7 +1,7 @@
-"""AggregateVM1 through AggregateVM5 — fixed-arity tuples of heterogeneous component VMs.
+"""AggregateVM1 through AggregateVM6 — fixed-arity tuples of heterogeneous component VMs.
 
 Each AggregateVMN holds N component slots populated lazily by factories at construct time.
-See spec/08-aggregate-vm.md and ADR-0007.
+See spec/08-aggregate-vm.md and ADR-0007 (arity 6 added per ADR-0034).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ V2 = TypeVar("V2", bound=ComponentVMProto)
 V3 = TypeVar("V3", bound=ComponentVMProto)
 V4 = TypeVar("V4", bound=ComponentVMProto)
 V5 = TypeVar("V5", bound=ComponentVMProto)
+V6 = TypeVar("V6", bound=ComponentVMProto)
 
 
 # ---------------------------------------------------------------------------
@@ -482,3 +483,151 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _ComponentVMBase):
             self._component4.dispose()
         if self._component5 is not None:
             self._component5.dispose()
+
+
+# ---------------------------------------------------------------------------
+# AggregateVM6
+# ---------------------------------------------------------------------------
+
+
+class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _ComponentVMBase):
+    """Arity-6 aggregate viewmodel. A fixed tuple of six heterogeneous component VMs.
+
+    Added in spec 2.2.0 per ADR-0034.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        hint: str,
+        hub: MessageHub[Message],
+        dispatcher: Dispatcher,
+        factory1: Callable[[], V1],
+        factory2: Callable[[], V2],
+        factory3: Callable[[], V3],
+        factory4: Callable[[], V4],
+        factory5: Callable[[], V5],
+        factory6: Callable[[], V6],
+    ) -> None:
+        super().__init__(
+            name=name,
+            hint=hint,
+            hub=hub,
+            dispatcher=dispatcher,
+        )
+        self._factory1: Callable[[], V1] = factory1
+        self._factory2: Callable[[], V2] = factory2
+        self._factory3: Callable[[], V3] = factory3
+        self._factory4: Callable[[], V4] = factory4
+        self._factory5: Callable[[], V5] = factory5
+        self._factory6: Callable[[], V6] = factory6
+        self._component1: V1 | None = None
+        self._component2: V2 | None = None
+        self._component3: V3 | None = None
+        self._component4: V4 | None = None
+        self._component5: V5 | None = None
+        self._component6: V6 | None = None
+
+    @property
+    def type(self) -> ViewModelType:
+        return ViewModelType.AGGREGATE
+
+    @property
+    def component_1(self) -> V1 | None:
+        return self._component1
+
+    @property
+    def component_2(self) -> V2 | None:
+        return self._component2
+
+    @property
+    def component_3(self) -> V3 | None:
+        return self._component3
+
+    @property
+    def component_4(self) -> V4 | None:
+        return self._component4
+
+    @property
+    def component_5(self) -> V5 | None:
+        return self._component5
+
+    @property
+    def component_6(self) -> V6 | None:
+        return self._component6
+
+    def _on_construct(self) -> None:
+        # On Reconstruct, dispose previous slot instances before overwriting
+        # so their hub subscriptions and command Subjects don't leak.
+        if self._component1 is not None:
+            self._component1.dispose()
+        if self._component2 is not None:
+            self._component2.dispose()
+        if self._component3 is not None:
+            self._component3.dispose()
+        if self._component4 is not None:
+            self._component4.dispose()
+        if self._component5 is not None:
+            self._component5.dispose()
+        if self._component6 is not None:
+            self._component6.dispose()
+
+        self._component1 = self._factory1()
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
+        self._raise_property_changed("component_1")
+
+        self._component2 = self._factory2()
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_2"))
+        self._raise_property_changed("component_2")
+
+        self._component3 = self._factory3()
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_3"))
+        self._raise_property_changed("component_3")
+
+        self._component4 = self._factory4()
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_4"))
+        self._raise_property_changed("component_4")
+
+        self._component5 = self._factory5()
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_5"))
+        self._raise_property_changed("component_5")
+
+        self._component6 = self._factory6()
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_6"))
+        self._raise_property_changed("component_6")
+
+        self._component1.construct()
+        self._component2.construct()
+        self._component3.construct()
+        self._component4.construct()
+        self._component5.construct()
+        self._component6.construct()
+
+    def _on_destruct(self) -> None:
+        if self._component1 is not None:
+            self._component1.destruct()
+        if self._component2 is not None:
+            self._component2.destruct()
+        if self._component3 is not None:
+            self._component3.destruct()
+        if self._component4 is not None:
+            self._component4.destruct()
+        if self._component5 is not None:
+            self._component5.destruct()
+        if self._component6 is not None:
+            self._component6.destruct()
+
+    def _on_dispose(self) -> None:
+        if self._component1 is not None:
+            self._component1.dispose()
+        if self._component2 is not None:
+            self._component2.dispose()
+        if self._component3 is not None:
+            self._component3.dispose()
+        if self._component4 is not None:
+            self._component4.dispose()
+        if self._component5 is not None:
+            self._component5.dispose()
+        if self._component6 is not None:
+            self._component6.dispose()
