@@ -1,6 +1,6 @@
 # Proposal — Notes Workspace showcase: cross-flavor flagship examples
 
-**Status:** Proposed (design accepted; implementation pending)
+**Status:** Accepted (2026-05-30; implementation in progress on `examples-notes-showcase`)
 **Date:** 2026-05-29
 **Target spec version:** 2.2.0 (minor bump — adds `AggregateVM6`)
 **Branch:** `examples-notes-showcase` off `main`
