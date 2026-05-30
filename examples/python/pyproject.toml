@@ -18,4 +18,4 @@ vmx = { path = "../../langs/python", editable = true }
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["hello_vmx", "tk_todo_app"]
+packages = ["console/hello_vmx", "tk/todo_app"]

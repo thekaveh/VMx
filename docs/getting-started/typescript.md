@@ -293,17 +293,17 @@ ______________________________________________________________________
 
 ## 8. Where to go next
 
-| Resource                      | Path                                  |
-| ----------------------------- | ------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                 |
-| Lifecycle contract            | `spec/02-lifecycle.md`                |
-| Message schema                | `spec/03-messages.md`                 |
-| Commands                      | `spec/04-commands.md`                 |
-| ComponentVM contract          | `spec/05-component-vm.md`             |
-| CompositeVM contract          | `spec/06-composite-vm.md`             |
-| Builder spec                  | `spec/10-builders.md`                 |
-| Threading rules               | `spec/11-threading.md`                |
-| Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`           |
-| Architecture decision records | `spec/ADRs/`                          |
-| Hello-VMx example             | `examples/typescript/hello-vmx/`      |
-| Conformance test suite        | `langs/typescript/tests/conformance/` |
+| Resource                      | Path                                     |
+| ----------------------------- | ---------------------------------------- |
+| Spec overview                 | `spec/00-overview.md`                    |
+| Lifecycle contract            | `spec/02-lifecycle.md`                   |
+| Message schema                | `spec/03-messages.md`                    |
+| Commands                      | `spec/04-commands.md`                    |
+| ComponentVM contract          | `spec/05-component-vm.md`                |
+| CompositeVM contract          | `spec/06-composite-vm.md`                |
+| Builder spec                  | `spec/10-builders.md`                    |
+| Threading rules               | `spec/11-threading.md`                   |
+| Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`              |
+| Architecture decision records | `spec/ADRs/`                             |
+| Hello-VMx example             | `examples/typescript/console/hello-vmx/` |
+| Conformance test suite        | `langs/typescript/tests/conformance/`    |

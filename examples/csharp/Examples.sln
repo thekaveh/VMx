@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HelloVMx", "HelloVMx\HelloVMx.csproj", "{C4D40FFC-5B14-45B5-B6E1-CE04A04B0BA6}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HelloVMx", "console\HelloVMx\HelloVMx.csproj", "{C4D40FFC-5B14-45B5-B6E1-CE04A04B0BA6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WpfTodoApp", "WpfTodoApp\WpfTodoApp.csproj", "{335D991A-4ED6-45AF-A600-D2F0D8DEAA30}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WpfTodoApp", "wpf\TodoApp\WpfTodoApp.csproj", "{335D991A-4ED6-45AF-A600-D2F0D8DEAA30}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

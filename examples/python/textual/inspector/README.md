@@ -35,7 +35,7 @@ The bottom-right pane is a scrolling log of messages received on the shared
 ## 2. Running
 
 ```
-uv run --project examples/python/vmx_inspector python -m vmx_inspector
+uv run --project examples/python/textual/inspector python -m vmx_inspector
 ```
 
 (Run from the repository root.)

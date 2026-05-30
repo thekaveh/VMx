@@ -14,7 +14,7 @@ dotnet restore
 
 ---
 
-## 2. Example 1 — `HelloVMx/` (console)
+## 2. Example 1 — `console/HelloVMx/` (console)
 
 Minimal console demo. Demonstrates:
 
@@ -27,7 +27,7 @@ Minimal console demo. Demonstrates:
 **Run:**
 
 ```bash
-cd HelloVMx
+cd console/HelloVMx
 dotnet run
 ```
 
@@ -35,7 +35,7 @@ Cross-platform — runs anywhere the .NET SDK runs.
 
 ---
 
-## 3. Example 2 — `WpfTodoApp/` (WPF + MVVM)
+## 3. Example 2 — `wpf/TodoApp/` (WPF + MVVM)
 
 A todo app that wires VMx into a WPF view. Demonstrates:
 
@@ -56,7 +56,7 @@ A todo app that wires VMx into a WPF view. Demonstrates:
 **Run (Windows only):**
 
 ```bash
-cd WpfTodoApp
+cd wpf/TodoApp
 dotnet run
 ```
 
@@ -75,9 +75,11 @@ projects with the debugger attached.
 ```
 examples/csharp/
 ├── Examples.sln
-├── README.md          # this file
-├── HelloVMx/
-│   └── HelloVMx.csproj
-└── WpfTodoApp/
-    └── WpfTodoApp.csproj
+├── README.md              # this file
+├── console/
+│   └── HelloVMx/
+│       └── HelloVMx.csproj
+└── wpf/
+    └── TodoApp/
+        └── WpfTodoApp.csproj
 ```

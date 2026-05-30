@@ -13,7 +13,7 @@ npm install -g tsx
 
 ---
 
-## 2. Example 1 — `hello-vmx/` (Node script)
+## 2. Example 1 — `console/hello-vmx/` (Node script)
 
 Minimal console demo. Demonstrates:
 
@@ -28,7 +28,7 @@ Minimal console demo. Demonstrates:
 
 ```bash
 npm install vmx
-npx tsx hello-vmx/index.ts
+npx tsx console/hello-vmx/index.ts
 ```
 
 **Run against the local source build (from a clone of this repo):**
@@ -40,7 +40,7 @@ npm ci
 npm run build
 cd ../../examples/typescript
 npm install ../../langs/typescript
-npx tsx hello-vmx/index.ts
+npx tsx console/hello-vmx/index.ts
 ```
 
 ---
@@ -49,7 +49,8 @@ npx tsx hello-vmx/index.ts
 
 ```
 examples/typescript/
-├── README.md          # this file
-└── hello-vmx/
-    └── index.ts       # entry point
+├── README.md              # this file
+└── console/
+    └── hello-vmx/
+        └── index.ts       # entry point
 ```

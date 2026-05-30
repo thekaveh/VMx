@@ -162,16 +162,16 @@ npm install vmx
 
 ### 4.3 Examples
 
-- [`examples/csharp/HelloVMx/`](examples/csharp/HelloVMx/) — console.
-- [`examples/csharp/WpfTodoApp/`](examples/csharp/WpfTodoApp/) — WPF + MVVM
+- [`examples/csharp/console/HelloVMx/`](examples/csharp/console/HelloVMx/) — console.
+- [`examples/csharp/wpf/TodoApp/`](examples/csharp/wpf/TodoApp/) — WPF + MVVM
   (Windows only).
-- [`examples/python/hello_vmx/`](examples/python/hello_vmx/) — console.
-- [`examples/python/tk_todo_app/`](examples/python/tk_todo_app/) — Tkinter
+- [`examples/python/console/hello_vmx/`](examples/python/console/hello_vmx/) — console.
+- [`examples/python/tk/todo_app/`](examples/python/tk/todo_app/) — Tkinter
   MVVM.
-- [`examples/python/vmx_inspector/`](examples/python/vmx_inspector/) —
+- [`examples/python/textual/inspector/`](examples/python/textual/inspector/) —
   Textual TUI inspector that introspects any VMx tree using
   `vmx.tree.walk`.
-- [`examples/typescript/hello-vmx/`](examples/typescript/hello-vmx/) — minimal
+- [`examples/typescript/console/hello-vmx/`](examples/typescript/console/hello-vmx/) — minimal
   Node script.
 
 ## 5. Repository layout

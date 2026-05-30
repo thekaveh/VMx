@@ -1,4 +1,4 @@
-"""tk_todo_app — tkinter MVVM todo demo for the VMx Python library.
+"""todo_app — tkinter MVVM todo demo for the VMx Python library.
 
 Architecture:
   - TodoItem            — immutable @dataclass domain model (title + done flag).
@@ -10,11 +10,11 @@ Architecture:
   - MainWindow          — tkinter root window; wires Listbox + buttons to the VM.
 
 Run with:
-    uv run python -m tk_todo_app     (from examples/python/ — requires a display)
-    python -m tk_todo_app            (with vmx on sys.path)
+    uv run python -m todo_app        (from examples/python/ — requires a display)
+    python -m todo_app               (with vmx on sys.path)
 
 Import-only / headless check (no display needed):
-    python -c "from tk_todo_app.__main__ import MainWindow, MainWindowViewModel"
+    python -c "from todo_app.__main__ import MainWindow, MainWindowViewModel"
 """
 
 from __future__ import annotations

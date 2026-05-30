@@ -10,6 +10,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../langs/csharp/src/VMx/VMx.csproj" />
+    <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
   </ItemGroup>
 </Project>
