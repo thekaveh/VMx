@@ -11,11 +11,12 @@
  * `exportCommand`) and the `focusedVM` derivation (which feeds
  * `CapabilityActionsVM`).
  */
-import { BehaviorSubject } from "rxjs";
+import { BehaviorSubject, filter, type Subscription } from "rxjs";
 import {
   AggregateVM6,
   DerivedProperty,
   MessageHub,
+  PropertyChangedMessage,
   RelayCommand,
   RxDispatcher,
   type ICommand,
@@ -67,6 +68,13 @@ export class WorkspaceVM {
   readonly #newNotebookCommand: RelayCommand;
   readonly #newNoteCommand: RelayCommand;
   readonly #exportCommand: RelayCommand;
+
+  // Round-3 Critical-2 parity: rebind noteForm whenever notesView.current
+  // changes. The React `NotesList` view also calls `noteForm.bindTo`
+  // directly on select; the VM-level subscription ensures behavior parity
+  // with the C# / Python flavors and survives any host that does not
+  // re-implement that bridging step.
+  readonly #currentNoteSubscription: Subscription;
 
   readonly #focusSubject: BehaviorSubject<object | null>;
   readonly #focusedVMDerived: DerivedProperty<object | null>;
@@ -149,6 +157,28 @@ export class WorkspaceVM {
       null,
       null,
     );
+
+    // Round-3 Critical-2: subscribe to notesView "current" PropertyChanged
+    // and rebind the note form. Captures locals so we don't reference
+    // `this.#notesView` / `this.#noteForm` before they're assigned during
+    // the rest of the constructor.
+    const notesViewRef = this.#notesView;
+    const noteFormRef = this.#noteForm;
+    this.#currentNoteSubscription = notesViewRef.hub.messages
+      .pipe(
+        filter(
+          (m): m is PropertyChangedMessage<unknown> =>
+            m instanceof PropertyChangedMessage &&
+            m.sender === notesViewRef &&
+            m.propertyName === "current",
+        ),
+      )
+      .subscribe(() => {
+        const current = notesViewRef.current;
+        if (current !== null) {
+          noteFormRef.bindTo(current.model);
+        }
+      });
 
     this.#newNotebookCommand = RelayCommand.builder()
       .predicate(() => this.isConstructed)
@@ -255,6 +285,7 @@ export class WorkspaceVM {
   }
 
   dispose(): void {
+    this.#currentNoteSubscription.unsubscribe();
     this.#focusedVMDerived.dispose();
     this.#focusSubject.complete();
     this.#newNotebookCommand.dispose();

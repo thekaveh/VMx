@@ -180,4 +180,19 @@ describe("WorkspaceVM", () => {
     expect(ws.notesView.inner.length).toBe(beforeCount + 1);
     ws.dispose();
   });
+
+  // ── Round-3 Critical-2 parity: setting notesView.current rebinds noteForm
+  // via the WorkspaceVM hub subscription (matches the C# + Py flavors).
+  it("setting notesView.current rebinds noteForm", async () => {
+    const ws = makeWorkspace();
+    await ws.constructAsync();
+    expect(ws.noteForm.hasBoundNote).toBe(false);
+    await ws.notesView.bindToAsync("nb-personal");
+    const first = ws.notesView.inner[0]!;
+    ws.notesView.current = first;
+    expect(ws.noteForm.hasBoundNote).toBe(true);
+    expect(ws.noteForm.draft.title).toBe(first.title);
+    expect(ws.noteForm.draft.body).toBe(first.body);
+    ws.dispose();
+  });
 });

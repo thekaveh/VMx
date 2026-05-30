@@ -103,6 +103,13 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <summary>Read-only view of the draft tag list (mutate via tag commands).</summary>
     public IReadOnlyList<string> Tags => Draft.Tags;
 
+    /// <summary>
+    /// Comma-joined tag list — bind UI text labels to this so the rendered
+    /// string is "alpha, beta" instead of an enumerable repr. Mirrors Py
+    /// <c>tags_text</c> (Round-3 Important C-I1) and TS <c>tagsText</c>.
+    /// </summary>
+    public string TagsText => string.Join(", ", Draft.Tags);
+
     /// <summary>True when the draft differs from the snapshot.</summary>
     public bool IsDirty => _form?.IsDirty ?? false;
 
@@ -203,6 +210,15 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Body)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Tags)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagsText)));
+        // Round-3 Important B-I2: ApproveCommand / DenyCommand expose getters
+        // that delegate to `_form` (and to `_noopCommand` before BindTo). XAML
+        // captures the reference once at bind time, so without raising
+        // PropertyChanged after BindTo the binding keeps the stale
+        // `_noopCommand` reference for DenyCommand. Mirror the C# pattern in
+        // Py (NoteFormVM.deny_command) and TS (NoteFormVM.denyCommand).
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(ApproveCommand)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(DenyCommand)));
         RaisePropertyChanged(nameof(Draft));
         RaisePropertyChanged(nameof(Snapshot));
         RaisePropertyChanged(nameof(IsDirty));
@@ -211,6 +227,9 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         RaisePropertyChanged(nameof(Body));
         RaisePropertyChanged(nameof(Starred));
         RaisePropertyChanged(nameof(Tags));
+        RaisePropertyChanged(nameof(TagsText));
+        RaisePropertyChanged(nameof(ApproveCommand));
+        RaisePropertyChanged(nameof(DenyCommand));
         _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
     }
 

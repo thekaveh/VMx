@@ -15,6 +15,8 @@ import dataclasses
 from datetime import datetime
 from typing import cast
 
+from reactivex.abc import DisposableBase
+
 from vmx import (
     ComponentVM,
     DerivedProperty,
@@ -64,6 +66,10 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._notification_hub = notification_hub
         self._form: FormVM[NoteModel] | None = None
         self._tag_draft: str = ""
+        # Round-3 Important C-I3: track the hub subscription created by
+        # ``bind_to`` so we can dispose the previous one before re-subscribing
+        # (previously the prior closure leaked on every rebind).
+        self._bind_subscription: DisposableBase | None = None
 
         from reactivex.subject import BehaviorSubject
 
@@ -75,6 +81,17 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._is_valid: DerivedProperty[bool] = from_sources(
             self._self_subject,
             transform=lambda nf: cast(NoteFormVM, nf)._compute_is_valid(),
+        )
+        # Round-3 Important C-I1: render the tag tuple as a flat, comma-joined
+        # string for the Textual chip strip. Binding ``Static.renderable``
+        # directly to ``tags`` (a ``tuple[str, ...]``) emits Python repr
+        # ("('alpha',)") instead of "alpha". The DerivedProperty re-projects
+        # whenever ``_self_subject`` re-emits (i.e. on every draft mutation).
+        # Mirrors the C# NoteFormVM.TagsText (Phase 5.a) and TS NoteFormVM
+        # tagsText (Phase 5.c) accessors.
+        self._tags_text: DerivedProperty[str] = from_sources(
+            self._self_subject,
+            transform=lambda nf: ", ".join(cast(NoteFormVM, nf).tags),
         )
 
         self._approve_command = (
@@ -178,6 +195,14 @@ class NoteFormVM(ComponentVM, IReconstructable):
     def is_valid(self) -> DerivedProperty[bool]:
         return self._is_valid
 
+    @property
+    def tags_text(self) -> DerivedProperty[str]:
+        """Comma-joined tag list — bind ``Static.renderable`` to this so the
+        Textual chip strip renders "alpha, beta" instead of the raw tuple
+        repr. Mirrors the C# / TS ``tagsText`` accessor.
+        """
+        return self._tags_text
+
     def _compute_is_dirty(self) -> bool:
         return self._form.is_dirty if self._form is not None else False
 
@@ -266,6 +291,12 @@ class NoteFormVM(ComponentVM, IReconstructable):
         """Replace the inner :class:`FormVM` with one bound to *note*."""
         if self._form is not None:
             self._form.dispose()
+        # Round-3 Important C-I3: dispose any prior hub subscription before
+        # re-subscribing below so the closure for the old form doesn't leak
+        # (each bind_to used to leave the previous one alive forever).
+        if self._bind_subscription is not None:
+            self._bind_subscription.dispose()
+            self._bind_subscription = None
         form = FormVM(
             initial=note,
             persister=self._persist,
@@ -283,7 +314,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             if isinstance(m, FormRevertedMessage) and m.sender is form:
                 self._emit_draft_changes()
 
-        self._hub.messages.subscribe(on_next=_on_msg)
+        self._bind_subscription = self._hub.messages.subscribe(on_next=_on_msg)
         self._emit_draft_changes()
 
     async def approve_async(self) -> None:
@@ -316,6 +347,10 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # Includes the per-field scalars (title/body/starred/tags) so widgets
         # two-way bound via the adapter receive PropertyChangedMessage and
         # re-read. See Phase 5.b binding gap #1.
+        # Round-3 Important B-I2 parity: also fire for ``approve_command`` /
+        # ``deny_command`` whose getters delegate to the inner ``_form`` (and
+        # to ``_noop_command`` before bind_to). Without this, bindings keep
+        # the stale references after the form is rebound.
         for prop in (
             "draft",
             "snapshot",
@@ -325,6 +360,8 @@ class NoteFormVM(ComponentVM, IReconstructable):
             "body",
             "starred",
             "tags",
+            "approve_command",
+            "deny_command",
         ):
             self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
             self._raise_property_changed(prop)
@@ -339,6 +376,10 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._noop_command.dispose()
         self._is_dirty.dispose()
         self._is_valid.dispose()
+        self._tags_text.dispose()
+        if self._bind_subscription is not None:
+            self._bind_subscription.dispose()
+            self._bind_subscription = None
         self._self_subject.on_completed()
         self._self_subject.dispose()
         super()._on_dispose()

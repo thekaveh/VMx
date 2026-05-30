@@ -1,6 +1,8 @@
 using System.Reactive.Concurrency;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Commands;
+using VMx.Notifications;
 using VMx.Services;
 using Xunit;
 
@@ -106,5 +108,60 @@ public sealed class CapabilityActionsVMTests
         vm.RecomputeActions();
         var collapse2 = vm.Actions.Value.First(a => a.Label == "Collapse");
         Assert.True(collapse2.Command.CanExecute(null));
+    }
+
+    // ── Round-3 Critical-1 parity: capability-bar Delete reuses
+    // NoteVM.DeleteCommand (the wrapped ConfirmationDecoratorCommand) so the
+    // action-bar Delete cancels on "No" and fires the "Note deleted"
+    // notification on "Yes" — identical behaviour to the in-list delete
+    // button. Mirrors Py / TS tests of the same name.
+
+    private static NoteVM NoteWithConfirm(bool confirmResult, INotificationHub? nh = null, Action<NoteVM>? onDelete = null)
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var model = new NoteModel("n-cap", "nb-cap", "T", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var builder = NoteVM.Builder()
+            .Name("note:cap").Services(hub, dispatcher).Model(model)
+            .OnDelete(onDelete ?? (_ => { }))
+            .ConfirmDelete(_ => Task.FromResult(confirmResult));
+        if (nh is not null) builder = builder.NotificationHub(nh);
+        var vm = builder.Build();
+        vm.Construct();
+        return vm;
+    }
+
+    [Fact]
+    public async Task Capability_bar_Delete_reuses_note_DeleteCommand_confirm_false_does_NOT_delete()
+    {
+        var deleted = new List<bool>();
+        var note = NoteWithConfirm(confirmResult: false, onDelete: _ => deleted.Add(true));
+        Assert.IsType<ConfirmationDecoratorCommand>(note.DeleteCommand);
+        var caps = Build(() => note);
+        var delete = caps.Actions.Value.First(a => a.Label == "Delete");
+        // Same wrapped reference (parity contract with Py / TS).
+        Assert.Same(note.DeleteCommand, delete.Command);
+        await ((ConfirmationDecoratorCommand)delete.Command).ExecuteAsync(null);
+        Assert.Empty(deleted);
+    }
+
+    [Fact]
+    public async Task Capability_bar_Delete_with_confirm_true_invokes_OnDelete_and_publishes_notification()
+    {
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snap =>
+        {
+            foreach (var n in snap) if (!observed.Contains(n)) observed.Add(n);
+        });
+        var deleted = new List<bool>();
+        var note = NoteWithConfirm(confirmResult: true, nh: notificationHub,
+            onDelete: _ => deleted.Add(true));
+        var caps = Build(() => note);
+        var delete = caps.Actions.Value.First(a => a.Label == "Delete");
+        await ((ConfirmationDecoratorCommand)delete.Command).ExecuteAsync(null);
+        Assert.Single(deleted);
+        Assert.Contains(observed, n => n.Message.Contains("Note deleted"));
     }
 }

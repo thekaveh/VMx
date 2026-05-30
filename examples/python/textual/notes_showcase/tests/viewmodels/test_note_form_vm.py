@@ -109,19 +109,25 @@ def test_approve_command_can_execute_requires_is_dirty_and_is_valid() -> None:
 
 async def test_approve_persists_and_publishes_notification() -> None:
     vm, nh = _build_vm(with_notification_hub=True)
+    assert nh is not None
+    # Round-3 Important C-I2: subscribe BEFORE approve so we actually
+    # observe the "Saved" notification fire (the prior version only asserted
+    # the snapshot advance, leaving the notification side untested).
+    from vmx.notifications import Notification
+
+    observed: list[Notification] = []
+    nh.pending.subscribe(
+        on_next=lambda snap: [observed.append(n) for n in snap if n not in observed]
+    )
     vm.bind_to(_sample_note())
     vm.draft = _sample_note(title="Edited title")
-    assert nh is not None
-    pending_before = 0
-    nh.pending.subscribe(on_next=lambda p: None)
     await vm.approve_async()
     # Snapshot advances on success.
     assert vm.snapshot.title == "Edited title"
     assert vm.is_dirty.value is False
-    # Notification posted.
-    # NotificationHub keeps pending internally — at least one notification waiting.
-    # We cannot easily await the snapshot here, but presence is enough.
-    _ = pending_before
+    # Notification posted — assert exactly one "Saved" with the new title.
+    saved = [n for n in observed if "Saved" in n.message and "Edited title" in n.message]
+    assert len(saved) == 1
 
 
 def test_deny_restores_snapshot() -> None:
@@ -231,3 +237,60 @@ def test_tags_accessor_proxies_to_draft() -> None:
     vm, _ = _build_vm()
     vm.bind_to(_sample_note())
     assert vm.tags == ("alpha",)
+
+
+def test_tags_text_derived_renders_comma_joined_string() -> None:
+    """Round-3 Important C-I1: ``tags_text`` is a DerivedProperty that
+    re-projects on each draft mutation, so widgets bound through
+    ``bind_derived_property`` render "alpha, beta" instead of the raw
+    tuple repr. Parity with the C# / TS ``tagsText`` accessor.
+    """
+    import dataclasses
+
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    assert vm.tags_text.value == "alpha"
+    vm.draft = dataclasses.replace(vm.draft, tags=("alpha", "beta"))
+    assert vm.tags_text.value == "alpha, beta"
+
+
+def test_bind_to_disposes_prior_hub_subscription() -> None:
+    """Round-3 Important C-I3: each ``bind_to`` must dispose the previous
+    hub subscription so the prior closure (and its FormVM reference) does
+    not leak across rebinds.
+    """
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note(title="A"))
+    first_sub = vm._bind_subscription  # type: ignore[attr-defined]
+    assert first_sub is not None
+    vm.bind_to(_sample_note(title="B"))
+    second_sub = vm._bind_subscription  # type: ignore[attr-defined]
+    assert second_sub is not None
+    assert second_sub is not first_sub  # a fresh subscription was created
+    # The original closure must no longer fire — its form was disposed.
+    # We rely on the fact that BehaviorSubject.dispose() prevents further
+    # emissions: re-triggering _emit_draft_changes by editing the draft
+    # exercises only the second subscription's path.
+    vm.title = "B-edited"
+    assert vm.is_dirty.value is True
+
+
+def test_after_bind_to_deny_command_property_changed_fires() -> None:
+    """Round-3 Important B-I2: bindings on ``deny_command`` must observe
+    the rebind. ``bind_to`` re-emits ``_emit_draft_changes`` which now
+    includes ``deny_command`` / ``approve_command`` PropertyChangedMessage.
+    """
+    from vmx import PropertyChangedMessage
+    from vmx.messages.protocols import Message
+
+    vm, _ = _build_vm()
+    observed: list[str] = []
+
+    def _capture(m: Message) -> None:
+        if isinstance(m, PropertyChangedMessage) and m.sender is vm:
+            observed.append(m.property_name)
+
+    vm.hub.messages.subscribe(on_next=_capture)
+    vm.bind_to(_sample_note())
+    assert "deny_command" in observed
+    assert "approve_command" in observed

@@ -248,29 +248,21 @@ export class CapabilityActionsVM extends ComponentVMBase {
         ),
       );
     }
+    // Save / Delete target NoteVM (the only example-defined VM implementing
+    // ISavable<T> / IDeletable<T>). Scenario §6.2: each note saves /
+    // deletes itself. Reuse `note.saveCommand` / `note.deleteCommand`
+    // directly so the action-bar Delete fires the same
+    // ConfirmationDecoratorCommand (and "Note deleted" notification) that
+    // the in-list delete button uses — keeping the action-bar and the
+    // in-list delete button behaviorally identical (parity with C#
+    // CapabilityActionsVM.cs:121-131).
     if (focused instanceof NoteVM) {
       const note = focused;
       if (hasCapability(focused, "ISavable")) {
-        out.push(
-          makeActionVM(
-            "Save",
-            RelayCommand.builder()
-              .predicate(() => note.canSave(note))
-              .task(() => note.save(note))
-              .build(),
-          ),
-        );
+        out.push(makeActionVM("Save", note.saveCommand));
       }
       if (hasCapability(focused, "IDeletable")) {
-        out.push(
-          makeActionVM(
-            "Delete",
-            RelayCommand.builder()
-              .predicate(() => note.canDelete(note))
-              .task(() => note.delete(note))
-              .build(),
-          ),
-        );
+        out.push(makeActionVM("Delete", note.deleteCommand));
       }
     }
     if (hasCapability(focused, "IReconstructable")) {

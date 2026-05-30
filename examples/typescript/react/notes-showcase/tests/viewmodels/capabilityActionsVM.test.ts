@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { declareCapabilities, MessageHub, RxDispatcher } from "vmx";
+import {
+  ConfirmationDecoratorCommand,
+  declareCapabilities,
+  MessageHub,
+  RxDispatcher,
+} from "vmx";
+import {
+  Notification,
+  NotificationHub,
+} from "vmx/notifications";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import type { NoteModel } from "../../src/models/noteModel.js";
@@ -202,5 +211,72 @@ describe("CapabilityActionsVM", () => {
     root.construct();
     const out = CapabilityActionsVM.project(root);
     expect(out.map((a) => a.label)).toContain("New");
+  });
+
+  // ── Round-3 Critical-1: capability-bar Delete reuses NoteVM.deleteCommand ─
+  // so the ConfirmationDecoratorCommand + "Note deleted" notification fire
+  // from the action-bar identically to the in-list delete button. Prior
+  // code built a fresh RelayCommand that called note.delete() directly,
+  // bypassing the gate. Parity with C# (CapabilityActionsVM.cs:121-131)
+  // and Python.
+
+  function makeNoteWithConfirm(
+    confirmResult: boolean,
+    notificationHub: NotificationHub | null = null,
+  ): { note: NoteVM; deleted: boolean[] } {
+    const deleted: boolean[] = [];
+    const hub = new MessageHub();
+    const model: NoteModel = {
+      id: "note-cap",
+      notebookId: "nb-cap",
+      title: "T",
+      tags: [],
+      body: "",
+      starred: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    let builder = NoteVM.builder()
+      .name("note:cap")
+      .model(model)
+      .services(hub, RxDispatcher.immediate())
+      .onDelete(() => {
+        deleted.push(true);
+      })
+      .confirmDelete(async () => confirmResult);
+    if (notificationHub !== null) {
+      builder = builder.notificationHub(notificationHub);
+    }
+    const note = builder.build();
+    note.construct();
+    return { note, deleted };
+  }
+
+  it("capability-bar Delete reuses note.deleteCommand (confirm=false → no delete)", async () => {
+    const { note, deleted } = makeNoteWithConfirm(false);
+    expect(note.deleteCommand).toBeInstanceOf(ConfirmationDecoratorCommand);
+    const cap = makeCap(() => note);
+    const action = cap.actions.value.find((a) => a.label === "Delete");
+    expect(action).toBeDefined();
+    // Same wrapped reference as note.deleteCommand (parity contract).
+    expect(action!.command).toBe(note.deleteCommand);
+    await (action!.command as ConfirmationDecoratorCommand).executeAsync();
+    expect(deleted).toEqual([]);
+  });
+
+  it("capability-bar Delete fires notification when confirm=true", async () => {
+    const notifs = new NotificationHub();
+    const observed: Notification[] = [];
+    notifs.pending.subscribe((snap) => {
+      for (const n of snap) {
+        if (!observed.includes(n)) observed.push(n);
+      }
+    });
+    const { note, deleted } = makeNoteWithConfirm(true, notifs);
+    const cap = makeCap(() => note);
+    const action = cap.actions.value.find((a) => a.label === "Delete");
+    await (action!.command as ConfirmationDecoratorCommand).executeAsync();
+    expect(deleted).toEqual([true]);
+    expect(observed.some((n) => n.message.includes("Note deleted"))).toBe(true);
   });
 });

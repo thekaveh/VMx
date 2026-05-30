@@ -25,10 +25,10 @@ from typing import Any
 
 from reactivex.abc import DisposableBase
 
-from vmx.commands.relay_command import RelayCommand
+from vmx.commands.protocols import Command
 
 
-def bind_command(button: Any, command: RelayCommand) -> DisposableBase:
+def bind_command(button: Any, command: Command) -> DisposableBase:
     """Bind ``button`` to ``command``.
 
     Initialises ``button.disabled = not command.can_execute()``, redirects
@@ -36,7 +36,9 @@ def bind_command(button: Any, command: RelayCommand) -> DisposableBase:
     ``command.can_execute_changed`` to keep ``button.disabled`` in sync.
 
     Returns a :class:`~reactivex.abc.DisposableBase` for the
-    ``can_execute_changed`` subscription.
+    ``can_execute_changed`` subscription. Accepts any :class:`Command`
+    (including decorated ones such as ``ConfirmationDecoratorCommand``) —
+    round-3 Critical-1.
     """
     button.disabled = not command.can_execute()
 

@@ -266,7 +266,9 @@ class NoteVMBuilder:
     ) -> NoteVMBuilder:
         """When set, :attr:`NoteVM.delete_command` is wrapped in a
         :class:`ConfirmationDecoratorCommand` calling this delegate. Typically
-        wires to ``IDialogService.confirm(f"Delete '{note.title}'?")``.
+        wires to ``IDialogService.confirm(f"Delete “{note.title}”?")`` —
+        matches the curly-quote emission used by NotesViewVM (and the
+        C#/TS flavors).
         """
         return dataclasses.replace(self, _confirm_delete=callback)
 

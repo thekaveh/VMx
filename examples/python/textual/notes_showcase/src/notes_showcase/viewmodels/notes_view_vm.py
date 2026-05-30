@@ -300,7 +300,8 @@ class NotesViewVM(
                         _vm: NoteVM, ds: IDialogService = dialog
                     ) -> bool:
                         return await ds.confirm(
-                            f'Delete "{_vm.title}"?', title="Delete note"
+                            f"Delete “{_vm.title}”?",
+                            title="Delete note",
                         )
 
                     builder = builder.confirm_delete(_confirm)

@@ -20,10 +20,13 @@ from datetime import datetime, timezone
 
 from reactivex.scheduler import TimeoutScheduler
 
+from reactivex.abc import DisposableBase
+
 from vmx import (
     AggregateVM6,
     ConstructionStatus,
     MessageHub,
+    PropertyChangedMessage,
     RelayCommand,
     RxDispatcher,
 )
@@ -137,6 +140,25 @@ class WorkspaceVM:
             factory4=lambda: status_bar,
             factory5=lambda: notifications,
             factory6=lambda: capability_actions,
+        )
+
+        # Round-3 Critical-2: rebind note_form whenever notes_view.current
+        # changes (e.g. user clicks a different note in the list). Without
+        # this the right-pane editor stays empty in the running app. Mirror
+        # of the C# WorkspaceVM subscription (parity with the TS view
+        # which performs the same wiring inline in NotesList.tsx).
+        def _on_notes_view_msg(m: Message) -> None:
+            if (
+                isinstance(m, PropertyChangedMessage)
+                and m.sender is notes_view
+                and m.property_name == "current"
+            ):
+                current = notes_view.current
+                if current is not None:
+                    note_form.bind_to(current.model)
+
+        self._current_note_subscription: DisposableBase = (
+            notes_view.hub.messages.subscribe(on_next=_on_notes_view_msg)
         )
 
         self._new_notebook_command = (
@@ -261,6 +283,7 @@ class WorkspaceVM:
         self._agg.destruct()
 
     def dispose(self) -> None:
+        self._current_note_subscription.dispose()
         self._new_notebook_command.dispose()
         self._new_note_command.dispose()
         self._export_command.dispose()

@@ -296,7 +296,8 @@ export class NoteVMBuilder {
 
   /** When set, `deleteCommand` is wrapped in a `ConfirmationDecoratorCommand`
    * calling this delegate. Typical host wiring:
-   * `(vm) => dialogService.confirm(\`Delete "${vm.title}"?\`)`.
+   * `` (vm) => dialogService.confirm(`Delete “${vm.title}”?`) `` — matches
+   * the curly-quote emission used by NotesViewVM (and the C#/Py flavors).
    */
   confirmDelete(fn: (vm: NoteVM) => Promise<boolean>): NoteVMBuilder {
     const b = new NoteVMBuilder(this);

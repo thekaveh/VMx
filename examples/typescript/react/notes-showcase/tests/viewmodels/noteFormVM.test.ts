@@ -161,4 +161,28 @@ describe("NoteFormVM", () => {
     vm.bindTo(aNote());
     expect(() => vm.dispose()).not.toThrow();
   });
+
+  // ── Round-3 Important B-I2 parity: bindTo notifies bindings that the
+  // denyCommand / approveCommand reference has changed.
+  it("bindTo emits PropertyChangedMessage for approveCommand and denyCommand", async () => {
+    const { vm, hub } = makeForm();
+    const { PropertyChangedMessage } = await import("vmx");
+    const observed: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage && m.sender === vm) {
+        observed.push(m.propertyName);
+      }
+    });
+    vm.bindTo(aNote());
+    expect(observed).toContain("approveCommand");
+    expect(observed).toContain("denyCommand");
+  });
+
+  it("tagsText renders the draft tags as a comma-joined string", () => {
+    // Round-3 Important C-I1 parity: tagsText flattens the draft tag list
+    // for UI labels (mirrors Py tags_text and C# TagsText).
+    const { vm } = makeForm();
+    vm.bindTo(aNote({ tags: ["alpha", "beta"] }));
+    expect(vm.tagsText).toBe("alpha, beta");
+  });
 });

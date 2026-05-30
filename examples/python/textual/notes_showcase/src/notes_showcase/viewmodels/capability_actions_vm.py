@@ -206,28 +206,17 @@ def _project(focused: object | None) -> list[ActionVM]:
         )
     # ISavable / IDeletable are parameterised — only NoteVM implements them
     # in this scenario, and the parameter is always the focused note itself.
+    # Reuse ``note.save_command`` / ``note.delete_command`` directly so the
+    # action-bar Delete fires the same ConfirmationDecoratorCommand (and
+    # "Note deleted" notification) the in-list delete button uses — keeping
+    # the action-bar and the in-list delete button behaviorally identical
+    # (parity with C# CapabilityActionsVM.cs:121-131).
     if isinstance(focused, NoteVM):
         note: NoteVM = focused
         if isinstance(focused, ISavable):
-            actions.append(
-                ActionVM(
-                    "Save",
-                    RelayCommand.builder()
-                    .predicate(lambda: note.can_save(note))
-                    .task(lambda: note.save(note))
-                    .build(),
-                )
-            )
+            actions.append(ActionVM("Save", note.save_command))
         if isinstance(focused, IDeletable):
-            actions.append(
-                ActionVM(
-                    "Delete",
-                    RelayCommand.builder()
-                    .predicate(lambda: note.can_delete(note))
-                    .task(lambda: note.delete(note))
-                    .build(),
-                )
-            )
+            actions.append(ActionVM("Delete", note.delete_command))
 
     # Lifecycle
     if isinstance(focused, IReconstructable):

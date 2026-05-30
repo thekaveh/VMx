@@ -26,7 +26,6 @@ from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.views.adapter import (
     bind_command,
     bind_derived_property,
-    bind_property,
     bind_property_two_way,
 )
 
@@ -51,11 +50,12 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
         bind_command(view.query_one("#form_add_tag", Button), vm.add_tag_command),
         bind_command(view.query_one("#form_save", Button), vm.approve_command),
         bind_command(view.query_one("#form_revert", Button), vm.deny_command),
-        # Tag chip strip — one-way bound to ``tags`` (re-rendered as a flat
-        # string for simplicity; the C# flavor renders chips, the Textual flavor
-        # uses a comma-joined static, which keeps the widget class minimal).
-        bind_property(
-            view.query_one("#form_tag_chips", Static), "renderable", vm, "tags"
+        # Tag chip strip — one-way bound to the ``tags_text``
+        # DerivedProperty[str] so the rendered string is "alpha, beta"
+        # (Round-3 Important C-I1; bound through bind_derived_property so it
+        # tracks DerivedProperty.value_changed rather than the hub).
+        bind_derived_property(
+            view.query_one("#form_tag_chips", Static), "renderable", vm.tags_text
         ),
         # Dirty marker ← DerivedProperty (binding-gap #3 fix). Uses the
         # bridge that subscribes to ``DerivedProperty.value_changed`` rather

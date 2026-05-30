@@ -285,4 +285,46 @@ describe("NotesViewVM", () => {
     vm.showStarredOnly = true;
     expect(vm.filteredItems.length).toBe(first);
   });
+
+  // ── Round-3 Important B-I1 parity: full delete pathway (repo delete →
+  // remove from inner → clear current → dispose). Mirrors the C# and Py
+  // tests of the same shape.
+  it("deleteNote removes from inner, clears current, and persists", async () => {
+    const { NotificationHub } = await import("vmx/notifications");
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadNotesDelayMs: 0,
+      deleteNoteDelayMs: 0,
+    });
+    const hub = new MessageHub();
+    const notifs = new NotificationHub();
+    const vm = NotesViewVM.builder()
+      .name("notes")
+      .services(hub, RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(5)
+      .searchDebounceMs(0)
+      .dialogService({
+        pickFileToOpen: () => Promise.resolve(null),
+        pickFileToSave: () => Promise.resolve(null),
+        confirm: () => Promise.resolve(true),
+        notify: () => Promise.resolve(),
+      })
+      .notificationHub(notifs)
+      .build();
+    vm.construct();
+    await vm.bindToAsync("nb-personal");
+    const before = vm.inner.length;
+    const target = vm.inner[0]!;
+    vm.current = target;
+
+    // Drive delete through NoteVM.deleteCommand (the wrapped path).
+    target.deleteCommand.execute();
+    // Wait for the async confirm + repo delete + state mutation chain.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(vm.inner.length).toBe(before - 1);
+    expect(vm.current).toBeNull();
+    const reload = await repo.loadNotes("nb-personal");
+    expect(reload.some((n) => n.id === target.noteId)).toBe(false);
+  });
 });

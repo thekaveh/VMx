@@ -131,6 +131,13 @@ export class NoteFormVM extends ComponentVMBase {
     return this.draft.title.trim().length > 0;
   }
 
+  /** Comma-joined tag list — bind UI text labels to this so the rendered
+   * string is "alpha, beta" instead of an array repr. Mirrors Py
+   * ``tags_text`` (Round-3 Important C-I1) and C# ``TagsText``. */
+  get tagsText(): string {
+    return this.draft.tags.join(", ");
+  }
+
   get approveCommand(): ICommand {
     return this.#approveCommand;
   }
@@ -215,7 +222,18 @@ export class NoteFormVM extends ComponentVMBase {
   }
 
   #emitDraftChanges(): void {
-    for (const name of ["draft", "snapshot", "isDirty", "isValid"]) {
+    // Round-3 Important B-I2 parity: also fire for ``approveCommand`` /
+    // ``denyCommand`` whose getters delegate to the inner ``#form`` (and to
+    // ``#noopCommand`` before bindTo). Without this, bindings keep the
+    // stale references after the form is rebound.
+    for (const name of [
+      "draft",
+      "snapshot",
+      "isDirty",
+      "isValid",
+      "approveCommand",
+      "denyCommand",
+    ]) {
       this._hub.send(
         PropertyChangedMessage.create(this, this._name, name),
       );

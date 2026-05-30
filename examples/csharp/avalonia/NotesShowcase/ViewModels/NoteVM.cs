@@ -240,7 +240,8 @@ public sealed class NoteVM
         /// When set, <see cref="DeleteCommand"/> is wrapped in a
         /// <see cref="ConfirmationDecoratorCommand"/> that awaits this delegate
         /// before invoking the inner delete. Typically wires to
-        /// <c>IDialogService.Confirm($"Delete '{n.Title}'?")</c>.
+        /// <c>IDialogService.Confirm($"Delete “{n.Title}”?")</c> — matches the
+        /// curly-quote emission used by NotesViewVM (and the Py/TS flavors).
         /// </summary>
         public NoteVMBuilder ConfirmDelete(Func<NoteVM, Task<bool>> confirm) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave, confirm, _notificationHub);
         /// <summary>

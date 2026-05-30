@@ -304,3 +304,21 @@ async def test_export_command_internal_returns_early_when_no_dialog_path() -> No
     ws.construct()
     await ws._export_internal()  # type: ignore[attr-defined]
     assert repo.export_count == 0
+
+
+# ── Round-3 Critical-2: WorkspaceVM observes notes_view.current and rebinds
+# the note form so the right-pane editor reflects the selection. Without
+# this subscription, the editor stays empty in the running app.
+
+
+async def test_setting_notes_view_current_rebinds_note_form() -> None:
+    ws = _build()
+    await ws.construct_async()
+    assert ws.note_form.has_bound_note is False
+    await ws.notes_view.bind_to_async("nb-personal")
+    first = ws.notes_view.inner[0]
+    ws.notes_view.current = first
+    # Subscription fires synchronously on the immediate scheduler.
+    assert ws.note_form.has_bound_note is True
+    assert ws.note_form.title == first.title
+    assert ws.note_form.body == first.body

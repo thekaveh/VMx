@@ -145,3 +145,87 @@ def test_dispose_releases_resources() -> None:
     from vmx import ConstructionStatus
 
     assert vm.status == ConstructionStatus.DISPOSED
+
+
+# ── Round-3 Critical-1: capability-bar Delete reuses NoteVM.delete_command ──
+# so the ConfirmationDecoratorCommand + "Note deleted" notification fire
+# from the action-bar identically to the in-list delete button. Prior code
+# built a fresh RelayCommand that called note.delete() directly, bypassing
+# the gate. Parity with C# (CapabilityActionsVM.cs:121-131) and TS.
+
+
+def _make_note_with_confirm(
+    *, confirm_result: bool, notification_hub: object | None = None,
+) -> tuple[NoteVM, list[bool]]:
+    from vmx.notifications import INotificationHub
+
+    deleted: list[bool] = []
+    nh = notification_hub if isinstance(notification_hub, INotificationHub) else None
+
+    async def _confirm(_vm: NoteVM) -> bool:
+        return confirm_result
+
+    builder = (
+        NoteVM.builder()
+        .name("note")
+        .model(
+            NoteModel(
+                id="n",
+                notebook_id="nb",
+                title="T",
+                tags=(),
+                body="b",
+                starred=False,
+                created_at=datetime(2026, 5, 29, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            )
+        )
+        .on_delete(lambda _vm: deleted.append(True))
+        .confirm_delete(_confirm)
+    )
+    if nh is not None:
+        builder = builder.notification_hub(nh)
+    note = builder.build()
+    note.construct()
+    return note, deleted
+
+
+async def test_capability_bar_delete_reuses_note_delete_command_confirm_false() -> None:
+    """Action-bar Delete must route through the ConfirmationDecoratorCommand
+    so a "No" answer cancels the delete (regression cover for Round-3
+    Critical-1).
+    """
+    from vmx.commands import ConfirmationDecoratorCommand
+
+    note, deleted = _make_note_with_confirm(confirm_result=False)
+    assert isinstance(note.delete_command, ConfirmationDecoratorCommand)
+    state: dict[str, object | None] = {"focused": note}
+    vm = _build_actions_vm(state)
+    vm.recompute_actions()
+    delete_action = next(a for a in vm.actions.value if a.label == "Delete")
+    # The action-bar's Delete command must BE the very same wrapped command
+    # exposed by NoteVM (parity with C# / TS reuse pattern).
+    assert delete_action.command is note.delete_command
+    await delete_action.command.execute_async()  # type: ignore[union-attr]
+    assert deleted == []
+
+
+async def test_capability_bar_delete_reuses_note_delete_command_confirm_true() -> None:
+    """When the confirm gate accepts, the action-bar Delete fires
+    on_delete AND publishes the "Note deleted" notification.
+    """
+    from vmx.notifications import Notification, NotificationHub
+
+    nh = NotificationHub()
+    observed: list[Notification] = []
+    nh.pending.subscribe(
+        on_next=lambda snap: [observed.append(n) for n in snap if n not in observed]
+    )
+    note, deleted = _make_note_with_confirm(confirm_result=True, notification_hub=nh)
+    state: dict[str, object | None] = {"focused": note}
+    vm = _build_actions_vm(state)
+    vm.recompute_actions()
+    delete_action = next(a for a in vm.actions.value if a.label == "Delete")
+    await delete_action.command.execute_async()  # type: ignore[union-attr]
+    assert deleted == [True]
+    assert any("Note deleted" in n.message for n in observed)

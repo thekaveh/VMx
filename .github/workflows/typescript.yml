@@ -92,9 +92,12 @@ jobs:
           cache-dependency-path: examples/typescript/react/notes-showcase/package-lock.json
 
       - name: notes-showcase install
-        # `npm ci` requires a checked-in package-lock.json (Phase 5.c committed
-        # one); the `|| npm install` fallback covers any future state where the
-        # lockfile is intentionally regenerated.
+        # `npm ci` requires a checked-in package-lock.json — committed under
+        # examples/typescript/react/notes-showcase/ (audit round 3 Critical-3:
+        # the prior .gitignore entry hid it from the repo, silently disabling
+        # the actions/setup-node cache above). The `|| npm install` fallback
+        # covers any future state where the lockfile is intentionally
+        # regenerated.
         run: npm ci --prefix examples/typescript/react/notes-showcase || npm install --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase test

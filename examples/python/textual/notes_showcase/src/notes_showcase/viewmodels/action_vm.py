@@ -9,12 +9,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from vmx import RelayCommand
+from vmx.commands.protocols import Command
 
 
 @dataclass(frozen=True, slots=True)
 class ActionVM:
-    """Pair of a human-readable label and the command it invokes."""
+    """Pair of a human-readable label and the command it invokes.
+
+    ``command`` is typed as the :class:`~vmx.commands.protocols.Command`
+    protocol so the action-bar can reuse decorated commands such as
+    :class:`~vmx.commands.ConfirmationDecoratorCommand` (e.g. the wrapped
+    ``NoteVM.delete_command``) — round-3 Critical-1.
+    """
 
     label: str
-    command: RelayCommand
+    command: Command

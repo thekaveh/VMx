@@ -179,4 +179,47 @@ public sealed class NotesViewVMTests
         await vm.BindToAsync("nb-reviews");
         Assert.Equal(before, vm.FilteredItems.Count);
     }
+
+    // ── Round-3 Important B-I1: end-to-end delete pathway coverage ────────
+    // The full pathway (repo.DeleteNoteAsync → remove from _inner → clear
+    // Current → dispose) had 0 % coverage. Drive it through NoteVM's
+    // DeleteCommand (the only public entry-point to NotesViewVM.DeleteNote).
+
+    [Fact]
+    public async Task DeleteNoteAsync_removes_from_inner_and_clears_current_and_persists()
+    {
+        var seed = SeedData.Build();
+        var repo = new InMemoryNoteRepository(
+            seed,
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            deleteNoteDelay: TimeSpan.Zero);
+        var hub = new VMx.Services.MessageHub();
+        var dispatcher = new VMx.Services.RxDispatcher(
+            System.Reactive.Concurrency.ImmediateScheduler.Instance,
+            System.Reactive.Concurrency.ImmediateScheduler.Instance);
+        var vm = NotesViewVM.Builder()
+            .Name("notes").Services(hub, dispatcher).Repository(repo).PageSize(5)
+            .Build();
+        vm.Construct();
+        await vm.BindToAsync("nb-personal");
+        var before = vm.Inner.Count;
+        var target = vm.Inner[0];
+        vm.Current = target;
+
+        // Drive delete through NoteVM.DeleteCommand (raw, no confirm wrapped
+        // for this test build) — this is the path NotesListView.axaml fires
+        // when the user clicks the delete button next to a note.
+        target.DeleteCommand.Execute(null);
+        // Repo delete is awaited inside DeleteNoteAsyncInternal; give the
+        // continuation a tick to run.
+        await Task.Delay(50);
+
+        Assert.Equal(before - 1, vm.Inner.Count);
+        Assert.Null(vm.Current);
+        // Persistence check: the repo no longer returns the deleted note.
+        var reload = await repo.LoadNotesAsync("nb-personal");
+        Assert.DoesNotContain(reload, n => n.Id == target.NoteId);
+    }
 }

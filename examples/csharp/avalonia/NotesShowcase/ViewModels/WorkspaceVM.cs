@@ -1,4 +1,5 @@
 using System.Reactive.Concurrency;
+using System.Reactive.Linq;
 using System.Windows.Input;
 using VMx.Aggregates;
 using VMx.Builders;
@@ -37,6 +38,12 @@ public sealed class WorkspaceVM : IDisposable
     private readonly AggregateVM6<
         NotebooksRootVM, NotesViewVM, NoteFormVM,
         StatusBarVM, NotificationsVM, CapabilityActionsVM> _agg;
+
+    // Round-3 Critical-2: subscription that rebinds NoteForm whenever
+    // NotesView.Current changes (e.g. user clicks a different note in the
+    // list). Without this the right-pane editor stays empty in the running
+    // app — unit tests called BindTo directly, masking the gap.
+    private readonly IDisposable _currentNoteSubscription;
 
     /// <summary>Notebooks tree (Component1).</summary>
     public NotebooksRootVM NotebooksRoot => _agg.Component1!;
@@ -146,6 +153,24 @@ public sealed class WorkspaceVM : IDisposable
             System.Reactive.Linq.Observable.Return((object?)null),
             _ => _focused);
 
+        // Round-3 Critical-2: when the user selects a note in the centre
+        // pane, rebind the right-pane editor so it shows the selected note's
+        // fields. NotesListView two-way binds SelectedItem={Binding Current}
+        // — observing the hub PropertyChanged for "Current" keeps the
+        // observation off the leaf VMs and matches the StatusBarVM pattern.
+        _currentNoteSubscription = notesView.Hub.Messages
+            .OfType<PropertyChangedMessage<IComponentVM>>()
+            .Where(m => ReferenceEquals(m.Sender, notesView)
+                && string.Equals(m.PropertyName, nameof(NotesViewVM.Current), StringComparison.Ordinal))
+            .Subscribe(_ =>
+            {
+                var current = notesView.Current;
+                if (current is not null)
+                {
+                    noteForm.BindTo(current.Model);
+                }
+            });
+
         NewNotebookCommand = RelayCommand.Builder()
             .Predicate(() => IsConstructed)
             .Task(() => _ = NotebooksRoot.AddNotebookAsync(parentId: null, name: "New Notebook"))
@@ -216,6 +241,7 @@ public sealed class WorkspaceVM : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        _currentNoteSubscription.Dispose();
         FocusedVM.Dispose();
         (NewNotebookCommand as IDisposable)?.Dispose();
         (NewNoteCommand as IDisposable)?.Dispose();

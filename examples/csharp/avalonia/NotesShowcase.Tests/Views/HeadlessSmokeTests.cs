@@ -76,6 +76,43 @@ public sealed class HeadlessSmokeTests
         workspace.Dispose();
     }
 
+    // ── Round-3 Critical-2: WorkspaceVM observes NotesView.Current changes
+    // and re-binds NoteForm — without this the right-pane editor stays
+    // empty when the user clicks a note in the centre pane.
+    [Trait("Category", "Smoke")]
+    [AvaloniaFact]
+    public async Task Selecting_a_note_in_NotesView_Current_rebinds_NoteForm()
+    {
+        var seed = SeedData.Build();
+        var repo = new InMemoryNoteRepository(
+            seed,
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero);
+        var hub = new MessageHub();
+        var workspace = WorkspaceVM.Builder()
+            .Repository(repo)
+            .DialogService(NullDialogService.Instance)
+            .NotificationHub(new NotificationHub())
+            .MessageHub(hub)
+            .Dispatcher(new AvaloniaDispatcher())
+            .Build();
+        await workspace.ConstructAsync();
+        Assert.False(workspace.NoteForm.HasBoundNote);
+
+        // Bind the notes view to a notebook with notes and select one.
+        await workspace.NotesView.BindToAsync("nb-personal");
+        var first = workspace.NotesView.Inner[0];
+        workspace.NotesView.Current = first;
+
+        // The WorkspaceVM subscription should have rebound the form.
+        Assert.True(workspace.NoteForm.HasBoundNote);
+        Assert.Equal(first.Title, workspace.NoteForm.Title);
+        Assert.Equal(first.Body, workspace.NoteForm.Body);
+
+        workspace.Dispose();
+    }
+
     [Trait("Category", "Smoke")]
     [AvaloniaFact]
     public async Task MainWindow_shows_and_lists_four_root_notebooks_after_construct()
