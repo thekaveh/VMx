@@ -9,7 +9,11 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
-      include: ["src/models/**", "src/viewmodels/**"],
+      include: [
+        "src/models/**",
+        "src/viewmodels/**",
+        "src/views/adapter/**",
+      ],
       thresholds: { lines: 90, functions: 90, branches: 80, statements: 90 },
     },
   },
