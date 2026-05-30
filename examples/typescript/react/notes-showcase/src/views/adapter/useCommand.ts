@@ -22,14 +22,18 @@
  * gates on `canExecute()` (RelayCommand contract — see relayCommand.ts).
  */
 import { useCallback, useSyncExternalStore } from "react";
-import type { RelayCommand } from "vmx";
+import type { ICommand } from "vmx";
 
 export interface UseCommandResult {
   readonly canExecute: boolean;
   execute(): void;
 }
 
-export function useCommand(cmd: RelayCommand): UseCommandResult {
+// Accepts `ICommand` (the public surface VMs expose) rather than the concrete
+// `RelayCommand`. Phase 5.c VMs publish `ICommand` from getters per §6.1
+// (Pure-VM contract): the adapter must bind against the interface so view
+// components never depend on the concrete command class.
+export function useCommand(cmd: ICommand): UseCommandResult {
   const subscribe = useCallback(
     (notify: () => void): (() => void) => {
       const subscription = cmd.canExecuteChanged.subscribe({

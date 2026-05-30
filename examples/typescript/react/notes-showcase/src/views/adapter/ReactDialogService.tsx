@@ -2,85 +2,172 @@
  * ReactDialogService — VMx `IDialogService` for React apps.
  *
  * See scenario doc §7.1 (DialogService) and §7.3 (TS adapter signature) and
- * plan §4.c.
+ * plan §5.c.
  *
- * **Phase 4.c status**: ships the *adapter shell only* — every method throws
- * `Error("…Phase 5.c…")` with an explicit pointer to the modal components
- * that Phase 5.c will deliver under `views/modals/`. This mirrors:
+ * **Phase 5.c implementation.** The Phase 4.c shell threw on every method;
+ * Phase 5.c replaces that with a real portal-mounted modal flow. Mirrors:
  *
- *   - `AvaloniaDialogService.Confirm` / `Notify` (Phase 4.a, commit `1a25c3d`).
- *   - `TextualDialogService.*` (Phase 4.b, commit `bf20ea4`).
+ *   - `AvaloniaDialogService.Confirm` / `Notify` (Phase 5.a, commit `ed8195d`).
+ *   - `TextualDialogService.*` (Phase 5.b, commit `6ad6a76`).
  *
- * **Why not a `window.confirm` / `window.prompt` fallback?**
- *   The Avalonia and Textual adapters explicitly leave their `confirm`/`notify`
- *   as `NotImplementedException` placeholders rather than substitute a
- *   non-modal stand-in. Three-flavor parity matters more than a temporary
- *   browser-native fallback that would diverge from the cross-language audit
- *   surface (Phase 9). Phase 5.c replaces this whole shell with proper React
- *   portal-mounted modals; until then, the type exists so the composition
- *   root and parity wiring compile today.
+ * **Architecture** (§6.1 Pure-VM contract):
+ *   - The dialog service holds a `BehaviorSubject<DialogRequest | null>` of
+ *     the current open dialog request — a pure data record (no React types).
+ *   - A `DialogOverlay` component reads the subject through the
+ *     `useDialogOverlay` hook (see `useDialogOverlay.ts`), which wraps
+ *     `useSyncExternalStore` over the subject. That keeps `Layout.tsx` and
+ *     every other component free of `useState` / `useReducer`.
+ *   - Modal components (`ConfirmModal`, `SaveFileModal`) invoke `onResolve`
+ *     callbacks that the service set up when opening — the promise resolves,
+ *     the subject clears.
  *
- * The `setOverlay` hook is reserved for Phase 5.c: it lets the host component
- * register a setter that the dialog service will eventually call to push a
- * `Modal` element into a top-level portal. It is wired now (and tested
- * implicitly by the Phase 5.c smoke test) so Phase 5.c can land without
- * widening the public surface.
+ * **Why a `BehaviorSubject` and not a setter binding?**
+ *   The setter-binding approach in the plan's initial sketch required a
+ *   `useState` somewhere in the view tree to hold the current overlay node.
+ *   A rxjs `BehaviorSubject` + `useSyncExternalStore` pushes that state into
+ *   the adapter where it belongs and matches the contract enforced for every
+ *   other binding hook in this adapter (`useVm` / `useCommand` /
+ *   `useVmCollection` / `useDerivedProperty`).
  */
-import type { ReactNode } from "react";
+import { BehaviorSubject, type Observable } from "rxjs";
 import type {
   FileFilter,
   IDialogService,
   NotificationSeverity,
 } from "vmx";
 
-const PHASE_5C_MSG = (method: string): string =>
-  `ReactDialogService.${method} requires the Phase 5.c modal portal ` +
-  "(views/modals/ is not built until Phase 5.c).";
+/** Variant tag for the current dialog request (drives `DialogOverlay`'s render). */
+export type DialogKind = "confirm" | "saveFile" | "openFile" | "notify";
 
-type OverlaySetter = (overlay: ReactNode | null) => void;
+/** Pure-data request record exposed to view components via `useDialogOverlay`. */
+export interface DialogRequest {
+  readonly kind: DialogKind;
+  readonly title: string | null;
+  readonly message: string;
+  /** For "saveFile": initial suggested file name. */
+  readonly suggestedName: string | null;
+  /** For "notify": severity (info / warning / error / success). */
+  readonly severity: NotificationSeverity | null;
+  /** Caller-supplied resolver for "confirm". */
+  readonly resolveBool: (value: boolean) => void;
+  /** Caller-supplied resolver for "saveFile" / "openFile". */
+  readonly resolveString: (value: string | null) => void;
+  /** Caller-supplied resolver for "notify". */
+  readonly resolveVoid: () => void;
+}
+
+const noopBool = (_: boolean): void => {};
+const noopString = (_: string | null): void => {};
+const noopVoid = (): void => {};
 
 export class ReactDialogService implements IDialogService {
+  readonly #current = new BehaviorSubject<DialogRequest | null>(null);
+
   /**
-   * Phase 5.c integration hook. Will be called once during host mount with a
-   * setter that pushes a `ReactNode` (or `null` to clear) into the app's
-   * top-level overlay slot (a React portal target). Currently a no-op stub:
-   * every method below throws before the setter would be invoked. Phase 5.c
-   * replaces this stub with a real implementation that stores the setter and
-   * dispatches modal nodes through it.
+   * Observable of the currently-open dialog request (or `null` when nothing
+   * is open). Bound by the `DialogOverlay` component through
+   * `useDialogOverlay`. Stable identity per service instance.
    */
-  bindOverlaySetter(_setter: OverlaySetter): void {
-    // Intentional no-op: Phase 5.c will store the setter and wire it through
-    // the methods below. The signature is fixed now so composition compiles.
+  get current(): Observable<DialogRequest | null> {
+    return this.#current.asObservable();
   }
 
-  /** Phase 5.c: replace with a portal-mounted file-open dialog. */
+  /** Synchronous read of the current request. Used by `getSnapshot`. */
+  get currentValue(): DialogRequest | null {
+    return this.#current.getValue();
+  }
+
+  /** Clears the current request — called by every modal on resolve. */
+  close(): void {
+    this.#current.next(null);
+  }
+
   pickFileToOpen(
-    _filter?: FileFilter | null,
-    _title?: string | null,
+    filter: FileFilter | null = null,
+    title: string | null = null,
   ): Promise<string | null> {
-    return Promise.reject(new Error(PHASE_5C_MSG("pickFileToOpen")));
+    void filter;
+    return new Promise<string | null>((resolve) => {
+      const request: DialogRequest = {
+        kind: "openFile",
+        title,
+        message: "Open file",
+        suggestedName: null,
+        severity: null,
+        resolveBool: noopBool,
+        resolveString: (v) => {
+          this.close();
+          resolve(v);
+        },
+        resolveVoid: noopVoid,
+      };
+      this.#current.next(request);
+    });
   }
 
-  /** Phase 5.c: replace with a portal-mounted file-save dialog. */
   pickFileToSave(
-    _filter?: FileFilter | null,
-    _title?: string | null,
-    _suggestedName?: string | null,
+    filter: FileFilter | null = null,
+    title: string | null = null,
+    suggestedName: string | null = null,
   ): Promise<string | null> {
-    return Promise.reject(new Error(PHASE_5C_MSG("pickFileToSave")));
+    void filter;
+    return new Promise<string | null>((resolve) => {
+      const request: DialogRequest = {
+        kind: "saveFile",
+        title,
+        message: "Save file",
+        suggestedName,
+        severity: null,
+        resolveBool: noopBool,
+        resolveString: (v) => {
+          this.close();
+          resolve(v);
+        },
+        resolveVoid: noopVoid,
+      };
+      this.#current.next(request);
+    });
   }
 
-  /** Phase 5.c: replace with a portal-mounted ConfirmModal. */
-  confirm(_message: string, _title?: string | null): Promise<boolean> {
-    return Promise.reject(new Error(PHASE_5C_MSG("confirm")));
+  confirm(message: string, title: string | null = null): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const request: DialogRequest = {
+        kind: "confirm",
+        title,
+        message,
+        suggestedName: null,
+        severity: null,
+        resolveBool: (v) => {
+          this.close();
+          resolve(v);
+        },
+        resolveString: noopString,
+        resolveVoid: noopVoid,
+      };
+      this.#current.next(request);
+    });
   }
 
-  /** Phase 5.c: replace with a portal-mounted NotificationToast. */
   notify(
-    _message: string,
-    _title?: string | null,
-    _severity?: NotificationSeverity,
+    message: string,
+    title: string | null = null,
+    severity: NotificationSeverity = "info",
   ): Promise<void> {
-    return Promise.reject(new Error(PHASE_5C_MSG("notify")));
+    return new Promise<void>((resolve) => {
+      const request: DialogRequest = {
+        kind: "notify",
+        title,
+        message,
+        suggestedName: null,
+        severity,
+        resolveBool: noopBool,
+        resolveString: noopString,
+        resolveVoid: () => {
+          this.close();
+          resolve();
+        },
+      };
+      this.#current.next(request);
+    });
   }
 }
