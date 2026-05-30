@@ -101,9 +101,18 @@ public sealed class NotebooksRootVM
             .Name($"nb:{id}")
             .Model(model)
             .Services(_hub, _dispatcher)
+            .ChildrenGetter(ChildrenOf)
             .Build();
         vm.Construct();
         _all.Add(vm);
+        // Phase 5.a binding gap #2: tell the new VM's parent (if any) to
+        // refresh its Children view so an already-bound TreeView picks up
+        // the new nested node.
+        if (parentId is not null)
+        {
+            var parent = _all.FirstOrDefault(nb => nb.Model.Id == parentId);
+            parent?.NotifyChildrenChanged();
+        }
         // Index is the new tail of _all (we just appended).
         Hub.Send(new TreeStructureChangedMessage(
             Source: this,
@@ -132,6 +141,7 @@ public sealed class NotebooksRootVM
                 .Name($"nb:{nb.Id}")
                 .Model(nb)
                 .Services(_hub, _dispatcher)
+                .ChildrenGetter(ChildrenOf)
                 .Build();
             vm.Construct();
             _all.Add(vm);

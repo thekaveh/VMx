@@ -5,14 +5,13 @@
              x:DataType="vm:NoteFormVM">
 
     <!--
-      Editing note (plan §5.a, scenario §6.2): NoteModel is a `record` so
-      Draft.Title/Body/Starred are immutable per-property. Two-way text binding
-      onto record fields is not viable as-is; this view exposes the draft
-      one-way for display, plus the tag input / Save / Revert commands which
-      are mutation-safe (the VM owns the rebuild via `Draft = Draft with {...}`).
-      Surfacing per-field setters on NoteFormVM is a Phase 7 polish item; the
-      smoke test, Approve/Deny commands, and the capability action bar all work
-      against the current surface.
+      Editing note (plan §5.a, scenario §6.2): NoteModel is an immutable
+      `record` so we cannot bind directly to ``Draft.Title``/``Draft.Body``/
+      ``Draft.Starred``. ``NoteFormVM`` exposes per-field scalar accessors
+      (``Title``/``Body``/``Starred``) that rebuild the draft via ``with``
+      expressions; two-way bindings below route edits through them, which
+      re-emits ``IsDirty`` / ``IsValid`` / approve-command CanExecute so the
+      Save button enables reactively. See Phase 5.a binding gap #1.
     -->
     <Grid Margin="12" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
         <TextBlock Grid.Row="0"
@@ -23,13 +22,12 @@
         <!-- Title (row 1) -->
         <TextBox Grid.Row="1"
                  Watermark="Title"
-                 Text="{Binding Draft.Title, Mode=OneWay}"
-                 IsReadOnly="True"
+                 Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                  Margin="0,0,0,8" />
 
         <!-- Tags (row 2): chips + input -->
         <StackPanel Grid.Row="2" Orientation="Vertical" Spacing="4" Margin="0,0,0,8">
-            <ItemsControl ItemsSource="{Binding Draft.Tags}">
+            <ItemsControl ItemsSource="{Binding Tags}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <WrapPanel />
@@ -64,15 +62,13 @@
         <!-- Starred (row 3) -->
         <CheckBox Grid.Row="3"
                   Content="Starred"
-                  IsChecked="{Binding Draft.Starred, Mode=OneWay}"
-                  IsEnabled="False"
+                  IsChecked="{Binding Starred, Mode=TwoWay}"
                   Margin="0,0,0,8" />
 
         <!-- Body (row 4) -->
         <TextBox Grid.Row="4"
                  Watermark="Body"
-                 Text="{Binding Draft.Body, Mode=OneWay}"
-                 IsReadOnly="True"
+                 Text="{Binding Body, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                  AcceptsReturn="True"
                  TextWrapping="Wrap"
                  VerticalContentAlignment="Top" />

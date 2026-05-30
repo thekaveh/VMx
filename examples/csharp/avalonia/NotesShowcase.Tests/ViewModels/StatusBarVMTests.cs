@@ -90,4 +90,40 @@ public sealed class StatusBarVMTests
         notes.ShowStarredOnly = false;
         Assert.Equal(0, emits);
     }
+
+    // ── Phase 5.a binding gap #3: BindableDerived INPC sidecar ────────────
+
+    [Fact]
+    public async Task Bindable_sidecars_raise_PropertyChanged_for_Value_on_recompute()
+    {
+        var (bar, notes, _, _, _) = Build();
+        var observedCount = new System.Collections.Generic.List<string?>();
+        var observedStarred = new System.Collections.Generic.List<string?>();
+        bar.NoteCountTextBindable.PropertyChanged += (_, e) => observedCount.Add(e.PropertyName);
+        bar.StarredTextBindable.PropertyChanged += (_, e) => observedStarred.Add(e.PropertyName);
+
+        await notes.BindToAsync("nb-reviews");
+
+        Assert.NotEmpty(observedCount);
+        Assert.All(observedCount, n => Assert.Equal("Value", n));
+        Assert.NotEmpty(observedStarred);
+        Assert.Equal(bar.NoteCountText.Value, bar.NoteCountTextBindable.Value);
+        Assert.Equal(bar.StarredText.Value, bar.StarredTextBindable.Value);
+    }
+
+    [Fact]
+    public void EditingTextBindable_PropertyChanged_fires_when_form_draft_mutates()
+    {
+        var (bar, _, _, form, _) = Build();
+        var observed = new System.Collections.Generic.List<string?>();
+        bar.EditingTextBindable.PropertyChanged += (_, e) => observed.Add(e.PropertyName);
+
+        form.BindTo(new NoteModel(
+            "n1", "nb-reviews", "Hello", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        form.Title = "World";
+
+        Assert.NotEmpty(observed);
+        Assert.Equal(bar.EditingText.Value, bar.EditingTextBindable.Value);
+    }
 }

@@ -5,6 +5,7 @@ using VMx.Commands;
 using VMx.Components;
 using VMx.Properties;
 using VMx.Services;
+using NotesShowcase.Views.Adapter;
 
 namespace NotesShowcase.ViewModels;
 
@@ -34,6 +35,13 @@ public sealed class CapabilityActionsVM : ComponentVMBase
 
     /// <summary>The projected action list. Recomputes on <see cref="RecomputeActions"/>.</summary>
     public DerivedProperty<IReadOnlyList<ActionVM>> Actions { get; }
+
+    /// <summary>
+    /// INPC-aware sidecar for <see cref="Actions"/> (Phase 5.a binding gap #3).
+    /// Avalonia binds <c>{Binding ActionsBindable.Value}</c> so the action-bar
+    /// repopulates whenever focus changes — see <see cref="BindableDerived{T}"/>.
+    /// </summary>
+    public BindableDerived<IReadOnlyList<ActionVM>> ActionsBindable { get; }
 
     /// <summary>
     /// Inspects the focused VM and rebuilds the action list. The host calls
@@ -144,6 +152,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         _focusedGetter = focusedGetter;
         _focusSubject = new BehaviorSubject<object?>(focusedGetter());
         Actions = DerivedProperty.From(_focusSubject, Project);
+        ActionsBindable = new BindableDerived<IReadOnlyList<ActionVM>>(Actions);
     }
 
     /// <inheritdoc/>
@@ -151,6 +160,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
     {
         if (_ownDisposed) { base.Dispose(); return; }
         _ownDisposed = true;
+        ActionsBindable.Dispose();
         Actions.Dispose();
         _focusSubject.OnCompleted();
         _focusSubject.Dispose();

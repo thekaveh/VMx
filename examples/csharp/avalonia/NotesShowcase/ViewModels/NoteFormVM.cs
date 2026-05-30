@@ -1,3 +1,4 @@
+using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Builders;
 using VMx.Capabilities;
@@ -30,6 +31,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private NoteModel? _bound;
     private string _tagDraft = string.Empty;
     private bool _ownDisposed;
+    private readonly Subject<System.Reactive.Unit> _canExecuteTrigger = new();
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -58,6 +60,49 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <summary>The form's snapshot (advances on each successful Approve).</summary>
     public NoteModel Snapshot => _form?.Snapshot ?? _bound ?? Empty;
 
+    // Phase 5.a binding gap #1 (parity with Phase 5.b / 5.c): NoteModel is an
+    // immutable record, so Avalonia widgets cannot two-way bind through
+    // ``Draft.Title``/``Draft.Body``/``Draft.Starred`` directly. Expose mutable
+    // scalar accessors that rebuild the draft via ``with`` expressions so
+    // ``TextBox`` / ``CheckBox`` two-way bindings round-trip into the form and
+    // ``IsDirty`` / ``IsValid`` / ``ApproveCommand.CanExecute`` flip reactively.
+
+    /// <summary>Two-way bindable title (proxies <see cref="Draft"/>.Title).</summary>
+    public string Title
+    {
+        get => Draft.Title;
+        set
+        {
+            if (_form is null || string.Equals(Draft.Title, value, StringComparison.Ordinal)) return;
+            Draft = Draft with { Title = value };
+        }
+    }
+
+    /// <summary>Two-way bindable body (proxies <see cref="Draft"/>.Body).</summary>
+    public string Body
+    {
+        get => Draft.Body;
+        set
+        {
+            if (_form is null || string.Equals(Draft.Body, value, StringComparison.Ordinal)) return;
+            Draft = Draft with { Body = value };
+        }
+    }
+
+    /// <summary>Two-way bindable starred flag (proxies <see cref="Draft"/>.Starred).</summary>
+    public bool Starred
+    {
+        get => Draft.Starred;
+        set
+        {
+            if (_form is null || Draft.Starred == value) return;
+            Draft = Draft with { Starred = value };
+        }
+    }
+
+    /// <summary>Read-only view of the draft tag list (mutate via tag commands).</summary>
+    public IReadOnlyList<string> Tags => Draft.Tags;
+
     /// <summary>True when the draft differs from the snapshot.</summary>
     public bool IsDirty => _form?.IsDirty ?? false;
 
@@ -82,6 +127,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             _tagDraft = value;
             Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagDraft)));
             RaisePropertyChanged(nameof(TagDraft));
+            _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
         }
     }
 
@@ -146,14 +192,26 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
 
     private void EmitDraftChanges()
     {
+        // Includes the per-field scalar accessors (Title/Body/Starred/Tags) so
+        // two-way bound widgets receive PropertyChanged and re-read after every
+        // draft mutation. See Phase 5.a binding gap #1.
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Draft)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Snapshot)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsDirty)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsValid)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Title)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Body)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Tags)));
         RaisePropertyChanged(nameof(Draft));
         RaisePropertyChanged(nameof(Snapshot));
         RaisePropertyChanged(nameof(IsDirty));
         RaisePropertyChanged(nameof(IsValid));
+        RaisePropertyChanged(nameof(Title));
+        RaisePropertyChanged(nameof(Body));
+        RaisePropertyChanged(nameof(Starred));
+        RaisePropertyChanged(nameof(Tags));
+        _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
     }
 
     private NoteFormVM(
@@ -167,13 +225,19 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     {
         _repo = repo;
         _notificationHub = notificationHub;
+        // Phase 5.a binding gap #1: draft mutation must flip
+        // ApproveCommand.CanExecute reactively for Avalonia buttons. Wire the
+        // ``_canExecuteTrigger`` subject through .Triggers(...) so each
+        // EmitDraftChanges call fires CanExecuteChanged.
         ApproveCommand = RelayCommand.Builder()
             .Predicate(() => IsDirty && IsValid)
             .Task(() => _ = ApproveAsync())
+            .Triggers(_canExecuteTrigger)
             .Build();
         AddTagCommand = RelayCommand.Builder()
             .Predicate(() => HasBoundNote && !string.IsNullOrWhiteSpace(_tagDraft))
             .Task(AddTag)
+            .Triggers(_canExecuteTrigger)
             .Build();
         RemoveTagCommand = RelayCommand<string?>.Builder()
             .Predicate(t => HasBoundNote && !string.IsNullOrEmpty(t))
@@ -194,6 +258,8 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         (ApproveCommand as IDisposable)?.Dispose();
         (AddTagCommand as IDisposable)?.Dispose();
         (RemoveTagCommand as IDisposable)?.Dispose();
+        _canExecuteTrigger.OnCompleted();
+        _canExecuteTrigger.Dispose();
         base.Dispose();
     }
 

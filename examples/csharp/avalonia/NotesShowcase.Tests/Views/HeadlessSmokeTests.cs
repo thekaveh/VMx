@@ -30,6 +30,54 @@ public sealed class HeadlessSmokeTests
 {
     [Trait("Category", "Smoke")]
     [AvaloniaFact]
+    public async Task Editing_NoteFormVM_Title_Flips_Dirty_And_Enables_Save()
+    {
+        // End-to-end Phase 5.a binding gap #1: the two-way bound TextBox on
+        // NoteFormView pushes edits through ``NoteFormVM.Title``; that flips
+        // IsDirty and re-fires ApproveCommand.CanExecuteChanged so the Save
+        // button enables. We assert the VM-level surface here (the XAML
+        // binding mode is exercised by Avalonia's binding engine in the
+        // real app — see plan §5.a.headless).
+        var seed = SeedData.Build();
+        var repo = new InMemoryNoteRepository(
+            seed,
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero);
+        var hub = new MessageHub();
+        var workspace = WorkspaceVM.Builder()
+            .Repository(repo)
+            .DialogService(NullDialogService.Instance)
+            .NotificationHub(new NotificationHub())
+            .MessageHub(hub)
+            .Dispatcher(new AvaloniaDispatcher())
+            .Build();
+        await workspace.ConstructAsync();
+
+        var note = (await repo.LoadAllAsync()).Notes.First();
+        workspace.NoteForm.BindTo(note);
+        Assert.False(workspace.NoteForm.IsDirty);
+        Assert.False(workspace.NoteForm.ApproveCommand.CanExecute(null));
+
+        // Simulate the two-way bound TextBox writing back through the
+        // scalar Title setter.
+        var canExecuteChanges = 0;
+        workspace.NoteForm.ApproveCommand.CanExecuteChanged += (_, _) => canExecuteChanges++;
+        workspace.NoteForm.Title = note.Title + " (edited)";
+
+        Assert.True(workspace.NoteForm.IsDirty);
+        Assert.True(workspace.NoteForm.ApproveCommand.CanExecute(null));
+        Assert.True(canExecuteChanges > 0, "ApproveCommand.CanExecuteChanged must fire so XAML re-evaluates the Save button.");
+
+        await workspace.NoteForm.ApproveAsync();
+        Assert.False(workspace.NoteForm.IsDirty);
+        Assert.EndsWith("(edited)", workspace.NoteForm.Snapshot.Title);
+
+        workspace.Dispose();
+    }
+
+    [Trait("Category", "Smoke")]
+    [AvaloniaFact]
     public async Task MainWindow_shows_and_lists_four_root_notebooks_after_construct()
     {
         // Build a synthetic workspace with zero repo latency so the test is

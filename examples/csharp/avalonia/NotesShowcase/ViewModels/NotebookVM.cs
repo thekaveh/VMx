@@ -29,6 +29,7 @@ public sealed class NotebookVM
 {
     private readonly ExpandableState _expansion;
     private NotebookModel _model;
+    private Func<NotebookVM, IReadOnlyList<NotebookVM>>? _childrenGetter;
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -58,6 +59,41 @@ public sealed class NotebookVM
 
     /// <summary>Notebook display name (derived from <see cref="Model"/>).</summary>
     public string NotebookName => _model.Name;
+
+    /// <summary>
+    /// Child notebook VMs (parent_id walk via the owner-supplied getter).
+    /// Returns an empty list when no getter has been wired (standalone VMs do
+    /// not know about siblings). Phase 5.a binding gap #2 (parity with
+    /// Phase 5.b ``children_getter``): the Avalonia <c>TreeView</c>'s
+    /// <c>TreeDataTemplate</c> binds <c>ItemsSource="{Binding Children}"</c>
+    /// so nested notebooks (Specs under Work) appear under their parent.
+    /// </summary>
+    public IReadOnlyList<NotebookVM> Children
+        => _childrenGetter is null ? Array.Empty<NotebookVM>() : _childrenGetter(this);
+
+    /// <summary>
+    /// Late-binds the children resolver (used by <see cref="NotebooksRootVM"/>
+    /// after each <c>PopulateAsync</c> / <c>AddNotebookAsync</c>). Emits
+    /// <see cref="PropertyChangedMessage{TSender}"/> for <c>Children</c> so
+    /// already-bound tree views refresh.
+    /// </summary>
+    public void SetChildrenGetter(Func<NotebookVM, IReadOnlyList<NotebookVM>>? getter)
+    {
+        _childrenGetter = getter;
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Children)));
+        RaisePropertyChanged(nameof(Children));
+    }
+
+    /// <summary>
+    /// Re-emits a <c>Children</c> change notification (called by
+    /// <see cref="NotebooksRootVM"/> whenever the flat collection mutates so
+    /// already-bound parents refresh their child list).
+    /// </summary>
+    internal void NotifyChildrenChanged()
+    {
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Children)));
+        RaisePropertyChanged(nameof(Children));
+    }
 
     // ── ISelectable / IExpandable / ICollapsible / IExpansionTogglable ──────
 
@@ -109,11 +145,13 @@ public sealed class NotebookVM
         NotebookModel model,
         IMessageHub hub,
         IDispatcher dispatcher,
-        bool initiallyExpanded)
+        bool initiallyExpanded,
+        Func<NotebookVM, IReadOnlyList<NotebookVM>>? childrenGetter)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _model = model;
         _expansion = new ExpandableState(initiallyExpanded);
+        _childrenGetter = childrenGetter;
     }
 
     /// <inheritdoc/>
@@ -135,6 +173,7 @@ public sealed class NotebookVM
         private readonly IMessageHub? _hub;
         private readonly IDispatcher? _dispatcher;
         private readonly bool _initiallyExpanded;
+        private readonly Func<NotebookVM, IReadOnlyList<NotebookVM>>? _childrenGetter;
 
         internal static readonly NotebookVMBuilder Empty = new();
 
@@ -146,7 +185,8 @@ public sealed class NotebookVM
             NotebookModel? model,
             IMessageHub? hub,
             IDispatcher? dispatcher,
-            bool initiallyExpanded)
+            bool initiallyExpanded,
+            Func<NotebookVM, IReadOnlyList<NotebookVM>>? childrenGetter)
         {
             _name = name;
             _hint = hint;
@@ -154,27 +194,36 @@ public sealed class NotebookVM
             _hub = hub;
             _dispatcher = dispatcher;
             _initiallyExpanded = initiallyExpanded;
+            _childrenGetter = childrenGetter;
         }
 
         /// <summary>Sets the required VM Name.</summary>
         public NotebookVMBuilder Name(string name)
-            => new(name, _hint, _model, _hub, _dispatcher, _initiallyExpanded);
+            => new(name, _hint, _model, _hub, _dispatcher, _initiallyExpanded, _childrenGetter);
 
         /// <summary>Sets the optional Hint.</summary>
         public NotebookVMBuilder Hint(string hint)
-            => new(_name, hint, _model, _hub, _dispatcher, _initiallyExpanded);
+            => new(_name, hint, _model, _hub, _dispatcher, _initiallyExpanded, _childrenGetter);
 
         /// <summary>Sets the required notebook model.</summary>
         public NotebookVMBuilder Model(NotebookModel model)
-            => new(_name, _hint, model, _hub, _dispatcher, _initiallyExpanded);
+            => new(_name, _hint, model, _hub, _dispatcher, _initiallyExpanded, _childrenGetter);
 
         /// <summary>Sets the required Services (hub + dispatcher).</summary>
         public NotebookVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
-            => new(_name, _hint, _model, hub, dispatcher, _initiallyExpanded);
+            => new(_name, _hint, _model, hub, dispatcher, _initiallyExpanded, _childrenGetter);
 
         /// <summary>Sets the optional initial expansion state (default false).</summary>
         public NotebookVMBuilder InitiallyExpanded(bool initiallyExpanded)
-            => new(_name, _hint, _model, _hub, _dispatcher, initiallyExpanded);
+            => new(_name, _hint, _model, _hub, _dispatcher, initiallyExpanded, _childrenGetter);
+
+        /// <summary>
+        /// Sets the optional children-getter callback. Phase 5.a binding gap #2:
+        /// the owning <see cref="NotebooksRootVM"/> wires this so each notebook
+        /// can resolve its children from the flat collection.
+        /// </summary>
+        public NotebookVMBuilder ChildrenGetter(Func<NotebookVM, IReadOnlyList<NotebookVM>> getter)
+            => new(_name, _hint, _model, _hub, _dispatcher, _initiallyExpanded, getter);
 
         /// <summary>Builds the VM after validating required fields.</summary>
         public NotebookVM Build()
@@ -183,7 +232,7 @@ public sealed class NotebookVM
             BuilderValidationException.Require(_model, "Model");
             BuilderValidationException.Require(_hub, "Hub");
             BuilderValidationException.Require(_dispatcher, "Dispatcher");
-            return new NotebookVM(_name!, _hint, _model!, _hub!, _dispatcher!, _initiallyExpanded);
+            return new NotebookVM(_name!, _hint, _model!, _hub!, _dispatcher!, _initiallyExpanded, _childrenGetter);
         }
     }
 }

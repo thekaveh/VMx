@@ -3,7 +3,12 @@
              xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
              x:Class="NotesShowcase.Views.CapabilityActionsView"
              x:DataType="vm:CapabilityActionsVM">
-    <ItemsControl ItemsSource="{Binding Actions.Value}">
+    <!--
+      Binds to ``ActionsBindable`` (BindableDerived<IReadOnlyList<ActionVM>>)
+      so the bar repopulates whenever focus shifts. The raw ``Actions``
+      DerivedProperty does not raise INPC — see Phase 5.a binding gap #3.
+    -->
+    <ItemsControl ItemsSource="{Binding ActionsBindable.Value}">
         <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
                 <StackPanel Orientation="Horizontal" Spacing="6" />

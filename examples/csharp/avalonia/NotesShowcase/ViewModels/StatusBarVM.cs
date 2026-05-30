@@ -5,6 +5,7 @@ using VMx.Components;
 using VMx.Messages;
 using VMx.Properties;
 using VMx.Services;
+using NotesShowcase.Views.Adapter;
 
 namespace NotesShowcase.ViewModels;
 
@@ -41,6 +42,23 @@ public sealed class StatusBarVM : ComponentVMBase
 
     /// <summary>"Editing: TITLE" / "No selection" — reflects the form's draft state.</summary>
     public DerivedProperty<string> EditingText { get; }
+
+    // Phase 5.a binding gap #3 (parity with Phase 5.b ``bind_derived_property``
+    // and Phase 5.c ``useDerivedProperty``): DerivedProperty does NOT raise
+    // INotifyPropertyChanged for its ``.Value`` getter, so Avalonia's binding
+    // engine cannot observe recomputes through ``{Binding Foo.Value}``. The
+    // ``Bindable*`` parallels below wrap each DP with a ``BindableDerived<T>``
+    // sidecar that raises ``PropertyChanged("Value")`` on every distinct
+    // emission. Views bind ``{Binding NoteCountTextBindable.Value}`` instead.
+
+    /// <summary>INPC-aware sidecar for <see cref="NoteCountText"/>.</summary>
+    public BindableDerived<string> NoteCountTextBindable { get; }
+
+    /// <summary>INPC-aware sidecar for <see cref="StarredText"/>.</summary>
+    public BindableDerived<string> StarredTextBindable { get; }
+
+    /// <summary>INPC-aware sidecar for <see cref="EditingText"/>.</summary>
+    public BindableDerived<string> EditingTextBindable { get; }
 
     private NotesViewVM NotesViewRef => _notesView;
     private NotebooksRootVM NotebooksRef => _notebooks;
@@ -95,6 +113,10 @@ public sealed class StatusBarVM : ComponentVMBase
             nf => nf.HasBoundNote
                 ? $"Editing: {nf.Draft.Title}{(nf.IsDirty ? " *" : string.Empty)}"
                 : "No selection");
+
+        NoteCountTextBindable = new BindableDerived<string>(NoteCountText);
+        StarredTextBindable = new BindableDerived<string>(StarredText);
+        EditingTextBindable = new BindableDerived<string>(EditingText);
     }
 
     /// <inheritdoc/>
@@ -102,6 +124,9 @@ public sealed class StatusBarVM : ComponentVMBase
     {
         if (_ownDisposed) { base.Dispose(); return; }
         _ownDisposed = true;
+        NoteCountTextBindable.Dispose();
+        StarredTextBindable.Dispose();
+        EditingTextBindable.Dispose();
         NoteCountText.Dispose();
         StarredText.Dispose();
         EditingText.Dispose();

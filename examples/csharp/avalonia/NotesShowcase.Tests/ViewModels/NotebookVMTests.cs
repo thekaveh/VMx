@@ -115,4 +115,30 @@ public sealed class NotebookVMTests
         vm.Dispose();
         Assert.Equal(VMx.Lifecycle.ConstructionStatus.Disposed, vm.Status);
     }
+
+    // ── Phase 5.a binding gap #2: standalone children accessor ────────────
+
+    [Fact]
+    public void Children_is_empty_when_no_getter_wired()
+    {
+        // Standalone VM (no owning NotebooksRootVM) returns an empty children
+        // list — matches Python parity (children_getter=None ⇒ []).
+        var vm = Build();
+        Assert.Empty(vm.Children);
+    }
+
+    [Fact]
+    public void SetChildrenGetter_emits_Children_PropertyChangedMessage()
+    {
+        var vm = Build();
+        vm.Construct();
+        var observed = new List<string>();
+        using var sub = vm.Hub.Messages
+            .OfType<PropertyChangedMessage<IComponentVM>>()
+            .Subscribe(m => observed.Add(m.PropertyName));
+
+        vm.SetChildrenGetter(_ => Array.Empty<NotebookVM>());
+
+        Assert.Contains(nameof(NotebookVM.Children), observed);
+    }
 }

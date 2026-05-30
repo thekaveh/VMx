@@ -104,4 +104,46 @@ public sealed class NotebooksRootVMTests
         await Task.Delay(50);
         Assert.True(vm.All.Count > before);
     }
+
+    // ── Phase 5.a binding gap #2: hierarchical Children accessor ──────────
+
+    [Fact]
+    public async Task After_PopulateAsync_each_notebook_resolves_Children_via_parent_id()
+    {
+        var repo = new InMemoryNoteRepository(SeedData.Build(), loadAllDelay: TimeSpan.Zero);
+        var vm = BuildVM(repo);
+        vm.Construct();
+        await vm.PopulateAsync();
+
+        var work = vm.All.Single(n => n.Model.Id == "nb-work");
+        var specs = vm.All.Single(n => n.Model.Id == "nb-specs");
+
+        // "Specs" must appear under "Work" via the Children accessor — this is
+        // what the Avalonia TreeView's TreeDataTemplate.ItemsSource binds to.
+        Assert.Contains(specs, work.Children);
+        Assert.Single(work.Children);
+        // Leaf notebooks (no children) return an empty list.
+        Assert.Empty(specs.Children);
+    }
+
+    [Fact]
+    public async Task AddNotebookAsync_with_parentId_appears_under_parent_Children()
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero);
+        var vm = BuildVM(repo);
+        vm.Construct();
+        await vm.PopulateAsync();
+        var work = vm.All.Single(n => n.Model.Id == "nb-work");
+        var beforeCount = work.Children.Count;
+
+        await vm.AddNotebookAsync(parentId: "nb-work", name: "Subspecs");
+
+        var added = vm.All.Single(n => n.Model.Name == "Subspecs");
+        Assert.Equal("nb-work", added.Model.ParentId);
+        Assert.Contains(added, work.Children);
+        Assert.Equal(beforeCount + 1, work.Children.Count);
+    }
 }

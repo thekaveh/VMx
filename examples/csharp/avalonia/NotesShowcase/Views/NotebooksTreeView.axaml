@@ -5,12 +5,12 @@
              x:DataType="vm:NotebooksRootVM">
 
     <!--
-      Tree rendering note (plan §5.a / scenario §6.2): NotebookVM does not expose
-      a `Children` collection; the parent/child relation lives on NotebooksRootVM
-      via ChildrenOf(parent). Until a Children accessor lands on NotebookVM, the
-      tree binds to `Roots` only — sufficient for the spec's "4 root notebooks"
-      smoke test and the toolbar's "Add notebook (root)" flow. Nested-notebook
-      navigation is a Phase 7 polish item.
+      Tree rendering (plan §5.a / scenario §6.2): nested notebooks
+      (e.g. Specs under Work) are surfaced via NotebookVM.Children, populated
+      by NotebooksRootVM's children-getter callback. The TreeDataTemplate's
+      ItemsSource binds onto that accessor so the TreeView walks the real
+      hierarchy. See Phase 5.a binding gap #2 — parity with the Python
+      Textual tree and React tree implementations.
     -->
     <Grid RowDefinitions="Auto,*">
         <TextBlock Grid.Row="0"
@@ -25,7 +25,7 @@
                   ItemsSource="{Binding Roots}"
                   SelectedItem="{Binding Current, Mode=TwoWay}">
             <TreeView.ItemTemplate>
-                <TreeDataTemplate>
+                <TreeDataTemplate ItemsSource="{Binding Children}">
                     <TextBlock Text="{Binding NotebookName}"
                                Padding="4,2" />
                 </TreeDataTemplate>

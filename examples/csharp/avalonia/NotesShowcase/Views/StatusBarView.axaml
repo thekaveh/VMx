@@ -3,16 +3,21 @@
              xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
              x:Class="NotesShowcase.Views.StatusBarView"
              x:DataType="vm:StatusBarVM">
+    <!--
+      Bindings target the ``Bindable`` sidecars (BindableDerived<T>) so the
+      slots live-update on every recompute. The raw DerivedProperty<T> on the
+      VM does not raise INPC for ``.Value`` — see Phase 5.a binding gap #3.
+    -->
     <StackPanel Orientation="Horizontal" Spacing="16">
         <TextBlock Foreground="{StaticResource SubtleTextBrush}"
-                   Text="{Binding NoteCountText.Value}" />
+                   Text="{Binding NoteCountTextBindable.Value}" />
         <TextBlock Foreground="{StaticResource SubtleTextBrush}"
                    Text="·" />
         <TextBlock Foreground="{StaticResource SubtleTextBrush}"
-                   Text="{Binding StarredText.Value}" />
+                   Text="{Binding StarredTextBindable.Value}" />
         <TextBlock Foreground="{StaticResource SubtleTextBrush}"
                    Text="·" />
         <TextBlock Foreground="{StaticResource TextBrush}"
-                   Text="{Binding EditingText.Value}" />
+                   Text="{Binding EditingTextBindable.Value}" />
     </StackPanel>
 </UserControl>

@@ -1,4 +1,5 @@
 using System.Reactive.Concurrency;
+using System.Reactive.Linq;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
 using VMx.Capabilities;
@@ -129,5 +130,89 @@ public sealed class NoteFormVMTests
         form.RemoveTagCommand.Execute("a");
         Assert.DoesNotContain("a", form.Draft.Tags);
         Assert.Contains("b", form.Draft.Tags);
+    }
+
+    // ── Phase 5.a binding gap #1: two-way scalar setters ──────────────────
+
+    [Fact]
+    public void Setting_Title_scalar_flips_IsDirty_true_and_enables_ApproveCommand()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote("Original"));
+        Assert.False(form.IsDirty);
+        Assert.False(form.ApproveCommand.CanExecute(null));
+
+        form.Title = "Edited";
+
+        Assert.Equal("Edited", form.Title);
+        Assert.Equal("Edited", form.Draft.Title);
+        Assert.True(form.IsDirty);
+        Assert.True(form.ApproveCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Setting_Title_back_to_snapshot_value_flips_IsDirty_false()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote("Original"));
+        form.Title = "Edited";
+        Assert.True(form.IsDirty);
+
+        form.Title = "Original";
+
+        Assert.False(form.IsDirty);
+        Assert.False(form.ApproveCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Setting_Body_and_Starred_scalars_round_trip_into_Draft()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote());
+        form.Body = "New body content";
+        form.Starred = true;
+        Assert.Equal("New body content", form.Draft.Body);
+        Assert.True(form.Draft.Starred);
+        Assert.True(form.IsDirty);
+    }
+
+    [Fact]
+    public void Setting_Title_to_same_value_is_no_op_no_dirty_flip()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote("Hello"));
+        form.Title = "Hello";
+        Assert.False(form.IsDirty);
+    }
+
+    [Fact]
+    public void Scalar_setters_emit_PropertyChangedMessage_on_hub_for_Title_Body_Starred()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote());
+        var observed = new System.Collections.Generic.List<string>();
+        using var sub = form.Hub.Messages
+            .OfType<VMx.Messages.PropertyChangedMessage<VMx.Components.IComponentVM>>()
+            .Where(m => ReferenceEquals(m.Sender, form))
+            .Subscribe(m => observed.Add(m.PropertyName));
+
+        form.Title = "T2";
+        form.Body = "B2";
+        form.Starred = true;
+
+        Assert.Contains(nameof(NoteFormVM.Title), observed);
+        Assert.Contains(nameof(NoteFormVM.Body), observed);
+        Assert.Contains(nameof(NoteFormVM.Starred), observed);
+    }
+
+    [Fact]
+    public void Scalar_setters_are_no_ops_when_no_note_is_bound()
+    {
+        var (form, _) = Build();
+        // Pre-bind: form has no inner FormVM yet — setters must safely no-op.
+        form.Title = "ignored";
+        form.Body = "ignored";
+        form.Starred = true;
+        Assert.False(form.IsDirty);
     }
 }
