@@ -25,6 +25,53 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   uv --project langs/python run pytest tools/tests/
   ```
 
+## 2. Pure-VM contract checks (notes-showcase, Phase 6)
+
+Four lint-style scripts that lock in the §6.1 Pure-VM contract and the
+cross-flavor parity of the `examples/notes-showcase` apps. Each is
+self-contained, runs from the repo root with no required arguments, and
+exits 0 on success / non-zero with a per-line violation report on failure.
+
+- `check-axaml-codebehind.py` — Avalonia view code-behind (`*.axaml.cs`)
+  may only call `InitializeComponent()` or `AvaloniaXamlLoader.Load(this)`.
+  Excludes `Views/Adapter/` (binding helpers, not views).
+
+- `check-textual-views.py` — Textual widget classes may define only
+  `__init__` / `compose` / `on_mount` / `render`, `action_*` methods
+  (≤ 1 statement each), and `on_*` event handlers (≤ 1 statement, no
+  direct hub subscriptions). Excludes `views/adapter/**`.
+
+- `check-layer-imports.py` — enforces the layered import direction for
+  all three flavors:
+
+    Models → Models only
+    ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,
+    which is treated as a peer because frameworks like Avalonia need
+    INPC-aware sidecars co-located with the VM).
+    Views → anywhere.
+
+- `check-showcase-parity.py` — verifies each flavor ships the ten
+  canonical VM test files (`workspace_vm`, `notebooks_root_vm`,
+  `notebook_vm`, `notes_view_vm`, `note_vm`, `note_form_vm`,
+  `status_bar_vm`, `notifications_vm`, `capability_actions_vm`,
+  `in_memory_repository`).
+
+A fifth check is the React ESLint rule under
+`examples/typescript/react/notes-showcase/.eslintrc.cjs` —
+`no-restricted-imports` on `src/views/components/**/*.{ts,tsx}` blocks
+`useState` and `useReducer`, steering authors to the adapter hooks
+(`useVm`, `useCommand`, `useDerivedProperty`).
+
+Run all five from the repo root:
+
+```bash
+python3 tools/check-axaml-codebehind.py
+python3 tools/check-textual-views.py
+python3 tools/check-layer-imports.py
+python3 tools/check-showcase-parity.py
+( cd examples/typescript/react/notes-showcase && npx eslint src/views/components )
+```
+
 <!-- Future tooling ideas (matrix generator, spec-to-docs renderer) are tracked as
 GitHub issues rather than carried inline here, so this README stays a description
 of what exists rather than what might exist someday. -->
