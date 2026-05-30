@@ -33,15 +33,19 @@ import {
   type IDispatcher,
   type IMessageHub,
 } from "vmx";
+import { type INotificationHub } from "vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
+import { type IDialogService } from "./dialogService.js";
 import { NoteVM } from "./noteVM.js";
 
 const SENTINEL = Symbol("not-set");
 
 export class NotesViewVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
+  readonly #dialogService: IDialogService | null;
+  readonly #notificationHub: INotificationHub | null;
   readonly #inner: NoteVM[] = [];
   readonly #filtered: NoteVM[] = [];
   readonly #paged: PagedComposition<NoteVM>;
@@ -69,6 +73,8 @@ export class NotesViewVM extends ComponentVMBase {
     pageSize: number;
     searchDebounceMs: number;
     searchScheduler?: SchedulerLike;
+    dialogService?: IDialogService | null;
+    notificationHub?: INotificationHub | null;
   }) {
     super({
       name: opts.name,
@@ -77,6 +83,8 @@ export class NotesViewVM extends ComponentVMBase {
       dispatcher: opts.dispatcher,
     });
     this.#repo = opts.repository;
+    this.#dialogService = opts.dialogService ?? null;
+    this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(
       this,
       "IPageable",
@@ -333,11 +341,21 @@ export class NotesViewVM extends ComponentVMBase {
     for (const prev of this.#inner) prev.dispose();
     this.#inner.length = 0;
     for (const m of notes) {
-      const vm = NoteVM.builder()
+      let builder = NoteVM.builder()
         .name(`note:${m.id}`)
         .model(m)
         .services(this._hub, this._dispatcher)
-        .build();
+        .onDelete((vm) => this.#deleteNote(vm));
+      if (this.#dialogService !== null) {
+        const dialog = this.#dialogService;
+        builder = builder.confirmDelete((vm) =>
+          dialog.confirm(`Delete “${vm.title}”?`, "Delete note"),
+        );
+      }
+      if (this.#notificationHub !== null) {
+        builder = builder.notificationHub(this.#notificationHub);
+      }
+      const vm = builder.build();
       vm.construct();
       this.#inner.push(vm);
     }
@@ -348,6 +366,33 @@ export class NotesViewVM extends ComponentVMBase {
     this._raisePropertyChanged("current");
     this.#recomputeFiltered();
     this.#paged.moveToFirstPage();
+  }
+
+  #deleteNote(note: NoteVM): void {
+    // Fire-and-forget: persist via the repo, then remove from the inner
+    // collection. The "Note deleted" notification is posted by the NoteVM
+    // itself (after the confirm gate, if any).
+    void this.#deleteNoteAsync(note);
+  }
+
+  async #deleteNoteAsync(note: NoteVM): Promise<void> {
+    try {
+      await this.#repo.deleteNote(note.model.id);
+    } catch {
+      return;
+    }
+    const idx = this.#inner.indexOf(note);
+    if (idx < 0) return;
+    this.#inner.splice(idx, 1);
+    if (this.#current === note) {
+      this.#current = null;
+      this._hub.send(
+        PropertyChangedMessage.create(this, this._name, "current"),
+      );
+      this._raisePropertyChanged("current");
+    }
+    this.#recomputeFiltered();
+    note.dispose();
   }
 
   #recomputeFiltered(): void {
@@ -406,6 +451,8 @@ export class NotesViewVMBuilder {
   #pageSize = 5;
   #searchDebounceMs = 150;
   #searchScheduler: SchedulerLike | null = null;
+  #dialogService: IDialogService | null = null;
+  #notificationHub: INotificationHub | null = null;
 
   constructor(from?: NotesViewVMBuilder) {
     if (from) {
@@ -417,6 +464,8 @@ export class NotesViewVMBuilder {
       this.#pageSize = from.#pageSize;
       this.#searchDebounceMs = from.#searchDebounceMs;
       this.#searchScheduler = from.#searchScheduler;
+      this.#dialogService = from.#dialogService;
+      this.#notificationHub = from.#notificationHub;
     }
   }
 
@@ -463,6 +512,18 @@ export class NotesViewVMBuilder {
     return b;
   }
 
+  dialogService(service: IDialogService): NotesViewVMBuilder {
+    const b = new NotesViewVMBuilder(this);
+    b.#dialogService = service;
+    return b;
+  }
+
+  notificationHub(hub: INotificationHub): NotesViewVMBuilder {
+    const b = new NotesViewVMBuilder(this);
+    b.#notificationHub = hub;
+    return b;
+  }
+
   build(): NotesViewVM {
     if (this.#name === null) throw new Error("name is required");
     if (this.#hub === null || this.#dispatcher === null)
@@ -479,6 +540,8 @@ export class NotesViewVMBuilder {
       ...(this.#searchScheduler !== null
         ? { searchScheduler: this.#searchScheduler }
         : {}),
+      dialogService: this.#dialogService,
+      notificationHub: this.#notificationHub,
     });
   }
 }

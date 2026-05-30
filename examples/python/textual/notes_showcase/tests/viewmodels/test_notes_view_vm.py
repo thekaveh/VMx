@@ -205,3 +205,69 @@ def test_dispose_releases_resources() -> None:
     from vmx import ConstructionStatus
 
     assert vm.status == ConstructionStatus.DISPOSED
+
+
+# ── Audit pass #1, B1/B2 symmetric coverage: delete-with-confirm wiring ───
+
+
+class _AcceptDialog:
+    """IDialogService stub that auto-accepts confirms."""
+
+    async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
+        return None
+
+    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:  # noqa: ARG002
+        return None
+
+    async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002
+        return True
+
+    async def notify(self, message, title=None, severity=None) -> None:  # noqa: ARG002
+        return None
+
+
+async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -> None:  # noqa: ARG001
+    """When ``dialog_service`` + ``notification_hub`` are wired, a confirmed
+    delete on a NoteVM removes it from the inner collection and posts a
+    "Note deleted" notification.
+    """
+    import asyncio
+    from vmx.notifications import Notification, NotificationHub
+
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+        delete_note_delay=0.0,
+    )
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(
+        foreground=ImmediateScheduler(), background=ImmediateScheduler()
+    )
+    notification_hub = NotificationHub()
+    observed: list[Notification] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snap: [observed.append(n) for n in snap if n not in observed]
+    )
+    vm = (
+        NotesViewVM.builder()
+        .name("notes")
+        .services(hub, dispatcher)
+        .repository(repo)
+        .dialog_service(_AcceptDialog())
+        .notification_hub(notification_hub)
+        .build()
+    )
+    vm.construct()
+    await vm.bind_to_async("nb-personal")
+    before = vm.inner.count
+    target = vm.inner[0]
+
+    # Execute the decorated delete command — confirm returns True → delete fires.
+    target.delete_command.execute()
+    # Let the confirm coroutine + scheduled remove coroutine run.
+    await asyncio.sleep(0.05)
+
+    assert vm.inner.count == before - 1
+    assert any("Note deleted" in n.message for n in observed)

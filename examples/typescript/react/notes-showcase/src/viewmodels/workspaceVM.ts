@@ -89,6 +89,7 @@ export class WorkspaceVM {
       .name("notebooks")
       .services(opts.hub, opts.dispatcher)
       .repository(opts.repository)
+      .notificationHub(opts.notificationHub)
       .build();
     this.#notesView = NotesViewVM.builder()
       .name("notes")
@@ -96,6 +97,8 @@ export class WorkspaceVM {
       .repository(opts.repository)
       .pageSize(5)
       .searchDebounceMs(150)
+      .dialogService(opts.dialogService)
+      .notificationHub(opts.notificationHub)
       .build();
     this.#noteForm = NoteFormVM.builder()
       .name("form")

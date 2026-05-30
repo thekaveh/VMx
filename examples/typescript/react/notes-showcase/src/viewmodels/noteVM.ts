@@ -11,6 +11,7 @@
  */
 import {
   ComponentVMBase,
+  ConfirmationDecoratorCommand,
   ConstructionStatus,
   declareCapabilities,
   PropertyChangedMessage,
@@ -20,6 +21,11 @@ import {
   type IDispatcher,
   type IMessageHub,
 } from "vmx";
+import {
+  type INotificationHub,
+  Notification,
+  NotificationType,
+} from "vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
 
@@ -31,9 +37,12 @@ export class NoteVM extends ComponentVMBase {
   readonly #onClose: NoteHandler | null;
   readonly #onDelete: NoteHandler | null;
   readonly #onSave: NoteHandler | null;
+  readonly #confirmDelete: ((vm: NoteVM) => Promise<boolean>) | null;
+  readonly #notificationHub: INotificationHub | null;
   readonly #closeCommand: RelayCommand;
   readonly #saveCommand: RelayCommand;
-  readonly #deleteCommand: RelayCommand;
+  readonly #innerDeleteCommand: RelayCommand;
+  readonly #deleteCommand: ICommand;
   #model: NoteModel;
 
   constructor(opts: {
@@ -45,6 +54,8 @@ export class NoteVM extends ComponentVMBase {
     onClose?: NoteHandler | null;
     onDelete?: NoteHandler | null;
     onSave?: NoteHandler | null;
+    confirmDelete?: ((vm: NoteVM) => Promise<boolean>) | null;
+    notificationHub?: INotificationHub | null;
   }) {
     super({
       name: opts.name,
@@ -56,6 +67,8 @@ export class NoteVM extends ComponentVMBase {
     this.#onClose = opts.onClose ?? null;
     this.#onDelete = opts.onDelete ?? null;
     this.#onSave = opts.onSave ?? null;
+    this.#confirmDelete = opts.confirmDelete ?? null;
+    this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(
       this,
       "ISelectable",
@@ -73,10 +86,31 @@ export class NoteVM extends ComponentVMBase {
       .predicate(() => this.canSave(this))
       .task(() => this.save(this))
       .build();
-    this.#deleteCommand = RelayCommand.builder()
+    // Spec §5.2.8 / §6.2: when a confirm-delete delegate is wired, wrap the
+    // delete in a ConfirmationDecoratorCommand. The inner command invokes
+    // `#performDelete`, which posts a "Note deleted" notification (if a hub
+    // is wired) and calls the host delete callback.
+    this.#innerDeleteCommand = RelayCommand.builder()
       .predicate(() => this.canDelete(this))
-      .task(() => this.delete(this))
+      .task(() => this.#performDelete(this))
       .build();
+    this.#deleteCommand =
+      this.#confirmDelete !== null
+        ? new ConfirmationDecoratorCommand(
+            this.#innerDeleteCommand,
+            () => this.#confirmDelete!(this),
+          )
+        : this.#innerDeleteCommand;
+  }
+
+  #performDelete(item: NoteVM): void {
+    if (!this.canDelete(item)) return;
+    if (this.#onDelete !== null) this.#onDelete(item);
+    if (this.#notificationHub !== null) {
+      void this.#notificationHub.post(
+        new Notification(NotificationType.Notification, `Note deleted: “${item.title}”`),
+      );
+    }
   }
 
   get type(): ViewModelType {
@@ -178,7 +212,10 @@ export class NoteVM extends ComponentVMBase {
   protected override _onDispose(): void {
     this.#closeCommand.dispose();
     this.#saveCommand.dispose();
-    this.#deleteCommand.dispose();
+    // ConfirmationDecoratorCommand is not Disposable in VMx-TS; dispose the
+    // raw inner RelayCommand explicitly to avoid leaking its CanExecute
+    // subscriptions.
+    this.#innerDeleteCommand.dispose();
     super._onDispose();
   }
 
@@ -196,6 +233,8 @@ export class NoteVMBuilder {
   #onClose: NoteHandler | null = null;
   #onDelete: NoteHandler | null = null;
   #onSave: NoteHandler | null = null;
+  #confirmDelete: ((vm: NoteVM) => Promise<boolean>) | null = null;
+  #notificationHub: INotificationHub | null = null;
 
   constructor(from?: NoteVMBuilder) {
     if (from) {
@@ -207,6 +246,8 @@ export class NoteVMBuilder {
       this.#onClose = from.#onClose;
       this.#onDelete = from.#onDelete;
       this.#onSave = from.#onSave;
+      this.#confirmDelete = from.#confirmDelete;
+      this.#notificationHub = from.#notificationHub;
     }
   }
 
@@ -253,6 +294,25 @@ export class NoteVMBuilder {
     return b;
   }
 
+  /** When set, `deleteCommand` is wrapped in a `ConfirmationDecoratorCommand`
+   * calling this delegate. Typical host wiring:
+   * `(vm) => dialogService.confirm(\`Delete "${vm.title}"?\`)`.
+   */
+  confirmDelete(fn: (vm: NoteVM) => Promise<boolean>): NoteVMBuilder {
+    const b = new NoteVMBuilder(this);
+    b.#confirmDelete = fn;
+    return b;
+  }
+
+  /** When set, a successful delete (post-confirm if any) posts a
+   * "Note deleted" notification on the hub.
+   */
+  notificationHub(hub: INotificationHub): NoteVMBuilder {
+    const b = new NoteVMBuilder(this);
+    b.#notificationHub = hub;
+    return b;
+  }
+
   build(): NoteVM {
     if (this.#name === null) throw new Error("name is required");
     if (this.#model === SENTINEL) throw new Error("model is required");
@@ -267,6 +327,8 @@ export class NoteVMBuilder {
       onClose: this.#onClose,
       onDelete: this.#onDelete,
       onSave: this.#onSave,
+      confirmDelete: this.#confirmDelete,
+      notificationHub: this.#notificationHub,
     });
   }
 }

@@ -4,6 +4,7 @@ using VMx.Capabilities;
 using VMx.Commands;
 using VMx.Components;
 using VMx.Messages;
+using VMx.Notifications;
 using VMx.Services;
 using NotesShowcase.Models;
 
@@ -32,6 +33,8 @@ public sealed class NoteVM
     private readonly Action<NoteVM>? _onClose;
     private readonly Action<NoteVM>? _onDelete;
     private readonly Action<NoteVM>? _onSave;
+    private readonly Func<NoteVM, Task<bool>>? _confirmDelete;
+    private readonly INotificationHub? _notificationHub;
     private NoteModel _model;
 
     /// <inheritdoc/>
@@ -129,13 +132,17 @@ public sealed class NoteVM
         IDispatcher dispatcher,
         Action<NoteVM>? onClose,
         Action<NoteVM>? onDelete,
-        Action<NoteVM>? onSave)
+        Action<NoteVM>? onSave,
+        Func<NoteVM, Task<bool>>? confirmDelete,
+        INotificationHub? notificationHub)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _model = model;
         _onClose = onClose;
         _onDelete = onDelete;
         _onSave = onSave;
+        _confirmDelete = confirmDelete;
+        _notificationHub = notificationHub;
 
         CloseCommand = RelayCommand.Builder()
             .Predicate(CanClose)
@@ -145,10 +152,31 @@ public sealed class NoteVM
             .Predicate(() => CanSave(this))
             .Task(() => Save(this))
             .Build();
-        DeleteCommand = RelayCommand.Builder()
+        // Spec §5.2.8 / §6.2: Delete must be a ConfirmationDecoratorCommand.
+        // When a confirm delegate is wired, wrap the inner delete command; if
+        // accepted, post a "Note deleted" notification (if a hub is wired) and
+        // invoke the host delete callback. Without a confirm delegate the
+        // command stays plain — preserves tests that exercise the raw delete
+        // path (e.g. NoteVMTests.DeleteCommand_invokes_OnDelete_callback).
+        var inner = RelayCommand.Builder()
             .Predicate(() => CanDelete(this))
-            .Task(() => Delete(this))
+            .Task(() => PerformDelete(this))
             .Build();
+        DeleteCommand = _confirmDelete is null
+            ? inner
+            : new ConfirmationDecoratorCommand(inner, () => _confirmDelete(this));
+    }
+
+    private void PerformDelete(NoteVM item)
+    {
+        if (!CanDelete(item)) return;
+        _onDelete?.Invoke(item);
+        if (_notificationHub is not null)
+        {
+            _ = _notificationHub.Post(new Notification(
+                NotificationType.Notification,
+                $"Note deleted: “{item.Title}”"));
+        }
     }
 
     /// <inheritdoc/>
@@ -174,6 +202,8 @@ public sealed class NoteVM
         private readonly Action<NoteVM>? _onClose;
         private readonly Action<NoteVM>? _onDelete;
         private readonly Action<NoteVM>? _onSave;
+        private readonly Func<NoteVM, Task<bool>>? _confirmDelete;
+        private readonly INotificationHub? _notificationHub;
 
         internal static readonly NoteVMBuilder Empty = new();
 
@@ -182,27 +212,43 @@ public sealed class NoteVM
         private NoteVMBuilder(
             string? name, string hint, NoteModel? model,
             IMessageHub? hub, IDispatcher? dispatcher,
-            Action<NoteVM>? onClose, Action<NoteVM>? onDelete, Action<NoteVM>? onSave)
+            Action<NoteVM>? onClose, Action<NoteVM>? onDelete, Action<NoteVM>? onSave,
+            Func<NoteVM, Task<bool>>? confirmDelete, INotificationHub? notificationHub)
         {
             _name = name; _hint = hint; _model = model;
             _hub = hub; _dispatcher = dispatcher;
             _onClose = onClose; _onDelete = onDelete; _onSave = onSave;
+            _confirmDelete = confirmDelete; _notificationHub = notificationHub;
         }
 
         /// <summary>Sets the required Name.</summary>
-        public NoteVMBuilder Name(string name) => new(name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave);
+        public NoteVMBuilder Name(string name) => new(name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave, _confirmDelete, _notificationHub);
         /// <summary>Sets the optional Hint.</summary>
-        public NoteVMBuilder Hint(string hint) => new(_name, hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave);
+        public NoteVMBuilder Hint(string hint) => new(_name, hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave, _confirmDelete, _notificationHub);
         /// <summary>Sets the required note model.</summary>
-        public NoteVMBuilder Model(NoteModel model) => new(_name, _hint, model, _hub, _dispatcher, _onClose, _onDelete, _onSave);
+        public NoteVMBuilder Model(NoteModel model) => new(_name, _hint, model, _hub, _dispatcher, _onClose, _onDelete, _onSave, _confirmDelete, _notificationHub);
         /// <summary>Sets the required Services.</summary>
-        public NoteVMBuilder Services(IMessageHub hub, IDispatcher dispatcher) => new(_name, _hint, _model, hub, dispatcher, _onClose, _onDelete, _onSave);
+        public NoteVMBuilder Services(IMessageHub hub, IDispatcher dispatcher) => new(_name, _hint, _model, hub, dispatcher, _onClose, _onDelete, _onSave, _confirmDelete, _notificationHub);
         /// <summary>Sets the optional close callback (NotesViewVM.Current = null).</summary>
-        public NoteVMBuilder OnClose(Action<NoteVM> handler) => new(_name, _hint, _model, _hub, _dispatcher, handler, _onDelete, _onSave);
+        public NoteVMBuilder OnClose(Action<NoteVM> handler) => new(_name, _hint, _model, _hub, _dispatcher, handler, _onDelete, _onSave, _confirmDelete, _notificationHub);
         /// <summary>Sets the optional delete callback (route to repo).</summary>
-        public NoteVMBuilder OnDelete(Action<NoteVM> handler) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, handler, _onSave);
+        public NoteVMBuilder OnDelete(Action<NoteVM> handler) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, handler, _onSave, _confirmDelete, _notificationHub);
         /// <summary>Sets the optional save callback (route to repo).</summary>
-        public NoteVMBuilder OnSave(Action<NoteVM> handler) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, handler);
+        public NoteVMBuilder OnSave(Action<NoteVM> handler) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, handler, _confirmDelete, _notificationHub);
+        /// <summary>
+        /// Sets the optional confirm-delete delegate (spec §5.2.8 / §6.2).
+        /// When set, <see cref="DeleteCommand"/> is wrapped in a
+        /// <see cref="ConfirmationDecoratorCommand"/> that awaits this delegate
+        /// before invoking the inner delete. Typically wires to
+        /// <c>IDialogService.Confirm($"Delete '{n.Title}'?")</c>.
+        /// </summary>
+        public NoteVMBuilder ConfirmDelete(Func<NoteVM, Task<bool>> confirm) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave, confirm, _notificationHub);
+        /// <summary>
+        /// Sets the optional notification hub. When set, a successful delete
+        /// (i.e. one that survived the confirm gate, if any) publishes a
+        /// "Note deleted" notification.
+        /// </summary>
+        public NoteVMBuilder NotificationHub(INotificationHub hub) => new(_name, _hint, _model, _hub, _dispatcher, _onClose, _onDelete, _onSave, _confirmDelete, hub);
 
         /// <summary>Builds the VM after validating required fields.</summary>
         public NoteVM Build()
@@ -211,7 +257,7 @@ public sealed class NoteVM
             BuilderValidationException.Require(_model, "Model");
             BuilderValidationException.Require(_hub, "Hub");
             BuilderValidationException.Require(_dispatcher, "Dispatcher");
-            return new NoteVM(_name!, _hint, _model!, _hub!, _dispatcher!, _onClose, _onDelete, _onSave);
+            return new NoteVM(_name!, _hint, _model!, _hub!, _dispatcher!, _onClose, _onDelete, _onSave, _confirmDelete, _notificationHub);
         }
     }
 }

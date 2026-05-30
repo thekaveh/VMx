@@ -312,7 +312,8 @@ NotebooksRootVM : HierarchicalVM<NotebookModel, NotebookVM>
 NotesViewVM : PagedComposition<NoteVM>     # wraps inner CompositeVM<NoteVM>
   implements IPageable, IFilterable<NoteVM>, ISearchable, IReconstructable
   current             : NoteVM?
-  search              : SearchableState   # debounced 150 ms
+  searchTerm          : string            # two-way bindable; debounced 150 ms
+                                          # via an internal SearchableState
   showStarredOnly     : bool
   pageSize            : int = 5
   isEmpty             : DerivedProperty<bool>
@@ -360,7 +361,7 @@ CapabilityActionsVM
   actions : DerivedProperty<list<ActionVM>>
         # derived from workspace.focusedVM and what it implements.
 
-WorkspaceVM extends AggregateVM6<              # NEW in 2.2.0; see ADR-0034.
+WorkspaceVM composes AggregateVM6<             # NEW in 2.2.0; see ADR-0034.
         NotebooksRootVM,                       # Component1
         NotesViewVM,                           # Component2
         NoteFormVM,                            # Component3
@@ -369,8 +370,13 @@ WorkspaceVM extends AggregateVM6<              # NEW in 2.2.0; see ADR-0034.
         CapabilityActionsVM>                   # Component6
   implements IReconstructable
         # Lifecycle cascade (construct/destruct/dispose) is provided by the
-        # AggregateVM base; WorkspaceVM only adds the toolbar commands and
-        # the focused-VM derivation.
+        # inner AggregateVM6; WorkspaceVM forwards it and adds the toolbar
+        # commands plus the focused-VM derivation.
+        # Composition note: C# `AggregateVM6` is sealed, so example
+        # implementations wrap rather than subclass. Python and TypeScript
+        # follow the same composition pattern for cross-language parity, so
+        # the three flavors share an identical WorkspaceVM surface regardless
+        # of host-language inheritance constraints.
   notebooksRoot       : NotebooksRootVM
   notesView           : NotesViewVM
   noteForm            : NoteFormVM

@@ -39,10 +39,12 @@ from vmx import (
     from_sources,
 )
 from vmx.messages.protocols import Message
+from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.viewmodels.note_vm import NoteVM
 
 _DEFAULT_PAGE_SIZE = 5
@@ -68,9 +70,13 @@ class NotesViewVM(
         page_size: int = _DEFAULT_PAGE_SIZE,
         search_debounce_seconds: float = _DEFAULT_SEARCH_DEBOUNCE_S,
         search_scheduler: SchedulerBase | None = None,
+        dialog_service: "IDialogService | None" = None,
+        notification_hub: "INotificationHub | None" = None,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._repo = repository
+        self._dialog_service = dialog_service
+        self._notification_hub = notification_hub
         self._search_scheduler = search_scheduler or ImmediateScheduler()
 
         self._inner: ObservableList[NoteVM] = ObservableList()
@@ -279,14 +285,24 @@ class NotesViewVM(
             while self._inner.count > 0:
                 self._inner.remove_at(0)
             for n in notes:
-                vm = (
+                builder = (
                     NoteVM.builder()
                     .name(f"note:{n.id}")
                     .services(self.hub, self._dispatcher)
                     .model(n)
                     .on_close(lambda _vm: self._clear_current())
-                    .build()
+                    .on_delete(self._delete_note)
                 )
+                if self._dialog_service is not None:
+                    dialog = self._dialog_service
+                    builder = builder.confirm_delete(
+                        lambda _vm, ds=dialog: ds.confirm(
+                            f'Delete "{_vm.title}"?', title="Delete note"
+                        )
+                    )
+                if self._notification_hub is not None:
+                    builder = builder.notification_hub(self._notification_hub)
+                vm = builder.build()
                 vm.construct()
                 self._inner.append(vm)
         self._current = None
@@ -297,6 +313,39 @@ class NotesViewVM(
 
     def _clear_current(self) -> None:
         self.current = None
+
+    def _delete_note(self, note: NoteVM) -> None:
+        """Remove ``note`` from the inner collection and persist via the repo.
+
+        Fire-and-forget: schedules the async delete and returns. The list
+        mirror updates synchronously after the repo call resolves.
+        """
+        import asyncio
+
+        async def run() -> None:
+            try:
+                await self._repo.delete_note(note.model.id)
+            except Exception:  # pragma: no cover — surfaced via hub in prod
+                return
+            for i in range(self._inner.count):
+                if self._inner[i] is note:
+                    with self._inner.batch_update():
+                        self._inner.remove_at(i)
+                    break
+            if self._current is note:
+                self._current = None
+                self._hub.send(
+                    PropertyChangedMessage.create(self, self._name, "current")
+                )
+                self._raise_property_changed("current")
+            self._recompute_filtered()
+            note.dispose()
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(run())
+        except RuntimeError:
+            asyncio.run(run())
 
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:
@@ -393,6 +442,8 @@ class NotesViewVMBuilder:
     _page_size: int = _DEFAULT_PAGE_SIZE
     _search_debounce_seconds: float = _DEFAULT_SEARCH_DEBOUNCE_S
     _search_scheduler: SchedulerBase | None = None
+    _dialog_service: IDialogService | None = None
+    _notification_hub: INotificationHub | None = None
 
     def name(self, value: str) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -415,6 +466,12 @@ class NotesViewVMBuilder:
     def search_scheduler(self, scheduler: SchedulerBase) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _search_scheduler=scheduler)
 
+    def dialog_service(self, service: IDialogService) -> NotesViewVMBuilder:
+        return dataclasses.replace(self, _dialog_service=service)
+
+    def notification_hub(self, nh: INotificationHub) -> NotesViewVMBuilder:
+        return dataclasses.replace(self, _notification_hub=nh)
+
     def build(self) -> NotesViewVM:
         if self._name is None:
             raise ValueError("name is required")
@@ -431,4 +488,6 @@ class NotesViewVMBuilder:
             page_size=self._page_size,
             search_debounce_seconds=self._search_debounce_seconds,
             search_scheduler=self._search_scheduler,
+            dialog_service=self._dialog_service,
+            notification_hub=self._notification_hub,
         )

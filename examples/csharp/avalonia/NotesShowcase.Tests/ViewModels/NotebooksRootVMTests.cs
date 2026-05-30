@@ -4,6 +4,7 @@ using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
 using VMx.Capabilities;
 using VMx.Hierarchical;
+using VMx.Notifications;
 using VMx.Services;
 using Xunit;
 
@@ -124,6 +125,34 @@ public sealed class NotebooksRootVMTests
         Assert.Single(work.Children);
         // Leaf notebooks (no children) return an empty list.
         Assert.Empty(specs.Children);
+    }
+
+    // ── Audit pass #1, B2: "Notebook added" notification ──────────────────
+
+    [Fact]
+    public async Task AddNotebookAsync_publishes_Notebook_added_notification_when_hub_wired()
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero);
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot) if (!observed.Contains(n)) observed.Add(n);
+        });
+        var vm = NotebooksRootVM.Builder()
+            .Name("root").Services(hub, dispatcher).Repository(repo)
+            .NotificationHub(notificationHub).Build();
+        vm.Construct();
+        await vm.PopulateAsync();
+
+        await vm.AddNotebookAsync(parentId: null, name: "Inbox");
+
+        Assert.Contains(observed, n => n.Message.Contains("Notebook added") && n.Message.Contains("Inbox"));
     }
 
     [Fact]

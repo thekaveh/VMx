@@ -4,7 +4,9 @@ using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
 using VMx.Capabilities;
 using VMx.Components;
+using VMx.Commands;
 using VMx.Messages;
+using VMx.Notifications;
 using VMx.Services;
 using Xunit;
 
@@ -144,5 +146,103 @@ public sealed class NoteVMTests
         Assert.False(vm.CanClose());
         Assert.False(vm.CanSave(vm));
         Assert.False(vm.CanDelete(vm));
+    }
+
+    // ── Audit pass #1, B1: DeleteCommand wraps in ConfirmationDecoratorCommand ──
+
+    [Fact]
+    public async Task DeleteCommand_with_confirm_returning_false_does_NOT_invoke_OnDelete()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        NoteVM? deleted = null;
+        var model = new NoteModel("n", "nb", "T", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(n => deleted = n)
+            .ConfirmDelete(_ => Task.FromResult(false))   // user clicks "No"
+            .Build();
+        vm.Construct();
+
+        Assert.IsType<ConfirmationDecoratorCommand>(vm.DeleteCommand);
+        await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+
+        Assert.Null(deleted);   // delete was rejected by the confirm gate
+    }
+
+    [Fact]
+    public async Task DeleteCommand_with_confirm_returning_true_invokes_OnDelete()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        NoteVM? deleted = null;
+        var model = new NoteModel("n", "nb", "T", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(n => deleted = n)
+            .ConfirmDelete(_ => Task.FromResult(true))    // user clicks "Yes"
+            .Build();
+        vm.Construct();
+
+        Assert.IsType<ConfirmationDecoratorCommand>(vm.DeleteCommand);
+        await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+
+        Assert.Same(vm, deleted);
+    }
+
+    // ── Audit pass #1, B2: NoteVM publishes "Note deleted" notification ──
+
+    [Fact]
+    public async Task DeleteCommand_publishes_Note_deleted_notification_on_success()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot) if (!observed.Contains(n)) observed.Add(n);
+        });
+        var model = new NoteModel("n", "nb", "Important", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(_ => { })
+            .ConfirmDelete(_ => Task.FromResult(true))
+            .NotificationHub(notificationHub)
+            .Build();
+        vm.Construct();
+
+        await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+
+        Assert.Contains(observed, n => n.Message.Contains("Note deleted") && n.Message.Contains("Important"));
+    }
+
+    [Fact]
+    public async Task DeleteCommand_does_NOT_publish_notification_when_confirm_returns_false()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot) if (!observed.Contains(n)) observed.Add(n);
+        });
+        var model = new NoteModel("n", "nb", "T", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(_ => { })
+            .ConfirmDelete(_ => Task.FromResult(false))
+            .NotificationHub(notificationHub)
+            .Build();
+        vm.Construct();
+
+        await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+
+        Assert.DoesNotContain(observed, n => n.Message.Contains("Note deleted"));
     }
 }

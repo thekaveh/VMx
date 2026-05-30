@@ -104,9 +104,14 @@ public sealed class WorkspaceVM : IDisposable
         // wire to live references. They're added to the aggregate via lazy
         // factories that simply return the pre-built instances.
         var notebooks = NotebooksRootVM.Builder()
-            .Name("notebooks").Services(hub, dispatcher).Repository(repo).Build();
+            .Name("notebooks").Services(hub, dispatcher).Repository(repo)
+            .NotificationHub(notificationHub)
+            .Build();
         var notesView = NotesViewVM.Builder()
-            .Name("notes").Services(hub, dispatcher).Repository(repo).PageSize(5).Build();
+            .Name("notes").Services(hub, dispatcher).Repository(repo).PageSize(5)
+            .DialogService(dialogService)
+            .NotificationHub(notificationHub)
+            .Build();
         var noteForm = NoteFormVM.Builder()
             .Name("form").Services(hub, dispatcher).Repository(repo).NotificationHub(notificationHub).Build();
         var statusBar = StatusBarVM.Builder()

@@ -6,6 +6,7 @@ using VMx.Commands;
 using VMx.Components;
 using VMx.Hierarchical;
 using VMx.Messages;
+using VMx.Notifications;
 using VMx.Services;
 using NotesShowcase.Models;
 
@@ -34,6 +35,7 @@ public sealed class NotebooksRootVM
     private readonly INoteRepository _repo;
     private readonly IMessageHub _hub;
     private readonly IDispatcher _dispatcher;
+    private readonly INotificationHub? _notificationHub;
     private readonly ObservableCollection<NotebookVM> _all = new();
     private NotebookVM? _current;
 
@@ -119,6 +121,14 @@ public sealed class NotebooksRootVM
             Change: TreeStructureChange.Added,
             Affected: vm,
             Index: _all.Count - 1));
+        // Spec §6.2: publish a "Notebook added" notification so the toast
+        // region surfaces it. No-op when no hub is wired.
+        if (_notificationHub is not null)
+        {
+            _ = _notificationHub.Post(new Notification(
+                NotificationType.Notification,
+                $"Notebook added: “{name}”"));
+        }
     }
 
     /// <summary>
@@ -160,12 +170,14 @@ public sealed class NotebooksRootVM
         string hint,
         IMessageHub hub,
         IDispatcher dispatcher,
-        INoteRepository repo)
+        INoteRepository repo,
+        INotificationHub? notificationHub)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _repo = repo;
         _hub = hub;
         _dispatcher = dispatcher;
+        _notificationHub = notificationHub;
 
         AddNotebookCommand = RelayCommand.Builder()
             .Predicate(CanCreateNew)
@@ -199,26 +211,36 @@ public sealed class NotebooksRootVM
         private readonly IMessageHub? _hub;
         private readonly IDispatcher? _dispatcher;
         private readonly INoteRepository? _repo;
+        private readonly INotificationHub? _notificationHub;
 
         internal static readonly NotebooksRootVMBuilder Empty = new();
         private NotebooksRootVMBuilder() { _hint = ""; }
         private NotebooksRootVMBuilder(
             string? name, string hint,
-            IMessageHub? hub, IDispatcher? dispatcher, INoteRepository? repo)
+            IMessageHub? hub, IDispatcher? dispatcher, INoteRepository? repo,
+            INotificationHub? notificationHub)
         {
-            _name = name; _hint = hint; _hub = hub; _dispatcher = dispatcher; _repo = repo;
+            _name = name; _hint = hint; _hub = hub; _dispatcher = dispatcher;
+            _repo = repo; _notificationHub = notificationHub;
         }
 
         /// <summary>Sets the required Name.</summary>
-        public NotebooksRootVMBuilder Name(string name) => new(name, _hint, _hub, _dispatcher, _repo);
+        public NotebooksRootVMBuilder Name(string name) => new(name, _hint, _hub, _dispatcher, _repo, _notificationHub);
         /// <summary>Sets the optional Hint.</summary>
-        public NotebooksRootVMBuilder Hint(string hint) => new(_name, hint, _hub, _dispatcher, _repo);
+        public NotebooksRootVMBuilder Hint(string hint) => new(_name, hint, _hub, _dispatcher, _repo, _notificationHub);
         /// <summary>Sets the required Services.</summary>
         public NotebooksRootVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
-            => new(_name, _hint, hub, dispatcher, _repo);
+            => new(_name, _hint, hub, dispatcher, _repo, _notificationHub);
         /// <summary>Sets the required repository.</summary>
         public NotebooksRootVMBuilder Repository(INoteRepository repo)
-            => new(_name, _hint, _hub, _dispatcher, repo);
+            => new(_name, _hint, _hub, _dispatcher, repo, _notificationHub);
+        /// <summary>
+        /// Sets the optional notification hub. When set,
+        /// <see cref="AddNotebookAsync"/> publishes a "Notebook added"
+        /// notification (spec §6.2).
+        /// </summary>
+        public NotebooksRootVMBuilder NotificationHub(INotificationHub notificationHub)
+            => new(_name, _hint, _hub, _dispatcher, _repo, notificationHub);
 
         /// <summary>Builds the VM after validation.</summary>
         public NotebooksRootVM Build()
@@ -227,7 +249,7 @@ public sealed class NotebooksRootVM
             BuilderValidationException.Require(_hub, "Hub");
             BuilderValidationException.Require(_dispatcher, "Dispatcher");
             BuilderValidationException.Require(_repo, "Repository");
-            return new NotebooksRootVM(_name!, _hint, _hub!, _dispatcher!, _repo!);
+            return new NotebooksRootVM(_name!, _hint, _hub!, _dispatcher!, _repo!, _notificationHub);
         }
     }
 }

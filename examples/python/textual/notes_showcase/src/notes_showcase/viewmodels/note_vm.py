@@ -12,7 +12,7 @@ wires it to ``NotesViewVM.current = None`` so the form clears).
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from vmx import (
     ComponentVMOf,
@@ -27,7 +27,10 @@ from vmx import (
     RelayCommand,
     RxDispatcher,
 )
+from vmx.commands import ConfirmationDecoratorCommand
+from vmx.commands.protocols import Command
 from vmx.messages.protocols import Message
+from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_model import NoteModel
@@ -52,6 +55,8 @@ class NoteVM(
         on_close: Callable[["NoteVM"], None] | None = None,
         on_delete: Callable[["NoteVM"], None] | None = None,
         on_save: Callable[["NoteVM"], None] | None = None,
+        confirm_delete: Callable[["NoteVM"], Awaitable[bool]] | None = None,
+        notification_hub: INotificationHub | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -65,6 +70,8 @@ class NoteVM(
         self._on_close = on_close
         self._on_delete = on_delete
         self._on_save = on_save
+        self._confirm_delete = confirm_delete
+        self._notification_hub = notification_hub
 
         self._close_command = (
             RelayCommand.builder().predicate(self.can_close).task(self.close).build()
@@ -75,12 +82,23 @@ class NoteVM(
             .task(lambda: self.save(self))
             .build()
         )
-        self._delete_command = (
+        # Spec §5.2.8 / §6.2: when a confirm-delete delegate is wired, wrap
+        # the delete in a ConfirmationDecoratorCommand. The inner command
+        # invokes `_perform_delete`, which posts a "Note deleted" notification
+        # (if a hub is wired) and calls the host delete callback.
+        inner_delete: Command = (
             RelayCommand.builder()
             .predicate(lambda: self.can_delete(self))
-            .task(lambda: self.delete(self))
+            .task(lambda: self._perform_delete(self))
             .build()
         )
+        if confirm_delete is not None:
+            self._delete_command = ConfirmationDecoratorCommand(
+                inner_delete,
+                lambda: confirm_delete(self),
+            )
+        else:
+            self._delete_command = inner_delete
 
     # ── Convenience accessors / proxies ────────────────────────────────────
     @property
@@ -124,6 +142,25 @@ class NoteVM(
         if self._on_delete is not None:
             self._on_delete(item)
 
+    def _perform_delete(self, item: "NoteVM") -> None:
+        """Inner delete: invokes the host callback and posts the notification.
+
+        Called by the (decorated) DeleteCommand pipeline after the confirm
+        gate has succeeded. Keeps the raw :meth:`delete` capability method
+        notification-free so capability dispatch stays observable-pure.
+        """
+        if not self.can_delete(item):
+            return
+        if self._on_delete is not None:
+            self._on_delete(item)
+        if self._notification_hub is not None:
+            self._notification_hub.post(
+                Notification(
+                    NotificationType.NOTIFICATION,
+                    f'Note deleted: "{item.title}"',
+                )
+            )
+
     def can_save(self, item: "NoteVM") -> bool:
         return item is self and self._status == ConstructionStatus.CONSTRUCTED
 
@@ -143,7 +180,10 @@ class NoteVM(
         return self._save_command
 
     @property
-    def delete_command(self) -> RelayCommand:
+    def delete_command(self) -> Command:
+        """Delete command. ``ConfirmationDecoratorCommand`` when ``confirm_delete``
+        was wired on the builder; raw :class:`RelayCommand` otherwise.
+        """
         return self._delete_command
 
     # ── Model setter override — emit title / starred PCMs ──────────────────
@@ -162,7 +202,10 @@ class NoteVM(
     def _on_dispose(self) -> None:
         self._close_command.dispose()
         self._save_command.dispose()
-        self._delete_command.dispose()
+        # ConfirmationDecoratorCommand is not Disposable in VMx-Py; only
+        # dispose the inner RelayCommand when delete_command is undecorated.
+        if isinstance(self._delete_command, RelayCommand):
+            self._delete_command.dispose()
         super()._on_dispose()
 
     # ── Builder entry-point ────────────────────────────────────────────────
@@ -193,6 +236,8 @@ class NoteVMBuilder:
     _on_close: Callable[[NoteVM], None] | None = None
     _on_delete: Callable[[NoteVM], None] | None = None
     _on_save: Callable[[NoteVM], None] | None = None
+    _confirm_delete: Callable[[NoteVM], Awaitable[bool]] | None = None
+    _notification_hub: INotificationHub | None = None
 
     def name(self, value: str) -> NoteVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -215,6 +260,21 @@ class NoteVMBuilder:
     def on_save(self, callback: Callable[[NoteVM], None]) -> NoteVMBuilder:
         return dataclasses.replace(self, _on_save=callback)
 
+    def confirm_delete(
+        self, callback: Callable[[NoteVM], Awaitable[bool]]
+    ) -> NoteVMBuilder:
+        """When set, :attr:`NoteVM.delete_command` is wrapped in a
+        :class:`ConfirmationDecoratorCommand` calling this delegate. Typically
+        wires to ``IDialogService.confirm(f"Delete '{note.title}'?")``.
+        """
+        return dataclasses.replace(self, _confirm_delete=callback)
+
+    def notification_hub(self, nh: INotificationHub) -> NoteVMBuilder:
+        """When set, a successful delete (post-confirm if any) publishes a
+        "Note deleted" notification.
+        """
+        return dataclasses.replace(self, _notification_hub=nh)
+
     def build(self) -> NoteVM:
         if self._name is None:
             raise ValueError("name is required")
@@ -231,4 +291,6 @@ class NoteVMBuilder:
             on_close=self._on_close,
             on_delete=self._on_delete,
             on_save=self._on_save,
+            confirm_delete=self._confirm_delete,
+            notification_hub=self._notification_hub,
         )

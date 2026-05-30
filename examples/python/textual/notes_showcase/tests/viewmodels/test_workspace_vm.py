@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
 from vmx import ConstructionStatus, MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
-from vmx.notifications import NotificationHub
+from vmx.notifications import Notification, NotificationHub
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
 from notes_showcase.models.seed import build_seed
+from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
 
 
@@ -104,3 +107,200 @@ async def test_dispose_propagates_through_aggregate() -> None:
 def test_builder_requires_repository() -> None:
     with pytest.raises(ValueError, match="repository"):
         WorkspaceVM.builder().build()
+
+
+# ── Audit pass #1, C1: toolbar-command body coverage ──────────────────────
+
+
+class _StubDialogService(IDialogService):
+    """Test stub that returns a pre-canned save path and dismisses confirms."""
+
+    def __init__(self, save_path: str | None) -> None:
+        self._save_path = save_path
+        self.save_calls = 0
+        self.confirm_calls = 0
+        self.notify_calls = 0
+
+    async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
+        return None
+
+    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:  # noqa: ARG002
+        self.save_calls += 1
+        return self._save_path
+
+    async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002
+        self.confirm_calls += 1
+        return True
+
+    async def notify(self, message, title=None, severity=None) -> None:  # noqa: ARG002
+        self.notify_calls += 1
+
+
+async def test_new_notebook_command_adds_notebook_and_fires_notification() -> None:
+    """``new_notebook_command.execute()`` persists a new notebook and posts the
+    "Notebook added" notification.
+    """
+    notification_hub = NotificationHub()
+    observed: list[Notification] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snapshot: [observed.append(n) for n in snapshot if n not in observed]
+    )
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(InMemoryNoteRepository(
+            build_seed(),
+            load_all_delay=0.0,
+            add_notebook_delay=0.0,
+        ))
+        .notification_hub(notification_hub)
+        .build()
+    )
+    await ws.construct_async()
+    before = ws.notebooks_root.all.count
+
+    ws.new_notebook_command.execute()
+    # Fire-and-forget; let the loop drain.
+    await asyncio.sleep(0.05)
+
+    assert ws.notebooks_root.all.count == before + 1
+    assert any("Notebook added" in n.message for n in observed)
+
+
+async def test_new_note_command_adds_note_to_current_notebook() -> None:
+    """``new_note_command.execute()`` saves a new note into the current notebook
+    via the repo and re-binds the notes view.
+    """
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+    )
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+    nb_id = ws.notebooks_root.current.model.id  # type: ignore[union-attr]
+    before = len(await repo.load_notes(nb_id))
+
+    ws.new_note_command.execute()
+    await asyncio.sleep(0.05)
+
+    after = len(await repo.load_notes(nb_id))
+    assert after == before + 1
+
+
+class _CountingRepo(InMemoryNoteRepository):
+    """Wraps InMemoryNoteRepository with export-call counters for assertions."""
+
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(*args, **kwargs)
+        self.export_count = 0
+        self.last_export_path: str | None = None
+
+    async def export(self, notebooks, notes, path):  # type: ignore[override]
+        self.export_count += 1
+        self.last_export_path = path
+        await super().export(notebooks, notes, path)
+
+
+async def test_export_command_uses_dialog_service_and_writes_via_repo(tmp_path) -> None:
+    """``export_command.execute()`` calls ``dialog_service.pick_file_to_save``
+    and then ``repo.export`` when the dialog returns a path.
+    """
+    out_path = str(tmp_path / "notes-export.json")
+    repo = _CountingRepo(
+        build_seed(),
+        load_all_delay=0.0,
+        export_delay=0.0,
+    )
+    dialog = _StubDialogService(save_path=out_path)
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .dialog_service(dialog)
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+
+    ws.export_command.execute()
+    await asyncio.sleep(0.05)
+
+    assert dialog.save_calls == 1
+    assert repo.export_count == 1
+    assert repo.last_export_path == out_path
+
+
+async def test_export_command_cancelled_does_not_call_repo() -> None:
+    """If the dialog returns ``None`` (user cancelled), the repo is not called."""
+    repo = _CountingRepo(
+        build_seed(),
+        load_all_delay=0.0,
+        export_delay=0.0,
+    )
+    dialog = _StubDialogService(save_path=None)
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .dialog_service(dialog)
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+
+    ws.export_command.execute()
+    await asyncio.sleep(0.05)
+
+    assert dialog.save_calls == 1
+    assert repo.export_count == 0
+
+
+def test_dialog_service_property_round_trips() -> None:
+    """``WorkspaceVM.dialog_service`` is a late-bindable property — covers the
+    getter/setter on the workspace.
+    """
+    ws = _build()
+    initial = ws.dialog_service
+    other = _StubDialogService(save_path=None)
+    ws.dialog_service = other
+    assert ws.dialog_service is other
+    # Restoring the original is a no-op for tests.
+    ws.dialog_service = initial
+    assert ws.dialog_service is initial
+
+
+async def test_new_note_command_no_op_when_no_current_notebook() -> None:
+    """``new_note_command`` predicate fails when no notebook is current; calling
+    execute is still safe (fire-and-forget guard inside the body).
+    """
+    ws = _build()
+    ws.construct()
+    # No populate → current notebook is None.
+    assert ws.new_note_command.can_execute() is False
+    # Direct internal coroutine should also no-op gracefully.
+    await ws._add_new_note_to_current()  # type: ignore[attr-defined]
+
+
+async def test_export_command_internal_returns_early_when_no_dialog_path() -> None:
+    """Direct coroutine call exercising the early-return branch for cancelled
+    dialogs (extra coverage on _export_internal).
+    """
+    repo = _CountingRepo(build_seed(), load_all_delay=0.0)
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .dialog_service(_StubDialogService(save_path=None))
+        .build()
+    )
+    ws.construct()
+    await ws._export_internal()  # type: ignore[attr-defined]
+    assert repo.export_count == 0

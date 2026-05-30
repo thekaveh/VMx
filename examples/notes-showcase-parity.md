@@ -18,7 +18,7 @@ renders, headless smoke covers it.
 
 | #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React |
 | --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ |
-| 1   | `HierarchicalVM` (ch. 18) — notebooks tree            | ✓             | ✓                | ✓                  |
+| 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  |
 | 2   | `CompositeVM.Current` (ch. 6) — notes selection       | ✓             | ✓                | ✓                  |
 | 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  |
 | 4   | `FormVM` snapshot/revert (ch. 20) — note editor       | ✓             | ✓                | ✓                  |
@@ -48,6 +48,21 @@ renders, headless smoke covers it.
 - **Screenshots.** Reference screenshots live in
   [`assets/notes-showcase/`](../assets/notes-showcase/) (one PNG per flavor,
   captured manually).
+
+[^hier]: All three flavors implement an equivalent flat-collection +
+    parent-id navigation pattern instead of subclassing
+    `HierarchicalVM<TModel, TVM>` directly, because the canonical class
+    materializes children eagerly from a factory at construct time
+    (awkward for dynamic add). The observable contract —
+    `TreeStructureChangedMessage` emission on add/remove, `current`
+    selection, and `walk()` / `childrenOf()` accessors — is preserved
+    identically across all three flavors, so capability dispatch and
+    spec-level tree messaging behave the same way as a canonical
+    `HierarchicalVM`. Per-flavor source notes:
+    `examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs`,
+    `examples/python/textual/notes_showcase/src/notes_showcase/viewmodels/notebooks_root_vm.py`,
+    and
+    `examples/typescript/react/notes-showcase/src/viewmodels/notebooksRootVM.ts`.
 
 ## Cross-references
 

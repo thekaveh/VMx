@@ -31,6 +31,7 @@ from vmx import (
     TreeStructureChangedMessage,
 )
 from vmx.messages.protocols import Message
+from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_repository import INoteRepository
@@ -49,9 +50,11 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
         repository: INoteRepository,
+        notification_hub: INotificationHub | None = None,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._repo = repository
+        self._notification_hub = notification_hub
         self._notebooks: ObservableList[NotebookVM] = ObservableList()
         self._current: NotebookVM | None = None
 
@@ -146,6 +149,16 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
                 index=index,
             )
         )
+        # Spec §6.2: publish a "Notebook added" notification (cross-flavor
+        # parity with the C# and TypeScript flavors). No-op when no
+        # notification hub is wired.
+        if self._notification_hub is not None:
+            self._notification_hub.post(
+                Notification(
+                    NotificationType.NOTIFICATION,
+                    f'Notebook added: "{name}"',
+                )
+            )
         return vm
 
     async def populate(self) -> None:
@@ -213,6 +226,7 @@ class NotebooksRootVMBuilder:
     _hub: MessageHub[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _repo: INoteRepository | None = None
+    _notification_hub: INotificationHub | None = None
 
     def name(self, value: str) -> NotebooksRootVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -225,6 +239,9 @@ class NotebooksRootVMBuilder:
 
     def repository(self, repo: INoteRepository) -> NotebooksRootVMBuilder:
         return dataclasses.replace(self, _repo=repo)
+
+    def notification_hub(self, nh: INotificationHub) -> NotebooksRootVMBuilder:
+        return dataclasses.replace(self, _notification_hub=nh)
 
     def build(self) -> NotebooksRootVM:
         if self._name is None:
@@ -239,4 +256,5 @@ class NotebooksRootVMBuilder:
             hub=hub,
             dispatcher=dispatcher,
             repository=self._repo,
+            notification_hub=self._notification_hub,
         )

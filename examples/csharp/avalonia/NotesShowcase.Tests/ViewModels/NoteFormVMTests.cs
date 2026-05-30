@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
 using VMx.Capabilities;
+using VMx.Notifications;
 using VMx.Services;
 using Xunit;
 
@@ -214,5 +215,36 @@ public sealed class NoteFormVMTests
         form.Body = "ignored";
         form.Starred = true;
         Assert.False(form.IsDirty);
+    }
+
+    // ── Audit pass #1, B3: ApproveAsync publishes "Saved" notification ────
+
+    [Fact]
+    public async Task ApproveAsync_publishes_Saved_notification()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero);
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot) if (!observed.Contains(n)) observed.Add(n);
+        });
+        var form = NoteFormVM.Builder()
+            .Name("form").Services(hub, dispatcher).Repository(repo)
+            .NotificationHub(notificationHub).Build();
+        form.Construct();
+        var note = (await repo.LoadAllAsync()).Notes.First();
+        form.BindTo(note);
+        form.Title = "Edited title";
+
+        await form.ApproveAsync();
+
+        Assert.Contains(observed, n => n.Message.Contains("Saved") && n.Message.Contains("Edited title"));
     }
 }

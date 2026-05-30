@@ -22,6 +22,11 @@ import {
   type IDispatcher,
   type IMessageHub,
 } from "vmx";
+import {
+  type INotificationHub,
+  Notification,
+  NotificationType,
+} from "vmx/notifications";
 
 import type { NotebookModel } from "../models/notebookModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
@@ -37,6 +42,7 @@ function newNotebookId(): string {
 
 export class NotebooksRootVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
+  readonly #notificationHub: INotificationHub | null;
   readonly #all: NotebookVM[] = [];
   readonly #addNotebookCommand: RelayCommand;
   #current: NotebookVM | null = null;
@@ -47,6 +53,7 @@ export class NotebooksRootVM extends ComponentVMBase {
     hub: IMessageHub;
     dispatcher: IDispatcher;
     repository: INoteRepository;
+    notificationHub?: INotificationHub | null;
   }) {
     super({
       name: opts.name,
@@ -55,6 +62,7 @@ export class NotebooksRootVM extends ComponentVMBase {
       dispatcher: opts.dispatcher,
     });
     this.#repo = opts.repository;
+    this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(this, "INewCreatable", "IReconstructable");
 
     this.#addNotebookCommand = RelayCommand.builder()
@@ -144,6 +152,14 @@ export class NotebooksRootVM extends ComponentVMBase {
         this.#all.length - 1,
       ),
     );
+    // Spec §6.2: publish a "Notebook added" notification (cross-flavor parity
+    // with the C# and Python flavors). No-op when no notification hub is
+    // wired (e.g. in unit tests that don't care about toast feedback).
+    if (this.#notificationHub !== null) {
+      void this.#notificationHub.post(
+        new Notification(NotificationType.Notification, `Notebook added: “${name}”`),
+      );
+    }
   }
 
   /**
@@ -193,6 +209,7 @@ export class NotebooksRootVMBuilder {
   #hub: IMessageHub | null = null;
   #dispatcher: IDispatcher | null = null;
   #repo: INoteRepository | typeof SENTINEL = SENTINEL;
+  #notificationHub: INotificationHub | null = null;
 
   constructor(from?: NotebooksRootVMBuilder) {
     if (from) {
@@ -201,6 +218,7 @@ export class NotebooksRootVMBuilder {
       this.#hub = from.#hub;
       this.#dispatcher = from.#dispatcher;
       this.#repo = from.#repo;
+      this.#notificationHub = from.#notificationHub;
     }
   }
 
@@ -229,6 +247,12 @@ export class NotebooksRootVMBuilder {
     return b;
   }
 
+  notificationHub(hub: INotificationHub): NotebooksRootVMBuilder {
+    const b = new NotebooksRootVMBuilder(this);
+    b.#notificationHub = hub;
+    return b;
+  }
+
   build(): NotebooksRootVM {
     if (this.#name === null) throw new Error("name is required");
     if (this.#hub === null || this.#dispatcher === null)
@@ -240,6 +264,7 @@ export class NotebooksRootVMBuilder {
       hub: this.#hub,
       dispatcher: this.#dispatcher,
       repository: this.#repo,
+      notificationHub: this.#notificationHub,
     });
   }
 }

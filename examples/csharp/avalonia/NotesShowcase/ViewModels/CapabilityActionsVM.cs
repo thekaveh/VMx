@@ -114,20 +114,19 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         }
         // Save / Delete target NoteVM (the only example-defined VM implementing
         // ISavable<T> / IDeletable<T>). Scenario §6.2: each note saves /
-        // deletes itself.
+        // deletes itself. The action-bar reuses NoteVM.SaveCommand /
+        // NoteVM.DeleteCommand directly so the confirmation-decorator and
+        // "Note deleted" notification fire from the action-bar too — keeping
+        // the action-bar and the in-list delete button behaviorally identical.
         if (focused is NoteVM noteSelf)
         {
-            if (focused is ISavable<NoteVM> sav)
+            if (focused is ISavable<NoteVM>)
             {
-                actions.Add(new ActionVM("Save", RelayCommand.Builder()
-                    .Predicate(() => sav.CanSave(noteSelf))
-                    .Task(() => sav.Save(noteSelf)).Build()));
+                actions.Add(new ActionVM("Save", noteSelf.SaveCommand));
             }
-            if (focused is IDeletable<NoteVM> del)
+            if (focused is IDeletable<NoteVM>)
             {
-                actions.Add(new ActionVM("Delete", RelayCommand.Builder()
-                    .Predicate(() => del.CanDelete(noteSelf))
-                    .Task(() => del.Delete(noteSelf)).Build()));
+                actions.Add(new ActionVM("Delete", noteSelf.DeleteCommand));
             }
         }
 

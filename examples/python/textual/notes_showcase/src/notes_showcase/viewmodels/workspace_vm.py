@@ -73,6 +73,7 @@ class WorkspaceVM:
             .name("notebooks")
             .services(hub, dispatcher)
             .repository(repository)
+            .notification_hub(notification_hub)
             .build()
         )
         notes_view = (
@@ -81,6 +82,8 @@ class WorkspaceVM:
             .services(hub, dispatcher)
             .repository(repository)
             .page_size(5)
+            .dialog_service(dialog_service)
+            .notification_hub(notification_hub)
             .build()
         )
         note_form = (

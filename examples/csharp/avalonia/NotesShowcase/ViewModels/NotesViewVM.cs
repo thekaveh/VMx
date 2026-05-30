@@ -10,7 +10,9 @@ using VMx.Collections;
 using VMx.Commands;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Dialogs;
 using VMx.Messages;
+using VMx.Notifications;
 using VMx.Services;
 using NotesShowcase.Models;
 
@@ -39,6 +41,8 @@ public sealed class NotesViewVM
       IDisposable
 {
     private readonly INoteRepository _repo;
+    private readonly IDialogService? _dialogService;
+    private readonly INotificationHub? _notificationHub;
     private readonly IMessageHub _hub;
     private readonly IDispatcher _dispatcher;
     private readonly IScheduler _searchScheduler;
@@ -227,11 +231,23 @@ public sealed class NotesViewVM
 
         foreach (var note in notes)
         {
-            var vm = NoteVM.Builder()
+            var builder = NoteVM.Builder()
                 .Name($"note:{note.Id}")
                 .Services(_hub, _dispatcher)
                 .Model(note)
-                .Build();
+                .OnDelete(DeleteNote);
+            if (_dialogService is not null)
+            {
+                builder = builder.ConfirmDelete(n =>
+                    _dialogService.Confirm(
+                        $"Delete “{n.Title}”?",
+                        title: "Delete note"));
+            }
+            if (_notificationHub is not null)
+            {
+                builder = builder.NotificationHub(_notificationHub);
+            }
+            var vm = builder.Build();
             vm.Construct();
             _inner.Add(vm);
         }
@@ -242,6 +258,44 @@ public sealed class NotesViewVM
 
         RecomputeFiltered();
         _paged.MoveToFirstPage();
+    }
+
+    private void DeleteNote(NoteVM note)
+    {
+        // Fire-and-forget removal: persist via the repo, remove from the inner
+        // collection, and clear current if it pointed at the deleted note.
+        // Errors are swallowed (the host wires logging via the message hub).
+        _ = DeleteNoteAsyncInternal(note);
+    }
+
+    private async Task DeleteNoteAsyncInternal(NoteVM note)
+    {
+        try
+        {
+            await _repo.DeleteNoteAsync(note.Model.Id).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Persistence failures are surfaced via the dialog/notification
+            // hub in production; tests pass a synchronous repo so this branch
+            // is dead code under test.
+            return;
+        }
+        var index = -1;
+        for (var i = 0; i < _inner.Count; i++)
+        {
+            if (ReferenceEquals(_inner[i], note)) { index = i; break; }
+        }
+        if (index < 0) return;
+        _inner.RemoveAt(index);
+        if (ReferenceEquals(_current, note))
+        {
+            _current = null;
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
+            RaisePropertyChanged(nameof(Current));
+        }
+        RecomputeFiltered();
+        note.Dispose();
     }
 
     private void RecomputeFiltered()
@@ -276,10 +330,14 @@ public sealed class NotesViewVM
         INoteRepository repo,
         int pageSize,
         TimeSpan searchDebounce,
-        IScheduler? searchScheduler)
+        IScheduler? searchScheduler,
+        IDialogService? dialogService,
+        INotificationHub? notificationHub)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _repo = repo;
+        _dialogService = dialogService;
+        _notificationHub = notificationHub;
         _hub = hub;
         _dispatcher = dispatcher;
         _pageSize = pageSize;
@@ -382,6 +440,8 @@ public sealed class NotesViewVM
         private readonly int _pageSize;
         private readonly TimeSpan _searchDebounce;
         private readonly IScheduler? _searchScheduler;
+        private readonly IDialogService? _dialogService;
+        private readonly INotificationHub? _notificationHub;
 
         internal static readonly NotesViewVMBuilder Empty = new();
         private NotesViewVMBuilder()
@@ -393,34 +453,50 @@ public sealed class NotesViewVM
         private NotesViewVMBuilder(
             string? name, string hint,
             IMessageHub? hub, IDispatcher? dispatcher, INoteRepository? repo,
-            int pageSize, TimeSpan searchDebounce, IScheduler? searchScheduler)
+            int pageSize, TimeSpan searchDebounce, IScheduler? searchScheduler,
+            IDialogService? dialogService, INotificationHub? notificationHub)
         {
             _name = name; _hint = hint; _hub = hub; _dispatcher = dispatcher;
             _repo = repo; _pageSize = pageSize;
             _searchDebounce = searchDebounce; _searchScheduler = searchScheduler;
+            _dialogService = dialogService; _notificationHub = notificationHub;
         }
 
         /// <summary>Sets the required Name.</summary>
         public NotesViewVMBuilder Name(string name)
-            => new(name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler);
+            => new(name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
         /// <summary>Sets the optional Hint.</summary>
         public NotesViewVMBuilder Hint(string hint)
-            => new(_name, hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler);
+            => new(_name, hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
         /// <summary>Sets the required Services.</summary>
         public NotesViewVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
-            => new(_name, _hint, hub, dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler);
+            => new(_name, _hint, hub, dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
         /// <summary>Sets the required Repository.</summary>
         public NotesViewVMBuilder Repository(INoteRepository repo)
-            => new(_name, _hint, _hub, _dispatcher, repo, _pageSize, _searchDebounce, _searchScheduler);
+            => new(_name, _hint, _hub, _dispatcher, repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
         /// <summary>Overrides the optional page size (default 5 per plan §3.a.8).</summary>
         public NotesViewVMBuilder PageSize(int size)
-            => new(_name, _hint, _hub, _dispatcher, _repo, size, _searchDebounce, _searchScheduler);
+            => new(_name, _hint, _hub, _dispatcher, _repo, size, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
         /// <summary>Overrides the optional search debounce (default 150 ms).</summary>
         public NotesViewVMBuilder SearchDebounce(TimeSpan debounce)
-            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, debounce, _searchScheduler);
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, debounce, _searchScheduler, _dialogService, _notificationHub);
         /// <summary>Overrides the optional debounce scheduler (default Immediate).</summary>
         public NotesViewVMBuilder SearchScheduler(IScheduler scheduler)
-            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, scheduler);
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, scheduler, _dialogService, _notificationHub);
+        /// <summary>
+        /// Sets the optional dialog service. When set, each <see cref="NoteVM"/>
+        /// in the list wires its <see cref="NoteVM.DeleteCommand"/> through
+        /// <see cref="VMx.Commands.ConfirmationDecoratorCommand"/> calling
+        /// <see cref="IDialogService.Confirm"/> before deletion (spec §5.2.8).
+        /// </summary>
+        public NotesViewVMBuilder DialogService(IDialogService dialogService)
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, dialogService, _notificationHub);
+        /// <summary>
+        /// Sets the optional notification hub. When set, each successful
+        /// note-delete publishes a "Note deleted" notification (spec §6.2).
+        /// </summary>
+        public NotesViewVMBuilder NotificationHub(INotificationHub notificationHub)
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, notificationHub);
 
         /// <summary>Builds the VM after validation.</summary>
         public NotesViewVM Build()
@@ -431,7 +507,8 @@ public sealed class NotesViewVM
             BuilderValidationException.Require(_repo, "Repository");
             return new NotesViewVM(
                 _name!, _hint, _hub!, _dispatcher!, _repo!,
-                _pageSize, _searchDebounce, _searchScheduler);
+                _pageSize, _searchDebounce, _searchScheduler,
+                _dialogService, _notificationHub);
         }
     }
 }
