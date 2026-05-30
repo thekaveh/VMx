@@ -2,9 +2,9 @@
 
 **Status:** Proposed (design accepted; implementation pending)
 **Date:** 2026-05-29
-**Target spec version:** 2.1.x (no spec change required)
+**Target spec version:** 2.2.0 (minor bump — adds `AggregateVM6`)
 **Branch:** `examples-notes-showcase` off `main`
-**Sister artefacts (to be created):** `examples/notes-showcase-parity.md`, `assets/notes-showcase/{avalonia,textual,react}.png`
+**Sister artefacts (to be created):** `examples/notes-showcase-parity.md`, `assets/notes-showcase/{avalonia,textual,react}.png`, ADR-0034 (extends `AggregateVM` arity to 6)
 
 ## 1. Executive summary
 
@@ -18,8 +18,9 @@ The three apps share one purpose: prove that VMx is a sufficient, idiomatic,
 **pure** viewmodel layer that any UI framework can sit on top of. To make that
 claim concrete, the design imposes:
 
-1. **One shared scenario** (§5) rich enough to exercise 14 distinct spec
-   features in one cohesive UX.
+1. **One shared scenario** (§5) rich enough to exercise 15 distinct spec
+   features in one cohesive UX (one of which, `AggregateVM6`, is added by
+   this proposal).
 1. **Strict Model / ViewModel / View partitioning** (§7) inside each example.
    `Models/` owns persistence and records; `ViewModels/` owns every VMx-based
    VM plus the ports VMs declare (`IDialogService`); `Views/` owns UI controls,
@@ -37,6 +38,21 @@ Existing examples (`HelloVMx`, `WpfTodoApp`, `hello_vmx`, `tk_todo_app`,
 nested layout `examples/<lang>/<framework>/<app>/` (§4), opening room for
 additional per-framework examples in future PRs.
 
+**Spec / library extension prerequisite.** The `WorkspaceVM` root in §6.2
+heterogeneously composes 6 children (notebooks tree, notes view, note form,
+status bar, notifications, capability actions). The current spec ships
+`AggregateVM1..5` (ADR-0007). This proposal treats the example portfolio as
+a stress test for the library: rather than synthetically grouping children
+into a "chrome" slot to fit arity 5, we **extend VMx itself to add
+`AggregateVM6`**, landing as a minor spec bump (2.1.x → 2.2.0) under a new
+**ADR-0034** that supersedes ADR-0007's "lift cap = future major" stance on
+the grounds that adding a higher arity while preserving `AggregateVM1..5` is
+purely additive and non-breaking. §10.2 schedules the spec / library
+extension as Phase 2, before the example VM layer (Phase 3). This is the
+intended virtuous cycle: real-world example needs drive spec evolution; spec
+evolution flows through every flavor; new flavor capability is then
+exercised by the example.
+
 ## 2. Goals and non-goals
 
 **Goals**
@@ -47,7 +63,7 @@ additional per-framework examples in future PRs.
   one of these three frameworks specifically.
 - G3. Demonstrate that the same VM tree drives every visible behavior — the
   view is a stateless mirror.
-- G4. Cover 14 spec features in one cohesive scenario (see §5.5).
+- G4. Cover 15 spec features in one cohesive scenario (see §5.5), one of which (`AggregateVM6`) is added to VMx by this proposal.
 
 **Non-goals**
 
@@ -204,7 +220,7 @@ Ship 4 root notebooks (`Work`, `Reviews`, `Personal`, `Archive`), a few
 children under `Work` (`Specs`), and ~12 notes spread such that at least one
 notebook has ≥ 6 notes (multi-page demonstration). 3 notes starred.
 
-### 5.5 Feature traceability (14 features × 1 scenario)
+### 5.5 Feature traceability (15 features × 1 scenario)
 
 | #   | Feature (spec ref)                                | Where in the scenario                              |
 | --- | ------------------------------------------------- | -------------------------------------------------- |
@@ -222,6 +238,7 @@ notebook has ≥ 6 notes (multi-page demonstration). 3 notes starred.
 | 12  | `ConfirmationDecoratorCommand` (ch. 4)            | Delete confirm                                     |
 | 13  | `IDialogService` (ch. 19)                         | Export → save-file dialog                          |
 | 14  | Capability-aware UI (§14.4)                       | Capability action bar                              |
+| 15  | **`AggregateVM6`** (ch. 8 — **new in 2.2.0**)     | `WorkspaceVM` composes 6 heterogeneous children    |
 
 ## 6. ViewModel API (language-neutral)
 
@@ -343,12 +360,17 @@ CapabilityActionsVM
   actions : DerivedProperty<list<ActionVM>>
         # derived from workspace.focusedVM and what it implements.
 
-WorkspaceVM extends ComponentVM                # readonly ComponentVM variant
-  implements IReconstructable                  # (spec ch. 5; no model).
-                                               # Manually composes children — child arity
-                                               # (6) exceeds AggregateVM1..5, so the root
-                                               # is a custom subclass that owns and
-                                               # cascades lifecycle over its fields.
+WorkspaceVM extends AggregateVM6<              # NEW in 2.2.0; see ADR-0034.
+        NotebooksRootVM,                       # Component1
+        NotesViewVM,                           # Component2
+        NoteFormVM,                            # Component3
+        StatusBarVM,                           # Component4
+        NotificationsVM,                       # Component5
+        CapabilityActionsVM>                   # Component6
+  implements IReconstructable
+        # Lifecycle cascade (construct/destruct/dispose) is provided by the
+        # AggregateVM base; WorkspaceVM only adds the toolbar commands and
+        # the focused-VM derivation.
   notebooksRoot       : NotebooksRootVM
   notesView           : NotesViewVM
   noteForm            : NoteFormVM
@@ -667,22 +689,23 @@ assert each flavor's test suite contains the 10 VM test files from §9.1.
 
 - Single feature branch: **`examples-notes-showcase`** off `main`.
 - Worktree at `.claude/worktrees/examples-notes-showcase/`.
-- No merges to `main` until Phase 9 (audit-clean).
+- No merges to `main` until Phase 10 (audit-clean).
 
 ### 10.2 Phases
 
-| #   | Phase                               | Depends on   | Parallelizable      | Output                                                                                                                                                        |
-| --- | ----------------------------------- | ------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | Setup + layout migration            | —            | —                   | Existing 6 examples relocated under `examples/<lang>/<framework>/<app>/`; all path references updated; CI green.                                              |
-| 1   | Mark this doc accepted              | 0            | —                   | Flip `Status:` from `Proposed` to `Accepted` after Phase 0 lands; the contract is then frozen for the rest of the phases.                                     |
-| 2   | VM layer per flavor                 | 1            | **2a ‖ 2b ‖ 2c**    | 2a C# VM project + tests; 2b Python `viewmodels/` + tests; 2c TS `viewmodels/` + tests. ≥ 90% coverage. No UI yet.                                            |
-| 3   | Adapters per framework              | 2a/2b/2c     | **3a ‖ 3b ‖ 3c**    | The 5 bridge files per §7.3 each. Adapter unit tests where applicable.                                                                                        |
-| 4   | UI per framework                    | 3a / 3b / 3c | **4a ‖ 4b ‖ 4c**    | Views per §8. Headless smoke (§9.3) green. Manual run verified once on macOS.                                                                                 |
-| 5   | Pure-VM contract checks             | 4a/4b/4c     | partly parallel     | The three §9.2 scripts + the cross-layer import check. All three apps pass.                                                                                   |
-| 6   | Polish + parity artefacts           | 5            | parallel internally | `examples/notes-showcase-parity.md`, three screenshots in `assets/notes-showcase/`, README updates, root README §4.3, scenario-doc cross-links.               |
-| 7   | CI wiring                           | 5, 6         | —                   | Extend the three lang workflows; add `examples-contract-checks` job; verify on a draft PR.                                                                    |
-| 8   | Multi-agent audit (clean-pass gate) | 7            | 4–6 parallel agents | Repeated parallel audits (Critical / Important / Minor) until **10 consecutive zero-finding passes**; spot-checks between runs reset the counter on any miss. |
-| 9   | Merge to `main`                     | 8 (clean)    | —                   | PR-merge to `main`; close worktree.                                                                                                                           |
+| #   | Phase                                         | Depends on   | Parallelizable      | Output                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | --------------------------------------------- | ------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | Setup + layout migration                      | —            | —                   | Existing 6 examples relocated under `examples/<lang>/<framework>/<app>/`; all path references updated; CI green.                                                                                                                                                                                                                                                                                                                                                                        |
+| 1   | Mark this doc accepted                        | 0            | —                   | Flip `Status:` from `Proposed` to `Accepted` after Phase 0 lands; the contract is then frozen for the rest of the phases.                                                                                                                                                                                                                                                                                                                                                               |
+| 2   | **Spec & library extension (`AggregateVM6`)** | 1            | **2a ‖ 2b ‖ 2c**    | Write ADR-0034 ("Extend `AggregateVM` arity to 6 — additive, non-breaking; supersedes ADR-0007 §4 'future major' stance"). Extend `spec/08-aggregate-vm.md` (arity-6 row + builder + spec text). Add `AGG-006` to `spec/12-conformance.md`. Bump `spec/VERSION` to `2.2.0`. Update `compatibility-matrix.md` (add 2.2.x row). Implement `AggregateVM6` + builder + `AGG-006` conformance test in 2a C#, 2b Python, 2c TS. Bump each flavor's package to `2.2.0`. Update each CHANGELOG. |
+| 3   | VM layer per flavor                           | 2a/2b/2c     | **3a ‖ 3b ‖ 3c**    | 3a C# VM project + tests; 3b Python `viewmodels/` + tests; 3c TS `viewmodels/` + tests. ≥ 90% coverage. No UI yet. `WorkspaceVM` uses `AggregateVM6` from Phase 2.                                                                                                                                                                                                                                                                                                                      |
+| 4   | Adapters per framework                        | 3a/3b/3c     | **4a ‖ 4b ‖ 4c**    | The 5 bridge files per §7.3 each. Adapter unit tests where applicable.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 5   | UI per framework                              | 4a / 4b / 4c | **5a ‖ 5b ‖ 5c**    | Views per §8. Headless smoke (§9.3) green. Manual run verified once on macOS.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 6   | Pure-VM contract checks                       | 5a/5b/5c     | partly parallel     | The three §9.2 scripts + the cross-layer import check. All three apps pass.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 7   | Polish + parity artefacts                     | 6            | parallel internally | `examples/notes-showcase-parity.md`, three screenshots in `assets/notes-showcase/`, README updates, root README §4.3, scenario-doc cross-links.                                                                                                                                                                                                                                                                                                                                         |
+| 8   | CI wiring                                     | 6, 7         | —                   | Extend the three lang workflows; add `examples-contract-checks` job; verify on a draft PR.                                                                                                                                                                                                                                                                                                                                                                                              |
+| 9   | Multi-agent audit (clean-pass gate)           | 8            | 4–6 parallel agents | Repeated parallel audits (Critical / Important / Minor) until **10 consecutive zero-finding passes**; spot-checks between runs reset the counter on any miss. Phase-2 spec/library work and phase 3+ example work are audited together since they ship in one PR.                                                                                                                                                                                                                       |
+| 10  | Merge to `main`                               | 9 (clean)    | —                   | PR-merge to `main`; close worktree. Spec v2.2.0 + three flavor v2.2.0 packages + three flagship example apps all land in one merge.                                                                                                                                                                                                                                                                                                                                                     |
 
 ### 10.3 Future directions (deliberately deferred)
 
@@ -695,15 +718,17 @@ assert each flavor's test suite contains the 10 VM test files from §9.1.
 
 ## 11. References
 
-- Spec chapters: 2 (lifecycle), 4 (commands), 5 (ComponentVM), 6 (CompositeVM),
+- Spec chapters: 2 (lifecycle), 4 (commands), 5 (ComponentVM), 6 (CompositeVM), 8 (AggregateVM — extended to arity 6 in 2.2.0),
   10 (builders), 11 (threading), 14 (capabilities), 15 (derived properties),
   16 (notifications), 18 (HierarchicalVM), 19 (dialogs), 20 (FormVM), 21
   (collections).
-- ADR-0006 (per-language identifier convention), ADR-0010 (capabilities
-  additive), ADR-0017 (Null\* defaults), ADR-0022 (`IFilterable`), ADR-0023
-  (`IPageable`), ADR-0027 (fluent command composition), ADR-0031
-  (`NotificationVM` / `ConfirmationVM`).
+- ADR-0006 (per-language identifier convention), ADR-0007 (`AggregateVM` arity
+  cap — superseded by ADR-0034), ADR-0010 (capabilities additive), ADR-0017
+  (Null\* defaults), ADR-0022 (`IFilterable`), ADR-0023 (`IPageable`),
+  ADR-0027 (fluent command composition), ADR-0031 (`NotificationVM` /
+  `ConfirmationVM`), **ADR-0034** (extend `AggregateVM` arity to 6 — to be
+  written in Phase 2).
 - `examples/csharp/README.md`, `examples/python/README.md`,
   `examples/typescript/README.md` for current examples context.
-- `compatibility-matrix.md` for the spec ↔ flavor pairing convention this
-  proposal does not change.
+- `compatibility-matrix.md` for the spec ↔ flavor pairing convention; Phase 2
+  adds a 2.2.x row.
