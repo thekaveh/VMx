@@ -23,29 +23,43 @@ dotnet add package VMx.Extensions.DependencyInjection
 
 ## 3. Quick start
 
+The minimum-viable shape is `imports → services → builder
+(name + model + services + optional hinter) → Construct() → read Status`:
+
 ```csharp
 using VMx.Components;
 using VMx.Composites;
+using VMx.Lifecycle;
 using VMx.Services;
-
-var hub = new MessageHub();
-var dispatcher = RxDispatcher.Immediate();  // both schedulers = ImmediateScheduler.Instance
 
 public record TabModel(string Title);
 
+// 1. Services (a hub + a dispatcher). Production code injects real services;
+//    tests and samples can use .WithNullServices() instead (see below).
+var hub = new MessageHub();
+var dispatcher = RxDispatcher.Immediate();  // both schedulers = ImmediateScheduler.Instance
+
+// 2. Build leaves: Name, Model, Services, optional ModeledHinter.
 var home = ComponentVM<TabModel>.Builder()
-    .Name("home").Model(new TabModel("Home")).Services(hub, dispatcher).Build();
+    .Name("home")
+    .Model(new TabModel("Home"))
+    .ModeledHinter(m => m.Title)  // optional — defaults to _ => ""
+    .Services(hub, dispatcher)
+    .Build();
 
 var settings = ComponentVM<TabModel>.Builder()
     .Name("settings").Model(new TabModel("Settings")).Services(hub, dispatcher).Build();
 
+// 3. Build a composite over the leaves.
 var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
     .Name("tab-bar")
     .Services(hub, dispatcher)
     .Children(() => new[] { home, settings })
     .Build();
 
+// 4. Transition the lifecycle from Created → Constructed before use.
 tabs.Construct();
+Console.WriteLine(tabs.Status);  // Constructed
 
 tabs.Current = settings;
 Console.WriteLine(tabs.Current?.Model.Title);  // "Settings"
@@ -62,8 +76,70 @@ hub.Dispose();
 > Production VMs should still call `.Services(hub, dispatcher)` with real
 > services.
 
+The Python and TypeScript flavors mirror this shape: see
+[Python Quick start](../python/README.md#3-quick-start) and
+[TypeScript Quick start](../typescript/README.md#3-quick-start) — only the
+identifier casing differs.
+
 See [docs/getting-started/csharp.md](../../docs/getting-started/csharp.md)
 for the full walkthrough.
+
+## 3.5 Cross-language naming
+
+The conceptual surface is identical across the three flavors; identifier
+casing follows the per-language idiom (see ADR-0006).
+
+| Concept             | C#                  | Python             | TypeScript         |
+| ------------------- | ------------------- | ------------------ | ------------------ |
+| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      |
+| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` |
+| Status property     | `Status`            | `status`           | `status`           |
+| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` |
+
+C# uses PascalCase, Python uses snake_case, TypeScript uses camelCase. The
+single substantive divergence is that C# names the modeled variant with a
+generic-parameter suffix (`ComponentVM<M>`), while Python and TypeScript use
+a separate `ComponentVMOf` type because their generics syntax cannot
+overload an unparameterised name.
+
+## 3.6 Subclassing & composition
+
+`ComponentVM<M>`, `ComponentVM`, and `ReadonlyComponentVM<M>` are all
+declared `sealed` by design (ADR-0018 — the post-2012 flat hierarchy avoids
+the inheritance fragility of the legacy chained-base VMx). Downstream code
+that wants to extend a VM with domain-specific operations should use
+**composition** rather than subclassing:
+
+```csharp
+public sealed class NoteVM
+{
+    public ComponentVM<Note> Inner { get; }
+
+    public NoteVM(Note model, IMessageHub hub, IDispatcher dispatcher)
+    {
+        Inner = ComponentVM<Note>.Builder()
+            .Name($"note-{model.Id}")
+            .Model(model)
+            .ModeledHinter(n => n.Title)
+            .Services(hub, dispatcher)
+            .Build();
+    }
+
+    public string Title => Inner.Model.Title;
+    public RelayCommand SaveCommand => new(_ => Save(), _ => Inner.IsConstructed);
+
+    private void Save() { /* domain operation */ }
+}
+```
+
+For aggregate trees, reach for `AggregateVM1..6<…>` (heterogeneous,
+fixed-arity) or `CompositeVM<VM>` (homogeneous, variable-arity) instead
+of subclassing.
+
+For an end-to-end composition pattern across all three flavors (Avalonia,
+Textual, React), see the Notes-Showcase example landing in v2.2.0 via the
+`examples-notes-showcase` branch.
 
 ## 4. API surface
 

@@ -20,6 +20,9 @@ uv add vmx
 
 ## 3. Quick start
 
+The minimum-viable shape is `imports → services → builder
+(name + model + services + optional modeled_hinter) → construct() → read status`:
+
 ```python
 from dataclasses import dataclass
 
@@ -30,19 +33,22 @@ from vmx import (
     RxDispatcher,
 )
 
-hub = MessageHub()
-dispatcher = RxDispatcher.immediate()
-
 
 @dataclass
 class TabModel:
     title: str
 
 
+# 1. Services (a hub + a dispatcher).
+hub = MessageHub()
+dispatcher = RxDispatcher.immediate()
+
+# 2. Build leaves: name, model, services, optional modeled_hinter.
 home: ComponentVMOf[TabModel] = (
     ComponentVMOf.builder()
     .name("home")
     .model(TabModel("Home"))
+    .modeled_hinter(lambda m: m.title)  # optional — defaults to lambda _m: ""
     .services(hub, dispatcher)
     .build()
 )
@@ -55,6 +61,7 @@ settings: ComponentVMOf[TabModel] = (
     .build()
 )
 
+# 3. Build a composite over the leaves.
 tabs = (
     CompositeVM[ComponentVMOf[TabModel]]
     .builder()
@@ -64,7 +71,9 @@ tabs = (
     .build()
 )
 
+# 4. Transition the lifecycle from CREATED → CONSTRUCTED before use.
 tabs.construct()
+print(tabs.status)  # ConstructionStatus.CONSTRUCTED
 
 tabs.current = settings
 print(tabs.current.model.title)  # "Settings"
@@ -84,8 +93,32 @@ hub.dispose()
 >   `mypy --strict` happy, or use the generic
 >   `null_message_hub_of(MyMessage)` factory for a narrower message type.
 
+The C# and TypeScript flavors mirror this shape: see
+[C# Quick start](../csharp/README.md#3-quick-start) and
+[TypeScript Quick start](../typescript/README.md#3-quick-start) — only the
+identifier casing differs.
+
 See [docs/getting-started/python.md](../../docs/getting-started/python.md)
 for the full walkthrough.
+
+## 3.5 Cross-language naming
+
+The conceptual surface is identical across the three flavors; identifier
+casing follows the per-language idiom (see ADR-0006).
+
+| Concept             | C#                  | Python             | TypeScript         |
+| ------------------- | ------------------- | ------------------ | ------------------ |
+| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      |
+| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` |
+| Status property     | `Status`            | `status`           | `status`           |
+| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` |
+
+C# uses PascalCase, Python uses snake_case, TypeScript uses camelCase. The
+single substantive divergence is that C# names the modeled variant with a
+generic-parameter suffix (`ComponentVM<M>`), while Python and TypeScript use
+a separate `ComponentVMOf` type because their generics syntax cannot
+overload an unparameterised name.
 
 ## 4. API surface
 
