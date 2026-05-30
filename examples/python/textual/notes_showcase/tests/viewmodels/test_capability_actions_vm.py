@@ -1,0 +1,147 @@
+"""Tests for CapabilityActionsVM."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+from reactivex.scheduler import ImmediateScheduler
+
+from vmx import MessageHub, RxDispatcher
+from vmx.messages.protocols import Message
+
+from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.notebook_model import NotebookModel
+from notes_showcase.models.seed import build_seed
+from notes_showcase.viewmodels.capability_actions_vm import CapabilityActionsVM
+from notes_showcase.viewmodels.note_vm import NoteVM
+from notes_showcase.viewmodels.notebook_vm import NotebookVM
+from notes_showcase.viewmodels.notebooks_root_vm import NotebooksRootVM
+
+
+def _focus_state() -> dict[str, object | None]:
+    return {"focused": None}
+
+
+def _build_actions_vm(getter_state: dict[str, object | None]) -> CapabilityActionsVM:
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(
+        foreground=ImmediateScheduler(), background=ImmediateScheduler()
+    )
+    return (
+        CapabilityActionsVM.builder()
+        .name("actions")
+        .services(hub, dispatcher)
+        .focused_getter(lambda: getter_state["focused"])
+        .build()
+    )
+
+
+def _build_notebook_vm() -> NotebookVM:
+    return (
+        NotebookVM.builder()
+        .name("nb")
+        .model(NotebookModel(id="nb", name="Work", parent_id=None))
+        .build()
+    )
+
+
+def _build_note_vm() -> NoteVM:
+    return (
+        NoteVM.builder()
+        .name("note")
+        .model(
+            NoteModel(
+                id="n", notebook_id="nb", title="T", tags=(), body="b",
+                starred=False,
+                created_at=datetime(2026, 5, 29, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            )
+        )
+        .build()
+    )
+
+
+def test_actions_is_empty_when_no_focus() -> None:
+    state = _focus_state()
+    vm = _build_actions_vm(state)
+    assert vm.actions.value == []
+
+
+def test_actions_for_notebook_vm_include_select_expand_collapse_toggle_reconstruct() -> None:
+    state = _focus_state()
+    vm = _build_actions_vm(state)
+    notebook = _build_notebook_vm()
+    notebook.construct()
+    state["focused"] = notebook
+    vm.recompute_actions()
+    labels = {a.label for a in vm.actions.value}
+    assert {"Select", "Expand", "Collapse", "Toggle Expansion", "Reconstruct"}.issubset(labels)
+    # NotebookVM does NOT implement IClosable / INewCreatable.
+    assert "Close" not in labels
+    assert "New" not in labels
+
+
+def test_actions_for_note_vm_include_close_save_delete_reconstruct() -> None:
+    state = _focus_state()
+    vm = _build_actions_vm(state)
+    note = _build_note_vm()
+    note.construct()
+    state["focused"] = note
+    vm.recompute_actions()
+    labels = {a.label for a in vm.actions.value}
+    assert {"Select", "Close", "Save", "Delete", "Reconstruct"}.issubset(labels)
+    assert "Expand" not in labels  # NoteVM is not IExpandable
+
+
+def test_actions_for_notebooks_root_vm_includes_new() -> None:
+    repo = InMemoryNoteRepository(build_seed(), load_all_delay=0.0, add_notebook_delay=0.0)
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    root = (
+        NotebooksRootVM.builder()
+        .name("notebooks")
+        .services(hub, dispatcher)
+        .repository(repo)
+        .build()
+    )
+    root.construct()
+    state = {"focused": root}
+    vm = _build_actions_vm(state)
+    vm.recompute_actions()
+    labels = {a.label for a in vm.actions.value}
+    assert "New" in labels
+
+
+def test_recompute_actions_replaces_projection_on_focus_change() -> None:
+    state = _focus_state()
+    vm = _build_actions_vm(state)
+    nb = _build_notebook_vm()
+    nb.construct()
+    state["focused"] = nb
+    vm.recompute_actions()
+    notebook_labels = {a.label for a in vm.actions.value}
+    note = _build_note_vm()
+    note.construct()
+    state["focused"] = note
+    vm.recompute_actions()
+    note_labels = {a.label for a in vm.actions.value}
+    assert "Expand" in notebook_labels and "Expand" not in note_labels
+    assert "Close" in note_labels and "Close" not in notebook_labels
+
+
+def test_builder_requires_name_and_focused_getter() -> None:
+    with pytest.raises(ValueError, match="name"):
+        CapabilityActionsVM.builder().build()
+    with pytest.raises(ValueError, match="focused_getter"):
+        CapabilityActionsVM.builder().name("x").build()
+
+
+def test_dispose_releases_resources() -> None:
+    vm = _build_actions_vm(_focus_state())
+    vm.construct()
+    vm.dispose()
+    from vmx import ConstructionStatus
+
+    assert vm.status == ConstructionStatus.DISPOSED
