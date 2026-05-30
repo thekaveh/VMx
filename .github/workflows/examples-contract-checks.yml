@@ -1,0 +1,56 @@
+name: examples-contract-checks
+
+# Runs the Phase 6 Pure-VM contract + parity scripts. These tools enforce
+# architectural invariants on the flagship example apps:
+#   * check-axaml-codebehind.py — Avalonia views must not embed business logic
+#   * check-textual-views.py    — Textual views must not own VM state
+#   * check-layer-imports.py    — cross-layer (models <-> viewmodels <-> views)
+#                                 imports stay one-way (M <- VM <- V)
+#   * check-showcase-parity.py  — the three flavors expose the same VM surface
+#
+# They live at the repo root under tools/ so they are language-agnostic; this
+# workflow is the single integration point that fails CI if any contract drifts.
+
+on:
+  push:
+    branches: [main, examples-notes-showcase]
+    paths:
+      - "examples/**"
+      - "tools/check-axaml-codebehind.py"
+      - "tools/check-textual-views.py"
+      - "tools/check-layer-imports.py"
+      - "tools/check-showcase-parity.py"
+      - ".github/workflows/examples-contract-checks.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "tools/check-axaml-codebehind.py"
+      - "tools/check-textual-views.py"
+      - "tools/check-layer-imports.py"
+      - "tools/check-showcase-parity.py"
+      - ".github/workflows/examples-contract-checks.yml"
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: Pure-VM contract + parity checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: axaml code-behind check
+        run: python3 tools/check-axaml-codebehind.py
+
+      - name: textual views check
+        run: python3 tools/check-textual-views.py
+
+      - name: cross-layer imports check
+        run: python3 tools/check-layer-imports.py
+
+      - name: showcase parity check
+        run: python3 tools/check-showcase-parity.py

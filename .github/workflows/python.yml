@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "langs/python/**"
+      - "examples/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   pull_request:
     paths:
       - "langs/python/**"
+      - "examples/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   workflow_dispatch:
@@ -66,3 +68,37 @@ jobs:
           files: langs/python/coverage.xml
           flags: python
           fail_ci_if_error: false
+
+  examples:
+    # Syncs + tests the Notes-Showcase Textual example (Phase 8 of the
+    # notes-showcase plan). Kept as a separate job because the existing
+    # `build` job pins `defaults.run.working-directory: langs/python` and runs
+    # a 3-OS × 4-python matrix; the example only needs a single combo to
+    # confirm the showcase package builds against the workspace-local
+    # `vmx` (editable, path-sourced in pyproject.toml).
+    name: examples (notes-showcase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: |
+            examples/python/textual/notes_showcase/pyproject.toml
+            examples/python/textual/notes_showcase/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: notes-showcase sync
+        # `dev` is declared under [dependency-groups] in the showcase's
+        # pyproject.toml (PEP 735), not [project.optional-dependencies]; uv
+        # syncs default dependency groups automatically, so no --extra/--group
+        # flag is needed for pytest to be present.
+        run: uv sync --directory examples/python/textual/notes_showcase
+
+      - name: notes-showcase tests
+        run: uv run --directory examples/python/textual/notes_showcase pytest

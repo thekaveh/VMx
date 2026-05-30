@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "langs/typescript/**"
+      - "examples/typescript/**"
       - "spec/**"
       - ".github/workflows/typescript.yml"
   pull_request:
     paths:
       - "langs/typescript/**"
+      - "examples/typescript/**"
       - "spec/**"
       - ".github/workflows/typescript.yml"
   workflow_dispatch:
@@ -69,3 +71,39 @@ jobs:
           files: langs/typescript/coverage/coverage-final.json
           flags: typescript
           fail_ci_if_error: false
+
+  examples:
+    # Installs + tests the Notes-Showcase React example (Phase 8 of the
+    # notes-showcase plan). Kept as a separate job because the existing
+    # `build` job pins `defaults.run.working-directory: langs/typescript` and
+    # runs a 3-OS × 3-node matrix; the example only needs a single combo to
+    # confirm the showcase package builds against the workspace-local `vmx`
+    # (file:../../../../langs/typescript in package.json).
+    name: examples (notes-showcase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: examples/typescript/react/notes-showcase/package-lock.json
+
+      - name: notes-showcase install
+        # `npm ci` requires a checked-in package-lock.json (Phase 5.c committed
+        # one); the `|| npm install` fallback covers any future state where the
+        # lockfile is intentionally regenerated.
+        run: npm ci --prefix examples/typescript/react/notes-showcase || npm install --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase test
+        run: npm test --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase ESLint Pure-VM check
+        # Pure-VM contract: view components must not import from
+        # `models/` / `viewmodels/` or subscribe to hub messages. The
+        # ESLint config under examples/typescript/react/notes-showcase/
+        # encodes the rules; running it as a dedicated step surfaces
+        # violations distinctly from generic test failures.
+        run: cd examples/typescript/react/notes-showcase && npx eslint src/views/components
