@@ -611,9 +611,19 @@ ONLY AFTER every `ComponentI.Status` has reached `Constructed`
 `agg.Component2.Status == Destructed`
 **And** `agg.Status == Destructed`
 
-- **AGG-006:** `AggregateVM6` arity-6 ordering — given 6 distinct child VMs,
-  `construct()` drives all six to `Constructed`; `destruct()` waits for all
-  six to reach `Destructed`. (Added in spec 2.2.0 per ADR-0034.)
+### AGG-006 — Arity-6 all six components reach Constructed; destruction waits for all
+
+**Given** an `AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>` in `Destructed`
+**And** a subscriber filtered on `ConstructionStatusChangedMessage` where
+`Sender == agg`
+**When** `agg.construct()` is called
+**Then** when it returns, every `ComponentI.Status` (I ∈ {1..6}) equals `Constructed`
+**And** the aggregate's `Status == Constructed`
+**When** `agg.destruct()` is then called
+**Then** when it returns, every `ComponentI.Status` equals `Destructed`
+**And** `agg.Status == Destructed`
+
+(Added in spec 2.2.0 per ADR-0034.)
 
 ______________________________________________________________________
 
