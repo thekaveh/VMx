@@ -269,7 +269,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f'Saved "{self._form.snapshot.title}"',
+                    f'Saved “{self._form.snapshot.title}”',
                 )
             )
 

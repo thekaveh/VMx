@@ -156,7 +156,7 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f'Notebook added: "{name}"',
+                    f'Notebook added: “{name}”',
                 )
             )
         return vm

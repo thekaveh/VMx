@@ -295,11 +295,15 @@ class NotesViewVM(
                 )
                 if self._dialog_service is not None:
                     dialog = self._dialog_service
-                    builder = builder.confirm_delete(
-                        lambda _vm, ds=dialog: ds.confirm(
+
+                    async def _confirm(
+                        _vm: NoteVM, ds: IDialogService = dialog
+                    ) -> bool:
+                        return await ds.confirm(
                             f'Delete "{_vm.title}"?', title="Delete note"
                         )
-                    )
+
+                    builder = builder.confirm_delete(_confirm)
                 if self._notification_hub is not None:
                     builder = builder.notification_hub(self._notification_hub)
                 vm = builder.build()

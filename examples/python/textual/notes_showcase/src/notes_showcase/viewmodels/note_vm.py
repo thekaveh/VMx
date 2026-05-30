@@ -92,13 +92,14 @@ class NoteVM(
             .task(lambda: self._perform_delete(self))
             .build()
         )
-        if confirm_delete is not None:
-            self._delete_command = ConfirmationDecoratorCommand(
+        self._delete_command: Command = (
+            ConfirmationDecoratorCommand(
                 inner_delete,
                 lambda: confirm_delete(self),
             )
-        else:
-            self._delete_command = inner_delete
+            if confirm_delete is not None
+            else inner_delete
+        )
 
     # ── Convenience accessors / proxies ────────────────────────────────────
     @property
@@ -157,7 +158,7 @@ class NoteVM(
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f'Note deleted: "{item.title}"',
+                    f'Note deleted: “{item.title}”',
                 )
             )
 
