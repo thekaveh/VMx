@@ -161,6 +161,25 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     }
 
     /// <summary>
+    /// Clears the form back to its initial empty state — disposes the inner
+    /// <see cref="FormVM{TM}"/>, resets <see cref="HasBoundNote"/> to
+    /// <c>false</c>, and emits PropertyChanged for the bound surface so
+    /// widgets re-read (Title / Body / Starred / Tags / TagsText all flip
+    /// to the empty model). Round-4 Important-1: called by
+    /// <see cref="WorkspaceVM"/> when <see cref="NotesViewVM.Current"/>
+    /// transitions to <c>null</c> (e.g. the selected note is deleted) so
+    /// the editor does not display ghost data from the just-removed note.
+    /// </summary>
+    public void Unbind()
+    {
+        if (_form is null && _bound is null) return;
+        _form?.Dispose();
+        _form = null;
+        _bound = null;
+        EmitDraftChanges();
+    }
+
+    /// <summary>
     /// Awaitable approve cycle — persists via the repo and (on success)
     /// publishes a "Saved" notification. Useful in tests.
     /// </summary>

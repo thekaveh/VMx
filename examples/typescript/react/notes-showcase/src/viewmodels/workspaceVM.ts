@@ -11,7 +11,7 @@
  * `exportCommand`) and the `focusedVM` derivation (which feeds
  * `CapabilityActionsVM`).
  */
-import { BehaviorSubject, filter, type Subscription } from "rxjs";
+import { BehaviorSubject, filter, observeOn, type Subscription } from "rxjs";
 import {
   AggregateVM6,
   DerivedProperty,
@@ -162,6 +162,18 @@ export class WorkspaceVM {
     // and rebind the note form. Captures locals so we don't reference
     // `this.#notesView` / `this.#noteForm` before they're assigned during
     // the rest of the constructor.
+    //
+    // Round-4 Important-1: when current transitions to null (e.g. the
+    // selected note is deleted in NotesViewVM.#deleteNoteAsync) the form
+    // must be unbound — otherwise the right pane keeps the deleted note's
+    // title/body and approve would persist a ghost.
+    //
+    // Round-4 Important-2: marshal delivery onto the foreground scheduler
+    // so bindTo / unbind (which raise PropertyChanged for React subscribers
+    // via useSyncExternalStore) always run on the rendering thread. Today
+    // current is set from React click handlers (already main-thread) so
+    // this is defensive, but matches the foreground-marshal contract the
+    // spec requires for PropertyChanged delivery (THR-001 parity).
     const notesViewRef = this.#notesView;
     const noteFormRef = this.#noteForm;
     this.#currentNoteSubscription = notesViewRef.hub.messages
@@ -172,11 +184,14 @@ export class WorkspaceVM {
             m.sender === notesViewRef &&
             m.propertyName === "current",
         ),
+        observeOn(opts.dispatcher.foreground),
       )
       .subscribe(() => {
         const current = notesViewRef.current;
         if (current !== null) {
           noteFormRef.bindTo(current.model);
+        } else {
+          noteFormRef.unbind();
         }
       });
 

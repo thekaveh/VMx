@@ -105,6 +105,12 @@ public sealed class HeadlessSmokeTests
         var first = workspace.NotesView.Inner[0];
         workspace.NotesView.Current = first;
 
+        // Round-4 Important-2: the WorkspaceVM subscription now uses
+        // ObserveOn(_dispatcher.Foreground), so the BindTo handler is
+        // queued onto Dispatcher.UIThread instead of running inline.
+        // Drain the UI dispatcher so the queued post executes.
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
         // The WorkspaceVM subscription should have rebound the form.
         Assert.True(workspace.NoteForm.HasBoundNote);
         Assert.Equal(first.Title, workspace.NoteForm.Title);

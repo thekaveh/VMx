@@ -317,6 +317,25 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._bind_subscription = self._hub.messages.subscribe(on_next=_on_msg)
         self._emit_draft_changes()
 
+    def unbind(self) -> None:
+        """Clear the form back to its initial empty state.
+
+        Round-4 Important-1: called by :class:`WorkspaceVM` when
+        ``notes_view.current`` transitions to ``None`` (e.g. the selected
+        note is deleted in :meth:`NotesViewVM._delete_note_async`) so the
+        right-pane editor does not display ghost data from the just-removed
+        note. Mirrors C# ``NoteFormVM.Unbind`` and TS ``NoteFormVM.unbind``.
+        """
+        if self._form is None and self._bind_subscription is None:
+            return
+        if self._form is not None:
+            self._form.dispose()
+            self._form = None
+        if self._bind_subscription is not None:
+            self._bind_subscription.dispose()
+            self._bind_subscription = None
+        self._emit_draft_changes()
+
     async def approve_async(self) -> None:
         """Awaitable approve cycle: persist + publish "Saved" notification."""
         if self._form is None:

@@ -195,4 +195,46 @@ describe("WorkspaceVM", () => {
     expect(ws.noteForm.draft.body).toBe(first.body);
     ws.dispose();
   });
+
+  // ── Round-4 Important-1: selecting + deleting clears the form ────────────
+  // When notesView.current transitions to null (e.g. the selected note is
+  // deleted) the WorkspaceVM subscription must call noteForm.unbind() so
+  // the right pane does not display ghost data from the just-removed note.
+  it("selecting a note then deleting it clears the form", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadAllDelayMs: 0,
+      loadNotesDelayMs: 0,
+      saveNoteDelayMs: 0,
+      addNotebookDelayMs: 0,
+      deleteNoteDelayMs: 0,
+    });
+    const ws = WorkspaceVM.builder()
+      .repository(repo)
+      // AlwaysAccept dialog so the ConfirmationDecorator proceeds with
+      // the actual delete rather than short-circuiting on confirm=false.
+      .dialogService({
+        pickFileToOpen: () => Promise.resolve(null),
+        pickFileToSave: () => Promise.resolve(null),
+        confirm: () => Promise.resolve(true),
+        notify: () => Promise.resolve(),
+      })
+      .build();
+    await ws.constructAsync();
+    const note = ws.notesView.inner[0]!;
+    ws.notesView.current = note;
+    expect(ws.noteForm.hasBoundNote).toBe(true);
+    expect(ws.noteForm.draft.title).toBe(note.title);
+
+    // Invoke the in-list delete pathway — confirm resolves true, the
+    // inner task runs, and NotesViewVM.#deleteNoteAsync clears current.
+    note.deleteCommand.execute();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(ws.notesView.current).toBeNull();
+    // The form must have been unbound — no ghost data left over.
+    expect(ws.noteForm.hasBoundNote).toBe(false);
+    expect(ws.noteForm.draft.title).toBe("");
+    expect(ws.noteForm.draft.body).toBe("");
+    ws.dispose();
+  });
 });

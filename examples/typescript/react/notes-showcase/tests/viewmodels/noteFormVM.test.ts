@@ -185,4 +185,27 @@ describe("NoteFormVM", () => {
     vm.bindTo(aNote({ tags: ["alpha", "beta"] }));
     expect(vm.tagsText).toBe("alpha, beta");
   });
+
+  // ── Round-4 Minor-2 (cross-flavor parity): tagsText must be in the
+  // PropertyChanged emission list so consumers that subscribe specifically
+  // to "tagsText" (e.g. a chip-strip label) receive notifications after
+  // every draft mutation (add / remove tag). C# already emits for
+  // TagsText; Py re-emits via the DerivedProperty's _self_subject.
+  it("addTag / removeTag emit PropertyChanged for tagsText", async () => {
+    const { vm, hub } = makeForm();
+    const { PropertyChangedMessage } = await import("vmx");
+    vm.bindTo(aNote({ tags: [] }));
+    const observed: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage && m.sender === vm) {
+        observed.push(m.propertyName);
+      }
+    });
+    vm.tagDraft = "alpha";
+    vm.addTagCommand.execute();
+    expect(observed).toContain("tagsText");
+    observed.length = 0;
+    vm.removeTagCommand.execute("alpha");
+    expect(observed).toContain("tagsText");
+  });
 });

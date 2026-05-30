@@ -18,6 +18,7 @@ import dataclasses
 import uuid
 from datetime import datetime, timezone
 
+from reactivex import operators as ops
 from reactivex.scheduler import TimeoutScheduler
 
 from reactivex.abc import DisposableBase
@@ -147,6 +148,18 @@ class WorkspaceVM:
         # this the right-pane editor stays empty in the running app. Mirror
         # of the C# WorkspaceVM subscription (parity with the TS view
         # which performs the same wiring inline in NotesList.tsx).
+        #
+        # Round-4 Important-1: when current transitions to None (e.g. the
+        # selected note is deleted in NotesViewVM._delete_note_async, or the
+        # host explicitly clears selection) the form must be unbound —
+        # otherwise the right pane keeps the title/body of the deleted note
+        # and approve would attempt to persist a ghost.
+        #
+        # Round-4 Important-2: marshal delivery onto the foreground
+        # scheduler so bind_to / unbind (which raise PropertyChanged) always
+        # fire on the UI thread. Today current is set from the Textual UI
+        # thread so this is defensive, but matches the foreground-marshal
+        # contract documented in the THR-001 conformance test.
         def _on_notes_view_msg(m: Message) -> None:
             if (
                 isinstance(m, PropertyChangedMessage)
@@ -156,9 +169,13 @@ class WorkspaceVM:
                 current = notes_view.current
                 if current is not None:
                     note_form.bind_to(current.model)
+                else:
+                    note_form.unbind()
 
         self._current_note_subscription: DisposableBase = (
-            notes_view.hub.messages.subscribe(on_next=_on_notes_view_msg)
+            notes_view.hub.messages.pipe(
+                ops.observe_on(dispatcher.foreground),
+            ).subscribe(on_next=_on_notes_view_msg)
         )
 
         self._new_notebook_command = (

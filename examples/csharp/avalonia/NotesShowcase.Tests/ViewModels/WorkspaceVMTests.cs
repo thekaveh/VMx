@@ -1,9 +1,27 @@
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Dialogs;
 using VMx.Lifecycle;
 using Xunit;
 
 namespace NotesShowcase.Tests.ViewModels;
+
+/// <summary>
+/// Test-only dialog service whose <see cref="Confirm"/> returns a pre-canned
+/// boolean. Used by the Round-4 Important-1 "select then delete clears form"
+/// test which needs the in-list delete confirmation to accept.
+/// </summary>
+file sealed class AlwaysAcceptDialogService : IDialogService
+{
+    public Task<string?> PickFileToOpen(FileFilter? filter, string? title)
+        => Task.FromResult<string?>(null);
+    public Task<string?> PickFileToSave(FileFilter? filter, string? title, string? suggestedName)
+        => Task.FromResult<string?>(null);
+    public Task<bool> Confirm(string message, string? title = null)
+        => Task.FromResult(true);
+    public Task Notify(string message, string? title = null, NotificationSeverity severity = NotificationSeverity.Info)
+        => Task.CompletedTask;
+}
 
 public sealed class WorkspaceVMTests
 {
@@ -116,6 +134,55 @@ public sealed class WorkspaceVMTests
             ws.NewNotebookCommand.Execute(null);
             await Task.Delay(50);
             Assert.True(ws.NotebooksRoot.All.Count > before);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Selecting_a_note_then_deleting_it_clears_the_form()
+    {
+        // Round-4 Important-1: when NotesView.Current transitions to null
+        // (because the user deletes the selected note), the WorkspaceVM
+        // subscription must call NoteForm.Unbind so the right pane does
+        // not display ghost data from the just-removed note.
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            deleteNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero);
+        var ws = WorkspaceVM.Builder()
+            .Repository(repo)
+            // ConfirmationDecorator must accept so the delete actually runs.
+            .DialogService(new AlwaysAcceptDialogService())
+            .Build();
+        await ws.ConstructAsync();
+        try
+        {
+            // Pick a note from the first notebook (seeded nb-work ships
+            // with two notes — ConstructAsync already binds to it).
+            var note = ws.NotesView.FilteredItems[0];
+            ws.NotesView.Current = note;
+            // Subscription is synchronous on the immediate-scheduler default
+            // — the form should now be bound to the selected note.
+            Assert.True(ws.NoteForm.HasBoundNote);
+            Assert.Equal(note.Title, ws.NoteForm.Title);
+
+            // Invoke the in-list delete pathway. With the always-accept
+            // dialog the ConfirmationDecorator forwards to the inner Task,
+            // and NotesViewVM.DeleteNoteAsyncInternal clears Current.
+            note.DeleteCommand.Execute(null);
+            await Task.Delay(50);
+
+            Assert.Null(ws.NotesView.Current);
+            // The form must have been unbound — no ghost data left over.
+            Assert.False(ws.NoteForm.HasBoundNote);
+            Assert.Equal(string.Empty, ws.NoteForm.Title);
+            Assert.Equal(string.Empty, ws.NoteForm.Body);
         }
         finally
         {

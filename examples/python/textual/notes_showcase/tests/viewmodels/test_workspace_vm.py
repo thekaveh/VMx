@@ -322,3 +322,65 @@ async def test_setting_notes_view_current_rebinds_note_form() -> None:
     assert ws.note_form.has_bound_note is True
     assert ws.note_form.title == first.title
     assert ws.note_form.body == first.body
+
+
+# ── Round-4 Important-1: selecting + deleting clears the form ──────────────
+#
+# When notes_view.current transitions to None (e.g. the user deletes the
+# selected note), the WorkspaceVM subscription must call note_form.unbind()
+# so the right pane does not display ghost data from the just-removed note.
+
+
+class _AcceptDialog(IDialogService):
+    """Test-only dialog service whose confirm() always accepts."""
+
+    async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
+        return None
+
+    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:  # noqa: ARG002
+        return None
+
+    async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002
+        return True
+
+    async def notify(self, message, title=None, severity=None) -> None:  # noqa: ARG002
+        return None
+
+
+async def test_selecting_a_note_then_deleting_it_clears_the_form() -> None:
+    import asyncio
+
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+        delete_note_delay=0.0,
+    )
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        # AlwaysAcceptDialog ensures the ConfirmationDecorator on
+        # NoteVM.delete_command proceeds with the actual delete.
+        .dialog_service(_AcceptDialog())
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+    # Pick a note from the auto-bound first notebook.
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    assert ws.note_form.has_bound_note is True
+    assert ws.note_form.title == note.title
+
+    # Invoke the in-list delete pathway — confirm() returns True, the inner
+    # task runs, and NotesViewVM._delete_note_async clears current.
+    note.delete_command.execute()
+    await asyncio.sleep(0.05)
+
+    assert ws.notes_view.current is None
+    # The form must have been unbound — no ghost data left over.
+    assert ws.note_form.has_bound_note is False
+    assert ws.note_form.title == ""
+    assert ws.note_form.body == ""

@@ -181,6 +181,25 @@ export class NoteFormVM extends ComponentVMBase {
   }
 
   /**
+   * Clears the form back to its initial empty state — disposes the inner
+   * FormVM, resets `hasBoundNote` to `false`, and emits PropertyChanged so
+   * widgets re-read (draft / snapshot / tagsText flip to EMPTY).
+   *
+   * Round-4 Important-1: called by `WorkspaceVM` when `notesView.current`
+   * transitions to `null` (e.g. the selected note is deleted in
+   * `NotesViewVM.#deleteNoteAsync`) so the right-pane editor does not show
+   * ghost data from the just-removed note. Mirrors C# `NoteFormVM.Unbind`
+   * and Python `NoteFormVM.unbind`.
+   */
+  unbind(): void {
+    if (this.#form === null && this.#bound === null) return;
+    this.#form?.dispose();
+    this.#form = null;
+    this.#bound = null;
+    this.#emitDraftChanges();
+  }
+
+  /**
    * Awaitable approve cycle — persists via the repo and (on success) publishes
    * a "Saved" notification. Useful in tests.
    */
@@ -226,11 +245,19 @@ export class NoteFormVM extends ComponentVMBase {
     // ``denyCommand`` whose getters delegate to the inner ``#form`` (and to
     // ``#noopCommand`` before bindTo). Without this, bindings keep the
     // stale references after the form is rebound.
+    //
+    // Round-4 Minor-2 (cross-flavor parity): ``tagsText`` is a derived
+    // accessor that re-projects on every draft mutation; without firing
+    // PropertyChanged here any consumer subscribed specifically to
+    // ``tagsText`` (e.g. a chip-strip label) would miss notifications.
+    // Mirrors the C# emission list (``TagsText``) and the Python
+    // ``tags_text`` DerivedProperty (which re-emits via ``_self_subject``).
     for (const name of [
       "draft",
       "snapshot",
       "isDirty",
       "isValid",
+      "tagsText",
       "approveCommand",
       "denyCommand",
     ]) {

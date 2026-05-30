@@ -30,9 +30,6 @@ public sealed class CapabilityActionsVM : ComponentVMBase
     /// <summary>Public hub accessor.</summary>
     public new IMessageHub Hub => base.Hub;
 
-    /// <summary>Snapshot of the currently focused VM.</summary>
-    public object? FocusedVM => _focusedGetter();
-
     /// <summary>The projected action list. Recomputes on <see cref="RecomputeActions"/>.</summary>
     public DerivedProperty<IReadOnlyList<ActionVM>> Actions { get; }
 

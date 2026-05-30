@@ -255,22 +255,43 @@ def test_tags_text_derived_renders_comma_joined_string() -> None:
 
 
 def test_bind_to_disposes_prior_hub_subscription() -> None:
-    """Round-3 Important C-I3: each ``bind_to`` must dispose the previous
-    hub subscription so the prior closure (and its FormVM reference) does
-    not leak across rebinds.
+    """Round-3 Important C-I3 (strengthened by Round-4 Minor-1): each
+    ``bind_to`` must dispose the previous hub subscription so the prior
+    closure (and its FormVM reference) does not leak across rebinds.
+
+    Round-4 Minor-1: the earlier version of this test only asserted that
+    ``second_sub is not first_sub`` — which would still pass even if
+    ``bind_to`` skipped the ``.dispose()`` call (the assignment is always
+    fresh). Spy on the actual disposal so removing the disposal would fail
+    this test.
     """
+    from unittest.mock import patch
+
     vm, _ = _build_vm()
     vm.bind_to(_sample_note(title="A"))
     first_sub = vm._bind_subscription  # type: ignore[attr-defined]
     assert first_sub is not None
-    vm.bind_to(_sample_note(title="B"))
+
+    # Wrap the first subscription's dispose so we can observe whether the
+    # second bind_to actually disposes it (rather than just orphaning it).
+    disposed_calls: list[None] = []
+    real_dispose = first_sub.dispose
+
+    def _tracking_dispose() -> None:
+        disposed_calls.append(None)
+        real_dispose()
+
+    with patch.object(first_sub, "dispose", side_effect=_tracking_dispose):
+        vm.bind_to(_sample_note(title="B"))
+
+    # The disposal of the prior subscription must have been observed —
+    # removing the explicit `.dispose()` call in bind_to would skip this.
+    assert disposed_calls, "prior _bind_subscription.dispose() must have fired"
+
     second_sub = vm._bind_subscription  # type: ignore[attr-defined]
     assert second_sub is not None
     assert second_sub is not first_sub  # a fresh subscription was created
-    # The original closure must no longer fire — its form was disposed.
-    # We rely on the fact that BehaviorSubject.dispose() prevents further
-    # emissions: re-triggering _emit_draft_changes by editing the draft
-    # exercises only the second subscription's path.
+    # The second subscription is still live for the active form.
     vm.title = "B-edited"
     assert vm.is_dirty.value is True
 

@@ -7,7 +7,6 @@ using VMx.Commands;
 using VMx.Components;
 using VMx.Dialogs;
 using VMx.Messages;
-using VMx.Properties;
 using VMx.Services;
 using VMx.Notifications;
 using NotesShowcase.Models;
@@ -79,9 +78,6 @@ public sealed class WorkspaceVM : IDisposable
     /// <summary>Top-level toolbar command: export workspace via the dialog service.</summary>
     public ICommand ExportCommand { get; }
 
-    /// <summary>The VM with most-recent focus across notebooks tree, notes list, form.</summary>
-    public DerivedProperty<object?> FocusedVM { get; }
-
     private object? _focused;
 
     private void TrackFocus(object focused)
@@ -148,26 +144,39 @@ public sealed class WorkspaceVM : IDisposable
             .Component6(() => capabilities)
             .Build();
 
-        // Focus tracking — default to notebooks tree on first construct.
-        FocusedVM = DerivedProperty.From(
-            System.Reactive.Linq.Observable.Return((object?)null),
-            _ => _focused);
-
         // Round-3 Critical-2: when the user selects a note in the centre
         // pane, rebind the right-pane editor so it shows the selected note's
         // fields. NotesListView two-way binds SelectedItem={Binding Current}
         // — observing the hub PropertyChanged for "Current" keeps the
         // observation off the leaf VMs and matches the StatusBarVM pattern.
+        //
+        // Round-4 Important-1: when Current transitions to null (e.g. the
+        // selected note is deleted in NotesViewVM.DeleteNoteAsyncInternal,
+        // or the host explicitly clears selection) the form must be
+        // unbound — otherwise the right pane keeps the title/body of the
+        // deleted note and Save would attempt to persist a ghost.
+        //
+        // Round-4 Important-2: marshal the handler onto the foreground
+        // scheduler so BindTo/Unbind (which raise PropertyChanged for the
+        // XAML binding engine) always run on the UI thread. Today Current
+        // is set from XAML TwoWay binding (already UI-thread) so this is
+        // defensive, but it brings parity with the foreground-marshalling
+        // pattern the spec requires for PropertyChanged delivery (THR-001).
         _currentNoteSubscription = notesView.Hub.Messages
             .OfType<PropertyChangedMessage<IComponentVM>>()
             .Where(m => ReferenceEquals(m.Sender, notesView)
                 && string.Equals(m.PropertyName, nameof(NotesViewVM.Current), StringComparison.Ordinal))
+            .ObserveOn(_dispatcher.Foreground)
             .Subscribe(_ =>
             {
                 var current = notesView.Current;
                 if (current is not null)
                 {
                     noteForm.BindTo(current.Model);
+                }
+                else
+                {
+                    noteForm.Unbind();
                 }
             });
 
@@ -242,7 +251,6 @@ public sealed class WorkspaceVM : IDisposable
     public void Dispose()
     {
         _currentNoteSubscription.Dispose();
-        FocusedVM.Dispose();
         (NewNotebookCommand as IDisposable)?.Dispose();
         (NewNoteCommand as IDisposable)?.Dispose();
         (ExportCommand as IDisposable)?.Dispose();
