@@ -73,6 +73,17 @@ tabs.dispose()
 hub.dispose()
 ```
 
+> **Tips:**
+>
+> * `.modeled_hinter(...)` is optional on every modeled builder; the default
+>   is `lambda _m: ""`. Pass a callable when you want to derive a display
+>   hint from the model.
+> * For tests, samples, and headless code, `NULL_MESSAGE_HUB` and
+>   `NULL_DISPATCHER` are safe no-op singletons. Annotate variables as
+>   `MessageHubProto[Message]` (the structural `Protocol`) to keep
+>   `mypy --strict` happy, or use the generic
+>   `null_message_hub_of(MyMessage)` factory for a narrower message type.
+
 See [docs/getting-started/python.md](../../docs/getting-started/python.md)
 for the full walkthrough.
 

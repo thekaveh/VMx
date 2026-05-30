@@ -54,6 +54,14 @@ tabs.Dispose();
 hub.Dispose();
 ```
 
+> **Tip — test/sample VMs:** every builder also has a one-line
+> `.WithNullServices()` extension that wires
+> `NullMessageHub.Instance` + `NullDispatcher.Instance`, so you can write
+> `ComponentVM<M>.Builder().Name("x").Model(m).WithNullServices().Build()`
+> in tests, samples, and exploration without constructing real services.
+> Production VMs should still call `.Services(hub, dispatcher)` with real
+> services.
+
 See [docs/getting-started/csharp.md](../../docs/getting-started/csharp.md)
 for the full walkthrough.
 

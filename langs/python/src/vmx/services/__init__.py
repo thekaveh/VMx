@@ -10,7 +10,11 @@ Public API re-exports:
 from vmx.services.dispatcher import Dispatcher, RxDispatcher
 from vmx.services.message_hub import MessageHub, MessageHubProto
 from vmx.services.null_dispatcher import NULL_DISPATCHER, NullDispatcher
-from vmx.services.null_message_hub import NULL_MESSAGE_HUB, NullMessageHub
+from vmx.services.null_message_hub import (
+    NULL_MESSAGE_HUB,
+    NullMessageHub,
+    null_message_hub_of,
+)
 
 __all__ = [
     "NULL_DISPATCHER",
@@ -21,4 +25,5 @@ __all__ = [
     "NullDispatcher",
     "NullMessageHub",
     "RxDispatcher",
+    "null_message_hub_of",
 ]

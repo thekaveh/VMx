@@ -1,6 +1,21 @@
 """NullMessageHub — null-object variant of IMessageHub.
 
 See spec/03-messages.md §"Null variant" and ADR-0017.
+
+Typing notes
+------------
+:data:`NULL_MESSAGE_HUB` is typed as :class:`~vmx.services.message_hub.MessageHubProto`
+``[Message]`` — the structural :class:`~typing.Protocol`. This means downstream
+``mypy --strict`` consumers can assign it to either:
+
+* a ``MessageHubProto[Message]`` annotation (preferred public surface), or
+* a ``MessageHub[Message]`` annotation (concrete class) — Python structural
+  subtyping accepts the assignment since :class:`NullMessageHub` satisfies the
+  same shape.
+
+When a strictly-typed hub of a narrower :class:`~vmx.messages.protocols.Message`
+subtype is needed, use :func:`null_message_hub_of` — a generic factory that
+returns a freshly typed null hub bound to the message type parameter.
 """
 
 from __future__ import annotations
@@ -11,6 +26,7 @@ import reactivex as rx
 from reactivex import Observable
 
 from vmx.messages.protocols import Message
+from vmx.services.message_hub import MessageHubProto
 
 TMessage = TypeVar("TMessage", bound=Message)
 
@@ -34,5 +50,28 @@ class NullMessageHub:
         return None
 
 
-NULL_MESSAGE_HUB: NullMessageHub = NullMessageHub()
-"""Shared singleton instance (the hub holds no state)."""
+NULL_MESSAGE_HUB: MessageHubProto[Message] = NullMessageHub()
+"""Shared singleton instance (the hub holds no state).
+
+Typed as :class:`MessageHubProto[Message]` so downstream
+``mypy --strict`` consumers can assign it to either a ``MessageHubProto[Message]``
+or a ``MessageHub[Message]`` annotation without an extra cast.
+"""
+
+
+def null_message_hub_of(message_type: type[TMessage]) -> MessageHubProto[TMessage]:
+    """Return a fresh null message hub typed for ``message_type``.
+
+    Use this when a strictly-typed null hub of a narrower :class:`Message`
+    subtype is needed (e.g. a hub of ``MyDomainMessage`` for ``mypy --strict``
+    callers). The returned hub is the same null-object implementation; only
+    the *declared* type parameter narrows.
+
+    Args:
+        message_type: The :class:`Message` subtype to bind the hub to.
+
+    Returns:
+        A :class:`MessageHubProto` whose ``send`` accepts ``message_type``.
+    """
+    del message_type  # only used to infer the type parameter
+    return NullMessageHub()
