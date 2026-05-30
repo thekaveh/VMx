@@ -5,6 +5,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## 2.2.0 — 2026-05-30
+
+### Added
+
+- `AggregateVM6` — sixth-arity heterogeneous aggregate.
+  Conformance: `AGG-006`. See ADR-0034.
+
+### Min spec version
+
+- 2.2.0 (previously 2.1.0).
+
 ## [2.1.0] — 2026-05-28
 
 Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.

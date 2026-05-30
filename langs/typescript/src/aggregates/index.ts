@@ -3,3 +3,4 @@ export { AggregateVM2, AggregateVM2Builder } from "./aggregateVM2.js";
 export { AggregateVM3, AggregateVM3Builder } from "./aggregateVM3.js";
 export { AggregateVM4, AggregateVM4Builder } from "./aggregateVM4.js";
 export { AggregateVM5, AggregateVM5Builder } from "./aggregateVM5.js";
+export { AggregateVM6, AggregateVM6Builder } from "./aggregateVM6.js";
