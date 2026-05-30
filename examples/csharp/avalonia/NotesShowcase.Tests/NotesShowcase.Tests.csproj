@@ -21,8 +21,18 @@
     <Threshold>90</Threshold>
     <ThresholdType>line</ThresholdType>
     <ThresholdStat>total</ThresholdStat>
-    <Include>[NotesShowcase]NotesShowcase.Models.*,[NotesShowcase]NotesShowcase.ViewModels.*</Include>
-    <ExcludeByFile>**/Models/SeedData.cs</ExcludeByFile>
+    <Include>[NotesShowcase]NotesShowcase.Models.*,[NotesShowcase]NotesShowcase.ViewModels.*,[NotesShowcase]NotesShowcase.Views.Adapter.*</Include>
+    <!--
+      SeedData is data-only (excluded from §3.a coverage scope).
+      AvaloniaDispatcher and AvaloniaDialogService rely on a live Avalonia
+      runtime (Dispatcher.UIThread, IStorageProvider, Window) and are exercised
+      by the Phase 5.a headless smoke test rather than unit tests — they are
+      excluded from this gate per plan §4.a ("DialogService is harder to
+      unit-test without spinning up Avalonia; skip a unit test for it" /
+      "AvaloniaDispatcher likewise needs an Avalonia runtime; skip dedicated
+      unit test").
+    -->
+    <ExcludeByFile>**/Models/SeedData.cs,**/Views/Adapter/AvaloniaDispatcher.cs,**/Views/Adapter/AvaloniaDialogService.cs</ExcludeByFile>
   </PropertyGroup>
 
   <ItemGroup>

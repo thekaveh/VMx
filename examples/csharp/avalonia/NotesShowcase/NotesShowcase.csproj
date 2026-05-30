@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!--
-      Phase 3.a ships a HEADLESS VM tree only: no UI. We target a plain Library
-      so the test project can reference us cross-platform (Phase 5.a will flip
-      this to WinExe + Avalonia.Desktop). See plan §3.a and §5.a.
+      Phase 3.a shipped a HEADLESS VM tree (no UI). Phase 4.a (this file
+      revision) adds the Avalonia binding adapter under Views/Adapter/, which
+      needs Avalonia 11 references for `Dispatcher.UIThread`, `Window`,
+      `IStorageProvider`, etc. The project is still a library — Phase 5.a will
+      flip OutputType to WinExe and add the Avalonia.Desktop bootstrap.
+      See plan §3.a, §4.a, §5.a.
     -->
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>NotesShowcase</RootNamespace>
@@ -12,6 +15,10 @@
     <!-- Examples are not subject to the library's strict warning policy. -->
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.*" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
