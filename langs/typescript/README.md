@@ -13,8 +13,13 @@ sub-path export `vmx/notifications` ships an `INotificationHub`.
 ## 2. Install
 
 ```bash
-npm install vmx
+npm install vmx rxjs
 ```
+
+`rxjs` is declared as a **peer dependency** (≥ 7.8) so consumers share a
+single rxjs instance with VMx — VMx exposes rxjs types (`Observable<T>`
+etc.) in its public API. Installing it alongside `vmx` keeps pnpm strict
+isolation happy and avoids double-installation.
 
 ## 3. Quick start
 
@@ -55,6 +60,34 @@ hub.dispose();
 
 See [docs/getting-started/typescript.md](../../docs/getting-started/typescript.md)
 for the full walkthrough.
+
+## 3.5. Browser usage
+
+VMx-TS is browser-safe and works out of the box with all modern bundlers —
+**Vite, Webpack, esbuild, Rollup, Bun, and Tauri webviews**. The dist
+contains no runtime imports of `node:fs`, `node:path`, or `node:url`; the
+lifecycle-transitions fixture is bundled in at build time.
+
+Minimal Vite/SvelteKit/Next.js install:
+
+```bash
+npm install vmx rxjs
+```
+
+No bundler plugins, polyfills, or `node:*` stubs are required. You can
+import `vmx` directly from any browser-side module:
+
+```ts
+import { ComponentVMOf, MessageHub, RxDispatcher } from "vmx";
+```
+
+For a worked browser example, see the React `notes-showcase` app under
+`examples/typescript/react/notes-showcase/` (shipped on the
+`examples-notes-showcase` branch, merging in a follow-up).
+
+A JSDOM smoke test (`tests/browser-build/smoke.test.ts`) runs on every CI
+build and asserts that the package keeps loading cleanly in a browser-like
+environment — regressions in this area will fail CI.
 
 ## 4. API surface
 

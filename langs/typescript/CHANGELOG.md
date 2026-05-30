@@ -5,6 +5,32 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **D1 — Browser-safe dist.** `src/lifecycle/transitionValidator.ts` no
+  longer imports `node:fs` / `node:path` / `node:url` at module load. The
+  `lifecycle-transitions.json` fixture is now consumed via a static
+  TypeScript JSON import and bundled into both ESM and CJS dist artifacts
+  by tsup/esbuild. Browsers using Vite, Webpack, esbuild, Rollup, Bun, and
+  Tauri webviews can load `vmx` directly with no node-builtin stubs.
+
+### Changed
+
+- **D2 — `rxjs` moved to `peerDependencies`.** Previously declared as a
+  hard dependency; consumers using pnpm strict isolation (default for new
+  Vite/SvelteKit projects) hit resolution friction when vendoring VMx.
+  Public install command is now `npm install vmx rxjs`. `rxjs` remains in
+  `devDependencies` for local test runs. `peerDependenciesMeta.rxjs.optional`
+  is `false` (required).
+
+### Added
+
+- `tests/browser-build/smoke.test.ts` — JSDOM environment smoke test that
+  loads the public surface and instantiates a `ComponentVMOf` to catch
+  future regressions of the browser-safety contract.
+- README §3.5 "Browser usage" documenting bundler compatibility and the
+  rxjs peer-dependency install command.
+
 ## 2.2.0 — 2026-05-30
 
 ### Added

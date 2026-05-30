@@ -1,17 +1,20 @@
 /**
  * Lifecycle transition validator.
  *
- * Loads spec/fixtures/lifecycle-transitions.json once (lazy) and exposes:
+ * Loads the lifecycle-transitions.json fixture via a static TypeScript JSON
+ * import so the data is bundled into the dist by tsup/esbuild at build time.
+ * This makes the module browser-safe (no runtime built-in Node module
+ * resolution required), and removes the previous fs-search of candidate
+ * paths.
+ *
+ * Public surface:
  *   isLegal(current, operation) → boolean
- *   require(current, operation) → void (throws StatusTransitionError if illegal)
+ *   requireTransition(current, operation) → void (throws StatusTransitionError)
  *   finalState(current, operation) → ConstructionStatus
  */
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { ConstructionStatus } from "./status.js";
 import { StatusTransitionError } from "./exceptions.js";
+import lifecycleTransitions from "../fixtures/lifecycle-transitions.json" with { type: "json" };
 
 interface TransitionRow {
   from: string;
@@ -21,42 +24,12 @@ interface TransitionRow {
   legal: boolean;
 }
 
-const _FIXTURE_NAME = "lifecycle-transitions.json";
-
-function _loadTable(): TransitionRow[] {
-  // Locate src/fixtures/ relative to this compiled module's directory.
-  const here = dirname(fileURLToPath(import.meta.url));
-  // At runtime: dist/ → src/fixtures is two levels up + src/fixtures.
-  // At test time (Vitest): src/lifecycle/ → ../fixtures.
-  const candidates = [
-    join(here, "..", "fixtures", _FIXTURE_NAME),
-    join(here, "..", "..", "src", "fixtures", _FIXTURE_NAME),
-    join(here, "..", "..", "..", "spec", "fixtures", _FIXTURE_NAME),
-  ];
-  for (const candidate of candidates) {
-    try {
-      const raw = readFileSync(candidate, "utf-8");
-      // JSON.parse returns `unknown`; cast to the known fixture shape.
-      const parsed: unknown = JSON.parse(raw);
-      const data = parsed as { transitions: TransitionRow[] };
-      return data.transitions;
-    } catch {
-      // try next candidate
-    }
-  }
-  throw new Error(
-    `Cannot locate ${_FIXTURE_NAME}. Run 'npm run sync-fixtures' first.`,
-  );
+interface LifecycleTransitionsFixture {
+  transitions: TransitionRow[];
 }
 
-let _table: TransitionRow[] | null = null;
-
-function _getTable(): TransitionRow[] {
-  if (_table === null) {
-    _table = _loadTable();
-  }
-  return _table;
-}
+const _TABLE: TransitionRow[] = (lifecycleTransitions as LifecycleTransitionsFixture)
+  .transitions;
 
 function _statusName(s: ConstructionStatus): string {
   return ConstructionStatus[s];
@@ -67,7 +40,7 @@ function _findRow(
   operation: string,
 ): TransitionRow | undefined {
   const name = _statusName(current);
-  return _getTable().find((r) => r.from === name && r.via === operation);
+  return _TABLE.find((r) => r.from === name && r.via === operation);
 }
 
 export function isLegal(
