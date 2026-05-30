@@ -1,0 +1,17 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Spec §5: dark palette for the Notes Workspace. -->
+    <Color x:Key="BgColor">#FF0E1320</Color>
+    <Color x:Key="PaneColor">#FF141B2D</Color>
+    <Color x:Key="BorderColor">#FF2A3045</Color>
+    <Color x:Key="AccentColor">#FF4F8CD9</Color>
+    <Color x:Key="TextColor">#FFE6EAF2</Color>
+    <Color x:Key="SubtleTextColor">#FF9AA3B8</Color>
+
+    <SolidColorBrush x:Key="BgBrush"        Color="{StaticResource BgColor}" />
+    <SolidColorBrush x:Key="PaneBrush"      Color="{StaticResource PaneColor}" />
+    <SolidColorBrush x:Key="BorderBrush"    Color="{StaticResource BorderColor}" />
+    <SolidColorBrush x:Key="AccentBrush"    Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="TextBrush"      Color="{StaticResource TextColor}" />
+    <SolidColorBrush x:Key="SubtleTextBrush" Color="{StaticResource SubtleTextColor}" />
+</ResourceDictionary>

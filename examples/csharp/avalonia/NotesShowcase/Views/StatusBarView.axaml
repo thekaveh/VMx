@@ -1,0 +1,18 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
+             x:Class="NotesShowcase.Views.StatusBarView"
+             x:DataType="vm:StatusBarVM">
+    <StackPanel Orientation="Horizontal" Spacing="16">
+        <TextBlock Foreground="{StaticResource SubtleTextBrush}"
+                   Text="{Binding NoteCountText.Value}" />
+        <TextBlock Foreground="{StaticResource SubtleTextBrush}"
+                   Text="·" />
+        <TextBlock Foreground="{StaticResource SubtleTextBrush}"
+                   Text="{Binding StarredText.Value}" />
+        <TextBlock Foreground="{StaticResource SubtleTextBrush}"
+                   Text="·" />
+        <TextBlock Foreground="{StaticResource TextBrush}"
+                   Text="{Binding EditingText.Value}" />
+    </StackPanel>
+</UserControl>

@@ -1,31 +1,41 @@
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using NotesShowcase.Views.Modals;
 using VMx.Dialogs;
+using VMx.Notifications;
 
 namespace NotesShowcase.Views.Adapter;
 
 /// <summary>
-/// DialogService (scenario §7.1, plan §4.a): implements
+/// DialogService (scenario §7.1, plan §4.a / §5.a): implements
 /// <see cref="IDialogService"/> against Avalonia's native modal stack.
 ///
-/// <para><b>Phase 4.a status</b>:</para>
+/// <para><b>Phase 5.a completion</b>:</para>
 /// <list type="bullet">
 ///   <item>
 ///     <description>
-///       <see cref="PickFileToOpen"/> and <see cref="PickFileToSave"/> route to
+///       <see cref="PickFileToOpen"/> / <see cref="PickFileToSave"/> route to
 ///       <see cref="IStorageProvider"/> on the host window (Avalonia 11 surface;
 ///       Avalonia 10's <c>OpenFileDialog</c>/<c>SaveFileDialog</c> were retired).
 ///     </description>
 ///   </item>
 ///   <item>
 ///     <description>
-///       <see cref="Confirm"/> and <see cref="Notify"/> currently throw
-///       <see cref="NotImplementedException"/> — they need
-///       <c>Views/Modals/ConfirmDialog.axaml</c> + <c>SaveFileDialog.axaml</c>
-///       windows + a notification overlay control, which land in Phase 5.a
-///       (per plan §5.a). The interface is satisfied so composition root /
-///       Phase 4.b/4.c parity wiring compiles today; the missing modal calls
-///       are caught by Phase 5.a tests.
+///       <see cref="Confirm"/> opens <see cref="ConfirmDialog"/> as a modal
+///       child of the host window and resolves <c>true</c>/<c>false</c> from
+///       the Yes/No buttons. Per spec §6.1, the dialog's XAML code-behind only
+///       loads the XAML; this adapter (composition layer) wires the buttons.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///       <see cref="Notify"/> forwards to the optional
+///       <see cref="INotificationHub"/> (the same hub that drives the in-window
+///       toast overlay via <c>NotificationsVM</c>). When the hub is absent
+///       (constructor without one), the call is a no-op — callers that need
+///       guaranteed visibility should use <see cref="Confirm"/> or wire the
+///       hub explicitly.
 ///     </description>
 ///   </item>
 /// </list>
@@ -33,17 +43,23 @@ namespace NotesShowcase.Views.Adapter;
 public sealed class AvaloniaDialogService : IDialogService
 {
     private readonly Window _host;
+    private readonly INotificationHub? _notificationHub;
 
     /// <summary>
     /// Creates a dialog service rooted at <paramref name="host"/>; every modal
     /// is parented to this window for correct focus management.
     /// </summary>
     /// <param name="host">The host window. Required.</param>
+    /// <param name="notificationHub">
+    /// Optional notification hub for <see cref="Notify"/>. Default (null) makes
+    /// notifications a no-op — useful for tests / headless smoke runs.
+    /// </param>
     /// <exception cref="ArgumentNullException">If <paramref name="host"/> is null.</exception>
-    public AvaloniaDialogService(Window host)
+    public AvaloniaDialogService(Window host, INotificationHub? notificationHub = null)
     {
         ArgumentNullException.ThrowIfNull(host);
         _host = host;
+        _notificationHub = notificationHub;
     }
 
     /// <inheritdoc/>
@@ -76,26 +92,52 @@ public sealed class AvaloniaDialogService : IDialogService
         return file?.Path.LocalPath;
     }
 
-    /// <summary>
-    /// Confirmation prompt. <b>Not implemented in Phase 4.a</b>: requires the
-    /// <c>ConfirmDialog</c> window that Phase 5.a delivers.
-    /// </summary>
+    /// <inheritdoc/>
     public Task<bool> Confirm(string message, string? title = null)
-        => throw new NotImplementedException(
-            "AvaloniaDialogService.Confirm requires the ConfirmDialog window " +
-            "(plan §5.a). Phase 5.a replaces this placeholder.");
+    {
+        // Marshal to the UI thread — Confirm can be invoked from a command
+        // callback running on a background scheduler. InvokeAsync over an
+        // async lambda returns the unwrapped Task<bool> directly.
+        return Dispatcher.UIThread.InvokeAsync(() => ShowConfirmAsync(message, title));
+    }
 
-    /// <summary>
-    /// Severity-tagged notification. <b>Not implemented in Phase 4.a</b>:
-    /// requires the in-window notification overlay Phase 5.a delivers.
-    /// </summary>
+    private async Task<bool> ShowConfirmAsync(string message, string? title)
+    {
+        var dialog = new ConfirmDialog
+        {
+            Title = title ?? "Confirm",
+        };
+        var messageText = dialog.FindControl<TextBlock>("MessageText");
+        if (messageText is not null) messageText.Text = message;
+
+        var tcs = new TaskCompletionSource<bool>();
+
+        var yes = dialog.FindControl<Button>("YesButton");
+        var no = dialog.FindControl<Button>("NoButton");
+        if (yes is not null) yes.Click += (_, _) => { tcs.TrySetResult(true); dialog.Close(); };
+        if (no is not null) no.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
+        dialog.Closed += (_, _) => tcs.TrySetResult(false);
+
+        await dialog.ShowDialog(_host).ConfigureAwait(true);
+        return await tcs.Task.ConfigureAwait(true);
+    }
+
+    /// <inheritdoc/>
     public Task Notify(
         string message,
         string? title = null,
         NotificationSeverity severity = NotificationSeverity.Info)
-        => throw new NotImplementedException(
-            "AvaloniaDialogService.Notify requires the notification overlay " +
-            "(plan §5.a). Phase 5.a replaces this placeholder.");
+    {
+        if (_notificationHub is null) return Task.CompletedTask;
+        // INotificationHub's enum has no "Warning" — bucket warnings with the
+        // generic Notification severity to match the host-side palette.
+        var type = severity switch
+        {
+            NotificationSeverity.Error => NotificationType.Error,
+            _ => NotificationType.Notification,
+        };
+        return _notificationHub.Post(new Notification(type, message));
+    }
 
     private static IReadOnlyList<FilePickerFileType>? ToFileTypes(FileFilter? filter)
     {

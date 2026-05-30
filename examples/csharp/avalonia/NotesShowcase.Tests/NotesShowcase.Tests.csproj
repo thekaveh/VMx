@@ -27,10 +27,7 @@
       AvaloniaDispatcher and AvaloniaDialogService rely on a live Avalonia
       runtime (Dispatcher.UIThread, IStorageProvider, Window) and are exercised
       by the Phase 5.a headless smoke test rather than unit tests — they are
-      excluded from this gate per plan §4.a ("DialogService is harder to
-      unit-test without spinning up Avalonia; skip a unit test for it" /
-      "AvaloniaDispatcher likewise needs an Avalonia runtime; skip dedicated
-      unit test").
+      excluded from this gate per plan §4.a / §5.a.
     -->
     <ExcludeByFile>**/Models/SeedData.cs,**/Views/Adapter/AvaloniaDispatcher.cs,**/Views/Adapter/AvaloniaDialogService.cs</ExcludeByFile>
   </PropertyGroup>
@@ -47,6 +44,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- Phase 5.a: headless smoke test driver for the Avalonia views. -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.*" />
   </ItemGroup>
 
   <ItemGroup>

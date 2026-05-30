@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:NotesShowcase.Views"
+        x:Class="NotesShowcase.Views.MainWindow"
+        Title="VMx Notes Workspace"
+        Width="1100" Height="720"
+        MinWidth="900" MinHeight="560"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextBrush}"
+        TransparencyLevelHint="None">
+
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+N"      Command="{Binding NewNoteCommand}" />
+        <KeyBinding Gesture="Ctrl+Shift+N" Command="{Binding NewNotebookCommand}" />
+        <KeyBinding Gesture="Ctrl+S"      Command="{Binding NoteForm.ApproveCommand}" />
+        <KeyBinding Gesture="Ctrl+E"      Command="{Binding ExportCommand}" />
+    </Window.KeyBindings>
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
+        <!-- Top toolbar (row 0) -->
+        <Border Grid.Row="0"
+                Background="{StaticResource PaneBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="+ Notebook" Command="{Binding NewNotebookCommand}" />
+                <Button Content="+ Note"     Command="{Binding NewNoteCommand}" />
+                <Button Content="Export…"   Command="{Binding ExportCommand}" />
+                <TextBlock VerticalAlignment="Center"
+                           Foreground="{StaticResource SubtleTextBrush}"
+                           Text="VMx Notes Workspace" />
+            </StackPanel>
+        </Border>
+
+        <!-- 3-pane body (row 1) -->
+        <Grid Grid.Row="1" ColumnDefinitions="240,*,360">
+            <Border Grid.Column="0"
+                    Background="{StaticResource PaneBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0">
+                <views:NotebooksTreeView DataContext="{Binding NotebooksRoot}" />
+            </Border>
+            <Border Grid.Column="1"
+                    Background="{StaticResource BgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0">
+                <views:NotesListView DataContext="{Binding NotesView}" />
+            </Border>
+            <Border Grid.Column="2"
+                    Background="{StaticResource PaneBrush}">
+                <views:NoteFormView DataContext="{Binding NoteForm}" />
+            </Border>
+        </Grid>
+
+        <!-- Status bar (row 2) -->
+        <Border Grid.Row="2"
+                Background="{StaticResource PaneBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,1"
+                Padding="12,4">
+            <views:StatusBarView DataContext="{Binding StatusBar}" />
+        </Border>
+
+        <!-- Capability actions (row 3) -->
+        <Border Grid.Row="3"
+                Background="{StaticResource PaneBrush}"
+                Padding="12,6">
+            <views:CapabilityActionsView DataContext="{Binding CapabilityActions}" />
+        </Border>
+
+        <!-- Toast overlay (overlay across all rows) -->
+        <views:NotificationsView Grid.Row="0" Grid.RowSpan="4"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Bottom"
+                                  Margin="0,0,16,40"
+                                  DataContext="{Binding Notifications}" />
+    </Grid>
+</Window>
