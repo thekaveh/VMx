@@ -9,6 +9,7 @@ import {
   AggregateVM3,
   AggregateVM4,
   AggregateVM5,
+  AggregateVM6,
   PropertyChangedMessage,
   ConstructionStatusChangedMessage,
 } from "../../src/index.js";
@@ -161,6 +162,43 @@ describe("AGG-005", () => {
 
     expect(agg.component1?.status).toBe(ConstructionStatus.Destructed);
     expect(agg.component2?.status).toBe(ConstructionStatus.Destructed);
+    expect(agg.status).toBe(ConstructionStatus.Destructed);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AGG-006
+// ---------------------------------------------------------------------------
+
+describe("AGG-006", () => {
+  it("Arity-6 all six components reach Constructed; destruction waits for all", () => {
+    const hub = makeHub();
+    const cs = [1, 2, 3, 4, 5, 6].map((i) => makeChild(hub, `c${i}`));
+    const agg = AggregateVM6.builder<
+      ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+    >()
+      .name("agg")
+      .services(hub, makeDisp())
+      .component1(() => cs[0]!)
+      .component2(() => cs[1]!)
+      .component3(() => cs[2]!)
+      .component4(() => cs[3]!)
+      .component5(() => cs[4]!)
+      .component6(() => cs[5]!)
+      .build();
+
+    agg.construct();
+
+    for (const c of cs) {
+      expect(c.status).toBe(ConstructionStatus.Constructed);
+    }
+    expect(agg.status).toBe(ConstructionStatus.Constructed);
+
+    agg.destruct();
+
+    for (const c of cs) {
+      expect(c.status).toBe(ConstructionStatus.Destructed);
+    }
     expect(agg.status).toBe(ConstructionStatus.Destructed);
   });
 });

@@ -5,13 +5,13 @@ on:
     branches: [main]
     paths:
       - "langs/python/**"
-      - "examples/python/vmx_inspector/**"
+      - "examples/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   pull_request:
     paths:
       - "langs/python/**"
-      - "examples/python/vmx_inspector/**"
+      - "examples/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   workflow_dispatch:
@@ -69,11 +69,81 @@ jobs:
           flags: python
           fail_ci_if_error: false
 
-      - name: vmx_inspector smoke test
-        # Smoke-tests the Textual-TUI example app to keep it from rotting
-        # against the core vmx package it depends on (file:../../../langs/python).
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        working-directory: examples/python/vmx_inspector
-        run: |
-          uv sync --extra dev
-          uv run pytest -q
+  examples:
+    # Syncs + tests the Notes-Showcase Textual example (Phase 8 of the
+    # notes-showcase plan). Kept as a separate job because the existing
+    # `build` job pins `defaults.run.working-directory: langs/python` and runs
+    # a 3-OS × 4-python matrix; the example only needs a single combo to
+    # confirm the showcase package builds against the workspace-local
+    # `vmx` (editable, path-sourced in pyproject.toml).
+    name: examples (notes-showcase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: |
+            examples/python/textual/notes_showcase/pyproject.toml
+            examples/python/textual/notes_showcase/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: notes-showcase sync
+        # `dev` is declared under [dependency-groups] in the showcase's
+        # pyproject.toml (PEP 735), not [project.optional-dependencies]; uv
+        # syncs default dependency groups automatically, so no --extra/--group
+        # flag is needed for pytest to be present.
+        run: uv sync --directory examples/python/textual/notes_showcase
+
+      - name: notes-showcase ruff lint
+        run: uv run --directory examples/python/textual/notes_showcase ruff check
+
+      - name: notes-showcase ruff format check
+        run: uv run --directory examples/python/textual/notes_showcase ruff format --check
+
+      - name: notes-showcase mypy strict
+        run: uv run --directory examples/python/textual/notes_showcase mypy --strict src
+
+      - name: notes-showcase tests
+        run: uv run --directory examples/python/textual/notes_showcase pytest
+
+  inspector:
+    # vmx_inspector (Textual TUI) is a separate standalone uv project; gate it
+    # under the same ruff/mypy/pytest standards as the lib + showcase so the
+    # quality bar stays uniform across all Python examples.
+    name: examples (vmx-inspector)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: |
+            examples/python/textual/inspector/pyproject.toml
+            examples/python/textual/inspector/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: inspector sync
+        run: uv sync --directory examples/python/textual/inspector
+
+      - name: inspector ruff lint
+        run: uv run --directory examples/python/textual/inspector ruff check
+
+      - name: inspector ruff format check
+        run: uv run --directory examples/python/textual/inspector ruff format --check
+
+      - name: inspector mypy strict
+        run: uv run --directory examples/python/textual/inspector mypy --strict src
+
+      - name: inspector tests
+        run: uv run --directory examples/python/textual/inspector pytest

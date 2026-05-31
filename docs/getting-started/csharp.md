@@ -321,6 +321,6 @@ ______________________________________________________________________
 | Threading rules               | `spec/11-threading.md`                      |
 | Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`                 |
 | Architecture decision records | `spec/ADRs/`                                |
-| Console example               | `examples/csharp/HelloVMx/`                 |
-| WPF MVVM example              | `examples/csharp/WpfTodoApp/`               |
+| Console example               | `examples/csharp/console/HelloVMx/`         |
+| WPF MVVM example              | `examples/csharp/wpf/TodoApp/`              |
 | Conformance test suite        | `langs/csharp/tests/VMx.Conformance.Tests/` |

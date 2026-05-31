@@ -14,7 +14,7 @@ dotnet restore
 
 ---
 
-## 2. Example 1 — `HelloVMx/` (console)
+## 2. Example 1 — `console/HelloVMx/` (console)
 
 Minimal console demo. Demonstrates:
 
@@ -28,7 +28,7 @@ Minimal console demo. Demonstrates:
 **Run:**
 
 ```bash
-cd HelloVMx
+cd console/HelloVMx
 dotnet run
 ```
 
@@ -36,7 +36,7 @@ Cross-platform — runs anywhere the .NET SDK runs.
 
 ---
 
-## 3. Example 2 — `WpfTodoApp/` (WPF + MVVM)
+## 3. Example 2 — `wpf/TodoApp/` (WPF + MVVM)
 
 A todo app that wires VMx into a WPF view. Demonstrates:
 
@@ -46,7 +46,7 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   view-only properties that aren't part of the model.
 - `MainWindowViewModel` holding an `ObservableCollection<TodoItemVM>`
   bound to the ListBox plus a public `AddItem(string)` method invoked
-  from the Add button's click handler. (The Python `tk_todo_app`
+  from the Add button's click handler. (The Python `tk/todo_app`
   example uses `CompositeVM<TodoItemVM>` + `RelayCommand` for the same
   shape — both patterns are idiomatic; this one shows the lighter
   WPF-flavoured wiring.)
@@ -59,7 +59,7 @@ A todo app that wires VMx into a WPF view. Demonstrates:
 **Run (Windows only):**
 
 ```bash
-cd WpfTodoApp
+cd wpf/TodoApp
 dotnet run
 ```
 
@@ -68,19 +68,51 @@ launches on Windows because of the WPF target.
 
 ---
 
-## 4. IDE workflow
+## 4. Example 3 — `avalonia/NotesShowcase/` (Avalonia + MVVM, flagship)
 
-Open `Examples.sln` in Visual Studio or Rider to step through both
+The Notes Workspace flagship app — a cross-platform XAML editor on
+Avalonia 11 + .NET 8 that exercises **15 distinct VMx features** in one
+cohesive scenario (notebooks tree, paged + filterable notes list, FormVM
+editor, capability-aware action bar, notifications, async lifecycle,
+dialogs, `AggregateVM6` root). Pure-VM contract enforced; every `*.axaml.cs`
+code-behind is `InitializeComponent()`-only.
+
+**Run (macOS / Linux / Windows):**
+
+```bash
+cd ../../    # repo root
+dotnet run --project examples/csharp/avalonia/NotesShowcase
+```
+
+See [`avalonia/NotesShowcase/README.md`](avalonia/NotesShowcase/README.md)
+for the project layout, feature-traceability table, and keyboard shortcuts.
+Cross-flavor parity is documented in
+[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
+scenario contract lives at
+[`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
+
+---
+
+## 5. IDE workflow
+
+Open `Examples.sln` in Visual Studio or Rider to step through all three
 projects with the debugger attached.
 
-## 5. Project layout
+## 6. Project layout
 
 ```
 examples/csharp/
 ├── Examples.sln
-├── README.md          # this file
-├── HelloVMx/
-│   └── HelloVMx.csproj
-└── WpfTodoApp/
-    └── WpfTodoApp.csproj
+├── README.md              # this file
+├── console/
+│   └── HelloVMx/
+│       └── HelloVMx.csproj
+├── wpf/
+│   └── TodoApp/
+│       └── WpfTodoApp.csproj
+└── avalonia/
+    ├── NotesShowcase/
+    │   └── NotesShowcase.csproj
+    └── NotesShowcase.Tests/
+        └── NotesShowcase.Tests.csproj
 ```

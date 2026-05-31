@@ -95,6 +95,7 @@ examples/typescript/*/package-lock.json
 coverage/
 *.coverage
 *.lcov
+*.cobertura.xml
 
 # ─── Docs builds ──────────────────────────────────────────────────────
 docs/_build/

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "vmx-python-examples"
 version = "0.1.0"
-description = "VMx Python examples — hello_vmx console demo, tk_todo_app tkinter MVVM demo, and vmx_inspector Textual TUI."
+description = "VMx Python examples — hello_vmx console demo, todo_app tkinter MVVM demo, and vmx_inspector Textual TUI."
 requires-python = ">=3.10"
 dependencies = [
     "vmx",
@@ -18,6 +18,4 @@ vmx = { path = "../../langs/python", editable = true }
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-# vmx_inspector is a separate uv project (see examples/python/vmx_inspector/pyproject.toml)
-# and is intentionally excluded from this aggregate examples wheel.
-packages = ["hello_vmx", "tk_todo_app"]
+packages = ["console/hello_vmx", "tk/todo_app"]

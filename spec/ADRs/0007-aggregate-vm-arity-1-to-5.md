@@ -31,3 +31,9 @@ Option 1. Five explicit classes per language. The arity cap of 5 is a soft signa
 - Any language flavor added under the new-language gate (ADR-0002) must implement all five arities before it can be considered conformant.
 - A future spec major version could lift the cap. v2.0 chose not to; any
   such change would land in a future major (v3.0 or later).
+
+**Note (added 2026-05-30):** §4's "future major" clause is superseded by
+ADR-0034, which extended the arity cap to 6 as a minor (2.2.0) bump rather
+than waiting for a major. See ADR-0034 §Supersedes for the rationale (a
+single-arity additive bump that preserves all existing AggregateVM1–5
+contracts is forward-compatible and does not warrant a major).

@@ -139,6 +139,10 @@ export {
   AggregateVM5,
   AggregateVM5Builder,
 } from "./aggregates/aggregateVM5.js";
+export {
+  AggregateVM6,
+  AggregateVM6Builder,
+} from "./aggregates/aggregateVM6.js";
 
 // Forwarding decorators
 export { ForwardingComponentVM } from "./forwarding/forwardingComponentVM.js";

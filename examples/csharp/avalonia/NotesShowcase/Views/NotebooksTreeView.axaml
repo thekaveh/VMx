@@ -1,0 +1,35 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
+             x:Class="NotesShowcase.Views.NotebooksTreeView"
+             x:DataType="vm:NotebooksRootVM">
+
+    <!--
+      Tree rendering (plan §5.a / scenario §6.2): nested notebooks
+      (e.g. Specs under Work) are surfaced via NotebookVM.Children, populated
+      by NotebooksRootVM's children-getter callback. The TreeDataTemplate's
+      ItemsSource binds onto that accessor so the TreeView walks the real
+      hierarchy. See Phase 5.a binding gap #2 — parity with the Python
+      Textual tree and React tree implementations.
+    -->
+    <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0"
+                   Margin="12,12,12,6"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource SubtleTextBrush}"
+                   Text="Notebooks" />
+        <TreeView Grid.Row="1"
+                  x:Name="NotebooksTree"
+                  Background="Transparent"
+                  Foreground="{StaticResource TextBrush}"
+                  ItemsSource="{Binding Roots}"
+                  SelectedItem="{Binding Current, Mode=TwoWay}">
+            <TreeView.ItemTemplate>
+                <TreeDataTemplate ItemsSource="{Binding Children}">
+                    <TextBlock Text="{Binding NotebookName}"
+                               Padding="4,2" />
+                </TreeDataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
+    </Grid>
+</UserControl>

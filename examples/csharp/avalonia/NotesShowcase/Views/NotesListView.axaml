@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
+             x:Class="NotesShowcase.Views.NotesListView"
+             x:DataType="vm:NotesViewVM">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12">
+        <!-- Search input (row 0) -->
+        <TextBox Grid.Row="0"
+                 x:Name="SearchInput"
+                 Watermark="Search…"
+                 Text="{Binding SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 Margin="0,0,0,8" />
+
+        <!-- Starred-only toggle (row 1) -->
+        <CheckBox Grid.Row="1"
+                  Content="Starred only"
+                  IsChecked="{Binding ShowStarredOnly, Mode=TwoWay}"
+                  Margin="0,0,0,8" />
+
+        <!-- Notes list (row 2) -->
+        <ListBox Grid.Row="2"
+                 x:Name="NotesList"
+                 ItemsSource="{Binding VisibleItems}"
+                 SelectedItem="{Binding Current, Mode=TwoWay}"
+                 Background="Transparent"
+                 Foreground="{StaticResource TextBrush}">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="★"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   IsVisible="{Binding Starred}" />
+                        <TextBlock Text="{Binding Title}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Pagination strip (row 3) -->
+        <StackPanel Grid.Row="3"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Center"
+                    Spacing="6"
+                    Margin="0,8,0,0">
+            <Button Content="⏮" Command="{Binding MoveToFirstPageCommand}" />
+            <Button Content="◀" Command="{Binding MoveToPreviousPageCommand}" />
+            <TextBlock VerticalAlignment="Center"
+                       MinWidth="80"
+                       TextAlignment="Center"
+                       Text="{Binding PageLabel}" />
+            <Button Content="▶" Command="{Binding MoveToNextPageCommand}" />
+            <Button Content="⏭" Command="{Binding MoveToLastPageCommand}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

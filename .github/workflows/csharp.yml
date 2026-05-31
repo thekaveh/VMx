@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "langs/csharp/**"
+      - "examples/csharp/**"
       - "spec/**"
       - ".github/workflows/csharp.yml"
   pull_request:
     paths:
       - "langs/csharp/**"
+      - "examples/csharp/**"
       - "spec/**"
       - ".github/workflows/csharp.yml"
   workflow_dispatch:
@@ -64,3 +66,28 @@ jobs:
           files: langs/csharp/TestResults/**/coverage.cobertura.xml
           flags: csharp
           fail_ci_if_error: false
+
+  examples:
+    # Builds + tests the Notes-Showcase Avalonia example (Phase 8 of the
+    # notes-showcase plan). Lives under `examples/csharp/avalonia/` and
+    # references the library via ProjectReference (not NuGet), so it must run
+    # in the same CI as `build` above. Kept as a separate job because the
+    # existing `build` job pins `defaults.run.working-directory: langs/csharp`
+    # and gates restore on packages.lock.json; the example has no lockfile.
+    name: examples (notes-showcase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8 + .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Build NotesShowcase
+        run: dotnet build examples/csharp/avalonia/NotesShowcase
+
+      - name: Test NotesShowcase
+        run: dotnet test examples/csharp/avalonia/NotesShowcase.Tests --logger "console;verbosity=normal"

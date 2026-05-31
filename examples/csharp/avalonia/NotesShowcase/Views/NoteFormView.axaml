@@ -1,0 +1,89 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
+             x:Class="NotesShowcase.Views.NoteFormView"
+             x:DataType="vm:NoteFormVM">
+
+    <!--
+      Editing note (plan §5.a, scenario §6.2): NoteModel is an immutable
+      `record` so we cannot bind directly to ``Draft.Title``/``Draft.Body``/
+      ``Draft.Starred``. ``NoteFormVM`` exposes per-field scalar accessors
+      (``Title``/``Body``/``Starred``) that rebuild the draft via ``with``
+      expressions; two-way bindings below route edits through them, which
+      re-emits ``IsDirty`` / ``IsValid`` / approve-command CanExecute so the
+      Save button enables reactively. See Phase 5.a binding gap #1.
+    -->
+    <Grid Margin="12" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
+        <TextBlock Grid.Row="0"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource SubtleTextBrush}"
+                   Text="Note" Margin="0,0,0,8" />
+
+        <!-- Title (row 1) -->
+        <TextBox Grid.Row="1"
+                 Watermark="Title"
+                 Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 Margin="0,0,0,8" />
+
+        <!-- Tags (row 2): chips + input -->
+        <StackPanel Grid.Row="2" Orientation="Vertical" Spacing="4" Margin="0,0,0,8">
+            <ItemsControl ItemsSource="{Binding Tags}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{StaticResource BorderBrush}"
+                                CornerRadius="10"
+                                Padding="8,2"
+                                Margin="2">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="{Binding}" />
+                                <Button Content="×"
+                                        Padding="2,-2"
+                                        Background="Transparent"
+                                        Command="{Binding $parent[UserControl].((vm:NoteFormVM)DataContext).RemoveTagCommand}"
+                                        CommandParameter="{Binding}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBox Watermark="add tag"
+                         Text="{Binding TagDraft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         Width="160" />
+                <Button Content="+" Command="{Binding AddTagCommand}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Starred (row 3) -->
+        <CheckBox Grid.Row="3"
+                  Content="Starred"
+                  IsChecked="{Binding Starred, Mode=TwoWay}"
+                  Margin="0,0,0,8" />
+
+        <!-- Body (row 4) -->
+        <TextBox Grid.Row="4"
+                 Watermark="Body"
+                 Text="{Binding Body, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 VerticalContentAlignment="Top" />
+
+        <!-- Dirty indicator (row 5) -->
+        <TextBlock Grid.Row="5"
+                   Foreground="{StaticResource SubtleTextBrush}"
+                   Text="●"
+                   IsVisible="{Binding IsDirty}"
+                   Margin="0,8,0,0" />
+
+        <!-- Action buttons (row 6) -->
+        <StackPanel Grid.Row="6" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+            <Button Content="Save"    Command="{Binding ApproveCommand}" />
+            <Button Content="Revert"  Command="{Binding DenyCommand}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

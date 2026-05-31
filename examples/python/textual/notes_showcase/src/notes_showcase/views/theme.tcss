@@ -1,0 +1,134 @@
+/* Notes-Workspace Textual theme — palette per scenario §5.
+ *
+ * Palette:
+ *   bg      #0E1320  (Screen background)
+ *   pane    #141B2D  (panel surfaces)
+ *   border  #2A3045  (separators / borders)
+ *   accent  #4F8CD9  (focus / highlights)
+ *   text    #E6EAF2  (foreground text)
+ *   subtle  #7A86A1  (de-emphasised labels)
+ */
+
+Screen {
+    background: #0E1320;
+    color: #E6EAF2;
+}
+
+Header {
+    background: #141B2D;
+    color: #E6EAF2;
+}
+
+Footer {
+    background: #141B2D;
+    color: #E6EAF2;
+}
+
+#main_layout {
+    height: 1fr;
+}
+
+#notebooks_pane,
+#notes_pane,
+#form_pane {
+    background: #141B2D;
+    border: solid #2A3045;
+    padding: 1 1;
+}
+
+#notebooks_pane {
+    width: 28;
+}
+
+#notes_pane {
+    width: 1fr;
+}
+
+#form_pane {
+    width: 2fr;
+}
+
+.pane_title {
+    color: #7A86A1;
+    text-style: bold;
+    padding: 0 0 1 0;
+}
+
+Tree {
+    background: #141B2D;
+    color: #E6EAF2;
+}
+
+Tree > .tree--cursor {
+    background: #4F8CD9 30%;
+}
+
+ListView {
+    background: #141B2D;
+}
+
+ListView > .list-view--cursor {
+    background: #4F8CD9 30%;
+}
+
+ListItem {
+    padding: 0 1;
+    color: #E6EAF2;
+}
+
+Input:focus {
+    border: solid #4F8CD9;
+}
+
+TextArea:focus {
+    border: solid #4F8CD9;
+}
+
+#status_bar {
+    height: 1;
+    background: #141B2D;
+    color: #7A86A1;
+    padding: 0 1;
+}
+
+#capability_actions {
+    height: 3;
+    background: #141B2D;
+    border-top: solid #2A3045;
+    padding: 0 1;
+}
+
+#capability_actions Button {
+    margin: 0 1;
+}
+
+#notifications {
+    dock: bottom;
+    height: auto;
+    background: transparent;
+    padding: 0 1;
+}
+
+.notification {
+    background: #2A3045;
+    color: #E6EAF2;
+    padding: 0 1;
+    margin: 0 0 1 0;
+    border: solid #4F8CD9;
+}
+
+#tag_chip_row {
+    height: auto;
+    padding: 0 0 1 0;
+}
+
+.tag_chip {
+    background: #2A3045;
+    color: #E6EAF2;
+    padding: 0 1;
+    margin: 0 1 0 0;
+}
+
+Button {
+    margin: 0 1;
+}

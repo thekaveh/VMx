@@ -10,7 +10,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for AggregateVM covering AGG-001..005.
+/// Conformance tests for AggregateVM covering AGG-001..006.
 /// See spec/08-aggregate-vm.md and spec/12-conformance.md.
 /// </summary>
 public class AggregateVMConformanceTests
@@ -215,6 +215,69 @@ public class AggregateVMConformanceTests
             "Component1 must be Destructed after agg.Destruct()");
         agg.Component2!.Status.Should().Be(ConstructionStatus.Destructed,
             "Component2 must be Destructed after agg.Destruct()");
+        agg.Status.Should().Be(ConstructionStatus.Destructed,
+            "aggregate itself must be Destructed");
+    }
+
+    // ── AGG-006 — Arity-6 all six components reach Constructed; destruct waits ──
+
+    /// <summary>
+    /// AGG-006: Given AggregateVM6&lt;VM1..VM6&gt; in Destructed,
+    /// when construct() is called:
+    /// - every ComponentI.Status (I ∈ {1..6}) equals Constructed
+    /// - agg.Status == Constructed
+    /// when destruct() is then called:
+    /// - every ComponentI.Status equals Destructed
+    /// - agg.Status == Destructed
+    /// Added in spec 2.2.0 per ADR-0034.
+    /// </summary>
+    [Fact, Trait("Conformance", "AGG-006")]
+    public void AGG_006_Arity6_Construct_All_Then_Destruct_All()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var agg = AggregateVM6<
+            ComponentVM<string>, ComponentVM<string>, ComponentVM<string>,
+            ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+            .Name("agg").Services(hub, dispatcher)
+            .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+            .Component2(() => MakeLeaf(hub, dispatcher, "c2"))
+            .Component3(() => MakeLeaf(hub, dispatcher, "c3"))
+            .Component4(() => MakeLeaf(hub, dispatcher, "c4"))
+            .Component5(() => MakeLeaf(hub, dispatcher, "c5"))
+            .Component6(() => MakeLeaf(hub, dispatcher, "c6"))
+            .Build();
+
+        agg.Construct();
+
+        agg.Component1!.Status.Should().Be(ConstructionStatus.Constructed,
+            "Component1 must be Constructed");
+        agg.Component2!.Status.Should().Be(ConstructionStatus.Constructed,
+            "Component2 must be Constructed");
+        agg.Component3!.Status.Should().Be(ConstructionStatus.Constructed,
+            "Component3 must be Constructed");
+        agg.Component4!.Status.Should().Be(ConstructionStatus.Constructed,
+            "Component4 must be Constructed");
+        agg.Component5!.Status.Should().Be(ConstructionStatus.Constructed,
+            "Component5 must be Constructed");
+        agg.Component6!.Status.Should().Be(ConstructionStatus.Constructed,
+            "Component6 must be Constructed");
+        agg.Status.Should().Be(ConstructionStatus.Constructed,
+            "aggregate itself must be Constructed");
+
+        agg.Destruct();
+
+        agg.Component1!.Status.Should().Be(ConstructionStatus.Destructed,
+            "Component1 must be Destructed after agg.Destruct()");
+        agg.Component2!.Status.Should().Be(ConstructionStatus.Destructed,
+            "Component2 must be Destructed after agg.Destruct()");
+        agg.Component3!.Status.Should().Be(ConstructionStatus.Destructed,
+            "Component3 must be Destructed after agg.Destruct()");
+        agg.Component4!.Status.Should().Be(ConstructionStatus.Destructed,
+            "Component4 must be Destructed after agg.Destruct()");
+        agg.Component5!.Status.Should().Be(ConstructionStatus.Destructed,
+            "Component5 must be Destructed after agg.Destruct()");
+        agg.Component6!.Status.Should().Be(ConstructionStatus.Destructed,
+            "Component6 must be Destructed after agg.Destruct()");
         agg.Status.Should().Be(ConstructionStatus.Destructed,
             "aggregate itself must be Destructed");
     }

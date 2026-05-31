@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      Test runner targets net9.0 (parity with langs/csharp/tests/VMx.Conformance.Tests):
+      the dev environment only has the .NET 9 SDK/runtime installed. The product
+      project `NotesShowcase.csproj` itself targets net8.0 — the SDK still builds
+      it as a downlevel reference under the net9 host.
+    -->
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!--
+      Coverlet line-coverage gate per plan §3.a.12.
+      SeedData is data-only and excluded from the threshold count.
+    -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <Threshold>90</Threshold>
+    <ThresholdType>line</ThresholdType>
+    <ThresholdStat>total</ThresholdStat>
+    <Include>[NotesShowcase]NotesShowcase.Models.*,[NotesShowcase]NotesShowcase.ViewModels.*,[NotesShowcase]NotesShowcase.Views.Adapter.*</Include>
+    <!--
+      SeedData is data-only (excluded from §3.a coverage scope).
+      AvaloniaDispatcher and AvaloniaDialogService rely on a live Avalonia
+      runtime (Dispatcher.UIThread, IStorageProvider, Window) and are exercised
+      by the Phase 5.a headless smoke test rather than unit tests — they are
+      excluded from this gate per plan §4.a / §5.a.
+    -->
+    <ExcludeByFile>**/Models/SeedData.cs,**/Views/Adapter/AvaloniaDispatcher.cs,**/Views/Adapter/AvaloniaDialogService.cs</ExcludeByFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Reactive.Testing" Version="6.*" />
+    <PackageReference Include="coverlet.msbuild" Version="6.*">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <!-- Phase 5.a: headless smoke test driver for the Avalonia views. -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../NotesShowcase/NotesShowcase.csproj" />
+    <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
+    <ProjectReference Include="../../../../langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj" />
+  </ItemGroup>
+</Project>

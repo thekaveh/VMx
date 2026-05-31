@@ -13,7 +13,7 @@ uv sync          # creates .venv and installs vmx (editable) + reactivex
 
 ---
 
-## 2. Example 1 — `hello_vmx` (console)
+## 2. Example 1 — `console/hello_vmx` (console)
 
 Minimal console demo. Demonstrates:
 
@@ -56,7 +56,7 @@ Setting the SAME model value (equality guard — no hub message expected) ...
 
 ---
 
-## 3. Example 2 — `tk_todo_app` (tkinter MVVM)
+## 3. Example 2 — `tk/todo_app` (tkinter MVVM)
 
 Full MVVM todo app using tkinter. Demonstrates:
 
@@ -68,19 +68,19 @@ Full MVVM todo app using tkinter. Demonstrates:
 
 ```bash
 cd examples/python
-uv run python -m tk_todo_app
+uv run python -m todo_app
 ```
 
 **Headless import check:**
 
 ```bash
 cd examples/python
-uv run python -c "from tk_todo_app.__main__ import MainWindow; print('OK')"
+uv run python -c "from todo_app.__main__ import MainWindow; print('OK')"
 ```
 
 ---
 
-## 4. Example 3 — `vmx_inspector` (Textual TUI)
+## 4. Example 3 — `textual/inspector` (Textual TUI)
 
 A general-purpose live inspector for any VMx hierarchy. Demonstrates:
 
@@ -90,30 +90,62 @@ A general-purpose live inspector for any VMx hierarchy. Demonstrates:
 - Lifecycle keybindings (`c` construct, `d` destruct, `r` reconstruct,
   `x` dispose, `s` select) on the highlighted node.
 
-`vmx_inspector/` is its own uv project (Textual is a heavier dependency than
-the other two examples) — run it from its own directory:
+`textual/inspector/` is its own uv project (Textual is a heavier dependency
+than the other two examples) — run it from its own directory:
 
 ```bash
-uv run --project examples/python/vmx_inspector python -m vmx_inspector
+uv run --project examples/python/textual/inspector python -m vmx_inspector
 ```
 
 ---
 
-## 5. Project layout
+## 5. Example 4 — `textual/notes_showcase` (Textual TUI, flagship)
+
+The Notes Workspace flagship app — a TUI on Textual ≥ 0.80 that exercises
+**15 distinct VMx features** in one cohesive scenario (notebooks tree,
+paged + filterable notes list, FormVM editor, capability-aware action bar,
+notifications, async lifecycle, dialogs, `AggregateVM6` root). Pure-VM
+contract enforced; widget classes expose only `compose()` / `on_mount()` /
+one-statement `action_*()`.
+
+`textual/notes_showcase/` is its own uv project — run it from the repo root:
+
+```bash
+uv run --project examples/python/textual/notes_showcase python -m notes_showcase
+```
+
+See [`textual/notes_showcase/README.md`](textual/notes_showcase/README.md)
+for project layout, feature-traceability, and keybindings (`Ctrl+S` to save,
+`Ctrl+F` to search, etc.). Cross-flavor parity is documented in
+[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
+scenario contract lives at
+[`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
+
+---
+
+## 6. Project layout
 
 ```
 examples/python/
-├── pyproject.toml          # shared deps (vmx local path via uv.sources)
-├── README.md               # this file
-├── hello_vmx/
-│   ├── __init__.py
-│   └── __main__.py         # entry point: python -m hello_vmx
-├── tk_todo_app/
-│   ├── __init__.py
-│   └── __main__.py         # entry point: python -m tk_todo_app
-└── vmx_inspector/          # stand-alone uv project (Textual)
-    ├── pyproject.toml
-    ├── README.md
-    ├── src/vmx_inspector/
-    └── tests/
+├── pyproject.toml              # shared deps (vmx local path via uv.sources)
+├── README.md                   # this file
+├── console/
+│   └── hello_vmx/
+│       ├── __init__.py
+│       └── __main__.py         # entry point: python -m hello_vmx
+├── tk/
+│   └── todo_app/
+│       ├── __init__.py
+│       └── __main__.py         # entry point: python -m todo_app
+└── textual/
+    ├── inspector/              # stand-alone uv project (Textual)
+    │   ├── pyproject.toml
+    │   ├── README.md
+    │   ├── src/vmx_inspector/
+    │   └── tests/
+    └── notes_showcase/         # stand-alone uv project (Textual flagship)
+        ├── pyproject.toml
+        ├── README.md
+        ├── src/notes_showcase/
+        └── tests/
 ```

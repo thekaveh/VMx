@@ -6,6 +6,21 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## 2.2.0 — 2026-05-30
+
+### Added
+
+- `AggregateVM6` — sixth-arity heterogeneous aggregate.
+  Conformance: `AGG-006`. See ADR-0034.
+
+### Conformance
+
+- 1 new ID (`AGG-006`); running total: 220.
+
+### Min spec version
+
+- 2.2.0 (previously 2.1.0).
+
 ## [2.1.0] — 2026-05-28
 
 Implements spec v2.1.0. Purely additive — no breaking changes from v2.0.x.

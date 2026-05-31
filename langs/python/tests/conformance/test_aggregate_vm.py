@@ -1,4 +1,4 @@
-"""Conformance tests: AGG-001 through AGG-005.
+"""Conformance tests: AGG-001 through AGG-006.
 
 Spec: spec/08-aggregate-vm.md, spec/12-conformance.md §AggregateVM.
 
@@ -7,6 +7,7 @@ AGG-002 — Arity-2 both components reach Constructed
 AGG-003 — Arity-5 all five components reach Constructed before parent
 AGG-004 — ComponentN property change fires on construct
 AGG-005 — Arity-2 destruct waits for both children Destructed
+AGG-006 — Arity-6 all six components reach Constructed; destruction waits for all
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from vmx.aggregates.builders import (
     AggregateVMBuilder2,
     AggregateVMBuilder3,
     AggregateVMBuilder5,
+    AggregateVMBuilder6,
 )
 from vmx.components.builders import ComponentVMBuilder
 from vmx.lifecycle.status import ConstructionStatus
@@ -256,4 +258,62 @@ def test_AGG_005_arity2_destruct_waits_for_all_children() -> None:
     assert agg.component_2 is not None
     assert agg.component_1.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.component_2.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+    assert agg.status == ConstructionStatus.DESTRUCTED
+
+
+# ---------------------------------------------------------------------------
+# AGG-006 — Arity-6 all six components reach Constructed; destruction waits for all
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("AGG-006")
+def test_AGG_006_arity6_construct_and_destruct_all_six() -> None:
+    """Given an AggregateVM6 in Destructed
+    When agg.construct() is called
+    Then when it returns, every component_I.status (I in {1..6}) equals Constructed
+    And agg.status == Constructed
+    When agg.destruct() is then called
+    Then when it returns, every component_I.status equals Destructed
+    And agg.status == Destructed
+    """
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    agg = (
+        AggregateVMBuilder6()
+        .name("agg6")
+        .services(hub, dispatcher)
+        .component_1(lambda: _child(hub, dispatcher, "c1"))
+        .component_2(lambda: _child(hub, dispatcher, "c2"))
+        .component_3(lambda: _child(hub, dispatcher, "c3"))
+        .component_4(lambda: _child(hub, dispatcher, "c4"))
+        .component_5(lambda: _child(hub, dispatcher, "c5"))
+        .component_6(lambda: _child(hub, dispatcher, "c6"))
+        .build()
+    )
+
+    agg.construct()
+
+    assert agg.component_1 is not None
+    assert agg.component_2 is not None
+    assert agg.component_3 is not None
+    assert agg.component_4 is not None
+    assert agg.component_5 is not None
+    assert agg.component_6 is not None
+    assert agg.component_1.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert agg.component_2.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert agg.component_3.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert agg.component_4.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert agg.component_5.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert agg.component_6.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+    assert agg.status == ConstructionStatus.CONSTRUCTED
+
+    agg.destruct()
+
+    assert agg.component_1.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+    assert agg.component_2.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+    assert agg.component_3.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+    assert agg.component_4.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+    assert agg.component_5.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+    assert agg.component_6.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.status == ConstructionStatus.DESTRUCTED

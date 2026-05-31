@@ -2,8 +2,8 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.1.0,
-Python `vmx` v2.1.0, TypeScript `vmx` v2.1.0 — declares the spec version it
+This directory is the contract. Every published package — C# `VMx` v2.2.0,
+Python `vmx` v2.2.0, TypeScript `vmx` v2.2.0 — declares the spec version it
 implements. Conformance tests under `langs/<lang>/tests/conformance/`
 re-implement the catalog at `12-conformance.md` and must pass before any
 flavor releases a stable version.
@@ -20,11 +20,11 @@ flavor releases a stable version.
 - `05-component-vm.md` — `ComponentVM` (readonly and modeled variants).
 - `06-composite-vm.md` — `CompositeVM` (selectable children, `Current`).
 - `07-group-vm.md` — `GroupVM`.
-- `08-aggregate-vm.md` — `AggregateVM<VM1..VM5>` and arity rationale.
+- `08-aggregate-vm.md` — `AggregateVM<VM1..VM6>` and arity rationale (arity-6 added in v2.2.0).
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (219 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (220 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -60,11 +60,25 @@ The following existing chapters were also extended in v2.1:
 - `16-notifications.md` — §6–§7 render-side VMs `NotificationVM` and
   `ConfirmationVM` (ADR-0031, NOTIF-011..016) with auto-dismiss lifecycle.
 
-### 1.4 Supporting artefacts
+### 1.4 v2.1.x → v2.2.0 changes
 
-- `VERSION` — current spec SemVer (`2.1.0`).
+v2.2.0 is a minor, non-breaking spec bump motivated by the
+[Notes Workspace flagship example portfolio](proposals/2026-05-29-notes-showcase-scenario.md)
+(see also `examples/notes-showcase-parity.md`). All v2.1.x consumers continue
+to work unchanged.
+
+- **ADR-0034** — extends `AggregateVM` arity to 6. Supersedes ADR-0007 §4's
+  "future major" stance on grounds of additivity.
+- `08-aggregate-vm.md` — now covers arities 1–6 (was 1–5); adds the arity-6
+  row to the members table and extends builder semantics.
+- `12-conformance.md` — adds `AGG-006` (arity-6 construction / destruction
+  ordering); catalog total goes from 219 to 220.
+
+### 1.5 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`2.2.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0033); see
+- `ADRs/` — Architecture Decision Records (0001-0034); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

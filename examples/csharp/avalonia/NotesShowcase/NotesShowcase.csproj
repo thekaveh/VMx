@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      Phase 5.a flips the project to an Avalonia desktop application:
+        * OutputType = WinExe (cross-platform Avalonia bootstrap — the name is
+          historical; works on macOS/Linux/Windows).
+        * Avalonia.Desktop + Avalonia.Themes.Fluent for the runtime + base styles
+          the dark theme overlays.
+        * Avalonia.Fonts.Inter so .WithInterFont() resolves at startup.
+        * AvaloniaUseCompiledBindingsByDefault left at default (false): the
+          showcase uses reflection-based bindings so the XAML stringly-typed
+          paths against the VMs work without compiled-binding DataContext
+          annotations on every control.
+      Phase 3.a / 4.a packages (Avalonia 11 base) remain; Avalonia.Desktop and
+      the themes / fonts are additive.
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>NotesShowcase</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Examples are not subject to the library's strict warning policy. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.*" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.*" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
+    <ProjectReference Include="../../../../langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj" />
+  </ItemGroup>
+</Project>
