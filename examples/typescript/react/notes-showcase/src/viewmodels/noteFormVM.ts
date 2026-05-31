@@ -190,12 +190,26 @@ export class NoteFormVM extends ComponentVMBase {
    * `NotesViewVM.#deleteNoteAsync`) so the right-pane editor does not show
    * ghost data from the just-removed note. Mirrors C# `NoteFormVM.Unbind`
    * and Python `NoteFormVM.unbind`.
+   *
+   * Round-5 Minor: also reset ``tagDraft``. The user-typed tag input
+   * buffer is part of the editor state, so a binding transition must
+   * clear it too — otherwise the chip input still shows the orphan text
+   * after the note disappears. Cross-flavor parity with C# `TagDraft =
+   * string.Empty` and Python `self._tag_draft = ""`.
    */
   unbind(): void {
-    if (this.#form === null && this.#bound === null) return;
+    const hadTagDraft = this.#tagDraft.length > 0;
+    if (this.#form === null && this.#bound === null && !hadTagDraft) return;
     this.#form?.dispose();
     this.#form = null;
     this.#bound = null;
+    if (hadTagDraft) {
+      this.#tagDraft = "";
+      this._hub.send(
+        PropertyChangedMessage.create(this, this._name, "tagDraft"),
+      );
+      this._raisePropertyChanged("tagDraft");
+    }
     this.#emitDraftChanges();
   }
 

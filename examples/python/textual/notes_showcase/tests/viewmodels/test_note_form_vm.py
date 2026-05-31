@@ -296,6 +296,26 @@ def test_bind_to_disposes_prior_hub_subscription() -> None:
     assert vm.is_dirty.value is True
 
 
+def test_unbind_clears_tag_draft_buffer() -> None:
+    """R5 Minor: unbind must reset the user-typed tag input buffer.
+
+    Today the tag draft survives across binding transitions, so after
+    deleting the selected note the chip input still shows the orphan
+    text. ``unbind`` resets ``tag_draft`` alongside the form / bound
+    model for cross-flavor parity with C# ``TagDraft = string.Empty``
+    and TS ``this.tagDraft = ""``.
+    """
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    vm.tag_draft = "secur"
+    assert vm.tag_draft == "secur"
+
+    vm.unbind()
+
+    assert vm.tag_draft == ""
+    assert vm.has_bound_note is False
+
+
 def test_after_bind_to_deny_command_property_changed_fires() -> None:
     """Round-3 Important B-I2: bindings on ``deny_command`` must observe
     the rebind. ``bind_to`` re-emits ``_emit_draft_changes`` which now

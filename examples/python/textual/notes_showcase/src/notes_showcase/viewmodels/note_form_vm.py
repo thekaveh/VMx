@@ -325,8 +325,19 @@ class NoteFormVM(ComponentVM, IReconstructable):
         note is deleted in :meth:`NotesViewVM._delete_note_async`) so the
         right-pane editor does not display ghost data from the just-removed
         note. Mirrors C# ``NoteFormVM.Unbind`` and TS ``NoteFormVM.unbind``.
+
+        Round-5 Minor: also reset ``tag_draft``. The user-typed tag input
+        buffer is part of the editor state, so a binding transition must
+        clear it too — otherwise the chip input still shows the orphan
+        text after the note disappears. Cross-flavor parity with C#
+        ``TagDraft = string.Empty`` and TS ``this.tagDraft = ""``.
         """
-        if self._form is None and self._bind_subscription is None:
+        had_tag_draft = self._tag_draft != ""
+        if (
+            self._form is None
+            and self._bind_subscription is None
+            and not had_tag_draft
+        ):
             return
         if self._form is not None:
             self._form.dispose()
@@ -334,6 +345,12 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if self._bind_subscription is not None:
             self._bind_subscription.dispose()
             self._bind_subscription = None
+        if had_tag_draft:
+            self._tag_draft = ""
+            self._hub.send(
+                PropertyChangedMessage.create(self, self._name, "tag_draft")
+            )
+            self._raise_property_changed("tag_draft")
         self._emit_draft_changes()
 
     async def approve_async(self) -> None:

@@ -169,13 +169,26 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <see cref="WorkspaceVM"/> when <see cref="NotesViewVM.Current"/>
     /// transitions to <c>null</c> (e.g. the selected note is deleted) so
     /// the editor does not display ghost data from the just-removed note.
+    ///
+    /// Round-5 Minor: also reset <see cref="TagDraft"/>. The user-typed
+    /// tag input buffer is part of the editor state, so a binding
+    /// transition must clear it too — otherwise the chip input still shows
+    /// the orphan text after the note disappears. Cross-flavor parity with
+    /// Python <c>self._tag_draft = ""</c> and TS <c>this.tagDraft = ""</c>.
     /// </summary>
     public void Unbind()
     {
-        if (_form is null && _bound is null) return;
+        var hadTagDraft = _tagDraft.Length > 0;
+        if (_form is null && _bound is null && !hadTagDraft) return;
         _form?.Dispose();
         _form = null;
         _bound = null;
+        if (hadTagDraft)
+        {
+            _tagDraft = string.Empty;
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagDraft)));
+            RaisePropertyChanged(nameof(TagDraft));
+        }
         EmitDraftChanges();
     }
 

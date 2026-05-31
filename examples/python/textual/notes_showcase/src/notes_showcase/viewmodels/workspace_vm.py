@@ -160,20 +160,30 @@ class WorkspaceVM:
         # fire on the UI thread. Today current is set from the Textual UI
         # thread so this is defensive, but matches the foreground-marshal
         # contract documented in the THR-001 conformance test.
-        def _on_notes_view_msg(m: Message) -> None:
-            if (
+        #
+        # Round-5 Important (Agent A): filter FIRST, then observe_on. The
+        # previous order (``observe_on`` then a predicate inside the
+        # subscribe closure) hopped EVERY hub message to the foreground
+        # scheduler before discarding most. Parity with C# WorkspaceVM
+        # (`.Where(...).ObserveOn(...)`) and TS workspaceVM
+        # (`pipe(filter(...), observeOn(...))`).
+        def _is_current_change(m: Message) -> bool:
+            return (
                 isinstance(m, PropertyChangedMessage)
                 and m.sender is notes_view
                 and m.property_name == "current"
-            ):
-                current = notes_view.current
-                if current is not None:
-                    note_form.bind_to(current.model)
-                else:
-                    note_form.unbind()
+            )
+
+        def _on_notes_view_msg(_m: Message) -> None:
+            current = notes_view.current
+            if current is not None:
+                note_form.bind_to(current.model)
+            else:
+                note_form.unbind()
 
         self._current_note_subscription: DisposableBase = (
             notes_view.hub.messages.pipe(
+                ops.filter(_is_current_change),
                 ops.observe_on(dispatcher.foreground),
             ).subscribe(on_next=_on_notes_view_msg)
         )

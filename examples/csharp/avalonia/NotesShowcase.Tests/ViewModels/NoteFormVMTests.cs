@@ -253,6 +253,25 @@ public sealed class NoteFormVMTests
     }
 
     [Fact]
+    public void Unbind_clears_TagDraft_buffer()
+    {
+        // R5 Minor: the user-typed tag input buffer survives across
+        // binding transitions today, so a delete-then-rebind sequence
+        // leaves stale chip-input text. Unbind must reset TagDraft along
+        // with the form / bound model. Cross-flavor parity with Py
+        // ``self._tag_draft = ""`` and TS ``this.tagDraft = ""``.
+        var (form, _) = Build();
+        form.BindTo(SampleNote());
+        form.TagDraft = "secur";
+        Assert.Equal("secur", form.TagDraft);
+
+        form.Unbind();
+
+        Assert.Equal(string.Empty, form.TagDraft);
+        Assert.False(form.HasBoundNote);
+    }
+
+    [Fact]
     public async Task ApproveAsync_publishes_Saved_notification()
     {
         var hub = new MessageHub();

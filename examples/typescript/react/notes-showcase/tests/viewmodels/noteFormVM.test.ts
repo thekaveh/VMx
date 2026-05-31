@@ -191,6 +191,23 @@ describe("NoteFormVM", () => {
   // to "tagsText" (e.g. a chip-strip label) receive notifications after
   // every draft mutation (add / remove tag). C# already emits for
   // TagsText; Py re-emits via the DerivedProperty's _self_subject.
+  it("unbind clears the tagDraft buffer (R5 Minor parity)", () => {
+    // The user-typed tag input buffer survived across binding transitions
+    // before R5: delete-then-rebind left the orphan text in the chip input.
+    // unbind now resets tagDraft alongside the form / bound model.
+    // Cross-flavor parity with C# `TagDraft = string.Empty` and Python
+    // `self._tag_draft = ""`.
+    const { vm } = makeForm();
+    vm.bindTo(aNote());
+    vm.tagDraft = "secur";
+    expect(vm.tagDraft).toBe("secur");
+
+    vm.unbind();
+
+    expect(vm.tagDraft).toBe("");
+    expect(vm.hasBoundNote).toBe(false);
+  });
+
   it("addTag / removeTag emit PropertyChanged for tagsText", async () => {
     const { vm, hub } = makeForm();
     const { PropertyChangedMessage } = await import("vmx");

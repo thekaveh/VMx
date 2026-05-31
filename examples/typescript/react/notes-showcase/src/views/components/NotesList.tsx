@@ -9,7 +9,13 @@
  * directly from `ws.notesView.searchTerm` (re-rendered via `useVm`) and the
  * `onChange` handler writes back to the same setter — two-way binding without
  * a `useState`. Pagination buttons use `useCommand`. Selecting a note writes
- * to `ws.notesView.current` and rebinds the form.
+ * to `ws.notesView.current`; the WorkspaceVM-level subscription (see
+ * `workspaceVM.ts` R3-Crit2 wiring) observes the resulting
+ * `PropertyChangedMessage` and rebinds the form on the foreground
+ * scheduler. The React handler is therefore VM-only (no direct
+ * `noteForm.bindTo` call) — R5 Minor (Agent D, M-D1) removed the prior
+ * direct bind here to stop the double-bind that churned subscriptions and
+ * doubled every PropertyChanged emission for downstream consumers.
  */
 import type React from "react";
 
@@ -38,8 +44,14 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
     ws.notesView.showStarredOnly = e.target.checked;
   };
   const onSelect = (note: NoteVM): void => {
+    // R5 Minor (Agent D, M-D1): do NOT call ``ws.noteForm.bindTo`` here.
+    // The WorkspaceVM-level subscription on ``notesView.current`` (added
+    // in R3-Crit2 and wired through observeOn(foreground) in R4-Imp2)
+    // already rebinds the form. Calling bindTo here in addition was a
+    // double-bind: it disposed and recreated the inner FormVM /
+    // subscriptions, then the VM subscription immediately did it again,
+    // doubling every PropertyChanged emission for downstream consumers.
     ws.notesView.current = note;
-    ws.noteForm.bindTo(note.model);
     ws.setFocus(note);
   };
 
