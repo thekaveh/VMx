@@ -31,8 +31,6 @@ def test_main_exits_zero_on_real_repo(monkeypatch, capsys) -> None:
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[2]
-    monkeypatch.setattr(
-        "sys.argv", ["check-showcase-parity.py", "--root", str(repo_root)]
-    )
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(repo_root)])
     assert csp.main() == 0
     assert "[OK]" in capsys.readouterr().out

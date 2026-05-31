@@ -206,9 +206,7 @@ def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(
     catalog.write_text("### LIFE-001 — sample\n", encoding="utf-8")
 
     (tmp_path / "langs" / "python" / "tests" / "conformance").mkdir(parents=True)
-    (tmp_path / "langs" / "csharp" / "tests" / "VMx.Conformance.Tests").mkdir(
-        parents=True
-    )
+    (tmp_path / "langs" / "csharp" / "tests" / "VMx.Conformance.Tests").mkdir(parents=True)
 
     rc = ccc.main(["--repo-root", str(tmp_path)])
 
@@ -218,9 +216,7 @@ def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(
 def test_main_returns_nonzero_when_required_lang_has_gaps(tmp_path: Path) -> None:
     catalog = tmp_path / "spec" / "12-conformance.md"
     catalog.parent.mkdir(parents=True)
-    catalog.write_text(
-        "### LIFE-001 — sample\n### LIFE-002 — sample\n", encoding="utf-8"
-    )
+    catalog.write_text("### LIFE-001 — sample\n### LIFE-002 — sample\n", encoding="utf-8")
 
     py_dir = tmp_path / "langs" / "python" / "tests" / "conformance"
     py_dir.mkdir(parents=True)
@@ -277,9 +273,7 @@ def test_main_returns_2_when_catalog_missing(tmp_path: Path) -> None:
 def test_render_report_flags_orphan_ids() -> None:
     """Orphan IDs are detected entirely inside render_report — no compute_gaps involvement."""
     catalog = {"LIFE-001"}
-    coverage = {
-        "python": {"LIFE-001", "LIFE-999"}
-    }  # LIFE-999 is in tests but not catalog
+    coverage = {"python": {"LIFE-001", "LIFE-999"}}  # LIFE-999 is in tests but not catalog
     report = ccc.render_report(catalog, coverage, gaps={})
     assert "ORPHAN (1): LIFE-999" in report
     assert "1/1 covered" in report
