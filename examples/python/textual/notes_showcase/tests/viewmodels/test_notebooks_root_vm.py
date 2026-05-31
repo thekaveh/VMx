@@ -82,9 +82,11 @@ async def test_add_notebook_emits_tree_structure_changed_message() -> None:
     await vm.populate()
     events: list[TreeStructureChangedMessage] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: events.append(cast(TreeStructureChangedMessage, m))
-        if isinstance(m, TreeStructureChangedMessage)
-        else None
+        on_next=lambda m: (
+            events.append(cast(TreeStructureChangedMessage, m))
+            if isinstance(m, TreeStructureChangedMessage)
+            else None
+        )
     )
 
     new_vm = await vm.add_notebook(parent_id=None, name="Side project")
@@ -101,11 +103,11 @@ async def test_current_setter_is_two_way_and_emits_property_changed() -> None:
     await vm.populate()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(
-            cast(PropertyChangedMessage[object], m).property_name
+        on_next=lambda m: (
+            observed.append(cast(PropertyChangedMessage[object], m).property_name)
+            if isinstance(m, PropertyChangedMessage)
+            else None
         )
-        if isinstance(m, PropertyChangedMessage)
-        else None
     )
 
     first = vm.roots[0]

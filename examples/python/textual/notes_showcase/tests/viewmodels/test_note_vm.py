@@ -67,11 +67,11 @@ def test_setting_model_emits_title_and_starred_messages_when_changed() -> None:
     vm.construct()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(
-            cast(PropertyChangedMessage[object], m).property_name
+        on_next=lambda m: (
+            observed.append(cast(PropertyChangedMessage[object], m).property_name)
+            if isinstance(m, PropertyChangedMessage)
+            else None
         )
-        if isinstance(m, PropertyChangedMessage)
-        else None
     )
 
     vm.model = _model(title="Updated", starred=True)
