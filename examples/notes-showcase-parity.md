@@ -6,6 +6,23 @@ implementations sharing one language-neutral VM API. This document is the
 single-page proof that every spec feature in scope is exercised by every
 flavor.
 
+## VM hierarchy
+
+The diagram below is the canonical visual of the example's VM tree —
+derived from the scenario contract, so it applies identically to all three
+flavor implementations (names appear in their language-neutral form per
+ADR-0006). The same diagram is linked from each flavor's NotesShowcase
+README.
+
+![Notes-Showcase VM hierarchy](assets/notes-showcase-vm-hierarchy.svg)
+
+The diagram source is at
+[`assets/notes-showcase-vm-hierarchy.svg`](assets/notes-showcase-vm-hierarchy.svg);
+a browsable HTML version with summary cards is at
+[`assets/notes-showcase-vm-hierarchy.html`](assets/notes-showcase-vm-hierarchy.html).
+
+## Flavors
+
 - **C# / Avalonia 11 on .NET 8** — `examples/csharp/avalonia/NotesShowcase/`
 - **Python / Textual ≥ 0.80** — `examples/python/textual/notes_showcase/`
 - **TypeScript / React 18 + Vite** — `examples/typescript/react/notes-showcase/`

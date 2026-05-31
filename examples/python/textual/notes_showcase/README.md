@@ -3,8 +3,11 @@
 VMx flagship example — Notes Workspace, the Python / Textual flavor. A
 TUI built on Textual ≥ 0.80 that drives a single `WorkspaceVM` exercising
 15 distinct VMx features (see the
-[parity matrix](../../../notes-showcase-parity.md) for the full table). The
-canonical scenario contract lives at
+[parity matrix](../../../notes-showcase-parity.md) for the full table, and
+the
+[VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
+for the canonical visual of how the VMs compose). The canonical scenario
+contract lives at
 [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../../../spec/proposals/2026-05-29-notes-showcase-scenario.md);
 this README documents how the Textual implementation maps onto it.
 

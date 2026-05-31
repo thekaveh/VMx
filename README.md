@@ -14,8 +14,9 @@ tests passing on every commit.
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
-   - 2.1 [Diagram](#21-diagram)
-   - 2.2 [Layers](#22-layers)
+   - 2.1 [Architecture diagram](#21-architecture-diagram)
+   - 2.2 [Class diagram](#22-class-diagram)
+   - 2.3 [Layers](#23-layers)
 3. [Flavors](#3-flavors)
    - 3.1 [Versions and packages](#31-versions-and-packages)
    - 3.2 [Spec ↔ flavor compatibility](#32-spec--flavor-compatibility)
@@ -67,7 +68,7 @@ ADR-0006).
 
 ## 2. Architecture
 
-### 2.1 Diagram
+### 2.1 Architecture diagram
 
 ![VMx architecture diagram](assets/architecture.svg)
 
@@ -75,7 +76,25 @@ The diagram source is at [`assets/architecture.svg`](assets/architecture.svg);
 a browsable HTML version with summary cards is at
 [`assets/architecture.html`](assets/architecture.html).
 
-### 2.2 Layers
+### 2.2 Class diagram
+
+A cluster-level class map of the entire library — what every class family is, and how the families relate.
+
+![VMx class diagram](assets/class-diagram.svg)
+
+The diagram source is at [`assets/class-diagram.svg`](assets/class-diagram.svg);
+a browsable HTML version with summary cards is at
+[`assets/class-diagram.html`](assets/class-diagram.html). Five bands:
+
+1. **Lifecycle base** — `ComponentVMBase` + `ConstructionStatus`; every VM derives from here.
+2. **VM family** — five idioms: leaf, composite (homogeneous + selectable), group (homogeneous peers), aggregate (heterogeneous, fixed arity 1..6), and specialized (`FormVM`, `NotificationVM`, `ConfirmationVM`, forwarding decorators).
+3. **Commands & capabilities** — `RelayCommand` family + `DecoratorCommand` chain + `ModeledCrudCommands`, alongside the 22 capability micro-interfaces (Selection / Expansion / Lifecycle / Query / Dialog / CRUD).
+4. **Services · Messages · State · Collections** — the constructor-injected runtime (`MessageHub`, `Dispatcher`, `ILocalizer`, `IDialogService` — each with its `Null*` sibling per ADR-0017), hub envelope types, v2.0+v2.1 state helpers (`SearchableState`, `ExpandableState`, `DerivedProperty`), v2.1 observable collections, fluent immutable builders, and tree utilities.
+5. **Notifications sub-package (opt-in)** — `INotificationHub`, `ConfirmHelper`, bridged to `ConfirmationDecoratorCommand` in band 3 and to `NotificationVM` / `ConfirmationVM` in band 2.
+
+Boxes are cluster-level (one box per related set of classes); the exhaustive member list lives in the linked spec chapters + ADRs.
+
+### 2.3 Layers
 
 Each flavor implements the same conceptual stack:
 
