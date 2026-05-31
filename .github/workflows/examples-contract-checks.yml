@@ -13,7 +13,7 @@ name: examples-contract-checks
 
 on:
   push:
-    branches: [main, examples-notes-showcase]
+    branches: [main]
     paths:
       - "examples/**"
       - "tools/check-axaml-codebehind.py"

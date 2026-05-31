@@ -96,7 +96,9 @@ public sealed class NotebooksRootVM
     /// </summary>
     public async Task AddNotebookAsync(string? parentId, string name, CancellationToken ct = default)
     {
-        var id = $"nb-{Guid.NewGuid():N}".Substring(0, 8);
+        // "nb-" + 5 random hex chars (8 chars total). Same suffix length as
+        // notes ("note-" + 5 chars = 10 total) — only the prefix differs.
+        var id = $"nb-{Guid.NewGuid():N}"[..8];
         var model = new NotebookModel(id, name, parentId);
         await _repo.AddNotebookAsync(model, ct).ConfigureAwait(false);
         var vm = NotebookVM.Builder()

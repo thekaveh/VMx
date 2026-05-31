@@ -297,8 +297,14 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     }
 
     private static readonly NoteModel Empty = new(
-        "", "", "", Array.Empty<string>(), "", false,
-        DateTimeOffset.MinValue, DateTimeOffset.MinValue);
+        Id: "",
+        NotebookId: "",
+        Title: "",
+        Tags: Array.Empty<string>(),
+        Body: "",
+        Starred: false,
+        CreatedAt: DateTimeOffset.MinValue,
+        UpdatedAt: DateTimeOffset.MinValue);
 
     /// <inheritdoc/>
     public override void Dispose()

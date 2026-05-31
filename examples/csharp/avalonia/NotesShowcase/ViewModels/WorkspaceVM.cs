@@ -199,7 +199,9 @@ public sealed class WorkspaceVM : IDisposable
         var nb = NotebooksRoot.Current;
         if (nb is null) return;
         var note = new NoteModel(
-            Id: $"note-{Guid.NewGuid():N}".Substring(0, 10),
+            // "note-" + 5 random hex chars (10 chars total). See NotebooksRootVM
+            // for the same suffix-length convention.
+            Id: $"note-{Guid.NewGuid():N}"[..10],
             NotebookId: nb.Model.Id,
             Title: "Untitled",
             Tags: Array.Empty<string>(),
