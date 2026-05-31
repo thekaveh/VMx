@@ -45,6 +45,25 @@ def test_check_flavor_flags_viewmodel_importing_view(tmp_path: Path) -> None:
     assert any("forbidden import of views from viewmodels" in v for v in violations)
 
 
+def test_main_exits_zero_on_empty_repo(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.argv", ["check-layer-imports.py", "--root", str(tmp_path)])
+    assert cli.main() == 0
+    assert "[OK]" in capsys.readouterr().out
+
+
+def test_main_exits_one_on_violation(tmp_path: Path, monkeypatch, capsys) -> None:
+    cfg = cli.FLAVORS["python"]
+    base = tmp_path / cfg["root"]
+    _write(base / "models" / "note.py", "class N: pass\n")
+    _write(
+        base / "viewmodels" / "vm.py",
+        "from notes_showcase.views.app import App\n",
+    )
+    monkeypatch.setattr("sys.argv", ["check-layer-imports.py", "--root", str(tmp_path)])
+    assert cli.main() == 1
+    assert "[FAIL]" in capsys.readouterr().err
+
+
 def test_check_flavor_accepts_adapter_exception_for_csharp(tmp_path: Path) -> None:
     cfg = cli.FLAVORS["csharp"]
     base = tmp_path / cfg["root"]

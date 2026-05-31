@@ -24,3 +24,15 @@ def test_expected_slug_list_matches_documented_set() -> None:
     assert "workspace_vm" in csp.EXPECTED
     assert "in_memory_repository" in csp.EXPECTED
     assert len(csp.EXPECTED) == 10  # 9 VMs + 1 repository
+
+
+def test_main_exits_zero_on_real_repo(monkeypatch, capsys) -> None:
+    """main() against the actual repo should pass (sanity smoke)."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.setattr(
+        "sys.argv", ["check-showcase-parity.py", "--root", str(repo_root)]
+    )
+    assert csp.main() == 0
+    assert "[OK]" in capsys.readouterr().out

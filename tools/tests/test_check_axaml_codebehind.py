@@ -43,6 +43,44 @@ def test_check_accepts_avalonia_xaml_loader(tmp_path: Path) -> None:
     assert cab.check(f) == []
 
 
+def test_main_exits_zero_on_empty_repo(tmp_path: Path, monkeypatch, capsys) -> None:
+    """main() returns 0 when there are no axaml.cs files to scan."""
+    monkeypatch.setattr(
+        "sys.argv", ["check-axaml-codebehind.py", "--root", str(tmp_path)]
+    )
+    assert cab.main() == 0
+    assert "[OK]" in capsys.readouterr().out
+
+
+def test_main_exits_one_on_violation(tmp_path: Path, monkeypatch, capsys) -> None:
+    """main() returns 1 when a code-behind has disallowed content."""
+    bad = (
+        tmp_path
+        / "examples"
+        / "csharp"
+        / "avalonia"
+        / "Demo"
+        / "Views"
+        / "Bad.axaml.cs"
+    )
+    _write(
+        bad,
+        """\
+        public partial class Bad {
+            public Bad() {
+                InitializeComponent();
+                int x = 42;
+            }
+        }
+        """,
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["check-axaml-codebehind.py", "--root", str(tmp_path)]
+    )
+    assert cab.main() == 1
+    assert "[FAIL]" in capsys.readouterr().err
+
+
 def test_check_flags_disallowed_statement(tmp_path: Path) -> None:
     f = tmp_path / "BadView.axaml.cs"
     _write(

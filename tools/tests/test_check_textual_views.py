@@ -28,6 +28,37 @@ def test_check_accepts_allowed_methods(tmp_path: Path) -> None:
     assert ctv.check_module(f) == []
 
 
+def test_main_exits_zero_on_empty_repo(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.argv", ["check-textual-views.py", "--root", str(tmp_path)])
+    assert ctv.main() == 0
+    assert "[OK]" in capsys.readouterr().out
+
+
+def test_main_exits_one_on_violation(tmp_path: Path, monkeypatch, capsys) -> None:
+    bad = (
+        tmp_path
+        / "examples"
+        / "python"
+        / "textual"
+        / "demo"
+        / "src"
+        / "demo"
+        / "views"
+        / "bad.py"
+    )
+    _write(
+        bad,
+        """\
+        from textual.widget import Widget
+        class Bad(Widget):
+            def _compute(self): return 42
+        """,
+    )
+    monkeypatch.setattr("sys.argv", ["check-textual-views.py", "--root", str(tmp_path)])
+    assert ctv.main() == 1
+    assert "[FAIL]" in capsys.readouterr().err
+
+
 def test_check_flags_disallowed_method(tmp_path: Path) -> None:
     f = tmp_path / "view.py"
     _write(
