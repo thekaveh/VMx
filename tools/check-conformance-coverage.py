@@ -90,7 +90,10 @@ def scrape_typescript_conformance_ids(directory: Path) -> set[str]:
 
 # ─── coverage math ────────────────────────────────────────────────────
 
-def compute_gaps(catalog: set[str], coverage: dict[str, set[str]]) -> dict[str, set[str]]:
+
+def compute_gaps(
+    catalog: set[str], coverage: dict[str, set[str]]
+) -> dict[str, set[str]]:
     """Return {language: missing_ids} for every language with a non-empty gap."""
     return {
         lang: missing
@@ -105,9 +108,15 @@ def compute_gaps(catalog: set[str], coverage: dict[str, set[str]]) -> dict[str, 
 # add a thin scraper wrapper, and register `(rel_dir, scraper)` here under the
 # language key. The CLI's `--require` automatically picks up the new key via `choices`.
 _SCRAPERS: dict[str, tuple[str, Callable[[Path], set[str]]]] = {
-    "python":     ("langs/python/tests/conformance",           scrape_python_conformance_ids),
-    "csharp":     ("langs/csharp/tests/VMx.Conformance.Tests", scrape_csharp_conformance_ids),
-    "typescript": ("langs/typescript/tests/conformance",       scrape_typescript_conformance_ids),
+    "python": ("langs/python/tests/conformance", scrape_python_conformance_ids),
+    "csharp": (
+        "langs/csharp/tests/VMx.Conformance.Tests",
+        scrape_csharp_conformance_ids,
+    ),
+    "typescript": (
+        "langs/typescript/tests/conformance",
+        scrape_typescript_conformance_ids,
+    ),
 }
 
 
@@ -128,6 +137,7 @@ def collect_coverage(repo_root: Path) -> dict[str, set[str]]:
 
 # ─── reporting ────────────────────────────────────────────────────────
 
+
 def render_report(
     catalog: set[str], coverage: dict[str, set[str]], gaps: dict[str, set[str]]
 ) -> str:
@@ -146,13 +156,15 @@ def render_report(
             lines.append(f"    MISSING ({len(missing)}): " + ", ".join(sorted(missing)))
         if orphans:
             lines.append(
-                f"    ORPHAN ({len(orphans)}): " + ", ".join(sorted(orphans))
+                f"    ORPHAN ({len(orphans)}): "
+                + ", ".join(sorted(orphans))
                 + " (tests reference IDs not in the catalog)"
             )
     return "\n".join(lines)
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────
+
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -199,10 +211,15 @@ def main(argv: Iterable[str] | None = None) -> int:
     gaps = compute_gaps(catalog, coverage)
     print(render_report(catalog, coverage, gaps))
 
-    required_gaps = {lang: missing for lang, missing in gaps.items() if lang in args.require}
+    required_gaps = {
+        lang: missing for lang, missing in gaps.items() if lang in args.require
+    }
     if required_gaps:
         print(file=sys.stderr)
-        print(f"FAIL: required languages have conformance gaps: {sorted(required_gaps)}", file=sys.stderr)
+        print(
+            f"FAIL: required languages have conformance gaps: {sorted(required_gaps)}",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

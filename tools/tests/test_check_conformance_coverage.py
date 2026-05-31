@@ -69,7 +69,7 @@ def test_scrape_python_tests_finds_marks(tmp_path: Path) -> None:
     test_file = tmp_path / "test_lifecycle.py"
     test_file.write_text(
         textwrap.dedent(
-            '''\
+            """\
             import pytest
 
             @pytest.mark.conformance("LIFE-001")
@@ -96,7 +96,7 @@ def test_scrape_python_tests_finds_marks(tmp_path: Path) -> None:
 
             def test_unrelated_helper():
                 pass
-            '''
+            """
         ),
         encoding="utf-8",
     )
@@ -110,7 +110,7 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
     test_file = tmp_path / "LifecycleTests.cs"
     test_file.write_text(
         textwrap.dedent(
-            '''\
+            """\
             using Xunit;
 
             public class LifecycleTests
@@ -135,7 +135,7 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
                 // This must NOT match — Trait outside brackets is not an attribute
                 public Trait fake = new Trait("Conformance", "LIFE-999");
             }
-            '''
+            """
         ),
         encoding="utf-8",
     )
@@ -152,7 +152,7 @@ def test_scrape_typescript_tests_finds_describe_ids(tmp_path: Path) -> None:
     test_file = tmp_path / "lifecycle.test.ts"
     test_file.write_text(
         textwrap.dedent(
-            '''\
+            """\
             import { describe, it, expect } from "vitest";
 
             describe("LIFE-001", () => {
@@ -165,7 +165,7 @@ def test_scrape_typescript_tests_finds_describe_ids(tmp_path: Path) -> None:
 
             // Not a conformance ID — should be ignored
             describe("some helper", () => {});
-            '''
+            """
         ),
         encoding="utf-8",
     )
@@ -196,7 +196,9 @@ def test_report_gaps_lists_missing_ids_per_language() -> None:
     assert gaps == {"python": {"LIFE-002", "CMD-001"}}
 
 
-def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(tmp_path: Path) -> None:
+def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(
+    tmp_path: Path,
+) -> None:
     """Empty conformance directories report 0/N covered but do not fail.
     The strict check is opt-in via the --require flag (covered separately)."""
     catalog = tmp_path / "spec" / "12-conformance.md"
@@ -204,7 +206,9 @@ def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(tmp_path: P
     catalog.write_text("### LIFE-001 — sample\n", encoding="utf-8")
 
     (tmp_path / "langs" / "python" / "tests" / "conformance").mkdir(parents=True)
-    (tmp_path / "langs" / "csharp" / "tests" / "VMx.Conformance.Tests").mkdir(parents=True)
+    (tmp_path / "langs" / "csharp" / "tests" / "VMx.Conformance.Tests").mkdir(
+        parents=True
+    )
 
     rc = ccc.main(["--repo-root", str(tmp_path)])
 
@@ -214,7 +218,9 @@ def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(tmp_path: P
 def test_main_returns_nonzero_when_required_lang_has_gaps(tmp_path: Path) -> None:
     catalog = tmp_path / "spec" / "12-conformance.md"
     catalog.parent.mkdir(parents=True)
-    catalog.write_text("### LIFE-001 — sample\n### LIFE-002 — sample\n", encoding="utf-8")
+    catalog.write_text(
+        "### LIFE-001 — sample\n### LIFE-002 — sample\n", encoding="utf-8"
+    )
 
     py_dir = tmp_path / "langs" / "python" / "tests" / "conformance"
     py_dir.mkdir(parents=True)
@@ -256,9 +262,7 @@ def test_render_report_shows_missing_ids() -> None:
 
 
 def test_render_report_full_coverage_has_no_missing_line() -> None:
-    report = ccc.render_report(
-        {"LIFE-001"}, {"python": {"LIFE-001"}}, {}
-    )
+    report = ccc.render_report({"LIFE-001"}, {"python": {"LIFE-001"}}, {})
     assert "MISSING" not in report
     assert "1/1 covered" in report
 
@@ -273,7 +277,9 @@ def test_main_returns_2_when_catalog_missing(tmp_path: Path) -> None:
 def test_render_report_flags_orphan_ids() -> None:
     """Orphan IDs are detected entirely inside render_report — no compute_gaps involvement."""
     catalog = {"LIFE-001"}
-    coverage = {"python": {"LIFE-001", "LIFE-999"}}  # LIFE-999 is in tests but not catalog
+    coverage = {
+        "python": {"LIFE-001", "LIFE-999"}
+    }  # LIFE-999 is in tests but not catalog
     report = ccc.render_report(catalog, coverage, gaps={})
     assert "ORPHAN (1): LIFE-999" in report
     assert "1/1 covered" in report

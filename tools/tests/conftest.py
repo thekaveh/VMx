@@ -15,7 +15,9 @@ if str(TOOLS_DIR) not in sys.path:
 # the script-as-module in tests.
 _SCRIPT = TOOLS_DIR / "check-conformance-coverage.py"
 if _SCRIPT.exists() and "check_conformance_coverage" not in sys.modules:
-    _spec = importlib.util.spec_from_file_location("check_conformance_coverage", _SCRIPT)
+    _spec = importlib.util.spec_from_file_location(
+        "check_conformance_coverage", _SCRIPT
+    )
     assert _spec is not None and _spec.loader is not None
     _mod = importlib.util.module_from_spec(_spec)
     sys.modules["check_conformance_coverage"] = _mod

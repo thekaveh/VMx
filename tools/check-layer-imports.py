@@ -27,6 +27,7 @@ Run from repo root:
 
     python3 tools/check-layer-imports.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,7 +81,9 @@ def _layer_of(path_parts: tuple[str, ...], layers: list[str]) -> str | None:
     return None
 
 
-def _ts_resolved_layer(importing: Path, specifier: str, base: Path, layers: list[str]) -> str | None:
+def _ts_resolved_layer(
+    importing: Path, specifier: str, base: Path, layers: list[str]
+) -> str | None:
     """Resolve a TS relative/absolute import to the layer it targets.
 
     Returns the layer name (``models`` / ``viewmodels`` / ``views``) or ``None``
@@ -126,7 +129,10 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
         if not src.is_file():
             continue
         # Skip build artefacts.
-        if any(part in {"bin", "obj", "node_modules", "dist", "__pycache__"} for part in src.parts):
+        if any(
+            part in {"bin", "obj", "node_modules", "dist", "__pycache__"}
+            for part in src.parts
+        ):
             continue
 
         rel = src.relative_to(base)
@@ -160,7 +166,9 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
                     # Adapter sub-layer exception:
                     try:
                         resolved = (src.parent / target).resolve().relative_to(base)
-                        if adapter_segment.replace("/", "/") in str(resolved.as_posix()):
+                        if adapter_segment.replace("/", "/") in str(
+                            resolved.as_posix()
+                        ):
                             continue
                     except (ValueError, OSError, RuntimeError):
                         pass
@@ -214,7 +222,10 @@ def main() -> int:
 
     if failures:
         print("\n".join(failures), file=sys.stderr)
-        print(f"\n[FAIL] {len(failures)} layer violation(s) across {checked} flavors", file=sys.stderr)
+        print(
+            f"\n[FAIL] {len(failures)} layer violation(s) across {checked} flavors",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"[OK] cross-layer imports clean across {checked} flavors")

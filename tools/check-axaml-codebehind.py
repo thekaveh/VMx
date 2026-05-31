@@ -24,6 +24,7 @@ used throughout the Phase 5.a + retrofit code-behind. The regex strips the
 ``=>`` body and the brace body equally and checks the inner statement against
 the allow-list.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -118,7 +119,10 @@ def main() -> int:
 
     if failures:
         print("\n".join(failures), file=sys.stderr)
-        print(f"\n[FAIL] {len(failures)} violation(s) across {len(targets)} files", file=sys.stderr)
+        print(
+            f"\n[FAIL] {len(failures)} violation(s) across {len(targets)} files",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"[OK] {len(targets)} axaml.cs files clean")

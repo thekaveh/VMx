@@ -28,6 +28,7 @@ The script also flags module-level helper functions only when they live
 inside a widget class body; module-level helpers (outside classes) are
 allowed and are used by the showcase widgets to keep their bodies thin.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -160,7 +161,10 @@ def main() -> int:
 
     if failures:
         print("\n".join(failures), file=sys.stderr)
-        print(f"\n[FAIL] {len(failures)} violation(s) across {len(targets)} files", file=sys.stderr)
+        print(
+            f"\n[FAIL] {len(failures)} violation(s) across {len(targets)} files",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"[OK] {len(targets)} Textual view modules clean")
