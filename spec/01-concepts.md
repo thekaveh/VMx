@@ -23,6 +23,28 @@ canonical decision documented in ADR-0018:
 
 `HierarchicalVM` is specified in chapter 18; `FormVM` in chapter 20.
 
+### 1.0 Cross-language naming
+
+The conceptual surface is identical across the three flavors; identifier
+casing follows the per-language idiom defined by ADR-0006. The same logical
+type appears under the following names:
+
+| Concept            | C#                        | Python             | TypeScript                |
+| ------------------ | ------------------------- | ------------------ | ------------------------- |
+| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             |
+| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        |
+| Status property    | `Status`                  | `status`           | `status`                  |
+| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` |
+
+C# uses PascalCase, Python uses snake_case, TypeScript uses camelCase. The
+single substantive divergence is that C# names the modeled variant with a
+generic-parameter suffix on the same identifier (`ComponentVM<M>`), while
+Python and TypeScript expose a separate `ComponentVMOf` type because their
+generics syntax cannot overload an unparameterised name. Throughout this
+spec, statements about `ComponentVM<M>` apply equally to `ComponentVMOf[M]`
+and `ComponentVMOf<M>` unless explicitly called out.
+
 **Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
 are render-side VMs with auto-dismiss lifecycle, suitable for toast/banner UI.
 

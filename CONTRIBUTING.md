@@ -69,6 +69,59 @@ ADR check. Use sparingly; the label is intended for changes with zero semantic e
 
 See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 
-## 4. Code of conduct
+## 4. Releases and tagging
+
+VMx uses **three coordinated tag families** at every release, all pointing to the
+same commit:
+
+| Tag family            | Format                  | What it pins                                       |
+| --------------------- | ----------------------- | -------------------------------------------------- |
+| Repo-wide             | `vX.Y.Z`                | The whole repository at this version.              |
+| Per-language          | `<lang>-vX.Y.Z`         | A specific language flavor at this version.        |
+| Spec                  | `spec-vX.Y.Z`           | The language-neutral specification at this version. |
+
+`<lang>` is one of: `csharp`, `python`, `typescript`.
+
+### 4.1 Why all three families
+
+- **Submodule consumers** (e.g., projects vendoring VMx as `vendor/vmx/`) expect a
+  plain `vX.Y.Z` tag to pin against. Without it `git checkout v2.1.0` fails.
+- **Per-language consumers** pinning to a specific flavor (e.g., a Python project
+  that wants `python-v2.1.0` without caring about the C# release cadence) get a
+  canonical tag for their flavor.
+- **Spec consumers** (e.g., third-party language implementations) can pin to a
+  `spec-vX.Y.Z` independent of any flavor's implementation pace.
+
+### 4.2 Cutting a release
+
+At every release, the maintainer creates **all** of:
+
+```bash
+# Example for v2.1.0
+git tag spec-v2.1.0       <sha>   # spec/VERSION matches X.Y.Z
+git tag csharp-v2.1.0     <sha>
+git tag python-v2.1.0     <sha>
+git tag typescript-v2.1.0 <sha>
+git tag v2.1.0            <sha>   # repo-wide
+
+git push origin spec-v2.1.0 csharp-v2.1.0 python-v2.1.0 typescript-v2.1.0 v2.1.0
+```
+
+All five tags must point to the same SHA — the commit where every flavor's
+manifest declares X.Y.Z and `spec/VERSION` reads X.Y.Z.
+
+A companion package (e.g., `VMx.Notifications`) versions independently per
+ADR-0009 / ADR-0013 and does not get its own family tag — its version lives in
+its package manifest and in [`compatibility-matrix.md`](compatibility-matrix.md).
+
+### 4.3 Source-version invariant
+
+The source on `main` MUST always declare the version that the next release will
+ship. Do not let source claim `X.Y.Z` if no `vX.Y.Z` tag exists at the
+corresponding SHA — that confuses downstream consumers who try to `git checkout
+vX.Y.Z`. Either tag immediately or revert the source manifests to the previous
+released version.
+
+## 5. Code of conduct
 
 This project follows the Contributor Covenant v2.1 — see [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).

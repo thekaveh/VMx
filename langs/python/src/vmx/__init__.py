@@ -129,9 +129,11 @@ from vmx.services import (
     NULL_DISPATCHER,
     NULL_MESSAGE_HUB,
     MessageHub,
+    MessageHubProto,
     NullDispatcher,
     NullMessageHub,
     RxDispatcher,
+    null_message_hub_of,
 )
 from vmx.tree import find, walk, walk_expanded
 
@@ -211,6 +213,7 @@ __all__ = [
     "IUpdatable",
     "Message",
     "MessageHub",
+    "MessageHubProto",
     "ModeledCrudCommands",
     "NotificationSeverity",
     "NullDialogService",
@@ -245,6 +248,7 @@ __all__ = [
     "confirm_with_dialog_service",
     "find",
     "from_sources",
+    "null_message_hub_of",
     "precede_with",
     "property_value_changed_messages_for",
     "succeed_with",
