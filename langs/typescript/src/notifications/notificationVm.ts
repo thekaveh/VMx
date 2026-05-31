@@ -11,7 +11,7 @@ import {
   take,
   type SchedulerLike,
 } from "rxjs";
-import { RelayCommand, RelayCommandBuilder } from "../commands/relayCommand.js";
+import { RelayCommand } from "../commands/relayCommand.js";
 import type { Notification } from "./notification.js";
 import { NotificationReaction } from "./notification.js";
 import type { INotificationHub } from "./notificationHub.js";
@@ -59,7 +59,7 @@ export class NotificationVM {
     this.#lifespanMs = lifespanMs ?? DEFAULT_LIFESPAN_MS;
     this.#startTime = scheduler.now();
 
-    this.dismissCommand = new RelayCommandBuilder(null, null, [])
+    this.dismissCommand = RelayCommand.builder()
       .task(() => this.#dismiss())
       .build();
 

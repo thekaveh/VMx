@@ -51,8 +51,10 @@ Behavior changes start in `spec/`. The rules are:
 - A spec change requires a matching ADR in `spec/ADRs/`. This is enforced by the
   `spec-discipline` CI check.
 - Files exempt from the ADR requirement: `spec/README.md`, `spec/VERSION`,
-  `spec/ADRs/**`, `spec/fixtures/**`, and `spec/12-conformance.md` (adding catalog
-  IDs is governed by the conformance-stub rule below, not by ADRs).
+  `spec/ADRs/**`, `spec/fixtures/**`, `spec/12-conformance.md` (adding catalog
+  IDs is governed by the conformance-stub rule below, not by ADRs), and
+  `spec/proposals/**` (historical planning artifacts; landed proposals are
+  already covered by the ADR they introduced).
 - A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
   in **every** active language flavor in the same PR. The CI check looks for
   `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`

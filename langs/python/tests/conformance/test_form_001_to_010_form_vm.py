@@ -259,13 +259,16 @@ def test_form_009_strict_mode_approve_can_execute_gates_on_is_dirty() -> None:
 
 
 # ---------------------------------------------------------------------------
-# FORM-010 — Integration with IDialogService.Confirm
+# FORM-010 — Integration with DialogService.confirm
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("FORM-010")
 async def test_form_010_dialog_service_confirm_integration() -> None:
-    """Integration with IDialogService.Confirm — confirm guard prevents revert on False return."""
+    """Integration with ``DialogService.confirm``.
+
+    Confirm guard prevents revert on False return.
+    """
     initial = _Model("Alice", 1)
     sut = _make_form_vm(initial)
 

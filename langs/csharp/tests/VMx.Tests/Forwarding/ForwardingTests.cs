@@ -220,6 +220,20 @@ public class ForwardingTests
     }
 
     [Fact]
+    public void ForwardingCompositeVM_Delegates_Indexer_Setter()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var c1 = ComponentVM<string>.Builder().Name("c1").Services(hub, dispatcher).Model("m1").Build();
+        var c2 = ComponentVM<string>.Builder().Name("c2").Services(hub, dispatcher).Model("m2").Build();
+        composite.Add(c1);
+        var fwd = new NoOpForwardingCompositeVM<ComponentVM<string>>(composite);
+
+        fwd[0] = c2;
+
+        composite[0].Should().BeSameAs(c2);
+    }
+
+    [Fact]
     public void ForwardingCompositeVM_Iteration_Matches_Wrapped()
     {
         var (composite, hub, dispatcher) = BuildComposite();

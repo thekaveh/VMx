@@ -232,12 +232,12 @@ def test_hier_007_default_lazy_child_loading() -> None:
 
 
 # ---------------------------------------------------------------------------
-# HIER-008 — Eager child loading via builder option
+# HIER-008 — Eager child loading via constructor option
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("HIER-008")
-def test_hier_008_eager_child_loading_via_builder() -> None:
+def test_hier_008_eager_child_loading_via_constructor_option() -> None:
     """HIER-008: passing eager_children=True materializes the full subtree at
     construct() time.
     """

@@ -27,9 +27,14 @@ A VM exposes four lifecycle operations (rendered per language as
 - `dispose()` — moves to `Disposed` from any state. Terminal.
 
 Each operation MAY be invoked synchronously or asynchronously. When invoked
-asynchronously, the operation completes when the final state is reached. Subscribers
-to the message hub observe two `ConstructionStatusChangedMessage` emissions per
-non-trivial transition: one for the intermediate state and one for the final state.
+asynchronously, the operation completes when the final state is reached.
+The async invocation form is C#-only (`ConstructAsync` / `DestructAsync` /
+`ReconstructAsync` on `IComponentVM`) per ADR-0008; Python and TypeScript
+expose only the synchronous form (catalogued as a row in the ADR-0009
+divergence table).
+Subscribers to the message hub observe two `ConstructionStatusChangedMessage`
+emissions per non-trivial transition: one for the intermediate state and one
+for the final state.
 
 ### 2.1 `can_construct` / `can_destruct` / `can_reconstruct` predicates
 

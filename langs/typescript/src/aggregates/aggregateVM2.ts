@@ -60,9 +60,11 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
     this.#component2?.destruct();
   }
 
-  protected override _onDispose(): void {
+  override dispose(): void {
+    // Depth-first dispose (LIFE-013): each component slot first, then self.
     this.#component1?.dispose();
     this.#component2?.dispose();
+    super.dispose();
   }
 
   static builder<VM1 extends ComponentVMBase, VM2 extends ComponentVMBase>(): AggregateVM2Builder<VM1, VM2> {

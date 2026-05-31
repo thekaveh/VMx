@@ -1,22 +1,28 @@
+using System.ComponentModel;
 using System.Windows.Input;
 using VMx.Components;
+using VMx.Messages;
 using VMx.Services;
 
 namespace WpfTodoApp;
 
 /// <summary>
 /// ViewModel for a single to-do item. Wraps a <see cref="TodoItem"/> POCO inside a
-/// <see cref="ComponentVM{M}"/> so that WPF's INotifyPropertyChanged binding wires up
-/// automatically — no additional glue code needed.
+/// <see cref="ComponentVM{M}"/> and forwards the inner VM's hub-published
+/// <see cref="PropertyChangedMessage{TSender}"/> events to standard
+/// <see cref="INotifyPropertyChanged"/> notifications so WPF data binding can
+/// observe <see cref="Title"/> / <see cref="Done"/> updates on the outer wrapper
+/// (which is what the XAML binds to).
 ///
 /// Exposes:
 ///   • <see cref="Title"/> — bound to TextBlock in the ListBox item template.
 ///   • <see cref="Done"/>  — bound to CheckBox.IsChecked.
 ///   • <see cref="ToggleDoneCommand"/> — bound to CheckBox.Command.
 /// </summary>
-public sealed class TodoItemVM
+public sealed class TodoItemVM : INotifyPropertyChanged, IDisposable
 {
     private readonly ComponentVM<TodoItem> _vm;
+    private readonly IDisposable _hubSubscription;
 
     public TodoItemVM(TodoItem item, IMessageHub hub, IDispatcher dispatcher)
     {
@@ -29,11 +35,30 @@ public sealed class TodoItemVM
         ToggleDoneCommand = new RelayCommand(
             execute:    () => _vm.Model = _vm.Model with { Done = !_vm.Model.Done },
             canExecute: () => _vm.IsConstructed);
+
+        // The inner VM publishes a PropertyChangedMessage("Model") on the hub
+        // when the Model record is replaced. Re-raise INPC for the projected
+        // properties so XAML bindings on TodoItemVM.Title / .Done refresh.
+        _hubSubscription = hub.Messages.Subscribe(msg =>
+        {
+            if (msg is PropertyChangedMessage<IComponentVM> pc
+                && ReferenceEquals(pc.Sender, _vm)
+                && pc.PropertyName == nameof(_vm.Model))
+            {
+                OnPropertyChanged(nameof(Title));
+                OnPropertyChanged(nameof(Done));
+            }
+        });
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string propertyName) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
     // ── Properties forwarded from the inner VM ────────────────────────────────
 
-    /// <summary>The inner ComponentVM — exposes INotifyPropertyChanged for WPF.</summary>
+    /// <summary>The inner ComponentVM — exposed for direct VMx-style binding.</summary>
     public ComponentVM<TodoItem> VM => _vm;
 
     /// <summary>Title of the to-do item; read-only binding target.</summary>
@@ -52,6 +77,13 @@ public sealed class TodoItemVM
 
     /// <summary>Destructs the inner ComponentVM.</summary>
     public void Destruct() => _vm.Destruct();
+
+    /// <summary>Disposes the inner ComponentVM and the hub subscription.</summary>
+    public void Dispose()
+    {
+        _hubSubscription.Dispose();
+        _vm.Dispose();
+    }
 
     // ── Tiny ICommand implementation (avoids extra dependencies) ─────────────
 

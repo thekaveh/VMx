@@ -19,10 +19,15 @@ repos:
     rev: v0.11.11
     hooks:
       - id: ruff
-        args: ["--fix"]
-        files: ^langs/python/.*\.py$
+        # tools/ sits outside langs/python/, so ruff's auto-discovery would
+        # never find langs/python/pyproject.toml when invoked on tools/ paths
+        # from the repo root. Pass --config explicitly to apply the same
+        # rule-set CI enforces (see .github/workflows/conformance.yml).
+        args: ["--fix", "--config", "langs/python/pyproject.toml"]
+        files: ^(langs/python|tools)/.*\.py$
       - id: ruff-format
-        files: ^langs/python/.*\.py$
+        args: ["--config", "langs/python/pyproject.toml"]
+        files: ^(langs/python|tools)/.*\.py$
 
   - repo: https://github.com/executablebooks/mdformat
     # mdformat 1.0.0 is incompatible with mdformat-gfm (requires mdformat <0.8.0).

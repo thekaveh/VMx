@@ -270,7 +270,7 @@ For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
 `OldItems` arrays (no entry data is needed because the entire collection is
 cleared). This divergence between flavors is catalogued in ADR-0009.
 
-### 4.9 Conformance
+### 4.8 Conformance
 
 `COL-010` through `COL-015` and `COL-022` in `12-conformance.md`.
 
@@ -282,7 +282,10 @@ Per ADR-0023 (helper portion).
 
 ```
 PagedComposition<TVM>:
-    constructor(source: IComposition<TVM>)
+    constructor(source)                     # iterable composition source — per-flavor
+                                            # idiom: IEnumerable<TVM> (C#),
+                                            # Iterable[TVM] or factory callable (Python),
+                                            # PagedCompositionSource<TVM> (TS)
     implements IPageable                     # per 14-capabilities.md §2.10
 
     PageSize         : int     # mutable; 0 = all items on one page
@@ -301,7 +304,7 @@ PagedComposition<TVM>:
 
 ### 5.2 Decorator semantics
 
-`PagedComposition<TVM>` **decorates** any `IComposition<TVM>` source. It does
+`PagedComposition<TVM>` **decorates** any iterable composition source. It does
 not hold the items itself; it computes a slice of the source on demand. The
 source is never mutated.
 

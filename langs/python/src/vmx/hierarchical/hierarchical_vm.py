@@ -5,7 +5,7 @@ See spec/18-hierarchical-vm.md and ADR-0028.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, Generic, TypeVar
 
 from vmx.components.base import _ComponentVMBase
@@ -135,8 +135,14 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     # ── Children ─────────────────────────────────────────────────────────────
 
     @property
-    def children(self) -> list[TVM]:
-        """The ordered list of child nodes (lazily materialized)."""
+    def children(self) -> Sequence[TVM]:
+        """The ordered, read-only sequence of child nodes (lazily materialized).
+
+        Spec (chapter 18 §2) mandates ``IReadOnlyList<TVM>``; Python returns
+        a ``Sequence`` view of the cached list. Callers must NOT mutate the
+        returned object — the cache invariant relies on identity-equality
+        per HIER-004.
+        """
         if self._children_list is None:
             self._children_list = self._materialize_children()
         return self._children_list
@@ -144,10 +150,12 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     # ── Path ─────────────────────────────────────────────────────────────────
 
     @property
-    def path(self) -> list[TVM]:
-        """Materialized, cached path from the root to this node (inclusive).
+    def path(self) -> Sequence[TVM]:
+        """Materialized, cached read-only path from the root to this node (inclusive).
 
-        The cache is invalidated when :attr:`parent` changes.
+        The cache is invalidated when :attr:`parent` changes. Callers must NOT
+        mutate the returned object — HIER-004 asserts cached-identity
+        (``grandchild.path is path``) and mutation would corrupt the cache.
         """
         if self._path_cache is None:
             self._path_cache = self._build_path()

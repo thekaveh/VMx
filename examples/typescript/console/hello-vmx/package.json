@@ -5,7 +5,7 @@
   "description": "Minimal Node script demonstrating the VMx TypeScript library.",
   "type": "module",
   "scripts": {
-    "start": "tsx index.ts"
+    "start": "npx tsx index.ts"
   },
   "dependencies": {
     "vmx": "file:../../../../langs/typescript"

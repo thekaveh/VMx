@@ -73,6 +73,46 @@ ADR-0006 and require no further action:
   shadowing/hiding warnings (`CS0108`) and makes the tree-parent semantics
   explicit at the call site.
 
+### `HierarchicalVM` recursive-generic constraint (Python)
+
+- **C#**: `where TVM : HierarchicalVM<TModel, TVM>` — true F-bounded
+  generic constraint enforced by the compiler.
+- **TypeScript**: `TVM extends HierarchicalVM<TModel, TVM>` — equivalent
+  F-bounded constraint enforced by the type checker.
+- **Python**: `TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")` —
+  weaker bound; `TypeVar` cannot express the self-referential parameter
+  binding back to the enclosing class's own type parameters.
+- **Rationale**: Python's `typing.TypeVar` `bound=` argument is a single
+  type expression evaluated in the enclosing scope; it has no syntax for
+  a self-referential, parameter-bound recursion the way the nominal type
+  systems do. The runtime/subclass contract is still enforced by
+  convention and by `mypy --strict` against concrete subclasses.
+
+### Python interface-prefix convention (v2.0 vs v2.1 split)
+
+- **C# / TypeScript**: all interfaces / Protocols use the canonical `I`-prefix
+  (`ISelectable`, `IExpandable`, `IFilterable`, `IPageable`, `IDialogService`,
+  `INotificationHub`, `ILocalizer`, …).
+- **Python**: split convention. All 20 v2.0 capability ABCs (per ADR-0010)
+  and the v2.0 shared services retain the I-prefix for stability:
+  `IConstructable`, `IDestructable`, `IReconstructable` (lifecycle);
+  `ISelectable`, `IDeselectable`, `ISelectionTogglable` (selection);
+  `IExpandable`, `ICollapsible`, `IExpansionTogglable` (expansion);
+  `IClosable`, `IApprovable`, `ICancelable` (dialog/form);
+  `INewCreatable`, `IDeletable`, `IUpdatable`, `ISavable` (CRUD);
+  `ICurrentDeletable`, `ICurrentUpdatable` (container-current CRUD);
+  `IManagable` (generic management); `ISearchable` (search); plus shared
+  services `INotificationHub` and `ILocalizer`. The v2.1 additions ship
+  bare, following modern Python ABC/Protocol idiom: `Filterable`,
+  `Pageable` (per ADR-0022 / ADR-0023; CAP-021 / CAP-022) and
+  `DialogService` (per ADR-0029).
+- **Rationale**: the v2.0 names were established when the Python flavor
+  first ported the C# I-prefix convention literally; renaming them on the
+  v2.1 minor bump would have been breaking. The v2.1 additions adopt the
+  bare-name idiom (matching PEP 8's typical ABC style) and the split is
+  preserved going forward — new v2.x Python capabilities ship bare, older
+  v2.0 capabilities keep their published I-prefix names.
+
 ### Collection size property name
 
 - **C#**: `Count` (matches `ICollection<T>`).
@@ -225,10 +265,31 @@ ADR-0006 and require no further action:
   on `FluentCommandExtensions` (same `Confirm` name; C# method overloading
   distinguishes by parameter types).
 - **Python**: standalone function `confirm_with_dialog_service(command, dialog_service, prompt)` in `vmx.commands`; distinct name because Python lacks function overloading.
-- **TypeScript**: standalone function `confirmWithDialogService(command, dialogService, prompt)` exported from `@vmx/core`; distinct name for the same reason.
+- **TypeScript**: standalone function `confirmWithDialogService(command, dialogService, prompt)` exported from `vmx`; distinct name for the same reason.
 - **Rationale**: C# method overloading lets the `IDialogService` variant share the
   `Confirm` name. Python and TypeScript lack overloading with distinct implementations
   and therefore require a distinct function name.
+
+### Fluent `Confirm` overload with `INotificationHub`
+
+- **C#**: extension-method overload `Confirm(this ICommand, INotificationHub, string)`
+  on `FluentNotificationExtensions` in the `VMx.Notifications` companion
+  assembly (same `Confirm` name; C# method overloading distinguishes by
+  parameter types).
+- **Python / TypeScript**: no dedicated fluent hub-overload function ships in
+  the notifications sub-package. The equivalent composition is the explicit
+  two-step form using the bridge helper:
+  `command.confirm(make_confirm(hub, prompt))` (Python) /
+  `command.confirm(makeConfirm(hub, prompt))` (TypeScript). The bridge
+  helpers (`make_confirm` / `makeConfirm`) are already exported from
+  `vmx.notifications` / `vmx/notifications`.
+- **Rationale**: C# method overloading lets the `INotificationHub` variant
+  share the `Confirm` name without polluting the core command surface. In
+  Python and TypeScript a single named composition (`confirm(make_confirm(…))`)
+  is no less ergonomic than a new function, so a dedicated
+  `confirm_with_notification_hub` / `confirmWithNotificationHub` was
+  intentionally not introduced for v2.1 — readers should treat the
+  two-line composition as the canonical idiom.
 
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
@@ -247,6 +308,22 @@ here so audits don't reopen them prematurely:
   hatch — a non-leaf VM (e.g. an aggregate) that internally uses
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
+
+### `FormVM.OnApproved` emitted value
+
+- **C#**: emits the **pre-await captured** model snapshot
+  (`_onApproved.OnNext(current)` in `FormVM<TM>.ApproveAsync`).
+- **Python / TypeScript**: emit the **live** `self._model` / `this.#model`
+  after the persister await completes.
+- **Rationale**: spec FORM-006 asserts that `OnApproved` fires with a value
+  equal to the model that was persisted, and all three flavors' conformance
+  tests assert that exact equality. Absent concurrent `SetModel` between
+  the persister start and end, the pre-await capture equals the live
+  post-await `Model`, so both forms pass FORM-006. The divergence only
+  becomes observable under concurrent re-mutation during the await —
+  C# emits the value actually persisted; Python and TS emit whatever
+  `Model` is at emission time. Both are defensible reads of the spec;
+  aligning the three flavors is deferred to a future release.
 
 ### Command property declared types
 

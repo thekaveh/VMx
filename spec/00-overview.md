@@ -20,18 +20,24 @@ in multiple language flavors with semantically equivalent behavior.
   lifecycle status changes.
 - Fluent immutable builders for every viewmodel and command type.
 - Capability micro-interfaces, helpers (`SearchableState`, `ExpandableState`,
-  `DerivedProperty`, `ModeledCrudCommands`, `IFilterable<T>`, `IPageable`),
-  null-object services, optional `INotificationHub` sub-package, and `ILocalizer`
-  hook (introduced in spec v2.0, detailed in chapters 14–17).
-- **v2.1 additions** (chapters 18–21): `HierarchicalVM<TModel, TVM>` — first-class
-  recursive tree VM with lazy/eager child loading and `TreeStructureChangedMessage`;
-  `IDialogService` — host-side modal interactions distinct from `INotificationHub`;
-  `FormVM<TM>` — snapshot/revert edit lifecycle with approve/deny commands and
-  `FormRevertedMessage`; `NotificationVM` + `ConfirmationVM` — render-side VMs with
-  auto-dismiss lifecycle; collection primitives `ServicedObservableCollection<T>`,
-  `ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, and
-  `PagedComposition<TVM>`; fluent command extensions (`Confirm`, `PrecedeWith`,
-  `SucceedWith`, `WrapWith`).
+  `DerivedProperty`, `ModeledCrudCommands`), null-object services, optional
+  `INotificationHub` sub-package, and `ILocalizer` hook (introduced in spec
+  v2.0, detailed in chapters 14–17).
+- **v2.1 additions**. New chapters 18–21: `HierarchicalVM<TModel, TVM>` —
+  first-class recursive tree VM with lazy/eager child loading and
+  `TreeStructureChangedMessage`; `IDialogService` — host-side modal
+  interactions distinct from `INotificationHub`; `FormVM<TM>` — snapshot/revert
+  edit lifecycle with approve/deny commands and `FormRevertedMessage`;
+  collection primitives `ServicedObservableCollection<T>`, `ObservableList<T>`,
+  `ObservableDictionary<K1,K2,V>`, and `PagedComposition<TVM>`. Extensions to
+  existing chapters: `PropertyValueChangedMessagesFor` batch publisher
+  (chapter 03 §7, ADR-0032, informative); fluent command extensions `Confirm`,
+  `PrecedeWith`, `SucceedWith`, `WrapWith` (chapter 04 §9, ADR-0027); two new
+  capability micro-interfaces `IFilterable<T>` (chapter 14 §2.6, ADR-0022) and
+  `IPageable` (chapter 14 §2.10, ADR-0023) joining at positions 21 and 22; a
+  lazy-initialization recipe for derived properties (chapter 15 §8);
+  `NotificationVM` + `ConfirmationVM` render-side VMs with auto-dismiss
+  lifecycle (chapter 16 §6–§7, ADR-0031).
 
 ## 2. Out of scope
 
@@ -81,8 +87,9 @@ language and lives under `docs/`.
 ## 6. C#-only extensions
 
 The C# flavor ships one utility that has no counterpart in Python or TypeScript:
-`LinqHelpers` — a set of LINQ extension methods over `IObservableList<T>` and
-`ObservableDictionary` (e.g., `WhereObservable`, `SelectObservable`). These are
-idiomatic to C# and the `System.Reactive`/LINQ ecosystem; the other flavors
-cover the same use-cases through native comprehensions and `reactivex`/`rxjs`
-operators. This asymmetry is intentional and documented in ADR-0033.
+`LinqHelpers` (in `VMx.Extensions`) — a small set of LINQ utility methods over
+`IEnumerable<T>`: `CartesianProduct`, `Sample`, and `Product`. The other
+flavors cover the same use-cases through language built-ins
+(`itertools.product` / slice-with-step / `math.prod` in Python; `flatMap` /
+`filter` + modulo / `reduce` in TypeScript). This asymmetry is intentional
+and documented in ADR-0033.

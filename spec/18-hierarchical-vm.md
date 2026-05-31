@@ -32,7 +32,7 @@ subclass; the recursive constraint is enforced per flavor (ADR-0028 §3.2).
 HierarchicalVM<TModel, TVM>:
     Model    : TModel                  # per-node domain model
     Parent   : TVM?                    # null when IsRoot
-    Children : IReadOnlyList<TVM>      # lazy by default; eager via builder
+    Children : IReadOnlyList<TVM>      # lazy by default; eager via constructor option
     Depth    : int                     # 0 for root; Parent.Depth + 1 otherwise
     Path     : IReadOnlyList<TVM>      # materialized snapshot: root, …, self
     IsRoot   : bool                    # Parent is null
@@ -91,10 +91,10 @@ sequenceDiagram
 Default: **lazy.** `Children` is materialized on first access by invoking the
 children factory delegate.
 
-Builder option `WithEagerChildren()` flips to **eager**: the entire tree is
-materialized at construct time using depth-first traversal. Eager mode is required
-if the consumer wants depth-first construction to apply to the whole tree at
-startup.
+Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True` (Python)
+flips to **eager**: the entire tree is materialized at construct time using
+depth-first traversal. Eager mode is required if the consumer wants
+depth-first construction to apply to the whole tree at startup.
 
 ## 5. Hub messages
 
@@ -120,16 +120,16 @@ TreeStructureChangedMessage:
 - **`walk` / `walk_expanded`** (chapter 13): `HierarchicalVM` is a natural input.
   `walk` yields depth-first descendants including the root. Order is
   `parent → children[0] → children[0].children[0] → … → children[1] → …`.
-- **`ExpandableState`** (chapter 14 §2.2): consumers may compose
+- **`ExpandableState`** (chapter 05 §8, ADR-0015): consumers may compose
   `ExpandableState<TVM>` to gate lazy child materialization on `Expand()`
   (`IExpandable`). `HierarchicalVM` does NOT auto-implement `IExpandable` — per
   ADR-0028 §3.6 and ADR-0010, capabilities are opt-in.
-- **`SearchableState`** (chapter 14 §2.5): consumers may compose
+- **`SearchableState`** (chapter 06 §8, ADR-0014): consumers may compose
   `SearchableState<TVM>` to provide a filtered view of a tree. The filter
   operates on the materialized portion.
-- **`ModeledCrudCommands`** (chapter 14 §2.7): tree mutations (Create / Update /
-  Delete on a node's children) compose with the existing `CreateNewCommand`,
-  `UpdateCurrentCommand`, `DeleteCurrentCommand` helpers.
+- **`ModeledCrudCommands`** (chapter 06 §7, ADR-0016): tree mutations (Create /
+  Update / Delete on a node's children) compose with the existing
+  `CreateNewCommand`, `UpdateCurrentCommand`, `DeleteCurrentCommand` helpers.
 
 ## 8. Conformance
 
@@ -145,8 +145,9 @@ TreeStructureChangedMessage:
 - `HIER-006` — `IsFirst` and `IsLast` position predicates.
 - `HIER-007` — Default lazy child loading: `Children` is not materialized until
   first access.
-- `HIER-008` — Eager child loading: `WithEagerChildren()` builder option
-  materializes the full tree at construct.
+- `HIER-008` — Eager child loading: `eagerChildren=true` (C# / TS) /
+  `eager_children=True` (Python) constructor option materializes the full
+  tree at construct.
 - `HIER-009` — Depth-first construction: a parent reports `Constructed` only
   after every (eager) descendant.
 - `HIER-010` — `PropertyChangedMessage` on `Parent` change.

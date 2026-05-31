@@ -16,8 +16,10 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   # report-only
   python3 tools/check-conformance-coverage.py
 
-  # CI mode — require python and csharp to be at 100% coverage
-  python3 tools/check-conformance-coverage.py --require python --require csharp
+  # CI mode — require all three flavors to be at 100% coverage (matches
+  # .github/workflows/conformance.yml)
+  python3 tools/check-conformance-coverage.py \
+      --require csharp --require python --require typescript
   ```
 
   Unit tests live in `tools/tests/`. Run with:

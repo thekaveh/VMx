@@ -60,8 +60,8 @@ inheritance rules.
   `capabilities/` in Python and TypeScript) containing the interface
   declarations only — no implementations.
 - Consumers can begin writing capability-based code without waiting for any
-  other absorption cycle.
-- Subsequent cycles (Item 6 expand/collapse, Item 7 modeled CRUD) extend
+  other absorption work.
+- Follow-on ADRs (ADR-0015 expand/collapse, ADR-0016 modeled CRUD) extend
   existing VM types to additively implement specific capabilities. Each such
   extension is itself a non-breaking change.
 - This ADR does not introduce new event channels. Property-change messages
@@ -71,8 +71,9 @@ inheritance rules.
 ## 5. Amendments
 
 - **ADR-0022** (2026-05-27, spec v2.1.0): added `IFilterable<T>` (CAP-021) — a generic
-  capability for collection VMs that support item filtering. Implemented by
-  `PagedComposition<TVM>` via the `IPageable` contract.
+  capability for collection VMs that support item filtering. No concrete
+  implementer ships in v2.1; `SearchableState<TItem>` is the candidate for a
+  future minor-version refactor per ADR-0022 §4.
 - **ADR-0023** (2026-05-27, spec v2.1.0): added `IPageable` (CAP-022) — marks a
   collection VM as pageable (page size, page index, total count). Used by
   `PagedComposition<TVM>`. Together with `IFilterable<T>`, brings the total to

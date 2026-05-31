@@ -13,6 +13,7 @@
 
 import {
   ComponentVMOf,
+  ConstructionStatus,
   ConstructionStatusChangedMessage,
   MessageHub,
   PropertyChangedMessage,
@@ -42,7 +43,7 @@ function run(): void {
   // Subscribe to hub messages before building the VM.
   const hubSub = hub.messages.subscribe((msg) => {
     if (msg instanceof ConstructionStatusChangedMessage) {
-      console.log(`  [hub] ${msg.senderName}  status → ${msg.status}`);
+      console.log(`  [hub] ${msg.senderName}  status → ${ConstructionStatus[msg.status]}`);
     } else if (msg instanceof PropertyChangedMessage) {
       console.log(`  [hub] ${msg.senderName}  property '${msg.propertyName}' changed`);
     }
@@ -61,14 +62,14 @@ function run(): void {
     .build();
 
   console.log(`  vm.name   = ${vm.name}`);
-  console.log(`  vm.status = ${vm.status}`);
+  console.log(`  vm.status = ${ConstructionStatus[vm.status]}`);
   console.log(`  vm.model  = ${JSON.stringify(vm.model)}`);
   console.log();
 
   // Construct.
   console.log("Calling construct() ...");
   vm.construct();
-  console.log(`  vm.status         = ${vm.status}`);
+  console.log(`  vm.status         = ${ConstructionStatus[vm.status]}`);
   console.log(`  vm.isConstructed  = ${vm.isConstructed}`);
   console.log(`  vm.modeledHint    = ${JSON.stringify(vm.modeledHint)}`);
   console.log();
@@ -95,7 +96,7 @@ function run(): void {
   // Destruct.
   console.log("Calling destruct() ...");
   vm.destruct();
-  console.log(`  vm.status         = ${vm.status}`);
+  console.log(`  vm.status         = ${ConstructionStatus[vm.status]}`);
   console.log(`  vm.isConstructed  = ${vm.isConstructed}`);
   console.log();
 

@@ -8,14 +8,24 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./notifications": {
-      "types": "./dist/notifications.d.ts",
-      "import": "./dist/notifications.js",
-      "require": "./dist/notifications.cjs"
+      "import": {
+        "types": "./dist/notifications.d.ts",
+        "default": "./dist/notifications.js"
+      },
+      "require": {
+        "types": "./dist/notifications.d.cts",
+        "default": "./dist/notifications.cjs"
+      }
     }
   },
   "files": [
@@ -41,7 +51,17 @@
     "reactive",
     "rxjs"
   ],
+  "author": "Kaveh Razavi",
   "license": "MIT",
+  "homepage": "https://github.com/thekaveh/VMx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thekaveh/VMx.git",
+    "directory": "langs/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/thekaveh/VMx/issues"
+  },
   "engines": {
     "node": ">=18"
   },

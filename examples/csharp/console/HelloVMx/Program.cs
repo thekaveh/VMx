@@ -5,10 +5,9 @@
 //   2. Subscribing to hub messages (PropertyChanged + ConstructionStatusChanged).
 //   3. The full Destruct → Construct → Model-mutate → Destruct lifecycle.
 //
-// Console apps have no SynchronizationContext, so we use ImmediateScheduler
-// for both fg and bg rather than RxDispatcher.CreateForCurrentContext().
+// Console apps have no SynchronizationContext, so we use RxDispatcher.Immediate()
+// for both foreground and background rather than RxDispatcher.CreateForCurrentContext().
 
-using System.Reactive.Concurrency;
 using VMx.Components;
 using VMx.Messages;
 using VMx.Services;
@@ -27,7 +26,7 @@ static class Demo
         // ── Infrastructure: shared hub + immediate dispatcher ─────────────────
 
         var hub        = new MessageHub();
-        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var dispatcher = RxDispatcher.Immediate();
 
         // ── Subscribe to hub messages ─────────────────────────────────────────
 

@@ -13,7 +13,7 @@ notifications and exposed a hot observable of new ones.
 The current VMx has no notification primitive. Consumers who need
 notifications either build their own or pull a third-party library. The
 absence is felt most acutely when implementing a confirmation flow for the
-modeled-CRUD `DeleteCurrentCommand` (see cycle 8): there is no canonical
+modeled-CRUD `DeleteCurrentCommand` (see ADR-0016): there is no canonical
 way to ask "are you sure?" via the message hub.
 
 ## 2. Options considered
@@ -42,7 +42,7 @@ The asymmetry is intentional: it preserves "opt-in, no core surface impact"
 in all three without spinning up extra packaging infrastructure for Python
 and TypeScript.
 
-The confirmation-decorator bridge (cycle 4's
+The confirmation-decorator bridge (ADR-0012's
 `ConfirmationDecoratorCommand` is delegate-shaped) lives in the
 notification sub-package as a helper function — keeping the core
 `commands` chapter UI-agnostic.

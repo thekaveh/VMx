@@ -43,27 +43,33 @@ FormVM<TM>:
 `ApproveCommand` invokes `ApproveAsync` internally; consumers may either bind the
 command or call the awaitable directly when finer control is needed.
 
-Constructor parameters (per-flavor idiomatic):
+Constructor parameters (per-flavor idiomatic; order matches shipped C# / Python
+constructors — also catalogued in ADR-0009 §"FormVM<TM> constructor shape"):
 
 ```
 FormVM(
     initial     : TM,
     persister   : Func<TM, Task>,   # or IFormPersister<TM>
+    hub?        : IMessageHub,      # optional hub; default is the null hub
     strict?     : bool = false,
-    snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in)
-    hub?        : IMessageHub       # optional hub; default is the null hub
+    snapshotter?: Func<TM, TM>      # custom snapshot function (opt-in)
 )
 ```
 
 ## 3. Snapshot policy
 
-The default snapshot is a **per-flavor idiomatic shallow copy**:
+The default snapshot is a **per-flavor idiomatic value-copy**. The C# and
+Python defaults are shallow (nested mutable references are shared between
+`Model` and `Snapshot`); the TypeScript default is a structured deep clone
+(nested references are independent). Consumers whose model has nested
+mutable state should pick a snapshotter that matches the semantics they
+want — see the row notes:
 
-| Flavor     | Default mechanism                       |
-| ---------- | --------------------------------------- |
-| C#         | `with` expression (record types)        |
-| Python     | `dataclasses.replace` semantics         |
-| TypeScript | `structuredClone` (plain object models) |
+| Flavor     | Default mechanism                                                                 |
+| ---------- | --------------------------------------------------------------------------------- |
+| C#         | reflective `MemberwiseClone` — shallow (equivalent to `with {}` for record types) |
+| Python     | `copy.copy` (`__copy__` if defined, else shallow attribute copy) — shallow        |
+| TypeScript | `structuredClone` (plain object models) — structured deep clone                   |
 
 Consumers whose model type requires a different strategy supply a custom
 `snapshotter: Func<TM, TM>` at construction time. The snapshotter is also applied
@@ -81,8 +87,7 @@ Each flavor uses its idiomatic equality operator/method:
 
 - C#: `object.Equals` (record types use structural equality by default).
 - Python: `__eq__` (`@dataclass(eq=True)` or `@dataclass(frozen=True)` by default).
-- TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects;
-  consumers may substitute a custom comparer via the builder.
+- TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects.
 
 ## 5. Lifecycle state diagram
 

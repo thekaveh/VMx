@@ -102,11 +102,12 @@ When a pending dialog call is cancelled via a `CancellationToken` (where support
 
 - The awaitable **completes** with the cancellation result (`null` for `PickFile*`,
   `false` for `Confirm`).
-- The awaitable does **not** throw `OperationCancelledException` unless the
+- The awaitable does **not** throw `OperationCanceledException` unless the
   host adapter explicitly opts into that behavior.
 
-This keeps callers simple: `var path = await svc.PickFileToOpen(ct: ct)` returns
-`null` on cancel rather than requiring a try/catch.
+This keeps callers simple: when an implementation surfaces cancellation, the
+awaited `PickFile*` returns `null` and `Confirm` returns `false` on cancel
+rather than requiring a try/catch.
 
 ## 7. `ConfirmationDecoratorCommand` integration
 
@@ -115,7 +116,7 @@ This keeps callers simple: `var path = await svc.PickFileToOpen(ct: ct)` returns
 
 ```
 // Pseudo-code (per-flavor idiomatic)
-var safDelete = deleteCommand.Confirm(() => dialogService.Confirm("Delete this item?"));
+var safeDelete = deleteCommand.Confirm(() => dialogService.Confirm("Delete this item?"));
 ```
 
 The fluent overload `cmd.Confirm(dialogService, prompt)` (ADR-0027 / ADR-0029) is

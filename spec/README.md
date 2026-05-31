@@ -29,7 +29,7 @@ flavor releases a stable version.
 
 ### 1.2 Chapters (v2.0 additions)
 
-- `14-capabilities.md` — 22 opt-in capability micro-interfaces (incl. `IFilterable<T>` and `IPageable`).
+- `14-capabilities.md` — 20 opt-in capability micro-interfaces (extended to 22 in v2.1; see §1.3).
 - `15-derived-properties.md` — `DerivedProperty<TValue>` N-source computed values.
 - `16-notifications.md` — opt-in `INotificationHub` sub-package.
 - `17-localization.md` — `ILocalizer` hook + `NullLocalizer` default.
@@ -49,10 +49,16 @@ flavor releases a stable version.
 
 The following existing chapters were also extended in v2.1:
 
+- `03-messages.md` — §7 Convenience helpers (ADR-0032, informative):
+  `PropertyValueChangedMessagesFor` batch publisher.
 - `04-commands.md` — §9 "Fluent composition" (ADR-0027): four fluent extension
   methods (`Confirm`, `PrecedeWith`, `SucceedWith`, `WrapWith`) over `ICommand`.
 - `14-capabilities.md` — §2.6 `IFilterable<T>` (ADR-0022, CAP-021) and §2.10
   `IPageable` (ADR-0023, CAP-022).
+- `15-derived-properties.md` — §8 Recipe for avoiding double-subscription on
+  lazy initialization.
+- `16-notifications.md` — §6–§7 render-side VMs `NotificationVM` and
+  `ConfirmationVM` (ADR-0031, NOTIF-011..016) with auto-dismiss lifecycle.
 
 ### 1.4 v2.1.x → v2.2.0 changes
 
@@ -74,7 +80,8 @@ to work unchanged.
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
 - `ADRs/` — Architecture Decision Records (0001-0034); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
-- `proposals/` — deferred designs not yet promoted to chapters.
+- `proposals/` — historical planning artifacts (accepted proposals that landed
+  in past releases); not part of the published spec.
 
 ## 2. Versioning
 

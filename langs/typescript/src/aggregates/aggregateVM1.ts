@@ -50,8 +50,14 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     this.#component1?.destruct();
   }
 
-  protected override _onDispose(): void {
+  override dispose(): void {
+    // Depth-first dispose (LIFE-013): each component slot first, then self.
+    // Matches the override pattern used by CompositeVMBase/GroupVM so that
+    // subscribers observe child Disposed transitions before the aggregate's
+    // own Disposed transition — a single dispose-ordering rule across all
+    // container VM kinds.
     this.#component1?.dispose();
+    super.dispose();
   }
 
   static builder<VM1 extends ComponentVMBase>(): AggregateVM1Builder<VM1> {

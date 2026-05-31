@@ -9,9 +9,9 @@ The 2012 VMx predecessor put `IsExpanded` on every VM, plus
 `Expand`/`Collapse`/`ToggleExpansion` commands. The new VMx kept the VM
 surface minimal — there is no expand/collapse state on any core VM.
 
-The absorption goal calls for bringing expand/collapse forward, but Item 1
+The absorption goal calls for bringing expand/collapse forward, but ADR-0010
 established that capability-based behaviors are opt-in. So expand/collapse
-should land as `IExpandable` (which already exists from cycle 1), plus a
+should land as `IExpandable` (already established in ADR-0010), plus a
 default-implementation helper for VMs that opt in, plus a tree-traversal
 helper that respects the state.
 
@@ -29,7 +29,7 @@ helper that respects the state.
 
 ## 3. Decision
 
-Option 2. The cycle ships:
+Option 2. Ship:
 
 - Documentation in chapter 05 explaining the `IExpandable` integration
   point.

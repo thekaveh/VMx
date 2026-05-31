@@ -34,5 +34,5 @@ two members: `Filter: Predicate<T>?` (null means no filter) and
 - One new conformance ID `CAP-021` covers the capability's contract surface.
 - Each flavor's `capabilities/` directory adds an `IFilterable<T>` interface
   declaration (no implementation; capabilities are opt-in per ADR-0010).
-- `SearchableState<TItem>`'s public surface does not change; an internal cycle may
-  refactor it to implement `IFilterable<T>` in a future minor version.
+- `SearchableState<TItem>`'s public surface does not change; an internal
+  refactor may make it implement `IFilterable<T>` in a future minor version.

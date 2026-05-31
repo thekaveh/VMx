@@ -154,7 +154,7 @@ Wraps a single inner command, gating `Execute` on a user-confirmation delegate.
   `inner.Execute()`. If `false`, does nothing.
 
 Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
-depend on the notification service (cycle 5). Consumers may bridge it to
+depend on the notification service (chapter 16). Consumers may bridge it to
 `INotificationHub` via an optional helper in the notifications sub-package.
 
 ## 9. Fluent composition (spec v2.1)
@@ -176,8 +176,12 @@ cmd.Confirm(confirm)
 
 `confirm` is a delegate of shape `() -> Task<bool>` (async-Boolean per flavor).
 An optional second overload accepts an `INotificationHub` and constructs the
-delegate via the bridge helper in the `vmx-notifications` sub-package; that
+delegate via the bridge helper in the notifications sub-package; that
 overload is defined in the sub-package, not in the core commands module.
+The overload is C#-only; Python and TypeScript use the explicit two-step
+composition `command.confirm(make_confirm(hub, prompt))` /
+`command.confirm(makeConfirm(hub, prompt))` instead — see ADR-0009
+§"Fluent `Confirm` overload with `INotificationHub`".
 
 ### 9.2 `PrecedeWith(other)`
 
@@ -201,8 +205,13 @@ cmd.SucceedWith(other)
 
 ```
 cmd.WrapWith(predicate, pre, post)
-  ≡ new DecoratorCommand(cmd, predicate, pre, post)
+  ≡ new DecoratorCommand(cmd, pre, post, predicate)
 ```
+
+The shipped C# / Python `DecoratorCommand` constructor takes
+`(inner, preExecute, postExecute, extraPredicate)`; the fluent extension
+keeps the user-facing predicate-first ordering for ergonomic reasons and
+maps to the constructor's pre/post/predicate positions.
 
 All three arguments are optional/nullable. Passing all defaults is valid and
 yields a semantically transparent decorator (no extra gate, no pre/post hooks).

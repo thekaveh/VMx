@@ -1,10 +1,12 @@
 # 17 — Localization hooks
 
 VMx ships a minimal localization contract — `ILocalizer` — plus a null-default
-implementation that returns input keys unchanged. The actual localized strings
-are out of scope for the core spec; per-application localizers map keys to
-their host platform's idiomatic i18n (e.g., `IStringLocalizer<T>` on .NET,
-`gettext` on Python, `i18next` on web).
+implementation that returns input keys unchanged (see ADR-0019 for the
+design rationale and the "absorb the convention, drop the satellite shells"
+decision). The actual localized strings are out of scope for the core spec;
+per-application localizers map keys to their host platform's idiomatic i18n
+(e.g., `IStringLocalizer<T>` on .NET, `gettext` on Python, `i18next` on
+web).
 
 The 2012 VMx predecessor shipped 9 satellite assemblies (de/es/fr/it/ja/ko/ru/
 zh-Hans/zh-Hant) as empty resource shells. VMx 2.0 absorbs the *convention* (a

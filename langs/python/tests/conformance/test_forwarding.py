@@ -204,3 +204,16 @@ def test_FWD_003_forwarding_composite_iteration_yields_children_in_order() -> No
     assert result == [vm1, vm2], f"Expected [vm1, vm2], got {result}"
     assert result[0] is vm1
     assert result[1] is vm2
+
+
+def test_forwarding_composite_setitem_delegates_to_wrapped() -> None:
+    """fwd[i] = value forwards to wrapped[i] = value (parity with C# this[int] setter)."""
+    vm1 = MagicMock(name="vm1")
+    vm2 = MagicMock(name="vm2")
+    vm3 = MagicMock(name="vm3")
+    inner = _make_composite_inner([vm1, vm2])
+    fwd = _NoOverrideCompositeVM(inner)
+
+    fwd[1] = vm3
+
+    inner.__setitem__.assert_called_once_with(1, vm3)

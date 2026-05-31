@@ -246,7 +246,7 @@ public class HIER_001_to_014_HierarchicalVM_Tests
     /// </summary>
     [Fact]
     [Trait("Conformance", "HIER-008")]
-    public void HIER_008_Eager_Child_Loading_Via_Builder()
+    public void HIER_008_Eager_Child_Loading_Via_Constructor_Option()
     {
         var factoryInvoked = false;
 

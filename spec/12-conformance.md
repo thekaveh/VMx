@@ -163,8 +163,9 @@ non-trivial transitions; the full `reconstruct` sequence is normatively defined 
 
 ### LIFE-013 — dispose on a parent disposes every child depth-first
 
-**Given** a `CompositeVM<VM>` in `Constructed` state with N children all `Constructed`,
-each child itself a `CompositeVM<VM>` with M grand-children all `Constructed`
+**Given** a container VM (`CompositeVM<VM>`, `GroupVM<VM>`, or `AggregateVMN<…>`)
+in `Constructed` state with all children/component slots themselves `Constructed`,
+each child itself a container with grand-children all `Constructed`
 **When** `parent.dispose()` is called
 **Then** when it returns, every child and every grand-child has `Status == Disposed`
 **And** the disposal order is depth-first (grand-children before children before parent)
@@ -341,7 +342,9 @@ i.e., `cmd.Execute()` is invoked before `other.Execute()` when both are executab
 **Given** an `ICommand` `cmd`
 **And** optional extra predicate, pre-action, and post-action arguments
 **When** `cmd.WrapWith(predicate, pre, post)` is called
-**Then** the returned command is equivalent to `new DecoratorCommand(cmd, predicate, pre, post)` —
+**Then** the returned command is equivalent to
+`new DecoratorCommand(cmd, pre, post, predicate)` (the shipped C# / Python
+constructor takes `(inner, preExecute, postExecute, extraPredicate)`) —
 including the case where all three arguments are null/absent, which yields a
 transparent decorator
 
@@ -666,7 +669,7 @@ inequality in C#)
 
 **Given** a builder missing one required field (e.g., no `Services` call)
 **When** `.Build()` is called
-**Then** a `BuilderValidationError` / `InvalidOperationException` is raised
+**Then** a `BuilderValidationError` (Python / TS) / `BuilderValidationException` (C#) is raised
 **And** the exception message identifies which field is missing
 
 ### BLD-003 — Repeated identical Build calls produce equivalent VMs
@@ -1146,7 +1149,7 @@ no extra predicate)
 
 ______________________________________________________________________
 
-## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0
+## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0 / v2.1
 
 Each NOTIF-NNN test verifies the `INotificationHub` contract from
 spec/16-notifications.md and ADR-0013.
@@ -1686,7 +1689,7 @@ count-preserving mutations (e.g., only replace operations)
 **Then** a `Reset` is emitted (mutations occurred)
 **And** no `PropertyChanged("Count")` is emitted (count unchanged)
 
-## HIER — HierarchicalVM (chapter 18)
+## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
 
@@ -1746,9 +1749,9 @@ the updated sequence
 **When** `Children` is accessed for the first time
 **Then** the children factory delegate IS invoked exactly once
 
-### HIER-008 — Eager child loading via builder option
+### HIER-008 — Eager child loading via constructor option
 
-**Given** a tree constructed with `WithEagerChildren()` builder option
+**Given** a tree constructed with the `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) constructor option
 **And** a children factory delegate that records invocations per node
 **When** the root node's `construct()` completes
 **Then** the children factory has been invoked for every node in the tree
@@ -1810,7 +1813,7 @@ with `Source == parent` and `Affected == child`
 **Then** the child is removed from `Children`
 **And** a `TreeStructureChangedMessage` with `Change == Removed` is published
 
-## DIA — IDialogService (chapter 19)
+## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract
 
@@ -1876,14 +1879,19 @@ confirmed a save path) or `null` on cancel
 
 ### DIA-007 — Cancellation completes with safe default, does not throw
 
-**Given** an `IDialogService` implementation that supports `CancellationToken`
-**And** a `CancellationToken` that is cancelled before or during the dialog
-**When** `PickFileToOpen(cancellationToken: ct)` is awaited and the token is cancelled
+The `IDialogService` contract does not include a cancellation parameter; this
+scenario applies to implementations that opt into a cancellation channel
+(e.g., a custom subtype that adds a `CancellationToken` / `AbortSignal`
+overload, or a host that disposes the awaiting context).
+
+**Given** an opt-in cancellable dialog implementation
+**And** a cancellation signal that fires before or during the dialog
+**When** the file-pick await is cancelled
 **Then** the awaitable completes with `null` (no file chosen)
-**And** no `OperationCancelledException` is raised by the awaitable itself
-**When** `Confirm(message, cancellationToken: ct)` is awaited and the token is cancelled
+**And** no cancellation exception is raised by the awaitable itself
+**When** the confirm await is cancelled
 **Then** the awaitable completes with `false`
-**And** no `OperationCancelledException` is raised
+**And** no cancellation exception is raised
 
 ### DIA-008 — `ConfirmationDecoratorCommand` integration
 
@@ -1896,7 +1904,7 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **And** the inner command is only executed when `Confirm` returns `true`
 **And** the inner command is NOT executed when `Confirm` returns `false`
 
-## FORM — FormVM (chapter 20)
+## 27. FORM — FormVM (chapter 20) — spec v2.1
 
 ### FORM-001 — Snapshot captured at construct
 
@@ -1936,7 +1944,7 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Given** a `FormVM<TM>` with initial model `m0` and a persister that records its argument
 **And** `Model` has been updated to `m1`
-**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**When** `ApproveAsync()` is awaited and the persister succeeds
 **Then** the persister was called with `m1`
 **And** `Snapshot` is updated to a value structurally equal to `m1`
 **And** `IsDirty == false` after the approve completes
@@ -1945,11 +1953,11 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Given** a `FormVM<TM>` with a subscriber to `OnApproved`
 **And** `Model` has been updated to `m1`
-**When** `ApproveCommand.Execute()` is called and the persister succeeds
+**When** `ApproveAsync()` is awaited and the persister succeeds
 **Then** `OnApproved` fires exactly once with a value equal to `m1`
 
 **Given** a persister that throws an exception
-**When** `ApproveCommand.Execute()` is called
+**When** `ApproveAsync()` is awaited
 **Then** `OnApproved` does NOT fire
 
 ### FORM-007 — Persist failure leaves state unchanged
@@ -1957,11 +1965,13 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **Given** a `FormVM<TM>` with a persister that throws `InvalidOperationException`
 **And** `Model` has been updated to `m1` (so `IsDirty == true`)
 **And** `Snapshot` equals `m0`
-**When** `ApproveCommand.Execute()` is called and the persister throws
+**When** `ApproveAsync()` is awaited and the persister throws
 **Then** `Snapshot` is still `m0` (unchanged)
 **And** `Model` is still `m1` (unchanged)
 **And** `IsDirty` is still `true`
-**And** the exception propagates to the caller
+**And** the awaitable surfaces the exception to the caller (the exception
+is observable via the awaitable entry-point only; `ApproveCommand.Execute()`
+dispatches the persist call fire-and-forget per chapter 20 §2)
 
 ### FORM-008 — Hub messages on revert
 

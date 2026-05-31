@@ -114,7 +114,8 @@ Each flavor implements the same conceptual stack:
 The C# flavor multi-targets `netstandard2.0` and `net8.0` and ships two
 companion assemblies:
 [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
-(`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
+(`services.AddVMx(...)`) and
+[`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/) (opt-in
 `INotificationHub`). The Python flavor supports Python 3.10 through 3.13,
 is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor targets Node ≥18, emits dual ESM + CJS
@@ -257,18 +258,18 @@ This README is the entry point; the documents below add focused detail.
 
 ### 6.1 SemVer policy
 
-Each language flavor versions independently in SemVer. The spec versions
+Each language flavor versions independently in SemVer. The spec also versions
 independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
 `__minSpecVersion__` in TypeScript). A spec major bump triggers a major bump
-in every active flavor; a spec minor bump (like v1.1.0) is fully backwards
+in every active flavor; a spec minor bump (like v2.1.0) is fully backwards
 compatible and ships in flavors as a minor bump.
 
 ### 6.2 Conformance catalog
 
 `spec/12-conformance.md` enumerates 220 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
-`NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `AGG-006`, …). Every flavor re-implements the catalog under
+`NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`, …). Every flavor re-implements the catalog under
 `langs/<flavor>/tests/conformance/`, and `tools/check-conformance-coverage.py`
 enforces 100% coverage in CI.
 

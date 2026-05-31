@@ -4,7 +4,7 @@
  * See spec/16-notifications.md §ConfirmationVM and ADR-0031.
  */
 import type { SchedulerLike } from "rxjs";
-import { RelayCommand, RelayCommandBuilder } from "../commands/relayCommand.js";
+import { RelayCommand } from "../commands/relayCommand.js";
 import type { Notification } from "./notification.js";
 import { NotificationReaction } from "./notification.js";
 import type { INotificationHub } from "./notificationHub.js";
@@ -34,11 +34,11 @@ export class ConfirmationVM extends NotificationVM {
   ) {
     super(notification, hub, scheduler, lifespanMs ?? DEFAULT_LIFESPAN_MS);
 
-    this.approveCommand = new RelayCommandBuilder(null, null, [])
+    this.approveCommand = RelayCommand.builder()
       .task(() => this.resolveWith(NotificationReaction.Approve))
       .build();
 
-    this.rejectCommand = new RelayCommandBuilder(null, null, [])
+    this.rejectCommand = RelayCommand.builder()
       .task(() => this.resolveWith(NotificationReaction.Reject))
       .build();
   }

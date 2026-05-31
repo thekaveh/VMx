@@ -22,7 +22,8 @@ Minimal console demo. Demonstrates:
 2. Subscribing to hub messages (`ConstructionStatusChangedMessage` and
    `PropertyChangedMessage`).
 3. The full lifecycle: construct → model mutations → destruct → dispose.
-4. A `RelayCommand` whose `CanExecute` reacts to a property change.
+4. The equality guard: setting the same model value emits **no** hub
+   message.
 
 **Run:**
 
@@ -49,9 +50,11 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   example uses `CompositeVM<TodoItemVM>` + `RelayCommand` for the same
   shape — both patterns are idiomatic; this one shows the lighter
   WPF-flavoured wiring.)
-- `MainWindow.xaml` — pure view; XAML data binding against the inner
-  `ComponentVM`'s `INotifyPropertyChanged` surface plus the
-  `ICommand`-exposing `ToggleDoneCommand`.
+- `MainWindow.xaml` — pure view; XAML data binding against
+  `TodoItemVM`'s `INotifyPropertyChanged` surface (the outer wrapper
+  forwards the inner `ComponentVM<TodoItem>`'s hub-published
+  `PropertyChangedMessage("Model")` to standard INPC for `Title` /
+  `Done`) plus the `ICommand`-exposing `ToggleDoneCommand`.
 
 **Run (Windows only):**
 

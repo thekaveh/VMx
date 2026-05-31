@@ -187,6 +187,7 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   override dispose(): void {
+    // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     for (const child of [...this._children]) {
       child.dispose();
     }

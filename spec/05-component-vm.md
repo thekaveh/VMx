@@ -127,9 +127,9 @@ exist (`OnConstruct` / `OnDestruct` callbacks at build time) — see `10-builder
 ## 8. `IExpandable` integration (spec v2.0)
 
 A consumer that wants a VM with expand/collapse semantics implements the
-`IExpandable` capability (see `14-capabilities.md`) and supplies an
-`is_expanded` accessor. The base `ComponentVM` does NOT implement
-`IExpandable`; this preserves the opt-in rule from chapter 14.
+`IExpandable` capability (see `14-capabilities.md` and ADR-0015) and
+supplies an `is_expanded` accessor. The base `ComponentVM` does NOT
+implement `IExpandable`; this preserves the opt-in rule from chapter 14.
 
 A convenience helper per flavor (`ExpandableState`) bundles the state +
 toggle + change notification for VMs that want to opt in:

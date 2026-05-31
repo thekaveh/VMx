@@ -70,7 +70,7 @@ Key rules:
   rejected. Any consumer needing that behavior must implement it in their
   domain layer.
 - Per-flavor placement: C# `VMx.Collections/`, Python `vmx.collections`,
-  TypeScript `vmx/collections`. Implementation is deferred to Substage 1C.
+  TypeScript `vmx/collections`.
 - `ObservableList<TKey>` (per ADR-0026) is the type of each key-axis view,
   ensuring consumers get granular add/remove events on the key sets.
 - Enumeration order is insertion order (matches `LinkedHashMap`/`OrderedDict`
