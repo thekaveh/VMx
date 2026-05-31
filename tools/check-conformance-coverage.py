@@ -30,7 +30,6 @@ import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-
 # ─── parsing ──────────────────────────────────────────────────────────
 
 _ID_PATTERN = re.compile(r"\b([A-Z]{3,5})-(\d{3})\b")
@@ -91,15 +90,9 @@ def scrape_typescript_conformance_ids(directory: Path) -> set[str]:
 # ─── coverage math ────────────────────────────────────────────────────
 
 
-def compute_gaps(
-    catalog: set[str], coverage: dict[str, set[str]]
-) -> dict[str, set[str]]:
+def compute_gaps(catalog: set[str], coverage: dict[str, set[str]]) -> dict[str, set[str]]:
     """Return {language: missing_ids} for every language with a non-empty gap."""
-    return {
-        lang: missing
-        for lang, found in coverage.items()
-        if (missing := catalog - found)
-    }
+    return {lang: missing for lang, found in coverage.items() if (missing := catalog - found)}
 
 
 # ─── language registry ────────────────────────────────────────────────
@@ -211,9 +204,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     gaps = compute_gaps(catalog, coverage)
     print(render_report(catalog, coverage, gaps))
 
-    required_gaps = {
-        lang: missing for lang, missing in gaps.items() if lang in args.require
-    }
+    required_gaps = {lang: missing for lang, missing in gaps.items() if lang in args.require}
     if required_gaps:
         print(file=sys.stderr)
         print(

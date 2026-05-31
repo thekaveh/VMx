@@ -132,7 +132,7 @@ def check() -> int:
     if failed:
         print("\n[FAIL] parity violations — see above", file=sys.stderr)
         return 1
-    print(f"[OK] cross-flavor parity: {len(EXPECTED)} slugs × 3 flavors")
+    print(f"[OK] cross-flavor parity: {len(EXPECTED)} slugs x 3 flavors")
     return 0
 
 

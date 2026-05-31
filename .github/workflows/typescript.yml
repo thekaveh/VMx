@@ -81,6 +81,11 @@ jobs:
     # (file:../../../../langs/typescript in package.json).
     name: examples (notes-showcase)
     runs-on: ubuntu-latest
+    # Override workflow-level `defaults.run.working-directory: langs/typescript`
+    # so `npm --prefix examples/...` resolves from the repo root.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +95,19 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: examples/typescript/react/notes-showcase/package-lock.json
+
+      - name: Install vmx lib deps + build dist
+        # The notes-showcase imports `vmx` via `file:../../../../langs/typescript`
+        # in its package.json. npm pack runs the lib's `prepack` script during
+        # the file: install, but that script needs vmx's own devDeps (tsup,
+        # etc.) to be present. Install + build the lib first so the file: dep
+        # snapshot has dist/ artifacts that match the exports map (./dist/*).
+        # Without this step, vitest fails with `Failed to resolve entry for
+        # package "vmx"` because dist/ is absent in the packed snapshot.
+        working-directory: langs/typescript
+        run: |
+          npm ci
+          npm run build
 
       - name: notes-showcase install
         # `npm ci` requires a checked-in package-lock.json — committed under

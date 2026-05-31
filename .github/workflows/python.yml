@@ -78,6 +78,11 @@ jobs:
     # `vmx` (editable, path-sourced in pyproject.toml).
     name: examples (notes-showcase)
     runs-on: ubuntu-latest
+    # Override workflow-level `defaults.run.working-directory: langs/python` so
+    # `uv --directory examples/...` resolves from the repo root.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 
@@ -118,6 +123,11 @@ jobs:
     # quality bar stays uniform across all Python examples.
     name: examples (vmx-inspector)
     runs-on: ubuntu-latest
+    # Override workflow-level `defaults.run.working-directory: langs/python` so
+    # `uv --directory examples/...` resolves from the repo root.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 

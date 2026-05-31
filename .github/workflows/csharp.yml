@@ -76,6 +76,11 @@ jobs:
     # and gates restore on packages.lock.json; the example has no lockfile.
     name: examples (notes-showcase)
     runs-on: ubuntu-latest
+    # Override workflow-level `defaults.run.working-directory: langs/csharp` so
+    # `dotnet build/test` resolve example project paths from the repo root.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 

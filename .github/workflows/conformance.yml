@@ -48,12 +48,10 @@ jobs:
         # Also enforce formatting so style regressions in this script can't
         # slip past CI silently.
       - name: Ruff format check tools/
+        # Parity with the lint step above — format-check tools/ with the same
+        # langs/python config (otherwise ruff falls back to defaults which use
+        # a different line-length and disagree with the format committed here).
         run: uv --project langs/python run ruff format --check --config langs/python/pyproject.toml tools/
-
-      - name: Ruff format check tools/
-        # Parity with the lint step above — format-check tools/ so style
-        # drift can't ship even if it doesn't break lint rules.
-        run: uv --project langs/python run ruff format --check tools/
 
       - name: Run tool's own unit tests
         run: uv --project langs/python run pytest tools/tests/ -v
