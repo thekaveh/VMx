@@ -46,8 +46,6 @@ public sealed class NotesViewVM
     private readonly IMessageHub _hub;
     private readonly IDispatcher _dispatcher;
     private readonly IScheduler _searchScheduler;
-    private readonly TimeSpan _searchDebounce;
-    private readonly int _pageSize;
 
     private readonly CompositeVM<NoteVM> _inner;
     private readonly System.Collections.ObjectModel.ObservableCollection<NoteVM> _filtered = new();
@@ -340,8 +338,6 @@ public sealed class NotesViewVM
         _notificationHub = notificationHub;
         _hub = hub;
         _dispatcher = dispatcher;
-        _pageSize = pageSize;
-        _searchDebounce = searchDebounce;
         _searchScheduler = searchScheduler ?? ImmediateScheduler.Instance;
 
         _inner = CompositeVM<NoteVM>.Builder()
