@@ -39,7 +39,7 @@ from vmx import (
     from_sources,
 )
 from vmx.messages.protocols import Message
-from vmx.notifications import INotificationHub, Notification, NotificationType
+from vmx.notifications import INotificationHub
 from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_model import NoteModel
@@ -101,7 +101,8 @@ class NotesViewVM(
 
         self._self_subject: BehaviorSubject[NotesViewVM] = BehaviorSubject(self)
         self._is_empty: DerivedProperty[bool] = from_sources(
-            self._self_subject, transform=lambda nv: len(cast(NotesViewVM, nv)._filtered) == 0
+            self._self_subject,
+            transform=lambda nv: len(cast(NotesViewVM, nv)._filtered) == 0,
         )
         self._page_label: DerivedProperty[str] = from_sources(
             self._self_subject,
@@ -373,9 +374,7 @@ class NotesViewVM(
             PropertyChangedMessage.create(self, self._name, "filtered_items")
         )
         self._hub.send(PropertyChangedMessage.create(self, self._name, "is_empty"))
-        self._hub.send(
-            PropertyChangedMessage.create(self, self._name, "visible_items")
-        )
+        self._hub.send(PropertyChangedMessage.create(self, self._name, "visible_items"))
         self._hub.send(PropertyChangedMessage.create(self, self._name, "page_label"))
         self._raise_property_changed("filtered_items")
         self._raise_property_changed("is_empty")
@@ -388,9 +387,7 @@ class NotesViewVM(
 
     def _on_paged_changed(self, property_name: str) -> None:
         self._raise_property_changed(property_name)
-        self._hub.send(
-            PropertyChangedMessage.create(self, self._name, property_name)
-        )
+        self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
         if property_name in {"current_page_index", "page_count", "page_size"}:
             # Push a fresh self emission so derived "page_label" recomputes.
             self._self_subject.on_next(self)
@@ -456,7 +453,9 @@ class NotesViewVMBuilder:
     def hint(self, value: str) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> NotesViewVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def repository(self, repo: INoteRepository) -> NotesViewVMBuilder:
@@ -483,7 +482,11 @@ class NotesViewVMBuilder:
         if self._repo is None:
             raise ValueError("repository is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return NotesViewVM(
             name=self._name,
             hint=self._hint,

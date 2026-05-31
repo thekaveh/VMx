@@ -50,9 +50,15 @@ class StatusBarVM(ComponentVM):
         self._notebooks = notebooks
         self._note_form = note_form
 
-        self._notes_view_subject: BehaviorSubject[NotesViewVM] = BehaviorSubject(notes_view)
-        self._notebooks_subject: BehaviorSubject[NotebooksRootVM] = BehaviorSubject(notebooks)
-        self._note_form_subject: BehaviorSubject[NoteFormVM] = BehaviorSubject(note_form)
+        self._notes_view_subject: BehaviorSubject[NotesViewVM] = BehaviorSubject(
+            notes_view
+        )
+        self._notebooks_subject: BehaviorSubject[NotebooksRootVM] = BehaviorSubject(
+            notebooks
+        )
+        self._note_form_subject: BehaviorSubject[NoteFormVM] = BehaviorSubject(
+            note_form
+        )
 
         def _resub(subject: BehaviorSubject[object], target: object) -> DisposableBase:
             def _on_msg(m: Message) -> None:
@@ -62,7 +68,9 @@ class StatusBarVM(ComponentVM):
             return notes_view.hub.messages.subscribe(on_next=_on_msg)
 
         self._subs: list[DisposableBase] = [
-            _resub(cast("BehaviorSubject[object]", self._notes_view_subject), notes_view),
+            _resub(
+                cast("BehaviorSubject[object]", self._notes_view_subject), notes_view
+            ),
             _resub(cast("BehaviorSubject[object]", self._notebooks_subject), notebooks),
             _resub(cast("BehaviorSubject[object]", self._note_form_subject), note_form),
         ]
@@ -154,7 +162,9 @@ class StatusBarVMBuilder:
     def hint(self, value: str) -> StatusBarVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> StatusBarVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> StatusBarVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def notes_view(self, value: NotesViewVM) -> StatusBarVMBuilder:
@@ -176,7 +186,11 @@ class StatusBarVMBuilder:
         if self._note_form is None:
             raise ValueError("note_form is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return StatusBarVM(
             name=self._name,
             hint=self._hint,

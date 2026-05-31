@@ -202,7 +202,11 @@ class NotebookVMBuilder:
         if self._model is None:
             raise ValueError("model is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return NotebookVM(
             name=self._name,
             hint=self._hint,

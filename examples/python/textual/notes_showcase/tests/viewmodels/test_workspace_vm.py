@@ -124,7 +124,9 @@ class _StubDialogService(IDialogService):
     async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
         return None
 
-    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:  # noqa: ARG002
+    async def pick_file_to_save(
+        self, filter=None, title=None, suggested_name=None
+    ) -> str | None:  # noqa: ARG002
         self.save_calls += 1
         return self._save_path
 
@@ -143,16 +145,20 @@ async def test_new_notebook_command_adds_notebook_and_fires_notification() -> No
     notification_hub = NotificationHub()
     observed: list[Notification] = []
     notification_hub.pending.subscribe(
-        on_next=lambda snapshot: [observed.append(n) for n in snapshot if n not in observed]
+        on_next=lambda snapshot: [
+            observed.append(n) for n in snapshot if n not in observed
+        ]
     )
     ws = (
         WorkspaceVM.builder()
         .name("ws")
-        .repository(InMemoryNoteRepository(
-            build_seed(),
-            load_all_delay=0.0,
-            add_notebook_delay=0.0,
-        ))
+        .repository(
+            InMemoryNoteRepository(
+                build_seed(),
+                load_all_delay=0.0,
+                add_notebook_delay=0.0,
+            )
+        )
         .notification_hub(notification_hub)
         .build()
     )
@@ -337,7 +343,9 @@ class _AcceptDialog(IDialogService):
     async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
         return None
 
-    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:  # noqa: ARG002
+    async def pick_file_to_save(
+        self, filter=None, title=None, suggested_name=None
+    ) -> str | None:  # noqa: ARG002
         return None
 
     async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002

@@ -50,5 +50,7 @@ def bind_command(button: Any, command: Command) -> DisposableBase:
     def _on_can_execute_changed(_value: object) -> None:
         button.disabled = not command.can_execute()
 
-    subscription = command.can_execute_changed.subscribe(on_next=_on_can_execute_changed)
+    subscription = command.can_execute_changed.subscribe(
+        on_next=_on_can_execute_changed
+    )
     return subscription

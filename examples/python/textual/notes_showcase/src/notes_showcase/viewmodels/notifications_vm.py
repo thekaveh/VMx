@@ -114,9 +114,7 @@ class NotificationsVM(ComponentVM):
             while self._visible.count > self._cap:
                 oldest = self._visible[0]
                 self._visible.remove_at(0)
-                key = next(
-                    (k for k, v in self._map.items() if v is oldest), None
-                )
+                key = next((k for k, v in self._map.items() if v is oldest), None)
                 if key is not None:
                     self._map.pop(key, None)
                 oldest.dispose()
@@ -156,7 +154,9 @@ class NotificationsVMBuilder:
     def hint(self, value: str) -> NotificationsVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> NotificationsVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> NotificationsVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def notification_hub(self, value: INotificationHub) -> NotificationsVMBuilder:
@@ -177,7 +177,11 @@ class NotificationsVMBuilder:
         if self._notification_hub is None:
             raise ValueError("notification_hub is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return NotificationsVM(
             name=self._name,
             hint=self._hint,

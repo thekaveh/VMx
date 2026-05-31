@@ -4,14 +4,20 @@
 
 | Component             | Version | Supported |
 |---                    |---      |---        |
+| C# (`VMx`)            | 2.2.x   | ✅        |
+| C# (`VMx`)            | 2.1.x   | ✅        |
 | C# (`VMx`)            | 2.0.x   | ✅        |
 | C# (`VMx`)            | 1.2.x   | ✅        |
 | C# (`VMx`)            | 1.1.x   | ✅        |
 | C# (`VMx`)            | 1.0.x   | ✅        |
+| Python (`vmx`)        | 2.2.x   | ✅        |
+| Python (`vmx`)        | 2.1.x   | ✅        |
 | Python (`vmx`)        | 2.0.x   | ✅        |
 | Python (`vmx`)        | 1.2.x   | ✅        |
 | Python (`vmx`)        | 1.1.x   | ✅        |
 | Python (`vmx`)        | 1.0.x   | ✅        |
+| TypeScript (`vmx`)    | 2.2.x   | ✅        |
+| TypeScript (`vmx`)    | 2.1.x   | ✅        |
 | TypeScript (`vmx`)    | 2.0.x   | ✅        |
 | TypeScript (`vmx`)    | 1.2.x   | ✅        |
 | TypeScript (`vmx`)    | 1.1.x   | ✅        |

@@ -4,14 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
   "vmx",
-  "textual>=0.65",
-]
-
-[project.optional-dependencies]
-dev = [
-  "pytest>=8",
-  "pytest-asyncio>=0.23",
-  "anyio[trio]",
+  "textual>=0.80",
 ]
 
 [tool.uv.sources]
@@ -19,6 +12,20 @@ vmx = { path = "../../../../langs/python", editable = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.mypy]
+mypy_path = ["src"]
+explicit_package_bases = true
+
+# sample_tree.py demonstrates building a VMx tree without subclassing
+# ComponentVMOf[M] / CompositeVM[VM] — the un-narrowed Never-parameter
+# builders surface as type errors that don't reflect runtime behavior.
+# We cast at the boundary (see file) but the inner callable inference
+# inside .children() / .child_model_to_child_view_model() cascades Never
+# into deeper lambdas, which mypy can't bridge without major rewrites.
+[[tool.mypy.overrides]]
+module = "vmx_inspector.sample_tree"
+disable_error_code = ["arg-type", "return-value"]
 
 [build-system]
 requires = ["hatchling"]
@@ -29,3 +36,12 @@ packages = ["src/vmx_inspector"]
 
 [project.scripts]
 vmx-inspector = "vmx_inspector.__main__:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "anyio[trio]>=4",
+  "ruff>=0.4",
+  "mypy>=1.10",
+]

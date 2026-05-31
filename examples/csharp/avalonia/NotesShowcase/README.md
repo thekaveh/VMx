@@ -41,8 +41,9 @@ examples/csharp/avalonia/NotesShowcase/
 │   ├── NotesViewVM.cs, NoteVM.cs
 │   ├── NoteFormVM.cs              ← FormVM wrapper
 │   ├── StatusBarVM.cs, NotificationsVM.cs
-│   ├── CapabilityActionsVM.cs, ActionVM.cs
-│   └── IDialogService.cs          ← VM-side port
+│   └── CapabilityActionsVM.cs, ActionVM.cs
+│   (`IDialogService` itself ships in the VMx library at
+│    `langs/csharp/src/VMx/Dialogs/IDialogService.cs`.)
 └── Views/
     ├── Adapter/                   ← VMx → Avalonia bridge
     │   ├── BindableVm.cs, BindableDerived.cs
@@ -71,7 +72,7 @@ examples/csharp/avalonia/NotesShowcase/
 | 10  | Async `construct()` + dispatcher | `ViewModels/WorkspaceVM.cs` (`ConstructAsync`), `Views/Adapter/AvaloniaDispatcher.cs`     |
 | 11  | `TreeStructureChangedMessage`    | `ViewModels/NotebooksRootVM.cs` (`AddNotebook` / `Populate`)                              |
 | 12  | `ConfirmationDecoratorCommand`   | `ViewModels/NoteVM.cs` (`DeleteCommand` wraps inner delete)                               |
-| 13  | `IDialogService`                 | `ViewModels/IDialogService.cs`; implemented by `Views/Adapter/AvaloniaDialogService.cs` + `Views/Modals/ConfirmDialog.axaml` |
+| 13  | `IDialogService`                 | Interface from VMx library (`langs/csharp/src/VMx/Dialogs/IDialogService.cs`); implemented here by `Views/Adapter/AvaloniaDialogService.cs` + `Views/Modals/ConfirmDialog.axaml` |
 | 14  | Capability-aware UI              | `ViewModels/CapabilityActionsVM.cs` + `Views/CapabilityActionsView.axaml`                 |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `ViewModels/WorkspaceVM.cs` (wraps a sealed `AggregateVM6<…>` of the six children)         |
 

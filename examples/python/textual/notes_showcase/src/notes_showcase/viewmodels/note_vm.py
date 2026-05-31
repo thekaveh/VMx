@@ -158,7 +158,7 @@ class NoteVM(
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f'Note deleted: “{item.title}”',
+                    f"Note deleted: “{item.title}”",
                 )
             )
 
@@ -249,7 +249,9 @@ class NoteVMBuilder:
     def model(self, value: NoteModel) -> NoteVMBuilder:
         return dataclasses.replace(self, _model=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> NoteVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> NoteVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def on_close(self, callback: Callable[[NoteVM], None]) -> NoteVMBuilder:
@@ -284,7 +286,11 @@ class NoteVMBuilder:
         if self._model is None:
             raise ValueError("model is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return NoteVM(
             name=self._name,
             hint=self._hint,

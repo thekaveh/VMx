@@ -55,7 +55,9 @@ class CapabilityActionsVM(ComponentVM):
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._focused_getter = focused_getter
-        self._focus_subject: BehaviorSubject[object | None] = BehaviorSubject(focused_getter())
+        self._focus_subject: BehaviorSubject[object | None] = BehaviorSubject(
+            focused_getter()
+        )
         self._actions: DerivedProperty[list[ActionVM]] = from_sources(
             self._focus_subject,
             transform=_project,
@@ -249,10 +251,14 @@ class CapabilityActionsVMBuilder:
     def hint(self, value: str) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> CapabilityActionsVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def focused_getter(self, getter: Callable[[], object | None]) -> CapabilityActionsVMBuilder:
+    def focused_getter(
+        self, getter: Callable[[], object | None]
+    ) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _focused_getter=getter)
 
     def build(self) -> CapabilityActionsVM:
@@ -261,7 +267,11 @@ class CapabilityActionsVMBuilder:
         if self._focused_getter is None:
             raise ValueError("focused_getter is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return CapabilityActionsVM(
             name=self._name,
             hint=self._hint,

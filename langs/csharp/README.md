@@ -5,11 +5,12 @@ spec-compatible with the Python and TypeScript flavors.
 
 ## 1. Status
 
-**v2.1.0** — implements `spec-v2.1.0` end-to-end. 219/219 conformance IDs
+**v2.2.0** — implements `spec-v2.2.0` end-to-end. 220/220 conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
-`INotificationHub`).
+`INotificationHub`). Both companions remain at their v2.1.x release
+(no 2.2.0 dependency); see `../../compatibility-matrix.md`.
 
 ## 2. Install
 
@@ -66,7 +67,7 @@ The public API lives under the `VMx.*` namespaces:
 | `ReadonlyComponentVM<M>`        | Leaf VM with read-only model                      |
 | `CompositeVM<VM>` / `<M,VM>`    | Ordered collection of children + current slot     |
 | `GroupVM<VM>`                   | Collection without current selection              |
-| `AggregateVM1..5<…>`            | Fixed-arity named component slots                 |
+| `AggregateVM1..6<…>`            | Fixed-arity named component slots (arity 6 new in 2.2.0; see ADR-0034) |
 | `ForwardingComponentVM<M>`      | Decorator for `IComponentVM<M>`                   |
 | `ForwardingCompositeVM<VM>`     | Decorator for composites                          |
 | `RelayCommand` / `<T>`          | Executable command with `CanExecute` predicate    |
@@ -106,7 +107,7 @@ The companion package `VMx.Notifications` (spec v2.0) adds:
 
 ## 5. Conformance
 
-All 219 conformance IDs from `spec/12-conformance.md` are covered.
+All 220 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -117,6 +118,7 @@ v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        LOC-001..003
 v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
        COL-001..023   CMD-008..011  CAP-021..022
+v2.2   AGG-006
 ```
 
 Run the suite:

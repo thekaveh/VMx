@@ -52,11 +52,18 @@ async def test_populate_loads_seed_notebooks_and_roots_excludes_nested() -> None
     vm.construct()
     await vm.populate()
     assert {nb.model.id for nb in vm.all} == {
-        "nb-work", "nb-specs", "nb-reviews", "nb-personal", "nb-archive",
+        "nb-work",
+        "nb-specs",
+        "nb-reviews",
+        "nb-personal",
+        "nb-archive",
     }
     # nb-specs has parent_id nb-work → not in roots
     assert {nb.model.id for nb in vm.roots} == {
-        "nb-work", "nb-reviews", "nb-personal", "nb-archive",
+        "nb-work",
+        "nb-reviews",
+        "nb-personal",
+        "nb-archive",
     }
 
 
@@ -83,8 +90,7 @@ async def test_add_notebook_emits_tree_structure_changed_message() -> None:
     new_vm = await vm.add_notebook(parent_id=None, name="Side project")
 
     assert any(
-        e.change == TreeStructureChange.ADDED and e.affected is new_vm
-        for e in events
+        e.change == TreeStructureChange.ADDED and e.affected is new_vm for e in events
     )
     assert new_vm in list(vm.all)
 
@@ -95,7 +101,9 @@ async def test_current_setter_is_two_way_and_emits_property_changed() -> None:
     await vm.populate()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(cast(PropertyChangedMessage[object], m).property_name)
+        on_next=lambda m: observed.append(
+            cast(PropertyChangedMessage[object], m).property_name
+        )
         if isinstance(m, PropertyChangedMessage)
         else None
     )

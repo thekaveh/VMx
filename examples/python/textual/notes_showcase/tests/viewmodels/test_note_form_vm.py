@@ -21,7 +21,9 @@ from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 
 
-def _build_vm(*, with_notification_hub: bool = False) -> tuple[NoteFormVM, NotificationHub | None]:
+def _build_vm(
+    *, with_notification_hub: bool = False
+) -> tuple[NoteFormVM, NotificationHub | None]:
     repo = InMemoryNoteRepository(
         build_seed(),
         load_all_delay=0.0,
@@ -32,10 +34,7 @@ def _build_vm(*, with_notification_hub: bool = False) -> tuple[NoteFormVM, Notif
         foreground=ImmediateScheduler(), background=ImmediateScheduler()
     )
     builder = (
-        NoteFormVM.builder()
-        .name("form")
-        .services(hub, dispatcher)
-        .repository(repo)
+        NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo)
     )
     notification_hub: NotificationHub | None = None
     if with_notification_hub:
@@ -126,7 +125,9 @@ async def test_approve_persists_and_publishes_notification() -> None:
     assert vm.snapshot.title == "Edited title"
     assert vm.is_dirty.value is False
     # Notification posted — assert exactly one "Saved" with the new title.
-    saved = [n for n in observed if "Saved" in n.message and "Edited title" in n.message]
+    saved = [
+        n for n in observed if "Saved" in n.message and "Edited title" in n.message
+    ]
     assert len(saved) == 1
 
 
@@ -322,7 +323,6 @@ def test_after_bind_to_deny_command_property_changed_fires() -> None:
     includes ``deny_command`` / ``approve_command`` PropertyChangedMessage.
     """
     from vmx import PropertyChangedMessage
-    from vmx.messages.protocols import Message
 
     vm, _ = _build_vm()
     observed: list[str] = []

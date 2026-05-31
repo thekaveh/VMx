@@ -67,7 +67,9 @@ def test_setting_model_emits_title_and_starred_messages_when_changed() -> None:
     vm.construct()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(cast(PropertyChangedMessage[object], m).property_name)
+        on_next=lambda m: observed.append(
+            cast(PropertyChangedMessage[object], m).property_name
+        )
         if isinstance(m, PropertyChangedMessage)
         else None
     )
@@ -202,7 +204,9 @@ async def test_delete_command_with_confirm_true_invokes_on_delete() -> None:
     assert captured == [vm]
 
 
-async def test_delete_command_with_confirm_true_publishes_note_deleted_notification() -> None:
+async def test_delete_command_with_confirm_true_publishes_note_deleted_notification() -> (
+    None
+):
     """Successful confirmed delete + a NotificationHub posts 'Note deleted'."""
     from vmx.commands import ConfirmationDecoratorCommand
     from vmx.notifications import NotificationHub

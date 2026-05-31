@@ -76,8 +76,12 @@ async def test_save_note_inserts_when_id_is_new() -> None:
         tags=(),
         body="",
         starred=False,
-        created_at=notes_before[0].created_at if notes_before else (await repo.load_all())[1][0].created_at,
-        updated_at=notes_before[0].updated_at if notes_before else (await repo.load_all())[1][0].updated_at,
+        created_at=notes_before[0].created_at
+        if notes_before
+        else (await repo.load_all())[1][0].created_at,
+        updated_at=notes_before[0].updated_at
+        if notes_before
+        else (await repo.load_all())[1][0].updated_at,
     )
     await repo.save_note(fresh)
     after = await repo.load_notes("nb-archive")
@@ -148,7 +152,11 @@ def test_build_seed_is_deterministic() -> None:
     assert notebooks_a == notebooks_b
     assert notes_a == notes_b
     assert {nb.id for nb in notebooks_a} == {
-        "nb-work", "nb-specs", "nb-reviews", "nb-personal", "nb-archive",
+        "nb-work",
+        "nb-specs",
+        "nb-reviews",
+        "nb-personal",
+        "nb-archive",
     }
     assert {n.id for n in notes_a if n.starred} == {"note-02", "note-07", "note-10"}
 
@@ -163,7 +171,9 @@ def test_build_seed_is_deterministic() -> None:
         ("nb-archive", 0),
     ],
 )
-async def test_seed_distribution_matches_csharp(notebook_id: str, expected_count: int) -> None:
+async def test_seed_distribution_matches_csharp(
+    notebook_id: str, expected_count: int
+) -> None:
     repo = _fast_repo()
     notes = await repo.load_notes(notebook_id)
     assert len(notes) == expected_count

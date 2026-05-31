@@ -100,5 +100,50 @@ jobs:
         # flag is needed for pytest to be present.
         run: uv sync --directory examples/python/textual/notes_showcase
 
+      - name: notes-showcase ruff lint
+        run: uv run --directory examples/python/textual/notes_showcase ruff check
+
+      - name: notes-showcase ruff format check
+        run: uv run --directory examples/python/textual/notes_showcase ruff format --check
+
+      - name: notes-showcase mypy strict
+        run: uv run --directory examples/python/textual/notes_showcase mypy --strict src
+
       - name: notes-showcase tests
         run: uv run --directory examples/python/textual/notes_showcase pytest
+
+  inspector:
+    # vmx_inspector (Textual TUI) is a separate standalone uv project; gate it
+    # under the same ruff/mypy/pytest standards as the lib + showcase so the
+    # quality bar stays uniform across all Python examples.
+    name: examples (vmx-inspector)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: |
+            examples/python/textual/inspector/pyproject.toml
+            examples/python/textual/inspector/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: inspector sync
+        run: uv sync --directory examples/python/textual/inspector
+
+      - name: inspector ruff lint
+        run: uv run --directory examples/python/textual/inspector ruff check
+
+      - name: inspector ruff format check
+        run: uv run --directory examples/python/textual/inspector ruff format --check
+
+      - name: inspector mypy strict
+        run: uv run --directory examples/python/textual/inspector mypy --strict src
+
+      - name: inspector tests
+        run: uv run --directory examples/python/textual/inspector pytest

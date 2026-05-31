@@ -60,7 +60,9 @@ def test_toggle_expansion_emits_is_expanded_property_changed_message() -> None:
     vm.construct()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(cast(PropertyChangedMessage[object], m).property_name)
+        on_next=lambda m: observed.append(
+            cast(PropertyChangedMessage[object], m).property_name
+        )
         if isinstance(m, PropertyChangedMessage)
         else None
     )
@@ -76,12 +78,16 @@ def test_setting_model_emits_model_and_notebook_name_messages() -> None:
     vm.construct()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(cast(PropertyChangedMessage[object], m).property_name)
+        on_next=lambda m: observed.append(
+            cast(PropertyChangedMessage[object], m).property_name
+        )
         if isinstance(m, PropertyChangedMessage)
         else None
     )
 
-    vm.model = NotebookModel(id=vm.model.id, name="New Name", parent_id=vm.model.parent_id)
+    vm.model = NotebookModel(
+        id=vm.model.id, name="New Name", parent_id=vm.model.parent_id
+    )
 
     assert "model" in observed
     assert "notebook_name" in observed
@@ -93,7 +99,9 @@ def test_setting_model_to_equal_value_is_no_op() -> None:
     vm.construct()
     observed: list[str] = []
     vm.hub.messages.subscribe(
-        on_next=lambda m: observed.append(cast(PropertyChangedMessage[object], m).property_name)
+        on_next=lambda m: observed.append(
+            cast(PropertyChangedMessage[object], m).property_name
+        )
         if isinstance(m, PropertyChangedMessage)
         else None
     )

@@ -59,9 +59,7 @@ class TextualDialogService(IDialogService):
         message: str,
         title: str | None = None,
     ) -> bool:
-        return await self._app.push_screen_wait(
-            ConfirmModal(message, title=title)
-        )
+        return await self._app.push_screen_wait(ConfirmModal(message, title=title))
 
     async def notify(
         self,

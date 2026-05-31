@@ -119,7 +119,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # No-op fallback returned by ``deny_command`` when no form is bound,
         # so views can bind unconditionally. Matches C# ``_noopCommand``
         # (NoteFormVM.cs:118) and TS ``#noopCommand`` (noteFormVM.ts:54).
-        self._noop_command: RelayCommand = RelayCommand.builder().task(lambda: None).build()
+        self._noop_command: RelayCommand = (
+            RelayCommand.builder().task(lambda: None).build()
+        )
 
     # ── Convenience hub accessor ───────────────────────────────────────────
     @property
@@ -333,11 +335,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         ``TagDraft = string.Empty`` and TS ``this.tagDraft = ""``.
         """
         had_tag_draft = self._tag_draft != ""
-        if (
-            self._form is None
-            and self._bind_subscription is None
-            and not had_tag_draft
-        ):
+        if self._form is None and self._bind_subscription is None and not had_tag_draft:
             return
         if self._form is not None:
             self._form.dispose()
@@ -347,9 +345,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._bind_subscription = None
         if had_tag_draft:
             self._tag_draft = ""
-            self._hub.send(
-                PropertyChangedMessage.create(self, self._name, "tag_draft")
-            )
+            self._hub.send(PropertyChangedMessage.create(self, self._name, "tag_draft"))
             self._raise_property_changed("tag_draft")
         self._emit_draft_changes()
 
@@ -363,7 +359,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f'Saved “{self._form.snapshot.title}”',
+                    f"Saved “{self._form.snapshot.title}”",
                 )
             )
 
@@ -444,7 +440,9 @@ class NoteFormVMBuilder:
     def hint(self, value: str) -> NoteFormVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> NoteFormVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> NoteFormVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def repository(self, repo: INoteRepository) -> NoteFormVMBuilder:
@@ -459,7 +457,11 @@ class NoteFormVMBuilder:
         if self._repo is None:
             raise ValueError("repository is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return NoteFormVM(
             name=self._name,
             hint=self._hint,

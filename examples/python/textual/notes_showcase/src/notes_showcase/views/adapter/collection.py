@@ -92,7 +92,9 @@ def bind_collection(
             return
         list_view.index = _index_of_current(vm_collection)
 
-    subscriptions.add(resolve_hub(vm_collection).messages.subscribe(on_next=_on_message))
+    subscriptions.add(
+        resolve_hub(vm_collection).messages.subscribe(on_next=_on_message)
+    )
 
     # Seed list_view.index from the VM (None → -1 / first row blank).
     list_view.index = _index_of_current(vm_collection)

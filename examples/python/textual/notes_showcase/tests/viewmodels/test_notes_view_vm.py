@@ -216,7 +216,9 @@ class _AcceptDialog:
     async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
         return None
 
-    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:  # noqa: ARG002
+    async def pick_file_to_save(
+        self, filter=None, title=None, suggested_name=None
+    ) -> str | None:  # noqa: ARG002
         return None
 
     async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002

@@ -97,7 +97,11 @@ def test_editing_text_reports_no_selection_when_form_unbound() -> None:
 def test_editing_text_marks_dirty_state_with_asterisk() -> None:
     status, _, _, note_form = _bootstrap()
     note = NoteModel(
-        id="x", notebook_id="nb-1", title="Hello", tags=(), body="",
+        id="x",
+        notebook_id="nb-1",
+        title="Hello",
+        tags=(),
+        body="",
         starred=False,
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -105,9 +109,14 @@ def test_editing_text_marks_dirty_state_with_asterisk() -> None:
     note_form.bind_to(note)
     assert status.editing_text.value == "Editing: Hello"
     note_form.draft = NoteModel(
-        id="x", notebook_id="nb-1", title="Hello edited", tags=(), body="",
+        id="x",
+        notebook_id="nb-1",
+        title="Hello edited",
+        tags=(),
+        body="",
         starred=False,
-        created_at=note.created_at, updated_at=note.updated_at,
+        created_at=note.created_at,
+        updated_at=note.updated_at,
     )
     assert status.editing_text.value == "Editing: Hello edited *"
 

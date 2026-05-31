@@ -29,7 +29,9 @@ def _leaf(hub: MessageHub[Message], dispatcher: RxDispatcher, name: str) -> Comp
     return ComponentVM(name=name, hint=name.upper(), hub=hub, dispatcher=dispatcher)
 
 
-def _build_composite(initial: Iterable[str]) -> tuple[CompositeVM[ComponentVM], MessageHub[Message]]:
+def _build_composite(
+    initial: Iterable[str],
+) -> tuple[CompositeVM[ComponentVM], MessageHub[Message]]:
     hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.immediate()
     items = [_leaf(hub, dispatcher, n) for n in initial]

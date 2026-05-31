@@ -67,8 +67,7 @@ async def test_cap_drops_oldest_when_over_limit() -> None:
     vm, hub = _build(cap=3)
     vm.construct()
     futures = [
-        hub.post(Notification(NotificationType.NOTIFICATION, f"m{i}"))
-        for i in range(5)
+        hub.post(Notification(NotificationType.NOTIFICATION, f"m{i}")) for i in range(5)
     ]
     assert vm.visible.count == 3
     # Newest three should remain.

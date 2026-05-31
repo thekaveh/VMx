@@ -181,12 +181,10 @@ class WorkspaceVM:
             else:
                 note_form.unbind()
 
-        self._current_note_subscription: DisposableBase = (
-            notes_view.hub.messages.pipe(
-                ops.filter(_is_current_change),
-                ops.observe_on(dispatcher.foreground),
-            ).subscribe(on_next=_on_notes_view_msg)
-        )
+        self._current_note_subscription: DisposableBase = notes_view.hub.messages.pipe(
+            ops.filter(_is_current_change),
+            ops.observe_on(dispatcher.foreground),
+        ).subscribe(on_next=_on_notes_view_msg)
 
         self._new_notebook_command = (
             RelayCommand.builder()
@@ -418,5 +416,7 @@ class WorkspaceVMBuilder:
             dialog_service=self._dialog_service or NULL_DIALOG_SERVICE,
             notification_hub=self._notification_hub or NotificationHub(),
             hub=self._hub if self._hub is not None else MessageHub[Message](),
-            dispatcher=self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate(),
+            dispatcher=self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate(),
         )

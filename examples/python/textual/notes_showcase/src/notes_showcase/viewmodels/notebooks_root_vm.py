@@ -156,7 +156,7 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f'Notebook added: “{name}”',
+                    f"Notebook added: “{name}”",
                 )
             )
         return vm
@@ -234,7 +234,9 @@ class NotebooksRootVMBuilder:
     def hint(self, value: str) -> NotebooksRootVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> NotebooksRootVMBuilder:
+    def services(
+        self, hub: MessageHub[Message], dispatcher: Dispatcher
+    ) -> NotebooksRootVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def repository(self, repo: INoteRepository) -> NotebooksRootVMBuilder:
@@ -249,7 +251,11 @@ class NotebooksRootVMBuilder:
         if self._repo is None:
             raise ValueError("repository is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
+        dispatcher = (
+            self._dispatcher
+            if self._dispatcher is not None
+            else RxDispatcher.immediate()
+        )
         return NotebooksRootVM(
             name=self._name,
             hint=self._hint,

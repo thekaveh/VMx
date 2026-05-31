@@ -6,7 +6,6 @@ from textual.widgets import Tree
 from textual.widgets.tree import TreeNode
 
 from vmx.components.protocols import ComponentVMProto
-from vmx.tree import walk
 
 
 def populate_tree(tree: Tree[ComponentVMProto], root: ComponentVMProto) -> None:

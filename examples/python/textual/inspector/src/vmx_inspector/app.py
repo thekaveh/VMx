@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
+from reactivex.abc import DisposableBase
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -22,7 +25,9 @@ from vmx_inspector.tree_view import populate_tree, refresh_node_label
 def _build_parent_map(root: ComponentVMProto) -> dict[int, str]:
     """Return ``{id(child): parent.name}`` for every node reachable from *root*."""
     result: dict[int, str] = {}
-    for node in walk(root):
+    # walk() expects the internal _ComponentVMBase; the inspector deliberately
+    # operates against the public ComponentVMProto, so cast at the boundary.
+    for node in walk(cast(Any, root)):
         if hasattr(node, "__iter__"):
             try:
                 for child in node:
@@ -63,7 +68,7 @@ class VMxInspectorApp(App[None]):
     def __init__(self) -> None:
         super().__init__()
         self._root, self._hub, self._dispatcher = build_sample_tree()
-        self._hub_sub = None
+        self._hub_sub: DisposableBase | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -111,7 +116,9 @@ class VMxInspectorApp(App[None]):
             return None
         return node.data
 
-    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[ComponentVMProto]) -> None:
+    def on_tree_node_highlighted(
+        self, event: Tree.NodeHighlighted[ComponentVMProto]
+    ) -> None:
         details = self.query_one(DetailsView)
         details.selected_vm = event.node.data
 
