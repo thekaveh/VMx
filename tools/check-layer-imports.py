@@ -73,7 +73,7 @@ FLAVORS = {
 def _layer_of(path_parts: tuple[str, ...], layers: list[str]) -> str | None:
     """Return the first matching layer name found in the path parts (case-insensitive)."""
     lower = [p.lower() for p in path_parts]
-    layer_lower = [l.lower() for l in layers]
+    layer_lower = [layer.lower() for layer in layers]
     for p in lower:
         if p in layer_lower:
             return layers[layer_lower.index(p)]
