@@ -26,6 +26,7 @@ public class CompositeVMTests
             .Name(name)
             .Services(hub, dispatcher)
             .AsyncSelection(asyncSelection)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
         return (composite, hub, dispatcher);
     }
@@ -595,5 +596,21 @@ public class CompositeVMTests
         var act = () => CompositeVM<ComponentVM<string>>.Builder()
             .Name("x").Build();
         act.Should().Throw<VMx.Builders.BuilderValidationException>();
+    }
+
+    [Fact]
+    public void Builder_Throws_When_Children_Missing()
+    {
+        // Per spec/10-builders.md §3 + ADR-0035: non-modeled CompositeVM<VM>
+        // requires a Children(() => ...) factory. For an empty composite,
+        // pass Children(() => Array.Empty<VM>()) explicitly.
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var act = () => CompositeVM<ComponentVM<string>>.Builder()
+            .Name("x")
+            .Services(hub, dispatcher)
+            .Build();
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
+            .WithMessage("*Children*");
     }
 }

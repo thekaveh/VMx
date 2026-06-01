@@ -48,6 +48,8 @@ The one exception is additive setters like `Triggers` on `RelayCommand` — see
 | `ComponentVM<M>`, `ReadonlyComponentVM<M>`, `CompositeVM<M, VM>`               | additionally: a model source (model setter for modeled; `Model(...)` for readonly; `ChildrenModels(...)` for modeled composite) |
 | `CompositeVM<VM>`, `GroupVM<VM>`                                               | additionally: `Children(() -> ...)` factory                                                                                     |
 | `AggregateVMN`                                                                 | additionally: every `ComponentI` factory for `I = 1..N`                                                                         |
+| `FormVM<TM>`                                                                   | `Initial(TM)`, `Persister(Func<TM, Task>)` (the typed `IFormPersister<TM>` overload is offered via a Wither in C#)              |
+| `HierarchicalVM<M, VM>`                                                        | `Model(M)`, `ChildrenFactory(self -> children)`, `Services(IMessageHub, IDispatcher)`                                           |
 | `RelayCommand`, `RelayCommand<T>`                                              | (no required fields; a no-op command is valid)                                                                                  |
 
 If a required field is missing, `Build()` raises a `BuilderValidationError`
@@ -78,9 +80,11 @@ etc.) but DISTINCT instances. Builders themselves are reusable.
 
 ## 6. Conformance
 
-`BLD-001` through `BLD-004` in `12-conformance.md` cover:
+`BLD-001` through `BLD-005` in `12-conformance.md` cover:
 
 - setter returns a new builder instance
 - required fields validated on `Build()`
 - repeated identical calls produce equivalent VMs
 - field defaults applied when not set
+- additive setters (e.g., `Triggers` on `RelayCommand`) retain prior values across
+  repeated calls (cumulative, not overwriting)

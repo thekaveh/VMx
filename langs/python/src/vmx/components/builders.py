@@ -71,6 +71,27 @@ class ComponentVMBuilder:
         """Enable/disable background scheduling (default: False)."""
         return dataclasses.replace(self, _background=value)
 
+    def with_null_services(self) -> ComponentVMBuilder:
+        """Chainable Wither that wires the null message hub + null dispatcher.
+
+        Equivalent to ``self.services(NULL_MESSAGE_HUB, NULL_DISPATCHER)``.
+        Intended for tests, samples, and exploration code; production VMs
+        should call :meth:`services` with real services. Mirrors the C#
+        ``WithNullServices()`` and TS ``withNullServices()`` extensions
+        per spec/10-builders.md / ADR-0035.
+        """
+        from vmx.services.null_dispatcher import NULL_DISPATCHER
+        from vmx.services.null_message_hub import NULL_MESSAGE_HUB
+
+        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017). It is
+        # typed as ``MessageHubProto[Message]`` (the structural protocol) while
+        # the ``services`` setter is typed against the concrete
+        # ``MessageHub[Message]`` for ergonomic reasons; the protocol fully
+        # satisfies the surface so the cast is sound. C# erases generics so
+        # the equivalent there compiles without explicit casting.
+        hub: MessageHub[Message] = NULL_MESSAGE_HUB  # type: ignore[assignment]
+        return self.services(hub, NULL_DISPATCHER)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> ComponentVM:
@@ -154,6 +175,24 @@ class ComponentVMOfBuilder(Generic[M]):
     def vm_type(self, value: ViewModelType) -> ComponentVMOfBuilder[M]:
         """Override the VM type (default: COMPONENT)."""
         return dataclasses.replace(self, _vm_type=value)
+
+    def with_null_services(self) -> ComponentVMOfBuilder[M]:
+        """Chainable Wither that wires the null message hub + null dispatcher.
+
+        See :meth:`ComponentVMBuilder.with_null_services` for the rationale.
+        Per spec/10-builders.md / ADR-0035.
+        """
+        from vmx.services.null_dispatcher import NULL_DISPATCHER
+        from vmx.services.null_message_hub import NULL_MESSAGE_HUB
+
+        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017). It is
+        # typed as ``MessageHubProto[Message]`` (the structural protocol) while
+        # the ``services`` setter is typed against the concrete
+        # ``MessageHub[Message]`` for ergonomic reasons; the protocol fully
+        # satisfies the surface so the cast is sound. C# erases generics so
+        # the equivalent there compiles without explicit casting.
+        hub: MessageHub[Message] = NULL_MESSAGE_HUB  # type: ignore[assignment]
+        return self.services(hub, NULL_DISPATCHER)
 
     # ── Build ────────────────────────────────────────────────────────────────
 
@@ -243,6 +282,24 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
 
     def background(self, value: bool) -> ReadonlyComponentVMOfBuilder[M]:
         return dataclasses.replace(self, _background=value)
+
+    def with_null_services(self) -> ReadonlyComponentVMOfBuilder[M]:
+        """Chainable Wither that wires the null message hub + null dispatcher.
+
+        See :meth:`ComponentVMBuilder.with_null_services` for the rationale.
+        Per spec/10-builders.md / ADR-0035.
+        """
+        from vmx.services.null_dispatcher import NULL_DISPATCHER
+        from vmx.services.null_message_hub import NULL_MESSAGE_HUB
+
+        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017). It is
+        # typed as ``MessageHubProto[Message]`` (the structural protocol) while
+        # the ``services`` setter is typed against the concrete
+        # ``MessageHub[Message]`` for ergonomic reasons; the protocol fully
+        # satisfies the surface so the cast is sound. C# erases generics so
+        # the equivalent there compiles without explicit casting.
+        hub: MessageHub[Message] = NULL_MESSAGE_HUB  # type: ignore[assignment]
+        return self.services(hub, NULL_DISPATCHER)
 
     # ── Build ────────────────────────────────────────────────────────────────
 

@@ -27,6 +27,7 @@ public class CompositeVMConformanceTests
             .Name(name)
             .Services(hub, dispatcher)
             .AsyncSelection(asyncSelection)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
         return (composite, hub, dispatcher);
     }
@@ -178,7 +179,9 @@ public class CompositeVMConformanceTests
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
         var composite = CompositeVM<ComponentVM<string>>.Builder()
-            .Name("root").Services(hub, dispatcher).Build();
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
         var vmA = BuildChild(hub, dispatcher, "vmA");
         var vmB = BuildChild(hub, dispatcher, "vmB");
         composite.Add(vmA);
@@ -294,6 +297,7 @@ public class CompositeVMConformanceTests
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("root").Services(hub, dispatcher)
             .AsyncSelection(true)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
         var vmA = BuildChild(hub, dispatcher, "vmA");
         composite.Add(vmA);
@@ -361,15 +365,21 @@ public class CompositeVMConformanceTests
         var grandchild2a = MakeLeaf("gc2a");
 
         var root = CompositeVM<IComponentVM>.Builder()
-            .Name("root").Services(hub, dispatcher).Build();
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .Build();
 
         var child1 = CompositeVM<ComponentVM<string>>.Builder()
-            .Name("child1").Services(hub, dispatcher).Build();
+            .Name("child1").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
         child1.Add(grandchild1a);
         child1.Add(grandchild1b);
 
         var child2 = CompositeVM<ComponentVM<string>>.Builder()
-            .Name("child2").Services(hub, dispatcher).Build();
+            .Name("child2").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
         child2.Add(grandchild2a);
 
         root.Add(child1);

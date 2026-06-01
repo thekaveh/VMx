@@ -114,6 +114,7 @@ public class ThreadingConformanceTests
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("root")
             .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
 
         var child = ComponentVM<string>.Builder()

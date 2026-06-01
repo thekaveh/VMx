@@ -152,8 +152,14 @@ export { ForwardingCompositeVM } from "./forwarding/forwardingCompositeVM.js";
 export { walk, find, walkExpanded } from "./tree/walk.js";
 
 // Hierarchical VM (spec v2.1)
-export { HierarchicalVM } from "./hierarchical/hierarchicalVm.js";
-export type { HierarchicalVMOptions } from "./hierarchical/hierarchicalVm.js";
+export {
+  HierarchicalVM,
+  HierarchicalVMBuilder,
+} from "./hierarchical/hierarchicalVm.js";
+export type {
+  HierarchicalVMOptions,
+  HierarchicalVMConstructionContext,
+} from "./hierarchical/hierarchicalVm.js";
 
 // Dialogs (spec v2.1)
 export type {
@@ -164,7 +170,7 @@ export type {
 export { NullDialogService } from "./dialogs/nullDialogService.js";
 
 // Forms (spec v2.1)
-export { FormVM } from "./forms/formVm.js";
+export { FormVM, FormVMBuilder } from "./forms/formVm.js";
 export type { FormVMOptions, Persister, Snapshotter } from "./forms/formVm.js";
 export { FormRevertedMessage } from "./messages/formReverted.js";
 

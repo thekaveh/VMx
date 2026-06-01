@@ -136,7 +136,7 @@ def test_THR_003_collection_changed_observed_on_foreground_scheduler() -> None:
     dispatcher = TestDispatcher()
 
     composite: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name("root").services(hub, dispatcher).build()
+        CompositeVMBuilder().name("root").services(hub, dispatcher).children(lambda: ()).build()
     )
     composite.construct()
 

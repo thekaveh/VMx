@@ -61,7 +61,11 @@ public sealed class GroupVMBuilder<VM>
     public GroupVMBuilder<VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
-    /// <summary>Sets the optional children factory evaluated lazily on Construct.</summary>
+    /// <summary>
+    /// Sets the required children factory. The factory is invoked lazily on
+    /// Construct. For a group with no initial children, pass
+    /// <c>() =&gt; Array.Empty&lt;VM&gt;()</c> (per spec/10 §3 / ADR-0035).
+    /// </summary>
     public GroupVMBuilder<VM> Children(Func<IEnumerable<VM>> factory)
         => With(childrenFactory: factory);
 
@@ -87,6 +91,7 @@ public sealed class GroupVMBuilder<VM>
         BuilderValidationException.Require(_name, "Name");
         BuilderValidationException.Require(_hub, "Hub");
         BuilderValidationException.Require(_dispatcher, "Dispatcher");
+        BuilderValidationException.Require(_childrenFactory, "Children");
 
         return GroupVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,

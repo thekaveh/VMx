@@ -14,6 +14,7 @@ import reactivex as rx
 from reactivex.subject import Subject
 
 from vmx.commands.relay_command import RelayCommand
+from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -82,6 +83,17 @@ class FormVM(Generic[TM]):
         )
 
     # ── Properties ────────────────────────────────────────────────────────────
+
+    # ── Builder entrypoint ───────────────────────────────────────────────────
+
+    @staticmethod
+    def builder() -> FormVMBuilder[TM]:
+        """Return a fresh :class:`FormVMBuilder` for this generic type.
+
+        Equivalent to ``FormVMBuilder[TM]()``; provided for parity with the
+        other VMx VM family entry points. See ADR-0035 §2 FV1.
+        """
+        return FormVMBuilder[TM]()
 
     @property
     def model(self) -> TM:

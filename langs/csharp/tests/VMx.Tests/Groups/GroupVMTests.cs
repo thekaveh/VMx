@@ -24,6 +24,7 @@ public class GroupVMTests
         var group = GroupVM<ComponentVM<string>>.Builder()
             .Name(name)
             .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
         return (group, hub, dispatcher);
     }
@@ -248,6 +249,22 @@ public class GroupVMTests
             .Name("g")
             .Build();
         act.Should().Throw<Exception>();
+    }
+
+    [Fact]
+    public void Builder_Throws_When_Children_Missing()
+    {
+        // Per spec/10-builders.md §3 + ADR-0035: GroupVM<VM> requires a
+        // Children(() => ...) factory. For an empty group, pass
+        // Children(() => Array.Empty<VM>()) explicitly.
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var act = () => GroupVM<ComponentVM<string>>.Builder()
+            .Name("g")
+            .Services(hub, dispatcher)
+            .Build();
+        act.Should().Throw<VMx.Builders.BuilderValidationException>()
+            .WithMessage("*Children*");
     }
 
     // ── Dispose cascade ──────────────────────────────────────────────────────

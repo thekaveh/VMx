@@ -2,8 +2,8 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.2.0,
-Python `vmx` v2.2.0, TypeScript `vmx` v2.2.0 — declares the spec version it
+This directory is the contract. Every published package — C# `VMx` v2.3.0,
+Python `vmx` v2.3.0, TypeScript `vmx` v2.3.0 — declares the spec version it
 implements. Conformance tests under `langs/<lang>/tests/conformance/`
 re-implement the catalog at `12-conformance.md` and must pass before any
 flavor releases a stable version.
@@ -24,7 +24,7 @@ flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (220 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (227 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -74,11 +74,34 @@ to work unchanged.
 - `12-conformance.md` — adds `AGG-006` (arity-6 construction / destruction
   ordering); catalog total goes from 219 to 220.
 
-### 1.5 Supporting artefacts
+### 1.5 v2.2.x → v2.3.0 changes
 
-- `VERSION` — current spec SemVer (`2.2.0`).
+v2.3.0 is a minor, non-breaking spec bump motivated by a comprehensive
+builder-pattern audit (see ADR-0035). All v2.2.x consumers continue to work
+unchanged; the one behaviour change (C# / Python `CompositeVMBuilder` and
+`GroupVMBuilder` now validate `Children` at `Build()`) brings those flavors
+into compliance with the existing spec §3 contract and matches TypeScript's
+existing behaviour.
+
+- **ADR-0035** — builder pattern audit follow-through: `FormVMBuilder<TM>`
+  and `HierarchicalVMBuilder<TModel, TVM>` added across all three flavors;
+  Children validation for `CompositeVMBuilder` / `GroupVMBuilder` aligned
+  with spec; Python + TS gain `with_null_services()` / `withNullServices()`
+  Wither parity with C#; Python gains typed-arity
+  `DerivedProperty.from_one..from_five` factories.
+- `10-builders.md` — §3 table gains rows for `HierarchicalVM<M, VM>` and
+  `FormVM<TM>` with required-field contracts; §2 documents `BLD-005`
+  additive-retention invariant.
+- `12-conformance.md` — adds `BLD-005` (additive setter retention),
+  `FORM-011..013` (FormVM builder validate / repeat / defaults), and
+  `HIER-015..017` (HierarchicalVM builder validate / repeat / defaults);
+  catalog total goes from 220 to 227.
+
+### 1.6 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`2.3.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0034); see
+- `ADRs/` — Architecture Decision Records (0001-0035); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

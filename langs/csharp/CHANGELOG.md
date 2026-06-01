@@ -6,6 +6,47 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## 2.3.0 — 2026-05-31
+
+Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
+Purely additive at the surface level. One behaviour change brings
+`CompositeVMBuilder<VM>` and `GroupVMBuilder<VM>` into compliance with
+the existing spec §3 contract (see Fixed below); callers that were
+relying on the previously-lazy validation were already buggy.
+
+### Added
+
+- **`FormVMBuilder<TM>`** (`VMx.Forms`) — fluent immutable builder for
+  `FormVM<TM>` with `.Initial(...)` and `.Persister(...)` (or
+  `.WithFormPersister(IFormPersister<TM>)`) required, and optional
+  `.Hub(...)`, `.Strict(bool)`, `.Snapshotter(...)`. Validates at
+  `Build()`. Conformance: `FORM-011..013`. See ADR-0035 §FV1/FV2.
+- **`HierarchicalVMBuilder<TModel, TVM>`** (`VMx.Hierarchical`) — fluent
+  immutable builder for `HierarchicalVM<TModel, TVM>` with `.Model(...)`,
+  `.ChildrenFactory(...)`, `.Services(hub, dispatcher)` required, and
+  optional `.Name(...)`, `.Hint(...)`, `.EagerChildren(bool)`. Validates
+  at `Build()`. Conformance: `HIER-015..017`. See ADR-0035 §H1/H2/H3.
+- New `HierarchicalVMConstructionContext` exposed to children factories.
+
+### Fixed
+
+- `CompositeVMBuilder<VM>.Build()` and `GroupVMBuilder<VM>.Build()` now
+  raise `BuilderValidationException` when `Children` is unset, matching
+  the spec/10 §3 contract and the TypeScript flavor's existing behaviour.
+  Previously these flavors silently accepted a missing `Children` factory
+  and raised later at `OnConstruct`. See ADR-0035 §CP1/GR2.
+
+### Conformance
+
+- 7 new IDs (`BLD-005`, `FORM-011..013`, `HIER-015..017`); running total
+  goes from 220 to 227. Note: `FORM-011` and `HIER-015` are each split
+  into multiple per-missing-field tests, so the test count delta is
+  greater than the ID count delta.
+
+### Min spec version
+
+- 2.3.0 (previously 2.2.0).
+
 ## 2.2.0 — 2026-05-30
 
 ### Added

@@ -40,6 +40,7 @@ public sealed class ObservableCollectionBridgeTests
         var src = CompositeVM<NoteVM>.Builder()
             .Name("notes")
             .Services(hub, dispatcher)
+            .Children(() => Array.Empty<NoteVM>())
             .Build();
         src.Construct();
         return src;

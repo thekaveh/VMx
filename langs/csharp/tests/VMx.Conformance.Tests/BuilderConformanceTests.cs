@@ -1,5 +1,7 @@
+using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Builders;
+using VMx.Commands;
 using VMx.Components;
 using VMx.Tests.Helpers;
 using Xunit;
@@ -7,7 +9,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for builder semantics: BLD-001..004.
+/// Conformance tests for builder semantics: BLD-001..005.
 /// Representative VM: <see cref="ComponentVM{M}"/> with M = string.
 /// See spec/10-builders.md and spec/12-conformance.md §Builders.
 /// </summary>
@@ -122,5 +124,36 @@ public class BuilderConformanceTests
         // when no parent composite has been set.
         vm.CanSelect().Should().BeFalse(
             "Parent defaults to null, so CanSelect() must be false");
+    }
+
+    // ── BLD-005 — Additive setters retain prior values across repeated calls ──
+
+    /// <summary>
+    /// BLD-005: Given a RelayCommand builder b1, when b2 = b1.Triggers(o1)
+    /// and b3 = b2.Triggers(o2) are called with distinct observables,
+    /// then the resulting command's CanExecuteChanged fires for BOTH triggers
+    /// (cumulative, not overwriting). Other setters (e.g., Name, Task)
+    /// continue to overwrite per BLD-001's standard semantics. See ADR-0035.
+    /// </summary>
+    [Fact, Trait("Conformance", "BLD-005")]
+    public void BLD_005_Additive_Setters_Retain_Prior_Values_Across_Repeated_Calls()
+    {
+        var trigger1 = new Subject<System.Reactive.Unit>();
+        var trigger2 = new Subject<System.Reactive.Unit>();
+
+        var cmd = RelayCommand.Builder()
+            .Triggers(trigger1)
+            .Triggers(trigger2)
+            .Build();
+
+        var firings = 0;
+        cmd.CanExecuteChanged += (_, _) => firings++;
+
+        trigger1.OnNext(default);
+        firings.Should().Be(1, "first trigger must fire CanExecuteChanged");
+
+        trigger2.OnNext(default);
+        firings.Should().Be(2,
+            "second trigger must ALSO fire CanExecuteChanged — Triggers is additive");
     }
 }

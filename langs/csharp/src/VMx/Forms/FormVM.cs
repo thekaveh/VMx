@@ -28,6 +28,16 @@ public sealed class FormVM<TM> : IDisposable
     private TM _snapshot;
     private bool _disposed;
 
+    // ── Builder factory ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns an empty <see cref="FormVMBuilder{TM}"/> for fluent construction.
+    /// See ADR-0035 §2 FV1 / FV2.
+    /// </summary>
+#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
+    public static FormVMBuilder<TM> Builder() => FormVMBuilder<TM>.Empty;
+#pragma warning restore CA1000
+
     // ── Constructors ──────────────────────────────────────────────────────────
 
     /// <summary>

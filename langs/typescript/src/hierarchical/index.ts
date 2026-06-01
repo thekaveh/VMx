@@ -1,2 +1,5 @@
-export { HierarchicalVM } from "./hierarchicalVm.js";
-export type { HierarchicalVMOptions } from "./hierarchicalVm.js";
+export { HierarchicalVM, HierarchicalVMBuilder } from "./hierarchicalVm.js";
+export type {
+  HierarchicalVMOptions,
+  HierarchicalVMConstructionContext,
+} from "./hierarchicalVm.js";

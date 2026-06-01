@@ -7,6 +7,8 @@ import { ComponentVMBase } from "./componentVMBase.js";
 import { ViewModelType } from "./types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { NullMessageHub } from "../services/nullMessageHub.js";
+import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class ComponentVM extends ComponentVMBase {
@@ -79,6 +81,18 @@ export class ComponentVMBuilder {
     const b = new ComponentVMBuilder(this);
     b.#background = value;
     return b;
+  }
+
+  /**
+   * Chainable Wither that wires {@link NullMessageHub.INSTANCE} +
+   * {@link NullDispatcher.INSTANCE} in a single call. Mirrors C#'s
+   * `WithNullServices()` and Python's `with_null_services()` per
+   * spec/10-builders.md / ADR-0035. Intended for tests, samples, and
+   * exploration code; production VMs should call `services(hub, dispatcher)`
+   * with real services.
+   */
+  withNullServices(): ComponentVMBuilder {
+    return this.services(NullMessageHub.INSTANCE, NullDispatcher.INSTANCE);
   }
 
   build(): ComponentVM {
