@@ -64,7 +64,11 @@ public sealed class CompositeVMBuilder<VM>
     public CompositeVMBuilder<VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
-    /// <summary>Sets the optional children factory evaluated lazily on Construct.</summary>
+    /// <summary>
+    /// Sets the required children factory. The factory is invoked lazily on
+    /// Construct. For a composite with no initial children, pass
+    /// <c>() =&gt; Array.Empty&lt;VM&gt;()</c> (per spec/10 §3 / ADR-0035).
+    /// </summary>
     public CompositeVMBuilder<VM> Children(Func<IEnumerable<VM>> factory)
         => With(childrenFactory: factory);
 
@@ -92,6 +96,7 @@ public sealed class CompositeVMBuilder<VM>
         BuilderValidationException.Require(_name, "Name");
         BuilderValidationException.Require(_hub, "Hub");
         BuilderValidationException.Require(_dispatcher, "Dispatcher");
+        BuilderValidationException.Require(_childrenFactory, "Children");
 
         return CompositeVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,

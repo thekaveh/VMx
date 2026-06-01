@@ -24,6 +24,7 @@ public class GroupVMConformanceTests
         var group = GroupVM<ComponentVM<string>>.Builder()
             .Name(name)
             .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
         return (group, hub, dispatcher);
     }

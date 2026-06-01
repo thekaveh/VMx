@@ -343,6 +343,7 @@ public sealed class NotesViewVM
         _inner = CompositeVM<NoteVM>.Builder()
             .Name($"{name}:inner")
             .Services(hub, dispatcher)
+            .Children(() => Array.Empty<NoteVM>())
             .Build();
 
         _paged = new PagedComposition<NoteVM>(_filtered, pageSize);

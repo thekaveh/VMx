@@ -5,6 +5,7 @@
  */
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
+import { BuilderValidationError } from "../builders/exceptions.js";
 import { RelayCommand } from "../commands/relayCommand.js";
 import { FormRevertedMessage } from "../messages/formReverted.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
@@ -59,6 +60,15 @@ export class FormVM<TM> {
 
   readonly denyCommand: RelayCommand;
   readonly approveCommand: RelayCommand;
+
+  /**
+   * Entry point for the immutable fluent builder. Mirrors the
+   * `.builder()` convention used by the other VM family members
+   * (`ComponentVM`, `CompositeVM`, …). See ADR-0035 §2 FV1 / FV2.
+   */
+  static builder<TM>(): FormVMBuilder<TM> {
+    return new FormVMBuilder<TM>();
+  }
 
   constructor(options: FormVMOptions<TM>) {
     const { initial, persister, hub, strict = false, snapshotter } = options;
@@ -181,5 +191,99 @@ export class FormVM<TM> {
     if (this.#strict && wasDirty !== this.isDirty) {
       this.#canExecuteTrigger.next();
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Builder (colocated per the canonical TS builder pattern; see
+// `componentVM.ts` for the reference structure). Per ADR-0035 §2 FV1 / FV2.
+// ---------------------------------------------------------------------------
+
+/**
+ * Immutable fluent builder for {@link FormVM}.
+ *
+ * Required setters: {@link initial}, {@link persister}.
+ * Optional setters: {@link hub}, {@link strict}, {@link snapshotter}.
+ *
+ * Each setter returns a NEW builder instance (BLD-001). `build()`
+ * validates the required fields and throws {@link BuilderValidationError}
+ * on the first missing one (BLD-002).
+ */
+export class FormVMBuilder<TM> {
+  #initial: TM | undefined = undefined;
+  #initialSet = false;
+  #persister: Persister<TM> | null = null;
+  #hub: IMessageHub | null = null;
+  #strict = false;
+  #snapshotter: Snapshotter<TM> | null = null;
+
+  constructor(from?: FormVMBuilder<TM>) {
+    if (from) {
+      this.#initial = from.#initial;
+      this.#initialSet = from.#initialSet;
+      this.#persister = from.#persister;
+      this.#hub = from.#hub;
+      this.#strict = from.#strict;
+      this.#snapshotter = from.#snapshotter;
+    }
+  }
+
+  /** Set the required initial domain model. */
+  initial(value: TM): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#initial = value;
+    b.#initialSet = true;
+    return b;
+  }
+
+  /** Set the required async persister delegate `(model) => Promise<void>`. */
+  persister(value: Persister<TM>): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#persister = value;
+    return b;
+  }
+
+  /** Set the optional message hub (default: {@link NullMessageHub.INSTANCE}). */
+  hub(value: IMessageHub): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#hub = value;
+    return b;
+  }
+
+  /**
+   * Enable strict mode (`approveCommand.canExecute()` returns false when
+   * `isDirty` is false). Default: `false`.
+   */
+  strict(value: boolean): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#strict = value;
+    return b;
+  }
+
+  /** Set a custom snapshot function (default: `structuredClone`). */
+  snapshotter(value: Snapshotter<TM>): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#snapshotter = value;
+    return b;
+  }
+
+  /**
+   * Validate required fields and construct a {@link FormVM}.
+   *
+   * @throws {BuilderValidationError} If `initial` or `persister` is not set.
+   */
+  build(): FormVM<TM> {
+    if (!this.#initialSet) throw new BuilderValidationError("initial");
+    if (this.#persister === null) throw new BuilderValidationError("persister");
+
+    const options: FormVMOptions<TM> = {
+      initial: this.#initial as TM,
+      persister: this.#persister,
+    };
+    if (this.#hub !== null) options.hub = this.#hub;
+    options.strict = this.#strict;
+    if (this.#snapshotter !== null) options.snapshotter = this.#snapshotter;
+
+    return new FormVM<TM>(options);
   }
 }

@@ -36,6 +36,7 @@ public class BatchUpdateAndTreeUtilitiesConformanceTests
             .Name(name)
             .Services(hub, dispatcher)
             .AutoConstructOnAdd(autoConstructOnAdd)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
 
     private static GroupVM<ComponentVM<string>> MakeGroup(
@@ -46,6 +47,7 @@ public class BatchUpdateAndTreeUtilitiesConformanceTests
             .Name(name)
             .Services(hub, dispatcher)
             .AutoConstructOnAdd(autoConstructOnAdd)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
 
     // ── COMP-012 — AutoConstructOnAdd(true) auto-constructs late children ────
@@ -218,12 +220,16 @@ public class BatchUpdateAndTreeUtilitiesConformanceTests
         var a = MakeChild(hub, dispatcher, "a");
 
         var b = CompositeVM<ComponentVM<string>>.Builder()
-            .Name("b").Services(hub, dispatcher).Build();
+            .Name("b").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
         b.Add(b1);
         b.Add(b2);
 
         var root = CompositeVM<IComponentVM>.Builder()
-            .Name("root").Services(hub, dispatcher).Build();
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .Build();
         root.Add(a);
         root.Add(b);
 
@@ -294,12 +300,16 @@ public class BatchUpdateAndTreeUtilitiesConformanceTests
         var a = MakeChild(hub, dispatcher, "a");
 
         var b = CompositeVM<ComponentVM<string>>.Builder()
-            .Name("b").Services(hub, dispatcher).Build();
+            .Name("b").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
         b.Add(b1);
         b.Add(b2);
 
         var root = CompositeVM<IComponentVM>.Builder()
-            .Name("root").Services(hub, dispatcher).Build();
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .Build();
         root.Add(a);
         root.Add(b);
 

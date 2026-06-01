@@ -122,10 +122,13 @@ class MainWindowViewModel:
         self._dispatcher = RxDispatcher.immediate()
 
         # Non-modeled composite — children are added imperatively.
+        # ``children(lambda: ())`` declares "no initial children" explicitly per
+        # spec/10-builders.md §3 / ADR-0035.
         self._composite: CompositeVM[TodoItemVM] = (
             CompositeVM.builder()
             .name("todo-list")
             .services(self._hub, self._dispatcher)
+            .children(lambda: ())
             .build()
         )
         self._composite.construct()

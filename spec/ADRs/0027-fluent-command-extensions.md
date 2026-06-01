@@ -78,10 +78,23 @@ Option 3. Four fluent extension methods are part of the normative
 Per-flavor surface idiom (ADR-0006):
 
 - **C#**: static extension methods on `ICommand` in namespace `VMx.Commands`.
+  Syntactic flow: method-chain (`cmd.Confirm(fn).PrecedeWith(other)`).
 - **Python**: module-level functions in `vmx.commands` (or `vmx.commands.fluent`);
-  imported alongside the decorator classes.
+  imported alongside the decorator classes. Syntactic flow: functional
+  composition (`precede_with(confirm(cmd, fn), other)`).
 - **TypeScript**: standalone named exports in `vmx/commands` (or
-  `vmx/commands/fluent`); re-exported from the package entry point.
+  `vmx/commands/fluent`); re-exported from the package entry point. Syntactic
+  flow: functional composition (`precedeWith(confirm(cmd, fn), other)`).
+
+The semantic contract is identical across all three flavors and is what the
+conformance IDs `CMD-008..CMD-011` actually test. The *syntactic* difference
+(method-chain in C# vs functional composition in Python / TypeScript) is
+intentional under ADR-0006 — C#'s extension-method facility supports the
+chain shape natively, while Python and TypeScript express the same intent
+more idiomatically as nested function calls. A pipe-style helper for
+Python / TypeScript is explicitly NOT in scope (the audit at
+`docs/superpowers/specs/2026-05-31-builder-pattern-audit.md` §3.3 reviewed
+this and concluded the functional form is already idiomatic).
 
 ## 4. Consequences
 

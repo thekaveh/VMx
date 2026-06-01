@@ -50,7 +50,7 @@ def _make_group(
 ) -> tuple[GroupVM[object], MessageHub[object]]:
     h = hub if hub is not None else _hub()
     d = _dispatcher()
-    vm: GroupVM[object] = GroupVMBuilder().name(name).services(h, d).build()
+    vm: GroupVM[object] = GroupVMBuilder().name(name).services(h, d).children(lambda: ()).build()
     return vm, h
 
 
@@ -71,7 +71,9 @@ class TestGroupVMIdentity:
     def test_hint_set_via_builder(self) -> None:
         h = _hub()
         d = _dispatcher()
-        grp: GroupVM[object] = GroupVMBuilder().name("g").hint("tip").services(h, d).build()
+        grp: GroupVM[object] = (
+            GroupVMBuilder().name("g").hint("tip").services(h, d).children(lambda: ()).build()
+        )
         assert grp.hint == "tip"
 
     def test_type_is_group(self) -> None:
@@ -430,7 +432,12 @@ class TestGroupVMLifecycle:
         h = _hub()
         d = _dispatcher()
         grp: GroupVM[object] = (
-            GroupVMBuilder().name("g").services(h, d).on_construct(lambda: calls.append(1)).build()
+            GroupVMBuilder()
+            .name("g")
+            .services(h, d)
+            .on_construct(lambda: calls.append(1))
+            .children(lambda: ())
+            .build()
         )
         grp.construct()
         assert calls == [1]
@@ -440,7 +447,12 @@ class TestGroupVMLifecycle:
         h = _hub()
         d = _dispatcher()
         grp: GroupVM[object] = (
-            GroupVMBuilder().name("g").services(h, d).on_destruct(lambda: calls.append(1)).build()
+            GroupVMBuilder()
+            .name("g")
+            .services(h, d)
+            .on_destruct(lambda: calls.append(1))
+            .children(lambda: ())
+            .build()
         )
         grp.construct()
         grp.destruct()
@@ -480,10 +492,21 @@ class TestGroupVMBuilder:
             dataclasses.replace(GroupVMBuilder(), _name="g", _hub=h).build()
         assert exc_info.value.missing_field == "dispatcher"
 
+    def test_missing_children_raises(self) -> None:
+        """Per spec/10-builders.md §3 + ADR-0035: GroupVM<VM> requires a
+        ``children(lambda: ...)`` factory. For an empty group, pass
+        ``children(lambda: ())`` explicitly.
+        """
+        h = _hub()
+        d = _dispatcher()
+        with pytest.raises(BuilderValidationError) as exc_info:
+            GroupVMBuilder().name("g").services(h, d).build()
+        assert exc_info.value.missing_field == "children"
+
     def test_repeated_build_distinct_groups(self) -> None:
         h = _hub()
         d = _dispatcher()
-        b = GroupVMBuilder().name("g").services(h, d)
+        b = GroupVMBuilder().name("g").services(h, d).children(lambda: ())
         g1 = b.build()
         g2 = b.build()
         assert g1 is not g2
@@ -492,6 +515,8 @@ class TestGroupVMBuilder:
     def test_defaults_applied(self) -> None:
         h = _hub()
         d = _dispatcher()
-        grp: GroupVM[object] = GroupVMBuilder().name("g").services(h, d).build()
+        grp: GroupVM[object] = (
+            GroupVMBuilder().name("g").services(h, d).children(lambda: ()).build()
+        )
         assert grp.hint == ""
         assert grp.type == ViewModelType.GROUP

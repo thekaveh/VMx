@@ -69,7 +69,11 @@ class CompositeVMBuilder(Generic[VM]):
         return dataclasses.replace(self, _auto_construct_on_add=value)
 
     def children(self, factory: Callable[[], Iterable[VM]]) -> CompositeVMBuilder[VM]:
-        """Set the optional children factory evaluated lazily on construct()."""
+        """Set the required children factory, invoked lazily on construct().
+
+        For a composite with no initial children, pass ``lambda: ()`` or
+        ``lambda: []`` (per spec/10-builders.md §3 / ADR-0035).
+        """
         return dataclasses.replace(self, _children_factory=factory)
 
     def on_construct(self, callback: Callable[[], None]) -> CompositeVMBuilder[VM]:
@@ -92,6 +96,7 @@ class CompositeVMBuilder(Generic[VM]):
 
         name = _validation.require_field(self._name, "name")
         hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
+        children_factory = _validation.require_field(self._children_factory, "children")
 
         return CompositeVM(
             name=name,
@@ -100,7 +105,7 @@ class CompositeVMBuilder(Generic[VM]):
             dispatcher=dispatcher,
             async_selection=self._async_selection,
             auto_construct_on_add=self._auto_construct_on_add,
-            children_factory=self._children_factory,
+            children_factory=children_factory,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
         )

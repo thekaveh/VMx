@@ -80,6 +80,11 @@ def from_sources(
     """Build a DerivedProperty from any number of source observables.
 
     The transform receives source values positionally, in source order.
+
+    For 1-5 sources, prefer the typed-arity factories below (``from_one``,
+    ``from_two``, ..., ``from_five``) which give mypy / IDEs precise per-source
+    types for the transform's parameters. Use ``from_sources`` (or the
+    equivalent ``from_many``) when the source count is dynamic or above 5.
     """
     if not sources:
         raise ValueError("At least one source is required")
@@ -97,3 +102,121 @@ def from_sources(
         stream = rx.combine_latest(*sources).pipe(ops.map(_apply))
 
     return DerivedProperty(stream, can_set=can_set, set_action=set_action)
+
+
+# ---------------------------------------------------------------------------
+# Typed-arity factories (1..5) — parity with C# DerivedProperty.From<T1..Tn>
+# and TS fromOne/fromTwo/.../fromFive (per ADR-0035 §2 DP2).
+# ---------------------------------------------------------------------------
+
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+T3 = TypeVar("T3")
+T4 = TypeVar("T4")
+T5 = TypeVar("T5")
+
+
+def from_one(
+    source: Observable[T1],
+    transform: Callable[[T1], TValue],
+    *,
+    can_set: Callable[[TValue], bool] | None = None,
+    set_action: Callable[[TValue], None] | None = None,
+) -> DerivedProperty[TValue]:
+    """Single-source typed factory. ``transform`` receives one ``T1`` value."""
+    stream = source.pipe(ops.map(transform))
+    return DerivedProperty(stream, can_set=can_set, set_action=set_action)
+
+
+def from_two(
+    source1: Observable[T1],
+    source2: Observable[T2],
+    transform: Callable[[T1, T2], TValue],
+    *,
+    can_set: Callable[[TValue], bool] | None = None,
+    set_action: Callable[[TValue], None] | None = None,
+) -> DerivedProperty[TValue]:
+    """Two-source typed factory. ``transform`` receives ``(T1, T2)``."""
+
+    def _apply(values: object) -> TValue:
+        v1, v2 = cast(tuple[T1, T2], values)
+        return transform(v1, v2)
+
+    stream = rx.combine_latest(source1, source2).pipe(ops.map(_apply))
+    return DerivedProperty(stream, can_set=can_set, set_action=set_action)
+
+
+def from_three(
+    source1: Observable[T1],
+    source2: Observable[T2],
+    source3: Observable[T3],
+    transform: Callable[[T1, T2, T3], TValue],
+    *,
+    can_set: Callable[[TValue], bool] | None = None,
+    set_action: Callable[[TValue], None] | None = None,
+) -> DerivedProperty[TValue]:
+    """Three-source typed factory. ``transform`` receives ``(T1, T2, T3)``."""
+
+    def _apply(values: object) -> TValue:
+        v1, v2, v3 = cast(tuple[T1, T2, T3], values)
+        return transform(v1, v2, v3)
+
+    stream = rx.combine_latest(source1, source2, source3).pipe(ops.map(_apply))
+    return DerivedProperty(stream, can_set=can_set, set_action=set_action)
+
+
+def from_four(
+    source1: Observable[T1],
+    source2: Observable[T2],
+    source3: Observable[T3],
+    source4: Observable[T4],
+    transform: Callable[[T1, T2, T3, T4], TValue],
+    *,
+    can_set: Callable[[TValue], bool] | None = None,
+    set_action: Callable[[TValue], None] | None = None,
+) -> DerivedProperty[TValue]:
+    """Four-source typed factory. ``transform`` receives ``(T1, T2, T3, T4)``."""
+
+    def _apply(values: object) -> TValue:
+        v1, v2, v3, v4 = cast(tuple[T1, T2, T3, T4], values)
+        return transform(v1, v2, v3, v4)
+
+    stream = rx.combine_latest(source1, source2, source3, source4).pipe(ops.map(_apply))
+    return DerivedProperty(stream, can_set=can_set, set_action=set_action)
+
+
+def from_five(
+    source1: Observable[T1],
+    source2: Observable[T2],
+    source3: Observable[T3],
+    source4: Observable[T4],
+    source5: Observable[T5],
+    transform: Callable[[T1, T2, T3, T4, T5], TValue],
+    *,
+    can_set: Callable[[TValue], bool] | None = None,
+    set_action: Callable[[TValue], None] | None = None,
+) -> DerivedProperty[TValue]:
+    """Five-source typed factory. ``transform`` receives ``(T1, T2, T3, T4, T5)``."""
+
+    def _apply(values: object) -> TValue:
+        v1, v2, v3, v4, v5 = cast(tuple[T1, T2, T3, T4, T5], values)
+        return transform(v1, v2, v3, v4, v5)
+
+    # ``rx.combine_latest`` has typed overloads only for 2-4 sources;
+    # 5+ sources fall through to a generic variadic at runtime. Cast the
+    # input list to ``Observable[object]`` so mypy uses the variadic
+    # signature; the type-safety guarantee is preserved by the typed
+    # signature of ``from_five`` and the ``cast`` inside ``_apply``.
+    sources_typed: list[Observable[object]] = [
+        cast(Observable[object], source1),
+        cast(Observable[object], source2),
+        cast(Observable[object], source3),
+        cast(Observable[object], source4),
+        cast(Observable[object], source5),
+    ]
+    stream = rx.combine_latest(*sources_typed).pipe(ops.map(_apply))
+    return DerivedProperty(stream, can_set=can_set, set_action=set_action)
+
+
+# Alias for parity with C# `FromMany` / TS `fromMany`.
+from_many = from_sources

@@ -45,7 +45,7 @@ def _make_group(
 ) -> tuple[GroupVM[object], MessageHub[object]]:
     h = hub if hub is not None else _hub()
     d = _dispatcher()
-    grp: GroupVM[object] = GroupVMBuilder().name(name).services(h, d).build()
+    grp: GroupVM[object] = GroupVMBuilder().name(name).services(h, d).children(lambda: ()).build()
     return grp, h
 
 
@@ -179,7 +179,12 @@ def test_GRP_005_auto_construct_on_add() -> None:
     h = _hub()
     d = _dispatcher()
     grp: GroupVM[object] = (
-        GroupVMBuilder().name("grp").services(h, d).auto_construct_on_add(True).build()
+        GroupVMBuilder()
+        .name("grp")
+        .services(h, d)
+        .auto_construct_on_add(True)
+        .children(lambda: ())
+        .build()
     )
     grp.construct()
 

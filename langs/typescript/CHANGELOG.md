@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## 2.3.0 — 2026-05-31
+
+Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
+Purely additive at the surface level. The C# / Python flavors gain
+validation parity with TS's existing Children-at-`build()` behaviour.
+
 ### Fixed
 
 - **D1 — Browser-safe dist.** `src/lifecycle/transitionValidator.ts` no
@@ -25,11 +31,37 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`FormVMBuilder<TM>`** (`vmx` — `forms/`) — fluent immutable builder for
+  `FormVM<TM>` with `.initial(...)` and `.persister(...)` required, and
+  optional `.hub(...)`, `.strict(boolean)`, `.snapshotter(...)`. Validates
+  at `build()`. Conformance: `FORM-011..013`. See ADR-0035 §FV1/FV2.
+- **`HierarchicalVMBuilder<TModel, TVM>`** (`vmx` — `hierarchical/`) —
+  fluent immutable builder for `HierarchicalVM<TModel, TVM>` with
+  `.model(...)`, `.childrenFactory(...)`, `.services(hub, dispatcher)`
+  required, and optional `.name(...)`, `.hint(...)`,
+  `.eagerChildren(boolean)`. Adds `.withDefaultServices()` Wither for
+  opt-in implicit defaults. Validates at `build()`. Conformance:
+  `HIER-015..017`. See ADR-0035 §H1/H2/H3.
+- **`HierarchicalVMConstructionContext`** — new context type passed to
+  children-factory callbacks for the hierarchical builder.
+- **`withNullServices()`** Wither extension on `ComponentVMBuilder` and
+  friends — chainable convenience that wires `NullMessageHub.INSTANCE`
+  + `NullDispatcher.INSTANCE` in one call, for parity with the C#
+  `WithNullServices()` extension. See ADR-0035 §SV1.
 - `tests/browser-build/smoke.test.ts` — JSDOM environment smoke test that
   loads the public surface and instantiates a `ComponentVMOf` to catch
-  future regressions of the browser-safety contract.
+  future regressions of the browser-safety contract (companion to D1).
 - README §3.5 "Browser usage" documenting bundler compatibility and the
-  rxjs peer-dependency install command.
+  rxjs peer-dependency install command (companion to D2).
+
+### Conformance
+
+- 7 new IDs (`BLD-005`, `FORM-011..013`, `HIER-015..017`); running total
+  goes from 220 to 227.
+
+### Min spec version
+
+- 2.3.0 (previously 2.2.0).
 
 ## 2.2.0 — 2026-05-30
 

@@ -4,6 +4,9 @@ import {
   RxDispatcher,
   ComponentVM,
   ComponentVMOf,
+  ReadonlyComponentVMOf,
+  NullMessageHub,
+  NullDispatcher,
   ViewModelType,
 } from "../../src/index.js";
 
@@ -87,5 +90,93 @@ describe("BLD-004", () => {
     expect(vm.hint).toBe("");
     expect(vm.type).toBe(ViewModelType.Component);
     expect(vm.isCurrent).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BLD-005 — Additive setters retain prior values across repeated calls
+// ---------------------------------------------------------------------------
+
+describe("BLD-005", () => {
+  it("Triggers is additive — repeated calls retain prior values", async () => {
+    const { Subject } = await import("rxjs");
+    const { RelayCommand } = await import("../../src/commands/relayCommand.js");
+
+    const trigger1 = new Subject<void>();
+    const trigger2 = new Subject<void>();
+
+    const cmd = RelayCommand.builder()
+      .triggers(trigger1.asObservable())
+      .triggers(trigger2.asObservable())
+      .build();
+
+    let firings = 0;
+    cmd.canExecuteChanged.subscribe(() => firings++);
+
+    trigger1.next();
+    expect(firings).toBe(1);
+
+    trigger2.next();
+    expect(firings).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SV1 — withNullServices() chainable Wither parity (ADR-0035)
+// ---------------------------------------------------------------------------
+
+describe("withNullServices() chainable Wither", () => {
+  it("wires the null hub + null dispatcher in one call (non-modeled)", () => {
+    const vm = ComponentVM.builder().name("v").withNullServices().build();
+    // The wired services are private; observe behavior — the VM should
+    // build successfully (no BuilderValidationError("services")), and
+    // disposing it should not throw.
+    expect(vm).toBeDefined();
+    vm.dispose();
+  });
+
+  it("wires the null hub + null dispatcher in one call (modeled)", () => {
+    const vm = ComponentVMOf.builder<string>()
+      .name("v")
+      .model("init")
+      .withNullServices()
+      .build();
+    expect(vm).toBeDefined();
+    vm.dispose();
+  });
+
+  it("wires the null hub + null dispatcher in one call (readonly modeled)", () => {
+    const vm = ReadonlyComponentVMOf.builder<string>()
+      .name("v")
+      .model("init")
+      .withNullServices()
+      .build();
+    expect(vm).toBeDefined();
+    vm.dispose();
+  });
+
+  it("returns a new builder instance (BLD-001 compliance)", () => {
+    const b1 = ComponentVMOf.builder<string>().name("v").model("init");
+    const b2 = b1.withNullServices();
+    expect(b1).not.toBe(b2);
+    // b1 still has no services; building without them throws
+    expect(() => b1.build()).toThrow(/services/);
+    // b2 builds fine
+    const vm = b2.build();
+    expect(vm).toBeDefined();
+    vm.dispose();
+  });
+
+  it("equivalent to explicit services(NullMessageHub.INSTANCE, NullDispatcher.INSTANCE)", () => {
+    const viaWither = ComponentVM.builder().name("v").withNullServices().build();
+    const viaExplicit = ComponentVM.builder()
+      .name("v")
+      .services(NullMessageHub.INSTANCE, NullDispatcher.INSTANCE)
+      .build();
+    // Both VMs should construct successfully and have equivalent surfaces.
+    expect(viaWither.name).toBe(viaExplicit.name);
+    expect(viaWither.type).toBe(viaExplicit.type);
+    viaWither.dispose();
+    viaExplicit.dispose();
   });
 });

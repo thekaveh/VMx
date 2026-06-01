@@ -13,7 +13,16 @@ import pytest
 from reactivex.subject import BehaviorSubject
 
 from tests.conformance.fixtures.loader import load
-from vmx.properties import DerivedProperty, from_sources
+from vmx.properties import (
+    DerivedProperty,
+    from_five,
+    from_four,
+    from_many,
+    from_one,
+    from_sources,
+    from_three,
+    from_two,
+)
 
 TRANSFORMS: dict[str, Any] = {
     "sum": lambda *xs: reduce(operator.add, xs, 0),
@@ -235,3 +244,102 @@ def test_DPROP_012_fixture_scenarios() -> None:
             f"scenario {scenario['name']!r}: got {actuals}, expected {scenario['expected_values']}"
         )
         dp.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Typed-arity factories (parity with C# / TS) — ADR-0035 §2 DP2
+# ---------------------------------------------------------------------------
+
+
+def test_from_one_typed_arity() -> None:
+    """``from_one`` accepts a single ``Observable[T1]`` and a ``(T1) -> TValue``
+    transform. Type checker can verify the transform argument is exactly ``T1``.
+    """
+    s1: BehaviorSubject[int] = BehaviorSubject(3)
+    dp: DerivedProperty[int] = from_one(s1, lambda x: x * 10)
+    assert dp.value == 30
+    s1.on_next(4)
+    assert dp.value == 40
+    dp.dispose()
+
+
+def test_from_two_typed_arity() -> None:
+    """``from_two`` types the transform as ``(T1, T2) -> TValue``."""
+    s1: BehaviorSubject[int] = BehaviorSubject(2)
+    s2: BehaviorSubject[str] = BehaviorSubject("x")
+    dp: DerivedProperty[str] = from_two(s1, s2, lambda i, s: s * i)
+    assert dp.value == "xx"
+    s1.on_next(3)
+    assert dp.value == "xxx"
+    s2.on_next("y")
+    assert dp.value == "yyy"
+    dp.dispose()
+
+
+def test_from_three_typed_arity() -> None:
+    s1: BehaviorSubject[int] = BehaviorSubject(1)
+    s2: BehaviorSubject[int] = BehaviorSubject(2)
+    s3: BehaviorSubject[int] = BehaviorSubject(3)
+    dp: DerivedProperty[int] = from_three(s1, s2, s3, lambda a, b, c: a + b + c)
+    assert dp.value == 6
+    s2.on_next(20)
+    assert dp.value == 24
+    dp.dispose()
+
+
+def test_from_four_typed_arity() -> None:
+    s1: BehaviorSubject[int] = BehaviorSubject(1)
+    s2: BehaviorSubject[int] = BehaviorSubject(2)
+    s3: BehaviorSubject[int] = BehaviorSubject(3)
+    s4: BehaviorSubject[int] = BehaviorSubject(4)
+    dp: DerivedProperty[int] = from_four(s1, s2, s3, s4, lambda a, b, c, d: a + b + c + d)
+    assert dp.value == 10
+    s4.on_next(40)
+    assert dp.value == 46
+    dp.dispose()
+
+
+def test_from_five_typed_arity() -> None:
+    s1: BehaviorSubject[int] = BehaviorSubject(1)
+    s2: BehaviorSubject[int] = BehaviorSubject(2)
+    s3: BehaviorSubject[int] = BehaviorSubject(3)
+    s4: BehaviorSubject[int] = BehaviorSubject(4)
+    s5: BehaviorSubject[int] = BehaviorSubject(5)
+    dp: DerivedProperty[int] = from_five(
+        s1, s2, s3, s4, s5, lambda a, b, c, d, e: a * b * c * d * e
+    )
+    assert dp.value == 120  # 1*2*3*4*5
+    s1.on_next(2)
+    assert dp.value == 240
+    dp.dispose()
+
+
+def test_from_many_alias_matches_from_sources() -> None:
+    """``from_many`` is an alias for ``from_sources`` (parity with C# ``FromMany`` /
+    TS ``fromMany``).
+    """
+    assert from_many is from_sources
+
+    s1: BehaviorSubject[int] = BehaviorSubject(1)
+    s2: BehaviorSubject[int] = BehaviorSubject(2)
+    dp: DerivedProperty[int] = from_many(s1, s2, transform=lambda a, b: a + b)
+    assert dp.value == 3
+    dp.dispose()
+
+
+def test_typed_arity_factories_support_can_set_and_set_action() -> None:
+    """Typed-arity factories accept the same ``can_set`` / ``set_action`` kwargs
+    as ``from_sources``."""
+    s1: BehaviorSubject[int] = BehaviorSubject(5)
+    written: list[int] = []
+    dp: DerivedProperty[int] = from_one(
+        s1,
+        lambda x: x * 2,
+        can_set=lambda v: v > 0,
+        set_action=written.append,
+    )
+    assert dp.value == 10
+    assert dp.can_set(42) is True
+    dp.set_value(42)
+    assert written == [42]
+    dp.dispose()

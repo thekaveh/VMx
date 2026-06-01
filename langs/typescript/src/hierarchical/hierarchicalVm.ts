@@ -7,6 +7,7 @@
  *
  * See spec/18-hierarchical-vm.md and ADR-0028.
  */
+import { BuilderValidationError } from "../builders/exceptions.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
@@ -298,5 +299,181 @@ export abstract class HierarchicalVM<
       child.#pathCache = null;
       child.#invalidatePathCacheDescendants();
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Builder (colocated per the canonical TS builder pattern; see
+// `componentVM.ts` for the reference structure). Per ADR-0035 §2 H1 / H2.
+// ---------------------------------------------------------------------------
+
+/**
+ * Context object passed to a {@link HierarchicalVMBuilder}'s `vmFactory`
+ * callable. Carries the settled, validated construction options so the
+ * factory can instantiate the concrete TVM subclass.
+ *
+ * This is a TS type alias for the canonical {@link HierarchicalVMOptions}.
+ * It exists as a distinct exported name so consumers can spell the factory
+ * signature without importing the broader options type.
+ */
+export type HierarchicalVMConstructionContext<TModel, TVM> =
+  HierarchicalVMOptions<TModel, TVM>;
+
+/**
+ * Immutable fluent builder for {@link HierarchicalVM}.
+ *
+ * Required setters: {@link model}, {@link childrenFactory}, {@link services},
+ * {@link vmFactory}.
+ *
+ * Optional setters: {@link name}, {@link hint}, {@link eagerChildren}.
+ *
+ * Withers: {@link withDefaultServices} — explicit opt-in to default
+ * `MessageHub` + `RxDispatcher.immediate()` wiring (mirrors Python's
+ * `with_default_services()`; ADR-0035 §2 H2).
+ *
+ * `vmFactory` is required because TS classes erase their generic-type
+ * identity at runtime: the builder cannot itself instantiate a concrete TVM
+ * subclass. Consumers supply a factory `(ctx) => new MyNode(ctx)` instead.
+ *
+ * Each setter returns a NEW builder instance (BLD-001). `build()` validates
+ * each required field and throws {@link BuilderValidationError} on the first
+ * missing one (BLD-002).
+ */
+export class HierarchicalVMBuilder<
+  TModel,
+  TVM extends HierarchicalVM<TModel, TVM>,
+> {
+  #model: TModel | undefined = undefined;
+  #modelSet = false;
+  #childrenFactory: ((parent: TVM) => Iterable<TVM>) | null = null;
+  #hub: IMessageHub | null = null;
+  #dispatcher: IDispatcher | null = null;
+  #name: string | null = null;
+  #hint = "";
+  #eagerChildren = false;
+  #vmFactory:
+    | ((ctx: HierarchicalVMConstructionContext<TModel, TVM>) => TVM)
+    | null = null;
+
+  constructor(from?: HierarchicalVMBuilder<TModel, TVM>) {
+    if (from) {
+      this.#model = from.#model;
+      this.#modelSet = from.#modelSet;
+      this.#childrenFactory = from.#childrenFactory;
+      this.#hub = from.#hub;
+      this.#dispatcher = from.#dispatcher;
+      this.#name = from.#name;
+      this.#hint = from.#hint;
+      this.#eagerChildren = from.#eagerChildren;
+      this.#vmFactory = from.#vmFactory;
+    }
+  }
+
+  /** Set the required domain model carried by the node. */
+  model(value: TModel): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#model = value;
+    b.#modelSet = true;
+    return b;
+  }
+
+  /** Set the required children factory `(parent) => Iterable<TVM>`. */
+  childrenFactory(
+    fn: (parent: TVM) => Iterable<TVM>,
+  ): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#childrenFactory = fn;
+    return b;
+  }
+
+  /** Set the required message hub + dispatcher pair. */
+  services(
+    hub: IMessageHub,
+    dispatcher: IDispatcher,
+  ): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#hub = hub;
+    b.#dispatcher = dispatcher;
+    return b;
+  }
+
+  /** Set the optional `name` (default: concrete class name). */
+  name(value: string): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#name = value;
+    return b;
+  }
+
+  /** Set the optional `hint` (default: empty string). */
+  hint(value: string): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#hint = value;
+    return b;
+  }
+
+  /**
+   * When `true`, the full subtree is materialized at construct() time
+   * (depth-first). Default: `false`.
+   */
+  eagerChildren(value: boolean): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#eagerChildren = value;
+    return b;
+  }
+
+  /**
+   * Set the required factory that instantiates the concrete TVM subclass.
+   *
+   * TS erases generic-type identity at runtime, so the builder cannot
+   * instantiate a concrete TVM directly — consumers wire a factory:
+   *
+   * ```ts
+   * .vmFactory((ctx) => new MyNode(ctx))
+   * ```
+   */
+  vmFactory(
+    fn: (ctx: HierarchicalVMConstructionContext<TModel, TVM>) => TVM,
+  ): HierarchicalVMBuilder<TModel, TVM> {
+    const b = new HierarchicalVMBuilder<TModel, TVM>(this);
+    b.#vmFactory = fn;
+    return b;
+  }
+
+  /**
+   * Chainable Wither that wires a fresh {@link MessageHub} +
+   * {@link RxDispatcher.immediate} pair in a single call. Mirrors Python's
+   * `with_default_services()` per ADR-0035 §2 H2 — makes the implicit-default
+   * behavior of {@link HierarchicalVM}'s constructor visible at the call site.
+   */
+  withDefaultServices(): HierarchicalVMBuilder<TModel, TVM> {
+    return this.services(new MessageHub(), RxDispatcher.immediate());
+  }
+
+  /**
+   * Validate required fields and construct the concrete TVM by invoking
+   * `vmFactory` with the settled options.
+   *
+   * @throws {BuilderValidationError} If `model`, `childrenFactory`,
+   *   `services`, or `vmFactory` is not set.
+   */
+  build(): TVM {
+    if (!this.#modelSet) throw new BuilderValidationError("model");
+    if (this.#childrenFactory === null)
+      throw new BuilderValidationError("childrenFactory");
+    if (this.#hub === null || this.#dispatcher === null)
+      throw new BuilderValidationError("services");
+    if (this.#vmFactory === null) throw new BuilderValidationError("vmFactory");
+
+    const ctx: HierarchicalVMConstructionContext<TModel, TVM> = {
+      model: this.#model as TModel,
+      childrenFactory: this.#childrenFactory,
+      hub: this.#hub,
+      dispatcher: this.#dispatcher,
+      eagerChildren: this.#eagerChildren,
+      hint: this.#hint,
+    };
+    if (this.#name !== null) ctx.name = this.#name;
+
+    return this.#vmFactory(ctx);
   }
 }

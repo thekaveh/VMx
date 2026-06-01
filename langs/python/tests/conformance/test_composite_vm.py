@@ -45,7 +45,12 @@ def _build_composite(
     h = hub if hub is not None else _hub()
     d = dispatcher if dispatcher is not None else _dispatcher()
     vm: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name(name).services(h, d).async_selection(async_selection).build()
+        CompositeVMBuilder()
+        .name(name)
+        .services(h, d)
+        .async_selection(async_selection)
+        .children(lambda: ())
+        .build()
     )
     return vm, h
 
@@ -228,7 +233,7 @@ def test_COMP_006_is_current_change_dispatches_on_foreground() -> None:
     child_b = _build_child("b", hub=hub, dispatcher=test_disp)
 
     comp: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name("comp").services(hub, test_disp).build()
+        CompositeVMBuilder().name("comp").services(hub, test_disp).children(lambda: ()).build()
     )
 
     child_a.construct()
@@ -361,7 +366,12 @@ def test_COMP_010_async_selection_dispatches_via_foreground() -> None:
     child_a = _build_child("a", hub=hub, dispatcher=test_disp)
 
     comp: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name("comp").services(hub, test_disp).async_selection(True).build()
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, test_disp)
+        .async_selection(True)
+        .children(lambda: ())
+        .build()
     )
     child_a.construct()
     comp.append(child_a)
@@ -522,7 +532,12 @@ def test_COMP_012_auto_construct_on_add() -> None:
     disp = _dispatcher()
 
     composite: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name("comp").services(hub, disp).auto_construct_on_add(True).build()
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, disp)
+        .auto_construct_on_add(True)
+        .children(lambda: ())
+        .build()
     )
     composite.construct()
 
@@ -555,7 +570,7 @@ def test_COMP_013_batch_update_emits_one_reset() -> None:
     disp = _dispatcher()
 
     composite: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name("comp").services(hub, disp).build()
+        CompositeVMBuilder().name("comp").services(hub, disp).children(lambda: ()).build()
     )
     composite.construct()
 

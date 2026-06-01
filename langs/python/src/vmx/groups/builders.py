@@ -69,7 +69,11 @@ class GroupVMBuilder(Generic[VM]):
         return dataclasses.replace(self, _auto_construct_on_add=value)
 
     def children(self, factory: Callable[[], Iterable[VM]]) -> GroupVMBuilder[VM]:
-        """Set the optional children factory, evaluated lazily on ``construct()``."""
+        """Set the required children factory, invoked lazily on ``construct()``.
+
+        For a group with no initial children, pass ``lambda: ()`` or
+        ``lambda: []`` (per spec/10-builders.md §3 / ADR-0035).
+        """
         return dataclasses.replace(self, _children_factory=factory)
 
     def on_construct(self, callback: Callable[[], None]) -> GroupVMBuilder[VM]:
@@ -88,12 +92,13 @@ class GroupVMBuilder(Generic[VM]):
         Raises
         ------
         BuilderValidationError
-            If ``name``, ``hub``, or ``dispatcher`` are not set.
+            If ``name``, ``hub``, ``dispatcher``, or ``children`` are not set.
         """
         from vmx.groups.group_vm import GroupVM
 
         name = _validation.require_field(self._name, "name")
         hub, dispatcher = _validation.require_services(self._hub, self._dispatcher)
+        children_factory = _validation.require_field(self._children_factory, "children")
 
         return GroupVM(
             name=name,
@@ -101,7 +106,7 @@ class GroupVMBuilder(Generic[VM]):
             hub=hub,
             dispatcher=dispatcher,
             auto_construct_on_add=self._auto_construct_on_add,
-            children_factory=self._children_factory,
+            children_factory=children_factory,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
         )

@@ -8,6 +8,8 @@ import { ComponentVMBase } from "./componentVMBase.js";
 import { ViewModelType } from "./types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { NullMessageHub } from "../services/nullMessageHub.js";
+import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 
 export class ReadonlyComponentVMOf<M> extends ComponentVMBase {
@@ -125,6 +127,16 @@ export class ReadonlyComponentVMOfBuilder<M> {
     const b = new ReadonlyComponentVMOfBuilder<M>(this);
     b.#background = value;
     return b;
+  }
+
+  /**
+   * Chainable Wither that wires {@link NullMessageHub.INSTANCE} +
+   * {@link NullDispatcher.INSTANCE} in a single call. Mirrors C#'s
+   * `WithNullServices<M>()` and Python's `with_null_services()` per
+   * spec/10-builders.md / ADR-0035.
+   */
+  withNullServices(): ReadonlyComponentVMOfBuilder<M> {
+    return this.services(NullMessageHub.INSTANCE, NullDispatcher.INSTANCE);
   }
 
   build(): ReadonlyComponentVMOf<M> {

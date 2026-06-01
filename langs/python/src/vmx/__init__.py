@@ -107,10 +107,10 @@ from vmx.dialogs import (
     NotificationSeverity,
     NullDialogService,
 )
-from vmx.forms import FormVM
+from vmx.forms import FormVM, FormVMBuilder
 from vmx.forwarding import ForwardingComponentVM, ForwardingCompositeVM
 from vmx.groups import GroupVM, GroupVMBuilder
-from vmx.hierarchical import HierarchicalVM
+from vmx.hierarchical import HierarchicalVM, HierarchicalVMBuilder
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
 from vmx.localization import NULL_LOCALIZER, ILocalizer, NullLocalizer
 from vmx.messages import (
@@ -124,7 +124,16 @@ from vmx.messages import (
     TypedMessage,
     property_value_changed_messages_for,
 )
-from vmx.properties import DerivedProperty, from_sources
+from vmx.properties import (
+    DerivedProperty,
+    from_five,
+    from_four,
+    from_many,
+    from_one,
+    from_sources,
+    from_three,
+    from_two,
+)
 from vmx.services import (
     NULL_DISPATCHER,
     NULL_MESSAGE_HUB,
@@ -185,11 +194,13 @@ __all__ = [
     "Filterable",
     "FormRevertedMessage",
     "FormVM",
+    "FormVMBuilder",
     "ForwardingComponentVM",
     "ForwardingCompositeVM",
     "GroupVM",
     "GroupVMBuilder",
     "HierarchicalVM",
+    "HierarchicalVMBuilder",
     "IApprovable",
     "ICancelable",
     "IClosable",
@@ -247,7 +258,13 @@ __all__ = [
     "confirm",
     "confirm_with_dialog_service",
     "find",
+    "from_five",
+    "from_four",
+    "from_many",
+    "from_one",
     "from_sources",
+    "from_three",
+    "from_two",
     "null_message_hub_of",
     "precede_with",
     "property_value_changed_messages_for",

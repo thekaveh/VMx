@@ -63,6 +63,7 @@ public class ForwardingConformanceTests
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name(name)
             .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
             .Build();
         return (composite, hub, dispatcher);
     }

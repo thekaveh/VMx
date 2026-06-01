@@ -687,6 +687,16 @@ and (for modeled variants) `vmA.Model == vmB.Model`
 **Then** `vm.Hint == ""`, `vm.Parent == null`, `vm.Type ==` the type derived from
 the VM class
 
+### BLD-005 — Additive setters retain prior values across repeated calls
+
+**Given** a `RelayCommand.Builder()` `b1`
+**And** two distinct observables `o1` and `o2`
+**When** `b2 = b1.Triggers(o1)` and `b3 = b2.Triggers(o2)` are called
+**Then** `b3.Build().Triggers` contains BOTH `o1` and `o2` (cumulative)
+**And** the order matches insertion order (`o1` precedes `o2`)
+**And** other (non-additive) setters such as `Name` and `Task` continue to overwrite
+on repeated calls per BLD-001's standard semantics
+
 ______________________________________________________________________
 
 ## 13. Threading (`THR-NNN`)
@@ -1813,6 +1823,42 @@ with `Source == parent` and `Affected == child`
 **Then** the child is removed from `Children`
 **And** a `TreeStructureChangedMessage` with `Change == Removed` is published
 
+### HIER-015 — `HierarchicalVMBuilder<M, VM>.Build()` validates required fields
+
+**Given** a `HierarchicalVMBuilder<M, VM>` configured with `Model(m)` and
+`ChildrenFactory(f)` but no `Services(hub, dispatcher)` call
+**When** `.Build()` is called
+**Then** a `BuilderValidationError` / `BuilderValidationException` is raised
+**And** the exception message identifies `Services` (or the flavor-idiomatic name)
+
+**Given** a builder configured with `ChildrenFactory(f)` + `Services(hub, dispatcher)`
+but no `Model`
+**When** `.Build()` is called
+**Then** the exception message identifies `Model`
+
+**Given** a builder configured with `Model(m)` + `Services(hub, dispatcher)` but no
+`ChildrenFactory`
+**When** `.Build()` is called
+**Then** the exception message identifies `ChildrenFactory`
+
+### HIER-016 — `HierarchicalVMBuilder<M, VM>` repeated identical Build calls
+
+**Given** a `HierarchicalVMBuilder<M, VM>` `b` fully configured with `Model(m0)`,
+`ChildrenFactory(f)`, `Services(hub, dispatcher)`, `Hint("h")`, `EagerChildren(true)`
+**When** `nodeA = b.Build()` and `nodeB = b.Build()` are called
+**Then** `nodeA` and `nodeB` are different instances
+**And** `nodeA.Model == nodeB.Model == m0`, `nodeA.Hint == nodeB.Hint == "h"`
+**And** both nodes' subtrees are materialized at construction time (per `EagerChildren`)
+
+### HIER-017 — `HierarchicalVMBuilder<M, VM>` field defaults applied when not set
+
+**Given** a `HierarchicalVMBuilder<M, VM>` configured with only the required fields
+(`Model`, `ChildrenFactory`, `Services`)
+**When** `.Build()` is called
+**Then** `node.Hint == ""`, `node.Name == typeof(TVM).Name` (or its
+flavor-idiomatic equivalent), and `node.Children` is materialized **lazily** on first
+access (the default for `EagerChildren = false`)
+
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract
@@ -2006,3 +2052,33 @@ published after the revert
 **And** because it returns `false`, `DenyCommand.Execute()` is NOT invoked
 **And** `Model` is still `m1` (not reverted)
 **And** `IsDirty` is still `true`
+
+### FORM-011 — `FormVMBuilder<TM>.Build()` validates required `Initial` + `Persister`
+
+**Given** a `FormVM<TM>.Builder()` with only `Initial(m)` set (no `Persister`)
+**When** `.Build()` is called
+**Then** a `BuilderValidationError` / `BuilderValidationException` is raised
+**And** the exception message identifies `Persister` (or the flavor-idiomatic name)
+
+**Given** a `FormVM<TM>.Builder()` with only `Persister(p)` set (no `Initial`)
+**When** `.Build()` is called
+**Then** a `BuilderValidationError` / `BuilderValidationException` is raised
+**And** the exception message identifies `Initial`
+
+### FORM-012 — `FormVMBuilder<TM>` repeated identical Build calls
+
+**Given** a `FormVMBuilder<TM>` `b` fully configured with `Initial(m0)`, `Persister(p)`,
+optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
+**When** `formA = b.Build()` and `formB = b.Build()` are called
+**Then** `formA` and `formB` are different instances
+**And** `formA.Model == formB.Model == m0`, `formA.Snapshot == formB.Snapshot == s(m0)`
+**And** `formA.IsDirty == formB.IsDirty == false`
+
+### FORM-013 — `FormVMBuilder<TM>` field defaults applied when not set
+
+**Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
+**When** `.Build()` is called
+**Then** `form.Hub == NullMessageHub` (singleton equivalent for the flavor)
+**And** `form.Snapshot == m0` (the default snapshotter shallow-copies)
+**And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
+(strict defaults to `false`)

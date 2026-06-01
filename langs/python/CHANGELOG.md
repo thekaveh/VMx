@@ -6,6 +6,53 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## 2.3.0 — 2026-05-31
+
+Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
+Purely additive at the surface level. One behaviour change brings
+`CompositeVMBuilder` and `GroupVMBuilder` into compliance with the
+existing spec §3 contract (see Fixed below); callers that were relying
+on the previously-lazy validation were already buggy.
+
+### Added
+
+- **`FormVMBuilder`** (`vmx.forms`) — fluent immutable builder for
+  `FormVM` with `.initial(...)` and `.persister(...)` required, and
+  optional `.hub(...)`, `.strict(bool)`, `.snapshotter(...)`. Validates
+  at `build()`. Conformance: `FORM-011..013`. See ADR-0035 §FV1/FV2.
+- **`HierarchicalVMBuilder`** (`vmx.hierarchical`) — fluent immutable
+  builder for `HierarchicalVM` with `.model(...)`,
+  `.children_factory(...)`, `.services(hub, dispatcher)` required, and
+  optional `.name(...)`, `.hint(...)`, `.eager_children(bool)`. Adds
+  `.with_default_services()` Wither for opt-in implicit defaults.
+  Validates at `build()`. Conformance: `HIER-015..017`. See ADR-0035
+  §H1/H2/H3.
+- **`with_null_services()`** Wither extension on `ComponentVMBuilder`
+  (and friends) — chainable convenience that wires
+  `NULL_MESSAGE_HUB` + `NULL_DISPATCHER` in one call, for parity with
+  the C# `WithNullServices()` extension. See ADR-0035 §SV1.
+- **Typed-arity DerivedProperty factories** — `DerivedProperty.from_one`
+  through `DerivedProperty.from_five` with per-source type inference;
+  `DerivedProperty.from_many` retained as alias of the existing
+  `from_sources(...)` for arbitrary-N consumers. See ADR-0035 §DP2.
+
+### Fixed
+
+- `CompositeVMBuilder.build()` and `GroupVMBuilder.build()` now raise
+  `BuilderValidationError` when `children` is unset, matching the
+  spec/10 §3 contract and the TypeScript flavor's existing behaviour.
+  Previously the Python flavor silently accepted a missing `children`
+  factory and raised later at `on_construct`. See ADR-0035 §CP1/GR2.
+
+### Conformance
+
+- 7 new IDs (`BLD-005`, `FORM-011..013`, `HIER-015..017`); running total
+  goes from 220 to 227.
+
+### Min spec version
+
+- 2.3.0 (previously 2.2.0).
+
 ## 2.2.0 — 2026-05-30
 
 ### Added

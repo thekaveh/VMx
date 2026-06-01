@@ -5,7 +5,7 @@ spec-compatible with the C# and TypeScript flavors.
 
 ## 1. Status
 
-**v2.2.0** — implements `spec-v2.2.0` end-to-end. 220/220 conformance IDs
+**v2.3.0** — implements `spec-v2.3.0` end-to-end. 227/227 conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
@@ -181,7 +181,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 220 conformance IDs from `spec/12-conformance.md` are covered.
+All 227 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -193,6 +193,7 @@ v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
 v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
        COL-001..023   CMD-008..011  CAP-021..022
 v2.2   AGG-006
+v2.3   BLD-005        FORM-011..013 HIER-015..017
 ```
 
 Run the suite:

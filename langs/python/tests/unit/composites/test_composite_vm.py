@@ -44,7 +44,12 @@ def _build_composite(
     h = hub if hub is not None else _hub()
     disp = dispatcher if dispatcher is not None else _dispatcher()
     vm: CompositeVM[ComponentVM] = (
-        CompositeVMBuilder().name(name).services(h, disp).async_selection(async_selection).build()
+        CompositeVMBuilder()
+        .name(name)
+        .services(h, disp)
+        .async_selection(async_selection)
+        .children(lambda: ())
+        .build()
     )
     return vm, h
 
@@ -495,3 +500,17 @@ def test_builder_missing_hub_raises() -> None:
 
     with pytest.raises(BuilderValidationError):
         CompositeVMBuilder().name("x").build()
+
+
+def test_builder_missing_children_raises() -> None:
+    """Per spec/10-builders.md §3 + ADR-0035: non-modeled CompositeVM<VM>
+    requires a ``children(lambda: ...)`` factory. For an empty composite,
+    pass ``children(lambda: ())`` explicitly.
+    """
+    from vmx.builders.exceptions import BuilderValidationError
+
+    hub = _hub()
+    disp = _dispatcher()
+    with pytest.raises(BuilderValidationError) as exc_info:
+        CompositeVMBuilder().name("x").services(hub, disp).build()
+    assert exc_info.value.missing_field == "children"
