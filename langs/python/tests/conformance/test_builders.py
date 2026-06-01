@@ -107,7 +107,7 @@ def test_FORM_011_form_vm_builder_validates_required_initial() -> None:
         return None
 
     with pytest.raises(BuilderValidationError) as exc_info:
-        FormVMBuilder[str]().persister(persister).build()
+        FormVMBuilder().persister(persister).build()
     assert exc_info.value.missing_field == "initial"
 
 
@@ -117,7 +117,7 @@ def test_FORM_011_form_vm_builder_validates_required_persister() -> None:
     from vmx.forms import FormVMBuilder
 
     with pytest.raises(BuilderValidationError) as exc_info:
-        FormVMBuilder[str]().initial("init").build()
+        FormVMBuilder().initial("init").build()
     assert exc_info.value.missing_field == "persister"
 
 
@@ -129,7 +129,7 @@ def test_FORM_012_form_vm_builder_repeated_build_produces_equivalent_forms() -> 
     async def persister(_m: str) -> None:
         return None
 
-    b = FormVMBuilder[str]().initial("init").persister(persister).strict(True)
+    b = FormVMBuilder().initial("init").persister(persister).strict(True)
     f1 = b.build()
     f2 = b.build()
     assert f1 is not f2
@@ -151,7 +151,7 @@ def test_FORM_013_form_vm_builder_field_defaults_applied() -> None:
     async def persister(_m: str) -> None:
         return None
 
-    f = FormVMBuilder[str]().initial("init").persister(persister).build()
+    f = FormVMBuilder().initial("init").persister(persister).build()
     assert f.is_dirty is False  # initial == snapshot
     assert f.approve_command.can_execute() is True  # strict defaults to False
     assert f._hub is NULL_MESSAGE_HUB  # hub defaults to NULL_MESSAGE_HUB

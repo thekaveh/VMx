@@ -33,12 +33,7 @@ def test_HIER_015_missing_model_raises() -> None:
     h = _hub()
     d = _dispatcher()
     with pytest.raises(BuilderValidationError) as exc_info:
-        (
-            HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
-            .children_factory(lambda _parent: [])
-            .services(h, d)
-            .build()
-        )
+        (HierarchicalVMBuilder().children_factory(lambda _parent: []).services(h, d).build())
     assert exc_info.value.missing_field == "model"
 
 
@@ -47,24 +42,14 @@ def test_HIER_015_missing_children_factory_raises() -> None:
     h = _hub()
     d = _dispatcher()
     with pytest.raises(BuilderValidationError) as exc_info:
-        (
-            HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
-            .model("root")
-            .services(h, d)
-            .build()
-        )
+        (HierarchicalVMBuilder().model("root").services(h, d).build())
     assert exc_info.value.missing_field == "children_factory"
 
 
 @pytest.mark.conformance("HIER-015")
 def test_HIER_015_missing_services_raises() -> None:
     with pytest.raises(BuilderValidationError) as exc_info:
-        (
-            HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
-            .model("root")
-            .children_factory(lambda _parent: [])
-            .build()
-        )
+        (HierarchicalVMBuilder().model("root").children_factory(lambda _parent: []).build())
     # missing_field will be either "hub" or "dispatcher"
     assert exc_info.value.missing_field in {"hub", "dispatcher"}
 
@@ -79,7 +64,7 @@ def test_HIER_016_repeated_build_produces_distinct_equivalent_nodes() -> None:
     h = _hub()
     d = _dispatcher()
     b = (
-        HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
+        HierarchicalVMBuilder()
         .model("root")
         .children_factory(lambda _parent: [])
         .services(h, d)
@@ -103,7 +88,7 @@ def test_HIER_017_defaults_applied_when_not_set() -> None:
     h = _hub()
     d = _dispatcher()
     node = (
-        HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
+        HierarchicalVMBuilder()
         .model("root")
         .children_factory(lambda _parent: [])
         .services(h, d)
@@ -126,7 +111,7 @@ def test_with_default_services_wires_defaults() -> None:
     TS HierarchicalVM visible at the call site).
     """
     node = (
-        HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
+        HierarchicalVMBuilder()
         .model("root")
         .children_factory(lambda _parent: [])
         .with_default_services()
@@ -141,11 +126,7 @@ def test_with_default_services_wires_defaults() -> None:
 def test_with_default_services_returns_new_builder_instance() -> None:
     """``with_default_services()`` adheres to BLD-001: returns a new builder
     instance rather than mutating the original."""
-    b1 = (
-        HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
-        .model("root")
-        .children_factory(lambda _parent: [])
-    )
+    b1 = HierarchicalVMBuilder().model("root").children_factory(lambda _parent: [])
     b2 = b1.with_default_services()
     assert b1 is not b2
     # b1 still has no services wired — building it raises
