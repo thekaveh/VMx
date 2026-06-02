@@ -19,7 +19,7 @@ import {
   ViewModelType,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 import type { NotebookModel } from "../models/notebookModel.js";
 

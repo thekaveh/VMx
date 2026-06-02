@@ -4,11 +4,11 @@ import {
   declareCapabilities,
   MessageHub,
   RxDispatcher,
-} from "vmx";
+} from "@thekaveh/vmx";
 import {
   Notification,
   NotificationHub,
-} from "vmx/notifications";
+} from "@thekaveh/vmx/notifications";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import type { NoteModel } from "../../src/models/noteModel.js";

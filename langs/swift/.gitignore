@@ -1,0 +1,10 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+DerivedData/
+xcuserdata/
+*.xcworkspace/

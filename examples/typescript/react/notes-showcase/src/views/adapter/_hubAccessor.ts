@@ -13,7 +13,7 @@
  * subscribe to the hub, so this helper is the single place that has to know
  * the convention.
  */
-import type { IMessageHub } from "vmx";
+import type { IMessageHub } from "@thekaveh/vmx";
 
 interface HasHub {
   readonly hub: IMessageHub;

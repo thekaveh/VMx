@@ -16,9 +16,10 @@ import {
   hasCapability,
   RelayCommand,
   ViewModelType,
+  type ICommand,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 import { type ActionVM, makeActionVM } from "./actionVM.js";
 import { NoteVM } from "./noteVM.js";
@@ -74,6 +75,12 @@ export class CapabilityActionsVM extends ComponentVMBase {
   readonly #focusedGetter: FocusedGetter;
   readonly #focusSubject: BehaviorSubject<object | null>;
   readonly #actionsDerived: DerivedProperty<readonly ActionVM[]>;
+  // Edge-case backfill (readonly notebook gating): a dedicated *Add Note*
+  // command whose `canExecute` predicate consults the host-supplied
+  // `canAddNote` callback. The host (e.g. `WorkspaceVM`) wires this to
+  // `!notesView.currentNotebookIsReadonly`. Defaults stay backward-compatible:
+  // a no-op action and an always-true predicate.
+  readonly #addNoteCommand: RelayCommand;
 
   constructor(opts: {
     name: string;
@@ -81,6 +88,8 @@ export class CapabilityActionsVM extends ComponentVMBase {
     hub: IMessageHub;
     dispatcher: IDispatcher;
     focusedGetter: FocusedGetter;
+    addNoteAction?: () => void;
+    canAddNote?: () => boolean;
   }) {
     super({
       name: opts.name,
@@ -97,6 +106,12 @@ export class CapabilityActionsVM extends ComponentVMBase {
       null,
       null,
     );
+    const addNoteAction = opts.addNoteAction ?? ((): void => undefined);
+    const canAddNote = opts.canAddNote ?? ((): boolean => true);
+    this.#addNoteCommand = RelayCommand.builder()
+      .predicate(canAddNote)
+      .task(addNoteAction)
+      .build();
   }
 
   get type(): ViewModelType {
@@ -114,6 +129,18 @@ export class CapabilityActionsVM extends ComponentVMBase {
   /** Live projection: list of (label, command) for the focused VM. */
   get actions(): DerivedProperty<readonly ActionVM[]> {
     return this.#actionsDerived;
+  }
+
+  /**
+   * Host-driven *Add Note* command.
+   *
+   * Edge-case backfill (readonly notebook gating): `canExecute` delegates
+   * to the `canAddNote` callback supplied at construction. `WorkspaceVM`
+   * wires the predicate to `!notesView.currentNotebookIsReadonly` so the
+   * bar gates adding notes to readonly notebooks.
+   */
+  get addNoteCommand(): ICommand {
+    return this.#addNoteCommand;
   }
 
   /**
@@ -282,6 +309,7 @@ export class CapabilityActionsVM extends ComponentVMBase {
 
   protected override _onDispose(): void {
     this.#actionsDerived.dispose();
+    this.#addNoteCommand.dispose();
     this.#focusSubject.complete();
     super._onDispose();
   }
@@ -297,6 +325,8 @@ export class CapabilityActionsVMBuilder {
   #hub: IMessageHub | null = null;
   #dispatcher: IDispatcher | null = null;
   #focusedGetter: FocusedGetter | null = null;
+  #addNoteAction: (() => void) | null = null;
+  #canAddNote: (() => boolean) | null = null;
 
   constructor(from?: CapabilityActionsVMBuilder) {
     if (from) {
@@ -305,6 +335,8 @@ export class CapabilityActionsVMBuilder {
       this.#hub = from.#hub;
       this.#dispatcher = from.#dispatcher;
       this.#focusedGetter = from.#focusedGetter;
+      this.#addNoteAction = from.#addNoteAction;
+      this.#canAddNote = from.#canAddNote;
     }
   }
 
@@ -336,6 +368,25 @@ export class CapabilityActionsVMBuilder {
     return b;
   }
 
+  /** Wire the *Add Note* command body (edge-case backfill). */
+  addNoteAction(action: () => void): CapabilityActionsVMBuilder {
+    const b = new CapabilityActionsVMBuilder(this);
+    b.#addNoteAction = action;
+    return b;
+  }
+
+  /**
+   * Wire the *Add Note* command can-execute predicate.
+   *
+   * Used by `WorkspaceVM` to consult `notesView.currentNotebookIsReadonly`
+   * so the bar disables *Add Note* against readonly notebooks.
+   */
+  canAddNote(predicate: () => boolean): CapabilityActionsVMBuilder {
+    const b = new CapabilityActionsVMBuilder(this);
+    b.#canAddNote = predicate;
+    return b;
+  }
+
   build(): CapabilityActionsVM {
     if (this.#name === null) throw new Error("name is required");
     if (this.#hub === null || this.#dispatcher === null)
@@ -348,6 +399,10 @@ export class CapabilityActionsVMBuilder {
       hub: this.#hub,
       dispatcher: this.#dispatcher,
       focusedGetter: this.#focusedGetter,
+      ...(this.#addNoteAction !== null
+        ? { addNoteAction: this.#addNoteAction }
+        : {}),
+      ...(this.#canAddNote !== null ? { canAddNote: this.#canAddNote } : {}),
     });
   }
 }

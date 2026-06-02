@@ -32,8 +32,8 @@ import {
   type ICommand,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
-import { type INotificationHub } from "vmx/notifications";
+} from "@thekaveh/vmx";
+import { type INotificationHub } from "@thekaveh/vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
@@ -63,6 +63,11 @@ export class NotesViewVM extends ComponentVMBase {
   #current: NoteVM | null = null;
   #activeBindingToken = 0;
   #boundNotebookId: string | null = null;
+  // Edge-case backfill (readonly notebook gating): mirrors the readonly
+  // flag of the currently-bound notebook. The host (`WorkspaceVM`) sets
+  // this when the user changes notebook selection; `CapabilityActionsVM`
+  // consults it to gate `addNoteCommand.canExecute`.
+  #currentNotebookIsReadonly = false;
 
   constructor(opts: {
     name: string;
@@ -320,6 +325,30 @@ export class NotesViewVM extends ComponentVMBase {
 
   get boundNotebookId(): string | null {
     return this.#boundNotebookId;
+  }
+
+  /**
+   * Readonly flag of the currently-bound notebook.
+   *
+   * Edge-case backfill: set by the host (e.g. `WorkspaceVM`) on notebook
+   * selection. `CapabilityActionsVM.addNoteCommand` consults this so the
+   * bar disables *Add Note* for readonly notebooks.
+   */
+  get currentNotebookIsReadonly(): boolean {
+    return this.#currentNotebookIsReadonly;
+  }
+
+  set currentNotebookIsReadonly(value: boolean) {
+    if (this.#currentNotebookIsReadonly === value) return;
+    this.#currentNotebookIsReadonly = value;
+    this._hub.send(
+      PropertyChangedMessage.create(
+        this,
+        this._name,
+        "currentNotebookIsReadonly",
+      ),
+    );
+    this._raisePropertyChanged("currentNotebookIsReadonly");
   }
 
   // ── Binding ──────────────────────────────────────────────────────────────

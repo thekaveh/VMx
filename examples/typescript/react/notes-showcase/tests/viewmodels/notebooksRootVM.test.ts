@@ -4,7 +4,7 @@ import {
   RxDispatcher,
   TreeStructureChangedMessage,
   type IMessage,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";

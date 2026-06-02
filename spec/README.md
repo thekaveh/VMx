@@ -2,11 +2,12 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.3.0,
-Python `vmx` v2.3.0, TypeScript `vmx` v2.3.0 — declares the spec version it
-implements. Conformance tests under `langs/<lang>/tests/conformance/`
-re-implement the catalog at `12-conformance.md` and must pass before any
-flavor releases a stable version.
+This directory is the contract. Every published package — C# `VMx` v2.4.0,
+Python `vmx` v2.4.0, TypeScript `@thekaveh/vmx` v2.4.0, Swift `VMx` v2.4.0
+(subset) — declares the spec version it implements. Conformance tests under
+`langs/<lang>/tests/conformance/` re-implement the catalog at
+`12-conformance.md` and must pass before any flavor releases a stable
+version.
 
 ## 1. Contents
 
@@ -24,7 +25,7 @@ flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (227 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (232 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -97,11 +98,30 @@ existing behaviour.
   `HIER-015..017` (HierarchicalVM builder validate / repeat / defaults);
   catalog total goes from 220 to 227.
 
-### 1.6 Supporting artefacts
+### 1.6 v2.3.x → v2.4.0 changes
 
-- `VERSION` — current spec SemVer (`2.3.0`).
+v2.4.0 is a minor, non-breaking spec bump that coordinates a publication-readiness pass, a Swift flavor skeleton, an example-app theming scenario contract, and example-app edge-case coverage backfill (see ADR-0036). All v2.3.x consumers continue to work unchanged.
+
+- **ADR-0036** — umbrella for the v2.4.0 release: (a) C# / Python / TS
+  publication-readiness (TS npm rename `vmx` → `@thekaveh/vmx` because the
+  unscoped name was unavailable; CI workflow polish); (b) Swift flavor
+  skeleton at `langs/swift/` covering LIFE / CVM / COMP / GRP / AGG / CMD /
+  BLD subsets; (c) Theme as a VM concern — a scenario contract for
+  example-app theming wiring `ComponentVM` + `DerivedProperty` +
+  `RelayCommand` + `MessageHub` into a `ThemeVM` (no new core types); (d)
+  test-coverage backfill (C# Forwarding decorators, Python aggregates,
+  edge cases across the three flagship Notes-Showcase apps).
+- `12-conformance.md` — adds the `THEME-NNN` family with five scenarios
+  (`THEME-001..005`) under §28; catalog total goes from 227 to 232. The
+  ThemeVM contract proper lives in `proposals/2026-06-02-theme-vm-scenario.md`.
+- Chapter count stays at 22 (no new chapters); the ThemeVM contract is a
+  scenario proposal, not a new chapter.
+
+### 1.7 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`2.4.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0035); see
+- `ADRs/` — Architecture Decision Records (0001-0036); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

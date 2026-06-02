@@ -36,7 +36,7 @@ import {
   asyncScheduler,
   type SchedulerLike,
 } from "rxjs";
-import type { IDispatcher } from "vmx";
+import type { IDispatcher } from "@thekaveh/vmx";
 
 export class ReactDispatcher implements IDispatcher {
   readonly foreground: SchedulerLike = asapScheduler;

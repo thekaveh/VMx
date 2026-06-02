@@ -8,6 +8,6 @@
     "start": "npx tsx index.ts"
   },
   "dependencies": {
-    "vmx": "file:../../../../langs/typescript"
+    "@thekaveh/vmx": "file:../../../../langs/typescript"
   }
 }

@@ -5,8 +5,8 @@ import {
   MessageHub,
   PropertyChangedMessage,
   RxDispatcher,
-} from "vmx";
-import { NotificationHub } from "vmx/notifications";
+} from "@thekaveh/vmx";
+import { NotificationHub } from "@thekaveh/vmx/notifications";
 
 import type { NoteModel } from "../../src/models/noteModel.js";
 import { NoteVM } from "../../src/viewmodels/noteVM.js";

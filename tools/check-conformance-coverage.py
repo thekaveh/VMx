@@ -35,6 +35,15 @@ from pathlib import Path
 _ID_PATTERN = re.compile(r"\b([A-Z]{3,5})-(\d{3})\b")
 _HEADING_PREFIX = "### "
 
+# Scenario-contract prefixes that catalog assertions for EXAMPLE APPS rather
+# than the language-neutral library. Their tests live under `examples/<lang>/...`
+# instead of `langs/<lang>/tests/conformance/`, so the library-conformance
+# scraper would always report them as missing. We exclude them from the catalog
+# the per-flavor scraper compares against. The IDs still appear in
+# `spec/12-conformance.md` (one ### heading per scenario) for documentation +
+# cross-flavor parity; example-app suites cover them separately.
+_SCENARIO_PREFIXES: frozenset[str] = frozenset({"THEME"})
+
 
 def parse_catalog_ids(catalog_path: Path) -> set[str]:
     """Return the set of XXX-NNN IDs declared as ### test headings in the catalog.
@@ -42,12 +51,20 @@ def parse_catalog_ids(catalog_path: Path) -> set[str]:
     We deliberately limit parsing to lines that start with `### ` so that
     references inside body prose (and the "Identifier prefixes" table) are
     ignored. The catalog's convention is one ### heading per test.
+
+    IDs whose prefix matches a scenario-contract family (see
+    `_SCENARIO_PREFIXES`) are EXCLUDED — those live in example-app test trees,
+    not `langs/<lang>/tests/conformance/`, and would otherwise show up as
+    permanent gaps in cross-flavor coverage.
     """
     ids: set[str] = set()
     for raw_line in catalog_path.read_text(encoding="utf-8").splitlines():
         if not raw_line.startswith(_HEADING_PREFIX):
             continue
         for match in _ID_PATTERN.finditer(raw_line):
+            prefix = match.group(1)
+            if prefix in _SCENARIO_PREFIXES:
+                continue
             ids.add(f"{match.group(1)}-{match.group(2)}")
     return ids
 

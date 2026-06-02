@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MessageHub, RxDispatcher } from "vmx";
+import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 import {
   NotificationHub,
   NotificationReaction,
   type INotificationHub,
-} from "vmx/notifications";
+} from "@thekaveh/vmx/notifications";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import type { NoteModel } from "../../src/models/noteModel.js";
@@ -166,7 +166,7 @@ describe("NoteFormVM", () => {
   // denyCommand / approveCommand reference has changed.
   it("bindTo emits PropertyChangedMessage for approveCommand and denyCommand", async () => {
     const { vm, hub } = makeForm();
-    const { PropertyChangedMessage } = await import("vmx");
+    const { PropertyChangedMessage } = await import("@thekaveh/vmx");
     const observed: string[] = [];
     hub.messages.subscribe((m) => {
       if (m instanceof PropertyChangedMessage && m.sender === vm) {
@@ -210,7 +210,7 @@ describe("NoteFormVM", () => {
 
   it("addTag / removeTag emit PropertyChanged for tagsText", async () => {
     const { vm, hub } = makeForm();
-    const { PropertyChangedMessage } = await import("vmx");
+    const { PropertyChangedMessage } = await import("@thekaveh/vmx");
     vm.bindTo(aNote({ tags: [] }));
     const observed: string[] = [];
     hub.messages.subscribe((m) => {

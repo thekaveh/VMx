@@ -1,0 +1,38 @@
+name: swift
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "langs/swift/**"
+      - "spec/**"
+      - ".github/workflows/swift.yml"
+  pull_request:
+    paths:
+      - "langs/swift/**"
+      - "spec/**"
+      - ".github/workflows/swift.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Swift Combine is currently macOS / iOS / tvOS / watchOS only;
+        # Linux Swift drops Combine, so the Swift VMx flavor is macOS-only
+        # for now. A Combine-shim layer (or migration to swift-async-algorithms)
+        # would re-enable ubuntu-latest in a follow-up PR.
+        os: [macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift version
+        run: swift --version
+      - name: Build
+        working-directory: langs/swift
+        run: swift build -c release
+      - name: Test
+        working-directory: langs/swift
+        run: swift test --parallel

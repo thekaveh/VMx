@@ -18,7 +18,7 @@ import {
   MessageHub,
   PropertyChangedMessage,
   RxDispatcher,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 // ---------------------------------------------------------------------------
 // Domain model

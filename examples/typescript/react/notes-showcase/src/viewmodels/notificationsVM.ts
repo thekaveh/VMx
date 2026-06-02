@@ -14,12 +14,12 @@ import {
   ViewModelType,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
+} from "@thekaveh/vmx";
 import {
   type INotificationHub,
   type Notification,
   NotificationVM,
-} from "vmx/notifications";
+} from "@thekaveh/vmx/notifications";
 
 export class NotificationsVM extends ComponentVMBase {
   static readonly DEFAULT_CAP = 5;

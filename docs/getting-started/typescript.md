@@ -13,7 +13,7 @@ ______________________________________________________________________
 ## 1. Install
 
 ```bash
-npm install vmx
+npm install @thekaveh/vmx rxjs
 ```
 
 For local development from a checked-out clone:
@@ -22,8 +22,9 @@ For local development from a checked-out clone:
 npm install /path/to/VMx/langs/typescript
 ```
 
-`vmx` ships dual ESM + CJS bundles and full TypeScript declarations. No extra
-`@types/vmx` package is needed.
+`@thekaveh/vmx` (renamed in v2.4.0 from the unscoped `vmx` name, which was
+unavailable on the npm registry) ships dual ESM + CJS bundles and full
+TypeScript declarations. No extra `@types/vmx` package is needed.
 
 ______________________________________________________________________
 
@@ -35,7 +36,7 @@ viewmodels and a dispatcher that knows about your scheduler pair.
 ### 2.1 Option A — immediate (Node scripts / synchronous tests)
 
 ```ts
-import { MessageHub, RxDispatcher } from "vmx";
+import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 
 const hub = new MessageHub();
 const dispatcher = RxDispatcher.immediate();
@@ -47,7 +48,7 @@ const dispatcher = RxDispatcher.immediate();
 
 ```ts
 import { asyncScheduler, animationFrameScheduler } from "rxjs";
-import { MessageHub, RxDispatcher } from "vmx";
+import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 
 const hub = new MessageHub();
 const dispatcher = new RxDispatcher(
@@ -71,7 +72,7 @@ import {
   MessageHub,
   PropertyChangedMessage,
   RxDispatcher,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 interface UserModel {
   name: string;
@@ -125,7 +126,7 @@ have changed.
 
 ```ts
 import { Subject } from "rxjs";
-import { RelayCommand } from "vmx";
+import { RelayCommand } from "@thekaveh/vmx";
 
 const canSaveTrigger = new Subject<void>();
 let isDirty = false;
@@ -174,7 +175,7 @@ import {
   MessageHub,
   PropertyChangedMessage,
   RxDispatcher,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 interface TabModel {
   title: string;
@@ -237,7 +238,7 @@ Every VM follows a five-state lifecycle:
 terminal `Disposed`.
 
 ```ts
-import { ConstructionStatus } from "vmx";
+import { ConstructionStatus } from "@thekaveh/vmx";
 
 console.log(userVM.status); // ConstructionStatus.Constructed
 
@@ -279,7 +280,7 @@ Use `observeOn` from `rxjs/operators` to marshal:
 
 ```ts
 import { filter, observeOn } from "rxjs/operators";
-import { PropertyChangedMessage } from "vmx";
+import { PropertyChangedMessage } from "@thekaveh/vmx";
 
 hub.messages.pipe(
   filter((m): m is PropertyChangedMessage<unknown> => m instanceof PropertyChangedMessage),

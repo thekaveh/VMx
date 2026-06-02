@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageHub, RxDispatcher } from "vmx";
+import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";

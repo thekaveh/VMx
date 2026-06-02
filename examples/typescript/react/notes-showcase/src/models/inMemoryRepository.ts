@@ -66,6 +66,13 @@ export class InMemoryNoteRepository implements INoteRepository {
    * no-op so the repository remains usable in the browser / under jsdom.
    */
   readonly #exporter: ((path: string, payload: string) => Promise<void>) | null;
+  /**
+   * Edge-case backfill (async failure mode): single-shot error injection.
+   * When non-null the very next async operation throws this error and the
+   * slot is cleared so subsequent calls behave normally. Lets tests
+   * exercise VM-side error swallowing without a wholesale stub repo.
+   */
+  #failureMode: Error | null = null;
 
   constructor(
     seed: {
@@ -86,8 +93,25 @@ export class InMemoryNoteRepository implements INoteRepository {
     this.#exporter = exporter;
   }
 
+  /**
+   * Arms a single-shot failure for the next async repo operation. Mirrors
+   * the Python ``fail_next`` helper used by async-failure edge-case tests.
+   */
+  failNext(err: Error): void {
+    this.#failureMode = err;
+  }
+
+  #consumeFailure(): void {
+    if (this.#failureMode !== null) {
+      const err = this.#failureMode;
+      this.#failureMode = null;
+      throw err;
+    }
+  }
+
   async loadAll(): Promise<RepositorySnapshot> {
     await delay(this.#loadAllMs);
+    this.#consumeFailure();
     return this.#gate.run(() => ({
       notebooks: [...this.#notebooks],
       notes: [...this.#notes],
@@ -96,6 +120,7 @@ export class InMemoryNoteRepository implements INoteRepository {
 
   async loadNotes(notebookId: string): Promise<NoteModel[]> {
     await delay(this.#loadNotesMs);
+    this.#consumeFailure();
     return this.#gate.run(() =>
       this.#notes.filter((n) => n.notebookId === notebookId),
     );
@@ -103,6 +128,7 @@ export class InMemoryNoteRepository implements INoteRepository {
 
   async saveNote(note: NoteModel): Promise<void> {
     await delay(this.#saveNoteMs);
+    this.#consumeFailure();
     return this.#gate.run(() => {
       const stamped: NoteModel = {
         ...note,
@@ -119,6 +145,7 @@ export class InMemoryNoteRepository implements INoteRepository {
 
   async deleteNote(id: string): Promise<void> {
     await delay(this.#deleteNoteMs);
+    this.#consumeFailure();
     return this.#gate.run(() => {
       const idx = this.#notes.findIndex((n) => n.id === id);
       if (idx >= 0) this.#notes.splice(idx, 1);
@@ -127,6 +154,7 @@ export class InMemoryNoteRepository implements INoteRepository {
 
   async addNotebook(notebook: NotebookModel): Promise<void> {
     await delay(this.#addNotebookMs);
+    this.#consumeFailure();
     return this.#gate.run(() => {
       this.#notebooks.push(notebook);
     });
@@ -138,6 +166,7 @@ export class InMemoryNoteRepository implements INoteRepository {
     path: string,
   ): Promise<void> {
     await delay(this.#exportMs);
+    this.#consumeFailure();
     const payload = JSON.stringify(
       {
         notebooks: notebooks.map((n) => ({

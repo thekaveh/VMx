@@ -1,16 +1,19 @@
 # vmx — C#
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
-spec-compatible with the Python and TypeScript flavors.
+spec-compatible with the Python, TypeScript, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.3.0** — implements `spec-v2.3.0` end-to-end. 227/227 conformance IDs
+**v2.4.0** — implements `spec-v2.4.0` end-to-end. 232/232 conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
 `INotificationHub`). Both companions remain at their v2.1.x release
-(no 2.3.0 dependency); see `../../compatibility-matrix.md`.
+(no 2.4.0 dependency); see `../../compatibility-matrix.md`. A Swift
+flavor sibling lands as a skeleton at `langs/swift/` (subset of
+`spec-v2.4.0`); see `../swift/README.md` §5 for the in / deferred
+matrix.
 
 ## 2. Install
 
@@ -203,7 +206,7 @@ The companion package `VMx.Notifications` (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 227 conformance IDs from `spec/12-conformance.md` are covered.
+All 232 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -216,6 +219,7 @@ v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
        COL-001..023   CMD-008..011  CAP-021..022
 v2.2   AGG-006
 v2.3   BLD-005        FORM-011..013 HIER-015..017
+v2.4   THEME-001..005
 ```
 
 Run the suite:

@@ -9,5 +9,5 @@ export type {
   IDialogService,
   FileFilter,
   NotificationSeverity,
-} from "vmx";
-export { NullDialogService } from "vmx";
+} from "@thekaveh/vmx";
+export { NullDialogService } from "@thekaveh/vmx";

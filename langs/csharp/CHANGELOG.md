@@ -6,6 +6,45 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## 2.4.0 — 2026-06-02
+
+Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
+sibling + example-app theming scenario contract + test-coverage backfill
+(ADR-0036). Purely additive at the surface level; no behaviour changes
+to existing C# APIs.
+
+### Added
+
+- **ThemeVM scenario contract** (example apps): the v2.4.0
+  `spec-v2.4.0` cycle defines a normative shape for example-app
+  theming (`ThemeModel` + `ThemeVM : ComponentVM<ThemeModel>` +
+  per-framework `ThemeAdapter`) built from the existing core
+  primitives (`ComponentVM<M>`, `DerivedProperty<TValue>`,
+  `RelayCommand`, `MessageHub`). No new core types are introduced;
+  the contract is implemented by the Avalonia Notes-Showcase flagship
+  under `examples/csharp/avalonia/NotesShowcase/`. See
+  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §3.C.
+
+### Fixed
+
+- **Forwarding decorator coverage backfill.** `ForwardingComponentVM<M>`
+  and `ForwardingCompositeVM<VM>` line coverage raised from ~70% and
+  ~8% (respectively) to **100%** by adding targeted unit tests for the
+  full delegating surface, including selective-override edge cases,
+  hub-rebroadcast paths, and dispose-cascade ordering. No production
+  code changed; tests only.
+
+### Conformance
+
+- 5 new IDs (`THEME-001..005`); running total goes from 227 to **232**.
+  The C# flavor implements `THEME-001..005` as part of the Avalonia
+  Notes-Showcase flagship's conformance suite (the contract is
+  scenario-level, not a core library addition).
+
+### Min spec version
+
+- 2.4.0 (previously 2.3.0).
+
 ## 2.3.0 — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).

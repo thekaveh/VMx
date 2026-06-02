@@ -3,7 +3,7 @@ import {
   hasCapability,
   MessageHub,
   RxDispatcher,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
@@ -290,7 +290,7 @@ describe("NotesViewVM", () => {
   // remove from inner → clear current → dispose). Mirrors the C# and Py
   // tests of the same shape.
   it("deleteNote removes from inner, clears current, and persists", async () => {
-    const { NotificationHub } = await import("vmx/notifications");
+    const { NotificationHub } = await import("@thekaveh/vmx/notifications");
     const repo = new InMemoryNoteRepository(buildSeed(), {
       loadNotesDelayMs: 0,
       deleteNoteDelayMs: 0,

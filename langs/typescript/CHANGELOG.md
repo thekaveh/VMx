@@ -1,9 +1,56 @@
-# Changelog — vmx (TypeScript)
+# Changelog — @thekaveh/vmx (TypeScript)
 
 All notable changes to the TypeScript flavor of vmx are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## 2.4.0 — 2026-06-02
+
+Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
+sibling + example-app theming scenario contract + test-coverage backfill
+(ADR-0036). One published-name change (see Changed below); no behaviour
+changes to existing TS APIs.
+
+### Changed
+
+- **npm package renamed from `vmx` to `@thekaveh/vmx`** (the unscoped
+  `vmx` name was unavailable on the public npm registry). Install
+  command becomes `npm install @thekaveh/vmx rxjs`; imports become
+  `import { ... } from "@thekaveh/vmx"`. The opt-in notifications
+  sub-path is now `@thekaveh/vmx/notifications`. Source-compatible: no
+  symbol changes. See ADR-0036 §3.A.
+
+### Added
+
+- **ThemeVM scenario contract** (example apps): the v2.4.0
+  `spec-v2.4.0` cycle defines a normative shape for example-app
+  theming (`ThemeModel` + `ThemeVM extends ComponentVMOf<ThemeModel>`
+  + per-framework `ThemeAdapter`) built from the existing core
+  primitives (`ComponentVMOf<M>`, `DerivedProperty<TValue>`,
+  `RelayCommand`, `MessageHub`). No new core types are introduced;
+  the contract is implemented by the React Notes-Showcase flagship
+  under `examples/typescript/react/notes-showcase/`. See
+  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §3.C.
+
+### Fixed
+
+- **Example-app edge-case coverage backfill.** The React Notes-Showcase
+  flagship gained dedicated tests for the filter / search / paging
+  interaction matrix, capability-aware action-bar gating, and FormVM
+  approve/deny edge cases that were previously implicit. No production
+  code changed; tests only.
+
+### Conformance
+
+- 5 new IDs (`THEME-001..005`); running total goes from 227 to **232**.
+  The TS flavor implements `THEME-001..005` as part of the React
+  Notes-Showcase flagship's conformance suite (the contract is
+  scenario-level, not a core library addition).
+
+### Min spec version
+
+- 2.4.0 (previously 2.3.0).
 
 ## 2.3.0 — 2026-05-31
 

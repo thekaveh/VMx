@@ -26,7 +26,7 @@
  * exactly.
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { PropertyChangedMessage, type IMessage } from "vmx";
+import { PropertyChangedMessage, type IMessage } from "@thekaveh/vmx";
 
 import { resolveHub } from "./_hubAccessor.js";
 

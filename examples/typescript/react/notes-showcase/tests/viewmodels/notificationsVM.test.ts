@@ -1,12 +1,12 @@
 import { TestScheduler } from "rxjs/testing";
 import { describe, expect, it } from "vitest";
-import { MessageHub, RxDispatcher } from "vmx";
+import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 import {
   Notification,
   NotificationHub,
   NotificationReaction,
   NotificationType,
-} from "vmx/notifications";
+} from "@thekaveh/vmx/notifications";
 
 import { NotificationsVM } from "../../src/viewmodels/notificationsVM.js";
 

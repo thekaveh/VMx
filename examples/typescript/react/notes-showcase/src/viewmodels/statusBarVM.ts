@@ -16,7 +16,7 @@ import {
   ViewModelType,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 import type { NoteFormVM } from "./noteFormVM.js";
 import type { NotebooksRootVM } from "./notebooksRootVM.js";

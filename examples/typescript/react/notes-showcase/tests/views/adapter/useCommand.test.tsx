@@ -5,7 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { Subject } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RelayCommand } from "vmx";
+import { RelayCommand } from "@thekaveh/vmx";
 
 import { useCommand } from "../../../src/views/adapter/useCommand.js";
 

@@ -6,6 +6,17 @@ on:
       - "csharp-v*"
       - "python-v*"
       - "typescript-v*"
+      - "swift-v*"
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "Which flavor to publish (csharp / python / typescript / swift / all)"
+        required: true
+        default: "all"
+      ref:
+        description: "Tag / ref to publish from (e.g. typescript-v2.4.0). Empty = use the workflow's checked-out HEAD."
+        required: false
+        default: ""
 
 jobs:
   csharp:

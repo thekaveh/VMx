@@ -6,6 +6,47 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## 2.4.0 — 2026-06-02
+
+Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
+sibling + example-app theming scenario contract + test-coverage backfill
+(ADR-0036). Purely additive at the surface level; no behaviour changes
+to existing Python APIs.
+
+### Added
+
+- **ThemeVM scenario contract** (example apps): the v2.4.0
+  `spec-v2.4.0` cycle defines a normative shape for example-app
+  theming (`ThemeModel` + `ThemeVM : ComponentVMOf[ThemeModel]` +
+  per-framework `ThemeAdapter`) built from the existing core
+  primitives (`ComponentVMOf[M]`, `DerivedProperty[T]`, `RelayCommand`,
+  `MessageHub`). No new core types are introduced; the contract is
+  implemented by the Textual Notes-Showcase flagship under
+  `examples/python/textual/notes_showcase/`. See
+  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §3.C.
+
+### Fixed
+
+- **Aggregate parametric test coverage backfill.** The
+  `AggregateVM1..6` test suite was expanded with parametric
+  per-arity cases for construction, destruction, modeled-hint
+  propagation, and dispose-cascade ordering — bringing aggregate-family
+  line coverage to **100%** across all six arities. Existing
+  Notes-Showcase edge cases (filter / search / paging interaction,
+  capability-aware action-bar gating) gained dedicated tests in the
+  same pass. No production code changed; tests only.
+
+### Conformance
+
+- 5 new IDs (`THEME-001..005`); running total goes from 227 to **232**.
+  The Python flavor implements `THEME-001..005` as part of the Textual
+  Notes-Showcase flagship's conformance suite (the contract is
+  scenario-level, not a core library addition).
+
+### Min spec version
+
+- 2.4.0 (previously 2.3.0).
+
 ## 2.3.0 — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).

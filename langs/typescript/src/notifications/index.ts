@@ -1,5 +1,5 @@
 // VMx notification / confirmation hub.
-// Sub-path export: `import { ... } from "vmx/notifications"`.
+// Sub-path export: `import { ... } from "@thekaveh/vmx/notifications"`.
 // See spec/16-notifications.md, ADR-0013, ADR-0031.
 
 export { NotificationType } from "./notification.js";
