@@ -22,6 +22,19 @@ public protocol ParentVM: AnyObject {
     var currentChild: ComponentVMBase? { get }
     func selectChild(_ vm: ComponentVMBase)
     func deselectChild(_ vm: ComponentVMBase)
+
+    /// True for parents that have a single-current-child slot
+    /// (`CompositeVM`); false for parents that have only peer children
+    /// (`GroupVM`). A child whose parent reports `false` here has
+    /// `canSelect()` permanently false — there's nowhere to be selected
+    /// into. Mirrors GRP-005 in the spec.
+    var supportsSelection: Bool { get }
+}
+
+extension ParentVM {
+    /// Default: parents support selection unless they explicitly opt out.
+    /// `CompositeVM` inherits the default; `GroupVM` overrides to `false`.
+    public var supportsSelection: Bool { true }
 }
 
 /// View-model kind tag. Mirrors `ViewModelType`.
@@ -319,6 +332,7 @@ open class ComponentVMBase {
 
     public func canSelect() -> Bool {
         guard let parent = _parent else { return false }
+        guard parent.supportsSelection else { return false }
         return parent.currentChild !== self && _status == .constructed
     }
 
