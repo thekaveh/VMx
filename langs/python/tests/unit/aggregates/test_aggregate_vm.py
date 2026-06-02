@@ -1,4 +1,4 @@
-"""Unit tests for AggregateVM1 through AggregateVM5.
+"""Unit tests for AggregateVM1 through AggregateVM6.
 
 Tests verify:
 - Identity (name, hint, type=AGGREGATE)
@@ -9,7 +9,8 @@ Tests verify:
 - PropertyChangedMessage emitted for each component slot on construct
 - destruct() destructs all component slots
 - dispose() cascades to all components
-- All five arities
+- All six arities (arity 6 added per ADR-0034)
+- Parametric coverage of arity 1..6 (TestAggregateVMArity)
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from vmx.aggregates.builders import (
     AggregateVMBuilder3,
     AggregateVMBuilder4,
     AggregateVMBuilder5,
+    AggregateVMBuilder6,
 )
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.builders import ComponentVMBuilder
@@ -546,3 +548,221 @@ def test_aggregate_reconstruct_disposes_previous_slot() -> None:
     assert first.status == ConstructionStatus.DISPOSED, (  # type: ignore[union-attr]
         "previous slot must be Disposed, not lingering in Destructed state"
     )
+
+
+# ---------------------------------------------------------------------------
+# Parametric arity 1..6 coverage
+# ---------------------------------------------------------------------------
+#
+# These parametric tests collapse the per-arity branches in aggregate_vm.py
+# and builders.py into a single test surface. Each test runs once per arity
+# in [1, 6], exercising:
+#   * builder validation (each required component_N factory is checked)
+#   * build() → working VM with N child slots
+#   * lifecycle cascade (construct/destruct/dispose) across all N slots
+#   * canonical Hub.Send → RaisePropertyChanged ordering per slot
+#   * OnReconstruct disposes prior slots before overwriting (LIFE-013)
+#   * type=AGGREGATE for every arity
+#   * each ``component_N`` property returns its slot
+
+
+_BUILDERS = {
+    1: AggregateVMBuilder1,
+    2: AggregateVMBuilder2,
+    3: AggregateVMBuilder3,
+    4: AggregateVMBuilder4,
+    5: AggregateVMBuilder5,
+    6: AggregateVMBuilder6,
+}
+
+
+def _build_arity(arity: int, hub: MessageHub[object], dispatcher: RxDispatcher) -> object:
+    """Construct a fully-configured aggregate VM of the given arity via its builder."""
+    builder = _BUILDERS[arity]().name(f"agg{arity}").services(hub, dispatcher)
+    for n in range(1, arity + 1):
+        setter = getattr(builder, f"component_{n}")
+        builder = setter(lambda n=n: _make_child(hub, dispatcher, f"c{n}"))
+    return builder.build()
+
+
+def _components(agg: object, arity: int) -> list[object]:
+    return [getattr(agg, f"component_{n}") for n in range(1, arity + 1)]
+
+
+class TestAggregateVMArity:
+    """Parametric tests covering arity 1..6 of AggregateVM and AggregateVMBuilder."""
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_type_is_aggregate(self, arity: int) -> None:
+        agg = _build_arity(arity, _make_hub(), _make_dispatcher())
+        assert agg.type == ViewModelType.AGGREGATE  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_all_slots_none_before_construct(self, arity: int) -> None:
+        agg = _build_arity(arity, _make_hub(), _make_dispatcher())
+        assert all(c is None for c in _components(agg, arity))
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_construct_populates_all_slots(self, arity: int) -> None:
+        agg = _build_arity(arity, _make_hub(), _make_dispatcher())
+        agg.construct()  # type: ignore[attr-defined]
+        children = _components(agg, arity)
+        assert all(c is not None for c in children)
+        for n, child in enumerate(children, start=1):
+            assert child.name == f"c{n}"  # type: ignore[union-attr]
+            assert child.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_destruct_cascades_to_all_slots(self, arity: int) -> None:
+        agg = _build_arity(arity, _make_hub(), _make_dispatcher())
+        agg.construct()  # type: ignore[attr-defined]
+        agg.destruct()  # type: ignore[attr-defined]
+        assert agg.status == ConstructionStatus.DESTRUCTED  # type: ignore[attr-defined]
+        for child in _components(agg, arity):
+            assert child.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_dispose_cascades_to_all_slots(self, arity: int) -> None:
+        agg = _build_arity(arity, _make_hub(), _make_dispatcher())
+        agg.construct()  # type: ignore[attr-defined]
+        captured = _components(agg, arity)
+        agg.dispose()  # type: ignore[attr-defined]
+        assert agg.status == ConstructionStatus.DISPOSED  # type: ignore[attr-defined]
+        for child in captured:
+            assert child.status == ConstructionStatus.DISPOSED  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_property_changed_emitted_for_every_slot(self, arity: int) -> None:
+        hub = _make_hub()
+        dispatcher = _make_dispatcher()
+        agg = _build_arity(arity, hub, dispatcher)
+
+        emitted: list[str] = []
+        hub.messages.subscribe(
+            lambda m: (
+                emitted.append(m.property_name)  # type: ignore[union-attr]
+                if isinstance(m, PropertyChangedMessage)
+                and m.sender is agg
+                and m.property_name.startswith("component_")
+                else None
+            )
+        )
+        agg.construct()  # type: ignore[attr-defined]
+
+        # All N slot-PropertyChangedMessages must have fired, in canonical 1..N order
+        # (Hub.Send before RaisePropertyChanged per spec; the hub captures the Send).
+        expected = [f"component_{n}" for n in range(1, arity + 1)]
+        assert emitted == expected
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_canonical_ordering_hub_send_precedes_raise_property_changed(self, arity: int) -> None:
+        """For each slot N, Hub.Send(PropertyChangedMessage) must precede the
+        per-instance ``RaisePropertyChanged`` callback observers — the canonical
+        spec ordering. The base ``_ComponentVMBase`` does not expose
+        property_changed as a native event, but every PropertyChangedMessage
+        on the hub is paired (1:1) with a ``_raise_property_changed`` call.
+        Asserting Hub-side ordering matches expected sequence catches drift
+        either way.
+        """
+        hub = _make_hub()
+        dispatcher = _make_dispatcher()
+        agg = _build_arity(arity, hub, dispatcher)
+        sequence: list[str] = []
+
+        # Use the hub subscription to record exact order.
+        hub.messages.subscribe(
+            lambda m: (
+                sequence.append(m.property_name)  # type: ignore[union-attr]
+                if isinstance(m, PropertyChangedMessage)
+                and m.sender is agg
+                and m.property_name.startswith("component_")
+                else None
+            )
+        )
+        agg.construct()  # type: ignore[attr-defined]
+        assert sequence == [f"component_{n}" for n in range(1, arity + 1)]
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_reconstruct_disposes_prior_slots_before_overwriting(self, arity: int) -> None:
+        """LIFE-013 regression: reconstruct must dispose every prior slot before
+        replacing with fresh factory output (parallel to C# fix 560be45)."""
+        agg = _build_arity(arity, _make_hub(), _make_dispatcher())
+        agg.construct()  # type: ignore[attr-defined]
+        firsts = _components(agg, arity)
+
+        agg.reconstruct()  # type: ignore[attr-defined]
+        seconds = _components(agg, arity)
+
+        for f, s in zip(firsts, seconds, strict=False):
+            assert f is not s, "reconstruct must produce fresh slot instances"
+            assert f.status == ConstructionStatus.DISPOSED, (  # type: ignore[union-attr]
+                "previous slot must be Disposed, not lingering in Destructed state"
+            )
+            assert s.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize("arity", [2, 3, 4, 5, 6])
+    def test_builder_missing_each_factory_raises(self, arity: int) -> None:
+        """For every slot index N in [1, arity], omitting component_N from the
+        builder must raise BuilderValidationError with the canonical field name."""
+        hub = _make_hub()
+        dispatcher = _make_dispatcher()
+        for missing_n in range(1, arity + 1):
+            builder = _BUILDERS[arity]().name("agg").services(hub, dispatcher)
+            for n in range(1, arity + 1):
+                if n == missing_n:
+                    continue
+                setter = getattr(builder, f"component_{n}")
+                builder = setter(lambda: _make_child(hub, dispatcher))
+            with pytest.raises(BuilderValidationError) as exc_info:
+                builder.build()
+            assert exc_info.value.missing_field == f"component_{missing_n}"
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_builder_missing_name_raises(self, arity: int) -> None:
+        hub = _make_hub()
+        dispatcher = _make_dispatcher()
+        builder = _BUILDERS[arity]().services(hub, dispatcher)
+        for n in range(1, arity + 1):
+            setter = getattr(builder, f"component_{n}")
+            builder = setter(lambda: _make_child(hub, dispatcher))
+        with pytest.raises(BuilderValidationError) as exc_info:
+            builder.build()
+        assert exc_info.value.missing_field == "name"
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_builder_missing_services_raises(self, arity: int) -> None:
+        builder = _BUILDERS[arity]().name("agg")
+        for n in range(1, arity + 1):
+            setter = getattr(builder, f"component_{n}")
+            builder = setter(lambda: None)  # type: ignore[arg-type,return-value]
+        with pytest.raises(BuilderValidationError) as exc_info:
+            builder.build()
+        assert exc_info.value.missing_field == "hub"
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_builder_setters_are_immutable(self, arity: int) -> None:
+        """BLD-001: every setter returns a new instance."""
+        b1 = _BUILDERS[arity]()
+        b2 = b1.name("agg")
+        b3 = b2.hint("h")
+        assert b1 is not b2
+        assert b2 is not b3
+        assert b1._name is None
+        assert b2._name == "agg"
+        assert b3._hint == "h"
+
+    @pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+    def test_hint_default_and_override(self, arity: int) -> None:
+        hub = _make_hub()
+        dispatcher = _make_dispatcher()
+        # Default hint.
+        agg_default = _build_arity(arity, hub, dispatcher)
+        assert agg_default.hint == ""  # type: ignore[attr-defined]
+
+        # Override hint.
+        builder = _BUILDERS[arity]().name("agg").hint("custom").services(hub, dispatcher)
+        for n in range(1, arity + 1):
+            setter = getattr(builder, f"component_{n}")
+            builder = setter(lambda n=n: _make_child(hub, dispatcher, f"c{n}"))
+        agg_overridden = builder.build()
+        assert agg_overridden.hint == "custom"

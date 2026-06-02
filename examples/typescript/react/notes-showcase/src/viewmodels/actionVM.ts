@@ -6,7 +6,7 @@
  *
  * See spec §14.4 (capability dispatch) and the C# `ActionVM.cs` parity record.
  */
-import type { ICommand } from "vmx";
+import type { ICommand } from "@thekaveh/vmx";
 
 export interface ActionVM {
   readonly label: string;

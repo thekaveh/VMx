@@ -120,6 +120,19 @@ class WorkspaceVM:
             .name("capabilities")
             .services(hub, dispatcher)
             .focused_getter(lambda: self._focused)
+            # Edge-case backfill (readonly notebook gating): the bar's
+            # *Add Note* command is gated on the currently-bound notebook's
+            # readonly flag (mirrored into notes_view by this VM on
+            # selection change), and on the workspace being constructed
+            # with a current notebook.
+            .can_add_note(
+                lambda: (
+                    self.is_constructed
+                    and self.notebooks_root.current is not None
+                    and not self.notes_view.current_notebook_is_readonly
+                )
+            )
+            .add_note_action(self._fire_new_note)
             .build()
         )
 
@@ -302,6 +315,10 @@ class WorkspaceVM:
         if first is not None:
             self.notebooks_root.current = first
             self.set_focus(first)
+            # Edge-case backfill (readonly notebook gating): mirror the
+            # notebook's readonly flag into notes_view so
+            # CapabilityActionsVM.add_note_command observes it.
+            self.notes_view.current_notebook_is_readonly = first.model.is_readonly
             await self.notes_view.bind_to_async(first.model.id)
 
     def destruct(self) -> None:

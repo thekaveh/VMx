@@ -32,6 +32,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
 | `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
 | `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
+| `THEME-NNN` | Theme as a VM concern (scenario contract, v2.4)      | `proposals/2026-06-02-theme-vm-scenario.md`   |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
 listing its applicable ID range. When adding a new ID, update both the catalog (here)
@@ -2082,3 +2083,72 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **And** `form.Snapshot == m0` (the default snapshotter shallow-copies)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
+
+## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
+
+The `THEME-NNN` family covers the **scenario contract** at
+`spec/proposals/2026-06-02-theme-vm-scenario.md` (ADR-0036 §3). This contract
+specifies a normative *shape* for example-app theming — a `ThemeModel` +
+`ThemeVM : ComponentVM<ThemeModel>` + per-framework `ThemeAdapter` — built
+from existing core primitives (`ComponentVM<M>`, `DerivedProperty<T>`,
+`RelayCommand`, `MessageHub`). No new core types are introduced.
+
+Scenarios are normative for any flavor or example app that implements the
+contract; flavors that do not host an example-app theming surface are NOT
+required to provide coverage. Verbatim from the proposal §6.
+
+### THEME-001 — `setThemeCommand.execute("dark")` publishes `ThemeChangedMessage` exactly once; `currentTheme.value.name == "dark"`; `currentTheme.value.accentColor` equals the "dark" preset's accent
+
+**Given** a `ThemeVM` constructed with the three named presets
+(`"dark"`, `"light"`, `"high-contrast"`) and a hub subscriber filtered on
+`ThemeChangedMessage`
+**When** `setThemeCommand.execute("dark")` is called
+**Then** the subscriber observes exactly one `ThemeChangedMessage` with
+`curr.name == "dark"` and `curr.accentColor` equal to the configured "dark"
+preset's `accentColor`
+**And** `currentTheme.value.name == "dark"`
+
+### THEME-002 — `setThemeCommand.execute("unknown-preset")` raises `BuilderValidationError` (or flavor-idiomatic exception) without publishing a message
+
+**Given** a `ThemeVM` configured with only the three named presets and a hub
+subscriber filtered on `ThemeChangedMessage`
+**When** `setThemeCommand.execute("unknown-preset")` is called
+**Then** a `BuilderValidationError` / `BuilderValidationException` /
+`ValueError` (flavor-idiomatic) is raised
+**And** the subscriber observes zero `ThemeChangedMessage` emissions
+**And** `currentTheme.value` is unchanged from its pre-call value
+
+### THEME-003 — `toggleHighContrast` toggles `currentTheme.value.highContrast` without changing accent or scale
+
+**Given** a `ThemeVM` whose `currentTheme.value` has
+`highContrast == false`, `accentColor == "#1F6FEB"`, `fontScaleFactor == 1.0`
+**When** `toggleHighContrast.execute()` is called
+**Then** `currentTheme.value.highContrast == true`
+**And** `currentTheme.value.accentColor == "#1F6FEB"` (unchanged)
+**And** `currentTheme.value.fontScaleFactor == 1.0` (unchanged)
+**When** `toggleHighContrast.execute()` is called a second time
+**Then** `currentTheme.value.highContrast == false` (flipped back)
+
+### THEME-004 — `setFontScale(value)` clamps to `[0.75..1.75]` and publishes a single `ThemeChangedMessage`; values outside the range result in clamped emission, not rejection
+
+**Given** a `ThemeVM` with `currentTheme.value.fontScaleFactor == 1.0` and a
+hub subscriber filtered on `ThemeChangedMessage`
+**When** `setFontScale.execute(0.5)` is called
+**Then** the subscriber observes exactly one `ThemeChangedMessage`
+**And** `currentTheme.value.fontScaleFactor == 0.75` (clamped to lower bound)
+**When** `setFontScale.execute(3.0)` is called
+**Then** the subscriber observes a second `ThemeChangedMessage`
+**And** `currentTheme.value.fontScaleFactor == 1.75` (clamped to upper bound)
+**When** `setFontScale.execute(1.25)` is called
+**Then** `currentTheme.value.fontScaleFactor == 1.25` (in-range, unclamped)
+
+### THEME-005 — `followSystemCommand.execute()` sets `followSystem=true` and re-reads the host's current theme; calling `setThemeCommand.execute("dark")` afterward sets `followSystem=false` automatically
+
+**Given** a `ThemeVM` whose `currentTheme.value.followSystem == false`
+**When** `followSystemCommand.execute()` is called
+**Then** `currentTheme.value.followSystem == true`
+**And** `currentTheme.value.name` equals the host-derived system theme name
+(e.g., `"dark"` when the host reports a dark color scheme)
+**When** `setThemeCommand.execute("dark")` is called afterward
+**Then** `currentTheme.value.followSystem == false`
+**And** `currentTheme.value.name == "dark"`

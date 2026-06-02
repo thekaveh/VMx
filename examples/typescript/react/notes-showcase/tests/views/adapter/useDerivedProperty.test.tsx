@@ -9,7 +9,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { BehaviorSubject, NEVER } from "rxjs";
 import { afterEach, describe, expect, it } from "vitest";
-import { DerivedProperty } from "vmx";
+import { DerivedProperty } from "@thekaveh/vmx";
 
 import { useDerivedProperty } from "../../../src/views/adapter/useDerivedProperty.js";
 

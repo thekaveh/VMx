@@ -22,11 +22,11 @@ import {
   type ICommand,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
+} from "@thekaveh/vmx";
 import {
   type INotificationHub,
   NotificationHub,
-} from "vmx/notifications";
+} from "@thekaveh/vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
@@ -130,6 +130,19 @@ export class WorkspaceVM {
       .name("capabilities")
       .services(opts.hub, opts.dispatcher)
       .focusedGetter(() => this.#focused)
+      // Edge-case backfill (readonly notebook gating): the bar's *Add Note*
+      // command is gated on the currently-bound notebook's readonly flag
+      // (mirrored into notesView by this VM on selection change), and on
+      // the workspace being constructed with a current notebook.
+      .canAddNote(
+        () =>
+          this.isConstructed &&
+          this.#notebooks.current !== null &&
+          !this.#notesView.currentNotebookIsReadonly,
+      )
+      .addNoteAction(() => {
+        void this.#addNewNoteToCurrentAsync();
+      })
       .build();
 
     this.#aggregate = AggregateVM6.builder<
@@ -291,6 +304,11 @@ export class WorkspaceVM {
     if (first !== undefined) {
       this.#notebooks.current = first;
       this.setFocus(first);
+      // Edge-case backfill (readonly notebook gating): mirror the
+      // notebook's readonly flag into notesView so
+      // CapabilityActionsVM.addNoteCommand observes it.
+      this.#notesView.currentNotebookIsReadonly =
+        first.model.isReadonly ?? false;
       await this.#notesView.bindToAsync(first.model.id);
     }
   }

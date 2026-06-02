@@ -4,7 +4,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ComponentVM, CompositeVM, MessageHub, RxDispatcher } from "vmx";
+import { ComponentVM, CompositeVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 
 import { useVmCollection } from "../../../src/views/adapter/useVmCollection.js";
 

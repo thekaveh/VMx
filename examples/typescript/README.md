@@ -27,7 +27,7 @@ Minimal console demo. Demonstrates:
 **Run against the published package:**
 
 ```bash
-npm install vmx
+npm install @thekaveh/vmx
 npx tsx console/hello-vmx/index.ts
 ```
 

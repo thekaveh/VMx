@@ -1,7 +1,7 @@
 /**
  * vmx — public re-exports.
  *
- * Import from "vmx" to access all public types.
+ * Import from "@thekaveh/vmx" to access all public types.
  */
 
 // Version

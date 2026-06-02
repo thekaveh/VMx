@@ -52,6 +52,8 @@ class CapabilityActionsVM(ComponentVM):
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
         focused_getter: Callable[[], object | None],
+        add_note_action: Callable[[], None] | None = None,
+        can_add_note: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._focused_getter = focused_getter
@@ -61,6 +63,20 @@ class CapabilityActionsVM(ComponentVM):
         self._actions: DerivedProperty[list[ActionVM]] = from_sources(
             self._focus_subject,
             transform=_project,
+        )
+        # Edge-case backfill (readonly notebook gating): a dedicated
+        # "Add Note" command whose ``can_execute`` predicate consults the
+        # host-supplied :meth:`can_add_note` callback. The host (e.g.
+        # :class:`WorkspaceVM`) typically wires this to
+        # ``not notes_view.current_notebook_is_readonly``. Defaults stay
+        # backward-compatible: a no-op action and an always-true predicate.
+        self._add_note_action_cb: Callable[[], None] = add_note_action or (lambda: None)
+        self._can_add_note_cb: Callable[[], bool] = can_add_note or (lambda: True)
+        self._add_note_command: RelayCommand = (
+            RelayCommand.builder()
+            .predicate(self._can_add_note_cb)
+            .task(self._add_note_action_cb)
+            .build()
         )
 
     # ── Public surface ─────────────────────────────────────────────────────
@@ -76,6 +92,18 @@ class CapabilityActionsVM(ComponentVM):
     def actions(self) -> DerivedProperty[list[ActionVM]]:
         return self._actions
 
+    @property
+    def add_note_command(self) -> RelayCommand:
+        """Host-driven "Add Note" command.
+
+        Edge-case backfill (readonly notebook gating): ``can_execute``
+        delegates to the ``can_add_note`` callback supplied at construction.
+        :class:`WorkspaceVM` wires the predicate to
+        ``not notes_view.current_notebook_is_readonly`` so the bar gates
+        adding notes to readonly notebooks.
+        """
+        return self._add_note_command
+
     def recompute_actions(self) -> None:
         """Refresh the projection from the focus-getter delegate."""
         self._focus_subject.on_next(self._focused_getter())
@@ -83,6 +111,7 @@ class CapabilityActionsVM(ComponentVM):
     # ── Lifecycle ──────────────────────────────────────────────────────────
     def _on_dispose(self) -> None:
         self._actions.dispose()
+        self._add_note_command.dispose()
         self._focus_subject.on_completed()
         self._focus_subject.dispose()
         super()._on_dispose()
@@ -244,6 +273,8 @@ class CapabilityActionsVMBuilder:
     _hub: MessageHub[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _focused_getter: Callable[[], object | None] | None = None
+    _add_note_action: Callable[[], None] | None = None
+    _can_add_note: Callable[[], bool] | None = None
 
     def name(self, value: str) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -260,6 +291,19 @@ class CapabilityActionsVMBuilder:
         self, getter: Callable[[], object | None]
     ) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _focused_getter=getter)
+
+    def add_note_action(self, action: Callable[[], None]) -> CapabilityActionsVMBuilder:
+        """Wire the *Add Note* command body (edge-case backfill)."""
+        return dataclasses.replace(self, _add_note_action=action)
+
+    def can_add_note(self, predicate: Callable[[], bool]) -> CapabilityActionsVMBuilder:
+        """Wire the *Add Note* command can-execute predicate.
+
+        Used by :class:`WorkspaceVM` to consult
+        ``notes_view.current_notebook_is_readonly`` so the bar disables
+        *Add Note* against readonly notebooks.
+        """
+        return dataclasses.replace(self, _can_add_note=predicate)
 
     def build(self) -> CapabilityActionsVM:
         if self._name is None:
@@ -278,4 +322,6 @@ class CapabilityActionsVMBuilder:
             hub=hub,
             dispatcher=dispatcher,
             focused_getter=self._focused_getter,
+            add_note_action=self._add_note_action,
+            can_add_note=self._can_add_note,
         )

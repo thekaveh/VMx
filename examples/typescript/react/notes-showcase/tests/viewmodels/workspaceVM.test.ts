@@ -138,8 +138,8 @@ describe("WorkspaceVM", () => {
   });
 
   it("builder honors name, hint, custom hub, dispatcher, and notificationHub", async () => {
-    const { MessageHub, RxDispatcher } = await import("vmx");
-    const { NotificationHub } = await import("vmx/notifications");
+    const { MessageHub, RxDispatcher } = await import("@thekaveh/vmx");
+    const { NotificationHub } = await import("@thekaveh/vmx/notifications");
     const hub = new MessageHub();
     const dispatcher = RxDispatcher.immediate();
     const notifs = new NotificationHub();

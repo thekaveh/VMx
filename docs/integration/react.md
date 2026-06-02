@@ -25,7 +25,7 @@ the `useSyncExternalStore` contract.
 ```ts
 import { useSyncExternalStore, useCallback } from "react";
 import { filter } from "rxjs/operators";
-import { ComponentVMOf, MessageHubProto, PropertyChangedMessage } from "vmx";
+import { ComponentVMOf, MessageHubProto, PropertyChangedMessage } from "@thekaveh/vmx";
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,

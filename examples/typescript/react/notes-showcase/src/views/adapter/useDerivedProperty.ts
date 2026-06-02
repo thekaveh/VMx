@@ -24,7 +24,7 @@
  * don't crash; the value will be updated on the next emission.
  */
 import { useCallback, useSyncExternalStore } from "react";
-import type { DerivedProperty } from "vmx";
+import type { DerivedProperty } from "@thekaveh/vmx";
 
 export function useDerivedProperty<T>(dp: DerivedProperty<T>): T {
   const subscribe = useCallback(

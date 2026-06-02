@@ -22,7 +22,7 @@
  * gates on `canExecute()` (RelayCommand contract — see relayCommand.ts).
  */
 import { useCallback, useSyncExternalStore } from "react";
-import type { ICommand } from "vmx";
+import type { ICommand } from "@thekaveh/vmx";
 
 export interface UseCommandResult {
   readonly canExecute: boolean;

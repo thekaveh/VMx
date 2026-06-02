@@ -92,6 +92,16 @@ class NotesViewVM(
         self._filter: Callable[[NoteVM], bool] | None = None
         self._current: NoteVM | None = None
         self._bound_notebook_id: str | None = None
+        # Edge-case backfill (rapid-selection concurrency): bind_to_async
+        # increments this token before awaiting; on resume a stale token is
+        # discarded so the most-recent select wins. Parity with TS
+        # NotesViewVM #activeBindingToken.
+        self._active_binding_token: int = 0
+        # Edge-case backfill (readonly notebook gating): mirrors the readonly
+        # flag of the currently-bound notebook. Set by the WorkspaceVM when
+        # the user changes notebook selection; consulted by
+        # CapabilityActionsVM.add_note_command.can_execute.
+        self._current_notebook_is_readonly: bool = False
 
         # Derived properties (replayed via a self-subject so derived recomputes
         # are triggered explicitly by `_recompute_filtered` even when no source
@@ -152,6 +162,28 @@ class NotesViewVM(
     @property
     def bound_notebook_id(self) -> str | None:
         return self._bound_notebook_id
+
+    @property
+    def current_notebook_is_readonly(self) -> bool:
+        """Readonly flag of the currently-bound notebook.
+
+        Set by the host (e.g. :class:`WorkspaceVM`) on notebook selection.
+        :class:`CapabilityActionsVM.add_note_command` consults this so the
+        bar disables *Add Note* for readonly notebooks.
+        """
+        return self._current_notebook_is_readonly
+
+    @current_notebook_is_readonly.setter
+    def current_notebook_is_readonly(self, value: bool) -> None:
+        if self._current_notebook_is_readonly == value:
+            return
+        self._current_notebook_is_readonly = value
+        self._hub.send(
+            PropertyChangedMessage.create(
+                self, self._name, "current_notebook_is_readonly"
+            )
+        )
+        self._raise_property_changed("current_notebook_is_readonly")
 
     @property
     def is_empty(self) -> DerivedProperty[bool]:
@@ -273,8 +305,18 @@ class NotesViewVM(
 
     # ── Bind-to (async fetch) ──────────────────────────────────────────────
     async def bind_to_async(self, notebook_id: str) -> None:
-        """Cancel any in-flight fetch, load notes for *notebook_id*, replace items."""
+        """Cancel any in-flight fetch, load notes for *notebook_id*, replace items.
+
+        Edge-case backfill (rapid-selection concurrency): increments a
+        per-call token before awaiting; on resume a stale token is discarded
+        so the most-recent select wins. Parity with TS
+        ``NotesViewVM.bindToAsync`` (``#activeBindingToken``).
+        """
+        self._active_binding_token += 1
+        my_token = self._active_binding_token
         notes = await self._repo.load_notes(notebook_id)
+        if my_token != self._active_binding_token:
+            return  # superseded by a newer bind_to_async
         self._bound_notebook_id = notebook_id
         self._replace_items(notes)
 

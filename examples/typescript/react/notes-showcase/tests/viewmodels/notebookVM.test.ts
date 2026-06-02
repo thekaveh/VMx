@@ -5,7 +5,7 @@ import {
   PropertyChangedMessage,
   RxDispatcher,
   type IMessage,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 import type { NotebookModel } from "../../src/models/notebookModel.js";
 import { NotebookVM } from "../../src/viewmodels/notebookVM.js";

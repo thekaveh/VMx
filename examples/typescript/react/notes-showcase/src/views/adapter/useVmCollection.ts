@@ -21,8 +21,8 @@
  * composite, drained on unmount.
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import type { CompositeVMBase } from "vmx";
-import type { ComponentVMBase } from "vmx";
+import type { CompositeVMBase } from "@thekaveh/vmx";
+import type { ComponentVMBase } from "@thekaveh/vmx";
 
 export function useVmCollection<VM extends ComponentVMBase>(
   composite: CompositeVMBase<VM>,

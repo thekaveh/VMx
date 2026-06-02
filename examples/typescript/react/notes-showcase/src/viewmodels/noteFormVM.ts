@@ -22,12 +22,12 @@ import {
   type ICommandOf,
   type IDispatcher,
   type IMessageHub,
-} from "vmx";
+} from "@thekaveh/vmx";
 import {
   Notification,
   NotificationType,
   type INotificationHub,
-} from "vmx/notifications";
+} from "@thekaveh/vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";

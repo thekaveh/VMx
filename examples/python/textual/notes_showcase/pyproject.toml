@@ -38,6 +38,9 @@ asyncio_mode = "auto"
 #     viewmodel ratio otherwise. See examples/notes-showcase-parity.md.
 addopts = "--cov=notes_showcase.models --cov=notes_showcase.viewmodels --cov-report=term-missing --cov-fail-under=90 --cov=notes_showcase.views --cov-config=pyproject.toml"
 testpaths = ["tests"]
+markers = [
+    "conformance: cross-language conformance test (spec/12-conformance.md catalog ID)",
+]
 
 [tool.coverage.report]
 # Exclude view modules that require a live Textual runtime to

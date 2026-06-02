@@ -1,25 +1,31 @@
-# vmx — TypeScript
+# @thekaveh/vmx — TypeScript
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for TypeScript and
-JavaScript, spec-compatible with the C# and Python flavors.
+JavaScript, spec-compatible with the C#, Python, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.3.0** — implements `spec-v2.3.0` end-to-end. 227/227 conformance IDs
+**v2.4.0** — implements `spec-v2.4.0` end-to-end. 232/232 conformance IDs
 pass. Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
-sub-path export `vmx/notifications` ships an `INotificationHub`.
+sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
+
+> **Package rename in v2.4.0:** the npm package is now
+> **`@thekaveh/vmx`** (scoped). The previous unscoped name `vmx` could
+> not be claimed on the public npm registry. Imports change from
+> `from "vmx"` to `from "@thekaveh/vmx"`; everything else is
+> source-compatible.
 
 ## 2. Install
 
 ```bash
-npm install vmx rxjs
+npm install @thekaveh/vmx rxjs
 ```
 
 `rxjs` is declared as a **peer dependency** (≥ 7.8) so consumers share a
 single rxjs instance with VMx — VMx exposes rxjs types (`Observable<T>`
-etc.) in its public API. Installing it alongside `vmx` keeps pnpm strict
-isolation happy and avoids double-installation.
+etc.) in its public API. Installing it alongside `@thekaveh/vmx` keeps
+pnpm strict isolation happy and avoids double-installation.
 
 ## 3. Quick start
 
@@ -32,7 +38,7 @@ import {
   CompositeVM,
   MessageHub,
   RxDispatcher,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 interface TabModel { title: string }
 
@@ -106,14 +112,14 @@ lifecycle-transitions fixture is bundled in at build time.
 Minimal Vite/SvelteKit/Next.js install:
 
 ```bash
-npm install vmx rxjs
+npm install @thekaveh/vmx rxjs
 ```
 
 No bundler plugins, polyfills, or `node:*` stubs are required. You can
-import `vmx` directly from any browser-side module:
+import `@thekaveh/vmx` directly from any browser-side module:
 
 ```ts
-import { ComponentVMOf, MessageHub, RxDispatcher } from "vmx";
+import { ComponentVMOf, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 ```
 
 For a worked browser example, see the React `notes-showcase` app under
@@ -129,7 +135,7 @@ environment — regressions in this area will fail CI.
 The public API is re-exported from a single entry point:
 
 ```ts
-import { ... } from "vmx";
+import { ... } from "@thekaveh/vmx";
 ```
 
 Key exports:
@@ -175,7 +181,7 @@ Key exports:
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
 | `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
 
-The opt-in `vmx/notifications` sub-path export (spec v2.0+) adds:
+The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 | Export                                                            | Description                            |
 | ----------------------------------------------------------------- | -------------------------------------- |
@@ -187,7 +193,7 @@ The opt-in `vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 227 conformance IDs from `spec/12-conformance.md` are covered.
+All 232 conformance IDs from `spec/12-conformance.md` are covered.
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -200,6 +206,7 @@ v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
        COL-001..023   CMD-008..011  CAP-021..022
 v2.2   AGG-006
 v2.3   BLD-005        FORM-011..013 HIER-015..017
+v2.4   THEME-001..005
 ```
 
 Run the suite:

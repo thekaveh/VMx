@@ -34,7 +34,7 @@ import type {
   FileFilter,
   IDialogService,
   NotificationSeverity,
-} from "vmx";
+} from "@thekaveh/vmx";
 
 /** Variant tag for the current dialog request (drives `DialogOverlay`'s render). */
 export type DialogKind = "confirm" | "saveFile" | "openFile" | "notify";
