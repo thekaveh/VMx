@@ -191,14 +191,18 @@ npm install @thekaveh/vmx rxjs
   shape, snake_case API, immediate / asyncio dispatchers.
 - [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md) —
   camelCase API, ESM imports, rxjs-backed observables.
+- [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
+  camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor
+  ships in v2.4.0 as a subset; see `langs/swift/README.md` §5).
 
 ### 4.3 Examples
 
 The three **flagship Notes Workspace** apps — one per language flavor, one
 per UI framework — implement the same scenario from a single language-neutral
-VM API surface, exercising **15 distinct VMx features** (notebooks tree,
+VM API surface, exercising **16 distinct VMx features** (notebooks tree,
 paged + filterable notes list, FormVM editor, capability-aware action bar,
-notifications, async lifecycle, dialogs, `AggregateVM6` root). See
+notifications, async lifecycle, dialogs, `AggregateVM6` root, and the
+v2.4.0 `ThemeVM` scenario contract). See
 [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) for
 the cross-flavor feature matrix and
 [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](spec/proposals/2026-05-29-notes-showcase-scenario.md)
@@ -279,7 +283,8 @@ This README is the entry point; the documents below add focused detail.
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
   [`docs/getting-started/python.md`](docs/getting-started/python.md),
-  [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md).
+  [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md),
+  [`docs/getting-started/swift.md`](docs/getting-started/swift.md).
 - Per-flavor examples READMEs (run instructions):
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
