@@ -157,3 +157,15 @@ TreeStructureChangedMessage:
 - `HIER-013` — Composition with `SearchableState` filters the materialized
   portion.
 - `HIER-014` — Composition with `ModeledCrudCommands` mutates the tree.
+- `HIER-015` — `HierarchicalVMBuilder<M, VM>.Build()` validates the required
+  triple `Model` + `ChildrenFactory` + `Services(hub, dispatcher)`; missing
+  any one raises `BuilderValidationError` / `BuilderValidationException`
+  with a message identifying the missing field (added in v2.3 via
+  ADR-0035).
+- `HIER-016` — `HierarchicalVMBuilder<M, VM>` repeated identical `Build()`
+  calls produce independent root nodes that share the same configured
+  `Model`, `Hint`, and eager / lazy children policy.
+- `HIER-017` — `HierarchicalVMBuilder<M, VM>` field defaults applied when
+  not set: `Hint == ""`, `Name == typeof(TVM).Name` (or the flavor-idiomatic
+  equivalent), and `EagerChildren == false` (so the root's children
+  materialize lazily on first access).

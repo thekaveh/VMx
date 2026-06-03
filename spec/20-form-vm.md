@@ -176,3 +176,14 @@ Default mode (strict = false):
   `IsDirty == false`; becomes `true` when `IsDirty == true`.
 - `FORM-010` — Integration with `IDialogService.Confirm`: wrapping `DenyCommand`
   with a confirmation guard prevents revert when the user cancels the prompt.
+- `FORM-011` — `FormVMBuilder<TM>.Build()` validates required `Initial` and
+  `Persister`; missing either raises `BuilderValidationError` /
+  `BuilderValidationException` with a message identifying the missing field
+  (added in v2.3 via ADR-0035).
+- `FORM-012` — `FormVMBuilder<TM>` repeated identical `Build()` calls produce
+  independent instances that share the same configured `Initial` / `Persister`
+  / optional fields, each starting at `IsDirty == false`.
+- `FORM-013` — `FormVMBuilder<TM>` field defaults applied when not set:
+  `Hub` defaults to the flavor's `NullMessageHub` singleton, `Snapshot` to
+  the default shallow-copy of `Initial`, and `Strict` to `false` (so
+  `ApproveCommand.CanExecute()` returns `true` regardless of `IsDirty`).
