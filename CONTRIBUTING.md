@@ -80,7 +80,8 @@ same commit:
 | Per-language          | `<lang>-vX.Y.Z`         | A specific language flavor at this version.        |
 | Spec                  | `spec-vX.Y.Z`           | The language-neutral specification at this version. |
 
-`<lang>` is one of: `csharp`, `python`, `typescript`.
+`<lang>` is one of: `csharp`, `python`, `typescript`, `swift`. The Swift family
+was added in v2.4.0; releases prior to v2.4.0 only have the first three.
 
 ### 4.1 Why all three families
 
@@ -97,17 +98,20 @@ same commit:
 At every release, the maintainer creates **all** of:
 
 ```bash
-# Example for v2.1.0
-git tag spec-v2.1.0       <sha>   # spec/VERSION matches X.Y.Z
-git tag csharp-v2.1.0     <sha>
-git tag python-v2.1.0     <sha>
-git tag typescript-v2.1.0 <sha>
-git tag v2.1.0            <sha>   # repo-wide
+# Example for v2.4.0 (six tags from this release onward; v2.3.0 and earlier
+# only had five — no swift-v* tag).
+git tag spec-v2.4.0       <sha>   # spec/VERSION matches X.Y.Z
+git tag csharp-v2.4.0     <sha>
+git tag python-v2.4.0     <sha>
+git tag typescript-v2.4.0 <sha>
+git tag swift-v2.4.0      <sha>   # added in v2.4.0 — Swift's first release
+git tag v2.4.0            <sha>   # repo-wide
 
-git push origin spec-v2.1.0 csharp-v2.1.0 python-v2.1.0 typescript-v2.1.0 v2.1.0
+git push origin spec-v2.4.0 csharp-v2.4.0 python-v2.4.0 typescript-v2.4.0 \
+    swift-v2.4.0 v2.4.0
 ```
 
-All five tags must point to the same SHA — the commit where every flavor's
+All six tags must point to the same SHA — the commit where every flavor's
 manifest declares X.Y.Z and `spec/VERSION` reads X.Y.Z.
 
 A companion package (e.g., `VMx.Notifications`) versions independently per

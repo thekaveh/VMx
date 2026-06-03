@@ -111,6 +111,19 @@ The three flagship Notes-Showcase apps are updated in the same PR that lands thi
 1. New `ViewModels/Theme/ThemeVM.{cs,py,ts}` per flavor.
 2. New `Models/ThemeModel.{cs,py,ts}` per flavor.
 3. New `Views/Adapter/ThemeAdapter.{cs,py,ts}` per flavor.
-4. `WorkspaceVM` gets a new child `themeVM` (this brings the aggregate from arity 6 to arity 7 — see ADR-0036 §3.D for the AggregateVM7 implication).
+4. `WorkspaceVM` gains a new child `themeVM` once the `AggregateVM7`
+   core-library extension lands — see ADR-0036 §2.C / §4 decision #3 for
+   the deferral rationale.
 
-The existing hard-coded `Views/Theme/Dark.axaml` / `theme.tcss` / `theme.css` files are kept as the *initial preset*; the theme system swaps among them.
+**v2.4.0 cutoff (status as of 2026-06-02 ship):** items 1–3 are
+implemented in all three flagships (C# Avalonia + Python Textual +
+TypeScript React). Item 4 (the `WorkspaceVM` arity-7 composition) is
+**deferred**. The host page subscribes to `ThemeVM.currentTheme` directly
+in the meantime. The `AggregateVM7` library work, the WorkspaceVM
+re-aggregation, and an end-to-end "settings drawer" UI for theme picking
+are tracked under ADR-0036 §4 decision #3 and follow-up Swift work
+under ADR-0036 §4 decision #6.
+
+The existing hard-coded `Views/Theme/Dark.axaml` / `theme.tcss` /
+`theme.css` files are kept as the *initial preset*; the theme system swaps
+among them.

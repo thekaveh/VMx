@@ -284,6 +284,13 @@ This README is the entry point; the documents below add focused detail.
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
   [`examples/typescript/README.md`](examples/typescript/README.md).
+- [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
+  cross-flavor parity matrix for the three flagship Notes-Showcase apps
+  (Avalonia / Textual / React); 15 spec features × 3 flavors.
+- [`docs/integration/README.md`](docs/integration/README.md) — one-page
+  integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
+  NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe
+  shows the framework-native binding + lifecycle + dispose pattern.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 
