@@ -1,10 +1,10 @@
 # Proposal — Notes Workspace showcase: cross-flavor flagship examples
 
-**Status:** Accepted (2026-05-30; implementation complete on `examples-notes-showcase` — audit gate in progress)
+**Status:** Accepted (2026-05-30); shipped in spec v2.2.0 (PR #6, merged 2026-05-31).
 **Date:** 2026-05-29
 **Target spec version:** 2.2.0 (minor bump — adds `AggregateVM6`)
-**Branch:** `examples-notes-showcase` off `main`
-**Sister artefacts (to be created):** `examples/notes-showcase-parity.md`, `assets/notes-showcase/{avalonia,textual,react}.png`, ADR-0034 (extends `AggregateVM` arity to 6)
+**Branch:** `examples-notes-showcase` off `main` (merged)
+**Sister artefacts (shipped):** [`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md) (16-row × 3-flavor parity matrix; row 16 — ThemeVM — added in v2.4.0 per `2026-06-02-theme-vm-scenario.md`), `assets/notes-showcase/{avalonia,textual,react}.png` (placeholder note — manual screenshot capture pending), and [ADR-0034](../ADRs/0034-aggregate-vm6.md) (extends `AggregateVM` arity to 6).
 
 ## 1. Executive summary
 

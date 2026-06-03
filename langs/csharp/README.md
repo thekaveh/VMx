@@ -8,9 +8,10 @@ spec-compatible with the Python, TypeScript, and Swift (subset) flavors.
 **v2.4.0** — implements `spec-v2.4.0` end-to-end. 232/232 conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
-(`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
-`INotificationHub`). Both companions remain at their v2.1.x release
-(no 2.4.0 dependency); see `../../compatibility-matrix.md`. A Swift
+(`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
+`INotificationHub`) at `1.1.0`. Each is independently versioned per
+ADR-0009 / ADR-0013 and stays on its own release line (neither pulls
+the 2.4.0 core bump); see `../../compatibility-matrix.md`. A Swift
 flavor sibling lands as a skeleton at `langs/swift/` (subset of
 `spec-v2.4.0`); see `../swift/README.md` §5 for the in / deferred
 matrix.
@@ -194,7 +195,7 @@ The companion package `VMx.Extensions.DependencyInjection` adds:
 | ------------------------------ | ------------------------------------------------- |
 | `services.AddVMx(…)`           | Registers `IMessageHub` and `IDispatcher`         |
 
-The companion package `VMx.Notifications` (spec v2.0+) adds:
+The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 | Export                                                   | Description                            |
 | -------------------------------------------------------- | -------------------------------------- |
