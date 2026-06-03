@@ -1,7 +1,7 @@
 # Theme as a VM concern — scenario contract
 
 **Status:** Accepted (2026-06-02); shipped in spec v2.4.0 — items 1–3 in §8 implemented across all three flagship Notes-Showcase apps; item 4 (WorkspaceVM arity-7 composition) deferred per ADR-0036 §2.C / §4 decision #3.
-**Authored under:** ADR-0036 §3 (umbrella v2.4.0 changes).
+**Authored under:** ADR-0036 §2.C (theming-as-a-VM-concern decision within the v2.4.0 umbrella).
 **Related artefacts:** the three flagship Notes-Showcase apps under `examples/csharp/avalonia/NotesShowcase/`, `examples/python/textual/notes_showcase/`, `examples/typescript/react/notes-showcase/`.
 
 ## 1. Why this exists
