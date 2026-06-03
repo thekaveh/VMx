@@ -124,9 +124,11 @@ ______________________________________________________________________
 
 ## 4. Build a `RelayCommand`
 
-`RelayCommand` wraps an optional `execute` closure, an optional
-`canExecute` predicate, and Combine `Publisher` triggers that signal
-`canExecute` may have changed.
+`RelayCommand` wraps an optional `task` closure (the execute body), an
+optional `predicate` (the `canExecute` test), and Combine `Publisher`
+triggers that signal `canExecute` may have changed. (Builder methods are
+`.task(_:)` and `.predicate(_:)`; the resulting command's runtime methods
+are `execute()` and `canExecute()` per the cross-language spec.)
 
 ```swift
 import Combine
@@ -136,12 +138,12 @@ let canSaveTrigger = PassthroughSubject<Void, Never>()
 var isDirty = false
 
 let saveCommand = try RelayCommand.builder()
-    .execute {
+    .task {
         print("Saving…")
         isDirty = false
         canSaveTrigger.send()
     }
-    .canExecute { isDirty }
+    .predicate { isDirty }
     .triggers(canSaveTrigger.eraseToAnyPublisher())
     .build()
 
