@@ -36,7 +36,15 @@ def test_main_exits_zero_on_empty_repo(tmp_path: Path, monkeypatch, capsys) -> N
 
 def test_main_exits_one_on_violation(tmp_path: Path, monkeypatch, capsys) -> None:
     bad = (
-        tmp_path / "examples" / "python" / "textual" / "demo" / "src" / "demo" / "views" / "bad.py"
+        tmp_path
+        / "examples"
+        / "python"
+        / "textual"
+        / "demo"
+        / "src"
+        / "demo"
+        / "views"
+        / "bad.py"
     )
     _write(
         bad,

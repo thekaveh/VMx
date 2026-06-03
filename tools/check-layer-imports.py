@@ -41,7 +41,9 @@ FLAVORS = {
         "root": "examples/csharp/avalonia/NotesShowcase",
         "suffixes": {".cs"},
         # `using NotesShowcase.Foo.Bar;` and `using static NotesShowcase.Foo.Bar;`
-        "import_re": re.compile(r"^\s*using(?:\s+static)?\s+NotesShowcase\.([A-Za-z0-9_.]+)\s*;"),
+        "import_re": re.compile(
+            r"^\s*using(?:\s+static)?\s+NotesShowcase\.([A-Za-z0-9_.]+)\s*;"
+        ),
         "layers": ["Models", "ViewModels", "Views"],
         "adapter_segment": "Views.Adapter",
     },
@@ -49,7 +51,9 @@ FLAVORS = {
         "root": "examples/python/textual/notes_showcase/src/notes_showcase",
         "suffixes": {".py"},
         # `from notes_showcase.foo.bar import X` / `import notes_showcase.foo.bar`
-        "import_re": re.compile(r"^\s*(?:from|import)\s+notes_showcase\.([A-Za-z0-9_.]+)"),
+        "import_re": re.compile(
+            r"^\s*(?:from|import)\s+notes_showcase\.([A-Za-z0-9_.]+)"
+        ),
         "layers": ["models", "viewmodels", "views"],
         "adapter_segment": "views.adapter",
     },
@@ -124,7 +128,10 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
         if not src.is_file():
             continue
         # Skip build artefacts.
-        if any(part in {"bin", "obj", "node_modules", "dist", "__pycache__"} for part in src.parts):
+        if any(
+            part in {"bin", "obj", "node_modules", "dist", "__pycache__"}
+            for part in src.parts
+        ):
             continue
 
         rel = src.relative_to(base)
@@ -158,7 +165,9 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
                     # Adapter sub-layer exception:
                     try:
                         resolved = (src.parent / target).resolve().relative_to(base)
-                        if adapter_segment.replace("/", "/") in str(resolved.as_posix()):
+                        if adapter_segment.replace("/", "/") in str(
+                            resolved.as_posix()
+                        ):
                             continue
                     except (ValueError, OSError, RuntimeError):
                         pass

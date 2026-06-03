@@ -78,7 +78,9 @@ def check(path: Path) -> list[str]:
         expr = match.group(1).strip()
         stmt = expr + ";"
         if not _ALLOWED_STMT.match(stmt):
-            violations.append(f"{path}: disallowed expression-bodied member: => {expr};")
+            violations.append(
+                f"{path}: disallowed expression-bodied member: => {expr};"
+            )
         return ""  # strip from source
 
     src_after_expr = _EXPR_BODIED_MEMBER.sub(_validate_expr, src)
@@ -92,7 +94,9 @@ def check(path: Path) -> list[str]:
             if not stmt:
                 continue
             if not _ALLOWED_STMT.match(stmt):
-                violations.append(f"{path}: disallowed statement in code-behind body: {stmt}")
+                violations.append(
+                    f"{path}: disallowed statement in code-behind body: {stmt}"
+                )
 
     return violations
 

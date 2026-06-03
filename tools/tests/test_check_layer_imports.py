@@ -45,7 +45,9 @@ def test_check_flavor_flags_viewmodel_importing_view(tmp_path: Path) -> None:
     assert any("forbidden import of views from viewmodels" in v for v in violations)
 
 
-def test_main_exits_zero_with_empty_flavor_roots(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_main_exits_zero_with_empty_flavor_roots(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     """main() returns 0 when each flavor root exists but contains no source."""
     for cfg in cli.FLAVORS.values():
         (tmp_path / cfg["root"]).mkdir(parents=True, exist_ok=True)
