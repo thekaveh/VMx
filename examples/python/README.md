@@ -102,11 +102,11 @@ uv run --project examples/python/textual/inspector python -m vmx_inspector
 ## 5. Example 4 — `textual/notes_showcase` (Textual TUI, flagship)
 
 The Notes Workspace flagship app — a TUI on Textual ≥ 0.80 that exercises
-**15 distinct VMx features** in one cohesive scenario (notebooks tree,
+**16 distinct VMx features** in one cohesive scenario (notebooks tree,
 paged + filterable notes list, FormVM editor, capability-aware action bar,
-notifications, async lifecycle, dialogs, `AggregateVM6` root). Pure-VM
-contract enforced; widget classes expose only `compose()` / `on_mount()` /
-one-statement `action_*()`.
+notifications, async lifecycle, dialogs, `AggregateVM6` root, and the
+v2.4.0 `ThemeVM` scenario contract). Pure-VM contract enforced; widget
+classes expose only `compose()` / `on_mount()` / one-statement `action_*()`.
 
 `textual/notes_showcase/` is its own uv project — run it from the repo root:
 

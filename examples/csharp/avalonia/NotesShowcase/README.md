@@ -2,7 +2,7 @@
 
 VMx flagship example — Notes Workspace, the C# / Avalonia flavor. A
 cross-platform XAML app on Avalonia 11 + .NET 8 that drives a single
-`WorkspaceVM` exercising 15 distinct VMx features (see the
+`WorkspaceVM` exercising 16 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full feature
 table, and the
 [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)

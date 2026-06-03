@@ -48,10 +48,11 @@ npx tsx console/hello-vmx/index.ts
 ## 3. Example 2 — `react/notes-showcase/` (React 18 + Vite, flagship)
 
 The Notes Workspace flagship app — a single-page web app on React 18 + Vite
-that exercises **15 distinct VMx features** in one cohesive scenario
+that exercises **16 distinct VMx features** in one cohesive scenario
 (notebooks tree, paged + filterable notes list, FormVM editor,
 capability-aware action bar, notifications, async lifecycle, dialogs,
-`AggregateVM6` root). Pure-VM contract enforced via ESLint's
+`AggregateVM6` root, and the v2.4.0 `ThemeVM` scenario contract).
+Pure-VM contract enforced via ESLint's
 `no-restricted-imports` rule — view components never call `useState` /
 `useReducer`.
 

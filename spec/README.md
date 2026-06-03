@@ -85,7 +85,9 @@ into compliance with the existing spec §3 contract and matches TypeScript's
 existing behaviour.
 
 - **ADR-0035** — builder pattern audit follow-through: `FormVMBuilder<TM>`
-  and `HierarchicalVMBuilder<TModel, TVM>` added across all three flavors;
+  and `HierarchicalVMBuilder<TModel, TVM>` added across the three v2.3
+  flavors (C# / Python / TypeScript — pre-Swift; both are deferred in the
+  v2.4 Swift skeleton, see `langs/swift/README.md` §5);
   Children validation for `CompositeVMBuilder` / `GroupVMBuilder` aligned
   with spec; Python + TS gain `with_null_services()` / `withNullServices()`
   Wither parity with C#; Python gains typed-arity
