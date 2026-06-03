@@ -14,15 +14,15 @@ Each recipe explains:
 1. A code skeleton (≤ 30 lines).
 1. Where to look for fuller examples.
 
-| Framework | Language   | Recipe                     | Worked example                                                        |
-| --------- | ---------- | -------------------------- | --------------------------------------------------------------------- |
-| WPF       | C#         | [wpf.md](wpf.md)           | `examples/csharp/WpfTodoApp/` (existing)                              |
-| MAUI      | C#         | [maui.md](maui.md)         | none yet — recipe-only                                                |
-| Avalonia  | C#         | [avalonia.md](avalonia.md) | Notes-Showcase (lands in v2.2.0 via `examples-notes-showcase` branch) |
-| Textual   | Python     | [textual.md](textual.md)   | `examples/python/vmx_inspector/` + Notes-Showcase (v2.2.0)            |
-| NiceGUI   | Python     | [nicegui.md](nicegui.md)   | none yet — recipe-only                                                |
-| Tkinter   | Python     | [tkinter.md](tkinter.md)   | `examples/python/tk_todo_app/` (existing)                             |
-| React     | TypeScript | [react.md](react.md)       | Notes-Showcase (lands in v2.2.0 via `examples-notes-showcase` branch) |
+| Framework | Language   | Recipe                     | Worked example                                                 |
+| --------- | ---------- | -------------------------- | -------------------------------------------------------------- |
+| WPF       | C#         | [wpf.md](wpf.md)           | `examples/csharp/wpf/TodoApp/`                                 |
+| MAUI      | C#         | [maui.md](maui.md)         | none yet — recipe-only                                         |
+| Avalonia  | C#         | [avalonia.md](avalonia.md) | `examples/csharp/avalonia/NotesShowcase/` (Notes-Showcase)     |
+| Textual   | Python     | [textual.md](textual.md)   | `examples/python/textual/inspector/` + Notes-Showcase          |
+| NiceGUI   | Python     | [nicegui.md](nicegui.md)   | none yet — recipe-only                                         |
+| Tkinter   | Python     | [tkinter.md](tkinter.md)   | `examples/python/tk/todo_app/`                                 |
+| React     | TypeScript | [react.md](react.md)       | `examples/typescript/react/notes-showcase/` (Notes-Showcase)   |
 | Vue 3     | TypeScript | [vue.md](vue.md)           | none yet — recipe-only                                                |
 | Svelte    | TypeScript | [svelte.md](svelte.md)     | none yet — recipe-only                                                |
 | SolidJS   | TypeScript | [solid.md](solid.md)       | none yet — recipe-only                                                |
@@ -50,6 +50,6 @@ button clicks back to `command.execute(parameter)`.
 
 Open an issue or PR with a new one-page recipe following the template
 above. The reference adapters in
-[examples/csharp/WpfTodoApp/](../../examples/csharp/WpfTodoApp/) and
+[examples/csharp/wpf/TodoApp/](../../examples/csharp/wpf/TodoApp/) and
 the Notes-Showcase Avalonia/Textual/React adapters are good models to
 copy.

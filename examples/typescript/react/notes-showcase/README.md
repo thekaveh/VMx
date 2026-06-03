@@ -2,7 +2,7 @@
 
 VMx flagship example — Notes Workspace, the TypeScript / React flavor. A
 single-page web app on React 18 + Vite that drives a single `WorkspaceVM`
-exercising 15 distinct VMx features (see the
+exercising 16 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full table, and
 the
 [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)

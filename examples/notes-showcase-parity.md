@@ -50,6 +50,18 @@ renders, headless smoke covers it.
 | 13  | `IDialogService` (ch. 19) — export → save-file dialog | ✓             | ✓                | ✓                  |
 | 14  | Capability-aware UI (§14.4) — capability action bar   | ✓             | ✓                | ✓                  |
 | 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  |
+| 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ |
+
+[^theme]: ThemeVM ships in v2.4.0 as a standalone scenario VM in each flavor's
+    `viewmodels/` (plus a per-framework `ThemeAdapter` in `views/adapter/`).
+    Composition into `WorkspaceVM` as a 7th aggregate child is **deferred to a
+    follow-up release** pending the `AggregateVM7` core-library extension — see
+    `spec/proposals/2026-06-02-theme-vm-scenario.md` §8 and ADR-0036 §2.C / §4
+    decision #3. Today the host page subscribes to `ThemeVM.currentTheme`
+    directly. The `THEME-001..005` scenario IDs are tested in
+    `examples/<lang>/.../tests/` (not in `langs/<flavor>/tests/conformance/`)
+    and are exempt from the library-coverage gate via the `_SCENARIO_PREFIXES`
+    set in `tools/check-conformance-coverage.py`.
 
 ## Reading the matrix
 

@@ -5,13 +5,16 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.4.0 — first release of the Swift flavor.** Implements a **subset** of
-`spec-v2.4.0` covering the lifecycle state machine, the modeled and
-unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, and the immutable fluent builders. The full conformance
-catalog (232 IDs) is **not yet** implemented — see §5 for what's in and
-what's deferred. Requires Swift 5.9+, Combine, iOS 16 / macOS 13 /
-tvOS 16 / watchOS 9.
+**v2.4.0 — first release of the Swift flavor.** Covers **~47 of 232**
+conformance IDs from `spec-v2.4.0`: the lifecycle state machine, the modeled
+and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
+`RelayCommand`, and the immutable fluent builders. The remaining ~185 IDs
+(`HierarchicalVM`, `FormVM`, the 22 capability micro-interfaces,
+`DerivedProperty`, observable collections, the notifications sub-package,
+threading specifics, forwarding decorators, dialog service, expand/collapse
+helpers, the localizer hook, tree utilities) are deferred to a follow-up
+Swift release — see §5 for the in / deferred breakdown. Requires Swift 5.9+,
+Combine, iOS 16 / macOS 13 / tvOS 16 / watchOS 9.
 
 ## 2. Install
 

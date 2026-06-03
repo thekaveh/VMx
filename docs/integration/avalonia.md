@@ -52,6 +52,7 @@ wrap a `ServicedObservableCollection<T>` and observe its
 
 ## Fuller example
 
-The Notes-Showcase Avalonia app demonstrates the end-to-end pattern
-(WorkspaceVM + AggregateVM + ConfirmationDecoratorCommand). It lands in
-**v2.2.0** via the `examples-notes-showcase` branch.
+[`examples/csharp/avalonia/NotesShowcase/`](../../examples/csharp/avalonia/NotesShowcase/) —
+the Notes-Showcase Avalonia flagship: end-to-end `WorkspaceVM` +
+`AggregateVM6` + `ConfirmationDecoratorCommand` pattern (shipped in
+v2.2.0; `ThemeVM` added in v2.4.0).

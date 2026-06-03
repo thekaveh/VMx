@@ -107,6 +107,21 @@ describe("NOTIF-009", () => {
     const n = new Notification(NotificationType.Confirmation, "x");
     await expect(hub.post(n)).resolves.toBe(NotificationReaction.Approve);
   });
+
+  it("NullNotificationHub.resolve is a no-op and pending stays empty", () => {
+    const hub: INotificationHub = NullNotificationHub.INSTANCE;
+    const n = new Notification(NotificationType.Notification, "stray");
+
+    expect(() => hub.resolve(n, NotificationReaction.Approve)).not.toThrow();
+    expect(() => hub.resolve(n, NotificationReaction.Reject)).not.toThrow();
+
+    let observed: readonly Notification[] | undefined;
+    const sub = hub.pending.subscribe((snapshot) => {
+      observed = snapshot;
+    });
+    expect(observed).toEqual([]);
+    sub.unsubscribe();
+  });
 });
 
 describe("NOTIF-010", () => {

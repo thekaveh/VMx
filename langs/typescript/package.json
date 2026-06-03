@@ -53,6 +53,9 @@
   ],
   "author": "Kaveh Razavi",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "homepage": "https://github.com/thekaveh/VMx#readme",
   "repository": {
     "type": "git",

@@ -52,6 +52,7 @@ cross-references each ADR carries.
 | [0033](0033-linq-utility-helpers-csharp-only.md)        | LINQ utility helpers (C# only)                      | 2.1.0        | Accepted                         |
 | [0034](0034-aggregate-vm6.md)                           | Extend `AggregateVM` arity to 6                     | 2.2.0        | Accepted                         |
 | [0035](0035-builder-audit-followthrough.md)             | Builder pattern audit follow-through (v2.3.0)       | 2.3.0        | Accepted                         |
+| [0036](0036-v2.4-platform-and-theming.md)               | v2.4.0 platform expansion + theming as a VM concern | 2.4.0        | Accepted                         |
 
 ## 2. Format
 

@@ -48,8 +48,9 @@ An asynchronous flavor MAY observe the children's
 synchronous default is a strict subset of that behavior.
 
 The order in which the slots are populated and constructed is unspecified.
-The reference implementations in all three flavors drive them sequentially
-(mirroring `CompositeVM` / `GroupVM`; see chapter 06).
+The reference implementations in all four flavors (C# / Python / TypeScript
+/ Swift) drive them sequentially (mirroring `CompositeVM` / `GroupVM`; see
+chapter 06).
 
 On each successful slot population, the aggregate raises
 `PropertyChangedMessage("ComponentN")`.

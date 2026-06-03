@@ -158,7 +158,7 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
                     # Adapter sub-layer exception:
                     try:
                         resolved = (src.parent / target).resolve().relative_to(base)
-                        if adapter_segment.replace("/", "/") in str(resolved.as_posix()):
+                        if adapter_segment in resolved.as_posix():
                             continue
                     except (ValueError, OSError, RuntimeError):
                         pass
