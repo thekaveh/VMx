@@ -52,5 +52,5 @@ Then in XAML: `<TextBlock Text="{Binding Model.Title}"/>` and
 
 ## Fuller example
 
-[`examples/csharp/WpfTodoApp/`](../../examples/csharp/WpfTodoApp/) — a
+[`examples/csharp/wpf/TodoApp/`](../../examples/csharp/wpf/TodoApp/) — a
 working WPF Todo app backed by a `CompositeVM<TodoVM>`.

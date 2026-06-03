@@ -52,9 +52,10 @@ For buttons: bind the widget's `action_*` handler to call
 
 ## Fuller example
 
-- [`examples/python/vmx_inspector/`](../../examples/python/vmx_inspector/) —
+- [`examples/python/textual/inspector/`](../../examples/python/textual/inspector/) —
   a Textual viewer for any VMx tree, demonstrating the hub-subscription
   pattern at scale.
-- Notes-Showcase Textual app — full WorkspaceVM with `bind_property` /
-  `bind_command` helpers. Lands in **v2.2.0** via the
-  `examples-notes-showcase` branch.
+- [`examples/python/textual/notes_showcase/`](../../examples/python/textual/notes_showcase/) —
+  the Notes-Showcase Textual flagship: full `WorkspaceVM` with
+  `bind_property` / `bind_command` helpers (shipped in v2.2.0; ThemeVM
+  added in v2.4.0).
