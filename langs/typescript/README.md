@@ -85,22 +85,22 @@ for the full walkthrough.
 
 ## 3.4 Cross-language naming
 
-The conceptual surface is identical across the three flavors; identifier
+The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
 
-| Concept             | C#                  | Python             | TypeScript         |
-| ------------------- | ------------------- | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` |
+| Concept             | C#                  | Python             | TypeScript         | Swift              |
+| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
+| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
+| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
+| Status property     | `Status`            | `status`           | `status`           | `status`           |
+| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
 
-C# uses PascalCase, Python uses snake_case, TypeScript uses camelCase. The
-single substantive divergence is that C# names the modeled variant with a
-generic-parameter suffix (`ComponentVM<M>`), while Python and TypeScript use
-a separate `ComponentVMOf` type because their generics syntax cannot
-overload an unparameterised name.
+C# uses PascalCase, Python uses snake_case, TypeScript and Swift use
+camelCase. The single substantive divergence is that C# names the modeled
+variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
+TypeScript, and Swift use a separate `ComponentVMOf` type because their
+generics syntax cannot overload an unparameterised name.
 
 ## 3.5. Browser usage
 
