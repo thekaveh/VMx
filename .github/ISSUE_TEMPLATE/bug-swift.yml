@@ -1,34 +1,34 @@
-name: Bug report — TypeScript (@thekaveh/vmx npm package)
-description: Something is broken in the TypeScript flavor.
-labels: [bug, typescript]
+name: Bug report — Swift (VMx SwiftPM package)
+description: Something is broken in the Swift flavor.
+labels: [bug, swift]
 body:
   - type: input
     id: version
     attributes:
-      label: vmx version
-      placeholder: e.g., 2.1.0
+      label: VMx version
+      placeholder: e.g., 2.4.0
     validations:
       required: true
   - type: input
-    id: node
+    id: swift
     attributes:
-      label: Node.js version
-      placeholder: e.g., 22.3.0
+      label: Swift toolchain version
+      placeholder: e.g., 6.0
     validations:
       required: true
   - type: input
-    id: typescript
+    id: platform
     attributes:
-      label: TypeScript version
-      placeholder: e.g., 5.4.5
+      label: Platform (macOS / iOS / tvOS / watchOS) and OS version
+      placeholder: e.g., macOS 15.2
     validations:
-      required: false
+      required: true
   - type: textarea
     id: repro
     attributes:
       label: Minimal reproduction
       description: Smallest code snippet that reproduces the issue.
-      render: typescript
+      render: swift
     validations:
       required: true
   - type: textarea

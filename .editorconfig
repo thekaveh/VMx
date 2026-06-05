@@ -23,5 +23,8 @@ indent_size = 4
 [*.{ts,tsx,js,mjs,cjs}]
 indent_size = 2
 
+[*.swift]
+indent_size = 4
+
 [Makefile]
 indent_style = tab
