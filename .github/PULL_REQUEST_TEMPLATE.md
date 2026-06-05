@@ -8,6 +8,7 @@
 - [ ] csharp
 - [ ] python
 - [ ] typescript
+- [ ] swift
 - [ ] docs / infra
 
 ## 3. Checklist

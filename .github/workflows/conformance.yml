@@ -57,8 +57,11 @@ jobs:
         run: uv --project langs/python run pytest tools/tests/ -v
 
       - name: Enforce conformance coverage (csharp + python + typescript)
-        # All three flavors (csharp / python / typescript) ship at v2.1.0. CI
-        # enforces 100% conformance coverage (219 / 219) for all three
-        # languages. The tool exits non-zero if any required language falls
-        # below full coverage.
+        # The csharp / python / typescript flavors ship at the current spec
+        # version (v2.4.0 as of this comment); CI enforces 100% conformance
+        # coverage for the full catalog across all three. The swift flavor
+        # (added v2.4.0) is a documented subset — see compatibility-matrix.md
+        # — and is intentionally not in --require until full parity lands.
+        # The tool exits non-zero if any required language falls below full
+        # coverage.
         run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript
