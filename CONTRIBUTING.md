@@ -15,10 +15,10 @@ Thanks for your interest in contributing!
 
 ```bash
 cd langs/csharp
-dotnet restore
-dotnet build
-dotnet test
-dotnet format --verify-no-changes
+dotnet restore VMx.sln --locked-mode   # --locked-mode matches CI; fails fast on lockfile drift
+dotnet build VMx.sln -c Release
+dotnet test VMx.sln -c Release --no-build
+dotnet format VMx.sln --verify-no-changes
 ```
 
 ### 2.2 Python
@@ -39,6 +39,7 @@ cd langs/typescript
 npm ci
 npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
 npm run typecheck
+npm run typecheck:tests # type-check tests/ separately; CI runs this too
 npm run lint
 npm run build
 npm test
@@ -57,6 +58,26 @@ macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
 is not available on Linux. See `langs/swift/README.md` §5 for the in /
 deferred conformance matrix; the v2.4.0 release ships a documented
 subset rather than full spec parity.
+
+### 2.5 Cross-cutting checks (conformance + example-app contracts)
+
+Two CI-only workflows enforce repo-wide invariants. To run the same
+checks locally before pushing:
+
+```bash
+# Cross-language conformance coverage (csharp / python / typescript).
+# Mirrors .github/workflows/conformance.yml. THEME-001..005 live in
+# example apps, not language libraries, so they're intentionally excluded.
+uv run --project langs/python python tools/check-conformance-coverage.py \
+    --require csharp --require python --require typescript
+
+# Pure-VM contract + flagship example-app parity (Avalonia / Textual / React).
+# Mirrors .github/workflows/examples-contract-checks.yml.
+python3 tools/check-axaml-codebehind.py
+python3 tools/check-textual-views.py
+python3 tools/check-layer-imports.py
+python3 tools/check-showcase-parity.py
+```
 
 ## 3. Spec-driven changes
 

@@ -147,7 +147,7 @@ Key exports:
 | `ReadonlyComponentVMOf<M>`      | Leaf VM with read-only model                     |
 | `CompositeVM<VM>` / `CompositeVMOf<M,VM>` | Ordered collection + current slot      |
 | `GroupVM<VM>`                   | Collection without current selection             |
-| `AggregateVM1..5<...>`          | Fixed-arity named component slots                |
+| `AggregateVM1..6<...>`          | Fixed-arity named component slots (arity 6 added in spec v2.2.0 — see ADR-0034) |
 | `ForwardingComponentVM<M>`      | Decorator for `IComponentVMOf<M>`                |
 | `ForwardingCompositeVM<VM>`     | Decorator for composites                         |
 | `RelayCommand` / `RelayCommandOf<T>` | Executable command with `canExecute`        |
