@@ -44,6 +44,20 @@ npm run build
 npm test
 ```
 
+### 2.4 Swift
+
+```bash
+cd langs/swift
+swift build -c release
+swift test --parallel
+```
+
+Swift requires the toolchain shipped with a current Xcode (5.9+) and a
+macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
+is not available on Linux. See `langs/swift/README.md` §5 for the in /
+deferred conformance matrix; the v2.4.0 release ships a documented
+subset rather than full spec parity.
+
 ## 3. Spec-driven changes
 
 Behavior changes start in `spec/`. The rules are:
