@@ -99,7 +99,7 @@ def check_module(path: Path) -> list[str]:
         if not isinstance(node, ast.ClassDef):
             continue
         for item in node.body:
-            if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             name = item.name
 

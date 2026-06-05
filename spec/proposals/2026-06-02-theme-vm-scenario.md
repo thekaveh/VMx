@@ -8,11 +8,11 @@
 
 A consistent finding from the v2.3.0 builder-pattern audit + the v2.4.0 example-app audit: **theming has lived in views, never in the VM layer**. Each flagship hard-codes its palette in framework-native resources:
 
-| Flavor | Where theme lives today | LOC |
-|---|---|---|
-| Avalonia | `App.axaml` `RequestedThemeVariant="Dark"` + `Views/Theme/DarkTheme.axaml` ResourceDictionary | ~30 |
-| Textual | `views/theme.tcss` (selector-based palette) | ~135 |
-| React | `views/theme.css` (CSS custom properties) | ~343 |
+| Flavor   | Where theme lives today                                                                       | LOC  |
+| -------- | --------------------------------------------------------------------------------------------- | ---- |
+| Avalonia | `App.axaml` `RequestedThemeVariant="Dark"` + `Views/Theme/DarkTheme.axaml` ResourceDictionary | ~30  |
+| Textual  | `views/theme.tcss` (selector-based palette)                                                   | ~135 |
+| React    | `views/theme.css` (CSS custom properties)                                                     | ~343 |
 
 The consequence: a consumer who wants to add a light/dark toggle, an accent-color picker, a font-scale ramp, or a high-contrast switch must either (a) call into framework-native APIs from views (breaking the pure-VM contract that all three apps otherwise enforce strictly) or (b) reach across the adapter into private framework state. **There is no testable seam.** You cannot today write a unit test like
 
@@ -29,9 +29,9 @@ This is a **scenario contract** in the same style as `spec/proposals/2026-05-29-
 A flavor implements this contract by:
 
 1. Defining a `ThemeModel` (or equivalent record type) per §3.
-2. Defining a `ThemeVM : ComponentVM<ThemeModel>` per §4 with the prescribed surface.
-3. Wiring a thin per-framework `IThemeAdapter` (Avalonia / Textual / React / SwiftUI) per §5 that translates VM state into framework-native theme application.
-4. Composing `ThemeVM` into the app root (in the Notes-Showcase apps, this is `WorkspaceVM`).
+1. Defining a `ThemeVM : ComponentVM<ThemeModel>` per §4 with the prescribed surface.
+1. Wiring a thin per-framework `IThemeAdapter` (Avalonia / Textual / React / SwiftUI) per §5 that translates VM state into framework-native theme application.
+1. Composing `ThemeVM` into the app root (in the Notes-Showcase apps, this is `WorkspaceVM`).
 
 ## 3. Model
 
@@ -109,9 +109,9 @@ Each scenario MUST be tested in every flavor that implements the contract.
 The three flagship Notes-Showcase apps are updated in the same PR that lands this contract:
 
 1. New `ViewModels/Theme/ThemeVM.{cs,py,ts}` per flavor.
-2. New `Models/ThemeModel.{cs,py,ts}` per flavor.
-3. New `Views/Adapter/ThemeAdapter.{cs,py,ts}` per flavor.
-4. `WorkspaceVM` gains a new child `themeVM` once the `AggregateVM7`
+1. New `Models/ThemeModel.{cs,py,ts}` per flavor.
+1. New `Views/Adapter/ThemeAdapter.{cs,py,ts}` per flavor.
+1. `WorkspaceVM` gains a new child `themeVM` once the `AggregateVM7`
    core-library extension lands — see ADR-0036 §2.C / §4 decision #3 for
    the deferral rationale.
 

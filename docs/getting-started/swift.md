@@ -242,19 +242,65 @@ thrown when a builder is missing a required field at `build()` time.
 
 ______________________________________________________________________
 
-## 7. Where to go next
+## 7. Threading
 
-| Resource                      | Path                                    |
-| ----------------------------- | --------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                   |
-| Lifecycle contract            | `spec/02-lifecycle.md`                  |
-| Message schema                | `spec/03-messages.md`                   |
-| Commands                      | `spec/04-commands.md`                   |
-| ComponentVM contract          | `spec/05-component-vm.md`               |
-| CompositeVM contract          | `spec/06-composite-vm.md`               |
-| Builder spec                  | `spec/10-builders.md`                   |
-| Threading rules               | `spec/11-threading.md`                  |
-| Architecture decision records | `spec/ADRs/`                            |
-| SwiftUI integration recipe    | `docs/integration/swiftui.md`           |
-| Swift flavor README           | `langs/swift/README.md`                 |
-| Swift conformance suite       | `langs/swift/Tests/VMxTests/`           |
+`Dispatcher` is a closure-routing protocol — not a Combine `Scheduler`. It
+exposes two scheduling sinks that the rest of VMx uses when it needs to
+hop work between queues:
+
+| Method                                  | Default mapping (`DefaultDispatcher`)          |
+| --------------------------------------- | ---------------------------------------------- |
+| `dispatcher.scheduleForeground { ... }` | `DispatchQueue.main` (sync if already on main) |
+| `dispatcher.scheduleBackground { ... }` | `DispatchQueue.global(qos: .userInitiated)`    |
+
+Use it for imperative marshaling — e.g., load data on a background queue
+then apply the result on main:
+
+```swift
+dispatcher.scheduleBackground {
+    let data = loadFromDatabase()
+    dispatcher.scheduleForeground {
+        userVM.model = data
+        userVM.construct()
+    }
+}
+```
+
+For Combine subscriptions on `hub.messages`, marshal to the main queue
+with Combine's own `.receive(on:)` — `DispatchQueue.main` is the
+idiomatic Scheduler for SwiftUI / UIKit binding:
+
+```swift
+import Combine
+import VMx
+
+let cancellable = hub.messages
+    .compactMap { $0 as? PropertyChangedMessage }
+    .receive(on: DispatchQueue.main)           // marshal to the main queue
+    .sink { msg in
+        // updateLabel(msg) — safe to touch UIKit / SwiftUI state here
+    }
+```
+
+> See `spec/11-threading.md` for the `THR-001..THR-004` conformance rules.
+> The Swift flavor implements the dispatcher contract; the Combine /
+> async-await integration patterns above are flavor-idiomatic.
+
+______________________________________________________________________
+
+## 8. Where to go next
+
+| Resource                      | Path                          |
+| ----------------------------- | ----------------------------- |
+| Spec overview                 | `spec/00-overview.md`         |
+| Lifecycle contract            | `spec/02-lifecycle.md`        |
+| Message schema                | `spec/03-messages.md`         |
+| Commands                      | `spec/04-commands.md`         |
+| ComponentVM contract          | `spec/05-component-vm.md`     |
+| CompositeVM contract          | `spec/06-composite-vm.md`     |
+| Builder spec                  | `spec/10-builders.md`         |
+| Threading rules               | `spec/11-threading.md`        |
+| Architecture decision records | `spec/ADRs/`                  |
+| SwiftUI integration recipe    | `docs/integration/swiftui.md` |
+| Swift flavor README           | `langs/swift/README.md`       |
+| Swift conformance suite       | `langs/swift/Tests/VMxTests/` |

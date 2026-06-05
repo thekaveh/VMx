@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "VMx Python examples — hello_vmx console demo, todo_app tkinter MVVM demo, and vmx_inspector Textual TUI."
 requires-python = ">=3.10"
 dependencies = [
-    "vmx",
+    "vmx>=2.4.0",
 ]
 
 [tool.uv.sources]

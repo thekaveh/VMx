@@ -43,6 +43,9 @@
     "sync-fixtures": "node scripts/sync-fixtures.mjs",
     "check-version-sync": "node scripts/check-version-sync.mjs",
     "prebuild": "npm run sync-fixtures && npm run check-version-sync",
+    "pretest": "npm run sync-fixtures",
+    "pretest:watch": "npm run sync-fixtures",
+    "precoverage": "npm run sync-fixtures",
     "prepack": "npm run sync-fixtures && npm run check-version-sync && npm run build"
   },
   "keywords": [

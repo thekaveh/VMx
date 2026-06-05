@@ -16,34 +16,34 @@ findings:
    `Children` factory, raising the error later at `OnConstruct` rather than at
    `Build()`. The fix is the spec-correct behavior.
 
-2. **SV1 — Cross-flavor Wither parity.** PR #8 added C# `WithNullServices()` —
+1. **SV1 — Cross-flavor Wither parity.** PR #8 added C# `WithNullServices()` —
    a chainable Wither extension on `ComponentVMBuilder` that wires
    `NullMessageHub.Instance` + `NullDispatcher.Instance` in one call. Python has
    the typed factory `null_message_hub_of[M]()` but lacks the *chainable Wither*
    convenience; TypeScript has neither. Add `with_null_services()` /
    `withNullServices()` Wither to Python + TS for parity.
 
-3. **DP2 — DerivedProperty type-inference parity.** C# and TypeScript expose
+1. **DP2 — DerivedProperty type-inference parity.** C# and TypeScript expose
    typed-arity factories (`DerivedProperty.From<T1, U>` … `From<T1..T5, U>`) so
    the compiler can infer source types from the call site. Python's
    `from_sources(...)` accepts a sequence of observables of any type. Add
    typed-arity factories `from_one[T1]` … `from_five[T1..T5]` to Python.
 
-4. **BLD-005 — Additive setter retention conformance.** `spec/10-builders.md §2`
+1. **BLD-005 — Additive setter retention conformance.** `spec/10-builders.md §2`
    documents that `RelayCommand.Triggers(...)` is **additive** (each call
    appends rather than overwrites). The current `BLD-001..004` conformance IDs
    cover the immutable / validation / repeatability / defaults invariants but
    not the additive-retention invariant. A regression flipping `Triggers` to
    overwrite-semantics would currently slip past CI. Add `BLD-005`.
 
-5. **FV1 / FV2 — FormVMBuilder.** `FormVM<TM>` is constructed via a 5-parameter
+1. **FV1 / FV2 — FormVMBuilder.** `FormVM<TM>` is constructed via a 5-parameter
    constructor (3 optional). All three flavors lack a builder; the C# and
    Python flavors use positional + default arguments, the TS flavor uses an
    options-object pattern. Add a `FormVMBuilder<TM>` across all three flavors
    for consistency with the rest of the VM family and to validate `Initial` +
    `Persister` at `Build()` rather than at runtime.
 
-6. **H1 / H2 / H3 — HierarchicalVMBuilder.** `HierarchicalVM<TModel, TVM>` is
+1. **H1 / H2 / H3 — HierarchicalVMBuilder.** `HierarchicalVM<TModel, TVM>` is
    constructed via a 7-parameter constructor (4 optional). Same pattern as
    FormVM: no builder in any flavor, ad-hoc divergence between positional (C#,
    Python) and options-object (TS). Add a `HierarchicalVMBuilder<TModel, TVM>`
@@ -52,11 +52,11 @@ findings:
    Wither so consumers can opt in *explicitly* — making implicit default
    behavior visible.
 
-7. **Spec table.** `spec/10-builders.md §3` does not currently have a row for
+1. **Spec table.** `spec/10-builders.md §3` does not currently have a row for
    `HierarchicalVM<M, VM>` or `FormVM<TM>`. Add both, including the new
    builders' required fields.
 
-8. **ADR-0027 doc note.** ADR-0027's fluent command extensions intentionally
+1. **ADR-0027 doc note.** ADR-0027's fluent command extensions intentionally
    manifest as method-chain (C#) vs free-function composition (Python, TS) per
    ADR-0006's idiomatic-per-language stance. A future reader could mistake the
    syntactic divergence for a parity gap. The decision is already correct;
