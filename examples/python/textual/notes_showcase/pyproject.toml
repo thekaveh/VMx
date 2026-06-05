@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "VMx Notes Workspace showcase (Textual TUI)"
 requires-python = ">=3.10"
 dependencies = [
-    "vmx>=2.2.0",
+    "vmx>=2.4.0",
     "textual>=0.80",
 ]
 
