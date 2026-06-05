@@ -1,6 +1,6 @@
 # VMx Python Examples
 
-Three self-contained demos of the [VMx Python library](../../langs/python/).
+Four self-contained demos of the [VMx Python library](../../langs/python/).
 
 ## 1. Setup
 
