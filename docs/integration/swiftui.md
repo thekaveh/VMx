@@ -14,12 +14,12 @@ publisher. The adapter forwards every relevant event into
 
 ## Mapping
 
-| SwiftUI                                | VMx                                       |
-| -------------------------------------- | ----------------------------------------- |
-| `@StateObject` / `@ObservedObject`     | wrapper around a `ComponentVMOf<M>`       |
-| `objectWillChange.send()`              | hub `PropertyChangedMessage` subscription |
-| `Button(action: …)`                    | `command.execute()`                       |
-| `.onDisappear { … }`                   | cancel subscriptions / dispose VM         |
+| SwiftUI                            | VMx                                       |
+| ---------------------------------- | ----------------------------------------- |
+| `@StateObject` / `@ObservedObject` | wrapper around a `ComponentVMOf<M>`       |
+| `objectWillChange.send()`          | hub `PropertyChangedMessage` subscription |
+| `Button(action: …)`                | `command.execute()`                       |
+| `.onDisappear { … }`               | cancel subscriptions / dispose VM         |
 
 ## Adapter skeleton
 

@@ -14,19 +14,19 @@ Each recipe explains:
 1. A code skeleton (≤ 30 lines).
 1. Where to look for fuller examples.
 
-| Framework | Language   | Recipe                     | Worked example                                                 |
-| --------- | ---------- | -------------------------- | -------------------------------------------------------------- |
-| WPF       | C#         | [wpf.md](wpf.md)           | `examples/csharp/wpf/TodoApp/`                                 |
-| MAUI      | C#         | [maui.md](maui.md)         | none yet — recipe-only                                         |
-| Avalonia  | C#         | [avalonia.md](avalonia.md) | `examples/csharp/avalonia/NotesShowcase/` (Notes-Showcase)     |
-| Textual   | Python     | [textual.md](textual.md)   | `examples/python/textual/inspector/` + Notes-Showcase          |
-| NiceGUI   | Python     | [nicegui.md](nicegui.md)   | none yet — recipe-only                                         |
-| Tkinter   | Python     | [tkinter.md](tkinter.md)   | `examples/python/tk/todo_app/`                                 |
-| React     | TypeScript | [react.md](react.md)       | `examples/typescript/react/notes-showcase/` (Notes-Showcase)   |
-| Vue 3     | TypeScript | [vue.md](vue.md)           | none yet — recipe-only                                                |
-| Svelte    | TypeScript | [svelte.md](svelte.md)     | none yet — recipe-only                                                |
-| SolidJS   | TypeScript | [solid.md](solid.md)       | none yet — recipe-only                                                |
-| SwiftUI   | Swift      | [swiftui.md](swiftui.md)   | none yet — Swift flavor is a v2.4.0 skeleton (recipe-only)            |
+| Framework | Language   | Recipe                     | Worked example                                               |
+| --------- | ---------- | -------------------------- | ------------------------------------------------------------ |
+| WPF       | C#         | [wpf.md](wpf.md)           | `examples/csharp/wpf/TodoApp/`                               |
+| MAUI      | C#         | [maui.md](maui.md)         | none yet — recipe-only                                       |
+| Avalonia  | C#         | [avalonia.md](avalonia.md) | `examples/csharp/avalonia/NotesShowcase/` (Notes-Showcase)   |
+| Textual   | Python     | [textual.md](textual.md)   | `examples/python/textual/inspector/` + Notes-Showcase        |
+| NiceGUI   | Python     | [nicegui.md](nicegui.md)   | none yet — recipe-only                                       |
+| Tkinter   | Python     | [tkinter.md](tkinter.md)   | `examples/python/tk/todo_app/`                               |
+| React     | TypeScript | [react.md](react.md)       | `examples/typescript/react/notes-showcase/` (Notes-Showcase) |
+| Vue 3     | TypeScript | [vue.md](vue.md)           | none yet — recipe-only                                       |
+| Svelte    | TypeScript | [svelte.md](svelte.md)     | none yet — recipe-only                                       |
+| SolidJS   | TypeScript | [solid.md](solid.md)       | none yet — recipe-only                                       |
+| SwiftUI   | Swift      | [swiftui.md](swiftui.md)   | none yet — Swift flavor is a v2.4.0 skeleton (recipe-only)   |
 
 ## Common pattern
 
