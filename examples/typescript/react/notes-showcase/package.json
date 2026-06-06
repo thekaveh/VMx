@@ -11,10 +11,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@thekaveh/vmx": "file:../../../../langs/typescript",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "rxjs": "^7.8.1",
-    "@thekaveh/vmx": "file:../../../../langs/typescript"
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
@@ -23,12 +23,12 @@
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^8.57.1",
     "eslint-plugin-react": "^7.37.5",
     "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
     "vite": "^6.4.2",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.8"
   }
 }
