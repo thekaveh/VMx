@@ -16,7 +16,7 @@ canonical decision documented in ADR-0018:
 | `ReadonlyComponentVM`                             | leaf, immutable model                 | none                            | read-only view of a model              |
 | `CompositeVM`                                     | container with selection              | `IList<VM>` + `Current`         | a tab strip, a navigation tree         |
 | `GroupVM`                                         | container without selection           | `IList<VM>`                     | peers shown side-by-side               |
-| `AggregateVM<VM1..VM5>`                           | fixed tuple of heterogeneous children | 1–5 typed slots                 | a screen composed of distinct sub-VMs  |
+| `AggregateVM<VM1..VM6>`                           | fixed tuple of heterogeneous children | 1–6 typed slots                 | a screen composed of distinct sub-VMs  |
 | `ForwardingComponentVM` / `ForwardingCompositeVM` | decorator                             | wraps another VM                | proxies, caching, instrumentation      |
 | `HierarchicalVM<TModel, TVM>` (v2.1)              | recursive tree VM                     | lazy/eager `IList<TVM>` subtree | file-system tree, org-chart, menu      |
 | `FormVM<TM>` (v2.1)                               | snapshot/revert edit VM               | none (embeds model snapshot)    | edit forms with approve/deny lifecycle |
@@ -45,7 +45,7 @@ variant with a generic-parameter suffix on the same identifier
 unparameterised name. Throughout this spec, statements about
 `ComponentVM<M>` apply equally to `ComponentVMOf[M]` and
 `ComponentVMOf<M>` unless explicitly called out. The Swift flavor ships
-in v2.4.0 as a subset (~47 / 232 conformance IDs); see
+in v2.4.0 as a subset (53 / 232 conformance IDs); see
 [`langs/swift/README.md` §5](../langs/swift/README.md) for the in / deferred matrix.
 
 **Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
