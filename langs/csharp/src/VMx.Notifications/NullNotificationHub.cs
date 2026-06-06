@@ -3,9 +3,10 @@ using System.Reactive.Linq;
 namespace VMx.Notifications;
 
 /// <summary>
-/// Null-object variant per ADR-0017. <see cref="Post"/> returns
-/// <see cref="NotificationReaction.Approve"/> immediately; <see cref="Resolve"/>
-/// is a no-op; <see cref="Pending"/> emits an empty list once and completes.
+/// Null-object variant per ADR-0017 (see also ADR-0013).
+/// <see cref="Post"/> returns <see cref="NotificationReaction.Approve"/>
+/// immediately; <see cref="Resolve"/> is a no-op; <see cref="Pending"/>
+/// emits an empty list once and completes.
 /// </summary>
 public sealed class NullNotificationHub : INotificationHub
 {

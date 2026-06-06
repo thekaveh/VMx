@@ -1,7 +1,7 @@
 namespace VMx.Notifications;
 
 /// <summary>
-/// Async notification / confirmation hub. See spec/16-notifications.md.
+/// Async notification / confirmation hub. See spec/16-notifications.md and ADR-0013.
 /// </summary>
 public interface INotificationHub
 {
