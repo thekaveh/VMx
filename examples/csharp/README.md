@@ -1,6 +1,6 @@
 # VMx C# examples
 
-Two self-contained demos of the [VMx C# package](../../langs/csharp/).
+Three self-contained demos of the [VMx C# package](../../langs/csharp/).
 
 ## 1. Setup
 

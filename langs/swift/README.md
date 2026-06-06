@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.4.0 — first release of the Swift flavor.** Covers **~47 of 232**
+**v2.4.0 — first release of the Swift flavor.** Covers **53 of 232**
 conformance IDs from `spec-v2.4.0`: the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, and the immutable fluent builders. The remaining ~185 IDs
+`RelayCommand`, and the immutable fluent builders. The remaining 179 IDs
 (`HierarchicalVM`, `FormVM`, the 22 capability micro-interfaces,
 `DerivedProperty`, observable collections, the notifications sub-package,
 threading specifics, forwarding decorators, dialog service, expand/collapse

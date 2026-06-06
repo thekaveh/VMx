@@ -1641,6 +1641,7 @@ ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
 ### COL-019 — `PagedComposition<TVM>` `PageSize == 0` passes through all items
 
 **Given** a `PagedComposition<TVM>` wrapping a 7-item source with `PageSize == 0`
+**When** the composition's paging state and `Items` are queried
 **Then** `IsPagingEnabled == false`
 **And** `PageCount == 1`
 **And** `CurrentPageIndex == 0`
@@ -1649,6 +1650,7 @@ ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
 ### COL-020 — `PagedComposition<TVM>` empty-source behavior
 
 **Given** a `PagedComposition<TVM>` wrapping an empty source with `PageSize == 5`
+**When** the composition's paging state, `Items`, and navigation verbs are exercised
 **Then** `PageCount == 0`
 **And** `CurrentPageIndex == 0`
 **And** `Items` yields no items

@@ -8,7 +8,6 @@
 // CollectionChanged event surface land in a follow-up PR.
 //
 import Foundation
-import Combine
 
 open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     private var children: [Child] = []

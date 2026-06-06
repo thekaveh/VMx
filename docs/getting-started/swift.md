@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift flavor ships in v2.4.0 as a subset of the spec (~47 of 232
+> The Swift flavor ships in v2.4.0 as a subset of the spec (53 of 232
 > conformance IDs cover lifecycle, modeled / unmodeled `ComponentVM`,
 > `CompositeVM`, `GroupVM`, `AggregateVM1..6`, `RelayCommand`, and the
 > builder pattern). See [`langs/swift/README.md` §5](../../langs/swift/README.md)

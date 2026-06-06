@@ -2,7 +2,9 @@ using System.Reactive.Subjects;
 
 namespace VMx.Notifications;
 
-/// <summary>Default <see cref="INotificationHub"/> implementation.</summary>
+/// <summary>
+/// Default <see cref="INotificationHub"/> implementation. See spec/16-notifications.md and ADR-0013.
+/// </summary>
 public sealed class NotificationHub : INotificationHub, IDisposable
 {
     private readonly object _lock = new();
