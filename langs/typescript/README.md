@@ -6,7 +6,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift (subset) flavors.
 ## 1. Status
 
 **v2.4.0** — implements `spec-v2.4.0` end-to-end. 232/232 conformance IDs
-pass. Requires Node ≥ 18 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
+pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 

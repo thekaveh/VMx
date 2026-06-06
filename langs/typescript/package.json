@@ -69,7 +69,7 @@
     "url": "https://github.com/thekaveh/VMx/issues"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "peerDependencies": {
     "rxjs": "^7.8.0"

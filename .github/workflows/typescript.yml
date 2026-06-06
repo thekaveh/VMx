@@ -28,8 +28,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # 18 = engines floor declared in package.json; 20/22 exercise current LTS lines.
-        node-version: ["18", "20", "22"]
+        # 20 = engines floor declared in package.json (raised from 18 because
+        # vitest 4 / vite 6 require Node >= 20.0.0; the prior Node 18 cell
+        # broke after the GHSA-5xrq-8626-4rwp closure bumped both). 22 is
+        # the next active LTS line.
+        node-version: ["20", "22"]
     steps:
       - uses: actions/checkout@v4
 
