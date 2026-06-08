@@ -263,4 +263,93 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
     expect(second?.status).toBe(ConstructionStatus.Constructed);
     expect(first?.status).toBe(ConstructionStatus.Disposed);
   });
+
+  // LIFE-013 reconstruct-disposes-prior-slots over arities 2..6 — cross-flavor
+  // parity with the Python parametric test in
+  // langs/python/tests/unit/aggregates/test_aggregate_vm.py
+  // (test_reconstruct_disposes_prior_slots_before_overwriting).
+  it.each([2, 3, 4, 5, 6])(
+    "AggregateVM%d.reconstruct disposes every previous slot",
+    (arity) => {
+      const hub = makeHub();
+      let nextName = 0;
+      const factory = () => makeChild(hub, `slot${++nextName}`);
+
+      const firstSlots: ComponentVM[] = [];
+      let reconstruct: () => void;
+      let readSlots: () => (ComponentVM | null)[];
+
+      switch (arity) {
+        case 2: {
+          const agg = AggregateVM2.builder<ComponentVM, ComponentVM>()
+            .name("agg2").services(hub, makeDisp())
+            .component1(factory).component2(factory).build();
+          agg.construct();
+          firstSlots.push(agg.component1!, agg.component2!);
+          reconstruct = () => { agg.reconstruct(); };
+          readSlots = () => [agg.component1, agg.component2];
+          break;
+        }
+        case 3: {
+          const agg = AggregateVM3.builder<ComponentVM, ComponentVM, ComponentVM>()
+            .name("agg3").services(hub, makeDisp())
+            .component1(factory).component2(factory).component3(factory).build();
+          agg.construct();
+          firstSlots.push(agg.component1!, agg.component2!, agg.component3!);
+          reconstruct = () => { agg.reconstruct(); };
+          readSlots = () => [agg.component1, agg.component2, agg.component3];
+          break;
+        }
+        case 4: {
+          const agg = AggregateVM4.builder<ComponentVM, ComponentVM, ComponentVM, ComponentVM>()
+            .name("agg4").services(hub, makeDisp())
+            .component1(factory).component2(factory).component3(factory).component4(factory).build();
+          agg.construct();
+          firstSlots.push(agg.component1!, agg.component2!, agg.component3!, agg.component4!);
+          reconstruct = () => { agg.reconstruct(); };
+          readSlots = () => [agg.component1, agg.component2, agg.component3, agg.component4];
+          break;
+        }
+        case 5: {
+          const agg = AggregateVM5.builder<ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM>()
+            .name("agg5").services(hub, makeDisp())
+            .component1(factory).component2(factory).component3(factory).component4(factory).component5(factory).build();
+          agg.construct();
+          firstSlots.push(agg.component1!, agg.component2!, agg.component3!, agg.component4!, agg.component5!);
+          reconstruct = () => { agg.reconstruct(); };
+          readSlots = () => [agg.component1, agg.component2, agg.component3, agg.component4, agg.component5];
+          break;
+        }
+        case 6: {
+          const agg = AggregateVM6.builder<
+            ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+          >()
+            .name("agg6").services(hub, makeDisp())
+            .component1(factory).component2(factory).component3(factory).component4(factory).component5(factory).component6(factory).build();
+          agg.construct();
+          firstSlots.push(
+            agg.component1!, agg.component2!, agg.component3!,
+            agg.component4!, agg.component5!, agg.component6!,
+          );
+          reconstruct = () => { agg.reconstruct(); };
+          readSlots = () => [agg.component1, agg.component2, agg.component3, agg.component4, agg.component5, agg.component6];
+          break;
+        }
+        default:
+          throw new Error(`unsupported arity ${arity}`);
+      }
+
+      firstSlots.forEach((s) => expect(s.status).toBe(ConstructionStatus.Constructed));
+
+      reconstruct();
+
+      const fresh = readSlots();
+      fresh.forEach((s) => expect(s).not.toBeNull());
+      firstSlots.forEach((first, i) => {
+        expect(fresh[i]).not.toBe(first);
+        expect(fresh[i]?.status).toBe(ConstructionStatus.Constructed);
+        expect(first.status).toBe(ConstructionStatus.Disposed);
+      });
+    },
+  );
 });

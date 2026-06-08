@@ -325,5 +325,121 @@ public class AggregateVMTests
         first.Status.Should().Be(ConstructionStatus.Disposed,
             "previous slot must be Disposed, not lingering in Destructed");
     }
+
+    /// <summary>
+    /// LIFE-013 reconstruct-disposes-prior-slots over arities 2..6 — cross-flavor
+    /// parity with the Python parametric test in
+    /// langs/python/tests/unit/aggregates/test_aggregate_vm.py
+    /// (test_reconstruct_disposes_prior_slots_before_overwriting). Every slot of
+    /// every arity must be Disposed after Reconstruct, never merely Destructed.
+    /// </summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void AggregateVMN_Reconstruct_Disposes_Every_Previous_Slot(int arity)
+    {
+        var (hub, dispatcher) = MakeServices();
+        ComponentVM<string>[] firstSlots;
+        Action reconstruct;
+        Func<ComponentVM<string>?[]> currentSlots;
+
+        switch (arity)
+        {
+            case 2:
+                {
+                    var agg = AggregateVM2<ComponentVM<string>, ComponentVM<string>>.Builder()
+                        .Name("agg2").Services(hub, dispatcher)
+                        .Component1(() => MakeLeaf(hub, dispatcher, "s1"))
+                        .Component2(() => MakeLeaf(hub, dispatcher, "s2"))
+                        .Build();
+                    agg.Construct();
+                    firstSlots = [agg.Component1!, agg.Component2!];
+                    reconstruct = agg.Reconstruct;
+                    currentSlots = () => [agg.Component1, agg.Component2];
+                    break;
+                }
+            case 3:
+                {
+                    var agg = AggregateVM3<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                        .Name("agg3").Services(hub, dispatcher)
+                        .Component1(() => MakeLeaf(hub, dispatcher, "s1"))
+                        .Component2(() => MakeLeaf(hub, dispatcher, "s2"))
+                        .Component3(() => MakeLeaf(hub, dispatcher, "s3"))
+                        .Build();
+                    agg.Construct();
+                    firstSlots = [agg.Component1!, agg.Component2!, agg.Component3!];
+                    reconstruct = agg.Reconstruct;
+                    currentSlots = () => [agg.Component1, agg.Component2, agg.Component3];
+                    break;
+                }
+            case 4:
+                {
+                    var agg = AggregateVM4<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                        .Name("agg4").Services(hub, dispatcher)
+                        .Component1(() => MakeLeaf(hub, dispatcher, "s1"))
+                        .Component2(() => MakeLeaf(hub, dispatcher, "s2"))
+                        .Component3(() => MakeLeaf(hub, dispatcher, "s3"))
+                        .Component4(() => MakeLeaf(hub, dispatcher, "s4"))
+                        .Build();
+                    agg.Construct();
+                    firstSlots = [agg.Component1!, agg.Component2!, agg.Component3!, agg.Component4!];
+                    reconstruct = agg.Reconstruct;
+                    currentSlots = () => [agg.Component1, agg.Component2, agg.Component3, agg.Component4];
+                    break;
+                }
+            case 5:
+                {
+                    var agg = AggregateVM5<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                        .Name("agg5").Services(hub, dispatcher)
+                        .Component1(() => MakeLeaf(hub, dispatcher, "s1"))
+                        .Component2(() => MakeLeaf(hub, dispatcher, "s2"))
+                        .Component3(() => MakeLeaf(hub, dispatcher, "s3"))
+                        .Component4(() => MakeLeaf(hub, dispatcher, "s4"))
+                        .Component5(() => MakeLeaf(hub, dispatcher, "s5"))
+                        .Build();
+                    agg.Construct();
+                    firstSlots = [agg.Component1!, agg.Component2!, agg.Component3!, agg.Component4!, agg.Component5!];
+                    reconstruct = agg.Reconstruct;
+                    currentSlots = () => [agg.Component1, agg.Component2, agg.Component3, agg.Component4, agg.Component5];
+                    break;
+                }
+            case 6:
+                {
+                    var agg = AggregateVM6<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                        .Name("agg6").Services(hub, dispatcher)
+                        .Component1(() => MakeLeaf(hub, dispatcher, "s1"))
+                        .Component2(() => MakeLeaf(hub, dispatcher, "s2"))
+                        .Component3(() => MakeLeaf(hub, dispatcher, "s3"))
+                        .Component4(() => MakeLeaf(hub, dispatcher, "s4"))
+                        .Component5(() => MakeLeaf(hub, dispatcher, "s5"))
+                        .Component6(() => MakeLeaf(hub, dispatcher, "s6"))
+                        .Build();
+                    agg.Construct();
+                    firstSlots = [agg.Component1!, agg.Component2!, agg.Component3!, agg.Component4!, agg.Component5!, agg.Component6!];
+                    reconstruct = agg.Reconstruct;
+                    currentSlots = () => [agg.Component1, agg.Component2, agg.Component3, agg.Component4, agg.Component5, agg.Component6];
+                    break;
+                }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(arity));
+        }
+
+        firstSlots.Should().AllSatisfy(s => s.Status.Should().Be(ConstructionStatus.Constructed));
+
+        reconstruct();
+
+        var fresh = currentSlots();
+        fresh.Should().AllSatisfy(s => s.Should().NotBeNull());
+        for (int i = 0; i < firstSlots.Length; i++)
+        {
+            fresh[i].Should().NotBeSameAs(firstSlots[i], $"slot {i + 1} must be a fresh instance");
+            fresh[i]!.Status.Should().Be(ConstructionStatus.Constructed);
+            firstSlots[i].Status.Should().Be(ConstructionStatus.Disposed,
+                $"prior slot {i + 1} must be Disposed, not lingering in Destructed");
+        }
+    }
 }
 #pragma warning restore CA1715
