@@ -83,14 +83,14 @@ def test_NULL_002_nulldispatcher_schedules_synchronously() -> None:
 
 @pytest.mark.conformance("NULL-003")
 def test_NULL_003_null_convention_satisfied() -> None:
-    # IMessageHub → NullMessageHub
+    # MessageHubProto → NullMessageHub
     assert hasattr(NullMessageHub, "__init__")
     hub = NullMessageHub()
     # send must be total (no input raises)
     hub.send(ConstructionStatusChangedMessage.create(object(), "x", ConstructionStatus.CONSTRUCTED))
     _ = hub.messages
 
-    # IDispatcher → NullDispatcher
+    # Dispatcher Protocol → NullDispatcher
     assert hasattr(NullDispatcher, "__init__")
     dispatcher = NullDispatcher()
     assert dispatcher.foreground is not None
