@@ -189,7 +189,7 @@ using VMx.Components;
 using VMx.Composites;
 using VMx.Messages;
 
-// A tab ViewModel — a ComponentVM wrapping a tab model.
+// A tab viewmodel — a ComponentVM wrapping a tab model.
 public record TabModel(string Title);
 
 // Build two tab children. They share the same hub and dispatcher.

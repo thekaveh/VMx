@@ -105,7 +105,7 @@ Each flavor implements the same conceptual stack:
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
   override, or composition.
-- **ViewModel hierarchy** — `ComponentVM<M>`, `CompositeVM<VM>`,
+- **Viewmodel hierarchy** — `ComponentVM<M>`, `CompositeVM<VM>`,
   `GroupVM<VM>`, `AggregateVM1..6`.
 - **Commands** — `RelayCommand` and `RelayCommand<T>` with `execute`,
   `canExecute`, and reactive trigger observables.

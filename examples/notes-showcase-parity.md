@@ -76,8 +76,8 @@ renders, headless smoke covers it.
   synthetic chrome wrapper.
 - **Screenshots.** Reference screenshots will live in
   [`assets/notes-showcase/`](../assets/notes-showcase/) once captured (one
-  PNG per flavor, captured manually). They are pending capture as of
-  2026-05-30 — see [`assets/notes-showcase/README.md`](../assets/notes-showcase/README.md)
+  PNG per flavor, captured manually). They are owner-driven and pending —
+  see [`assets/notes-showcase/README.md`](../assets/notes-showcase/README.md)
   for the placeholder note and capture convention.
 
 [^hier]: All three flavors implement an equivalent flat-collection +

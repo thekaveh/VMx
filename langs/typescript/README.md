@@ -123,8 +123,9 @@ import { ComponentVMOf, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 ```
 
 For a worked browser example, see the React `notes-showcase` app under
-`examples/typescript/react/notes-showcase/` (shipped on the
-`examples-notes-showcase` branch, merging in a follow-up).
+[`examples/typescript/react/notes-showcase/`](../../examples/typescript/react/notes-showcase/),
+with cross-flavor parity documented in
+[`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md).
 
 A JSDOM smoke test (`tests/browser-build/smoke.test.ts`) runs on every CI
 build and asserts that the package keeps loading cleanly in a browser-like
