@@ -97,7 +97,7 @@ examples/typescript/react/notes-showcase/
 | 4   | `FormVM` snapshot / revert       | `viewmodels/noteFormVM.ts` (owns a strict `FormVMOf<NoteModel>`)                            |
 | 5   | `DerivedProperty`                | `viewmodels/statusBarVM.ts`, `noteFormVM.isDirty`, `capabilityActionsVM.actions`             |
 | 6   | `RelayCommand` reactive          | `noteFormVM.approveCommand` / `denyCommand`, `noteVM.deleteCommand`                          |
-| 7   | `SearchableState` + `IFilterable`| `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`)                    |
+| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`)                    |
 | 8   | `IPageable` + `PagedComposition` | `viewmodels/notesViewVM.ts` (page size 5, paging commands delegate to inner `PagedComposition`) |
 | 9   | `INotificationHub` + `NotificationVM` | `viewmodels/notificationsVM.ts`, `views/components/Notifications.tsx`                   |
 | 10  | Async `construct()` + dispatcher | `viewmodels/workspaceVM.ts` (`construct()`), `views/adapter/ReactDispatcher.ts`              |
