@@ -12,7 +12,7 @@ This chapter covers four primitives:
 - `ObservableDictionary` — multi-key observable dictionary
 - `PagedComposition<TVM>` — paged composition helper
 
-Paging and filtering capabilities (`IPageable` / `IFilterable<T>`) are defined
+Paging and filtering capabilities (`IPageable` / `IFilterable<TItem>`) are defined
 in `14-capabilities.md`. `PagedComposition<TVM>` implements `IPageable` as
 described here.
 
@@ -20,7 +20,7 @@ described here.
 
 ### 1.1 Relationship to capabilities
 
-`IFilterable<T>` (ADR-0022, `CAP-021`) and `IPageable` (ADR-0023, `CAP-022`)
+`IFilterable<TItem>` (ADR-0022, `CAP-021`) and `IPageable` (ADR-0023, `CAP-022`)
 are **interface contracts**. This chapter defines **helper classes** that
 implement those contracts and provide the underlying mechanics. Consumers who
 only need the interface contract (e.g., to write capability-based dispatch code)

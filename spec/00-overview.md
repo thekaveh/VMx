@@ -33,11 +33,25 @@ in multiple language flavors with semantically equivalent behavior.
   existing chapters: `PropertyValueChangedMessagesFor` batch publisher
   (chapter 03 §7, ADR-0032, informative); fluent command extensions `Confirm`,
   `PrecedeWith`, `SucceedWith`, `WrapWith` (chapter 04 §9, ADR-0027); two new
-  capability micro-interfaces `IFilterable<T>` (chapter 14 §2.6, ADR-0022) and
+  capability micro-interfaces `IFilterable<TItem>` (chapter 14 §2.6, ADR-0022) and
   `IPageable` (chapter 14 §2.10, ADR-0023) joining at positions 21 and 22; a
   lazy-initialization recipe for derived properties (chapter 15 §8);
   `NotificationVM` + `ConfirmationVM` render-side VMs with auto-dismiss
   lifecycle (chapter 16 §6–§7, ADR-0031).
+- **v2.2 additions**. `AggregateVM6` extends the aggregate family from arity
+  5 to arity 6 (chapter 08 §1, ADR-0034); the Notes-Showcase flagship example
+  portfolio establishes the cross-flavor scenario contract pattern.
+- **v2.3 additions**. `FormVMBuilder<TM>` and `HierarchicalVMBuilder<M, VM>`
+  bring the two latest VM kinds into the immutable-builder discipline (ADR-0035);
+  conformance gains `FORM-011..013`, `HIER-015..017`, and additive `BLD-005`
+  for builder-`Triggers` semantics.
+- **v2.4 additions**. New Swift flavor implementing a subset of the spec
+  (`langs/swift/` — see langs/swift/README.md §5 for the in/deferred matrix);
+  `ThemeVM` cross-flavor scenario contract (`THEME-001..005`, ADR-0036 §2.C);
+  publication-readiness pass (TS npm rename `vmx` → `@thekaveh/vmx`, ADR-0036
+  §2.A) and example-app edge-case coverage backfill (ADR-0036 §2.D). No new
+  chapter files; the scenario contract lives at
+  `spec/proposals/2026-06-02-theme-vm-scenario.md`.
 
 ## 2. Out of scope
 
