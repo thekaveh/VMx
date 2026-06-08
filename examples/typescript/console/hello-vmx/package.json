@@ -9,5 +9,8 @@
   },
   "dependencies": {
     "@thekaveh/vmx": "file:../../../../langs/typescript"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
