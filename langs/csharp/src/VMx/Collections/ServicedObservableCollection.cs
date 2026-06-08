@@ -38,6 +38,13 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>
         // 2. Publish to hub (if present).
         if (_hub is null) return;
 
+        // Move is part of the inherited ObservableCollection<T> API but is
+        // NOT a CollectionMutationAction in the spec (chapter 21). The local
+        // CollectionChanged event still fires for Move subscribers; we just
+        // do not synthesise a hub message — silently mapping Move to Reset
+        // would lose positional information.
+        if (e.Action == NotifyCollectionChangedAction.Move) return;
+
         CollectionChangedMessage<T> msg = e.Action switch
         {
             NotifyCollectionChangedAction.Add =>
@@ -59,8 +66,11 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>
                     (T)e.OldItems![0]!,
                     e.NewStartingIndex),
 
-            _ /* Reset */ =>
+            NotifyCollectionChangedAction.Reset =>
                 CollectionChangedMessage<T>.ForReset(this),
+
+            _ => throw new InvalidOperationException(
+                $"Unexpected NotifyCollectionChangedAction: {e.Action}"),
         };
 
         _hub.Send(msg);
