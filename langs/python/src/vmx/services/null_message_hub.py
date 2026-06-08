@@ -1,4 +1,4 @@
-"""NullMessageHub — null-object variant of IMessageHub.
+"""NullMessageHub — null-object variant of the MessageHubProto Protocol.
 
 See spec/03-messages.md §"Null variant" and ADR-0017.
 
