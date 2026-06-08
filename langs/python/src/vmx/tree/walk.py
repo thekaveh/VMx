@@ -56,7 +56,7 @@ def _children(node: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
         except TypeError:
             pass
 
-    for i in range(1, 6):
+    for i in range(1, 7):
         slot = getattr(node, f"component_{i}", None)
         if isinstance(slot, _ComponentVMBase):
             yield slot

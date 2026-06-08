@@ -45,8 +45,8 @@ function* _children(node: ComponentVMBase): Iterable<ComponentVMBase> {
     }
     return;
   }
-  // Aggregates expose component1..component5 slots.
-  for (let i = 1; i <= 5; i++) {
+  // Aggregates expose component1..component6 slots.
+  for (let i = 1; i <= 6; i++) {
     const slot = (node as unknown as Record<string, unknown>)[`component${String(i)}`];
     if (slot instanceof ComponentVMBase) yield slot;
   }
