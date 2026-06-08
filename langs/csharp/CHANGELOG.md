@@ -23,7 +23,7 @@ to existing C# APIs.
   `RelayCommand`, `MessageHub`). No new core types are introduced;
   the contract is implemented by the Avalonia Notes-Showcase flagship
   under `examples/csharp/avalonia/NotesShowcase/`. See
-  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §3.C.
+  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §2.C.
 
 ### Fixed
 

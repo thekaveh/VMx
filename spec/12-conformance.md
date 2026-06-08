@@ -2089,7 +2089,7 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 ## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 
 The `THEME-NNN` family covers the **scenario contract** at
-`spec/proposals/2026-06-02-theme-vm-scenario.md` (ADR-0036 §3). This contract
+`spec/proposals/2026-06-02-theme-vm-scenario.md` (ADR-0036 §2.C). This contract
 specifies a normative *shape* for example-app theming — a `ThemeModel` +
 `ThemeVM : ComponentVM<ThemeModel>` + per-framework `ThemeAdapter` — built
 from existing core primitives (`ComponentVM<M>`, `DerivedProperty<T>`,
