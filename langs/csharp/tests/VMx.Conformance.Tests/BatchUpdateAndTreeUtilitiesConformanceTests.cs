@@ -283,6 +283,54 @@ public class BatchUpdateAndTreeUtilitiesConformanceTests
         postWalked[2].Should().BeSameAs(comp2);
     }
 
+    /// <summary>
+    /// UTIL-002 (parity): AggregateVM6's sixth slot is reachable by Walk.
+    /// Locks in cross-flavor parity with Python/TS UTIL-002 reachability cases
+    /// (a Python `range(1,6)` / TS `i &lt;= 5` regression silently skipped slot 6
+    /// in both flavors; C# routes through IAggregateSlots.EnumerateSlots so it
+    /// was correct, but the test asymmetry left a future C# refactor unguarded).
+    /// </summary>
+    [Fact, Trait("Conformance", "UTIL-002")]
+    public void UTIL_002_Walk_Visits_Component_6_On_AggregateVM6()
+    {
+        var (hub, dispatcher) = MakeServices();
+
+        var c1 = MakeChild(hub, dispatcher, "c1");
+        var c2 = MakeChild(hub, dispatcher, "c2");
+        var c3 = MakeChild(hub, dispatcher, "c3");
+        var c4 = MakeChild(hub, dispatcher, "c4");
+        var c5 = MakeChild(hub, dispatcher, "c5");
+        var c6 = MakeChild(hub, dispatcher, "c6");
+
+        var agg = AggregateVM6<
+            ComponentVM<string>,
+            ComponentVM<string>,
+            ComponentVM<string>,
+            ComponentVM<string>,
+            ComponentVM<string>,
+            ComponentVM<string>>.Builder()
+            .Name("agg6").Services(hub, dispatcher)
+            .Component1(() => c1)
+            .Component2(() => c2)
+            .Component3(() => c3)
+            .Component4(() => c4)
+            .Component5(() => c5)
+            .Component6(() => c6)
+            .Build();
+
+        agg.Construct();
+
+        var walked = Walk(agg).ToList();
+        walked.Should().HaveCount(7);
+        walked[0].Should().BeSameAs(agg);
+        walked[1].Should().BeSameAs(c1);
+        walked[2].Should().BeSameAs(c2);
+        walked[3].Should().BeSameAs(c3);
+        walked[4].Should().BeSameAs(c4);
+        walked[5].Should().BeSameAs(c5);
+        walked[6].Should().BeSameAs(c6);
+    }
+
     // ── UTIL-003 — find returns first matching node and short-circuits ────────
 
     /// <summary>

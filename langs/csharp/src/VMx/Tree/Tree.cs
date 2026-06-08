@@ -13,7 +13,8 @@ public static class Tree
     /// <summary>
     /// Yields <paramref name="root"/> then every descendant in depth-first pre-order.
     /// For composite and group containers, walks children via their <see cref="IEnumerable{T}"/>
-    /// implementation. For aggregate VMs, walks non-null Component1..Component5 slots in order.
+    /// implementation. For aggregate VMs, walks non-null Component1..Component6 slots in order
+    /// (via each aggregate's <c>IAggregateSlots.EnumerateSlots</c>).
     /// Leaf nodes yield exactly themselves.
     /// </summary>
     /// <param name="root">The root of the sub-tree to walk.</param>
