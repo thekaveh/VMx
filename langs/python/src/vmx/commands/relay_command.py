@@ -1,4 +1,4 @@
-"""RelayCommand and RelayCommandOf — concrete ICommand implementations.
+"""RelayCommand and RelayCommandOf — concrete Command Protocol implementations.
 
 Spec: spec/04-commands.md
 
