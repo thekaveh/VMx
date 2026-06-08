@@ -69,7 +69,7 @@ examples/csharp/avalonia/NotesShowcase/
 | 4   | `FormVM` snapshot / revert       | `ViewModels/NoteFormVM.cs` (owns a strict `FormVM<NoteModel>`)                            |
 | 5   | `DerivedProperty`                | `ViewModels/StatusBarVM.cs`, `NoteFormVM.IsDirty`, `CapabilityActionsVM.Actions`           |
 | 6   | `RelayCommand` reactive          | `NoteFormVM.ApproveCommand` / `DenyCommand`, `NoteVM.DeleteCommand`                       |
-| 7   | `SearchableState` + `IFilterable`| `ViewModels/NotesViewVM.cs` (debounced 150 ms search + `ShowStarredOnly`)                 |
+| 7   | `SearchableState` + `IFilterable<TItem>`| `ViewModels/NotesViewVM.cs` (debounced 150 ms search + `ShowStarredOnly`)                 |
 | 8   | `IPageable` + `PagedComposition` | `ViewModels/NotesViewVM.cs` (page size 5, paging commands delegate to inner `PagedComposition`) |
 | 9   | `INotificationHub` + `NotificationVM` | `ViewModels/NotificationsVM.cs`, `Views/NotificationsView.axaml`                      |
 | 10  | Async `construct()` + dispatcher | `ViewModels/WorkspaceVM.cs` (`ConstructAsync`), `Views/Adapter/AvaloniaDispatcher.cs`     |

@@ -44,7 +44,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     - No ``current`` property.
     - No ``select_next_command`` / ``select_previous_command`` for navigating
       children (children are peers — these commands are always-False no-ops
-      inherited from the IComponentVM baseline in ``_ComponentVMBase``).
+      inherited from the ComponentVMProto baseline in ``_ComponentVMBase``).
     - No ``select_component`` / ``deselect_component`` / ``can_select_component``.
     - ``select_command`` / ``deselect_command`` ARE present (operate on the
       group's own selection within its parent).

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from vmx.aggregates.aggregate_vm import AggregateVM3
-from vmx.aggregates.builders import AggregateVMBuilder3
+from vmx.aggregates.aggregate_vm import AggregateVM3, AggregateVM6
+from vmx.aggregates.builders import AggregateVMBuilder3, AggregateVMBuilder6
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
@@ -79,6 +79,30 @@ def test_UTIL_002_walk_skips_empty_aggregate_slots() -> None:
     agg._component2 = None
     names_after = [vm.name for vm in walk(agg)]
     assert names_after == ["agg", "a", "c"]
+
+
+@pytest.mark.conformance("UTIL-002")
+def test_UTIL_002_walk_visits_component_6_on_aggregate_vm6() -> None:
+    """UTIL-002: AggregateVM6's sixth slot is reachable by walk()."""
+    h = _hub()
+    d = _dispatcher()
+    leaves = [_leaf(name, h, d) for name in ("a", "b", "c", "d", "e", "f")]
+    agg: AggregateVM6[
+        ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+    ] = (
+        AggregateVMBuilder6()
+        .name("agg6")
+        .services(h, d)
+        .component_1(lambda: leaves[0])
+        .component_2(lambda: leaves[1])
+        .component_3(lambda: leaves[2])
+        .component_4(lambda: leaves[3])
+        .component_5(lambda: leaves[4])
+        .component_6(lambda: leaves[5])
+        .build()
+    )
+    agg.construct()
+    assert [vm.name for vm in walk(agg)] == ["agg6", "a", "b", "c", "d", "e", "f"]
 
 
 @pytest.mark.conformance("UTIL-003")

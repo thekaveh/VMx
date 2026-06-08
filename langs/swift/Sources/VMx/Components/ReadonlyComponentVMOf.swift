@@ -14,10 +14,20 @@ open class ReadonlyComponentVMOf<Model>: ComponentVMOf<Model> {
     /// remains accessible through `_setModel(_:)` for module-internal
     /// callers that legitimately need to update the model (e.g. a
     /// service-backed refresh).
+    ///
+    /// External writes via `vm.model = newValue` fail fast with
+    /// `preconditionFailure` rather than silently no-op'ing. Swift cannot
+    /// narrow a parent `var` setter to unavailable, so the setter remains
+    /// visible — but invoking it is a programmer error per the read-only
+    /// contract.
     public override var model: Model {
         get { super.model }
-        // Swift does not allow narrowing a parent `var` setter to
-        // unavailable, so we keep it visible but document the contract.
-        set { /* read-only by spec — explicit writes should call _setModel. */ }
+        set {
+            _ = newValue
+            preconditionFailure(
+                "ReadonlyComponentVMOf.model is read-only — use the internal "
+                + "_setModel(_:) for service-backed updates."
+            )
+        }
     }
 }

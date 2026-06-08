@@ -41,7 +41,7 @@ renders, headless smoke covers it.
 | 4   | `FormVM` snapshot/revert (ch. 20) — note editor       | ✓             | ✓                | ✓                  |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  |
 | 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | ✓ | ✓         | ✓                  |
-| 7   | `SearchableState` + `IFilterable<T>` (§14.5–14.6) — title search + starred filter | ✓ | ✓ | ✓               |
+| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5–14.6) — title search + starred filter | ✓ | ✓ | ✓               |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save | ✓ | ✓ | ✓        |
@@ -76,8 +76,8 @@ renders, headless smoke covers it.
   synthetic chrome wrapper.
 - **Screenshots.** Reference screenshots will live in
   [`assets/notes-showcase/`](../assets/notes-showcase/) once captured (one
-  PNG per flavor, captured manually). They are pending capture as of
-  2026-05-30 — see [`assets/notes-showcase/README.md`](../assets/notes-showcase/README.md)
+  PNG per flavor, captured manually). They are owner-driven and pending —
+  see [`assets/notes-showcase/README.md`](../assets/notes-showcase/README.md)
   for the placeholder note and capture convention.
 
 [^hier]: All three flavors implement an equivalent flat-collection +

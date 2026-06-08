@@ -6,6 +6,7 @@ import {
   CompositeVM,
   AggregateVM2,
   AggregateVM1,
+  AggregateVM6,
   ComponentVMBase,
   walk,
   find,
@@ -79,6 +80,43 @@ describe("UTIL-002", () => {
 
     // Only agg + c1, no undefined/null slots.
     expect(visited).toEqual(["agg", "c1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UTIL-002 (AggregateVM6 reachability)
+// ---------------------------------------------------------------------------
+
+describe("UTIL-002 (AggregateVM6 reachability)", () => {
+  it("walk visits component_6 slot on AggregateVM6", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+
+    const c1 = makeChild(hub, "c1");
+    const c2 = makeChild(hub, "c2");
+    const c3 = makeChild(hub, "c3");
+    const c4 = makeChild(hub, "c4");
+    const c5 = makeChild(hub, "c5");
+    const c6 = makeChild(hub, "c6");
+
+    const agg = AggregateVM6.builder<
+      ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+    >()
+      .name("agg6")
+      .services(hub, disp)
+      .component1(() => c1)
+      .component2(() => c2)
+      .component3(() => c3)
+      .component4(() => c4)
+      .component5(() => c5)
+      .component6(() => c6)
+      .build();
+    agg.construct();
+
+    const visited: string[] = [];
+    for (const node of walk(agg)) visited.push(node.name);
+
+    expect(visited).toEqual(["agg6", "c1", "c2", "c3", "c4", "c5", "c6"]);
   });
 });
 

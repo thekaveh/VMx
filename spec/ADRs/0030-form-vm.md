@@ -53,3 +53,10 @@ consumer-controlled (`Approve.CanExecute = true`).
 1. Integration with `IDialogService.Confirm` (ADR-0029) is a documented composition
    pattern, not a normative dependency. `FORM-010` exercises this integration via
    `DenyCommand` wrapped with `ConfirmationDecoratorCommand`.
+
+## 5. Amendments
+
+- **ADR-0035** (2026-05-28, spec v2.3.0) added `FORM-011..FORM-013` covering
+  `FormVMBuilder.validate` (FORM-011), default-on-`build()` semantics
+  (FORM-012), and repeat-`build()` immutability (FORM-013). The family is now
+  13 conformance IDs.

@@ -73,3 +73,10 @@ Option 3, with the following six specific resolutions:
 1. The prior `hierarchical-vm` proposal was removed during the v2.1
    absorption (superseded by chapter 18 and this ADR).
 1. Cross-flavor recursive-generic-constraint divergence is noted in ADR-0009.
+
+## 5. Amendments
+
+- **ADR-0035** (2026-05-28, spec v2.3.0) added `HIER-015..HIER-017` covering
+  `HierarchicalVMBuilder.validate` (HIER-015), default-on-`build()` semantics
+  (HIER-016), and repeat-`build()` immutability (HIER-017). The family is now
+  17 conformance IDs.

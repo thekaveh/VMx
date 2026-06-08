@@ -19,7 +19,7 @@ changes to existing TS APIs.
   command becomes `npm install @thekaveh/vmx rxjs`; imports become
   `import { ... } from "@thekaveh/vmx"`. The opt-in notifications
   sub-path is now `@thekaveh/vmx/notifications`. Source-compatible: no
-  symbol changes. See ADR-0036 §3.A.
+  symbol changes. See ADR-0036 §2.A.
 
 ### Added
 
@@ -31,7 +31,7 @@ changes to existing TS APIs.
   `RelayCommand`, `MessageHub`). No new core types are introduced;
   the contract is implemented by the React Notes-Showcase flagship
   under `examples/typescript/react/notes-showcase/`. See
-  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §3.C.
+  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §2.C.
 
 ### Fixed
 

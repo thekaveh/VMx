@@ -62,8 +62,19 @@ select = ["E", "F", "I", "N", "UP", "B", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # Conformance test names embed spec IDs (e.g. test_LIFE_005_…) — uppercased letters
 # are intentional and normative.  N802 (function name should be lowercase) does not
-# apply to these files.
-"tests/conformance/*.py" = ["N802"]
+# apply to these files. The `**/` prefix lets the pattern match whether ruff is
+# invoked from langs/python/ (e.g. local `cd langs/python && ruff check .`) or
+# from the repo root with `--config langs/python/pyproject.toml` (as the
+# pre-commit hook does — see .pre-commit-config.yaml).
+"**/tests/conformance/*.py" = ["N802"]
+
+[tool.ruff.lint.isort]
+# Pin vmx as first-party so import ordering stays consistent whether ruff is
+# invoked from langs/python/ (where `src = ["src", "tests"]` makes vmx
+# discoverable as first-party automatically) or from the repo root with
+# `--config langs/python/pyproject.toml` (where the relative `src` paths
+# would otherwise cause vmx to be misclassified as third-party).
+known-first-party = ["vmx"]
 
 [tool.mypy]
 strict = true

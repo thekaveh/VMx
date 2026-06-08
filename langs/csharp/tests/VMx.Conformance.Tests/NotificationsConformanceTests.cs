@@ -168,4 +168,19 @@ public class NotificationsConformanceTests
     }
 
     // NOTIF-011..016 live in NOTIF_011_to_016_RenderingVMs_Tests.cs
+
+    /// <summary>
+    /// Regression: Post-after-Dispose returns a completed task with Pending
+    /// instead of throwing ObjectDisposedException from the underlying subject.
+    /// Symmetric with Resolve()'s _waiters guard.
+    /// </summary>
+    [Fact, Trait("Stability", "Race")]
+    public async Task Post_After_Dispose_Returns_Pending()
+    {
+        var hub = new NotificationHub();
+        hub.Dispose();
+        var task = hub.Post(new Notification(NotificationType.Confirmation, "x"));
+        task.IsCompleted.Should().BeTrue();
+        (await task).Should().Be(NotificationReaction.Pending);
+    }
 }

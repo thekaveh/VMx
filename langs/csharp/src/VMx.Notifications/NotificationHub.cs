@@ -24,6 +24,14 @@ public sealed class NotificationHub : INotificationHub, IDisposable
         IReadOnlyList<Notification> snapshot;
         lock (_lock)
         {
+            // Post after Dispose returns Pending and does not enqueue: matches the
+            // shutdown semantics of Dispose() which resolves all in-flight waiters
+            // with Pending. Symmetric with Resolve()'s _waiters guard.
+            if (_disposed)
+            {
+                tcs.TrySetResult(NotificationReaction.Pending);
+                return tcs.Task;
+            }
             _pending.Add(notification);
             _waiters[notification] = tcs;
             snapshot = _pending.ToArray();

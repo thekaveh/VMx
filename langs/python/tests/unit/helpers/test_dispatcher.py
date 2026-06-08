@@ -1,4 +1,4 @@
-"""IDispatcher-equivalent backed by deterministic Rx test schedulers."""
+"""Dispatcher Protocol equivalent backed by deterministic Rx test schedulers."""
 
 from __future__ import annotations
 

@@ -71,7 +71,7 @@ examples/python/textual/notes_showcase/
 | 4   | `FormVM` snapshot / revert       | `viewmodels/note_form_vm.py` (owns a strict `FormVMOf[NoteModel]`)                              |
 | 5   | `DerivedProperty`                | `viewmodels/status_bar_vm.py`, `note_form_vm.is_dirty`, `capability_actions_vm.actions`         |
 | 6   | `RelayCommand` reactive          | `note_form_vm.approve_command` / `deny_command`, `note_vm.delete_command`                       |
-| 7   | `SearchableState` + `IFilterable`| `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`)                   |
+| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`)                   |
 | 8   | `IPageable` + `PagedComposition` | `viewmodels/notes_view_vm.py` (page size 5, paging commands delegate to inner `PagedComposition`) |
 | 9   | `INotificationHub` + `NotificationVM` | `viewmodels/notifications_vm.py`, `views/notifications.py`                                 |
 | 10  | Async `construct()` + dispatcher | `viewmodels/workspace_vm.py` (`async construct()`), `views/adapter/dispatcher.py`               |

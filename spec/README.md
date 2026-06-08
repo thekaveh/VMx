@@ -54,7 +54,7 @@ The following existing chapters were also extended in v2.1:
   `PropertyValueChangedMessagesFor` batch publisher.
 - `04-commands.md` — §9 "Fluent composition" (ADR-0027): four fluent extension
   methods (`Confirm`, `PrecedeWith`, `SucceedWith`, `WrapWith`) over `ICommand`.
-- `14-capabilities.md` — §2.6 `IFilterable<T>` (ADR-0022, CAP-021) and §2.10
+- `14-capabilities.md` — §2.6 `IFilterable<TItem>` (ADR-0022, CAP-021) and §2.10
   `IPageable` (ADR-0023, CAP-022).
 - `15-derived-properties.md` — §8 Recipe for avoiding double-subscription on
   lazy initialization.

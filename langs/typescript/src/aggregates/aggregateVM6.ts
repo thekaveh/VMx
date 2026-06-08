@@ -103,13 +103,18 @@ export class AggregateVM6<
     this.#component6?.destruct();
   }
 
-  protected override _onDispose(): void {
+  override dispose(): void {
+    // Depth-first dispose (LIFE-013): each component slot first, then self.
+    // Mirrors AggregateVM1..AggregateVM5 so subscribers observe child Disposed
+    // transitions before the aggregate's own Disposed transition — a single
+    // dispose-ordering rule across all aggregate arities.
     this.#component1?.dispose();
     this.#component2?.dispose();
     this.#component3?.dispose();
     this.#component4?.dispose();
     this.#component5?.dispose();
     this.#component6?.dispose();
+    super.dispose();
   }
 
   static builder<

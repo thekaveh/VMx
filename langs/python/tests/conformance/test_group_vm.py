@@ -102,7 +102,7 @@ def test_GRP_002_group_lacks_navigation_and_selection_members() -> None:
     assert grp.deselect_command is not None
 
     # SelectNextCommand and SelectPreviousCommand are present as baseline
-    # IComponentVM commands but their predicate is always False (no navigable children).
+    # ComponentVMProto commands but their predicate is always False (no navigable children).
     assert hasattr(grp, "select_next_command"), (
         "GroupVM must expose 'select_next_command' (always-False no-op)"
     )

@@ -19,13 +19,13 @@ runs.
 1. Capture the **entire main window / TUI / browser viewport** at a 16:10
    aspect ratio (e.g. 1600×1000). PNG, no scaling.
 1. Drop the PNG into this directory with the corresponding name above and
-   commit it on the `examples-notes-showcase` branch.
+   commit it on a separate manual-screenshot PR.
 
 The parity matrix at
 [`../../examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md)
-cross-links these images as the visual companion to the per-feature table.
+points at this directory as the visual companion to the per-feature table.
 The scenario contract at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 is the source of truth for what the screenshots should depict.
 
-Pending capture as of 2026-05-30: all three PNGs.
+Capture status: all three PNGs are owner-driven and pending — PRs welcome.

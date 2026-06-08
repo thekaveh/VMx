@@ -122,7 +122,7 @@ class TestGroupVMNoCurrent:
         assert grp.deselect_command is not None
 
     def test_select_next_command_present_but_noop(self) -> None:
-        """select_next_command is inherited from IComponentVM baseline; always-False."""
+        """select_next_command is inherited from ComponentVMProto baseline; always-False."""
         grp, _ = _make_group()
         assert grp.select_next_command is not None
         # The command predicate is always False for GroupVM (no navigable children).

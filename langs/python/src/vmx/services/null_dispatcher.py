@@ -1,4 +1,4 @@
-"""NullDispatcher — null-object variant of IDispatcher.
+"""NullDispatcher — null-object variant of the Dispatcher Protocol.
 
 See spec/11-threading.md §"Null variant" and ADR-0017.
 """
