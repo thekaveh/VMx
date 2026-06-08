@@ -43,6 +43,7 @@ export {
 } from "./collections/observableList.js";
 export {
   ObservableDictionary,
+  type DictionaryEntry,
   type DictionaryItemAddedEvent,
   type DictionaryItemRemovedEvent,
   type DictionaryItemReplacedEvent,
