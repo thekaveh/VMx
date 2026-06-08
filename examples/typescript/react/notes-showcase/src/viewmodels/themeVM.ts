@@ -5,9 +5,9 @@
  *
  * TODO(workspaceVM-wireup): per the proposal §8 migration plan, this VM
  * is intended to be composed into `WorkspaceVM` as a 7th child (bringing
- * the AggregateVM6 to AggregateVM7 — see ADR-0036 §3.D). Wire-up is OUT
- * OF SCOPE for this task and tracked under task #97.G (cross-flavor
- * verification + PR).
+ * the AggregateVM6 to AggregateVM7 — see ADR-0036 §2.C and §4 decision #3).
+ * Wire-up is OUT OF SCOPE for this task and tracked under
+ * `spec/proposals/2026-06-02-theme-vm-scenario.md` §8 (Migration).
  *
  * Design notes:
  *

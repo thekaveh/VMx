@@ -29,7 +29,9 @@ TODO(spec v2.5.0):
     Wire-up into :class:`WorkspaceVM` is intentionally out of scope here.
     Composing a seventh child into ``WorkspaceVM`` requires ``AggregateVM7``
     (currently only ``AggregateVM6`` exists in core) plus a matching
-    cross-flavor builder. Track that under task #97 follow-up / ADR-0036 §3.D.
+    cross-flavor builder. Track that under
+    ``spec/proposals/2026-06-02-theme-vm-scenario.md`` §8 (Migration) and
+    ADR-0036 §2.C / §4 decision #3.
     Until then, hosts construct ``ThemeVM`` standalone and bind the
     :class:`~notes_showcase.views.adapter.theme_adapter.ThemeAdapter`
     explicitly at app boot.

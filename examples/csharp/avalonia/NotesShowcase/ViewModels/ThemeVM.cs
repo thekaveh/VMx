@@ -26,10 +26,11 @@ namespace NotesShowcase.ViewModels;
 /// <para>
 /// <b>Wire-up status.</b> This VM is the new theme seam for the C# flagship;
 /// composing it into <see cref="WorkspaceVM"/> would lift the workspace from
-/// aggregate arity 6 to arity 7 (ADR-0036 §3.D) — which requires a new
-/// <c>AggregateVM7</c> in the core library. That work is OUT OF SCOPE for
-/// this PR. Consumers exercising the seam construct a <see cref="ThemeVM"/>
-/// directly today; the AggregateVM7 wire-up lands in a follow-up.
+/// aggregate arity 6 to arity 7 (ADR-0036 §2.C and §4 decision #3) — which
+/// requires a new <c>AggregateVM7</c> in the core library. That work is OUT
+/// OF SCOPE for this PR. Consumers exercising the seam construct a
+/// <see cref="ThemeVM"/> directly today; the AggregateVM7 wire-up lands in
+/// a follow-up.
 /// </para>
 ///
 /// <para>
