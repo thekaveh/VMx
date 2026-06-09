@@ -24,11 +24,11 @@ values change. Bridge VMx by syncing a local `ref` from VMx hub events.
 // composables/useVm.ts
 import { ref, onUnmounted, type Ref } from "vue";
 import { filter } from "rxjs/operators";
-import { ComponentVMOf, MessageHubProto, PropertyChangedMessage } from "@thekaveh/vmx";
+import { ComponentVMOf, IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
-  hub: MessageHubProto<unknown>,
+  hub: IMessageHub<unknown>,
   property: K
 ): Ref<ComponentVMOf<M>[K]> {
   const value = ref(vm[property]) as Ref<ComponentVMOf<M>[K]>;
@@ -46,7 +46,7 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
 ```vue
 <script setup lang="ts">
 import { useVm } from "./composables/useVm";
-const props = defineProps<{ vm: ComponentVMOf<Note>; hub: MessageHubProto<unknown> }>();
+const props = defineProps<{ vm: ComponentVMOf<Note>; hub: IMessageHub<unknown> }>();
 const model = useVm(props.vm, props.hub, "model");
 </script>
 
