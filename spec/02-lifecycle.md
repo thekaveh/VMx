@@ -53,7 +53,7 @@ predicate signals "the operation is safe to call" rather than "the operation wil
 produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
-`StatusTransitionError` (Python) / `StatusTransitionException` (C#). The exception's
+`StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#). The exception's
 message MUST include the current state and the attempted operation.
 
 ## 3. Invariants
