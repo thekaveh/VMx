@@ -130,8 +130,9 @@ Every service contract in VMx has a **null-object** variant per ADR-0017. For
 - `Send<TMessage>(message)` is a no-op. Calling it has no effect, raises
   nothing, returns immediately.
 - `Messages` returns the empty observable (`Observable.Empty<IMessage>()` in
-  C#, `reactivex.empty()` in Python, `EMPTY` in TypeScript). It completes
-  immediately upon subscription and emits no values.
+  C#, `reactivex.empty()` in Python, `EMPTY` in TypeScript,
+  `Empty<...>(completeImmediately: true).eraseToAnyPublisher()` in Swift).
+  It completes immediately upon subscription and emits no values.
 
 `NullMessageHub` is safe to share across consumers; it holds no state. Typical
 uses: a default for a VM whose hub is genuinely irrelevant; a placeholder in
