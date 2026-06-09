@@ -26,11 +26,11 @@ Wire a `ComponentVMOf<M>` to a Svelte component via Svelte 5 runes
 // lib/vmStore.ts
 import { readable, type Readable } from "svelte/store";
 import { filter } from "rxjs/operators";
-import { ComponentVMOf, MessageHubProto, PropertyChangedMessage } from "@thekaveh/vmx";
+import { ComponentVMOf, IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
 
 export function vmStore<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
-  hub: MessageHubProto<unknown>,
+  hub: IMessageHub<unknown>,
   property: K
 ): Readable<ComponentVMOf<M>[K]> {
   return readable(vm[property], (set) => {
@@ -49,7 +49,7 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 <script lang="ts">
   import { vmStore } from "$lib/vmStore";
   export let vm: ComponentVMOf<Note>;
-  export let hub: MessageHubProto<unknown>;
+  export let hub: IMessageHub<unknown>;
   const model = vmStore(vm, hub, "model");
 </script>
 

@@ -31,7 +31,10 @@ asynchronously, the operation completes when the final state is reached.
 The async invocation form is C#-only (`ConstructAsync` / `DestructAsync` /
 `ReconstructAsync` on `IComponentVM`) per ADR-0008; Python and TypeScript
 expose only the synchronous form (catalogued as a row in the ADR-0009
-divergence table).
+divergence table). Swift v2.4 also exposes only the synchronous form
+(documented in `langs/swift/README.md` §5 — `THR-*` deferred; the
+ADR-0009 catalogue table predates the Swift flavor and has not been
+widened yet).
 Subscribers to the message hub observe two `ConstructionStatusChangedMessage`
 emissions per non-trivial transition: one for the intermediate state and one
 for the final state.
@@ -53,7 +56,7 @@ predicate signals "the operation is safe to call" rather than "the operation wil
 produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
-`StatusTransitionError` (Python) / `StatusTransitionException` (C#). The exception's
+`StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#). The exception's
 message MUST include the current state and the attempted operation.
 
 ## 3. Invariants

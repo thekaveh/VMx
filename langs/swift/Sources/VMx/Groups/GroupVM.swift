@@ -9,7 +9,7 @@ import Foundation
 
 /// Internal parent adaptor — `GroupVM` has no "current child" concept.
 /// `supportsSelection = false` so children's `canSelect()` returns `false`
-/// regardless of construction state (GRP-005).
+/// regardless of construction state (GRP-002).
 private final class GroupParent: ParentVM {
     var currentChild: ComponentVMBase? { nil }
     var supportsSelection: Bool { false }

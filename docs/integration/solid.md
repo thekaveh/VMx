@@ -25,11 +25,11 @@ Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 ```ts
 import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { filter } from "rxjs/operators";
-import { ComponentVMOf, MessageHubProto, PropertyChangedMessage } from "@thekaveh/vmx";
+import { ComponentVMOf, IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
-  hub: MessageHubProto<unknown>,
+  hub: IMessageHub<unknown>,
   property: K
 ): Accessor<ComponentVMOf<M>[K]> {
   const [value, setValue] = createSignal(vm[property]);
@@ -43,7 +43,7 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   return value;
 }
 
-export function NoteView(props: { vm: ComponentVMOf<Note>; hub: MessageHubProto<unknown> }) {
+export function NoteView(props: { vm: ComponentVMOf<Note>; hub: IMessageHub<unknown> }) {
   const model = useVm(props.vm, props.hub, "model");
   return (
     <>

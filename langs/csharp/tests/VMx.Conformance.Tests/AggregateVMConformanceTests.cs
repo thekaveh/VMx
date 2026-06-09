@@ -281,5 +281,92 @@ public class AggregateVMConformanceTests
         agg.Status.Should().Be(ConstructionStatus.Destructed,
             "aggregate itself must be Destructed");
     }
+
+    // ── LIFE-013 (AggregateVM) — children Disposed before aggregate ──────────
+
+    /// <summary>
+    /// LIFE-013 for AggregateVMN: dispose disposes every component slot BEFORE
+    /// the aggregate itself. Subscribers observe child Disposed transitions
+    /// strictly before the aggregate's own Disposed transition. Sibling of the
+    /// CompositeVM LIFE-013 cascade test and the Python parametric
+    /// test_LIFE_013_aggregate_dispose_children_before_parent.
+    /// </summary>
+    [Theory, Trait("Conformance", "LIFE-013")]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void LIFE_013_AggregateVMN_Children_Disposed_Before_Parent(int arity)
+    {
+        var (hub, dispatcher) = MakeServices();
+        var disposalOrder = new List<string>();
+        using var sub = hub.Messages.Subscribe(m =>
+        {
+            if (m is ConstructionStatusChangedMessage csm
+                && csm.Status == ConstructionStatus.Disposed)
+            {
+                disposalOrder.Add(csm.SenderName);
+            }
+        });
+
+        IComponentVM agg = arity switch
+        {
+            1 => AggregateVM1<ComponentVM<string>>.Builder()
+                .Name("agg1").Services(hub, dispatcher)
+                .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+                .Build(),
+            2 => AggregateVM2<ComponentVM<string>, ComponentVM<string>>.Builder()
+                .Name("agg2").Services(hub, dispatcher)
+                .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+                .Component2(() => MakeLeaf(hub, dispatcher, "c2"))
+                .Build(),
+            3 => AggregateVM3<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                .Name("agg3").Services(hub, dispatcher)
+                .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+                .Component2(() => MakeLeaf(hub, dispatcher, "c2"))
+                .Component3(() => MakeLeaf(hub, dispatcher, "c3"))
+                .Build(),
+            4 => AggregateVM4<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                .Name("agg4").Services(hub, dispatcher)
+                .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+                .Component2(() => MakeLeaf(hub, dispatcher, "c2"))
+                .Component3(() => MakeLeaf(hub, dispatcher, "c3"))
+                .Component4(() => MakeLeaf(hub, dispatcher, "c4"))
+                .Build(),
+            5 => AggregateVM5<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                .Name("agg5").Services(hub, dispatcher)
+                .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+                .Component2(() => MakeLeaf(hub, dispatcher, "c2"))
+                .Component3(() => MakeLeaf(hub, dispatcher, "c3"))
+                .Component4(() => MakeLeaf(hub, dispatcher, "c4"))
+                .Component5(() => MakeLeaf(hub, dispatcher, "c5"))
+                .Build(),
+            6 => AggregateVM6<ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>, ComponentVM<string>>.Builder()
+                .Name($"agg{arity}").Services(hub, dispatcher)
+                .Component1(() => MakeLeaf(hub, dispatcher, "c1"))
+                .Component2(() => MakeLeaf(hub, dispatcher, "c2"))
+                .Component3(() => MakeLeaf(hub, dispatcher, "c3"))
+                .Component4(() => MakeLeaf(hub, dispatcher, "c4"))
+                .Component5(() => MakeLeaf(hub, dispatcher, "c5"))
+                .Component6(() => MakeLeaf(hub, dispatcher, "c6"))
+                .Build(),
+            _ => throw new ArgumentOutOfRangeException(nameof(arity)),
+        };
+        agg.Construct();
+        var aggName = $"agg{arity}";
+
+        agg.Dispose();
+
+        for (int n = 1; n <= arity; n++)
+        {
+            var childName = $"c{n}";
+            disposalOrder.Should().Contain(childName,
+                $"slot {childName} must reach Disposed");
+            disposalOrder.IndexOf(childName).Should().BeLessThan(disposalOrder.IndexOf(aggName),
+                $"{childName} must be Disposed before {aggName} (LIFE-013)");
+        }
+    }
 }
 #pragma warning restore CA1715

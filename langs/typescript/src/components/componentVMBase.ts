@@ -90,7 +90,9 @@ export abstract class ComponentVMBase {
     // SelectNext / SelectPrevious are placeholder stubs on the leaf base —
     // sibling navigation requires parent enumeration, which Composite/Group
     // override. The hardcoded `predicate(() => false)` makes the command's
-    // canExecute report false for any orphan leaf, matching spec CVM-005.
+    // canExecute report false for any orphan leaf, mirroring GRP-002's
+    // "predicates always return false when there's no navigation slot"
+    // pattern (spec/12-conformance.md §9 GRP-002).
     this.#selectNextCommand = RelayCommand.builder()
       .predicate(() => false)
       .build();
