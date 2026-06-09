@@ -53,7 +53,7 @@ The one exception is additive setters like `Triggers` on `RelayCommand` — see
 | `RelayCommand`, `RelayCommand<T>`                                              | (no required fields; a no-op command is valid)                                                                                  |
 
 If a required field is missing, `Build()` raises a `BuilderValidationError`
-(Python / TS) / `BuilderValidationException` (C#, sealed subclass of
+(Python / TS / Swift) / `BuilderValidationException` (C#, sealed subclass of
 `InvalidOperationException`) whose message identifies the missing field.
 
 ## 4. Default values
