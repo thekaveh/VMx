@@ -9,6 +9,13 @@ import {
   RxDispatcher,
   ComponentVM,
   CompositeVM,
+  AggregateVM1,
+  AggregateVM2,
+  AggregateVM3,
+  AggregateVM4,
+  AggregateVM5,
+  AggregateVM6,
+  ComponentVMBase,
   ConstructionStatusChangedMessage,
 } from "../../src/index.js";
 
@@ -346,4 +353,85 @@ describe("LIFE-013", () => {
     expect(child.status).toBe(ConstructionStatus.Disposed);
     expect(root.status).toBe(ConstructionStatus.Disposed);
   });
+
+  // LIFE-013 for AggregateVMN: children's Disposed transition must fire BEFORE
+  // the aggregate's own Disposed transition. Sibling of the Python parametric
+  // test_LIFE_013_aggregate_dispose_children_before_parent and the C#
+  // LIFE_013_AggregateVMN_Children_Disposed_Before_Parent Theory. Locks in the
+  // cross-flavor invariant the Pass-1 Python bug violated for every arity.
+  it.each([1, 2, 3, 4, 5, 6])(
+    "AggregateVM%d disposes every child slot before disposing itself",
+    (arity) => {
+      const hub = makeHub();
+      const disp = makeDisp();
+      const aggName = `agg${arity}`;
+      const child = (n: number) =>
+        ComponentVM.builder().name(`c${n}`).services(hub, disp).build();
+
+      const disposalOrder: string[] = [];
+      hub.messages.subscribe((m) => {
+        if (
+          m instanceof ConstructionStatusChangedMessage &&
+          m.status === ConstructionStatus.Disposed
+        ) {
+          disposalOrder.push(m.senderName);
+        }
+      });
+
+      let agg: ComponentVMBase;
+      switch (arity) {
+        case 1:
+          agg = AggregateVM1.builder<ComponentVM>()
+            .name(aggName).services(hub, disp)
+            .component1(() => child(1)).build();
+          break;
+        case 2:
+          agg = AggregateVM2.builder<ComponentVM, ComponentVM>()
+            .name(aggName).services(hub, disp)
+            .component1(() => child(1)).component2(() => child(2)).build();
+          break;
+        case 3:
+          agg = AggregateVM3.builder<ComponentVM, ComponentVM, ComponentVM>()
+            .name(aggName).services(hub, disp)
+            .component1(() => child(1)).component2(() => child(2))
+            .component3(() => child(3)).build();
+          break;
+        case 4:
+          agg = AggregateVM4.builder<ComponentVM, ComponentVM, ComponentVM, ComponentVM>()
+            .name(aggName).services(hub, disp)
+            .component1(() => child(1)).component2(() => child(2))
+            .component3(() => child(3)).component4(() => child(4)).build();
+          break;
+        case 5:
+          agg = AggregateVM5.builder<ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM>()
+            .name(aggName).services(hub, disp)
+            .component1(() => child(1)).component2(() => child(2))
+            .component3(() => child(3)).component4(() => child(4))
+            .component5(() => child(5)).build();
+          break;
+        case 6:
+          agg = AggregateVM6.builder<
+            ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+          >()
+            .name(aggName).services(hub, disp)
+            .component1(() => child(1)).component2(() => child(2))
+            .component3(() => child(3)).component4(() => child(4))
+            .component5(() => child(5)).component6(() => child(6)).build();
+          break;
+        default:
+          throw new Error(`unsupported arity ${arity}`);
+      }
+      agg.construct();
+
+      agg.dispose();
+
+      for (let n = 1; n <= arity; n++) {
+        const childName = `c${n}`;
+        expect(disposalOrder).toContain(childName);
+        expect(disposalOrder.indexOf(childName)).toBeLessThan(
+          disposalOrder.indexOf(aggName),
+        );
+      }
+    },
+  );
 });
