@@ -2,7 +2,7 @@
 // CompositeVMBuilder<Child> — immutable fluent builder for `CompositeVM`.
 //
 // See spec/10-builders.md. Validates `name`, `services`, `children` at
-// `build()` per BLD-005.
+// `build()` per BLD-002.
 //
 import Foundation
 
