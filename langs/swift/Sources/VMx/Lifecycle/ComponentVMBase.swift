@@ -27,7 +27,7 @@ public protocol ParentVM: AnyObject {
     /// (`CompositeVM`); false for parents that have only peer children
     /// (`GroupVM`). A child whose parent reports `false` here has
     /// `canSelect()` permanently false — there's nowhere to be selected
-    /// into. Mirrors GRP-005 in the spec.
+    /// into. Mirrors GRP-002 in the spec.
     var supportsSelection: Bool { get }
 }
 
