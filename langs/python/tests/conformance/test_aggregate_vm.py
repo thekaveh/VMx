@@ -18,6 +18,7 @@ from vmx.aggregates.builders import (
     AggregateVMBuilder1,
     AggregateVMBuilder2,
     AggregateVMBuilder3,
+    AggregateVMBuilder4,
     AggregateVMBuilder5,
     AggregateVMBuilder6,
 )
@@ -317,3 +318,62 @@ def test_AGG_006_arity6_construct_and_destruct_all_six() -> None:
     assert agg.component_5.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.component_6.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.status == ConstructionStatus.DESTRUCTED
+
+
+# ---------------------------------------------------------------------------
+# LIFE-013 (AggregateVM) — depth-first dispose ordering across arities 1..6
+# Sibling of test_composite_vm.py::test_LIFE_013_dispose_cascades_depth_first.
+# ---------------------------------------------------------------------------
+
+
+_BUILDERS = {
+    1: AggregateVMBuilder1,
+    2: AggregateVMBuilder2,
+    3: AggregateVMBuilder3,
+    4: AggregateVMBuilder4,
+    5: AggregateVMBuilder5,
+    6: AggregateVMBuilder6,
+}
+
+
+def _build_aggregate(arity: int, hub: MessageHub[object], dispatcher: RxDispatcher) -> object:
+    # AggregateVMBuilderN is immutable — every setter returns a new builder, so
+    # the chained result must be reassigned each iteration.
+    builder = _BUILDERS[arity]().name(f"agg{arity}").services(hub, dispatcher)
+    for n in range(1, arity + 1):
+        setter = getattr(builder, f"component_{n}")
+        builder = setter(lambda i=n: _child(hub, dispatcher, f"c{i}"))
+    return builder.build()
+
+
+@pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+@pytest.mark.conformance("LIFE-013")
+def test_LIFE_013_aggregate_dispose_children_before_parent(arity: int) -> None:
+    """LIFE-013 for AggregateVMN: dispose disposes every component slot
+    BEFORE the aggregate itself. Subscribers observe child Disposed
+    transitions strictly before the aggregate's own Disposed transition —
+    a single dispose-ordering rule across all aggregate arities and across
+    all four flavors (mirrors C# / TS / Swift)."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    disposal_order: list[str] = []
+    hub.messages.subscribe(
+        lambda m: (
+            disposal_order.append(m.sender_name)
+            if isinstance(m, ConstructionStatusChangedMessage)
+            and m.status == ConstructionStatus.DISPOSED
+            else None
+        )
+    )
+
+    agg = _build_aggregate(arity, hub, dispatcher)
+    agg.construct()  # type: ignore[attr-defined]
+
+    agg.dispose()  # type: ignore[attr-defined]
+
+    for n in range(1, arity + 1):
+        assert f"c{n}" in disposal_order, f"slot c{n} must reach Disposed"
+        assert disposal_order.index(f"c{n}") < disposal_order.index(f"agg{arity}"), (
+            f"c{n} must be Disposed before agg{arity} (LIFE-013)"
+        )
