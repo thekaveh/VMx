@@ -186,3 +186,21 @@ describe("ServicedObservableCollection – indexing", () => {
     expect([...sut]).toEqual([1, 2]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// No-op splice (spec/21 §2.4 — messages are emitted per mutation)
+// ---------------------------------------------------------------------------
+
+describe("ServicedObservableCollection – no-op splice", () => {
+  it("emits nothing when the splice removes and inserts nothing", () => {
+    const sut = new ServicedObservableCollection<number>();
+    sut.push(1);
+    const events: CollectionChangedMessage<number>[] = [];
+    sut.collectionChanged.subscribe((e) => events.push(e));
+
+    const removed = sut.splice(0, 0);
+
+    expect(removed).toEqual([]);
+    expect(events).toHaveLength(0);
+  });
+});

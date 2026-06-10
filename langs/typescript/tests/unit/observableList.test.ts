@@ -494,3 +494,31 @@ describe("ObservableList – withBatch Count notification", () => {
     expect(propChanges).toContain("Count");
   });
 });
+
+// ---------------------------------------------------------------------------
+// clear → Count (spec/21 §3.3, clarified by ADR-0037)
+// ---------------------------------------------------------------------------
+
+describe("ObservableList – clear emits Count", () => {
+  it('fires propertyChanged("Count") after reset when count changed', () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+    const events: string[] = [];
+    sut.reset.subscribe(() => events.push("reset"));
+    sut.propertyChanged.subscribe((name) => events.push(name));
+
+    sut.clear();
+
+    expect(events).toEqual(["reset", "Count"]);
+  });
+
+  it("does not fire Count when clearing an empty list", () => {
+    const sut = new ObservableList<number>();
+    const events: string[] = [];
+    sut.propertyChanged.subscribe((name) => events.push(name));
+
+    sut.clear();
+
+    expect(events).not.toContain("Count");
+  });
+});

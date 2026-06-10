@@ -164,10 +164,16 @@ export class ObservableList<T> {
     this.#onReplaced(newItem, oldItem, index);
   }
 
-  /** Remove all items and emit reset. */
+  /** Remove all items and emit reset (and "Count" when it changed). */
   clear(): void {
+    const countChanged = this.#items.length > 0;
     this.#items.length = 0;
     this.#onReset();
+    // spec/21 §3.3: PropertyChanged("Count") fires after every mutation
+    // that changes Count. Inside a batch the batch-exit path emits it.
+    if (countChanged && this.#batchDepth === 0) {
+      this.#propertyChanged.next("Count");
+    }
   }
 
   // ── Batch ────────────────────────────────────────────────────────────────────

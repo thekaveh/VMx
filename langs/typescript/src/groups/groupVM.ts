@@ -174,13 +174,15 @@ export class GroupVM<VM extends ComponentVMBase>
   protected override _onConstruct(): void {
     super._onConstruct();
     this._populateChildren();
-    for (const child of this._children) {
+    // Snapshot (parity with CompositeVMBase and dispose below): a child
+    // lifecycle hook that mutates the group must not skip/repeat siblings.
+    for (const child of [...this._children]) {
       child.construct();
     }
   }
 
   protected override _onDestruct(): void {
-    for (const child of this._children) {
+    for (const child of [...this._children]) {
       child.destruct();
     }
     super._onDestruct();

@@ -217,7 +217,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       child._parent = null;
     }
     this._children = [];
-    this.#current = null;
+    // Route through _setCurrent (mirrors C# Clear / removeAt): a bare
+    // `this.#current = null` left the old current child's isCurrent true
+    // and skipped the "current" property notification.
+    this._setCurrent(null, false);
     this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
   }
 

@@ -246,3 +246,22 @@ describe("PagedComposition – dispose", () => {
     }).not.toThrow();
   });
 });
+
+// ── Replace reactivity ────────────────────────────────────────────────────────
+
+describe("PagedComposition – replace reactivity", () => {
+  it("replace on the source refreshes items", () => {
+    const source = new ObservableList<number>();
+    source.push(1);
+    source.push(2);
+    const sut = new PagedComposition(source, 10);
+    const events: string[] = [];
+    sut.propertyChanged.subscribe((name) => events.push(name));
+
+    source.replace(0, 99);
+
+    expect(events).toContain("items");
+    expect(sut.items[0]).toBe(99);
+    sut.dispose();
+  });
+});

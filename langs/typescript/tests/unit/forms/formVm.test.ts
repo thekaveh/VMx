@@ -266,3 +266,23 @@ describe("FormVM onApproved", () => {
     expect(completed).toHaveBeenCalledOnce();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fire-and-forget safety
+// ---------------------------------------------------------------------------
+
+describe("FormVM – fire-and-forget approve", () => {
+  it("approveCommand.execute does not surface an unhandled rejection", async () => {
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: () => Promise.reject(new Error("boom")),
+    });
+    form.setModel(m("B", 2));
+
+    form.approveCommand.execute(); // a bare `void` here used to crash Node >= 15
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(form.isDirty).toBe(true); // failed persist must not advance the snapshot
+    form.dispose();
+  });
+});

@@ -95,7 +95,11 @@ export class FormVM<TM> {
 
     this.approveCommand = RelayCommand.builder()
       .task(() => {
-        void this.approveAsync();
+        // Fire-and-forget parity: Python retrieves the task exception and C#
+        // discards the Task; a bare `void` here turned a rejecting persister
+        // into a fatal unhandled rejection on Node >= 15. Callers who need
+        // the failure await approveAsync() directly.
+        void this.approveAsync().catch(() => undefined);
       })
       .predicate(() => !this.#strict || this.isDirty)
       .triggers(this.#canExecuteTrigger)

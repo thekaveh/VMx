@@ -10,7 +10,7 @@
  *
  * See spec/05-component-vm.md and spec/02-lifecycle.md.
  */
-import { Subject, Subscription } from "rxjs";
+import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import type { ViewModelType } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
@@ -54,7 +54,6 @@ export abstract class ComponentVMBase {
   readonly #selectNextCommand: RelayCommand;
   readonly #selectPreviousCommand: RelayCommand;
   readonly #reconstructCommand: RelayCommand;
-  readonly #commandSubs: Subscription[] = [];
 
   constructor(opts: {
     name: string;
@@ -302,7 +301,6 @@ export abstract class ComponentVMBase {
       this.#propertyChangedSubject.complete();
     }
 
-    for (const sub of this.#commandSubs) sub.unsubscribe();
     this.#selectCommand.dispose();
     this.#deselectCommand.dispose();
     this.#selectNextCommand.dispose();

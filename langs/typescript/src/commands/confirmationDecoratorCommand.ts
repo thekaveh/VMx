@@ -30,7 +30,9 @@ export class ConfirmationDecoratorCommand implements ICommand {
    * completes; you can also await it for sequencing tests / batched UX.
    */
   execute(): void {
-    void this.executeAsync();
+    // A rejecting confirm delegate (or throwing inner command) must not
+    // become a fatal unhandled rejection; await executeAsync() to observe it.
+    void this.executeAsync().catch(() => undefined);
   }
 
   async executeAsync(): Promise<void> {
