@@ -201,6 +201,11 @@ public sealed class FormVM<TM> : IDisposable
         // May throw — intentional. No state mutation if this throws.
         await _persister(current).ConfigureAwait(false);
 
+        // Dispose() may have run during the await; the subjects below are
+        // completed and disposed, so emitting would throw inside an
+        // unobserved task.
+        if (_disposed) return;
+
         // Success: advance snapshot and notify.
         var wasDirty = IsDirty;
         _snapshot = _snapshotter(current);

@@ -33,7 +33,17 @@ public sealed class MessageHub : IMessageHub, IDisposable
     public void Send<TMessage>(TMessage message) where TMessage : IMessage
     {
         if (_disposed) return;
-        _subject.OnNext(message);
+        try
+        {
+            _subject.OnNext(message);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Send racing Dispose on another thread: the _disposed pre-check is
+            // not atomic with OnNext, so the subject may be disposed in between.
+            // Shutdown-time messages are dropped, same as the pre-check path
+            // (sibling of the NotificationHub Post-after-Dispose fix).
+        }
     }
 
     /// <summary>Completes and disposes the underlying subject.</summary>

@@ -262,8 +262,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             {
                 try
                 {
-                    OnConstruct();
-                    SetStatus(ConstructionStatus.Constructed);
+                    // Dispose() may have run between scheduling and execution;
+                    // Disposed is terminal (spec/02 invariant 3), so skip the work.
+                    if (_status != ConstructionStatus.Disposed)
+                    {
+                        OnConstruct();
+                        SetStatus(ConstructionStatus.Constructed);
+                    }
                 }
                 finally
                 {
@@ -291,6 +296,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public Task ConstructAsync()
     {
+        // Idempotent like Construct(): already Constructed emits no message,
+        // so subscribing first would wait forever for a message that never comes.
+        if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
+
         if (_background)
         {
             // Subscribe to the hub BEFORE calling Construct() to avoid a race where
@@ -299,11 +308,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var subscription = _hub.Messages
                 .OfType<IConstructionStatusChangedMessage>()
                 .Where(m => ReferenceEquals(m.SenderObject, this) &&
-                            m.Status == ConstructionStatus.Constructed)
+                            (m.Status == ConstructionStatus.Constructed ||
+                             m.Status == ConstructionStatus.Disposed))
                 .Take(1)
                 .Subscribe(_ => tcs.TrySetResult(true));
 
-            Construct();
+            try
+            {
+                Construct();
+            }
+            catch
+            {
+                // Validator/in-flight rejection: don't leak the hub subscription.
+                subscription.Dispose();
+                throw;
+            }
 
             // If already Constructed before subscription fired (e.g. scheduler advanced
             // inline on a test scheduler), the TCS is already set; either way we wait.
@@ -336,8 +355,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             {
                 try
                 {
-                    OnDestruct();
-                    SetStatus(ConstructionStatus.Destructed);
+                    // Dispose() may have run between scheduling and execution;
+                    // Disposed is terminal (spec/02 invariant 3), so skip the work.
+                    if (_status != ConstructionStatus.Disposed)
+                    {
+                        OnDestruct();
+                        SetStatus(ConstructionStatus.Destructed);
+                    }
                 }
                 finally
                 {
@@ -364,6 +388,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public Task DestructAsync()
     {
+        // Idempotent like Destruct(): already Destructed emits no message,
+        // so subscribing first would wait forever for a message that never comes.
+        if (_status == ConstructionStatus.Destructed) return Task.CompletedTask;
+
         if (_background)
         {
             // Subscribe to the hub BEFORE calling Destruct() to avoid a race where
@@ -372,11 +400,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var subscription = _hub.Messages
                 .OfType<IConstructionStatusChangedMessage>()
                 .Where(m => ReferenceEquals(m.SenderObject, this) &&
-                            m.Status == ConstructionStatus.Destructed)
+                            (m.Status == ConstructionStatus.Destructed ||
+                             m.Status == ConstructionStatus.Disposed))
                 .Take(1)
                 .Subscribe(_ => tcs.TrySetResult(true));
 
-            Destruct();
+            try
+            {
+                Destruct();
+            }
+            catch
+            {
+                // Validator/in-flight rejection: don't leak the hub subscription.
+                subscription.Dispose();
+                throw;
+            }
 
             return tcs.Task.ContinueWith(_ => subscription.Dispose(), TaskScheduler.Default);
         }
@@ -478,6 +516,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // ── Helpers ─────────────────────────────────────────────────────────────
     private void SetStatus(ConstructionStatus newStatus)
     {
+        // Disposed is terminal (spec/02 invariant 3): a background transition
+        // racing Dispose() must neither resurrect the VM nor publish
+        // post-dispose status messages.
+        if (_status == ConstructionStatus.Disposed) return;
+
         _status = newStatus;
 
         _hub.Send(ConstructionStatusChangedMessage.Create(this, Name, newStatus));

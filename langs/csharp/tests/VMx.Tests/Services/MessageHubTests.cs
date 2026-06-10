@@ -56,4 +56,18 @@ public class MessageHubTests
         goodCount.Should().Be(2, "the surviving subscriber sees both messages");
         bad.Dispose(); good.Dispose();
     }
+
+    [Fact]
+    public void Send_After_Dispose_Is_Silently_Dropped()
+    {
+        var hub = new MessageHub();
+        var received = 0;
+        using var sub = hub.Messages.Subscribe(_ => received++);
+
+        hub.Dispose();
+        var act = () => hub.Send(new Stub("late"));
+
+        act.Should().NotThrow("shutdown-time sends are dropped, not faulted");
+        received.Should().Be(0);
+    }
 }

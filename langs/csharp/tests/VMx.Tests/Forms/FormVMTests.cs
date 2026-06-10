@@ -272,6 +272,26 @@ public class FormVMTests
         propChange.PropertyName.Should().Be("Model");
     }
 
+    // ── Dispose races ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Dispose_During_InFlight_Approve_Does_Not_Throw()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sut = new FormVM<Model>(new Model("A", 1), _ => gate.Task);
+        sut.SetModel(new Model("B", 2));
+
+        var approve = sut.ApproveAsync();   // parked on the persister
+        sut.Dispose();                      // completes + disposes the subjects
+        gate.SetResult();                   // persister finishes after dispose
+
+        // The post-await path must observe _disposed and skip the emissions
+        // instead of throwing ObjectDisposedException in an unobserved task.
+        var completed = await Task.WhenAny(approve, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(approve);
+        await approve;
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>
