@@ -528,4 +528,32 @@ public class ObservableListTests
         sut.Add(2);
         sut.Should().ContainInOrder(1, 2);
     }
+
+    // ── Clear → Count (spec/21 §3.3, clarified by ADR-0037) ──────────────────
+
+    [Fact]
+    public void Clear_Fires_PropertyChanged_Count_After_Reset()
+    {
+        var sut = new ObservableList<string>();
+        sut.Add("a");
+        var events = new List<string>();
+        sut.Reset += (_, _) => events.Add("reset");
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => events.Add(e.PropertyName ?? "");
+
+        sut.Clear();
+
+        events.Should().Equal("reset", "Count");
+    }
+
+    [Fact]
+    public void Clear_On_Empty_List_Does_Not_Fire_Count()
+    {
+        var sut = new ObservableList<string>();
+        var propEvents = new List<string?>();
+        ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propEvents.Add(e.PropertyName);
+
+        sut.Clear();
+
+        propEvents.Should().NotContain("Count");
+    }
 }
