@@ -60,13 +60,13 @@ export class ComponentVMOf<M> extends ComponentVMBase {
     if (this.#model === value) return;
     this.#model = value;
 
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "Model"));
+    this._hub.send(PropertyChangedMessage.create(this, this._name, "model"));
     this._raisePropertyChanged("model");
 
     const newHint = this.#modeledHinter(value);
     if (this.#modeledHint !== newHint) {
       this.#modeledHint = newHint;
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "ModeledHint"));
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "modeledHint"));
       this._raisePropertyChanged("modeledHint");
     }
 

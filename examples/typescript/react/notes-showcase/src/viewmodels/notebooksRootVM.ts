@@ -110,7 +110,7 @@ export class NotebooksRootVM extends ComponentVMBase {
     if (this.#current === value) return;
     this.#current = value;
     this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "Current"),
+      PropertyChangedMessage.create(this, this._name, "current"),
     );
     this._raisePropertyChanged("current");
   }

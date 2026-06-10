@@ -323,7 +323,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (value !== null) value._setIsCurrent(true);
 
     this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "Current"),
+      PropertyChangedMessage.create(this, this._name, "current"),
     );
     this._raisePropertyChanged("current");
   }

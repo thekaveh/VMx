@@ -206,7 +206,7 @@ const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
 // Watch for current-selection changes via the hub.
 hub.messages.subscribe((msg) => {
   if (msg instanceof PropertyChangedMessage && msg.senderObject === tabs) {
-    if (msg.propertyName === "Current") {
+    if (msg.propertyName === "current") {
       const title = tabs.current ? tabs.current.model.title : "(none)";
       console.log(`Selected tab: ${title}`);
     }

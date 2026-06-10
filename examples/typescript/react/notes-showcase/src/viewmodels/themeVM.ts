@@ -14,7 +14,7 @@
  * - The VM extends `ComponentVMOf<ThemeModel>`. We do NOT use the
  *   inherited public `model =` setter for theme transitions, because
  *   ComponentVMOf's `_setModel` emits a `PropertyChangedMessage` (which
- *   is the right side-effect for "Model"), but THEME-001/THEME-004
+ *   is the right side-effect for "model"), but THEME-001/THEME-004
  *   require a dedicated `ThemeChangedMessage(prev, curr)` to be
  *   published in addition. We override `_setModel` to publish the
  *   theme message AFTER the inherited model-changed bookkeeping.
@@ -185,7 +185,7 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
   #commit(next: ThemeModel): void {
     const prev = this.model;
     if (prev === next) return;
-    // _setModel (inherited from ComponentVMOf) emits the "Model"
+    // _setModel (inherited from ComponentVMOf) emits the "model"
     // PropertyChangedMessage and updates the modeledHint. Our override
     // (below) additionally publishes ThemeChangedMessage and ticks the
     // BehaviorSubject driving DerivedProperty subscribers.

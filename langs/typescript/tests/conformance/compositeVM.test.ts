@@ -100,7 +100,7 @@ describe("COMP-003", () => {
 
     expect(composite.current).toBe(vm);
     expect(vm.isCurrent).toBe(true);
-    expect(propNames).toContain("Current");
+    expect(propNames).toContain("current");
     expect(propNames).toContain("IsCurrent");
   });
 });

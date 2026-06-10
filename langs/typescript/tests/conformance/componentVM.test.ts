@@ -59,7 +59,7 @@ describe("CVM-002", () => {
 
     vm.model = "m2";
 
-    expect(received).toContain("Model");
+    expect(received).toContain("model");
   });
 });
 
@@ -110,7 +110,7 @@ describe("CVM-004", () => {
     vm.model = { id: 8 };
 
     expect(vm.modeledHint).toBe("hint:8");
-    expect(received).toContain("ModeledHint");
+    expect(received).toContain("modeledHint");
   });
 });
 
