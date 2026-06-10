@@ -59,7 +59,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         _model = value
 
         hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "Model"
+            sender: self, senderName: name, propertyName: "model"
         ))
         _raisePropertyChanged("model")
 
@@ -67,7 +67,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         if newHint != _modeledHint {
             _modeledHint = newHint
             hub.send(PropertyChangedMessage(
-                sender: self, senderName: name, propertyName: "ModeledHint"
+                sender: self, senderName: name, propertyName: "modeledHint"
             ))
             _raisePropertyChanged("modeledHint")
         }
@@ -87,6 +87,13 @@ open class ComponentVMOf<Model>: ComponentVMBase {
 // the builder defaults to `==`. See `ComponentVMOfBuilder` for details.
 
 extension ComponentVMOf where Model: Equatable {
+    /// Equatable-aware builder convenience — pre-seeds `modelEquals` with
+    /// `==` so `ComponentVMOf<M>.builder()` callers don't need to pass an
+    /// explicit predicate. An explicit `.modelEquals(_:)` still overrides.
+    public static func builder() -> ComponentVMOfBuilder<Model> {
+        ComponentVMOfBuilder<Model>().modelEquals(==)
+    }
+
     /// Equatable-aware initializer convenience — defaults `modelEquals`
     /// to `==`.
     public convenience init(

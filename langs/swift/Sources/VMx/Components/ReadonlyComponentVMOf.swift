@@ -30,4 +30,18 @@ open class ReadonlyComponentVMOf<Model>: ComponentVMOf<Model> {
             )
         }
     }
+
+    /// Builder producing a *readonly* VM. Shadows the inherited
+    /// `ComponentVMOf.builder()`, which would otherwise build a writable
+    /// `ComponentVMOf` even when invoked as `ReadonlyComponentVMOf.builder()`.
+    public static func builder() -> ReadonlyComponentVMOfBuilder<Model> {
+        ReadonlyComponentVMOfBuilder<Model>()
+    }
+}
+
+extension ReadonlyComponentVMOf where Model: Equatable {
+    /// Equatable-aware builder convenience — pre-seeds `modelEquals` with `==`.
+    public static func builder() -> ReadonlyComponentVMOfBuilder<Model> {
+        ReadonlyComponentVMOfBuilder<Model>().modelEquals(==)
+    }
 }

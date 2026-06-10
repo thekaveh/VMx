@@ -47,22 +47,22 @@ open class AggregateVM6<
         component5?.dispose(); component6?.dispose()
 
         let c1 = factory1(); component1 = c1
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "Component1"))
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component1"))
         _raisePropertyChanged("component1")
         let c2 = factory2(); component2 = c2
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "Component2"))
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component2"))
         _raisePropertyChanged("component2")
         let c3 = factory3(); component3 = c3
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "Component3"))
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component3"))
         _raisePropertyChanged("component3")
         let c4 = factory4(); component4 = c4
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "Component4"))
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component4"))
         _raisePropertyChanged("component4")
         let c5 = factory5(); component5 = c5
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "Component5"))
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component5"))
         _raisePropertyChanged("component5")
         let c6 = factory6(); component6 = c6
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "Component6"))
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component6"))
         _raisePropertyChanged("component6")
 
         c1.construct(); c2.construct(); c3.construct()

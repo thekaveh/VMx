@@ -25,7 +25,7 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
         let c1 = factory1()
         component1 = c1
         hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "Component1"
+            sender: self, senderName: name, propertyName: "component1"
         ))
         _raisePropertyChanged("component1")
         c1.construct()

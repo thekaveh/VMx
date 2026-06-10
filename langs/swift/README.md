@@ -118,23 +118,35 @@ Key exports:
 | `ImmediateDispatcher.INSTANCE`  | Synchronous test dispatcher                      |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
-| `StatusTransitionError`         | Thrown on illegal lifecycle operations           |
+| `StatusTransitionError`         | Describes illegal lifecycle operations (surfaced as a trap — ADR-0037) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
 ## 5. Conformance — subset for this release
 
-This first release implements **a subset** of the cross-language
-conformance catalog. The covered IDs are:
+This flavor implements **a subset** of the cross-language conformance
+catalog. The 39 covered IDs (recounted honestly in ADR-0037 — the
+original release notes overclaimed) are:
 
 ```
-LIFE-001..013   ComponentVMBase lifecycle state machine
+LIFE-001..007, 009, 010, 012, 013   lifecycle state machine
+                                    (LIFE-005/006 assert the gating
+                                    predicates; the raise is a trap per
+                                    ADR-0037)
 CVM-001..006    ComponentVM / ComponentVMOf identity + model
-COMP-001..010   CompositeVM children + current slot (subset)
-GRP-001..006    GroupVM peers + cascade (subset)
+                (CVM-003: the readonly setter traps per ADR-0037)
+COMP-003..005   select-through-child + lifecycle cascades
+GRP-002..004    group surface contract + lifecycle cascades
 AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
-CMD-001..007    RelayCommand task + predicate + triggers (subset)
-BLD-001..005    Builders immutable + validation + null-services
+CMD-001..004, 006   RelayCommand task + predicate + triggers
+BLD-001..005    builders immutable + validation + defaults
 ```
+
+Not claimed (behavior not implemented yet): `LIFE-008` (concurrent-raise
+is a trap), `LIFE-011` (fixture-backed table), `CVM`-adjacent
+CollectionChanged events (`COMP-001/002`, `GRP-001`), foreground-dispatch
+IDs (`COMP-006/010`), `COMP-007/008/009`, `GRP-005/006`
+(AutoConstructOnAdd / BatchUpdate), `CMD-005` (parameterized variant),
+and `CMD-007` (truth-table fixture).
 
 **Deferred to follow-up PRs:**
 

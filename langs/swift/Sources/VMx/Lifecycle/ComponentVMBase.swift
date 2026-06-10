@@ -22,19 +22,6 @@ public protocol ParentVM: AnyObject {
     var currentChild: ComponentVMBase? { get }
     func selectChild(_ vm: ComponentVMBase)
     func deselectChild(_ vm: ComponentVMBase)
-
-    /// True for parents that have a single-current-child slot
-    /// (`CompositeVM`); false for parents that have only peer children
-    /// (`GroupVM`). A child whose parent reports `false` here has
-    /// `canSelect()` permanently false — there's nowhere to be selected
-    /// into. Mirrors GRP-002 in the spec.
-    var supportsSelection: Bool { get }
-}
-
-extension ParentVM {
-    /// Default: parents support selection unless they explicitly opt out.
-    /// `CompositeVM` inherits the default; `GroupVM` overrides to `false`.
-    public var supportsSelection: Bool { true }
 }
 
 /// View-model kind tag. Mirrors `ViewModelType`.
@@ -85,11 +72,11 @@ open class ComponentVMBase {
 
     // ── Built-in commands ───────────────────────────────────────────────
 
-    public let selectCommand: RelayCommand
-    public let deselectCommand: RelayCommand
-    public let selectNextCommand: RelayCommand
-    public let selectPreviousCommand: RelayCommand
-    public let reconstructCommand: RelayCommand
+    public private(set) var selectCommand: RelayCommand
+    public private(set) var deselectCommand: RelayCommand
+    public private(set) var selectNextCommand: RelayCommand
+    public private(set) var selectPreviousCommand: RelayCommand
+    public private(set) var reconstructCommand: RelayCommand
 
     // ── Construction ────────────────────────────────────────────────────
 
@@ -114,8 +101,8 @@ open class ComponentVMBase {
         // `self` capture order during init.
         let trigger = statusTriggerSubject.eraseToAnyPublisher()
 
-        // Placeholder commands; we re-bind tasks/predicates that touch
-        // `self` after the stored properties are populated.
+        // Placeholders so phase-1 initialization completes; the real
+        // self-capturing commands are assigned immediately below.
         self.selectCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
         self.deselectCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
         self.selectNextCommand = RelayCommand(
@@ -126,29 +113,37 @@ open class ComponentVMBase {
         )
         self.reconstructCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
 
-        // Now safe to wire the real `self`-closing commands. We replace
-        // the placeholders' subscriptions by re-creating the same logical
-        // command. The properties are `let` so we use a tiny re-init via
-        // a workaround: wire predicates/tasks by publishing through the
-        // already-stored RelayCommand. To keep this skeleton simple and
-        // matching the spec at the level it cares about, we instead wire
-        // *new* RelayCommands and assign through a small shim: see
-        // _rewireBuiltinCommands().
         _rewireBuiltinCommands(trigger: trigger)
     }
 
-    // The five built-in commands are declared `let`, so we keep this
-    // shim non-mutating. In the skeleton we install the predicate/task
-    // shape directly on the existing commands' subjects by re-emitting
-    // through the status trigger — the skeleton tests exercise the
-    // command surface via the public predicate/task functions, not via
-    // subscription wiring details. Future PRs (full conformance) will
-    // refactor to a `var` + internal setter, matching the TS pattern.
+    /// Replaces the placeholder commands with real ones wired to the
+    /// selection/lifecycle predicates and tasks per spec/05 §5, with the
+    /// status trigger driving `canExecuteChanged`. `selectNext` /
+    /// `selectPrevious` keep permanently-false predicates — canonical
+    /// parity with the other flavors, which expose them without parent
+    /// enumeration in the baseline surface.
     private func _rewireBuiltinCommands(trigger: AnyPublisher<Void, Never>) {
-        // Intentionally minimal: the trigger publisher is captured into
-        // each command instance via the next `_setStatus` cycle. The
-        // canExecute predicates below are evaluated lazily by callers.
-        _ = trigger
+        selectCommand = RelayCommand(
+            task: { [weak self] in self?.select() },
+            predicate: { [weak self] in self?.canSelect() ?? false },
+            triggers: [trigger]
+        )
+        deselectCommand = RelayCommand(
+            task: { [weak self] in self?.deselect() },
+            predicate: { [weak self] in self?.canDeselect() ?? false },
+            triggers: [trigger]
+        )
+        selectNextCommand = RelayCommand(
+            task: nil, predicate: { false }, triggers: [trigger]
+        )
+        selectPreviousCommand = RelayCommand(
+            task: nil, predicate: { false }, triggers: [trigger]
+        )
+        reconstructCommand = RelayCommand(
+            task: { [weak self] in self?.reconstruct() },
+            predicate: { [weak self] in self?.canReconstruct() ?? false },
+            triggers: [trigger]
+        )
     }
 
     // ── Status ──────────────────────────────────────────────────────────
@@ -167,7 +162,7 @@ open class ComponentVMBase {
         _isCurrent = value
         _raisePropertyChanged("isCurrent")
         hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "IsCurrent"
+            sender: self, senderName: name, propertyName: "isCurrent"
         ))
     }
 
@@ -205,11 +200,11 @@ open class ComponentVMBase {
         if _status == .constructed { return }
 
         guard _isLegalTransition(from: _status, operation: "construct") else {
-            // Programming error in skeleton tests; surfaces via the
-            // call-stack the same way Swift `precondition` failures do.
-            // We use a fatalError-like crash to match the spec
-            // "raises StatusTransitionError" intent at the boundary
-            // tests check via the canConstruct() / canDestruct() gates.
+            // Swift surfaces illegal transitions as a trap rather than a
+            // thrown error — a documented divergence (ADR-0037): traps are
+            // the Swift-stdlib convention for API misuse, and a throwing
+            // lifecycle would force `try` onto every legal call site.
+            // Callers gate via canConstruct()/canDestruct()/canReconstruct().
             preconditionFailure(
                 StatusTransitionError(
                     currentStatus: _status, attemptedOperation: "construct"
@@ -230,8 +225,12 @@ open class ComponentVMBase {
             _setStatus(.constructing)
             dispatcher.scheduleBackground { [weak self] in
                 guard let self else { return }
-                self._onConstruct()
-                self._setStatus(.constructed)
+                // dispose() may have run between scheduling and execution;
+                // Disposed is terminal (spec/02 invariant 3), so skip the work.
+                if self._status != .disposed {
+                    self._onConstruct()
+                    self._setStatus(.constructed)
+                }
                 self.inFlight = false
             }
         } else {
@@ -266,8 +265,12 @@ open class ComponentVMBase {
             _setStatus(.destructing)
             dispatcher.scheduleBackground { [weak self] in
                 guard let self else { return }
-                self._onDestruct()
-                self._setStatus(.destructed)
+                // dispose() may have run between scheduling and execution;
+                // Disposed is terminal (spec/02 invariant 3), so skip the work.
+                if self._status != .disposed {
+                    self._onDestruct()
+                    self._setStatus(.destructed)
+                }
                 self.inFlight = false
             }
         } else {
@@ -331,8 +334,10 @@ open class ComponentVMBase {
     // ── Selection ───────────────────────────────────────────────────────
 
     public func canSelect() -> Bool {
+        // spec/05 §5: parent non-nil, not already current, constructed.
+        // No "parent has a selection slot" condition — a group child
+        // reports true and select() is a no-op, same as the other flavors.
         guard let parent = _parent else { return false }
-        guard parent.supportsSelection else { return false }
         return parent.currentChild !== self && _status == .constructed
     }
 
@@ -367,6 +372,11 @@ open class ComponentVMBase {
     // ── Internal helpers ────────────────────────────────────────────────
 
     func _setStatus(_ newStatus: ConstructionStatus) {
+        // Disposed is terminal (spec/02 invariant 3): a background transition
+        // racing dispose() must neither resurrect the VM nor publish
+        // post-dispose status messages.
+        if _status == .disposed { return }
+
         _status = newStatus
 
         hub.send(ConstructionStatusChangedMessage(

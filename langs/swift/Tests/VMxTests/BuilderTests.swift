@@ -1,5 +1,8 @@
 //
-// Builder conformance subset (BLD-001..BLD-005).
+// Builder conformance tests.
+//
+// Claimed IDs: BLD-001..004 here (BLD-005, additive triggers, lives in
+// RelayCommandTests).
 //
 import XCTest
 @testable import VMx
@@ -23,7 +26,8 @@ final class BuilderTests: XCTestCase {
         XCTAssertEqual(vm2.name, "b")
     }
 
-    /// BLD-002 — missing required field raises `BuilderValidationError`.
+    /// BLD-002 — missing required field (name) raises
+    /// `BuilderValidationError`.
     func testBld002MissingNameThrows() {
         XCTAssertThrowsError(
             try ComponentVMBuilder()
@@ -38,8 +42,8 @@ final class BuilderTests: XCTestCase {
         }
     }
 
-    /// BLD-003 — missing services raises.
-    func testBld003MissingServicesThrows() {
+    /// BLD-002 — missing required field (services) raises.
+    func testBld002MissingServicesThrows() {
         XCTAssertThrowsError(
             try ComponentVMBuilder().name("x").build()
         ) { err in
@@ -51,20 +55,9 @@ final class BuilderTests: XCTestCase {
         }
     }
 
-    /// BLD-004 — `withNullServices` wires both null services in one go.
-    func testBld004WithNullServices() throws {
-        let vm = try ComponentVMBuilder()
-            .name("x")
-            .withNullServices()
-            .build()
-        // Constructing succeeds via the null hub & dispatcher.
-        vm.construct()
-        XCTAssertEqual(vm.status, .constructed)
-    }
-
-    /// BLD-005 — CompositeVMBuilder validates `children` at `build()`
-    /// (per spec v2.3.0).
-    func testBld005CompositeMissingChildrenThrows() {
+    /// BLD-002 — CompositeVMBuilder validates `children` at `build()`
+    /// (required-field validation, per spec v2.3.0).
+    func testBld002CompositeMissingChildrenThrows() {
         XCTAssertThrowsError(
             try CompositeVM<ComponentVM>.builder()
                 .name("c")
@@ -77,5 +70,31 @@ final class BuilderTests: XCTestCase {
             }
             XCTAssertEqual(e.missingField, "children")
         }
+    }
+
+    /// BLD-003 — repeated identical Build calls produce equivalent
+    /// (but distinct) VMs.
+    func testBld003RepeatedBuildEquivalent() throws {
+        let b = ComponentVMBuilder().name("x").hint("h").withNullServices()
+        let vm1 = try b.build()
+        let vm2 = try b.build()
+        XCTAssertFalse(vm1 === vm2)
+        XCTAssertEqual(vm1.name, vm2.name)
+        XCTAssertEqual(vm1.hint, vm2.hint)
+    }
+
+    /// BLD-004 — field defaults applied when not set: `hint` defaults to
+    /// empty, lifecycle starts at `.destructed`, and `withNullServices`
+    /// wires both null services in one go.
+    func testBld004FieldDefaults() throws {
+        let vm = try ComponentVMBuilder()
+            .name("x")
+            .withNullServices()
+            .build()
+        XCTAssertEqual(vm.hint, "")
+        XCTAssertEqual(vm.status, .destructed)
+        // Constructing succeeds via the null hub & dispatcher.
+        vm.construct()
+        XCTAssertEqual(vm.status, .constructed)
     }
 }

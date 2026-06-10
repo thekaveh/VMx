@@ -7,12 +7,11 @@
 //
 import Foundation
 
-/// Internal parent adaptor — `GroupVM` has no "current child" concept.
-/// `supportsSelection = false` so children's `canSelect()` returns `false`
-/// regardless of construction state (GRP-002).
+/// Internal parent adaptor — `GroupVM` has no "current child" concept,
+/// so `selectChild`/`deselectChild` are deliberate no-ops (spec/07 —
+/// children are peers; there is no slot to select into).
 private final class GroupParent: ParentVM {
     var currentChild: ComponentVMBase? { nil }
-    var supportsSelection: Bool { false }
     func selectChild(_ vm: ComponentVMBase) { /* no-op */ }
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
 }

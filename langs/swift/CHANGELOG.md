@@ -47,13 +47,18 @@ cross-language parity.
 
 ### Conformance subset
 
-- `LIFE-001..013` — lifecycle state machine.
-- `CVM-001..006` — ComponentVM / ComponentVMOf identity + model.
-- `COMP-001..010` — CompositeVM children + current slot (subset).
-- `GRP-001..006` — GroupVM peers + cascade (subset).
+*(Corrected post-release — see ADR-0037. The list below originally
+claimed `LIFE-001..013`, `CVM-001..006`, `COMP-001..010`, `GRP-001..006`,
+`AGG-001..006`, `CMD-001..007`, `BLD-001..005`; several of those IDs'
+behaviors did not exist in this release.)*
+
+- `LIFE-001..007, 009, 010, 012, 013` — lifecycle state machine
+  (LIFE-005/006 assert the gates; the raise is a trap).
+- `CVM-002, 004, 005` — modeled component basics, as released.
+- `COMP-003..005`, `GRP-003, 004` — lifecycle cascades + child-select.
 - `AGG-001..006` — AggregateVM1..6 parametric coverage.
-- `CMD-001..007` — RelayCommand task + predicate + triggers (subset).
-- `BLD-001..005` — builders immutable + validation + null-services.
+- `CMD-001..004` — RelayCommand task + predicate + triggers.
+- `BLD-001, 002, 004, 005` — builders immutable + validation + defaults.
 
 ### Deferred to follow-up PRs
 
