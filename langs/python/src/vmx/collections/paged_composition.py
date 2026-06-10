@@ -231,8 +231,9 @@ class PagedComposition(Pageable, Generic[TVM]):
 
     def _try_subscribe_source(self, source: Iterable[TVM] | Callable[[], Iterable[TVM]]) -> None:
         """Subscribe to source mutation events if the source supports them."""
-        # ObservableList exposes on_item_added, on_item_removed, on_reset
-        for attr in ("on_item_added", "on_item_removed", "on_reset"):
+        # ObservableList exposes on_item_added, on_item_removed,
+        # on_item_replaced, on_reset — replace mutates page contents too.
+        for attr in ("on_item_added", "on_item_removed", "on_item_replaced", "on_reset"):
             observable = getattr(source, attr, None)
             if observable is not None:
                 sub = observable.subscribe(on_next=lambda _: self._on_source_mutated())

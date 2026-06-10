@@ -514,3 +514,19 @@ def test_builder_missing_children_raises() -> None:
     with pytest.raises(BuilderValidationError) as exc_info:
         CompositeVMBuilder().name("x").services(hub, disp).build()
     assert exc_info.value.missing_field == "children"
+
+
+def test_clear_resets_current_child_state() -> None:
+    """clear() must route through _set_current so the old current child's
+    is_current flag is dropped (parity with C# Clear / _remove_at)."""
+    comp, _ = _build_composite()
+    child = _build_child()
+    comp.append(child)
+    child.construct()
+    comp.current = child
+    assert child.is_current is True
+
+    comp.clear()
+
+    assert comp.current is None
+    assert child.is_current is False

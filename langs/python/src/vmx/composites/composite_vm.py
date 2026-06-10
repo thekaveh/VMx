@@ -239,7 +239,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         for child in self._children:
             child._set_parent(None)
         self._children.clear()
-        self._current = None
+        # Route through _set_current (mirrors C# Clear / _remove_at): a bare
+        # `self._current = None` left the old current child's is_current True
+        # and skipped the "current" property notification.
+        self._set_current(None, async_sel=False)
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def copy_to(self, target: list[VM], array_index: int) -> None:

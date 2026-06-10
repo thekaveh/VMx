@@ -242,3 +242,10 @@ def test_on_approved_completes_on_dispose() -> None:
 
     sut.dispose()
     assert len(completed) == 1, "on_approved observable completes on dispose"
+
+
+def test_dispose_is_idempotent() -> None:
+    """Second dispose must be a no-op, not a reactivex DisposedException."""
+    sut = _make()
+    sut.dispose()
+    sut.dispose()

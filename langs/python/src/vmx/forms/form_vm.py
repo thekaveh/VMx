@@ -68,6 +68,8 @@ class FormVM(Generic[TM]):
         self._model: TM = initial
         self._snapshot: TM = self._snapshotter(initial)
 
+        self._disposed = False
+
         # Observables
         self._on_approved: Subject[TM] = Subject()
         self._can_execute_trigger: Subject[None] = Subject()
@@ -164,7 +166,12 @@ class FormVM(Generic[TM]):
     # ── Dispose ───────────────────────────────────────────────────────────────
 
     def dispose(self) -> None:
-        """Complete the ``on_approved`` observable and dispose resources."""
+        """Complete the ``on_approved`` observable and dispose resources. Idempotent."""
+        # reactivex Subjects raise DisposedException on a second on_completed,
+        # unlike rxjs (no-op) and the guarded C# FormVM — guard for parity.
+        if self._disposed:
+            return
+        self._disposed = True
         self._on_approved.on_completed()
         self._on_approved.dispose()
         self._can_execute_trigger.on_completed()

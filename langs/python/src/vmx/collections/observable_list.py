@@ -141,9 +141,14 @@ class ObservableList(Generic[T]):
         self._on_replaced(new_item, old_item, index)
 
     def clear(self) -> None:
-        """Remove all items and emit Reset."""
+        """Remove all items and emit Reset (and ``Count`` when it changed)."""
+        count_changed = bool(self._items)
         self._items.clear()
         self._on_reset()
+        # spec/21 §3.3: PropertyChanged("Count") fires after every mutation
+        # that changes Count. Inside a batch the batch-exit path emits it.
+        if count_changed and self._batch_depth == 0:
+            self._prop_changed_subject.on_next("Count")
 
     # ── Batch update ──────────────────────────────────────────────────────────
 

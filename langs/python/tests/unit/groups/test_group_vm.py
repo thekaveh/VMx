@@ -520,3 +520,18 @@ class TestGroupVMBuilder:
         )
         assert grp.hint == ""
         assert grp.type == ViewModelType.GROUP
+
+
+def test_on_construct_iterates_snapshot_when_child_mutates_group() -> None:
+    """A child whose construct hook mutates the group must not skip siblings."""
+    h = _hub()
+    d = _dispatcher()
+    group, _ = _make_group(hub=h)
+    b = _make_child("b", hub=h)
+    a = ComponentVMBuilder().name("a").services(h, d).on_construct(lambda: group.remove(a)).build()
+    group.add(a)
+    group.add(b)
+
+    group.construct()
+
+    assert b.status is ConstructionStatus.CONSTRUCTED  # type: ignore[attr-defined]

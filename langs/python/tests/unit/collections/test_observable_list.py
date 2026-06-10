@@ -205,16 +205,31 @@ def test_reset_fires_on_clear() -> None:
     assert len(resets) == 1
 
 
-def test_reset_does_not_fire_count_changed() -> None:
-    """Reset is coarse — no separate PropertyChanged("Count") required by spec."""
+def test_clear_fires_count_changed_after_reset() -> None:
+    """Clear changes Count, so PropertyChanged("Count") fires after Reset.
+
+    spec/21 §3.3 (clarified by ADR-0037): Count fires after every mutation
+    that changes Count — including bulk clears, matching the batch-exit rule.
+    """
     sut: ObservableList[int] = ObservableList()
     sut.append(1)
+    events: list[str] = []
+    sut.on_reset.subscribe(lambda _: events.append("reset"))
+    sut.on_property_changed.subscribe(events.append)
+
+    sut.clear()
+
+    assert events == ["reset", "Count"]
+
+
+def test_clear_on_empty_list_does_not_fire_count_changed() -> None:
+    """Clearing an empty list does not change Count, so no notification."""
+    sut: ObservableList[int] = ObservableList()
     prop_events: list[str] = []
     sut.on_property_changed.subscribe(prop_events.append)
 
     sut.clear()
 
-    # Spec §3.3 says Count changed fires after add/remove — clear emits Reset, not granular events
     assert "Count" not in prop_events
 
 

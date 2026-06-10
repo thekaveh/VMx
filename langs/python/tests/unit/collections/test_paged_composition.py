@@ -279,3 +279,19 @@ def test_dispose_is_idempotent() -> None:
     sut: PagedComposition[int] = PagedComposition(source, page_size=1)
     sut.dispose()
     sut.dispose()  # second call must not raise
+
+
+def test_replace_on_source_refreshes_items() -> None:
+    """replace() mutates page contents, so the composition must re-emit items."""
+    source: ObservableList[int] = ObservableList()
+    source.append(1)
+    source.append(2)
+    sut: PagedComposition[int] = PagedComposition(source, page_size=10)
+    events: list[str] = []
+    sut.on_property_changed.subscribe(events.append)
+
+    source.replace(0, 99)
+
+    assert "items" in events
+    assert sut.items[0] == 99
+    sut.dispose()
