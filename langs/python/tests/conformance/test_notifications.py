@@ -414,3 +414,30 @@ async def test_resolve_is_thread_safe() -> None:
     result = await future
     t.join(timeout=1.0)
     assert result == NotificationReaction.APPROVE
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-017 — Hub dispose resolves in-flight waiters with Pending
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-017")
+async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> None:
+    hub = NotificationHub()
+    completed: list[bool] = []
+    hub.pending.subscribe(on_completed=lambda: completed.append(True))
+    task = hub.post(Notification(NotificationType.CONFIRMATION, "in-flight"))
+
+    hub.dispose()
+
+    assert await task == NotificationReaction.PENDING
+    assert completed == [True], "pending observable completes on dispose"
+
+    # Subsequent post resolves immediately with PENDING and does not enqueue.
+    late = hub.post(Notification(NotificationType.NOTIFICATION, "late"))
+    assert late.done()
+    assert late.result() == NotificationReaction.PENDING
+
+    # Subsequent resolve is a no-op; second dispose is a no-op.
+    hub.resolve(Notification(NotificationType.NOTIFICATION, "ghost"), NotificationReaction.APPROVE)
+    hub.dispose()

@@ -238,3 +238,10 @@ the command-decorator bridge.
 
 `NOTIF-011` through `NOTIF-016` cover the rendering VMs (`NotificationVM` and
 `ConfirmationVM`) introduced in spec v2.1 (ADR-0031).
+
+`NOTIF-017` (added in v2.5.0 via ADR-0037) covers hub disposal: disposing the
+hub resolves every in-flight `Post` awaitable with
+`NotificationReaction.Pending`, completes the `Pending` observable, turns
+subsequent `Post` calls into immediately-`Pending` results that do not
+enqueue, makes subsequent `Resolve` calls no-ops, and is idempotent. These
+were previously C#-only shutdown semantics; all flavors now share them.

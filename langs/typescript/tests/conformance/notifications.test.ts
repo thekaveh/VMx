@@ -288,3 +288,31 @@ describe("NOTIF-016", () => {
     sut.dispose();
   });
 });
+
+describe("NOTIF-017", () => {
+  it("dispose resolves in-flight waiters with Pending, completes pending, and is idempotent", async () => {
+    const hub = new NotificationHub();
+    let completed = false;
+    hub.pending.subscribe({ complete: () => (completed = true) });
+    const task = hub.post(
+      new Notification(NotificationType.Confirmation, "in-flight"),
+    );
+
+    hub.dispose();
+
+    await expect(task).resolves.toBe(NotificationReaction.Pending);
+    expect(completed).toBe(true);
+
+    // Subsequent post resolves immediately with Pending and does not enqueue.
+    await expect(
+      hub.post(new Notification(NotificationType.Notification, "late")),
+    ).resolves.toBe(NotificationReaction.Pending);
+
+    // Subsequent resolve is a no-op; second dispose is a no-op.
+    hub.resolve(
+      new Notification(NotificationType.Notification, "ghost"),
+      NotificationReaction.Approve,
+    );
+    hub.dispose();
+  });
+});

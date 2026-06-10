@@ -230,6 +230,14 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         if child._hierarchical_parent is self:
             return  # already our child — no-op
 
+        # HIER-018: reparenting this node or one of its ancestors under
+        # itself would create a parent cycle and corrupt depth/path/walk.
+        if any(node is child for node in self.path):
+            raise ValueError(
+                f"Cannot reparent '{child.name}' under '{self.name}': "
+                "it is this node or one of its ancestors (HIER-018)."
+            )
+
         # Detach from old parent silently.
         old_parent = child._hierarchical_parent
         if old_parent is not None:

@@ -1294,6 +1294,17 @@ virtual time 0
 **And** auto-dismiss fires exactly once
 **And** no further effects occur when the scheduler advances beyond `L`
 
+### NOTIF-017 — Hub dispose resolves in-flight waiters with `Pending` — spec v2.5.0
+
+**Given** a `NotificationHub` with one or more posted-but-unresolved notifications
+**When** the hub is disposed
+**Then** every in-flight awaitable returned by `Post` resolves with
+`NotificationReaction.Pending`
+**And** the `Pending` observable completes
+**And** a subsequent `Post` resolves immediately with `Pending` and does not enqueue
+**And** a subsequent `Resolve` is a no-op
+**And** disposing again is a no-op (idempotent)
+
 ______________________________________________________________________
 
 ## 20. CompositeVM v2.0 additions (`COMP-014..024`)
@@ -1861,6 +1872,17 @@ but no `Model`
 **Then** `node.Hint == ""`, `node.Name == typeof(TVM).Name` (or its
 flavor-idiomatic equivalent), and `node.Children` is materialized **lazily** on first
 access (the default for `EagerChildren = false`)
+
+### HIER-018 — `ReparentChild` rejects self- and ancestor-reparenting — spec v2.5.0
+
+**Given** a hierarchy `root → mid → leaf`
+**When** `leaf.ReparentChild(root)` is called (reparenting an ancestor under its own
+descendant) or `node.ReparentChild(node)` is called (self-reparenting)
+**Then** the flavor's standard invalid-operation error is raised
+(`InvalidOperationException` / `ValueError` / `Error`)
+**And** the tree structure is unchanged (`Parent`, `Depth`, and `Path` of every node
+are as before)
+**And** no `TreeStructureChangedMessage` is published
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 

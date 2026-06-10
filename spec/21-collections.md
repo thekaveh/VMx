@@ -152,6 +152,11 @@ After every mutation that changes `Count` (adds and removes, not replace), the
 This ordering is normative: a subscriber observing `ItemAdded` is guaranteed to
 see the new count if they query `Count` inside the handler.
 
+Bulk clears follow the same rule (clarified in v2.5.0 via ADR-0037): a
+`Clear()` on a non-empty list emits `PropertyChanged("Count")` **after** the
+`Reset` event, mirroring the batch-exit rule in §3.5. Clearing an empty list
+changes nothing and emits no `Count` notification.
+
 ### 3.4 Platform compatibility
 
 Where the host platform defines `INotifyCollectionChanged` (C# / WPF / .NET),

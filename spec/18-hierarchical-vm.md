@@ -105,6 +105,13 @@ Two messages flow on `IMessageHub`:
 - **`TreeStructureChangedMessage`** (defined in §6) — emitted on structural
   mutations: add, remove, or reparent of descendants.
 
+Structural mutators MUST reject operations that would corrupt the tree:
+reparenting a node under itself or under one of its own descendants (an
+ancestor cycle) raises the flavor's standard invalid-operation error
+(`InvalidOperationException` / `ValueError` / `Error`), leaves the tree
+unchanged, and publishes no message (HIER-018; added in v2.5.0 via
+ADR-0037 — previously the cycle silently corrupted `Depth`/`Path`/`walk`).
+
 ## 6. `TreeStructureChangedMessage`
 
 ```
@@ -169,3 +176,5 @@ TreeStructureChangedMessage:
   not set: `Hint == ""`, `Name == typeof(TVM).Name` (or the flavor-idiomatic
   equivalent), and `EagerChildren == false` (so the root's children
   materialize lazily on first access).
+- `HIER-018` — `ReparentChild` rejects self- and ancestor-reparenting
+  (added in v2.5.0 via ADR-0037).

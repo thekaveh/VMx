@@ -76,7 +76,9 @@ The null variant is conformance-tested by `NULL-002`.
 
 ## 6. Conformance
 
-`THR-001` through `THR-004` in `12-conformance.md` cover:
+`THR-001` through `THR-004`, plus the null-object IDs `NULL-002`
+(NullDispatcher schedules synchronously) and `NULL-003` (paired null variants
+exist for the core service contracts), in `12-conformance.md` cover:
 
 - `PropertyChanged` observed on foreground scheduler
 - Background construct dispatches on background scheduler

@@ -6,6 +6,36 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-06-10
+
+Implements `spec-v2.5.0` (ADR-0037).
+
+### Fixed
+
+- `FormVM.dispose()` is idempotent — a second call raised reactivex
+  `DisposedException` (rxjs no-ops, C# guards).
+- `CompositeVM.clear()` routes through the current-selection setter; the old
+  current child no longer keeps `is_current == True` with no notification.
+- `PagedComposition` subscribes `on_item_replaced`; `replace()` on the
+  current page refreshes `items`.
+- `ObservableList.clear()` emits `PropertyChanged("Count")` after `Reset`
+  when the count changed (spec/21 §3.3).
+- `GroupVM` construct/destruct iterate a snapshot so a child lifecycle hook
+  that mutates the group cannot skip siblings.
+- `NotificationHub` emits pending snapshots inside the lock (ordering +
+  dispose-race discipline, mirroring C#).
+- Post-2.4.0 maintenance backfill: `AggregateVM1..6` dispose ordering
+  (LIFE-013) and aggregates walk/dispose drift.
+
+### Added
+
+- `HierarchicalVM.reparent_child` rejects self- and ancestor-reparenting
+  with `ValueError` instead of silently corrupting the tree (HIER-018).
+- `NotificationHub.dispose()` — resolves in-flight waiters with `PENDING`,
+  completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+- The `Dispatcher` protocol is exported from the top-level `vmx` package
+  (parity with TS `IDispatcher` / C# `IDispatcher`).
+
 ## 2.4.0 — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor

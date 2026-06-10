@@ -6,6 +6,39 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-06-10
+
+Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
+1.2.0 (min spec 2.5.0).
+
+### Fixed
+
+- `ConstructAsync`/`DestructAsync` on an already-Constructed/Destructed
+  background VM hung forever and leaked the hub subscription; they now
+  short-circuit and also complete when the VM is disposed mid-flight.
+- A background construct/destruct racing `Dispose()` could resurrect the VM
+  (`Disposed → Constructed`) and publish post-dispose status messages;
+  `Disposed` is now terminal in `SetStatus` and the scheduled work
+  (spec/02 invariant 3).
+- `MessageHub.Send` racing `Dispose` no longer surfaces
+  `ObjectDisposedException`.
+- `NotificationHub` emits pending snapshots and completes its subject inside
+  the lock, closing out-of-order-snapshot and emit-after-dispose windows.
+- `FormVM` dispose-during-approve no longer throws in an unobserved task.
+- `ObservableList.Clear()` emits `PropertyChanged("Count")` after `Reset`
+  when the count changed (spec/21 §3.3).
+- Post-2.4.0 maintenance backfill: `AggregateVM6` walk reachability and
+  dispose ordering (LIFE-013), `NotificationHub` Post-after-Dispose race,
+  and `ServicedObservableCollection.Move` silent corruption.
+
+### Added
+
+- `HierarchicalVM.ReparentChild` rejects self- and ancestor-reparenting with
+  `InvalidOperationException` instead of silently corrupting the tree
+  (HIER-018).
+- `NOTIF-017` conformance coverage for the hub's dispose semantics (now
+  normative across flavors).
+
 ## 2.4.0 — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor

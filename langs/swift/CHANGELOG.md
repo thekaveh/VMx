@@ -5,6 +5,51 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-06-10
+
+Implements the spec-v2.5.0 subset (ADR-0037). 39 conformance IDs claimed
+(honest recount — see the corrected 2.4.0 notes below).
+
+### Changed
+
+- **`ParentVM.supportsSelection` removed.** spec/05 §5 defines
+  `can_select()` without a parent-slot condition, so a constructed group
+  child now reports `canSelect() == true` and `select()` is a no-op,
+  matching C# / Python / TypeScript. Code conforming to `ParentVM` no
+  longer declares the member.
+- **Hub `PropertyChangedMessage` names are camelCase everywhere** per the
+  Swift idiom (spec/04 §4, ADR-0037): `"model"`, `"modeledHint"`,
+  `"current"`, `"isCurrent"`, `"component1".."component6"`.
+- Illegal lifecycle transitions remain traps (`preconditionFailure`) — now
+  a *documented* divergence (spec/02 §2, ADR-0037) rather than an accident;
+  LIFE-005/006 are claimed at the gating-predicate level and LIFE-008 is
+  not claimed.
+
+### Fixed
+
+- **The five built-in commands were permanent no-op placeholders** —
+  `selectCommand.canExecute()` returned `true` for orphan VMs and
+  `execute()` silently discarded. They are now wired to the spec/05 §5
+  predicates/tasks with the status trigger driving `canExecuteChanged`.
+- `ReadonlyComponentVMOf.builder()` resolved to the inherited writable
+  builder and produced a writable VM; a dedicated
+  `ReadonlyComponentVMOfBuilder` now produces readonly VMs.
+- `ComponentVMOf.builder()` actually defaults `modelEquals` to `==` for
+  `Equatable` models, as the documentation always claimed (the builder
+  previously fell back to an always-false predicate).
+- A background construct/destruct racing `dispose()` could resurrect the VM
+  and publish post-dispose status messages; `.disposed` is now terminal in
+  `_setStatus` and the scheduled work (spec/02 invariant 3).
+- Conformance-ID citations in the test suite re-mapped against
+  `spec/12-conformance.md` (~30 of 53 were shifted or vacuous).
+
+### Added
+
+- `VMxVersion.current` / `VMxVersion.minSpecVersion` constants (parity with
+  the other flavors' programmatic version exports).
+- New tests for CVM-001/003/006, AGG-004, CMD-006, BLD-003/004, GRP-002,
+  and the Equatable builder default.
+
 ## 2.4.0 — 2026-06-02
 
 **First release of the Swift flavor.** Implements a subset of spec

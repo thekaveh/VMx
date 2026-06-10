@@ -4,10 +4,10 @@
     <RootNamespace>VMx.Notifications</RootNamespace>
     <AssemblyName>VMx.Notifications</AssemblyName>
     <PackageId>VMx.Notifications</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Description>VMx notification / confirmation hub. See spec/16-notifications.md.</Description>
     <PackageTags>mvvm;viewmodel;reactive;notifications</PackageTags>
-    <MinSpecVersion>2.1.0</MinSpecVersion>
+    <MinSpecVersion>2.5.0</MinSpecVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\VMx\VMx.csproj" />

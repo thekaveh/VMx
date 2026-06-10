@@ -5,6 +5,44 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-06-10
+
+Implements `spec-v2.5.0` (ADR-0037).
+
+### Changed
+
+- **Hub `PropertyChangedMessage` names are camelCase everywhere** per the TS
+  idiom (spec/04 §4, ADR-0037): `"model"`, `"modeledHint"`, `"current"`,
+  `"component1".."component6"` — previously these emitted PascalCase while
+  `FormVM`/`HierarchicalVM` emitted camelCase. Subscribers filtering on
+  `"Model"`, `"Current"`, or `"ComponentN"` must update their strings.
+
+### Fixed
+
+- `FormVM`'s `approveCommand` and `ConfirmationDecoratorCommand.execute()`
+  no longer turn a rejecting persister/confirm delegate into a fatal
+  unhandled rejection on Node ≥ 15.
+- `CompositeVMBase.clear()` routes through the current-selection setter; the
+  old current child no longer keeps `isCurrent === true` with no
+  notification.
+- `PagedComposition` subscribes `itemReplaced`; `replace()` on the current
+  page refreshes `items`.
+- `ObservableList.clear()` emits `propertyChanged("Count")` after `reset`
+  when the count changed (spec/21 §3.3).
+- `GroupVM` construct/destruct iterate a snapshot so a child lifecycle hook
+  that mutates the group cannot skip siblings.
+- `ServicedObservableCollection.splice(0, 0)` no longer emits a `Reset` for
+  a mutation that never happened (spec/21 §2.4).
+- Post-2.4.0 maintenance backfill: `AggregateVM6` walk/dispose drift and the
+  missing `DictionaryEntry` export.
+
+### Added
+
+- `HierarchicalVM.reparentChild` rejects self- and ancestor-reparenting
+  with `Error` instead of silently corrupting the tree (HIER-018).
+- `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
+  completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+
 ## 2.4.0 — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
