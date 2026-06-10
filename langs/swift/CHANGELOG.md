@@ -1,7 +1,8 @@
 # Changelog — VMx (Swift)
 
-All notable changes to the Swift flavor of VMx are documented here. This
-project adheres to [Semantic Versioning](https://semver.org/).
+All notable changes to the Swift flavor of VMx are documented here. The
+format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
@@ -50,7 +51,7 @@ Implements the spec-v2.5.0 subset (ADR-0037). 39 conformance IDs claimed
 - New tests for CVM-001/003/006, AGG-004, CMD-006, BLD-003/004, GRP-002,
   and the Equatable builder default.
 
-## 2.4.0 — 2026-06-02
+## [2.4.0] — 2026-06-02
 
 **First release of the Swift flavor.** Implements a subset of spec
 v2.4.0 covering the core viewmodel family + builders. This is a

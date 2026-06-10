@@ -83,7 +83,7 @@ identifier casing differs.
 See [docs/getting-started/typescript.md](../../docs/getting-started/typescript.md)
 for the full walkthrough.
 
-## 3.4 Cross-language naming
+### 3.1 Cross-language naming
 
 The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
@@ -102,7 +102,7 @@ variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their
 generics syntax cannot overload an unparameterised name.
 
-## 3.5. Browser usage
+### 3.2 Browser usage
 
 VMx-TS is browser-safe and works out of the box with all modern bundlers —
 **Vite, Webpack, esbuild, Rollup, Bun, and Tauri webviews**. The dist
@@ -223,6 +223,7 @@ npm test
 npm ci
 npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
 npm run typecheck
+npm run typecheck:tests
 npm run lint
 npm run build
 npm test

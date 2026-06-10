@@ -3,6 +3,7 @@
 [![csharp](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml)
 [![python](https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/python.yml)
 [![typescript](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml)
+[![swift](https://github.com/thekaveh/VMx/actions/workflows/swift.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/swift.yml)
 [![conformance](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -246,11 +247,12 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (skeleton, v2.4.0)
+│   └── swift/             VMx Swift Package (skeleton, v2.5.0)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
+├── docs/integration/      one-page UI-framework integration recipes
 ├── tools/                 cross-cutting scripts (conformance coverage)
-├── assets/                architecture diagram (SVG + HTML)
+├── assets/                architecture + class diagrams, notes-showcase assets
 ├── .github/               issue/PR templates + CI workflows
 └── compatibility-matrix.md
 ```
@@ -331,7 +333,7 @@ uv run --project langs/python python tools/check-conformance-coverage.py \
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the spec / ADR / conformance
 workflow and per-flavor build instructions. The repository uses pre-commit
-hooks (ruff, mdformat, dotnet format); install them with
+hooks (ruff, mdformat, dotnet format, eslint); install them with
 `pre-commit install`.
 
 ## 8. License

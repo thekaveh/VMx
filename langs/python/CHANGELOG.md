@@ -36,7 +36,7 @@ Implements `spec-v2.5.0` (ADR-0037).
 - The `Dispatcher` protocol is exported from the top-level `vmx` package
   (parity with TS `IDispatcher` / C# `IDispatcher`).
 
-## 2.4.0 — 2026-06-02
+## [2.4.0] — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
 sibling + example-app theming scenario contract + test-coverage backfill
@@ -77,7 +77,7 @@ to existing Python APIs.
 
 - 2.4.0 (previously 2.3.0).
 
-## 2.3.0 — 2026-05-31
+## [2.3.0] — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
 Purely additive at the surface level. One behaviour change brings
@@ -124,7 +124,7 @@ on the previously-lazy validation were already buggy.
 
 - 2.3.0 (previously 2.2.0).
 
-## 2.2.0 — 2026-05-30
+## [2.2.0] — 2026-05-30
 
 ### Added
 

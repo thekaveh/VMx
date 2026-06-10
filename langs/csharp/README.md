@@ -88,7 +88,7 @@ identifier casing differs.
 See [docs/getting-started/csharp.md](../../docs/getting-started/csharp.md)
 for the full walkthrough.
 
-## 3.5 Cross-language naming
+### 3.1 Cross-language naming
 
 The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
@@ -107,7 +107,7 @@ variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their
 generics syntax cannot overload an unparameterised name.
 
-## 3.6 Subclassing & composition
+### 3.2 Subclassing & composition
 
 `ComponentVM<M>`, `ComponentVM`, and `ReadonlyComponentVM<M>` are all
 declared `sealed` by design (ADR-0018 — the post-2012 flat hierarchy avoids
@@ -235,7 +235,7 @@ dotnet test
 
 ```bash
 # From this directory
-dotnet restore
+dotnet restore VMx.sln --locked-mode
 dotnet build
 dotnet test
 dotnet format --verify-no-changes

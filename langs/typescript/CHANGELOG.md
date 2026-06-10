@@ -1,7 +1,8 @@
 # Changelog — @thekaveh/vmx (TypeScript)
 
-All notable changes to the TypeScript flavor of vmx are documented here.
-This project adheres to [Semantic Versioning](https://semver.org/).
+All notable changes to the TypeScript flavor of vmx are documented here. The
+format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
@@ -43,7 +44,7 @@ Implements `spec-v2.5.0` (ADR-0037).
 - `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
 
-## 2.4.0 — 2026-06-02
+## [2.4.0] — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
 sibling + example-app theming scenario contract + test-coverage backfill
@@ -90,7 +91,7 @@ changes to existing TS APIs.
 
 - 2.4.0 (previously 2.3.0).
 
-## 2.3.0 — 2026-05-31
+## [2.3.0] — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
 Purely additive at the surface level. The C# / Python flavors gain
@@ -148,7 +149,7 @@ validation parity with TS's existing Children-at-`build()` behaviour.
 
 - 2.3.0 (previously 2.2.0).
 
-## 2.2.0 — 2026-05-30
+## [2.2.0] — 2026-05-30
 
 ### Added
 

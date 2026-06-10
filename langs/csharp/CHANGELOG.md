@@ -39,7 +39,7 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
 - `NOTIF-017` conformance coverage for the hub's dispose semantics (now
   normative across flavors).
 
-## 2.4.0 — 2026-06-02
+## [2.4.0] — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
 sibling + example-app theming scenario contract + test-coverage backfill
@@ -78,7 +78,7 @@ to existing C# APIs.
 
 - 2.4.0 (previously 2.3.0).
 
-## 2.3.0 — 2026-05-31
+## [2.3.0] — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
 Purely additive at the surface level. One behaviour change brings
@@ -119,7 +119,7 @@ relying on the previously-lazy validation were already buggy.
 
 - 2.3.0 (previously 2.2.0).
 
-## 2.2.0 — 2026-05-30
+## [2.2.0] — 2026-05-30
 
 ### Added
 

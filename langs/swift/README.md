@@ -85,7 +85,7 @@ matching the TypeScript flavor).
 See [docs/integration/swiftui.md](../../docs/integration/swiftui.md) for
 a one-page SwiftUI integration recipe.
 
-## 3.4 Cross-language naming
+### 3.1 Cross-language naming
 
 | Concept             | C#                  | Python             | TypeScript         | Swift              |
 | ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
