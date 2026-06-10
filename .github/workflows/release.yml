@@ -7,16 +7,10 @@ on:
       - "python-v*"
       - "typescript-v*"
       - "swift-v*"
-  workflow_dispatch:
-    inputs:
-      flavor:
-        description: "Which flavor to publish (csharp / python / typescript / swift / all)"
-        required: true
-        default: "all"
-      ref:
-        description: "Tag / ref to publish from (e.g. typescript-v2.4.0). Empty = use the workflow's checked-out HEAD."
-        required: false
-        default: ""
+  # No workflow_dispatch: every job gates on `startsWith(github.ref,
+  # 'refs/tags/…')`, so a manual dispatch from a branch silently did nothing.
+  # Releases are tag-driven only; re-add dispatch only together with
+  # ref-resolution logic in the jobs.
 
 jobs:
   csharp:
@@ -59,13 +53,13 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
       - name: Build sdist + wheel
         run: uv build --project langs/python --out-dir dist
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: dist/
           skip-existing: true

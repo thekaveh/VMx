@@ -1,5 +1,8 @@
 name: spec-discipline
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     # Default types are [opened, synchronize, reopened]; add labeled/unlabeled
@@ -20,6 +23,10 @@ jobs:
           fetch-depth: 0
 
       - name: Require ADR for non-trivial spec changes
+        env:
+          # Passed via env (not inline interpolation) so label text cannot
+          # inject into the shell.
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
         run: |
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
@@ -47,7 +54,7 @@ jobs:
 
           if [ -n "$changed" ] && [ -z "$new_adrs" ]; then
             # Allow bypass via PR label.
-            labels="${{ join(github.event.pull_request.labels.*.name, ' ') }}"
+            labels="$PR_LABELS"
             if echo "$labels" | grep -q 'no-adr-needed'; then
               echo "::notice::Spec changed without an ADR, but bypassed by 'no-adr-needed' label."
               echo "Changed spec files (bypassed):"

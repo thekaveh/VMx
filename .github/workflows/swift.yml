@@ -1,5 +1,8 @@
 name: swift
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -28,6 +31,11 @@ jobs:
         os: [macos-latest]
     steps:
       - uses: actions/checkout@v4
+      # Toolchain policy: latest-only — the job builds with whatever Swift the
+      # current macos-latest image ships (displayed below for forensics). The
+      # Package.swift floor (swift-tools-version 5.9) is declared but not
+      # exercised by a dedicated matrix cell; if a contributor reports a 5.9
+      # breakage, add a pinned-Xcode cell rather than silently raising the floor.
       - name: Show Swift version
         run: swift --version
       - name: Build
