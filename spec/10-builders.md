@@ -25,7 +25,6 @@ ComponentVM<M>.Builder()
     .Name("user-vm")
     .Hint("Logged-in user")
     .Type(ViewModelType.Component)   // optional; derived from VM class if omitted
-    .Parent(parentComposite)
     .Model(currentUser)
     .ModeledHinter(u => $"User: {u.DisplayName}")
     .OnModelChanged(m => Console.WriteLine($"model changed to {m.Id}"))
@@ -62,7 +61,6 @@ Optional fields have these defaults if not set:
 
 - `Hint` → empty string
 - `Type` → derived from the VM class (e.g., `Composite` for `CompositeVM.Builder()`)
-- `Parent` → null
 - `AsyncSelection` → false (composites only)
 - `Background` → `false` (any VM; enables async `construct()`/`destruct()` on `IDispatcher.Background`)
 - `OnConstruct`, `OnDestruct` → no-op callbacks

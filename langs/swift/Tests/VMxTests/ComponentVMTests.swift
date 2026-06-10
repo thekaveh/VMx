@@ -196,4 +196,20 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertTrue(seen.contains("model"))
         cancel.cancel()
     }
+
+    /// Builder `onModelChanged` callback fires on model set (path no test,
+    /// example, or doc exercised).
+    func testBuilderOnModelChangedFires() throws {
+        var seen: [Tab] = []
+        let vm = try ComponentVMOf<Tab>.builder()
+            .name("tab")
+            .model(Tab(title: "home"))
+            .onModelChanged { seen.append($0) }
+            .withNullServices()
+            .build()
+
+        vm.model = Tab(title: "settings")
+
+        XCTAssertEqual(seen.map(\.title), ["settings"])
+    }
 }

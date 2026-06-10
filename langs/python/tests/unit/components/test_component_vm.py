@@ -455,3 +455,16 @@ class TestComponentVMOfBuilder:
         assert vm_a is not vm_b
         assert vm_a.name == vm_b.name
         assert vm_a.model == vm_b.model
+
+
+def test_builder_vm_type_overrides_reported_type() -> None:
+    """The optional vm_type setter (spec/10 §2) overrides the reported type."""
+    vm = (
+        ComponentVMOfBuilder()
+        .name("typed")
+        .model("m")
+        .vm_type(ViewModelType.AGGREGATE)
+        .with_null_services()
+        .build()
+    )
+    assert vm.type is ViewModelType.AGGREGATE

@@ -31,6 +31,9 @@ async def main() -> None:
     # Late-bind the dialog service now that the App exists.
     workspace.dialog_service = TextualDialogService(app)
     await app.run_async()
+    # Mirror the Avalonia composition root, which disposes the workspace on
+    # ShutdownRequested.
+    workspace.dispose()
 
 
 if __name__ == "__main__":

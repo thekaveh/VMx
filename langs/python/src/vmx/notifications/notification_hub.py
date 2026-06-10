@@ -56,7 +56,11 @@ class NotificationHub:
     """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        # RLock, not Lock: pending snapshots are emitted while holding the
+        # lock (NOTIF-017 ordering discipline), and a subscriber handler may
+        # synchronously call back into post/resolve on the same thread —
+        # mirroring C#'s reentrant Monitor.
+        self._lock = threading.RLock()
         self._pending: list[Notification] = []
         self._waiters: dict[Notification, asyncio.Future[NotificationReaction]] = {}
         self._pending_subject: BehaviorSubject[list[Notification]] = BehaviorSubject([])

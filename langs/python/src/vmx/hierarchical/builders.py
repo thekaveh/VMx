@@ -44,7 +44,7 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
     Usage::
 
         node = (
-            HierarchicalVMBuilder[NoteModel, NoteVM]()
+            HierarchicalVMBuilder()
             .model(root_model)
             .children_factory(lambda parent: [...])
             .services(hub, dispatcher)
@@ -55,7 +55,7 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
     For a consumer with a custom subclass::
 
         node = (
-            HierarchicalVMBuilder[NoteModel, NoteVM]()
+            HierarchicalVMBuilder()
             .model(root_model)
             .children_factory(lambda parent: [...])
             .vm_factory(NoteVM)  # the consumer's subclass

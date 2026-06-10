@@ -224,4 +224,29 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(leaf2.status, .disposed)
         XCTAssertEqual(composite.status, .disposed)
     }
+
+    /// Background lifecycle on the synchronous ImmediateDispatcher runs the
+    /// scheduled work inline: Constructing then Constructed (the background
+    /// branches were previously wholly unexercised in this flavor).
+    func testBackgroundConstructWithImmediateDispatcherCompletes() {
+        let hub = MessageHub()
+        let vm = try! ComponentVM.builder()
+            .name("bg")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .background(true)
+            .build()
+        var seen: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { seen.append($0) }
+
+        vm.construct()
+
+        XCTAssertEqual(seen, [.constructing, .constructed])
+        XCTAssertTrue(vm.isConstructed)
+
+        vm.destruct()
+        XCTAssertEqual(vm.status, .destructed)
+        cancel.cancel()
+    }
 }

@@ -54,6 +54,9 @@ def _children(node: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
                     yield child
             return
         except TypeError:
+            # Swallow — a node may advertise __iter__ but raise on iter()
+            # (e.g. a guarded proxy); fall through to aggregate slot probing
+            # below, same as nodes with no iterator at all.
             pass
 
     for i in range(1, 7):

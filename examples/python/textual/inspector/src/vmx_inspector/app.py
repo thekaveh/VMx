@@ -90,6 +90,10 @@ class VMxInspectorApp(App[None]):
     def on_unmount(self) -> None:
         if self._hub_sub is not None:
             self._hub_sub.dispose()
+        # Tear down the inspected tree and the hub it publishes on — the
+        # sample root is constructed at compose time and was never disposed.
+        self._root.dispose()
+        self._hub.dispose()
 
     def _on_hub_message(self, msg: Message) -> None:
         self.call_from_thread(self._dispatch_hub_message, msg)
@@ -153,4 +157,7 @@ class VMxInspectorApp(App[None]):
             self.notify(str(exc), severity="error")
 
     def action_toggle_help(self) -> None:
-        self.action_show_help_panel()
+        if self.screen.query("HelpPanel"):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()

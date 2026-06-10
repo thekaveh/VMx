@@ -286,3 +286,25 @@ describe("FormVM – fire-and-forget approve", () => {
     form.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Builder snapshotter (was ctor-only tested)
+// ---------------------------------------------------------------------------
+
+describe("FormVM – builder snapshotter", () => {
+  it("the builder's snapshotter setter reaches the FormVM", () => {
+    const snaps: IModel[] = [];
+    const form = FormVM.builder<IModel>()
+      .initial(m("A", 1))
+      .persister(noop)
+      .snapshotter((model) => {
+        snaps.push(model);
+        return { ...model };
+      })
+      .build();
+
+    expect(snaps.length).toBeGreaterThan(0);
+    expect(form.snapshot).not.toBe(form.model);
+    form.dispose();
+  });
+});

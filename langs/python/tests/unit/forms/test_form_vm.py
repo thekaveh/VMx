@@ -249,3 +249,17 @@ def test_dispose_is_idempotent() -> None:
     sut = _make()
     sut.dispose()
     sut.dispose()
+
+
+def test_builder_snapshotter_is_used() -> None:
+    """The builder's snapshotter setter reaches the FormVM (was ctor-only tested)."""
+    snaps: list[Model] = []
+
+    def snap(m: Model) -> Model:
+        snaps.append(m)
+        return Model(m.name, m.value)
+
+    sut = FormVM.builder().initial(Model("A", 1)).persister(_noop).snapshotter(snap).build()
+
+    assert snaps, "snapshotter runs for the initial snapshot"
+    assert sut.snapshot is not sut.model

@@ -32,7 +32,7 @@ class FormVMBuilder(Generic[TM]):
     Usage::
 
         form = (
-            FormVMBuilder[Note]()
+            FormVMBuilder()
             .initial(note)
             .persister(repo.save)
             .strict(True)

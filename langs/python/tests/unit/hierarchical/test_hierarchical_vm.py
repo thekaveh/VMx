@@ -278,3 +278,26 @@ class TestNullValidation:
         parent_vm = leaf()
         with pytest.raises((ValueError, TypeError)):
             parent_vm.reparent_child(None)  # type: ignore[arg-type]
+
+
+class _FactoryNode(HierarchicalVM[Model, "_FactoryNode"]):
+    """Subclass accepting the documented vm_factory kwargs (incl. hint)."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+
+def test_builder_vm_factory_builds_subclass() -> None:
+    """vm_factory wires a concrete subclass (parity with TS vmFactory / C# VmFactory)."""
+    from vmx.hierarchical.builders import HierarchicalVMBuilder
+
+    builder: HierarchicalVMBuilder[Model, _FactoryNode] = HierarchicalVMBuilder()
+    node = (
+        builder.model(Model("root"))
+        .children_factory(lambda _: [])
+        .services(MessageHub(), RxDispatcher.immediate())
+        .vm_factory(_FactoryNode)
+        .build()
+    )
+    assert isinstance(node, _FactoryNode)
+    assert node.model.tag == "root"

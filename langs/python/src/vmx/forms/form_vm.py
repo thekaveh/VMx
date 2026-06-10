@@ -92,10 +92,12 @@ class FormVM(Generic[TM]):
     def builder() -> FormVMBuilder[TM]:
         """Return a fresh :class:`FormVMBuilder` for this generic type.
 
-        Equivalent to ``FormVMBuilder[TM]()``; provided for parity with the
-        other VMx VM family entry points. See ADR-0035 §2 FV1.
+        Provided for parity with the other VMx VM family entry points.
+        See ADR-0035 §2 FV1. (Instantiated bare, like every sibling
+        ``builder()``: subscripted instantiation of a frozen+slots dataclass
+        raises ``TypeError`` when typing assigns ``__orig_class__``.)
         """
-        return FormVMBuilder[TM]()
+        return FormVMBuilder()
 
     @property
     def model(self) -> TM:
