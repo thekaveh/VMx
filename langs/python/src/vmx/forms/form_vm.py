@@ -193,6 +193,8 @@ class FormVM(Generic[TM]):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _deny(self) -> None:
+        if self._disposed:
+            return
         was_dirty = self.is_dirty
         self._model = self._snapshotter(self._snapshot)
 

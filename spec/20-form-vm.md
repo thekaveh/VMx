@@ -89,12 +89,14 @@ Each flavor uses its idiomatic equality operator/method:
 - Python: `__eq__` (`@dataclass(eq=True)` or `@dataclass(frozen=True)` by default).
 - TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects.
   Caveat (clarified in v2.5.0 via ADR-0037): `JSON.stringify` is
-  key-order sensitive — two structurally-equal objects whose keys were
-  assigned in different orders compare as *dirty*. FORM-003's "equal value
-  objects" guarantee therefore holds for same-shaped literals (the common
-  snapshot/revert flow, where snapshots are produced by the snapshotter
-  from the model itself); consumers needing order-insensitive comparison
-  should supply a custom `snapshotter`/model normalization.
+  key-order sensitive — two objects with the same fields/values whose keys
+  were assigned in different orders compare as *dirty*. FORM-003's
+  structurally-equal guarantee ("same fields/values, different object
+  reference") therefore holds in TypeScript for same-key-order objects
+  (the common snapshot/revert flow, where snapshots are produced by the
+  snapshotter from the model itself); consumers needing order-insensitive
+  comparison should supply a custom `snapshotter`/model normalization.
+  FORM-003 in `12-conformance.md` carries the matching scope note.
 
 ## 5. Lifecycle state diagram
 

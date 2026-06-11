@@ -2002,6 +2002,12 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
 **Then** `IsDirty == true`
 
+**Note** (v2.5.0, ADR-0037): structural equality is evaluated by each
+flavor's chapter 20 §4 mechanism. TypeScript's `JSON.stringify` comparison
+is key-order sensitive, so in TypeScript the equal-values guarantee is
+scoped to same-key-order objects (see chapter 20 §4 for the caveat and the
+custom-snapshotter escape hatch).
+
 ### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
 
 **Given** a `FormVM<TM>` with initial model `m0`

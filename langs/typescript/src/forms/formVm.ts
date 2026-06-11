@@ -195,6 +195,7 @@ export class FormVM<TM> {
   // ── Internal ───────────────────────────────────────────────────────────────
 
   #deny(): void {
+    if (this.#disposed) return;
     const wasDirty = this.isDirty;
     this.#model = this.#snapshotter(this.#snapshot);
 

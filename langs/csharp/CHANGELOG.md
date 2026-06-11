@@ -35,10 +35,12 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
   legal reparent (Python/TS already used identity).
 - `LinqHelpers.Sample` validates its interval eagerly instead of on first
   enumeration.
-- `SearchableState.Filtered`, `ExpandableState.IsExpandedChanged`, and
-  `NotificationHub.Pending` are wrapped with `AsObservable()` so callers
-  can no longer downcast to the live subject (matches
-  `DerivedProperty.ValueChanged`).
+- `SearchableState.Filtered`, `ExpandableState.IsExpandedChanged`,
+  `NotificationHub.Pending`, and `FormVM.OnApproved` are wrapped with
+  `AsObservable()` so callers can no longer downcast to the live subject
+  (matches `DerivedProperty.ValueChanged`).
+- `FormVM`'s deny path is a no-op after `Dispose()` (previously it
+  reverted the model and re-published hub messages on a disposed form).
 
 ### Added
 

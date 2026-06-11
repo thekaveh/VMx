@@ -185,20 +185,21 @@ def test_BLD_005_additive_setters_retain_prior_values() -> None:
         "second trigger must ALSO fire can_execute_changed — triggers is additive"
     )
 
-    # Insertion order (catalog And-clause): emissions routed through o1 then
-    # o2 arrive in insertion order through the merged trigger stream.
-    tag1: Subject[None] = Subject()
-    tag2: Subject[None] = Subject()
-    order_cmd = RelayCommand.builder().triggers(tag1).triggers(tag2).build()
-    sequence: list[str] = []
-    order_cmd.can_execute_changed.subscribe(lambda _: sequence.append("fire"))
-    tag1.on_next(None)
-    sequence.append("after-o1")
-    tag2.on_next(None)
-    sequence.append("after-o2")
-    assert sequence == ["fire", "after-o1", "fire", "after-o2"], (
-        "emissions through o1 then o2 must arrive in insertion order"
-    )
+    # Insertion order (catalog And-clause): derive both triggers from ONE
+    # parent emission and record which trigger's chain delivers first — the
+    # merged stream subscribes its sources in insertion order, so o1's tap
+    # must run before o2's. (A sequential next/next probe is vacuous: it
+    # passes regardless of subscription order.)
+    from reactivex import operators as ops
+
+    parent: Subject[None] = Subject()
+    via: list[str] = []
+    o1 = parent.pipe(ops.do_action(on_next=lambda _: via.append("via-o1")))
+    o2 = parent.pipe(ops.do_action(on_next=lambda _: via.append("via-o2")))
+    order_cmd = RelayCommand.builder().triggers(o1).triggers(o2).build()
+    order_cmd.can_execute_changed.subscribe(lambda _: None)
+    parent.on_next(None)
+    assert via == ["via-o1", "via-o2"], "o1 must precede o2 (insertion order)"
 
     # Non-additive setters overwrite on repeated calls (catalog And-clause).
     vm = (

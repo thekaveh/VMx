@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Builders;
@@ -156,18 +157,19 @@ public class BuilderConformanceTests
         firings.Should().Be(2,
             "second trigger must ALSO fire CanExecuteChanged — Triggers is additive");
 
-        // Insertion order (catalog And-clause): emissions routed through o1
-        // then o2 arrive in insertion order through the merged trigger stream.
-        var tag1 = new Subject<System.Reactive.Unit>();
-        var tag2 = new Subject<System.Reactive.Unit>();
-        var orderCmd = RelayCommand.Builder().Triggers(tag1).Triggers(tag2).Build();
-        var sequence = new List<string>();
-        orderCmd.CanExecuteChanged += (_, _) => sequence.Add("fire");
-        tag1.OnNext(default);
-        sequence.Add("after-o1");
-        tag2.OnNext(default);
-        sequence.Add("after-o2");
-        sequence.Should().Equal("fire", "after-o1", "fire", "after-o2");
+        // Insertion order (catalog And-clause): derive both triggers from ONE
+        // parent emission and record which trigger's chain delivers first —
+        // the merged stream subscribes its sources in insertion order, so
+        // o1's Do must run before o2's. (A sequential OnNext/OnNext probe is
+        // vacuous: it passes regardless of subscription order.)
+        var parent = new Subject<System.Reactive.Unit>();
+        var via = new List<string>();
+        var o1 = parent.Do(_ => via.Add("via-o1"));
+        var o2 = parent.Do(_ => via.Add("via-o2"));
+        var orderCmd = RelayCommand.Builder().Triggers(o1).Triggers(o2).Build();
+        orderCmd.CanExecuteChanged += (_, _) => { };
+        parent.OnNext(default);
+        via.Should().Equal("via-o1", "via-o2");
 
         // Non-additive setters overwrite on repeated calls (catalog And-clause).
         var hub = new TestHub();

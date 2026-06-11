@@ -484,3 +484,21 @@ def test_replace_negative_index_emits_normalized_payload() -> None:
 
     assert events == [("z", "y", 1)]
     assert list(sut) == ["x", "z"]
+
+
+def test_remove_at_far_out_of_range_negative_raises() -> None:
+    """A negative index beyond -len must raise, not wrap to a valid negative
+    (regression: -6 on a 4-list once removed the wrong element)."""
+    sut: ObservableList[str] = ObservableList()
+    for item in ("a", "b", "c", "d"):
+        sut.append(item)
+    events: list[tuple[str, int]] = []
+    sut.on_item_removed.subscribe(events.append)
+
+    with pytest.raises(IndexError):
+        sut.remove_at(-6)
+    with pytest.raises(IndexError):
+        sut.replace(-6, "z")
+
+    assert events == []
+    assert list(sut) == ["a", "b", "c", "d"]

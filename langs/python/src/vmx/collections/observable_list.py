@@ -135,6 +135,8 @@ class ObservableList(Generic[T]):
         # though negative indexing itself is Python-idiomatic (ADR-0006).
         if index < 0:
             index += len(self._items)
+            if index < 0:
+                raise IndexError("list index out of range")
         item = self._items[index]
         del self._items[index]
         self._on_removed(item, index)
@@ -143,6 +145,8 @@ class ObservableList(Generic[T]):
         """Replace the item at *index* (negative indexes count from the end)."""
         if index < 0:
             index += len(self._items)
+            if index < 0:
+                raise IndexError("list index out of range")
         old_item = self._items[index]
         self._items[index] = new_item
         self._on_replaced(new_item, old_item, index)

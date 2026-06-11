@@ -32,7 +32,11 @@ Implements `spec-v2.5.0` (ADR-0037).
 - `ObservableList.remove_at`/`replace` normalize negative indexes before
   emitting, so the event payload carries the spec-mandated
   index-before-removal instead of a raw `-1` (spec/21 §3.2; TS/C# raise
-  on negative indexes by design).
+  on negative indexes by design). Out-of-range negatives raise
+  `IndexError` instead of wrapping to a valid index.
+- `FormVM`'s deny path is a no-op after `dispose()` (previously it
+  reverted the model and re-published hub messages on a disposed form;
+  same guard added in C# and TS).
 - `FormVM`'s `on_approved` now emits the value that was actually
   persisted rather than the live model (parity with C#'s captured
   payload under a racing `set_model`).
