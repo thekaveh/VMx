@@ -45,7 +45,11 @@ Implements `spec-v2.5.0` (ADR-0037).
   the persister await (rxjs silently swallowed the emissions, masking the
   state mutation), and `onApproved` now emits the value that was actually
   persisted rather than the live model (parity with C#'s captured
-  payload). The deny path is likewise a no-op after `dispose()`.
+  payload). The deny path is likewise a no-op after `dispose()`, and
+  `approveAsync()` on a disposed form no longer invokes the persister.
+- `ObservableList.insert` throws `RangeError` for out-of-bounds indexes
+  (matching `removeAt`/`replace`) — `splice` silently normalized/clamped
+  while the `itemAdded` payload carried the raw index (spec/21 §3.2).
 - `ServicedObservableCollection.splice(0, 0)` no longer emits a `Reset` for
   a mutation that never happened (spec/21 §2.4).
 - Post-2.4.0 maintenance backfill: `AggregateVM6` walk/dispose drift and the

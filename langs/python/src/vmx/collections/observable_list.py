@@ -114,7 +114,16 @@ class ObservableList(Generic[T]):
         self._on_added(item, index)
 
     def insert(self, index: int, item: T) -> None:
-        """Insert *item* at *index*."""
+        """Insert *item* at *index* (stdlib semantics: negative indexes count
+        from the end; out-of-range indexes clamp like :meth:`list.insert`).
+        """
+        # Normalize before emitting: spec/21 §3.2 mandates the payload carry
+        # the actual insertion index — a raw -1 (or an out-of-range 99 that
+        # stdlib silently clamps to len) violates the contract.
+        if index < 0:
+            index = max(index + len(self._items), 0)
+        elif index > len(self._items):
+            index = len(self._items)
         self._items.insert(index, item)
         self._on_added(item, index)
 

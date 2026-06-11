@@ -292,6 +292,32 @@ public class FormVMTests
         await approve;
     }
 
+    [Fact]
+    public void Deny_After_Dispose_Is_NoOp()
+    {
+        var sut = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask);
+        sut.SetModel(new Model("B", 2));
+        sut.Dispose();
+
+        sut.DenyCommand.Execute(null);
+
+        sut.Model.Should().Be(new Model("B", 2), "deny on a disposed form must not revert");
+    }
+
+    [Fact]
+    public async Task Approve_After_Dispose_Does_Not_Invoke_Persister()
+    {
+        // The persister is an external side effect and must not run on a
+        // disposed form (symmetric with the Deny guard).
+        var persisted = new List<Model>();
+        var sut = new FormVM<Model>(new Model("A", 1), m => { persisted.Add(m); return Task.CompletedTask; });
+        sut.Dispose();
+
+        await sut.ApproveAsync();
+
+        persisted.Should().BeEmpty();
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>

@@ -502,3 +502,35 @@ def test_remove_at_far_out_of_range_negative_raises() -> None:
 
     assert events == []
     assert list(sut) == ["a", "b", "c", "d"]
+
+
+def test_insert_negative_index_emits_normalized_payload() -> None:
+    """spec/21 §3.2: the added-event payload carries the actual insertion
+    index — stdlib insert(-1) lands before the last element, so the event
+    must say len-1, not -1."""
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, int]] = []
+    sut.on_item_added.subscribe(events.append)
+
+    sut.insert(-1, "m")
+
+    assert events == [("m", 1)]
+    assert list(sut) == ["x", "m", "y"]
+
+
+def test_insert_out_of_range_clamps_and_emits_effective_index() -> None:
+    """stdlib list.insert clamps out-of-range indexes; the payload must
+    carry the clamped (effective) index, not the raw argument."""
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, int]] = []
+    sut.on_item_added.subscribe(events.append)
+
+    sut.insert(99, "tail")
+    sut.insert(-99, "head")
+
+    assert events == [("tail", 2), ("head", 0)]
+    assert list(sut) == ["head", "x", "y", "tail"]

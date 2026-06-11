@@ -40,7 +40,9 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
   `AsObservable()` so callers can no longer downcast to the live subject
   (matches `DerivedProperty.ValueChanged`).
 - `FormVM`'s deny path is a no-op after `Dispose()` (previously it
-  reverted the model and re-published hub messages on a disposed form).
+  reverted the model and re-published hub messages on a disposed form),
+  and `ApproveAsync()` on a disposed form no longer invokes the
+  persister.
 
 ### Added
 

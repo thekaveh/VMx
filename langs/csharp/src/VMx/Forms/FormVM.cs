@@ -197,6 +197,10 @@ public sealed class FormVM<TM> : IDisposable
 
     private async Task ApproveInternalAsync()
     {
+        // A disposed form is a full no-op — the persister must not be
+        // invoked (symmetric with the Deny guard).
+        if (_disposed) return;
+
         // Capture model to avoid TOCTOU if SetModel is called concurrently.
         var current = _model;
 

@@ -150,7 +150,11 @@ class FormVM(Generic[TM]):
 
         Invokes the persister, advances :attr:`snapshot` on success, and fires
         :attr:`on_approved`.  Raises when the persister raises (no state mutation).
+        A disposed form is a full no-op — the persister is not invoked
+        (symmetric with the deny guard).
         """
+        if self._disposed:
+            return
         current = self._model
 
         # May raise — intentional.  No state mutation if this raises.

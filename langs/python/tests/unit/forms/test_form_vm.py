@@ -251,6 +251,33 @@ def test_dispose_is_idempotent() -> None:
     sut.dispose()
 
 
+def test_deny_after_dispose_is_noop() -> None:
+    """Deny on a disposed form must not raise and must not revert the model."""
+    sut = _make()
+    sut.set_model(Model("B", 2))
+    sut.dispose()
+
+    sut.deny_command.execute()
+
+    assert sut.model == Model("B", 2)
+
+
+async def test_approve_after_dispose_does_not_invoke_persister() -> None:
+    """Approve on a disposed form is a full no-op — the persister is an
+    external side effect and must not run (symmetric with the deny guard)."""
+    persisted: list[Model] = []
+
+    async def persister(m: Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    sut.dispose()
+
+    await sut.approve_async()
+
+    assert persisted == []
+
+
 def test_builder_snapshotter_is_used() -> None:
     """The builder's snapshotter setter reaches the FormVM (was ctor-only tested)."""
     snaps: list[Model] = []

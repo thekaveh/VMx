@@ -110,8 +110,15 @@ export class ObservableList<T> {
     this.#onAdded(item, index);
   }
 
-  /** Insert an item at the given index. */
+  /**
+   * Insert an item at the given index (`length` appends).
+   * Throws RangeError if index is out of bounds — `splice` would otherwise
+   * silently normalize/clamp while the emitted payload carried the raw index.
+   */
   insert(index: number, item: T): void {
+    if (index < 0 || index > this.#items.length) {
+      throw new RangeError(`Index ${String(index)} out of bounds`);
+    }
     this.#items.splice(index, 0, item);
     this.#onAdded(item, index);
   }

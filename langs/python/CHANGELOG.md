@@ -36,7 +36,12 @@ Implements `spec-v2.5.0` (ADR-0037).
   `IndexError` instead of wrapping to a valid index.
 - `FormVM`'s deny path is a no-op after `dispose()` (previously it
   reverted the model and re-published hub messages on a disposed form;
-  same guard added in C# and TS).
+  same guard added in C# and TS). `approve_async()` on a disposed form
+  is likewise a full no-op — the persister is no longer invoked.
+- `ObservableList.insert` emits the actual insertion index: in-range
+  negatives normalize and out-of-range indexes clamp per stdlib
+  `list.insert` semantics, instead of the raw argument leaking into the
+  `ItemAdded` payload (spec/21 §3.2).
 - `FormVM`'s `on_approved` now emits the value that was actually
   persisted rather than the live model (parity with C#'s captured
   payload under a racing `set_model`).

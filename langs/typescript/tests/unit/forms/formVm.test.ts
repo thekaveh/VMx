@@ -268,6 +268,40 @@ describe("FormVM onApproved", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Post-dispose guards
+// ---------------------------------------------------------------------------
+
+describe("FormVM – post-dispose guards", () => {
+  it("deny after dispose is a no-op (no throw, no revert)", () => {
+    const sut = make();
+    sut.setModel(m("B", 2));
+    sut.dispose();
+
+    sut.denyCommand.execute();
+
+    expect(sut.model).toEqual(m("B", 2));
+  });
+
+  it("approve after dispose does not invoke the persister", async () => {
+    // The persister is an external side effect and must not run on a
+    // disposed form (symmetric with the deny guard).
+    const persisted: IModel[] = [];
+    const sut = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: (model) => {
+        persisted.push(model);
+        return Promise.resolve();
+      },
+    });
+    sut.dispose();
+
+    await sut.approveAsync();
+
+    expect(persisted).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fire-and-forget safety
 // ---------------------------------------------------------------------------
 

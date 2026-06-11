@@ -156,6 +156,9 @@ export class FormVM<TM> {
    * and fires `onApproved`. Throws when the persister throws (no state mutation).
    */
   async approveAsync(): Promise<void> {
+    // A disposed form is a full no-op — the persister must not be invoked
+    // (symmetric with the deny guard).
+    if (this.#disposed) return;
     const current = this.#model;
 
     // May throw — intentional. No state mutation if this throws.
@@ -163,7 +166,10 @@ export class FormVM<TM> {
 
     // dispose() may have run during the await; rxjs would silently no-op
     // the emissions below, but the snapshot advance is a real state
-    // mutation on a disposed form (C#/Python guard identically).
+    // mutation on a disposed form (C#/Python guard identically). The
+    // analyzer narrows #disposed from the entry guard, but the await is a
+    // genuine interleaving point.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (this.#disposed) return;
 
     // Success: advance snapshot and notify.

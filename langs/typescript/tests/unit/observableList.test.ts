@@ -29,6 +29,18 @@ describe("ObservableList – basic mutations", () => {
     expect(sut.toArray()).toEqual([10, 20, 30]);
   });
 
+  it("insert at length appends; out-of-bounds throws RangeError", () => {
+    // splice would silently normalize/clamp a bad index while the emitted
+    // payload carried the raw value — bounds must fail fast instead.
+    const sut = new ObservableList<number>();
+    sut.push(10);
+    sut.insert(1, 20);
+    expect(sut.toArray()).toEqual([10, 20]);
+    expect(() => sut.insert(-1, 99)).toThrow(RangeError);
+    expect(() => sut.insert(3, 99)).toThrow(RangeError);
+    expect(sut.toArray()).toEqual([10, 20]);
+  });
+
   it("pop removes and returns last item", () => {
     const sut = new ObservableList<string>();
     sut.push("a");
