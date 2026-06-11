@@ -4,6 +4,7 @@
 
 | Component                     | Version | Supported |
 |---                            |---      |---        |
+| C# (`VMx`)                    | 2.5.x   | ✅        |
 | C# (`VMx`)                    | 2.4.x   | ✅        |
 | C# (`VMx`)                    | 2.3.x   | ✅        |
 | C# (`VMx`)                    | 2.2.x   | ✅        |
@@ -12,6 +13,7 @@
 | C# (`VMx`)                    | 1.2.x   | ✅        |
 | C# (`VMx`)                    | 1.1.x   | ✅        |
 | C# (`VMx`)                    | 1.0.x   | ✅        |
+| Python (`vmx`)                | 2.5.x   | ✅        |
 | Python (`vmx`)                | 2.4.x   | ✅        |
 | Python (`vmx`)                | 2.3.x   | ✅        |
 | Python (`vmx`)                | 2.2.x   | ✅        |
@@ -20,6 +22,7 @@
 | Python (`vmx`)                | 1.2.x   | ✅        |
 | Python (`vmx`)                | 1.1.x   | ✅        |
 | Python (`vmx`)                | 1.0.x   | ✅        |
+| TypeScript (`@thekaveh/vmx`)  | 2.5.x   | ✅        |
 | TypeScript (`@thekaveh/vmx`)  | 2.4.x   | ✅        |
 | TypeScript (`vmx` — legacy)   | 2.3.x   | ✅        |
 | TypeScript (`vmx` — legacy)   | 2.2.x   | ✅        |
@@ -27,6 +30,7 @@
 | TypeScript (`vmx` — legacy)   | 2.0.x   | ✅        |
 | TypeScript (`vmx` — legacy)   | 1.2.x   | ✅        |
 | TypeScript (`vmx` — legacy)   | 1.1.x   | ✅        |
+| Swift (`VMx`)                 | 2.5.x   | ✅ *(subset)* |
 | Swift (`VMx`)                 | 2.4.x   | ✅ *(subset)* |
 
 Older minor or patch versions on a still-supported major receive fixes on a

@@ -126,6 +126,12 @@ class NotificationHub:
             self._pending_subject.on_completed()
             self._pending_subject.dispose()
         for future in waiters:
-            future.get_loop().call_soon_threadsafe(
-                _complete_future_if_pending, future, NotificationReaction.PENDING
-            )
+            try:
+                future.get_loop().call_soon_threadsafe(
+                    _complete_future_if_pending, future, NotificationReaction.PENDING
+                )
+            except RuntimeError:
+                # The waiter's loop is already closed (typical shutdown
+                # ordering); keep resolving the remaining waiters — the C#
+                # parity model (TrySetResult) never throws here either.
+                continue

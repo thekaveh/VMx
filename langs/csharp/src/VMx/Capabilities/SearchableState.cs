@@ -69,7 +69,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     }
 
     /// <summary>Observable of the current filtered snapshot.</summary>
-    public IObservable<IReadOnlyList<TItem>> Filtered => _filteredSubject;
+    public IObservable<IReadOnlyList<TItem>> Filtered => _filteredSubject.AsObservable();
 
     /// <inheritdoc/>
     public bool CanSearch() => _itemsSource().Any();

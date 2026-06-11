@@ -16,7 +16,10 @@ Implements `spec-v2.5.0` (ADR-0037).
   idiom (spec/04 §4, ADR-0037): `"model"`, `"modeledHint"`, `"current"`,
   `"component1".."component6"` — previously these emitted PascalCase while
   `FormVM`/`HierarchicalVM` emitted camelCase. Subscribers filtering on
-  `"Model"`, `"Current"`, or `"ComponentN"` must update their strings.
+  `"Model"`, `"Current"`, `"IsCurrent"`, or `"ComponentN"` must update
+  their strings.
+- `NullDialogService` now has a private constructor — consume the
+  `INSTANCE` singleton, matching every other null variant and C#.
 
 ### Fixed
 
@@ -32,6 +35,12 @@ Implements `spec-v2.5.0` (ADR-0037).
   when the count changed (spec/21 §3.3).
 - `GroupVM` construct/destruct iterate a snapshot so a child lifecycle hook
   that mutates the group cannot skip siblings.
+- A background construct/destruct racing `dispose()` could resurrect the
+  VM and publish post-dispose status messages; `Disposed` is now terminal
+  in `_setStatus` and the scheduled work (spec/02 invariant 3).
+- `RxDispatcher.default()`'s doc no longer inverts the rxjs scheduler
+  semantics (queueScheduler is a synchronous trampoline; asapScheduler is
+  a Promise microtask).
 - `ServicedObservableCollection.splice(0, 0)` no longer emits a `Reset` for
   a mutation that never happened (spec/21 §2.4).
 - Post-2.4.0 maintenance backfill: `AggregateVM6` walk/dispose drift and the
@@ -43,6 +52,9 @@ Implements `spec-v2.5.0` (ADR-0037).
   with `Error` instead of silently corrupting the tree (HIER-018).
 - `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+- Typed-arity `DerivedProperty` factories `fromOne`..`fromFive` plus the
+  `fromMany` alias (ADR-0035 §2 DP2 always claimed TS had them; it never
+  did — the recorded three-flavor parity decision is now true).
 - Idempotent `dispose()` on `DecoratorCommand`,
   `ConfirmationDecoratorCommand`, and `CompositeCommand` (teardown
   symmetry with the C# IDisposable surface; the decorators own no

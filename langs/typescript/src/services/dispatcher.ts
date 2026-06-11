@@ -30,8 +30,10 @@ export class RxDispatcher implements IDispatcher {
 
   /**
    * Default browser / Node dispatcher:
-   *   foreground → queueScheduler (microtask / synchronous in test)
-   *   background → asapScheduler (next macrotask)
+   *   foreground → queueScheduler (synchronous trampoline — runs inline,
+   *                fair-queued against other queued work)
+   *   background → asapScheduler (Promise microtask — before the next
+   *                macrotask; use asyncScheduler for true macrotask hops)
    */
   static default(): RxDispatcher {
     return new RxDispatcher(queueScheduler, asapScheduler);

@@ -128,13 +128,13 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Package                                                              | Status            | Reactive primitive |
 | ---------- | -------------------------------------------------------------------- | ----------------- | ------------------ |
-| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v2.4.0            | System.Reactive    |
-| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v2.4.0            | reactivex          |
-| TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v2.4.0            | rxjs               |
-| Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v2.4.0 *(subset)* | Combine            |
+| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v2.5.0            | System.Reactive    |
+| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v2.5.0            | reactivex          |
+| TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v2.5.0            | rxjs               |
+| Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v2.5.0 *(subset)* | Combine            |
 
-The **Swift flavor is a skeleton** — first release of the Swift port,
-covering the lifecycle + leaf / composite / group / aggregate
+The **Swift flavor is a skeleton subset** (39 of 234 conformance IDs as
+of v2.5.0), covering the lifecycle + leaf / composite / group / aggregate
 viewmodel families + builders only. Full cross-flavor conformance parity
 lands in a follow-up release. See
 [`langs/swift/README.md`](langs/swift/README.md) §5 for the
@@ -147,13 +147,14 @@ in / deferred matrix. The C# flavor multi-targets `netstandard2.0` and
 is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
 in v2.4.0 because the unscoped `vmx` name was unavailable) targets Node
-≥18, emits dual ESM + CJS bundles, and exposes `@thekaveh/vmx/notifications`
+≥20, emits dual ESM + CJS bundles, and exposes `@thekaveh/vmx/notifications`
 as a sub-path export.
 
 ### 3.2 Spec ↔ flavor compatibility
 
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
+| 2.5.x | 2.5.0          | 2.5.0          | 2.5.0          | 2.5.0 (subset) |
 | 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
 | 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
 | 2.2.x | 2.2.0          | 2.2.0          | 2.2.0          | —              |
@@ -194,7 +195,7 @@ npm install @thekaveh/vmx rxjs
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor
-  ships in v2.4.0 as a subset; see `langs/swift/README.md` §5).
+  ships as a v2.5.0 subset; see `langs/swift/README.md` §5).
 
 ### 4.3 Examples
 
@@ -276,7 +277,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (subset, v2.4.0).
+  [`langs/swift/README.md`](langs/swift/README.md) (subset, v2.5.0).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
@@ -320,7 +321,7 @@ compatible and ships in flavors as a minor bump.
 `THEME-001`, …). Every flavor at full parity (C# / Python / TypeScript)
 re-implements the catalog under `langs/<flavor>/tests/conformance/`, and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. The
-Swift flavor implements a documented subset for its v2.4.0 first release
+Swift flavor implements a documented 39-ID subset as of v2.5.0
 (see [`langs/swift/README.md`](langs/swift/README.md) §5).
 
 ```bash

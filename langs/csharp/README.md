@@ -9,12 +9,12 @@ spec-compatible with the Python, TypeScript, and Swift (subset) flavors.
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
-`INotificationHub`) at `1.1.0`. Each is independently versioned per
-ADR-0009 / ADR-0013 and stays on its own release line (neither pulls
-the 2.4.0 core bump); see `../../compatibility-matrix.md`. A Swift
-flavor sibling lands as a skeleton at `langs/swift/` (subset of
-`spec-v2.4.0`); see `../swift/README.md` §5 for the in / deferred
-matrix.
+`INotificationHub`) at `1.2.0` (min spec 2.5.0). Each is independently
+versioned per ADR-0009 / ADR-0013 and stays on its own release line
+(the DI companion does not pull the 2.5.0 core bump); see
+`../../compatibility-matrix.md`. A Swift flavor sibling lands as a
+skeleton at `langs/swift/` (39-ID subset of `spec-v2.5.0`); see
+`../swift/README.md` §5 for the in / deferred matrix.
 
 ## 2. Install
 

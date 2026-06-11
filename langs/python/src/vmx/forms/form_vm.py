@@ -156,6 +156,12 @@ class FormVM(Generic[TM]):
         # May raise — intentional.  No state mutation if this raises.
         await self._persister(current)
 
+        # dispose() may have run during the await; the subjects below are
+        # completed and disposed, so emitting would raise DisposedException
+        # (mirrors the C# guard).
+        if self._disposed:
+            return
+
         # Success: advance snapshot and notify.
         was_dirty = self.is_dirty
         self._snapshot = self._snapshotter(current)

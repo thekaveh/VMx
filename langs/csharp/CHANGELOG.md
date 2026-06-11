@@ -30,6 +30,15 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
 - Post-2.4.0 maintenance backfill: `AggregateVM6` walk reachability and
   dispose ordering (LIFE-013), `NotificationHub` Post-after-Dispose race,
   and `ServicedObservableCollection.Move` silent corruption.
+- The HIER-018 reparent guard compares by reference identity, not
+  `Equals` — a `TVM` overriding `Equals` no longer falsely rejects a
+  legal reparent (Python/TS already used identity).
+- `LinqHelpers.Sample` validates its interval eagerly instead of on first
+  enumeration.
+- `SearchableState.Filtered`, `ExpandableState.IsExpandedChanged`, and
+  `NotificationHub.Pending` are wrapped with `AsObservable()` so callers
+  can no longer downcast to the live subject (matches
+  `DerivedProperty.ValueChanged`).
 
 ### Added
 

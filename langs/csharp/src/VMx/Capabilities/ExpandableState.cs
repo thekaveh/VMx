@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 
 namespace VMx.Capabilities;
@@ -24,7 +25,7 @@ public sealed class ExpandableState : IExpandable, ICollapsible, IExpansionToggl
     public bool IsExpanded => _isExpanded;
 
     /// <summary>Emits the new value every time <see cref="IsExpanded"/> changes.</summary>
-    public IObservable<bool> IsExpandedChanged => _changes;
+    public IObservable<bool> IsExpandedChanged => _changes.AsObservable();
 
     /// <inheritdoc/>
     public bool CanExpand() => !_isExpanded;

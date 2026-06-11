@@ -269,8 +269,11 @@ class _ComponentVMBase(ABC):
 
             def _bg_construct(scheduler: SchedulerBase, state: object | None) -> None:
                 try:
-                    self._on_construct()
-                    self._set_status(ConstructionStatus.CONSTRUCTED)
+                    # dispose() may have run between scheduling and execution;
+                    # Disposed is terminal (spec/02 invariant 3): skip the work.
+                    if self._status is not ConstructionStatus.DISPOSED:
+                        self._on_construct()
+                        self._set_status(ConstructionStatus.CONSTRUCTED)
                 finally:
                     self._in_flight = False
 
@@ -303,8 +306,11 @@ class _ComponentVMBase(ABC):
 
             def _bg_destruct(scheduler: SchedulerBase, state: object | None) -> None:
                 try:
-                    self._on_destruct()
-                    self._set_status(ConstructionStatus.DESTRUCTED)
+                    # dispose() may have run between scheduling and execution;
+                    # Disposed is terminal (spec/02 invariant 3): skip the work.
+                    if self._status is not ConstructionStatus.DISPOSED:
+                        self._on_destruct()
+                        self._set_status(ConstructionStatus.DESTRUCTED)
                 finally:
                     self._in_flight = False
 
@@ -431,6 +437,12 @@ class _ComponentVMBase(ABC):
     # ── Internal helpers ─────────────────────────────────────────────────────
     def _set_status(self, new_status: ConstructionStatus) -> None:
         """Update status, emit hub message, and fire command trigger."""
+        # Disposed is terminal (spec/02 invariant 3): a background transition
+        # racing dispose() must neither resurrect the VM nor publish
+        # post-dispose status messages.
+        if self._status is ConstructionStatus.DISPOSED:
+            return
+
         self._status = new_status
 
         self._hub.send(ConstructionStatusChangedMessage.create(self, self._name, new_status))

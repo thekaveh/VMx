@@ -30,8 +30,8 @@ public static class PropertyValueChangedExtensions
     /// </param>
     /// <param name="propertyExpression">
     ///   A simple member-access expression identifying the property, e.g.
-    ///   <c>vm => vm.IsValid</c>.  The expression is compiled once and cached
-    ///   for subsequent subscriptions.
+    ///   <c>vm => vm.IsValid</c>.  The expression is compiled once per call;
+    ///   all subscriptions to the returned observable share that compilation.
     /// </param>
     /// <returns>Cold observable; each subscription attaches a new filter to <c>hub.Messages</c>.</returns>
     public static IObservable<TProperty> PropertyValueChangedMessagesFor<TSource, TProperty>(

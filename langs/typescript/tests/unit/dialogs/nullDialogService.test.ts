@@ -13,7 +13,7 @@ import type { FileFilter } from "../../../src/dialogs/dialogService.js";
 
 describe("NullDialogService — construction", () => {
   it("implements IDialogService", () => {
-    const sut: IDialogService = new NullDialogService();
+    const sut: IDialogService = NullDialogService.INSTANCE;
     expect(sut).toBeDefined();
   });
 
@@ -34,28 +34,28 @@ describe("NullDialogService — construction", () => {
 
 describe("NullDialogService.pickFileToOpen", () => {
   it("returns null with no args", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.pickFileToOpen()).toBeNull();
   });
 
   it("returns null with filter", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     const filter: FileFilter = { description: "Images", extensions: ["*.png"] };
     expect(await sut.pickFileToOpen(filter)).toBeNull();
   });
 
   it("returns null with title", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.pickFileToOpen(null, "Choose file")).toBeNull();
   });
 
   it("returns null with null filter", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.pickFileToOpen(null)).toBeNull();
   });
 
   it("returns null on multiple successive calls", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     for (let i = 0; i < 3; i++) {
       expect(await sut.pickFileToOpen()).toBeNull();
     }
@@ -68,23 +68,23 @@ describe("NullDialogService.pickFileToOpen", () => {
 
 describe("NullDialogService.pickFileToSave", () => {
   it("returns null with no args", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.pickFileToSave()).toBeNull();
   });
 
   it("returns null with all args", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     const filter: FileFilter = { description: "Text", extensions: ["*.txt"] };
     expect(await sut.pickFileToSave(filter, "Save as", "output.txt")).toBeNull();
   });
 
   it("returns null with null filter", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.pickFileToSave(null)).toBeNull();
   });
 
   it("returns null on multiple successive calls", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     for (let i = 0; i < 3; i++) {
       expect(await sut.pickFileToSave()).toBeNull();
     }
@@ -97,22 +97,22 @@ describe("NullDialogService.pickFileToSave", () => {
 
 describe("NullDialogService.confirm", () => {
   it("returns false (safest default)", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.confirm("Delete?")).toBe(false);
   });
 
   it("returns false with title", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.confirm("Overwrite?", "Confirm")).toBe(false);
   });
 
   it("returns false with null title", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     expect(await sut.confirm("msg", null)).toBe(false);
   });
 
   it("returns false on multiple successive calls", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     for (let i = 0; i < 3; i++) {
       expect(await sut.confirm(`message ${i}`)).toBe(false);
     }
@@ -125,37 +125,37 @@ describe("NullDialogService.confirm", () => {
 
 describe("NullDialogService.notify", () => {
   it("resolves without error (default severity)", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     await expect(sut.notify("Hello")).resolves.toBeUndefined();
   });
 
   it("resolves for info severity", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     await expect(sut.notify("Info", null, "info")).resolves.toBeUndefined();
   });
 
   it("resolves for warning severity", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     await expect(sut.notify("Warn", null, "warning")).resolves.toBeUndefined();
   });
 
   it("resolves for error severity", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     await expect(sut.notify("Error", null, "error")).resolves.toBeUndefined();
   });
 
   it("resolves with null title", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     await expect(sut.notify("msg", null)).resolves.toBeUndefined();
   });
 
   it("resolves with title", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     await expect(sut.notify("msg", "My title")).resolves.toBeUndefined();
   });
 
   it("resolves on multiple successive calls", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
     for (let i = 0; i < 3; i++) {
       await expect(sut.notify(`message ${i}`)).resolves.toBeUndefined();
     }

@@ -31,7 +31,7 @@ let package = Package(
         .iOS(.v16), .macOS(.v13), .tvOS(.v16), .watchOS(.v9),
     ],
     dependencies: [
-        .package(url: "https://github.com/thekaveh/VMx.git", from: "2.4.0"),
+        .package(url: "https://github.com/thekaveh/VMx.git", from: "2.5.0"),
     ],
     targets: [
         .target(name: "MyApp", dependencies: [

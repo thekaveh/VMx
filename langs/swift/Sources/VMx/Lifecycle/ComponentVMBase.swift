@@ -391,12 +391,6 @@ open class ComponentVMBase {
         }
     }
 
-    /// Foreground scheduling helper available to subclasses (e.g. for
-    /// async selection in `CompositeVM`).
-    func _scheduleForeground(_ work: @escaping () -> Void) {
-        dispatcher.scheduleForeground(work)
-    }
-
     // ── Transition table (skeleton, hand-rolled) ────────────────────────
     //
     // The other flavors load this from `spec/fixtures/lifecycle-transitions.json`.

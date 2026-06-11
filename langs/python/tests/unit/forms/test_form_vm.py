@@ -263,3 +263,22 @@ def test_builder_snapshotter_is_used() -> None:
 
     assert snaps, "snapshotter runs for the initial snapshot"
     assert sut.snapshot is not sut.model
+
+
+async def test_dispose_during_inflight_approve_does_not_raise() -> None:
+    """dispose() during the persister await must not raise DisposedException
+    from the completed subjects (mirrors the C# post-await guard)."""
+    import asyncio
+
+    gate: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+
+    async def persister(m: Model) -> None:
+        await gate
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    sut.set_model(Model("B", 2))
+    task = asyncio.ensure_future(sut.approve_async())
+    await asyncio.sleep(0)  # let approve reach the persister await
+    sut.dispose()
+    gate.set_result(None)
+    await task  # must not raise

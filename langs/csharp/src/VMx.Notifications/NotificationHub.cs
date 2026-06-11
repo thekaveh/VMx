@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 
 namespace VMx.Notifications;
@@ -15,7 +16,7 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     private bool _disposed;
 
     /// <inheritdoc/>
-    public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject;
+    public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject.AsObservable();
 
     /// <inheritdoc/>
     public Task<NotificationReaction> Post(Notification notification)

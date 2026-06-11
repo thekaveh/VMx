@@ -2,9 +2,9 @@
 //
 // VMx — Swift flavor (skeleton).
 //
-// First release of the Swift flavor; implements a subset of spec v2.4.0
-// (LIFE, CVM, COMP, GRP, AGG, CMD, BLD). See README.md §5 for the in /
-// deferred matrix and CHANGELOG.md for what landed in 2.4.0.
+// Implements a 39-ID subset of spec v2.5.0 (LIFE, CVM, COMP, GRP, AGG,
+// CMD, BLD areas). See README.md §5 for the in / deferred matrix and
+// CHANGELOG.md for per-release history.
 //
 import PackageDescription
 

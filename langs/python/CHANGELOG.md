@@ -22,6 +22,13 @@ Implements `spec-v2.5.0` (ADR-0037).
   when the count changed (spec/21 §3.3).
 - `GroupVM` construct/destruct iterate a snapshot so a child lifecycle hook
   that mutates the group cannot skip siblings.
+- A background construct/destruct racing `dispose()` could resurrect the
+  VM and publish post-dispose status messages; `DISPOSED` is now terminal
+  in `_set_status` and the scheduled work (spec/02 invariant 3).
+- `FormVM.approve_async` no longer raises `DisposedException` when
+  `dispose()` runs during the persister await (mirrors the C# guard).
+- `NotificationHub.dispose()` tolerates waiters whose event loop is
+  already closed instead of raising and skipping the remaining waiters.
 - `NotificationHub` emits pending snapshots inside the lock (ordering +
   dispose-race discipline, mirroring C#).
 - Post-2.4.0 maintenance backfill: `AggregateVM1..6` dispose ordering

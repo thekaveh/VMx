@@ -217,7 +217,7 @@ hub.messages.subscribe((msg) => {
 tabs.construct();
 // stdout: "tab-bar ready"
 
-// Select a tab — publishes PropertyChangedMessage for "Current" and
+// Select a tab — publishes PropertyChangedMessage for "current" and
 // sets child.isCurrent.
 tabs.current = tab2; // stdout: "Selected tab: Settings"
 tabs.current = tab1; // stdout: "Selected tab: Home"
