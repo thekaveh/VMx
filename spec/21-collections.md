@@ -31,9 +31,12 @@ primitives here.
 
 `CompositeVM.BatchUpdate()` (per `spec/06-composite-vm.md`) suppresses
 intermediate `CollectionChanged` notifications and emits a single `Reset` when
-the batch completes. `ObservableList<T>` (§3) and `ServicedObservableCollection<T>`
-(§2) both participate in this suppression when they are held by a VM that
-initiates a batch.
+the batch completes. `ObservableList<T>` (§3) exposes an analogous —
+**independent** — batch scope of its own (§3.5); entering one scope has no
+effect on the other, and `ServicedObservableCollection<T>` (§2) has no batch
+mechanism. (Corrected in v2.5.0 via ADR-0038: an earlier revision claimed
+these collections "participate" in a VM-initiated batch, which no flavor
+implements.)
 
 ### 1.3 Opt-in scope
 
@@ -89,11 +92,16 @@ A `CollectionChangedMessage` is emitted for each mutation:
 
 ```
 CollectionChangedMessage:
-    Action  : CollectionAction   # Added | Removed | Replaced | Reset
+    Action  : <flavor action type>   # Add | Remove | Replace | Reset
     NewItems : T[]               # items after the change (empty for Remove/Reset)
     OldItems : T[]               # items before the change (empty for Add/Reset)
-    StartingIndex : int          # -1 for Reset
+    Index   : int                # -1 for Reset
 ```
+
+The action member's type is per-flavor idiom (ADR-0006): C# reuses the BCL
+`NotifyCollectionChangedAction`, Python uses the action string literals,
+TypeScript a `CollectionMutationAction` union. The index member is `Index` /
+`index` in every flavor. (Member names corrected in v2.5.0 via ADR-0038.)
 
 ### 2.5 Threading
 
@@ -170,7 +178,9 @@ deviation per ADR-0006 and is catalogued in ADR-0009.
 
 ### 3.5 Batch interaction
 
-When a `BatchUpdate()` scope is active on the owning VM:
+`ObservableList<T>` owns its batch scope directly — `BatchUpdate()` (C#),
+`batch_update()` (Python), `withBatch()` (TypeScript). While a scope is
+active on the list:
 
 - Granular events (`ItemAdded`, `ItemRemoved`, `ItemReplaced`) are suppressed
   during the batch.
@@ -196,9 +206,11 @@ Per ADR-0025.
 ### 4.1 Shape
 
 The documented common case is `ObservableDictionary<TKey1, TKey2, TValue>` (the
-two-key form). It is implemented as a thin typed wrapper over a base
-`ObservableDictionary<TKey, TValue>` where `TKey` is the per-flavor compound key
-(`ValueTuple` in C#, `tuple` in Python, a readonly object literal in TypeScript).
+two-key form). Each flavor implements it as a standalone class over a
+compound-key backing store — `ValueTuple` keys in C#, `tuple` keys in Python,
+and a serialized-string key map in TypeScript (the entry type exposed to
+consumers remains `DictionaryEntry`). There is no single-key base type.
+(Corrected in v2.5.0 via ADR-0038.)
 
 ```
 ObservableDictionary<TKey1, TKey2, TValue>:

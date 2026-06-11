@@ -218,8 +218,11 @@ Per-flavor idiomatic sketch (showing the actual modeled-composite builder
 methods — see chapter 10 for the full surface):
 
 ```
+pending = []                                          # cache, fed by the subscription
+hub.Pending.Subscribe(items => pending = items)       # Pending is an observable — no snapshot accessor
+
 CompositeVM<Notification, NotificationVM>.Builder()
-    .ChildrenModels(() => hub.Pending.Value)          # observed-list snapshot
+    .ChildrenModels(() => pending)                    # cached snapshot
     .ChildModelToChildViewModel(notif =>              # notification → VM
         new NotificationVM(notif, hub, scheduler))
     .Services(hub, dispatcher)

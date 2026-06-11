@@ -5,7 +5,7 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.5.0.** Covers **39 of 234**
+**v2.5.0.** Covers **39 of 235**
 conformance IDs from `spec-v2.5.0` (recounted honestly in ADR-0037): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
 `RelayCommand`, and the immutable fluent builders. The remaining 195 IDs
@@ -169,7 +169,7 @@ and `CMD-007` (truth-table fixture).
 - `LIFE-011` fixture-driven transition table (currently hand-rolled)
 
 The follow-up PR will widen coverage to full parity with the other
-three flavors. **This release is NOT yet at full parity with the 234-ID catalog.**
+three flavors. **This release is NOT yet at full parity with the 235-ID catalog.**
 
 Run the suite:
 

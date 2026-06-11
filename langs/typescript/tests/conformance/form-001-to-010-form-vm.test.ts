@@ -285,3 +285,26 @@ describe("FORM-010", () => {
     expect(sut.model).toEqual(initial);
   });
 });
+
+describe("FORM-014", () => {
+  it("a disposed form is inert: approve never invokes the persister; deny does not revert", async () => {
+    const persisted: IModel[] = [];
+    const sut = new FormVM<IModel>({
+      initial: makeModel("Alice", 1),
+      persister: (m) => {
+        persisted.push(m);
+        return Promise.resolve();
+      },
+    });
+    sut.setModel(makeModel("Bob", 2));
+    expect(sut.isDirty).toBe(true);
+
+    sut.dispose();
+
+    await sut.approveAsync();
+    sut.denyCommand.execute();
+
+    expect(persisted).toEqual([]);
+    expect(sut.model).toEqual(makeModel("Bob", 2));
+  });
+});

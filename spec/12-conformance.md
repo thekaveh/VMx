@@ -2114,6 +2114,19 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
 
+### FORM-014 — Disposed form is inert
+
+**Given** a `FormVM` whose persister records its invocations, with
+`Model != Snapshot` (dirty)
+**When** `Dispose()` is called and then `ApproveCommand` (or the awaitable
+approve entry point) and `DenyCommand` are executed
+**Then** the persister is never invoked
+**And** `Model` retains its pre-dispose value (no revert)
+**And** no exception is raised
+
+*(Added in v2.5.0 via ADR-0038 — the guards shipped as v2.5.0 maintenance;
+this ID pins them normatively.)*
+
 ## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 
 The `THEME-NNN` family covers the **scenario contract** at

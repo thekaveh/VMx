@@ -300,3 +300,25 @@ async def test_form_010_dialog_service_confirm_integration() -> None:
 
     assert sut.is_dirty is False, "model reverted when confirm returns True"
     assert sut.model == initial, "model restored to snapshot"
+
+
+@pytest.mark.conformance("FORM-014")
+async def test_FORM_014_disposed_form_is_inert() -> None:
+    """FORM-014: A disposed form is inert — approve never invokes the
+    persister; deny does not revert the model (spec/20 §9)."""
+    persisted: list[_Model] = []
+
+    async def persister(m: _Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+    sut.set_model(_Model("Bob", 2))
+    assert sut.is_dirty is True
+
+    sut.dispose()
+
+    await sut.approve_async()
+    sut.deny_command.execute()
+
+    assert persisted == [], "persister must not run on a disposed form"
+    assert sut.model == _Model("Bob", 2), "deny must not revert a disposed form"

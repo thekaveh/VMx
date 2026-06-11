@@ -59,6 +59,10 @@ Implements `spec-v2.5.0` (ADR-0037).
 
 ### Added
 
+- `FORM-014` conformance coverage: a disposed `FormVM` is inert — approve
+  never invokes the persister, deny does not revert (ADR-0038; pins the
+  guards shipped earlier in this release).
+
 - `HierarchicalVM.reparentChild` rejects self- and ancestor-reparenting
   with `Error` instead of silently corrupting the tree (HIER-018).
 - `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,

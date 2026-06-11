@@ -46,6 +46,10 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
 
 ### Added
 
+- `FORM-014` conformance coverage: a disposed `FormVM` is inert — approve
+  never invokes the persister, deny does not revert (ADR-0038; pins the
+  guards shipped earlier in this release).
+
 - `HierarchicalVM.ReparentChild` rejects self- and ancestor-reparenting with
   `InvalidOperationException` instead of silently corrupting the tree
   (HIER-018).

@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (234 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (235 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -133,7 +133,7 @@ v2.4.x consumers continue to work unchanged.
   is recounted 53 → 39 (corrects ADR-0036 §2.E); fixture-prose and
   `NULL-*` listing corrections (ch15 §7, ch03 §8, ch11 §6).
 - `12-conformance.md` — adds `HIER-018` and `NOTIF-017`; catalog total
-  goes from 232 to 234 (229 library + 5 THEME scenario IDs).
+  goes from 232 to 235 (230 library + 5 THEME scenario IDs).
 - Chapter count stays at 22.
 
 ### 1.8 Supporting artefacts
