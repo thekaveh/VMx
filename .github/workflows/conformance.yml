@@ -69,8 +69,11 @@ jobs:
         # to the same 0.7.x + plugins as .pre-commit-config.yaml (mdformat 1.0
         # is incompatible with mdformat-gfm). Tracked files only, matching the
         # hook's ^(spec|docs)/.*\.md$ scope.
+        # Git pathspec `*` crosses directory separators, so these two globs
+        # cover top-level AND nested files; `**/*.md` would MISS top-level
+        # ones (verified: spec/**/*.md matches 41 of 64).
         run: |
-          git ls-files 'spec/*.md' 'spec/**/*.md' 'docs/**/*.md' \
+          git ls-files 'spec/*.md' 'docs/*.md' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with mdformat-gfm --with mdformat-tables \
                 mdformat --check
