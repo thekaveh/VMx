@@ -490,7 +490,15 @@ def test_dispose_during_inflight_background_construct_does_not_resurrect() -> No
     bg = _DeferredScheduler()
     dispatcher = RxDispatcher(ImmediateScheduler(), bg)  # type: ignore[arg-type]
     hub: MessageHub[object] = MessageHub()
-    vm = ComponentVMBuilder().name("bgvm").services(hub, dispatcher).background(True).build()
+    hook_calls: list[None] = []
+    vm = (
+        ComponentVMBuilder()
+        .name("bgvm")
+        .services(hub, dispatcher)
+        .background(True)
+        .on_construct(lambda: hook_calls.append(None))
+        .build()
+    )
 
     statuses: list[ConstructionStatus] = []
     hub.messages.subscribe(
@@ -506,3 +514,6 @@ def test_dispose_during_inflight_background_construct_does_not_resurrect() -> No
     assert vm.status is ConstructionStatus.DISPOSED
     assert ConstructionStatus.CONSTRUCTED not in statuses
     assert statuses[-1] is ConstructionStatus.DISPOSED
+    # The scheduled work itself must be skipped, not merely silenced by the
+    # _set_status terminal guard (pins the background-skip guard in isolation).
+    assert hook_calls == []

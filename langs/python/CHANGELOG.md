@@ -29,6 +29,13 @@ Implements `spec-v2.5.0` (ADR-0037).
   `dispose()` runs during the persister await (mirrors the C# guard).
 - `NotificationHub.dispose()` tolerates waiters whose event loop is
   already closed instead of raising and skipping the remaining waiters.
+- `ObservableList.remove_at`/`replace` normalize negative indexes before
+  emitting, so the event payload carries the spec-mandated
+  index-before-removal instead of a raw `-1` (spec/21 §3.2; TS/C# raise
+  on negative indexes by design).
+- `FormVM`'s `on_approved` now emits the value that was actually
+  persisted rather than the live model (parity with C#'s captured
+  payload under a racing `set_model`).
 - `NotificationHub` emits pending snapshots inside the lock (ordering +
   dispose-race discipline, mirroring C#).
 - Post-2.4.0 maintenance backfill: `AggregateVM1..6` dispose ordering

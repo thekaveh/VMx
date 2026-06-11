@@ -119,9 +119,19 @@ public class NotificationsConformanceTests
     public void NOTIF_008_Resolve_Unknown_NoOp()
     {
         using var hub = new NotificationHub();
+        var posted = new Notification(NotificationType.Confirmation, "real");
+        _ = hub.Post(posted);
+        var snapshots = new List<IReadOnlyList<Notification>>();
+        using var sub = hub.Pending.Subscribe(snapshots.Add);
+
         var orphan = new Notification(NotificationType.Notification, "stray");
         var act = () => hub.Resolve(orphan, NotificationReaction.Approve);
         act.Should().NotThrow();
+
+        // Catalog And-clause: Pending is unchanged — no emission beyond the
+        // subscription snapshot, which still contains exactly the posted one.
+        snapshots.Should().HaveCount(1);
+        snapshots[0].Should().Equal(posted);
     }
 
     // ── NOTIF-009 ───────────────────────────────────────────────────────────

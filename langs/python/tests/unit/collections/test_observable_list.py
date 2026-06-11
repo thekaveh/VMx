@@ -456,3 +456,31 @@ def test_batch_nested_count_changed_emits_on_outermost_exit() -> None:
 
     # outermost exited — count changed (0 → 1), notification fires
     assert "Count" in prop_changes
+
+
+def test_remove_at_negative_index_emits_normalized_payload() -> None:
+    """spec/21 §3.2: the removed-event payload carries the index before
+    removal — a Python-idiomatic -1 must normalize, not leak into the event."""
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, int]] = []
+    sut.on_item_removed.subscribe(events.append)
+
+    sut.remove_at(-1)
+
+    assert events == [("y", 1)]
+    assert list(sut) == ["x"]
+
+
+def test_replace_negative_index_emits_normalized_payload() -> None:
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, str, int]] = []
+    sut.on_item_replaced.subscribe(events.append)
+
+    sut.replace(-1, "z")
+
+    assert events == [("z", "y", 1)]
+    assert list(sut) == ["x", "z"]

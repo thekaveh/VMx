@@ -148,8 +148,18 @@ async def test_NOTIF_007_confirmation_approve_or_reject() -> None:
 @pytest.mark.conformance("NOTIF-008")
 async def test_NOTIF_008_resolve_unknown_noop() -> None:
     hub = NotificationHub()
+    posted = Notification(NotificationType.CONFIRMATION, "real")
+    hub.post(posted)
+    snapshots: list[list[Notification]] = []
+    hub.pending.subscribe(snapshots.append)
+
     orphan = Notification(NotificationType.NOTIFICATION, "stray")
     hub.resolve(orphan, NotificationReaction.APPROVE)  # must not raise
+
+    # Catalog And-clause: Pending is unchanged — no new emission beyond the
+    # subscription snapshot, which still contains exactly the posted one.
+    assert len(snapshots) == 1
+    assert snapshots[0] == [posted]
 
 
 # ---------------------------------------------------------------------------

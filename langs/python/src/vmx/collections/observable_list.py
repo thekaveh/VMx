@@ -129,13 +129,20 @@ class ObservableList(Generic[T]):
         return True
 
     def remove_at(self, index: int) -> None:
-        """Remove the item at *index*."""
+        """Remove the item at *index* (negative indexes count from the end)."""
+        # Normalize before emitting: spec/21 §3.2 mandates the payload carry
+        # the index *before removal* — a raw -1 violates the contract even
+        # though negative indexing itself is Python-idiomatic (ADR-0006).
+        if index < 0:
+            index += len(self._items)
         item = self._items[index]
         del self._items[index]
         self._on_removed(item, index)
 
     def replace(self, index: int, new_item: T) -> None:
-        """Replace the item at *index* with *new_item*."""
+        """Replace the item at *index* (negative indexes count from the end)."""
+        if index < 0:
+            index += len(self._items)
         old_item = self._items[index]
         self._items[index] = new_item
         self._on_replaced(new_item, old_item, index)

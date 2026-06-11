@@ -258,41 +258,76 @@ describe("LIFE-011", () => {
       }>;
     };
 
-    for (const row of data.transitions) {
-      const fromStatus = ConstructionStatus[row.from as keyof typeof ConstructionStatus];
-      // Skip rows that require being mid-transition (Constructing/Destructing from state)
-      // unless they are the idempotent or dispose cases we can reach directly.
-      if (row.from === "Constructing" || row.from === "Destructing") {
-        // These require a mid-flight state; test LIFE-008 covers that.
-        continue;
+    const invoke = (vm: ComponentVM, op: string): StatusTransitionError | null => {
+      try {
+        if (op === "construct") vm.construct();
+        else if (op === "destruct") vm.destruct();
+        else if (op === "reconstruct") vm.reconstruct();
+        else if (op === "dispose") vm.dispose();
+        else throw new Error(`unknown op '${op}'`);
+      } catch (err) {
+        if (err instanceof StatusTransitionError) return err;
+        throw err;
       }
+      return null;
+    };
 
+    // Bring a fresh VM to `from`, invoke `op`, return [error, finalStatus].
+    // Mid-transition states are reached via the builder's lifecycle hooks,
+    // which run while the transition is in flight (the catalog's
+    // "controllable hook" allowance).
+    const drive = (
+      from: string,
+      op: string,
+    ): [StatusTransitionError | null, ConstructionStatus] => {
       const hub = makeHub();
-      const vm = ComponentVM.builder().name("v").services(hub, makeDisp()).build();
+      let captured: StatusTransitionError | null = null;
+      let vm: ComponentVM;
 
-      // Put the VM in the required state.
-      if (fromStatus === ConstructionStatus.Constructed) {
+      if (from === "Constructing") {
+        vm = ComponentVM.builder()
+          .name("v")
+          .services(hub, makeDisp())
+          .onConstruct(() => {
+            captured = invoke(vm, op);
+          })
+          .build();
         vm.construct();
-      } else if (fromStatus === ConstructionStatus.Disposed) {
-        vm.dispose();
+        return [captured, vm.status];
       }
+      if (from === "Destructing") {
+        vm = ComponentVM.builder()
+          .name("v")
+          .services(hub, makeDisp())
+          .onDestruct(() => {
+            captured = invoke(vm, op);
+          })
+          .build();
+        vm.construct();
+        vm.destruct();
+        return [captured, vm.status];
+      }
+
+      vm = ComponentVM.builder().name("v").services(hub, makeDisp()).build();
+      if (from === "Constructed") vm.construct();
+      else if (from === "Disposed") vm.dispose();
       // Destructed is the initial state — no action needed.
+      return [invoke(vm, op), vm.status];
+    };
+
+    for (const row of data.transitions) {
+      const [error, final] = drive(row.from, row.via);
 
       if (row.legal) {
-        if (row.via === "construct") vm.construct();
-        else if (row.via === "destruct") vm.destruct();
-        else if (row.via === "reconstruct") vm.reconstruct();
-        else if (row.via === "dispose") vm.dispose();
-
+        expect(error, `${row.from} → ${row.via} is legal`).toBeNull();
         if (row.to_final !== null) {
           const expectedFinal = ConstructionStatus[row.to_final as keyof typeof ConstructionStatus];
-          expect(vm.status, `${row.from} → ${row.via}`).toBe(expectedFinal);
+          expect(final, `${row.from} → ${row.via}`).toBe(expectedFinal);
         }
       } else {
-        const op = row.via;
-        if (op === "construct") expect(() => vm.construct(), `${row.from} → ${op}`).toThrow(StatusTransitionError);
-        else if (op === "destruct") expect(() => vm.destruct(), `${row.from} → ${op}`).toThrow(StatusTransitionError);
-        else if (op === "reconstruct") expect(() => vm.reconstruct(), `${row.from} → ${op}`).toThrow(StatusTransitionError);
+        expect(error, `${row.from} → ${row.via} must raise`).toBeInstanceOf(
+          StatusTransitionError,
+        );
       }
     }
   });

@@ -155,5 +155,25 @@ public class BuilderConformanceTests
         trigger2.OnNext(default);
         firings.Should().Be(2,
             "second trigger must ALSO fire CanExecuteChanged — Triggers is additive");
+
+        // Insertion order (catalog And-clause): emissions routed through o1
+        // then o2 arrive in insertion order through the merged trigger stream.
+        var tag1 = new Subject<System.Reactive.Unit>();
+        var tag2 = new Subject<System.Reactive.Unit>();
+        var orderCmd = RelayCommand.Builder().Triggers(tag1).Triggers(tag2).Build();
+        var sequence = new List<string>();
+        orderCmd.CanExecuteChanged += (_, _) => sequence.Add("fire");
+        tag1.OnNext(default);
+        sequence.Add("after-o1");
+        tag2.OnNext(default);
+        sequence.Add("after-o2");
+        sequence.Should().Equal("fire", "after-o1", "fire", "after-o2");
+
+        // Non-additive setters overwrite on repeated calls (catalog And-clause).
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = Components.ComponentVM<string>.Builder()
+            .Name("first").Name("second").Services(hub, dispatcher).Model("m").Build();
+        vm.Name.Should().Be("second", "Name() must overwrite, not accumulate");
     }
 }

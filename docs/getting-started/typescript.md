@@ -132,12 +132,12 @@ const canSaveTrigger = new Subject<void>();
 let isDirty = false;
 
 const saveCommand = RelayCommand.builder()
-  .execute(() => {
+  .task(() => {
     console.log("Saving…");
     isDirty = false;
     canSaveTrigger.next(); // re-evaluate canExecute
   })
-  .canExecute(() => isDirty)
+  .predicate(() => isDirty)
   .triggers(canSaveTrigger)
   .build();
 

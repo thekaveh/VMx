@@ -118,6 +118,30 @@ describe("BLD-005", () => {
 
     trigger2.next();
     expect(firings).toBe(2);
+
+    // Insertion order (catalog And-clause): emissions routed through o1
+    // then o2 arrive in insertion order through the merged trigger stream.
+    const tag1 = new Subject<void>();
+    const tag2 = new Subject<void>();
+    const orderCmd = RelayCommand.builder()
+      .triggers(tag1.asObservable())
+      .triggers(tag2.asObservable())
+      .build();
+    const sequence: string[] = [];
+    orderCmd.canExecuteChanged.subscribe(() => sequence.push("fire"));
+    tag1.next();
+    sequence.push("after-o1");
+    tag2.next();
+    sequence.push("after-o2");
+    expect(sequence).toEqual(["fire", "after-o1", "fire", "after-o2"]);
+
+    // Non-additive setters overwrite on repeated calls (catalog And-clause).
+    const vm = ComponentVM.builder()
+      .name("first")
+      .name("second")
+      .withNullServices()
+      .build();
+    expect(vm.name, "name() must overwrite, not accumulate").toBe("second");
   });
 });
 

@@ -41,6 +41,11 @@ Implements `spec-v2.5.0` (ADR-0037).
 - `RxDispatcher.default()`'s doc no longer inverts the rxjs scheduler
   semantics (queueScheduler is a synchronous trampoline; asapScheduler is
   a Promise microtask).
+- `FormVM` no longer advances its snapshot when `dispose()` runs during
+  the persister await (rxjs silently swallowed the emissions, masking the
+  state mutation), and `onApproved` now emits the value that was actually
+  persisted rather than the live model (parity with C#'s captured
+  payload).
 - `ServicedObservableCollection.splice(0, 0)` no longer emits a `Reset` for
   a mutation that never happened (spec/21 §2.4).
 - Post-2.4.0 maintenance backfill: `AggregateVM6` walk/dispose drift and the

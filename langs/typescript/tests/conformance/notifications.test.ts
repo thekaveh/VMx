@@ -96,8 +96,18 @@ describe("NOTIF-007", () => {
 describe("NOTIF-008", () => {
   it("Resolving a notification not in Pending is a no-op", () => {
     const hub = new NotificationHub();
+    const posted = new Notification(NotificationType.Confirmation, "real");
+    void hub.post(posted);
+    const snapshots: Array<readonly Notification[]> = [];
+    hub.pending.subscribe((s) => snapshots.push(s));
+
     const orphan = new Notification(NotificationType.Notification, "stray");
     expect(() => hub.resolve(orphan, NotificationReaction.Approve)).not.toThrow();
+
+    // Catalog And-clause: Pending is unchanged — no emission beyond the
+    // subscription snapshot, which still contains exactly the posted one.
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toEqual([posted]);
   });
 });
 

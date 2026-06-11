@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TestScheduler } from "rxjs/testing";
+import { observeOn } from "rxjs";
 import {
   ConstructionStatus,
   MessageHub,
@@ -167,9 +168,7 @@ describe("COMP-006", () => {
       expect(actual).toEqual(expected);
     });
 
-    testScheduler.run(({ cold: _cold, expectObservable: _expectObservable }) => {
-      // Using immediate scheduler for this test; foreground events are observed
-      // synchronously since queueScheduler is synchronous.
+    testScheduler.run(({ flush }) => {
       const hub = makeHub();
       const disp = makeDisp();
       const vmA = makeChild(hub, "vmA");
@@ -182,13 +181,18 @@ describe("COMP-006", () => {
       composite.construct();
       composite.selectComponent(vmA);
 
+      // Catalog: the subscriber observes the change via the foreground
+      // scheduler ("using ObserveOn(dispatcher.Foreground)") — pipe through
+      // a controllable scheduler and assert delivery only after it runs.
       const isCurrentChanges: boolean[] = [];
-      vmA.propertyChanged.subscribe((p) => {
+      vmA.propertyChanged.pipe(observeOn(testScheduler)).subscribe((p) => {
         if (p === "isCurrent") isCurrentChanges.push(vmA.isCurrent);
       });
 
       composite.deselectComponent(vmA);
 
+      expect(isCurrentChanges, "buffered until the scheduler runs").toHaveLength(0);
+      flush();
       expect(isCurrentChanges).toContain(false);
     });
   });
@@ -337,15 +341,20 @@ describe("COMP-012", () => {
 
     const child = makeChild(hub, "late-child");
     const events: CollectionChangedEvent[] = [];
-    composite.collectionChanged.subscribe((e) => events.push(e));
+    const statusAtEvent: ConstructionStatus[] = [];
+    composite.collectionChanged.subscribe((e) => {
+      events.push(e);
+      statusAtEvent.push(child.status);
+    });
 
     composite.add(child);
 
-    // Child must be Constructed before the CollectionChanged(Add) event fires.
-    expect(child.status).toBe(ConstructionStatus.Constructed);
     // Event should have been emitted.
     expect(events).toHaveLength(1);
     expect(events[0]?.action).toBe("add");
+    // Catalog: the child reaches Constructed BEFORE the Add event is
+    // observed — capture the status inside the handler, not post-hoc.
+    expect(statusAtEvent[0]).toBe(ConstructionStatus.Constructed);
   });
 });
 

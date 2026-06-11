@@ -169,7 +169,10 @@ class FormVM(Generic[TM]):
         if self._strict and self.is_dirty != was_dirty:
             self._can_execute_trigger.on_next(None)
 
-        self._on_approved.on_next(self._model)
+        # Emit the value that was actually persisted (parity with C#'s
+        # captured `current`): a set_model racing the persister await must
+        # not swap the approved payload for a newer un-persisted model.
+        self._on_approved.on_next(current)
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 

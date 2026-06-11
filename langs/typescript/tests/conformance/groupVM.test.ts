@@ -140,12 +140,19 @@ describe("GRP-005", () => {
 
     const child = makeChild(hub, "late");
     const events: CollectionChangedEvent[] = [];
-    group.collectionChanged.subscribe((e) => events.push(e));
+    const statusAtEvent: ConstructionStatus[] = [];
+    group.collectionChanged.subscribe((e) => {
+      events.push(e);
+      statusAtEvent.push(child.status);
+    });
 
     group.add(child);
 
-    expect(child.status).toBe(ConstructionStatus.Constructed);
     expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("add");
+    // Catalog: the child reaches Constructed BEFORE the Add event is
+    // observed — capture the status inside the handler, not post-hoc.
+    expect(statusAtEvent[0]).toBe(ConstructionStatus.Constructed);
   });
 });
 

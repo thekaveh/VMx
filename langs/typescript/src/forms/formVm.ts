@@ -54,6 +54,7 @@ export class FormVM<TM> {
 
   #model: TM;
   #snapshot: TM;
+  #disposed = false;
 
   readonly #onApproved = new Subject<TM>();
   readonly #canExecuteTrigger = new Subject<void>();
@@ -160,6 +161,11 @@ export class FormVM<TM> {
     // May throw — intentional. No state mutation if this throws.
     await this.#persister(current);
 
+    // dispose() may have run during the await; rxjs would silently no-op
+    // the emissions below, but the snapshot advance is a real state
+    // mutation on a disposed form (C#/Python guard identically).
+    if (this.#disposed) return;
+
     // Success: advance snapshot and notify.
     const wasDirty = this.isDirty;
     this.#snapshot = this.#snapshotter(current);
@@ -168,13 +174,18 @@ export class FormVM<TM> {
       this.#canExecuteTrigger.next();
     }
 
-    this.#onApproved.next(this.#model);
+    // Emit the value that was actually persisted (parity with C#'s captured
+    // `current`): a SetModel racing the persister await must not swap the
+    // approved payload for a newer un-persisted model.
+    this.#onApproved.next(current);
   }
 
   // ── Dispose ────────────────────────────────────────────────────────────────
 
-  /** Complete the `onApproved` observable and dispose resources. */
+  /** Complete the `onApproved` observable and dispose resources. Idempotent. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#onApproved.complete();
     this.#canExecuteTrigger.complete();
     this.denyCommand.dispose();

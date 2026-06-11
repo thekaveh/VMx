@@ -88,6 +88,13 @@ Each flavor uses its idiomatic equality operator/method:
 - C#: `object.Equals` (record types use structural equality by default).
 - Python: `__eq__` (`@dataclass(eq=True)` or `@dataclass(frozen=True)` by default).
 - TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects.
+  Caveat (clarified in v2.5.0 via ADR-0037): `JSON.stringify` is
+  key-order sensitive — two structurally-equal objects whose keys were
+  assigned in different orders compare as *dirty*. FORM-003's "equal value
+  objects" guarantee therefore holds for same-shaped literals (the common
+  snapshot/revert flow, where snapshots are produced by the snapshotter
+  from the model itself); consumers needing order-insensitive comparison
+  should supply a custom `snapshotter`/model normalization.
 
 ## 5. Lifecycle state diagram
 

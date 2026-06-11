@@ -185,6 +185,33 @@ def test_BLD_005_additive_setters_retain_prior_values() -> None:
         "second trigger must ALSO fire can_execute_changed — triggers is additive"
     )
 
+    # Insertion order (catalog And-clause): emissions routed through o1 then
+    # o2 arrive in insertion order through the merged trigger stream.
+    tag1: Subject[None] = Subject()
+    tag2: Subject[None] = Subject()
+    order_cmd = RelayCommand.builder().triggers(tag1).triggers(tag2).build()
+    sequence: list[str] = []
+    order_cmd.can_execute_changed.subscribe(lambda _: sequence.append("fire"))
+    tag1.on_next(None)
+    sequence.append("after-o1")
+    tag2.on_next(None)
+    sequence.append("after-o2")
+    assert sequence == ["fire", "after-o1", "fire", "after-o2"], (
+        "emissions through o1 then o2 must arrive in insertion order"
+    )
+
+    # Non-additive setters overwrite on repeated calls (catalog And-clause).
+    vm = (
+        ComponentVMOf[str]
+        .builder()
+        .name("first")
+        .name("second")
+        .model("m")
+        .with_null_services()
+        .build()
+    )
+    assert vm.name == "second", "name() must overwrite, not accumulate"
+
 
 def test_with_null_services_returns_new_builder_instance() -> None:
     """``with_null_services()`` adheres to BLD-001: returns a new builder

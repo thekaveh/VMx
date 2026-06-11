@@ -33,10 +33,14 @@ describe("ComponentVM – dispose during in-flight background construct", () => 
       bg as unknown as SchedulerLike,
     );
     const hub = new MessageHub();
+    let hookCalls = 0;
     const vm = ComponentVM.builder()
       .name("bgvm")
       .services(hub, dispatcher)
       .background(true)
+      .onConstruct(() => {
+        hookCalls++;
+      })
       .build();
 
     const statuses: ConstructionStatus[] = [];
@@ -51,5 +55,8 @@ describe("ComponentVM – dispose during in-flight background construct", () => 
     expect(vm.status).toBe(ConstructionStatus.Disposed);
     expect(statuses).not.toContain(ConstructionStatus.Constructed);
     expect(statuses[statuses.length - 1]).toBe(ConstructionStatus.Disposed);
+    // The scheduled work itself must be skipped, not merely silenced by the
+    // _setStatus terminal guard (pins the background-skip guard in isolation).
+    expect(hookCalls).toBe(0);
   });
 });
