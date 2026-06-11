@@ -43,6 +43,10 @@ Implements `spec-v2.5.0` (ADR-0037).
   with `Error` instead of silently corrupting the tree (HIER-018).
 - `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+- Idempotent `dispose()` on `DecoratorCommand`,
+  `ConfirmationDecoratorCommand`, and `CompositeCommand` (teardown
+  symmetry with the C# IDisposable surface; the decorators own no
+  subscriptions).
 
 ## [2.4.0] — 2026-06-02
 

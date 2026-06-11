@@ -22,3 +22,22 @@ describe("ConfirmationDecoratorCommand – execute()", () => {
     expect(innerRan).toBe(false);
   });
 });
+
+describe("Command decorators – dispose parity", () => {
+  it("dispose is idempotent on all three decorators", async () => {
+    const { CompositeCommand, DecoratorCommand } = await import("../../src/index.js");
+    const inner = RelayCommand.builder().task(() => undefined).build();
+
+    const deco = new DecoratorCommand(inner);
+    deco.dispose();
+    deco.dispose();
+
+    const composite = new CompositeCommand(inner);
+    composite.dispose();
+    composite.dispose();
+
+    const confirm = new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true));
+    confirm.dispose();
+    confirm.dispose();
+  });
+});

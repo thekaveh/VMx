@@ -26,6 +26,7 @@ class ConfirmationDecoratorCommand:
     ) -> None:
         self._inner = inner
         self._confirm = confirm
+        self._disposed = False
 
     @property
     def can_execute_changed(self) -> Observable[None]:
@@ -38,8 +39,10 @@ class ConfirmationDecoratorCommand:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop."""
         try:
             task = asyncio.get_running_loop().create_task(self.execute_async(parameter))
-            # Retrieve any exception so Python does not log "exception never retrieved".
-            task.add_done_callback(lambda t: t.exception())
+            # Retrieve any exception so Python does not log "exception never
+            # retrieved"; skip cancelled tasks — Task.exception() raises
+            # CancelledError for those, which would error the loop's callback.
+            task.add_done_callback(lambda t: None if t.cancelled() else t.exception())
         except RuntimeError:
             asyncio.run(self.execute_async(parameter))
 
@@ -48,3 +51,12 @@ class ConfirmationDecoratorCommand:
             return
         if await self._confirm():
             self._inner.execute(parameter)
+
+    def dispose(self) -> None:
+        """Mark the decorator as disposed. Idempotent.
+
+        ``can_execute_changed`` delegates lazily to the inner command, so the
+        decorator owns no subscriptions to release. Provided for API symmetry
+        with the C# IDisposable surface (see ``CompositeCommand.dispose``).
+        """
+        self._disposed = True

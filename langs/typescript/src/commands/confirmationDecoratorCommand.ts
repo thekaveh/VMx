@@ -12,6 +12,8 @@ export class ConfirmationDecoratorCommand implements ICommand {
   readonly #inner: ICommand;
   readonly #confirm: ConfirmDelegate;
 
+  #disposed = false;
+
   constructor(inner: ICommand, confirm: ConfirmDelegate) {
     this.#inner = inner;
     this.#confirm = confirm;
@@ -39,5 +41,14 @@ export class ConfirmationDecoratorCommand implements ICommand {
     if (!this.canExecute()) return;
     const ok = await this.#confirm();
     if (ok) this.#inner.execute();
+  }
+
+  /**
+   * Mark the decorator as disposed. Idempotent. `canExecuteChanged`
+   * delegates lazily to the inner command, so nothing is owned or released
+   * here — provided for teardown symmetry with the C# IDisposable surface.
+   */
+  dispose(): void {
+    this.#disposed = true;
   }
 }

@@ -26,6 +26,17 @@ Implements `spec-v2.5.0` (ADR-0037).
   dispose-race discipline, mirroring C#).
 - Post-2.4.0 maintenance backfill: `AggregateVM1..6` dispose ordering
   (LIFE-013) and aggregates walk/dispose drift.
+- `FormVM.builder()` raised `TypeError` on every call (subscripted
+  instantiation of a frozen+slots dataclass); it was the only builder
+  entrypoint no test had ever exercised.
+- `SearchableState.can_search()` returned `False` when the first item was
+  a legal `None` value (sentinel conflation; C#/TS were unaffected).
+- `ConfirmationDecoratorCommand`'s fire-and-forget done-callback raised
+  `CancelledError` into the event loop when the task was cancelled.
+- `fluent.confirm()` now types its callback as
+  `Callable[[], Awaitable[bool]]`, matching the constructor contract it
+  forwards to (a sync callback previously passed mypy and failed at
+  `await`).
 
 ### Added
 
@@ -35,6 +46,9 @@ Implements `spec-v2.5.0` (ADR-0037).
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
 - The `Dispatcher` protocol is exported from the top-level `vmx` package
   (parity with TS `IDispatcher` / C# `IDispatcher`).
+- Idempotent `dispose()` on `DecoratorCommand` and
+  `ConfirmationDecoratorCommand` (teardown symmetry with the C#
+  IDisposable surface; the decorators own no subscriptions).
 
 ## [2.4.0] — 2026-06-02
 
