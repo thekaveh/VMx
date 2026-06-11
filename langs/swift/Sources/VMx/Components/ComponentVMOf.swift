@@ -87,15 +87,11 @@ open class ComponentVMOf<Model>: ComponentVMBase {
 // the builder defaults to `==`. See `ComponentVMOfBuilder` for details.
 
 extension ComponentVMOf where Model: Equatable {
-    /// Equatable-aware builder convenience — pre-seeds `modelEquals` with
-    /// `==` so `ComponentVMOf<M>.builder()` callers don't need to pass an
-    /// explicit predicate. An explicit `.modelEquals(_:)` still overrides.
-    public static func builder() -> ComponentVMOfBuilder<Model> {
-        ComponentVMOfBuilder<Model>().modelEquals(==)
-    }
-
     /// Equatable-aware initializer convenience — defaults `modelEquals`
-    /// to `==`.
+    /// to `==`. (The builder path gets the same default via the
+    /// constraint-overloaded `ComponentVMOfBuilder.build()` — a static
+    /// `builder()` overload here made annotation-free call sites
+    /// ambiguous, which CI caught.)
     public convenience init(
         name: String,
         hint: String = "",

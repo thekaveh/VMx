@@ -86,6 +86,10 @@ public struct ComponentVMOfBuilder<Model> {
     }
 
     public func build() throws -> ComponentVMOf<Model> {
+        try _buildCore()
+    }
+
+    fileprivate func _buildCore() throws -> ComponentVMOf<Model> {
         guard let name = _name else {
             throw BuilderValidationError(missingField: "name")
         }
@@ -96,6 +100,9 @@ public struct ComponentVMOfBuilder<Model> {
             throw BuilderValidationError(missingField: "services")
         }
         let hinter = _modeledHinter ?? { _ in "" }
+        // Non-Equatable models default to an always-false predicate (every
+        // set publishes); Equatable models get `==` via the constrained
+        // `build()` overload below.
         let equals = _modelEquals ?? { _, _ in false }
         return ComponentVMOf<Model>(
             name: name,
@@ -110,5 +117,19 @@ public struct ComponentVMOfBuilder<Model> {
             onDestruct: _onDestruct,
             background: _background
         )
+    }
+}
+
+extension ComponentVMOfBuilder where Model: Equatable {
+    /// Equatable-aware `build()` — defaults `modelEquals` to `==` so
+    /// builder callers don't need to pass an explicit predicate. An
+    /// explicit `.modelEquals(_:)` still overrides. Constraint-overloaded
+    /// on the builder (not a static `builder()` variant) so call-site
+    /// resolution stays unambiguous.
+    public func build() throws -> ComponentVMOf<Model> {
+        if _modelEquals == nil {
+            return try modelEquals(==)._buildCore()
+        }
+        return try _buildCore()
     }
 }

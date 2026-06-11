@@ -56,10 +56,12 @@ final class ComponentVMTests: XCTestCase {
 
     /// CVM-003 — ReadonlyComponentVM exposes no usable Model setter.
     /// Swift cannot remove the inherited setter, so external writes trap
-    /// (ADR-0037); this verifies the dedicated readonly builder produces
-    /// the readonly type and internal updates flow through `_setModel`.
+    /// (ADR-0037); this verifies the dedicated readonly builder
+    /// (`ReadonlyComponentVMOfBuilder<Model>()` — the direct entry, since a
+    /// static `builder()` shadow is ambiguous/inexpressible in Swift)
+    /// produces the readonly type and internal updates flow via `_setModel`.
     func testCvm003ReadonlyBuilderProducesReadonlyVM() throws {
-        let vm = try ReadonlyComponentVMOf<Tab>.builder()
+        let vm = try ReadonlyComponentVMOfBuilder<Tab>()
             .name("r")
             .model(Tab(title: "fixed"))
             .withNullServices()

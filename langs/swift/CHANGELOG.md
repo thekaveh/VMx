@@ -33,8 +33,13 @@ Implements the spec-v2.5.0 subset (ADR-0037). 39 conformance IDs claimed
   `execute()` silently discarded. They are now wired to the spec/05 §5
   predicates/tasks with the status trigger driving `canExecuteChanged`.
 - `ReadonlyComponentVMOf.builder()` resolved to the inherited writable
-  builder and produced a writable VM; a dedicated
-  `ReadonlyComponentVMOfBuilder` now produces readonly VMs.
+  builder and produced a writable VM; the dedicated
+  `ReadonlyComponentVMOfBuilder<Model>()` is now the readonly entry point.
+  (A static `builder()` shadow on the subclass is not expressible in
+  Swift — a different-return variant is ambiguous at annotation-free call
+  sites and a same-signature redeclaration is an illegal static override —
+  so the inherited `builder()` still resolves and builds a value
+  statically typed `ComponentVMOf`; prefer the dedicated builder.)
 - `ComponentVMOf.builder()` actually defaults `modelEquals` to `==` for
   `Equatable` models, as the documentation always claimed (the builder
   previously fell back to an always-false predicate).

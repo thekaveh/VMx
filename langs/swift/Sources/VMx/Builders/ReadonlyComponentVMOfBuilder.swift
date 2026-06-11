@@ -83,6 +83,10 @@ public struct ReadonlyComponentVMOfBuilder<Model> {
     }
 
     public func build() throws -> ReadonlyComponentVMOf<Model> {
+        try _buildCore()
+    }
+
+    fileprivate func _buildCore() throws -> ReadonlyComponentVMOf<Model> {
         guard let name = _name else {
             throw BuilderValidationError(missingField: "name")
         }
@@ -107,5 +111,19 @@ public struct ReadonlyComponentVMOfBuilder<Model> {
             onDestruct: _onDestruct,
             background: _background
         )
+    }
+}
+
+extension ReadonlyComponentVMOfBuilder where Model: Equatable {
+    /// Equatable-aware `build()` — defaults `modelEquals` to `==` so
+    /// builder callers don't need to pass an explicit predicate. An
+    /// explicit `.modelEquals(_:)` still overrides. Constraint-overloaded
+    /// on the builder (not a static `builder()` variant) so call-site
+    /// resolution stays unambiguous.
+    public func build() throws -> ReadonlyComponentVMOf<Model> {
+        if _modelEquals == nil {
+            return try modelEquals(==)._buildCore()
+        }
+        return try _buildCore()
     }
 }
