@@ -143,6 +143,13 @@ export class NotebooksRootVM extends ComponentVMBase {
       .build();
     vm.construct();
     this.#all.push(vm);
+    // Real-wiring audit, pass 6: useVm re-renders only on
+    // PropertyChangedMessage — TreeStructureChangedMessage alone left the
+    // new notebook invisible until the next unrelated re-render.
+    this._hub.send(
+      PropertyChangedMessage.create(this, this._name, "roots"),
+    );
+    this._raisePropertyChanged("roots");
     this._hub.send(
       new TreeStructureChangedMessage(
         this,

@@ -77,7 +77,7 @@ export class NotebookVM extends ComponentVMBase {
     );
     this._raisePropertyChanged("model");
     this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "NotebookName"),
+      PropertyChangedMessage.create(this, this._name, "notebookName"),
     );
     this._raisePropertyChanged("notebookName");
   }
