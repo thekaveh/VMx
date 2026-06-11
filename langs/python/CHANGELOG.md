@@ -41,7 +41,10 @@ Implements `spec-v2.5.0` (ADR-0037).
 - `ObservableList.insert` emits the actual insertion index: in-range
   negatives normalize and out-of-range indexes clamp per stdlib
   `list.insert` semantics, instead of the raw argument leaking into the
-  `ItemAdded` payload (spec/21 §3.2).
+  `ItemAdded` payload (spec/21 §3.2). The same normalization applies to
+  `ServicedObservableCollection.insert`, `CompositeVM.insert`, and
+  `GroupVM.insert` (catalogued vs the C#/TS fail-fast contracts in
+  ADR-0009).
 - `FormVM`'s `on_approved` now emits the value that was actually
   persisted rather than the live model (parity with C#'s captured
   payload under a racing `set_model`).

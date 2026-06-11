@@ -50,6 +50,8 @@ Implements `spec-v2.5.0` (ADR-0037).
 - `ObservableList.insert` throws `RangeError` for out-of-bounds indexes
   (matching `removeAt`/`replace`) — `splice` silently normalized/clamped
   while the `itemAdded` payload carried the raw index (spec/21 §3.2).
+  `CompositeVM.insert` and `GroupVM.insert` get the same bounds check
+  (catalogued in ADR-0009).
 - `ServicedObservableCollection.splice(0, 0)` no longer emits a `Reset` for
   a mutation that never happened (spec/21 §2.4).
 - Post-2.4.0 maintenance backfill: `AggregateVM6` walk/dispose drift and the

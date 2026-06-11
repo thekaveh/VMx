@@ -140,7 +140,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             return -1
 
     def insert(self, index: int, item: VM) -> None:
-        """Insert *item* at *index*, shifting existing children right."""
+        """Insert *item* at *index*, shifting existing children right.
+
+        The emitted ``new_index`` is the actual insertion position (stdlib
+        semantics: negatives count from the end, out-of-range clamps).
+        """
+        if index < 0:
+            index = max(index + len(self._children), 0)
+        elif index > len(self._children):
+            index = len(self._children)
         self._children.insert(index, item)
         item._set_parent(self._as_parent())
         self._maybe_auto_construct(item)

@@ -199,7 +199,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         return self._children.index(value, start, stop)
 
     def insert(self, index: int, item: VM) -> None:
-        """Insert *item* before *index*, emitting a collection-changed event."""
+        """Insert *item* before *index*, emitting a collection-changed event
+        whose ``new_index`` is the actual insertion position (stdlib
+        semantics: negatives count from the end, out-of-range clamps).
+        """
+        if index < 0:
+            index = max(index + len(self._children), 0)
+        elif index > len(self._children):
+            index = len(self._children)
         self._children.insert(index, item)
         item._set_parent(self)
         self._maybe_auto_construct(item)

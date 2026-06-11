@@ -152,6 +152,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   insert(index: number, item: VM): void {
+    // splice would silently normalize/clamp while the emitted newIndex
+    // carried the raw argument (spec/21 §3.2); `length` appends.
+    if (index < 0 || index > this._children.length) {
+      throw new RangeError(`Index ${String(index)} out of range`);
+    }
     this._children.splice(index, 0, item);
     item._parent = this;
     this._maybeAutoConstruct(item);

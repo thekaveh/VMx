@@ -172,6 +172,20 @@ class TestGroupVMCollection:
         assert grp[0] is b
         assert grp[1] is a
 
+    def test_insert_negative_index_emits_effective_position(self) -> None:
+        """spec/21 §3.2: new_index carries the actual insertion position."""
+        grp, _ = _make_group()
+        a = _make_child("a")
+        b = _make_child("b")
+        c = _make_child("c")
+        grp.add(a)
+        grp.add(b)
+        events: list[CollectionChangedEvent] = []
+        grp.on_collection_changed.subscribe(events.append)
+        grp.insert(-1, c)
+        assert grp[1] is c
+        assert events[0].new_index == 1
+
     def test_remove_existing_returns_true(self) -> None:
         grp, _ = _make_group()
         child = _make_child()

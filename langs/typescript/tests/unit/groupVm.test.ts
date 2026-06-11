@@ -42,3 +42,24 @@ describe("GroupVM – lifecycle snapshot iteration", () => {
     expect(b.status).toBe(ConstructionStatus.Constructed);
   });
 });
+
+describe("GroupVM – insert bounds", () => {
+  it("throws RangeError out of bounds (length appends)", () => {
+    // splice would silently normalize/clamp while the emitted newIndex
+    // carried the raw argument (spec/21 §3.2).
+    const hub = makeHub();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("g")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    group.construct();
+
+    const a = ComponentVM.builder().name("a").services(hub, makeDisp()).build();
+    group.insert(0, a);
+    expect(group.count).toBe(1);
+    const b = ComponentVM.builder().name("b").services(hub, makeDisp()).build();
+    expect(() => group.insert(-1, b)).toThrow(RangeError);
+    expect(() => group.insert(3, b)).toThrow(RangeError);
+  });
+});

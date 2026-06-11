@@ -36,3 +36,22 @@ describe("CompositeVM – clear()", () => {
     expect(child.isCurrent).toBe(false);
   });
 });
+
+describe("CompositeVM – insert bounds", () => {
+  it("throws RangeError out of bounds (length appends)", () => {
+    // splice would silently normalize/clamp while the emitted newIndex
+    // carried the raw argument (spec/21 §3.2).
+    const hub = makeHub();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    composite.construct();
+
+    composite.insert(0, makeChild(hub, "a"));
+    expect(composite.count).toBe(1);
+    expect(() => composite.insert(-1, makeChild(hub, "b"))).toThrow(RangeError);
+    expect(() => composite.insert(3, makeChild(hub, "c2"))).toThrow(RangeError);
+  });
+});

@@ -114,6 +114,22 @@ def test_insert_emits_collection_changed_add_at_index() -> None:
     assert child_b in events[0].new_items
 
 
+def test_insert_negative_index_emits_effective_position() -> None:
+    """spec/21 §3.2: new_index carries the actual insertion position —
+    stdlib insert(-1) lands before the last child, not at raw -1."""
+    comp, _ = _build_composite()
+    comp.append(_build_child("a"))
+    comp.append(_build_child("b"))
+    child_c = _build_child("c")
+    events: list[CollectionChangedEvent] = []
+    comp.on_collection_changed.subscribe(events.append)
+
+    comp.insert(-1, child_c)
+
+    assert events[0].new_index == 1
+    assert comp[1] is child_c
+
+
 def test_clear_emits_collection_changed_reset() -> None:
     comp, _ = _build_composite()
     comp.append(_build_child("a"))

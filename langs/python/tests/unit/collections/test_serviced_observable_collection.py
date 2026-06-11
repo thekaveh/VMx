@@ -71,6 +71,20 @@ def test_no_hub_insert_emits_add() -> None:
 
     assert len(sut) == 3
     assert sut[1] == 20
+
+
+def test_insert_negative_index_emits_effective_position() -> None:
+    """spec/21 §3.2: the Add payload carries the actual insertion index."""
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection()
+    sut.append(10)
+    sut.append(30)
+    events: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(events.append)
+
+    sut.insert(-1, 20)
+
+    assert sut[1] == 20
+    assert events[-1].index == 1
     assert len(events) == 1
     assert events[0].action == "add"
     assert events[0].new_items == (20,)
