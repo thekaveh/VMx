@@ -102,6 +102,22 @@ TextArea:focus {
     margin: 0 1;
 }
 
+#pagination_row {
+    height: 3;
+}
+
+#pagination_row Button {
+    min-width: 5;
+    width: 5;
+    margin: 0;
+}
+
+#page_label {
+    width: 1fr;
+    height: 3;
+    content-align: center middle;
+}
+
 #notifications {
     dock: bottom;
     height: auto;

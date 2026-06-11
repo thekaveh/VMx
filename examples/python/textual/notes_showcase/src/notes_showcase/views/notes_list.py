@@ -4,7 +4,12 @@ Bindings (Phase 4.b adapter primitives only):
 
 * ``#search_input`` ↔ ``notes_view.search_term`` (two-way).
 * ``#starred_filter`` ↔ ``notes_view.show_starred_only`` (two-way).
-* ``ListView`` ↔ ``notes_view.inner`` via :func:`bind_collection`.
+* ``ListView`` rows ← ``notes_view.visible_items`` (the paged + filtered
+  view) via :func:`on_vm_property_change` — binding the raw ``inner`` list
+  left search / starred-filter / paging without any visible effect
+  (real-wiring audit, pass 5).
+* ``ListView`` selection → ``notes_view.current`` via
+  ``on_list_view_selected`` (drives the right-pane editor binding).
 * Pagination buttons ↔ ``move_to_*_page_command`` via :func:`bind_command`.
 
 Widget-class discipline: ``compose()`` + ``on_mount()`` + ``on_unmount()``
@@ -27,15 +32,34 @@ from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
 from notes_showcase.views.adapter import (
     bind_command,
     bind_derived_property,
-    bind_observable_list,
     bind_property_two_way,
+    on_vm_property_change,
 )
+
+# Every NotesViewVM signal that changes which rows are visible (or their
+# labels): filter/search recomputes and page moves.
+_ROW_SIGNALS = {"visible_items", "current_page_index", "page_count", "page_size"}
 
 
 def _note_list_item(note_vm: NoteVM) -> ListItem:
-    """Factory passed to :func:`bind_collection`."""
+    """Build one list row; the row remembers its VM for selection forwarding."""
     marker = "★ " if note_vm.starred else "  "
-    return ListItem(Label(f"{marker}{note_vm.title}"))
+    item = ListItem(Label(f"{marker}{note_vm.title}"))
+    item.note_vm = note_vm
+    return item
+
+
+def _rebuild_rows(view: "NotesListView") -> None:
+    list_view = view.query_one("#notes_list", ListView)
+    list_view.clear()
+    for note_vm in view._vm.visible_items:
+        list_view.append(_note_list_item(note_vm))
+
+
+def _forward_selection(vm: NotesViewVM, event: ListView.Selected) -> None:
+    note_vm = getattr(event.item, "note_vm", None)
+    if note_vm is not None:
+        vm.current = note_vm
 
 
 def _wire_bindings(view: "NotesListView") -> CompositeDisposable:
@@ -50,9 +74,7 @@ def _wire_bindings(view: "NotesListView") -> CompositeDisposable:
             vm,
             "show_starred_only",
         ),
-        bind_observable_list(
-            view.query_one("#notes_list", ListView), vm.inner, _note_list_item
-        ),
+        on_vm_property_change(vm, _ROW_SIGNALS, lambda _name: _rebuild_rows(view)),
         bind_command(
             view.query_one("#page_first", Button), vm.move_to_first_page_command
         ),
@@ -96,6 +118,9 @@ class NotesListView(Vertical):
 
     def on_mount(self) -> None:
         self._disposables = _wire_bindings(self)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        _forward_selection(self._vm, event)
 
     def on_unmount(self) -> None:
         self._disposables.dispose()

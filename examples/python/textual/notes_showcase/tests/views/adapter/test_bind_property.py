@@ -38,7 +38,7 @@ def test_bind_property_seeds_widget_with_current_value() -> None:
 
     sub = bind_property(widget, "renderable", vm, "title")
     try:
-        assert widget.renderable == "seed"
+        assert str(widget.content) == "seed"
     finally:
         sub.dispose()
 
@@ -49,7 +49,7 @@ def test_bind_property_updates_widget_when_vm_publishes() -> None:
     sub = bind_property(widget, "renderable", vm, "title")
     try:
         vm.set_title("after")
-        assert widget.renderable == "after"
+        assert str(widget.content) == "after"
     finally:
         sub.dispose()
 
@@ -63,7 +63,7 @@ def test_bind_property_ignores_messages_from_other_senders() -> None:
     sub = bind_property(widget, "renderable", vm, "title")
     try:
         other.set_title("other-changed")
-        assert widget.renderable == "mine"
+        assert str(widget.content) == "mine"
     finally:
         sub.dispose()
 
@@ -74,7 +74,7 @@ def test_bind_property_ignores_other_property_names() -> None:
     sub = bind_property(widget, "renderable", vm, "title")
     try:
         vm.hub.send(PropertyChangedMessage.create(vm, "stub", "unrelated"))
-        assert widget.renderable == "kept"
+        assert str(widget.content) == "kept"
     finally:
         sub.dispose()
 
@@ -85,7 +85,7 @@ def test_bind_property_dispose_stops_updates() -> None:
     sub = bind_property(widget, "renderable", vm, "title")
     sub.dispose()
     vm.set_title("t1")
-    assert widget.renderable == "t0"
+    assert str(widget.content) == "t0"
 
 
 def test_bind_property_two_way_pushes_widget_change_to_vm() -> None:

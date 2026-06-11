@@ -24,9 +24,16 @@ uv run --project examples/python/textual/notes_showcase python -m notes_showcase
 ```
 
 The first launch will resolve dependencies via `uv`; subsequent runs are
-fast. Tests live under `tests/` and run with
-`uv run --project examples/python/textual/notes_showcase pytest`. The
-package coverage gate is ≥ 90 % on `viewmodels/` + `views/adapter/`.
+fast. Tests live under `tests/` and run from inside the project directory
+(the coverage config in `pyproject.toml` resolves relative to the working
+directory):
+
+```bash
+cd examples/python/textual/notes_showcase
+uv run pytest
+```
+
+The package coverage gate is ≥ 90 % on `viewmodels/` + `views/adapter/`.
 
 ## Project layout
 

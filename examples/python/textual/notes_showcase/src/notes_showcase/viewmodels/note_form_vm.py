@@ -15,6 +15,7 @@ import dataclasses
 from datetime import datetime
 from typing import cast
 
+from reactivex import Observable
 from reactivex.abc import DisposableBase
 
 from vmx import (
@@ -94,16 +95,22 @@ class NoteFormVM(ComponentVM, IReconstructable):
             transform=lambda nf: ", ".join(cast(NoteFormVM, nf).tags),
         )
 
+        # Triggered by the self-subject so bound Buttons' disabled state
+        # tracks every draft/bind change — without a trigger,
+        # can_execute_changed never fired and the Save button stayed
+        # permanently disabled in the UI (real-wiring audit, pass 5).
         self._approve_command = (
             RelayCommand.builder()
             .predicate(lambda: self.is_dirty.value and self.is_valid.value)
             .task(self._approve_fire_and_forget)
+            .triggers(self._self_subject)
             .build()
         )
         self._add_tag_command = (
             RelayCommand.builder()
             .predicate(lambda: self.has_bound_note and bool(self._tag_draft.strip()))
             .task(self._add_tag)
+            .triggers(self._self_subject)
             .build()
         )
         # Parameterised remove-tag command — parity with C# RemoveTagCommand
@@ -116,12 +123,21 @@ class NoteFormVM(ComponentVM, IReconstructable):
             .task(self._remove_tag)
             .build()
         )
-        # No-op fallback returned by ``deny_command`` when no form is bound,
-        # so views can bind unconditionally. Matches C# ``_noopCommand``
-        # (NoteFormVM.cs:118) and TS ``#noopCommand`` (noteFormVM.ts:54).
-        self._noop_command: RelayCommand = (
-            RelayCommand.builder().task(lambda: None).build()
+        # Stable deny delegate: Textual's bind_command captures the command
+        # object once at mount, so returning a per-form (or no-op fallback)
+        # command from ``deny_command`` left the Revert button permanently
+        # wired to whatever was bound at mount time (real-wiring audit,
+        # pass 5). C#/TS re-resolve their bindings on every change
+        # notification, so their no-op-fallback pattern is safe there; here
+        # the property must hand out one object for the VM's lifetime.
+        self._deny_command: RelayCommand = (
+            RelayCommand.builder().task(self._deny_current).build()
         )
+        # Emits the persisted NoteModel after each successful save; the
+        # workspace uses it to refresh the note-list row labels.
+        from reactivex.subject import Subject as _Subject
+
+        self._on_saved: _Subject[NoteModel] = _Subject()
 
     # ── Convenience hub accessor ───────────────────────────────────────────
     @property
@@ -223,6 +239,8 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._tag_draft = value
         self._hub.send(PropertyChangedMessage.create(self, self._name, "tag_draft"))
         self._raise_property_changed("tag_draft")
+        # Nudge command predicates (add-tag gates on a non-empty draft).
+        self._self_subject.on_next(self)
 
     @property
     def approve_command(self) -> RelayCommand:
@@ -230,10 +248,15 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     @property
     def deny_command(self) -> RelayCommand:
-        if self._form is None:
-            # Return a permanent no-op command so views can bind unconditionally.
-            return self._noop_command
-        return self._form.deny_command
+        """Stable command that reverts the currently-bound form (no-op when
+        unbound) — one object for the VM's lifetime so a bind-once view stays
+        wired across form rebinds."""
+        return self._deny_command
+
+    @property
+    def on_saved(self) -> Observable[NoteModel]:
+        """Emits the persisted :class:`NoteModel` after each successful save."""
+        return self._on_saved
 
     @property
     def add_tag_command(self) -> RelayCommand:
@@ -305,7 +328,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             hub=self._hub,
             strict=True,
         )
-        form.on_approved.subscribe(on_next=lambda _: self._emit_draft_changes())
+        form.on_approved.subscribe(on_next=self._handle_approved)
         self._form = form
         # FormVM.deny_command reverts the inner model but does not know about
         # our derived properties — listen for FormRevertedMessage on the hub
@@ -363,6 +386,15 @@ class NoteFormVM(ComponentVM, IReconstructable):
                 )
             )
 
+    def _handle_approved(self, model: NoteModel) -> None:
+        self._emit_draft_changes()
+        self._on_saved.on_next(model)
+
+    def _deny_current(self) -> None:
+        form = self._form
+        if form is not None:
+            form.deny_command.execute()
+
     async def _persist(self, note: NoteModel) -> None:
         await self._repo.save_note(note)
 
@@ -380,9 +412,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # two-way bound via the adapter receive PropertyChangedMessage and
         # re-read. See Phase 5.b binding gap #1.
         # Round-3 Important B-I2 parity: also fire for ``approve_command`` /
-        # ``deny_command`` whose getters delegate to the inner ``_form`` (and
-        # to ``_noop_command`` before bind_to). Without this, bindings keep
-        # the stale references after the form is rebound.
+        # ``deny_command``. Both are stable objects now, but consumers that
+        # re-resolve on change notifications (C#/TS-style bindings) still
+        # expect the signal on rebinds.
         for prop in (
             "draft",
             "snapshot",
@@ -405,7 +437,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._approve_command.dispose()
         self._add_tag_command.dispose()
         self._remove_tag_command.dispose()
-        self._noop_command.dispose()
+        self._deny_command.dispose()
+        self._on_saved.on_completed()
+        self._on_saved.dispose()
         self._is_dirty.dispose()
         self._is_valid.dispose()
         self._tags_text.dispose()
