@@ -347,6 +347,131 @@ public sealed class WorkspaceVMTests
         }
     }
 
+    private sealed class FailingLoadRepository : INoteRepository
+    {
+        private readonly INoteRepository _inner;
+        private readonly string _failId;
+        public int FailedLoads;
+        public FailingLoadRepository(INoteRepository inner, string failId)
+        { _inner = inner; _failId = failId; }
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => _inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+        {
+            if (notebookId == _failId && FailedLoads++ == 0)
+            {
+                throw new InvalidOperationException("transient repo failure");
+            }
+            return _inner.LoadNotesAsync(notebookId, ct);
+        }
+        public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default) => _inner.SaveNoteAsync(note, ct);
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default) => _inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default) => _inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => _inner.ExportAsync(notebooks, notes, path, ct);
+    }
+
+    [Fact]
+    public async Task A_failed_notebook_bind_does_not_pin_the_selection()
+    {
+        // Pass-7: a throwing bind must clear _requestedNotebookId so the
+        // notebook stays selectable, and the fault must be observed.
+        var repo = new FailingLoadRepository(
+            new InMemoryNoteRepository(
+                SeedData.Build(),
+                loadAllDelay: TimeSpan.Zero,
+                loadNotesDelay: TimeSpan.Zero,
+                saveNoteDelay: TimeSpan.Zero,
+                addNotebookDelay: TimeSpan.Zero),
+            failId: "nb-personal");
+        var ws = WorkspaceVM.Builder().Repository(repo).Build();
+        await ws.ConstructAsync();
+        try
+        {
+            var personal = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id == "nb-personal");
+            ws.NotebooksRoot.Current = personal;
+            await Task.Delay(50);
+            Assert.Equal(1, repo.FailedLoads);
+            Assert.NotEqual("nb-personal", ws.NotesView.BoundNotebookId);
+
+            // Re-selecting after a failure must retry (the requested id was
+            // cleared). Bounce through another notebook so Current changes.
+            ws.NotebooksRoot.Current = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id == "nb-work");
+            await Task.Delay(50);
+            ws.NotebooksRoot.Current = personal;
+            await Task.Delay(50);
+            Assert.Equal("nb-personal", ws.NotesView.BoundNotebookId);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Construct_with_no_notebooks_still_enables_the_toolbar()
+    {
+        var repo = new InMemoryNoteRepository(
+            (Array.Empty<NotebookModel>(), Array.Empty<NoteModel>()),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero);
+        var ws = WorkspaceVM.Builder().Repository(repo).Build();
+        await ws.ConstructAsync();
+        try
+        {
+            Assert.True(ws.NewNotebookCommand.CanExecute(null));
+            Assert.False(ws.NewNoteCommand.CanExecute(null), "no current notebook yet");
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Export_command_writes_the_workspace_through_the_dialog_path()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"vmx-export-{Guid.NewGuid():N}.json");
+        var ws = WorkspaceVM.Builder()
+            .Repository(new InMemoryNoteRepository(
+                SeedData.Build(),
+                loadAllDelay: TimeSpan.Zero,
+                loadNotesDelay: TimeSpan.Zero,
+                saveNoteDelay: TimeSpan.Zero,
+                addNotebookDelay: TimeSpan.Zero,
+                exportDelay: TimeSpan.Zero))
+            .DialogService(new SaveDialogService(path))
+            .Build();
+        await ws.ConstructAsync();
+        try
+        {
+            ws.ExportCommand.Execute(null);
+            await Task.Delay(100);
+            Assert.True(File.Exists(path), "export must write through the picked path");
+        }
+        finally
+        {
+            ws.Dispose();
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    private sealed class SaveDialogService : IDialogService
+    {
+        private readonly string _path;
+        public SaveDialogService(string path) => _path = path;
+        public Task<string?> PickFileToOpen(FileFilter? filter, string? title)
+            => Task.FromResult<string?>(null);
+        public Task<string?> PickFileToSave(FileFilter? filter, string? title, string? suggestedName)
+            => Task.FromResult<string?>(_path);
+        public Task<bool> Confirm(string message, string? title = null)
+            => Task.FromResult(true);
+        public Task Notify(string message, string? title = null, NotificationSeverity severity = NotificationSeverity.Info)
+            => Task.CompletedTask;
+    }
+
     [Fact]
     public async Task Destruct_cascades_to_all_six_children()
     {
