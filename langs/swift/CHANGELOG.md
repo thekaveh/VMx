@@ -45,7 +45,9 @@ Implements the spec-v2.5.0 subset (ADR-0037). 39 conformance IDs claimed
   previously fell back to an always-false predicate).
 - A background construct/destruct racing `dispose()` could resurrect the VM
   and publish post-dispose status messages; `.disposed` is now terminal in
-  `_setStatus` and the scheduled work (spec/02 invariant 3).
+  `_setStatus` and the scheduled work (spec/02 invariant 3). The same
+  invariant now also gates the `_setIsCurrent` / `_setModel` hub sends,
+  which previously published from disposed VMs.
 - Conformance-ID citations in the test suite re-mapped against
   `spec/12-conformance.md` (~30 of 53 were shifted or vacuous).
 

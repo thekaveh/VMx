@@ -56,6 +56,8 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     /// gate writes while still using the same machinery.
     func _setModel(_ value: Model) {
         if modelEquals(_model, value) { return }
+        // spec/02 invariant 3: a disposed VM publishes nothing further.
+        guard status != .disposed else { return }
         _model = value
 
         hub.send(PropertyChangedMessage(

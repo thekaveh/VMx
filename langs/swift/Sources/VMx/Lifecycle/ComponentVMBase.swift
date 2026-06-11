@@ -159,6 +159,10 @@ open class ComponentVMBase {
     /// Internal setter used by containers to flip the flag.
     func _setIsCurrent(_ value: Bool) {
         guard _isCurrent != value else { return }
+        // spec/02 invariant 3: a disposed VM publishes nothing further —
+        // the trigger raise below was already gated, but the hub send was
+        // not (pass-7 review).
+        guard status != .disposed else { return }
         _isCurrent = value
         _raisePropertyChanged("isCurrent")
         hub.send(PropertyChangedMessage(
