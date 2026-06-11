@@ -11,7 +11,8 @@ business logic of their own.
 
 Allow-list (per-method):
 
-* ``__init__``, ``compose``, ``on_mount``, ``render`` — framework lifecycle.
+* ``__init__``, ``compose``, ``on_mount``, ``render``,
+  ``get_default_screen`` — framework lifecycle.
 * ``action_<name>`` — Textual key-binding actions. Body must be ≤ 1
   non-``pass`` statement so the heavy lifting lives in the bound command.
 * ``on_<event>`` — Textual event handlers (``on_button_pressed``,
@@ -36,7 +37,16 @@ import ast
 import sys
 from pathlib import Path
 
-LIFECYCLE_METHODS = {"__init__", "compose", "on_mount", "render"}
+# Framework-controlled lifecycle hooks: statement counts are exempt (Textual
+# decides when they run), but the hub rule still applies. get_default_screen
+# is the App-level screen-installation hook (screens are installed, never
+# composed — see NotesShowcaseApp).
+LIFECYCLE_METHODS = {"__init__", "compose", "on_mount", "render", "get_default_screen"}
+
+
+def _is_hub_name(name: str) -> bool:
+    lowered = name.lower()
+    return lowered == "hub" or lowered.endswith("_hub")
 
 
 def _is_hub_subscription(node: ast.stmt) -> bool:
@@ -64,11 +74,13 @@ def _is_hub_subscription(node: ast.stmt) -> bool:
     fn = call.func
     while isinstance(fn, ast.Attribute):
         if fn.attr == "subscribe":
-            # Walk back to see whether 'hub' appears in the attribute chain.
+            # Walk back to see whether a hub appears in the attribute chain.
+            # Word-anchored match ("hub" / "*_hub"), not a substring — a bare
+            # substring would flag e.g. `github.subscribe(...)`.
             walk = fn
             while isinstance(walk, ast.Attribute):
-                if "hub" in walk.attr.lower() or (
-                    isinstance(walk.value, ast.Name) and "hub" in walk.value.id.lower()
+                if _is_hub_name(walk.attr) or (
+                    isinstance(walk.value, ast.Name) and _is_hub_name(walk.value.id)
                 ):
                     return True
                 walk = walk.value  # type: ignore[assignment]
@@ -119,7 +131,7 @@ def check_module(path: Path) -> list[str]:
                 for stmt in ast.walk(item):
                     if isinstance(stmt, ast.stmt) and _is_hub_subscription(stmt):
                         violations.append(
-                            f"{path}:{item.lineno}: '{name}' subscribes to the hub "
+                            f"{path}:{stmt.lineno}: '{name}' subscribes to the hub "
                             f"directly (forbidden in views — use the adapter)"
                         )
                 continue
