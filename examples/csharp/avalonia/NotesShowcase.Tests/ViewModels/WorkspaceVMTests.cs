@@ -294,6 +294,59 @@ public sealed class WorkspaceVMTests
         }
     }
 
+    private sealed class SaveSpyRepository : INoteRepository
+    {
+        private readonly INoteRepository _inner;
+        public int SaveCalls;
+        public SaveSpyRepository(INoteRepository inner) => _inner = inner;
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => _inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => _inner.LoadNotesAsync(notebookId, ct);
+        public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref SaveCalls);
+            return _inner.SaveNoteAsync(note, ct);
+        }
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default)
+            => _inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default)
+            => _inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => _inner.ExportAsync(notebooks, notes, path, ct);
+    }
+
+    [Fact]
+    public async Task Capability_save_and_close_act_on_the_focused_note()
+    {
+        // Pins the OnSave/OnClose wiring in NotesViewVM.ReplaceItems — both
+        // capability-bar actions were silent no-ops before pass 6.
+        var spy = new SaveSpyRepository(new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero));
+        var ws = WorkspaceVM.Builder().Repository(spy).Build();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            ws.NotesView.Current = note;
+
+            note.SaveCommand.Execute(null);
+            await Task.Delay(50);
+            Assert.True(spy.SaveCalls > 0, "capability Save must reach the repository");
+
+            note.CloseCommand.Execute(null);
+            Assert.Null(ws.NotesView.Current);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
     [Fact]
     public async Task Destruct_cascades_to_all_six_children()
     {

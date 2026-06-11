@@ -161,8 +161,14 @@ public sealed class NotebooksRootVM
         foreach (var prev in _all) prev.Dispose();
         _all.Clear();
         _current = null;
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-        RaisePropertyChanged(nameof(Current));
+        // Marshal: this continuation runs off the UI thread after
+        // ConfigureAwait(false) and Current feeds a TwoWay TreeView binding
+        // (same rationale as the Roots raise below; pass-7 review).
+        _dispatcher.Foreground.Schedule(() =>
+        {
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
+            RaisePropertyChanged(nameof(Current));
+        });
 
         foreach (var nb in notebooks)
         {

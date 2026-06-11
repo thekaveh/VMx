@@ -66,10 +66,13 @@ class WorkspaceVM:
         self._repo = repository
         self._dialog_service = dialog_service
         # Notebook-bind race bookkeeping (see _fire_bind_notes): the id of
-        # the most recent bind request, and the id of a bind currently
-        # awaiting the repository.
+        # the most recent bind request, and a COUNTER of binds currently
+        # awaiting the repository. A counter, not an id — an id-keyed
+        # marker collides when two outstanding binds target the same
+        # notebook (B,A,B: the first B's cleanup erased the second B's
+        # marker and resurrected the race; pass-7 adversarial review).
         self._requested_notebook_id: str | None = None
-        self._inflight_notebook_id: str | None = None
+        self._inflight_binds: int = 0
         self._notification_hub = notification_hub
         self._hub = hub
         self._dispatcher = dispatcher
@@ -386,7 +389,7 @@ class WorkspaceVM:
                 return  # superseded by a newer selection before we ran
             if (
                 self.notes_view.bound_notebook_id == notebook_id
-                and self._inflight_notebook_id is None
+                and self._inflight_binds == 0
             ):
                 # Already bound and nothing racing: construct_async awaits
                 # the initial bind explicitly, so the task its own
@@ -396,12 +399,11 @@ class WorkspaceVM:
                 # superseding bind_to_async token must discard B's result
                 # (race confirmed by the pass-6 adversarial probe).
                 return
-            self._inflight_notebook_id = notebook_id
+            self._inflight_binds += 1
             try:
                 await self.notes_view.bind_to_async(notebook_id)
             finally:
-                if self._inflight_notebook_id == notebook_id:
-                    self._inflight_notebook_id = None
+                self._inflight_binds -= 1
 
         self._requested_notebook_id = notebook_id
         try:

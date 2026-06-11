@@ -148,7 +148,28 @@ describe("real wiring", () => {
   });
 
   it("capability-bar Save and Close act on the focused note", async () => {
-    const { workspace, dialog } = buildWorkspace();
+    // Spy on the repo so the Save assertion pins the onSave wiring (a
+    // reverted handler must fail this, not just the Close half).
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadAllDelayMs: 0,
+      loadNotesDelayMs: 0,
+      saveNoteDelayMs: 0,
+      deleteNoteDelayMs: 0,
+      addNotebookDelayMs: 0,
+      exportDelayMs: 0,
+    });
+    let saveCalls = 0;
+    const originalSave = repo.saveNote.bind(repo);
+    repo.saveNote = async (note) => {
+      saveCalls += 1;
+      await originalSave(note);
+    };
+    const dialog = new ReactDialogService();
+    const workspace = WorkspaceVM.builder()
+      .name("workspace")
+      .repository(repo)
+      .dialogService(dialog)
+      .build();
     await workspace.constructAsync();
     render(<App workspace={workspace} dialog={dialog} />);
 
@@ -160,6 +181,9 @@ describe("real wiring", () => {
     workspace.setFocus(current);
     const bar = await screen.findByRole("toolbar", { name: /actions/i });
     fireEvent.click(within(bar).getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(saveCalls).toBeGreaterThan(0);
+    });
     // Close clears the selection → editor unbinds.
     fireEvent.click(within(bar).getByRole("button", { name: "Close" }));
 

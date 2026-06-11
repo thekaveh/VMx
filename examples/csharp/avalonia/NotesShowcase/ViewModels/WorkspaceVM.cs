@@ -215,7 +215,7 @@ public sealed class WorkspaceVM : IDisposable
                 _commandTrigger.OnNext(System.Reactive.Unit.Default);
                 if (string.Equals(_requestedNotebookId, nb.Model.Id, StringComparison.Ordinal)) return;
                 _requestedNotebookId = nb.Model.Id;
-                _ = notesView.BindToAsync(nb.Model.Id);
+                _ = BindNotesObservedAsync(nb.Model.Id);
             });
 
         // Pass-6 real-wiring audit: row labels (Title proxy / star marker)
@@ -239,6 +239,25 @@ public sealed class WorkspaceVM : IDisposable
             .Task(() => _ = ExportInternalAsync())
             .Triggers(_commandTrigger)
             .Build();
+    }
+
+    private async Task BindNotesObservedAsync(string notebookId)
+    {
+        try
+        {
+            await NotesView.BindToAsync(notebookId).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A failed bind must not pin _requestedNotebookId to the failed
+            // id (the notebook would become permanently unselectable), and
+            // the fire-and-forget discard must not leave the fault
+            // unobserved (pass-7 review).
+            if (string.Equals(_requestedNotebookId, notebookId, StringComparison.Ordinal))
+            {
+                _requestedNotebookId = null;
+            }
+        }
     }
 
     private async Task AddNewNoteToCurrentAsync()

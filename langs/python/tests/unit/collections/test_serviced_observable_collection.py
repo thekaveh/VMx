@@ -71,6 +71,10 @@ def test_no_hub_insert_emits_add() -> None:
 
     assert len(sut) == 3
     assert sut[1] == 20
+    assert len(events) == 1
+    assert events[0].action == "add"
+    assert events[0].new_items == (20,)
+    assert events[0].index == 1
 
 
 def test_insert_negative_index_emits_effective_position() -> None:
