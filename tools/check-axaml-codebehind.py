@@ -62,7 +62,10 @@ def _strip_comments_and_strings(src: str) -> str:
 # Captures the right-hand call so we can validate it against _ALLOWED_STMT.
 _EXPR_BODIED_MEMBER = re.compile(
     r"(?:public|private|internal|protected|static|partial|sealed|override|virtual|\s)+"
-    r"[A-Za-z0-9_<>]+\s*\([^)]*\)\s*=>\s*([^;{}]+);"
+    # Method (`Name(args)`) OR property (`Name`) — an expression-bodied
+    # property previously slipped past both this regex and the leaf-brace
+    # scan (its body sits in a non-leaf brace region).
+    r"[A-Za-z0-9_<>]+(?:\s*\([^)]*\))?\s*=>\s*([^;{}]+);"
 )
 
 

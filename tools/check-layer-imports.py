@@ -59,7 +59,12 @@ FLAVORS = {
         # `import … from "../viewmodels/foo.js"` etc. We use the path
         # specifier directly (no package name); the layer is taken from path
         # segments after resolving against the importing file's directory.
-        "import_re": re.compile(r'^\s*import\s+(?:[^"\']+from\s+)?["\']([^"\']+)["\']'),
+        # Also match the closing line of a MULTI-LINE import
+        # (`} from "../views/x.js";`) — requiring the line to start with
+        # `import` silently exempted the prevailing multi-line style.
+        "import_re": re.compile(
+            r'^\s*(?:import\s+(?:[^"\']+from\s+)?|\}?\s*from\s+)["\']([^"\']+)["\']'
+        ),
         "layers": ["models", "viewmodels", "views"],
         "adapter_segment": "views/adapter",
     },
@@ -116,6 +121,10 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
 
     layers: list[str] = cfg["layers"]
     adapter_segment: str = cfg["adapter_segment"]
+    # Segment separator for the anchored adapter-exception check ("." for
+    # C#/Python namespaces, "/" for TS paths) — an unanchored startswith
+    # would also exempt e.g. `Views.AdapterEvil`.
+    sep = "/" if "/" in adapter_segment else "."
     violations: list[str] = []
 
     for src in base.rglob("*"):
@@ -158,7 +167,9 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
                     # Adapter sub-layer exception:
                     try:
                         resolved = (src.parent / target).resolve().relative_to(base)
-                        if adapter_segment in resolved.as_posix():
+                        # Anchored: "views/adapter" must appear as whole
+                        # segments, not as a prefix of e.g. "views/adapterx".
+                        if f"/{adapter_segment}/" in f"/{resolved.as_posix()}/":
                             continue
                     except (ValueError, OSError, RuntimeError):
                         pass
@@ -173,7 +184,7 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
                 if tgt_layer is None:
                     continue
                 # Adapter exception — `Views.Adapter.*` is allowed from VMs.
-                if target.startswith(adapter_segment):
+                if target == adapter_segment or target.startswith(adapter_segment + sep):
                     continue
                 if tgt_layer in forbidden_layers:
                     violations.append(
@@ -185,7 +196,7 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
                 tgt_layer = _python_layer_from_import(target, layers)
                 if tgt_layer is None:
                     continue
-                if target.startswith(adapter_segment):
+                if target == adapter_segment or target.startswith(adapter_segment + sep):
                     continue
                 if tgt_layer in forbidden_layers:
                     violations.append(

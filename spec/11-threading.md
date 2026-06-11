@@ -25,7 +25,7 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 | ---------- | ---------------------------------------------------------------------------------------- | --------------------------- |
 | C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default` |
 | Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`     |
-| TypeScript | `queueScheduler` (microtask)                                                             | `asapScheduler`             |
+| TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asapScheduler`             |
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.

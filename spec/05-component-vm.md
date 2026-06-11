@@ -136,7 +136,7 @@ toggle + change notification for VMs that want to opt in:
 
 ```
 ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
-    IsExpanded : bool                       # current state (read/write)
+    IsExpanded : bool                       # current state (read-only; mutate via Expand/Collapse/Toggle)
     Expand() / Collapse() / ToggleExpansion()
     IsExpandedChanged : Observable<bool>    # emits on every change
 ```

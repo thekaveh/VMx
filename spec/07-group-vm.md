@@ -10,6 +10,7 @@ members and commands.
 GroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
     # IComponentVM members:
     Name, Hint, Type=Group, IsCurrent, IsConstructed, Status,
+    SelectCommand, DeselectCommand, SelectNextCommand, SelectPreviousCommand,
     ReconstructCommand, can_construct/construct/..., can_select/select/...
 
     # IList<VM>:

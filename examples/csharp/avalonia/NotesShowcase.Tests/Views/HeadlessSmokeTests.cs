@@ -145,6 +145,11 @@ public sealed class HeadlessSmokeTests
             .Build();
         await workspace.ConstructAsync();
 
+        // NOTE: this smoke test binds after construct, so it covers the view
+        // plumbing only. The real App binds BEFORE ConstructAsync completes;
+        // that ordering depends on the Roots PropertyChanged raise, which is
+        // pinned by NotebooksRootVMTests.PopulateAsync_raises_PropertyChanged
+        // _for_Roots (the raise was missing and this test masked it).
         var window = new MainWindow { DataContext = workspace };
         window.Show();
         window.UpdateLayout();

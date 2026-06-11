@@ -57,8 +57,9 @@ renders, headless smoke covers it.
     Composition into `WorkspaceVM` as a 7th aggregate child is **deferred to a
     follow-up release** pending the `AggregateVM7` core-library extension — see
     `spec/proposals/2026-06-02-theme-vm-scenario.md` §8 and ADR-0036 §2.C / §4
-    decision #3. Today the host page subscribes to `ThemeVM.currentTheme`
-    directly. The `THEME-001..005` scenario IDs are tested in
+    decision #3. No host page is wired to the theme seam yet — consumers
+    exercising it construct a `ThemeVM` (+ per-framework `ThemeAdapter`)
+    directly, as the THEME tests do. The `THEME-001..005` scenario IDs are tested in
     `examples/<lang>/.../tests/` (not in `langs/<flavor>/tests/conformance/`)
     and are exempt from the library-coverage gate via the `_SCENARIO_PREFIXES`
     set in `tools/check-conformance-coverage.py`.

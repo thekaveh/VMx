@@ -111,5 +111,5 @@ See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
   `IExpandable.IsExpanded` is `false` (collapsed nodes contribute themselves
   but none of their descendants)
 - `ExpandableState` provides default values, `Expand`/`Collapse`/`Toggle`
-  operations, and a `Changes` observable, idempotent under repeat
+  operations, and an `IsExpandedChanged` observable, idempotent under repeat
   Expand/Collapse

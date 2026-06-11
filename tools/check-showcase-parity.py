@@ -40,6 +40,7 @@ EXPECTED = [
     "status_bar_vm",
     "notifications_vm",
     "capability_actions_vm",
+    "theme_vm",
     "in_memory_repository",
 ]
 

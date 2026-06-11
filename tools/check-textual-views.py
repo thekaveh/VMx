@@ -47,10 +47,18 @@ def _is_hub_subscription(node: ast.stmt) -> bool:
 
     * ``self._vm.hub.messages.subscribe(...)``
     * ``hub.subscribe(...)``
+    * ``self._sub = vm.hub.messages.subscribe(...)`` (assignment form)
     """
-    if not isinstance(node, ast.Expr):
+    # Unwrap the statement forms a subscription realistically takes — a bare
+    # expression, an assignment, or an annotated assignment. (Inspecting only
+    # ast.Expr made the check unreachable for real code, which stores the
+    # disposable.)
+    if isinstance(node, ast.Expr | ast.Assign):
+        call = node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        call = node.value
+    else:
         return False
-    call = node.value
     if not isinstance(call, ast.Call):
         return False
     fn = call.func
@@ -59,8 +67,8 @@ def _is_hub_subscription(node: ast.stmt) -> bool:
             # Walk back to see whether 'hub' appears in the attribute chain.
             walk = fn
             while isinstance(walk, ast.Attribute):
-                if walk.attr == "hub" or (
-                    isinstance(walk.value, ast.Name) and walk.value.id.lower() == "hub"
+                if "hub" in walk.attr.lower() or (
+                    isinstance(walk.value, ast.Name) and "hub" in walk.value.id.lower()
                 ):
                     return True
                 walk = walk.value  # type: ignore[assignment]
@@ -103,9 +111,17 @@ def check_module(path: Path) -> list[str]:
                 continue
             name = item.name
 
-            # Framework lifecycle — accept as-is (the framework controls when
-            # they run; their statement count is irrelevant to Pure-VM).
+            # Framework lifecycle — statement counts are exempt (the
+            # framework controls when they run), but the hub rule still
+            # applies: on_mount/__init__ are precisely where a forbidden
+            # direct subscription would naturally be wired.
             if name in LIFECYCLE_METHODS:
+                for stmt in ast.walk(item):
+                    if isinstance(stmt, ast.stmt) and _is_hub_subscription(stmt):
+                        violations.append(
+                            f"{path}:{item.lineno}: '{name}' subscribes to the hub "
+                            f"directly (forbidden in views — use the adapter)"
+                        )
                 continue
 
             real_stmts = _count_real_statements(item.body)
