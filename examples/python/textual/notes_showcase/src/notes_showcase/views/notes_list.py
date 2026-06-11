@@ -41,25 +41,26 @@ from notes_showcase.views.adapter import (
 _ROW_SIGNALS = {"visible_items", "current_page_index", "page_count", "page_size"}
 
 
-def _note_list_item(note_vm: NoteVM) -> ListItem:
-    """Build one list row; the row remembers its VM for selection forwarding."""
-    marker = "★ " if note_vm.starred else "  "
-    item = ListItem(Label(f"{marker}{note_vm.title}"))
-    item.note_vm = note_vm
-    return item
+class _NoteListItem(ListItem):
+    """List row that remembers its VM for selection forwarding."""
+
+    def __init__(self, note_vm: NoteVM) -> None:
+        marker = "★ " if note_vm.starred else "  "
+        super().__init__(Label(f"{marker}{note_vm.title}"))
+        self.note_vm = note_vm
 
 
 def _rebuild_rows(view: "NotesListView") -> None:
     list_view = view.query_one("#notes_list", ListView)
     list_view.clear()
     for note_vm in view._vm.visible_items:
-        list_view.append(_note_list_item(note_vm))
+        list_view.append(_NoteListItem(note_vm))
 
 
 def _forward_selection(vm: NotesViewVM, event: ListView.Selected) -> None:
-    note_vm = getattr(event.item, "note_vm", None)
-    if note_vm is not None:
-        vm.current = note_vm
+    item = event.item
+    if isinstance(item, _NoteListItem):
+        vm.current = item.note_vm
 
 
 def _wire_bindings(view: "NotesListView") -> CompositeDisposable:

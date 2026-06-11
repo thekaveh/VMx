@@ -115,8 +115,8 @@ def on_vm_property_change(
     property_names: str | set[str],
     callback: Callable[[str | None], None],
 ) -> DisposableBase:
-    """Invoke ``callback(property_name)`` on hub ``PropertyChangedMessage``\ s
-    from *vm* whose name is in *property_names*.
+    """Invoke ``callback(property_name)`` on hub ``PropertyChangedMessage``
+    events from *vm* whose name is in *property_names*.
 
     The free-form companion to :func:`bind_property` for views that must
     *react* (e.g. rebuild list rows) rather than assign a single attribute.
