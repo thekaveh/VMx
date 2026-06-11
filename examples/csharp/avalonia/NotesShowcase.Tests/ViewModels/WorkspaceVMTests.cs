@@ -190,6 +190,110 @@ public sealed class WorkspaceVMTests
         }
     }
 
+    // ── Pass-6 real-wiring regressions ───────────────────────────────────
+
+    [Fact]
+    public async Task Selecting_another_notebook_rebinds_the_notes_view()
+    {
+        // The tree's TwoWay SelectedItem binding only sets
+        // NotebooksRoot.Current — the workspace subscription must do the rest.
+        var ws = BuildWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var firstId = ws.NotesView.BoundNotebookId;
+            var other = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id != firstId);
+
+            ws.NotebooksRoot.Current = other;
+            await Task.Delay(50);
+
+            Assert.Equal(other.Model.Id, ws.NotesView.BoundNotebookId);
+            Assert.All(ws.NotesView.FilteredItems,
+                n => Assert.Equal(other.Model.Id, n.Model.NotebookId));
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Toolbar_commands_fire_CanExecuteChanged_after_construction()
+    {
+        // Avalonia caches CanExecute() from before construction finished;
+        // without a trigger the "+ Note" button stayed permanently disabled.
+        var ws = BuildWorkspace();
+        var changes = 0;
+        ws.NewNoteCommand.CanExecuteChanged += (_, _) => changes++;
+        Assert.False(ws.NewNoteCommand.CanExecute(null));
+
+        await ws.ConstructAsync();
+
+        try
+        {
+            Assert.True(changes > 0,
+                "CanExecuteChanged must fire so bound buttons re-evaluate");
+            Assert.True(ws.NewNoteCommand.CanExecute(null));
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Deny_reverts_and_republishes_the_draft_surface()
+    {
+        // The inner FormVM's Deny publishes with sender = FormVM, which the
+        // XAML bindings (keyed on NoteFormVM) never observe — the stable
+        // DenyCommand must re-emit this VM's own channels.
+        var ws = BuildWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            ws.NotesView.Current = note;
+            var original = ws.NoteForm.Title;
+            ws.NoteForm.Title = original + " (edited)";
+            Assert.True(ws.NoteForm.IsDirty);
+
+            var raised = new List<string>();
+            ws.NoteForm.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? "");
+            ws.NoteForm.DenyCommand.Execute(null);
+
+            Assert.False(ws.NoteForm.IsDirty);
+            Assert.Equal(original, ws.NoteForm.Title);
+            Assert.Contains(nameof(NoteFormVM.Title), raised);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Save_refreshes_the_list_rows_title_and_star()
+    {
+        var ws = BuildWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            ws.NotesView.Current = note;
+            ws.NoteForm.Title = "Retitled by test";
+            await ws.NoteForm.ApproveAsync();
+            await Task.Delay(50);
+
+            Assert.Equal("Retitled by test", note.Title);
+            Assert.Contains(ws.NotesView.FilteredItems,
+                n => n.Title == "Retitled by test");
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
     [Fact]
     public async Task Destruct_cascades_to_all_six_children()
     {

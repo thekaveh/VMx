@@ -41,16 +41,16 @@ public static class SeedData
             idx++;
         }
 
-        Add("nb-reviews",  "Q1 design review");
-        Add("nb-reviews",  "Auth migration plan", starred: true, "security", "q2");
-        Add("nb-reviews",  "Vendor shortlist");
-        Add("nb-reviews",  "Onboarding draft");
-        Add("nb-reviews",  "Privacy review notes");
-        Add("nb-reviews",  "Disaster recovery plan");
-        Add("nb-reviews",  "Cross-team review log", starred: true);
-        Add("nb-work",     "Standup notes");
-        Add("nb-work",     "Roadmap snapshot");
-        Add("nb-specs",    "MVx capability brief", starred: true);
+        Add("nb-reviews", "Q1 design review");
+        Add("nb-reviews", "Auth migration plan", starred: true, "security", "q2");
+        Add("nb-reviews", "Vendor shortlist");
+        Add("nb-reviews", "Onboarding draft");
+        Add("nb-reviews", "Privacy review notes");
+        Add("nb-reviews", "Disaster recovery plan");
+        Add("nb-reviews", "Cross-team review log", starred: true);
+        Add("nb-work", "Standup notes");
+        Add("nb-work", "Roadmap snapshot");
+        Add("nb-specs", "MVx capability brief", starred: true);
         Add("nb-personal", "Reading list");
         Add("nb-personal", "Travel ideas");
 

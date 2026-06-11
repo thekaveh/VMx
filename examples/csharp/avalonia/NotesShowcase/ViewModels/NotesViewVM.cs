@@ -208,13 +208,44 @@ public sealed class NotesViewVM
         {
             var notes = await _repo.LoadNotesAsync(notebookId, cts.Token).ConfigureAwait(false);
             if (cts.IsCancellationRequested) return;
-            BoundNotebookId = notebookId;
-            ReplaceItems(notes);
+            // ReplaceItems raises INPC into live XAML bindings and this
+            // continuation runs off the UI thread (ConfigureAwait(false)) —
+            // marshal (real-wiring audit, pass 6). With the test dispatcher
+            // (Immediate) this runs inline, keeping awaited binds
+            // deterministic.
+            _dispatcher.Foreground.Schedule(() =>
+            {
+                if (cts.IsCancellationRequested) return;
+                BoundNotebookId = notebookId;
+                ReplaceItems(notes);
+            });
         }
         catch (OperationCanceledException)
         {
             // Cancellation is normal when a newer BindToAsync supersedes us.
         }
+    }
+
+    /// <summary>
+    /// Refreshes the list row for <paramref name="note"/> after an external
+    /// update (save): re-seats the persisted model into the matching
+    /// <see cref="NoteVM"/> and re-runs the combined filter so row labels,
+    /// the star marker, and the starred filter reflect the saved values.
+    /// </summary>
+    public void RefreshNote(NoteModel note)
+    {
+        NoteVM? match = null;
+        foreach (var vm in _inner)
+        {
+            if (string.Equals(vm.Model.Id, note.Id, StringComparison.Ordinal))
+            {
+                match = vm;
+                break;
+            }
+        }
+        if (match is null) return;
+        match.Model = note;
+        RecomputeFiltered();
     }
 
     private void ReplaceItems(IReadOnlyList<NoteModel> notes)
@@ -233,7 +264,15 @@ public sealed class NotesViewVM
                 .Name($"note:{note.Id}")
                 .Services(_hub, _dispatcher)
                 .Model(note)
-                .OnDelete(DeleteNote);
+                .OnDelete(DeleteNote)
+                // Real-wiring audit, pass 6: the capability bar projects
+                // NoteVM.SaveCommand/CloseCommand, but nothing wired the
+                // handlers — both actions were silent no-ops.
+                .OnClose(vm =>
+                {
+                    if (ReferenceEquals(Current, vm)) Current = null;
+                })
+                .OnSave(vm => _ = _repo.SaveNoteAsync(vm.Model));
             if (_dialogService is not null)
             {
                 builder = builder.ConfirmDelete(n =>
@@ -279,21 +318,27 @@ public sealed class NotesViewVM
             // is dead code under test.
             return;
         }
-        var index = -1;
-        for (var i = 0; i < _inner.Count; i++)
+        // The continuation runs off the UI thread (ConfigureAwait(false));
+        // the mutations below raise INPC into live XAML bindings — marshal
+        // (real-wiring audit, pass 6).
+        _dispatcher.Foreground.Schedule(() =>
         {
-            if (ReferenceEquals(_inner[i], note)) { index = i; break; }
-        }
-        if (index < 0) return;
-        _inner.RemoveAt(index);
-        if (ReferenceEquals(_current, note))
-        {
-            _current = null;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-            RaisePropertyChanged(nameof(Current));
-        }
-        RecomputeFiltered();
-        note.Dispose();
+            var index = -1;
+            for (var i = 0; i < _inner.Count; i++)
+            {
+                if (ReferenceEquals(_inner[i], note)) { index = i; break; }
+            }
+            if (index < 0) return;
+            _inner.RemoveAt(index);
+            if (ReferenceEquals(_current, note))
+            {
+                _current = null;
+                Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
+                RaisePropertyChanged(nameof(Current));
+            }
+            RecomputeFiltered();
+            note.Dispose();
+        });
     }
 
     private void RecomputeFiltered()

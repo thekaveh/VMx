@@ -12,8 +12,9 @@ contract lives at
 this README documents how the C# implementation maps onto it.
 
 The app is strictly partitioned into Model / ViewModel / View directories.
-`Views/` is declarative-only — every `*.axaml.cs` code-behind is just
-`InitializeComponent()`, enforced by `tools/check-axaml-codebehind.py`.
+`Views/` is declarative-only — every `*.axaml.cs` code-behind is just the
+XAML loader call (`AvaloniaXamlLoader.Load(this)`), enforced by
+`tools/check-axaml-codebehind.py`.
 
 ## Run
 
@@ -32,7 +33,7 @@ and run via `dotnet test`.
 ```
 examples/csharp/avalonia/NotesShowcase/
 ├── NotesShowcase.csproj
-├── Program.cs                     ← composition root
+├── Program.cs                     ← process entry (composition root lives in App.BuildMainWindow)
 ├── App.axaml(.cs)                 ← Avalonia entrypoint
 ├── Models/
 │   ├── NotebookModel.cs, NoteModel.cs

@@ -1,5 +1,6 @@
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Aggregates;
 using VMx.Builders;
@@ -43,6 +44,20 @@ public sealed class WorkspaceVM : IDisposable
     // list). Without this the right-pane editor stays empty in the running
     // app — unit tests called BindTo directly, masking the gap.
     private readonly IDisposable _currentNoteSubscription;
+    // Pass-6 real-wiring audit: tree selection (TwoWay SelectedItem →
+    // NotebooksRoot.Current) previously updated nothing — the centre pane
+    // stayed on the first notebook forever.
+    private readonly IDisposable _notebookSubscription;
+    // Pass-6 real-wiring audit: refresh the saved note's list row.
+    private readonly IDisposable _savedNoteSubscription;
+    // Pushed whenever toolbar-command predicates may have flipped — without
+    // a trigger CanExecuteChanged never fired and Avalonia cached
+    // CanExecute()==false from before construction finished, leaving the
+    // "+ Note" button permanently disabled.
+    private readonly Subject<System.Reactive.Unit> _commandTrigger = new();
+    // Most recent notebook-bind request (set synchronously) — dedupes the
+    // construct-time duplicate without racing rapid A→B→A switches.
+    private string? _requestedNotebookId;
 
     /// <summary>Notebooks tree (Component1).</summary>
     public NotebooksRootVM NotebooksRoot => _agg.Component1!;
@@ -79,6 +94,7 @@ public sealed class WorkspaceVM : IDisposable
     public ICommand ExportCommand { get; }
 
     private object? _focused;
+    private bool _disposed;
 
     private void TrackFocus(object focused)
     {
@@ -86,6 +102,7 @@ public sealed class WorkspaceVM : IDisposable
         _focused = focused;
         // CapabilityActions needs to refresh when focus changes.
         CapabilityActions.RecomputeActions();
+        _commandTrigger.OnNext(System.Reactive.Unit.Default);
     }
 
     private WorkspaceVM(
@@ -112,6 +129,7 @@ public sealed class WorkspaceVM : IDisposable
             .Build();
         var notesView = NotesViewVM.Builder()
             .Name("notes").Services(hub, dispatcher).Repository(repo).PageSize(5)
+            .SearchScheduler(TaskPoolScheduler.Default)
             .DialogService(dialogService)
             .NotificationHub(notificationHub)
             .Build();
@@ -180,17 +198,46 @@ public sealed class WorkspaceVM : IDisposable
                 }
             });
 
+        // Pass-6 real-wiring audit: mirror the _currentNoteSubscription
+        // pattern for notebook selection — the tree's TwoWay SelectedItem
+        // binding sets NotebooksRoot.Current, and everything downstream
+        // (focus, capability projection, notes rebind) flows from here.
+        _notebookSubscription = notebooks.Hub.Messages
+            .OfType<PropertyChangedMessage<IComponentVM>>()
+            .Where(m => ReferenceEquals(m.Sender, notebooks)
+                && string.Equals(m.PropertyName, nameof(NotebooksRootVM.Current), StringComparison.Ordinal))
+            .ObserveOn(_dispatcher.Foreground)
+            .Subscribe(msg =>
+            {
+                var nb = notebooks.Current;
+                if (nb is null) return;
+                TrackFocus(nb);
+                _commandTrigger.OnNext(System.Reactive.Unit.Default);
+                if (string.Equals(_requestedNotebookId, nb.Model.Id, StringComparison.Ordinal)) return;
+                _requestedNotebookId = nb.Model.Id;
+                _ = notesView.BindToAsync(nb.Model.Id);
+            });
+
+        // Pass-6 real-wiring audit: row labels (Title proxy / star marker)
+        // were construction-time snapshots and went stale after every save.
+        _savedNoteSubscription = noteForm.OnSaved
+            .ObserveOn(_dispatcher.Foreground)
+            .Subscribe(notesView.RefreshNote);
+
         NewNotebookCommand = RelayCommand.Builder()
             .Predicate(() => IsConstructed)
             .Task(() => _ = NotebooksRoot.AddNotebookAsync(parentId: null, name: "New Notebook"))
+            .Triggers(_commandTrigger)
             .Build();
         NewNoteCommand = RelayCommand.Builder()
             .Predicate(() => IsConstructed && NotebooksRoot.Current is not null)
             .Task(() => _ = AddNewNoteToCurrentAsync())
+            .Triggers(_commandTrigger)
             .Build();
         ExportCommand = RelayCommand.Builder()
             .Predicate(() => IsConstructed)
             .Task(() => _ = ExportInternalAsync())
+            .Triggers(_commandTrigger)
             .Build();
     }
 
@@ -237,9 +284,28 @@ public sealed class WorkspaceVM : IDisposable
         var first = NotebooksRoot.Roots.FirstOrDefault();
         if (first is not null)
         {
-            NotebooksRoot.Current = first;
-            TrackFocus(first);
+            // Bind BEFORE assigning Current (the notebook subscription
+            // dedupes on _requestedNotebookId), and marshal the
+            // INPC-raising tail — this continuation runs on a pool thread
+            // after ConfigureAwait(false) and Current feeds a TwoWay
+            // TreeView binding (real-wiring audit, pass 6).
+            _requestedNotebookId = first.Model.Id;
             await NotesView.BindToAsync(first.Model.Id).ConfigureAwait(false);
+            _dispatcher.Foreground.Schedule(() =>
+            {
+                if (_disposed) return; // queued tail may outlive the workspace
+                NotebooksRoot.Current = first;
+                TrackFocus(first);
+                _commandTrigger.OnNext(System.Reactive.Unit.Default);
+            });
+        }
+        else
+        {
+            _dispatcher.Foreground.Schedule(() =>
+            {
+                if (_disposed) return;
+                _commandTrigger.OnNext(System.Reactive.Unit.Default);
+            });
         }
     }
 
@@ -252,7 +318,12 @@ public sealed class WorkspaceVM : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        _disposed = true;
         _currentNoteSubscription.Dispose();
+        _notebookSubscription.Dispose();
+        _savedNoteSubscription.Dispose();
+        _commandTrigger.OnCompleted();
+        _commandTrigger.Dispose();
         (NewNotebookCommand as IDisposable)?.Dispose();
         (NewNoteCommand as IDisposable)?.Dispose();
         (ExportCommand as IDisposable)?.Dispose();
