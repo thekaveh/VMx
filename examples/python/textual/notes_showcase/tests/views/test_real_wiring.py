@@ -241,6 +241,43 @@ async def test_late_bound_dialog_service_reaches_delete_confirmation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rapid_notebook_switch_lands_on_the_last_selection() -> None:
+    """A→B→A: the superseding selection must win even with a bind to B
+    mid-await (pass-6 adversarial probe confirmed the original dedupe
+    raced and left the notes pane on B while the tree said A)."""
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.05,
+    )
+    workspace = (
+        WorkspaceVM.builder()
+        .repository(repo)
+        .dialog_service(NullDialogService())
+        .build()
+    )
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        nb_a = workspace.notebooks_root.current
+        assert nb_a is not None
+        nb_b = next(
+            nb
+            for nb in workspace.notebooks_root.roots
+            if nb.model.id != nb_a.model.id
+        )
+
+        workspace.notebooks_root.current = nb_b
+        workspace.notebooks_root.current = nb_a
+        await pilot.pause(0.4)
+        await _settle(pilot)
+
+        assert workspace.notebooks_root.current is nb_a
+        assert workspace.notes_view.bound_notebook_id == nb_a.model.id
+
+
+@pytest.mark.asyncio
 async def test_mouse_click_reaches_a_bound_command() -> None:
     """bind_command must intercept the click path, not just the Enter key."""
     workspace, _repo = _build_workspace()

@@ -65,6 +65,11 @@ class WorkspaceVM:
     ) -> None:
         self._repo = repository
         self._dialog_service = dialog_service
+        # Notebook-bind race bookkeeping (see _fire_bind_notes): the id of
+        # the most recent bind request, and the id of a bind currently
+        # awaiting the repository.
+        self._requested_notebook_id: str | None = None
+        self._inflight_notebook_id: str | None = None
         self._notification_hub = notification_hub
         self._hub = hub
         self._dispatcher = dispatcher
@@ -377,13 +382,28 @@ class WorkspaceVM:
     # ── Command fire-and-forget wrappers ───────────────────────────────────
     def _fire_bind_notes(self, notebook_id: str) -> None:
         async def _bind() -> None:
-            # construct_async awaits the initial bind explicitly; skip the
-            # duplicate load its own current-assignment queues through the
-            # notebook-selection subscription.
-            if self.notes_view.bound_notebook_id == notebook_id:
+            if self._requested_notebook_id != notebook_id:
+                return  # superseded by a newer selection before we ran
+            if (
+                self.notes_view.bound_notebook_id == notebook_id
+                and self._inflight_notebook_id is None
+            ):
+                # Already bound and nothing racing: construct_async awaits
+                # the initial bind explicitly, so the task its own
+                # current-assignment queues must not reload. The in-flight
+                # check matters for A→B→A: with a bind to B mid-await,
+                # "bound is still A" does NOT mean A needs no rebind — the
+                # superseding bind_to_async token must discard B's result
+                # (race confirmed by the pass-6 adversarial probe).
                 return
-            await self.notes_view.bind_to_async(notebook_id)
+            self._inflight_notebook_id = notebook_id
+            try:
+                await self.notes_view.bind_to_async(notebook_id)
+            finally:
+                if self._inflight_notebook_id == notebook_id:
+                    self._inflight_notebook_id = None
 
+        self._requested_notebook_id = notebook_id
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(_bind())

@@ -53,8 +53,16 @@ class _NoteListItem(ListItem):
 def _rebuild_rows(view: "NotesListView") -> None:
     list_view = view.query_one("#notes_list", ListView)
     list_view.clear()
-    for note_vm in view._vm.visible_items:
+    current = view._vm.current
+    current_index: int | None = None
+    for i, note_vm in enumerate(view._vm.visible_items):
         list_view.append(_NoteListItem(note_vm))
+        if note_vm is current:
+            current_index = i
+    # Restore the highlight: every save rebuilds the rows (on_saved →
+    # refresh_note → "visible_items"), which would otherwise drop the
+    # selection while the editor stays bound.
+    list_view.index = current_index
 
 
 def _forward_selection(vm: NotesViewVM, event: ListView.Selected) -> None:
