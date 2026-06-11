@@ -263,9 +263,7 @@ async def test_rapid_notebook_switch_lands_on_the_last_selection() -> None:
         nb_a = workspace.notebooks_root.current
         assert nb_a is not None
         nb_b = next(
-            nb
-            for nb in workspace.notebooks_root.roots
-            if nb.model.id != nb_a.model.id
+            nb for nb in workspace.notebooks_root.roots if nb.model.id != nb_a.model.id
         )
 
         workspace.notebooks_root.current = nb_b
