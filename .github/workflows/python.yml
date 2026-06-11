@@ -38,7 +38,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
-          version: latest
+          version: "0.11.19"
           enable-cache: true
           # uv.lock is gitignored in this repo (library project, no committed lock);
           # cache key derives purely from the manifest. If a lockfile is committed
@@ -92,7 +92,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
-          version: latest
+          version: "0.11.19"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/textual/notes_showcase/pyproject.toml
@@ -136,7 +136,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
-          version: latest
+          version: "0.11.19"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/textual/inspector/pyproject.toml

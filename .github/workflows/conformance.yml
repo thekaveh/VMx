@@ -8,18 +8,22 @@ on:
     branches: [main]
     paths:
       - "spec/**"
+      - "docs/**"
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
       - "langs/python/pyproject.toml"
       - "tools/**"
+      - ".pre-commit-config.yaml"
       - ".github/workflows/conformance.yml"
   pull_request:
     paths:
       - "spec/**"
+      - "docs/**"
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
       - "langs/python/pyproject.toml"
       - "tools/**"
+      - ".pre-commit-config.yaml"
       - ".github/workflows/conformance.yml"
   workflow_dispatch:
 
@@ -32,7 +36,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
-          version: latest
+          version: "0.11.19"
 
       - name: Set up Python
         run: uv python install 3.12
@@ -58,6 +62,18 @@ jobs:
 
       - name: Run tool's own unit tests
         run: uv --project langs/python run pytest tools/tests/ -v
+
+      - name: mdformat check (spec/ + docs/)
+        # CI backstop for the pre-commit mdformat hook — contributors without
+        # hooks installed could otherwise land mis-formatted markdown. Pinned
+        # to the same 0.7.x + plugins as .pre-commit-config.yaml (mdformat 1.0
+        # is incompatible with mdformat-gfm). Tracked files only, matching the
+        # hook's ^(spec|docs)/.*\.md$ scope.
+        run: |
+          git ls-files 'spec/*.md' 'spec/**/*.md' 'docs/**/*.md' \
+            | xargs uv --project langs/python run \
+                --with "mdformat==0.7.22" --with mdformat-gfm --with mdformat-tables \
+                mdformat --check
 
       - name: Enforce conformance coverage (csharp + python + typescript)
         # The csharp / python / typescript flavors ship at the current spec

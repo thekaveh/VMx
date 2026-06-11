@@ -25,7 +25,6 @@ on:
       - "tools/check-showcase-parity.py"
       - ".github/workflows/examples-contract-checks.yml"
   pull_request:
-    branches: [main]
     paths:
       - "examples/**"
       - "tools/check-axaml-codebehind.py"
