@@ -93,7 +93,15 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
             self._emit(CollectionChangedMessage.for_remove(self, item, index))
 
     def insert(self, index: int, value: T) -> None:
-        """Insert *value* before *index*."""
+        """Insert *value* before *index* (stdlib semantics: negative indexes
+        count from the end; out-of-range indexes clamp like
+        :meth:`list.insert`). The emitted payload carries the actual
+        insertion index (spec/21 §3.2).
+        """
+        if index < 0:
+            index = max(index + len(self._items), 0)
+        elif index > len(self._items):
+            index = len(self._items)
         self._items.insert(index, value)
         self._emit(CollectionChangedMessage.for_add(self, value, index))
 

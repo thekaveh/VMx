@@ -23,6 +23,7 @@ public sealed class NotificationsVM : ComponentVMBase
     public const int DefaultCap = 5;
 
     private readonly INotificationHub _notificationHub;
+    private readonly IDispatcher _dispatcher;
     private readonly IScheduler _scheduler;
     private readonly TimeSpan? _lifespan;
     private readonly int _cap;
@@ -55,6 +56,7 @@ public sealed class NotificationsVM : ComponentVMBase
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _notificationHub = notificationHub;
+        _dispatcher = dispatcher;
         _scheduler = scheduler;
         _lifespan = lifespan;
         _cap = cap;
@@ -63,7 +65,13 @@ public sealed class NotificationsVM : ComponentVMBase
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
-        _pendingSub = _notificationHub.Pending.Subscribe(SyncFromPending);
+        // Pass-6 real-wiring audit: posts arrive from background
+        // continuations and auto-dismiss timers (pool threads), and
+        // SyncFromPending mutates the ItemsSource-bound collection — INCC
+        // off the UI thread crashes Avalonia. Marshal.
+        _pendingSub = _notificationHub.Pending
+            .ObserveOn(_dispatcher.Foreground)
+            .Subscribe(SyncFromPending);
         base.OnConstruct();
     }
 

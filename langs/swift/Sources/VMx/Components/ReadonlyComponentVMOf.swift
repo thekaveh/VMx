@@ -30,4 +30,15 @@ open class ReadonlyComponentVMOf<Model>: ComponentVMOf<Model> {
             )
         }
     }
+
+    // The readonly builder entry point is `ReadonlyComponentVMOfBuilder<Model>()`
+    // directly. A subclass `builder()` shadow is not expressible: a
+    // different-return variant makes every annotation-free call ambiguous
+    // against the inherited `ComponentVMOf.builder()` (no derived-type
+    // preference for static members), and a same-signature redeclaration —
+    // even `@available(*, unavailable)` — is rejected as an illegal static
+    // override. Note that the *inherited* `builder()` therefore still
+    // resolves here and produces a WRITABLE `ComponentVMOf<Model>`; the
+    // result is statically typed as such, so it cannot masquerade as
+    // readonly, but prefer the dedicated builder.
 }

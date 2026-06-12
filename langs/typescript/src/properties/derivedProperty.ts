@@ -70,7 +70,91 @@ export interface DerivedFromSourcesOptions<TValue> {
   setAction?: (value: TValue) => void;
 }
 
-/** Build a DerivedProperty from N source observables. */
+/** Build a DerivedProperty from one typed source (ADR-0035 §2 DP2). */
+export function fromOne<T1, TValue>(
+  s1: Observable<T1>,
+  transform: (v1: T1) => TValue,
+  opts?: DerivedFromSourcesOptions<TValue>,
+): DerivedProperty<TValue> {
+  return new DerivedProperty<TValue>(
+    s1.pipe(map((v1) => transform(v1))),
+    opts?.canSet ?? null,
+    opts?.setAction ?? null,
+  );
+}
+
+/** Build a DerivedProperty from two typed sources (ADR-0035 §2 DP2). */
+export function fromTwo<T1, T2, TValue>(
+  s1: Observable<T1>,
+  s2: Observable<T2>,
+  transform: (v1: T1, v2: T2) => TValue,
+  opts?: DerivedFromSourcesOptions<TValue>,
+): DerivedProperty<TValue> {
+  return new DerivedProperty<TValue>(
+    combineLatest([s1, s2]).pipe(map(([v1, v2]) => transform(v1, v2))),
+    opts?.canSet ?? null,
+    opts?.setAction ?? null,
+  );
+}
+
+/** Build a DerivedProperty from three typed sources (ADR-0035 §2 DP2). */
+export function fromThree<T1, T2, T3, TValue>(
+  s1: Observable<T1>,
+  s2: Observable<T2>,
+  s3: Observable<T3>,
+  transform: (v1: T1, v2: T2, v3: T3) => TValue,
+  opts?: DerivedFromSourcesOptions<TValue>,
+): DerivedProperty<TValue> {
+  return new DerivedProperty<TValue>(
+    combineLatest([s1, s2, s3]).pipe(
+      map(([v1, v2, v3]) => transform(v1, v2, v3)),
+    ),
+    opts?.canSet ?? null,
+    opts?.setAction ?? null,
+  );
+}
+
+/** Build a DerivedProperty from four typed sources (ADR-0035 §2 DP2). */
+export function fromFour<T1, T2, T3, T4, TValue>(
+  s1: Observable<T1>,
+  s2: Observable<T2>,
+  s3: Observable<T3>,
+  s4: Observable<T4>,
+  transform: (v1: T1, v2: T2, v3: T3, v4: T4) => TValue,
+  opts?: DerivedFromSourcesOptions<TValue>,
+): DerivedProperty<TValue> {
+  return new DerivedProperty<TValue>(
+    combineLatest([s1, s2, s3, s4]).pipe(
+      map(([v1, v2, v3, v4]) => transform(v1, v2, v3, v4)),
+    ),
+    opts?.canSet ?? null,
+    opts?.setAction ?? null,
+  );
+}
+
+/** Build a DerivedProperty from five typed sources (ADR-0035 §2 DP2). */
+export function fromFive<T1, T2, T3, T4, T5, TValue>(
+  s1: Observable<T1>,
+  s2: Observable<T2>,
+  s3: Observable<T3>,
+  s4: Observable<T4>,
+  s5: Observable<T5>,
+  transform: (v1: T1, v2: T2, v3: T3, v4: T4, v5: T5) => TValue,
+  opts?: DerivedFromSourcesOptions<TValue>,
+): DerivedProperty<TValue> {
+  return new DerivedProperty<TValue>(
+    combineLatest([s1, s2, s3, s4, s5]).pipe(
+      map(([v1, v2, v3, v4, v5]) => transform(v1, v2, v3, v4, v5)),
+    ),
+    opts?.canSet ?? null,
+    opts?.setAction ?? null,
+  );
+}
+
+/**
+ * Build a DerivedProperty from N source observables.
+ * `fromMany` is the parity alias (Python `from_many`).
+ */
 export function fromSources<TValue>(
   sources: Observable<unknown>[],
   transform: (...values: unknown[]) => TValue,
@@ -93,3 +177,6 @@ export function fromSources<TValue>(
     opts?.setAction ?? null,
   );
 }
+
+/** Parity alias of {@link fromSources} (Python `from_many`, C# `FromMany`). */
+export const fromMany = fromSources;

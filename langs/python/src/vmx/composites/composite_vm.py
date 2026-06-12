@@ -199,7 +199,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         return self._children.index(value, start, stop)
 
     def insert(self, index: int, item: VM) -> None:
-        """Insert *item* before *index*, emitting a collection-changed event."""
+        """Insert *item* before *index*, emitting a collection-changed event
+        whose ``new_index`` is the actual insertion position (stdlib
+        semantics: negatives count from the end, out-of-range clamps).
+        """
+        if index < 0:
+            index = max(index + len(self._children), 0)
+        elif index > len(self._children):
+            index = len(self._children)
         self._children.insert(index, item)
         item._set_parent(self)
         self._maybe_auto_construct(item)
@@ -239,7 +246,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         for child in self._children:
             child._set_parent(None)
         self._children.clear()
-        self._current = None
+        # Route through _set_current (mirrors C# Clear / _remove_at): a bare
+        # `self._current = None` left the old current child's is_current True
+        # and skipped the "current" property notification.
+        self._set_current(None, async_sel=False)
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def copy_to(self, target: list[VM], array_index: int) -> None:

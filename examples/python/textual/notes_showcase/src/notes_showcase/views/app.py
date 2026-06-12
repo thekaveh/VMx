@@ -8,7 +8,7 @@ commands.
 
 from __future__ import annotations
 
-from textual.app import App, ComposeResult
+from textual.app import App
 from textual.binding import Binding
 from textual.widgets import Input
 
@@ -32,8 +32,11 @@ class NotesShowcaseApp(App[None]):
         super().__init__()
         self.workspace = workspace
 
-    def compose(self) -> ComposeResult:
-        yield MainScreen(self.workspace)
+    def get_default_screen(self) -> MainScreen:
+        # Screens are installed, never composed: yielding a Screen from
+        # ``compose()`` mounts it as a zero-sized child widget and the whole
+        # app renders blank (real-wiring audit, pass 5).
+        return MainScreen(self.workspace)
 
     async def action_save(self) -> None:
         self.workspace.note_form.approve_command.execute()

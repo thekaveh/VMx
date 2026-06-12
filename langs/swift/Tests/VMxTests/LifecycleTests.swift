@@ -1,10 +1,9 @@
 //
-// Lifecycle conformance tests (LIFE-001..LIFE-013).
+// Lifecycle conformance tests.
 //
-// Skeleton subset of spec/12-conformance.md §Lifecycle. Some IDs that
-// rely on a fixture-backed transition table (LIFE-011) are stubbed to
-// the skeleton's hand-rolled table; full LIFE-011 fixture parity lands
-// in a follow-up PR.
+// Claimed IDs: LIFE-001..007, 009, 010, 012, 013 (LIFE-005/006 assert the
+// gating predicates — the raise itself is a trap per ADR-0037). LIFE-008
+// and LIFE-011 are NOT claimed; see the per-test notes.
 //
 import XCTest
 import Combine
@@ -94,16 +93,18 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(vm.status, .disposed)
     }
 
-    /// LIFE-005 — construct from Disposed is forbidden. Skeleton uses
-    /// `preconditionFailure` for illegal transitions, so we can only
-    /// assert the gating predicate.
+    /// LIFE-005 — construct from Disposed is forbidden. Swift surfaces the
+    /// raise as a trap (documented divergence, ADR-0037), so the test
+    /// asserts the gating predicate.
     func testLife005CannotConstructFromDisposed() {
         let vm = makeVM()
         vm.dispose()
         XCTAssertFalse(vm.canConstruct())
     }
 
-    /// LIFE-006 — destruct from Disposed is forbidden.
+    /// LIFE-006 — destruct from Disposed is forbidden. Swift surfaces the
+    /// raise as a trap (documented divergence, ADR-0037), so the test
+    /// asserts the gating predicate.
     func testLife006CannotDestructFromDisposed() {
         let vm = makeVM()
         vm.dispose()
@@ -122,11 +123,12 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(vm.isConstructed, vm.status == .constructed)
     }
 
-    /// LIFE-008 — concurrent construct while transitioning is forbidden.
-    /// The synchronous immediate dispatcher cannot drive a true mid-
-    /// transition state; we assert the gate via `canConstruct` after a
-    /// completed call (post-LIFE-001 state).
-    func testLife008CanConstructTrueAfterCompletedCycle() {
+    /// Post-cycle gate check: `canConstruct()` is true from `.constructed`
+    /// (the idempotency case — see LIFE-009). LIFE-008 (concurrent
+    /// operation raises) is NOT claimed by this flavor: the in-flight
+    /// guard traps rather than throws (ADR-0037) and the synchronous
+    /// dispatcher cannot hold a mid-transition state to observe.
+    func testCanConstructTrueAfterCompletedCycle() {
         let vm = makeVM()
         vm.construct()
         // Currently `.constructed`. Per the canConstruct() contract this
@@ -169,11 +171,11 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// LIFE-011 — Lifecycle transition table matches fixture.
-    /// Skeleton assertion: validate the small hand-rolled table against
-    /// the spec-required positive cases. Fixture-driven parity ships
-    /// in a follow-up PR.
-    func testLife011HandRolledLegalTransitions() {
+    /// Transition-table positive cases against the hand-rolled table.
+    /// LIFE-011 (table matches `lifecycle-transitions.json`) is NOT
+    /// claimed until this flavor loads the fixture; tracked as a
+    /// follow-up in ADR-0037.
+    func testHandRolledLegalTransitions() {
         let vm = makeVM()
         // destructed → construct → constructed
         XCTAssertTrue(vm.canConstruct())
@@ -221,5 +223,30 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(leaf1.status, .disposed)
         XCTAssertEqual(leaf2.status, .disposed)
         XCTAssertEqual(composite.status, .disposed)
+    }
+
+    /// Background lifecycle on the synchronous ImmediateDispatcher runs the
+    /// scheduled work inline: Constructing then Constructed (the background
+    /// branches were previously wholly unexercised in this flavor).
+    func testBackgroundConstructWithImmediateDispatcherCompletes() {
+        let hub = MessageHub()
+        let vm = try! ComponentVM.builder()
+            .name("bg")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .background(true)
+            .build()
+        var seen: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { seen.append($0) }
+
+        vm.construct()
+
+        XCTAssertEqual(seen, [.constructing, .constructed])
+        XCTAssertTrue(vm.isConstructed)
+
+        vm.destruct()
+        XCTAssertEqual(vm.status, .destructed)
+        cancel.cancel()
     }
 }

@@ -40,7 +40,7 @@ describe("PROP-001", () => {
 
     vm.model = m2;
 
-    const modelMsg = received.find((m) => m.propertyName === "Model");
+    const modelMsg = received.find((m) => m.propertyName === "model");
     expect(modelMsg).toBeDefined();
     expect(modelMsg?.sender).toBe(vm);
   });
@@ -63,7 +63,7 @@ describe("PROP-002", () => {
 
     vm.model = m1; // same reference
 
-    expect(received.filter((m) => m.propertyName === "Model")).toHaveLength(0);
+    expect(received.filter((m) => m.propertyName === "model")).toHaveLength(0);
   });
 });
 
@@ -80,7 +80,7 @@ describe("PROP-003", () => {
 
     let senderVM: unknown;
     hub.messages.subscribe((msg) => {
-      if (msg instanceof PropertyChangedMessage && msg.propertyName === "Model") {
+      if (msg instanceof PropertyChangedMessage && msg.propertyName === "model") {
         senderVM = msg.sender;
       }
     });
@@ -105,7 +105,7 @@ describe("PROP-004", () => {
     let propertyName: string | undefined;
     let senderName: string | undefined;
     hub.messages.subscribe((msg) => {
-      if (msg instanceof PropertyChangedMessage && msg.propertyName === "Model") {
+      if (msg instanceof PropertyChangedMessage && msg.propertyName === "model") {
         propertyName = msg.propertyName;
         senderName = msg.senderName;
       }
@@ -113,7 +113,7 @@ describe("PROP-004", () => {
 
     vm.model = m2;
 
-    expect(propertyName).toBe("Model");
+    expect(propertyName).toBe("model");
     expect(senderName).toBe("vm1");
   });
 });

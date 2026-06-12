@@ -266,3 +266,79 @@ describe("FormVM onApproved", () => {
     expect(completed).toHaveBeenCalledOnce();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Post-dispose guards
+// ---------------------------------------------------------------------------
+
+describe("FormVM – post-dispose guards", () => {
+  it("deny after dispose is a no-op (no throw, no revert)", () => {
+    const sut = make();
+    sut.setModel(m("B", 2));
+    sut.dispose();
+
+    sut.denyCommand.execute();
+
+    expect(sut.model).toEqual(m("B", 2));
+  });
+
+  it("approve after dispose does not invoke the persister", async () => {
+    // The persister is an external side effect and must not run on a
+    // disposed form (symmetric with the deny guard).
+    const persisted: IModel[] = [];
+    const sut = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: (model) => {
+        persisted.push(model);
+        return Promise.resolve();
+      },
+    });
+    sut.dispose();
+
+    await sut.approveAsync();
+
+    expect(persisted).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fire-and-forget safety
+// ---------------------------------------------------------------------------
+
+describe("FormVM – fire-and-forget approve", () => {
+  it("approveCommand.execute does not surface an unhandled rejection", async () => {
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: () => Promise.reject(new Error("boom")),
+    });
+    form.setModel(m("B", 2));
+
+    form.approveCommand.execute(); // a bare `void` here used to crash Node >= 15
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(form.isDirty).toBe(true); // failed persist must not advance the snapshot
+    form.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Builder snapshotter (was ctor-only tested)
+// ---------------------------------------------------------------------------
+
+describe("FormVM – builder snapshotter", () => {
+  it("the builder's snapshotter setter reaches the FormVM", () => {
+    const snaps: IModel[] = [];
+    const form = FormVM.builder<IModel>()
+      .initial(m("A", 1))
+      .persister(noop)
+      .snapshotter((model) => {
+        snaps.push(model);
+        return { ...model };
+      })
+      .build();
+
+    expect(snaps.length).toBeGreaterThan(0);
+    expect(form.snapshot).not.toBe(form.model);
+    form.dispose();
+  });
+});

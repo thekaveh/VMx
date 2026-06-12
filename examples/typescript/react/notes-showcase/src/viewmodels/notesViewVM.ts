@@ -147,17 +147,28 @@ export class NotesViewVM extends ComponentVMBase {
     // DerivedProperty caches first value; ensure subscribers see initial state.
     this.#stateSubject.next();
 
+    // Predicates + triggers (real-wiring audit, pass 6): without them
+    // canExecute() was always true and canExecuteChanged never fired, so
+    // the pagination buttons' disabled mirror was vacuous.
     this.#moveFirst = RelayCommand.builder()
+      .predicate(() => this.currentPageIndex > 0)
       .task(() => this.#paged.moveToFirstPage())
+      .triggers(this.#stateSubject)
       .build();
     this.#movePrev = RelayCommand.builder()
+      .predicate(() => this.currentPageIndex > 0)
       .task(() => this.#paged.moveToPreviousPage())
+      .triggers(this.#stateSubject)
       .build();
     this.#moveNext = RelayCommand.builder()
+      .predicate(() => this.currentPageIndex < this.pageCount - 1)
       .task(() => this.#paged.moveToNextPage())
+      .triggers(this.#stateSubject)
       .build();
     this.#moveLast = RelayCommand.builder()
+      .predicate(() => this.currentPageIndex < this.pageCount - 1)
       .task(() => this.#paged.moveToLastPage())
+      .triggers(this.#stateSubject)
       .build();
   }
 
@@ -192,7 +203,12 @@ export class NotesViewVM extends ComponentVMBase {
   }
 
   set searchTerm(value: string) {
+    if (this.#search.searchTerm === value) return;
     this.#search.searchTerm = value;
+    this._hub.send(
+      PropertyChangedMessage.create(this, this._name, "searchTerm"),
+    );
+    this._raisePropertyChanged("searchTerm");
   }
 
   canSearch(): boolean {
@@ -357,6 +373,17 @@ export class NotesViewVM extends ComponentVMBase {
    * Cancels any in-flight fetch, loads notes for the given notebook, and
    * replaces the inner items. Resets `current` and the page.
    */
+  /** Refresh the list row for *note* after an external update (save):
+   * re-seats the persisted model into the matching NoteVM and re-runs the
+   * combined filter so row labels, the star marker, the starred filter,
+   * and search results reflect the saved values. */
+  refreshNote(note: NoteModel): void {
+    const vm = this.#inner.find((n) => n.model.id === note.id);
+    if (vm === undefined) return;
+    vm.model = note;
+    this.#recomputeFiltered();
+  }
+
   async bindToAsync(notebookId: string): Promise<void> {
     this.#activeBindingToken += 1;
     const myToken = this.#activeBindingToken;
@@ -374,7 +401,16 @@ export class NotesViewVM extends ComponentVMBase {
         .name(`note:${m.id}`)
         .model(m)
         .services(this._hub, this._dispatcher)
-        .onDelete((vm) => this.#deleteNote(vm));
+        .onDelete((vm) => this.#deleteNote(vm))
+        // Real-wiring audit, pass 6: the capability bar projects
+        // note.saveCommand/closeCommand, but nothing wired the handlers —
+        // both actions were silent no-ops.
+        .onClose((vm) => {
+          if (this.#current === vm) this.current = null;
+        })
+        .onSave((vm) => {
+          void this.#repo.saveNote(vm.model);
+        });
       if (this.#dialogService !== null) {
         const dialog = this.#dialogService;
         builder = builder.confirmDelete((vm) =>

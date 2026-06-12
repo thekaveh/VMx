@@ -119,9 +119,19 @@ public class NotificationsConformanceTests
     public void NOTIF_008_Resolve_Unknown_NoOp()
     {
         using var hub = new NotificationHub();
+        var posted = new Notification(NotificationType.Confirmation, "real");
+        _ = hub.Post(posted);
+        var snapshots = new List<IReadOnlyList<Notification>>();
+        using var sub = hub.Pending.Subscribe(snapshots.Add);
+
         var orphan = new Notification(NotificationType.Notification, "stray");
         var act = () => hub.Resolve(orphan, NotificationReaction.Approve);
         act.Should().NotThrow();
+
+        // Catalog And-clause: Pending is unchanged — no emission beyond the
+        // subscription snapshot, which still contains exactly the posted one.
+        snapshots.Should().HaveCount(1);
+        snapshots[0].Should().Equal(posted);
     }
 
     // ── NOTIF-009 ───────────────────────────────────────────────────────────
@@ -182,5 +192,34 @@ public class NotificationsConformanceTests
         var task = hub.Post(new Notification(NotificationType.Confirmation, "x"));
         task.IsCompleted.Should().BeTrue();
         (await task).Should().Be(NotificationReaction.Pending);
+    }
+
+    /// <summary>
+    /// NOTIF-017: dispose resolves in-flight waiters with Pending, completes
+    /// the Pending observable, refuses new enqueues, and is idempotent.
+    /// See spec/16-notifications.md §9 and ADR-0037 §2.4.
+    /// </summary>
+    [Fact]
+    [Trait("Conformance", "NOTIF-017")]
+    public async Task NOTIF_017_Dispose_Resolves_InFlight_Waiters_With_Pending()
+    {
+        var hub = new NotificationHub();
+        var completed = false;
+        using var sub = hub.Pending.Subscribe(_ => { }, () => completed = true);
+        var task = hub.Post(new Notification(NotificationType.Confirmation, "in-flight"));
+
+        hub.Dispose();
+
+        (await task).Should().Be(NotificationReaction.Pending);
+        completed.Should().BeTrue("the Pending observable completes on dispose");
+
+        // Subsequent post resolves immediately with Pending and does not enqueue.
+        var late = hub.Post(new Notification(NotificationType.Notification, "late"));
+        late.IsCompleted.Should().BeTrue();
+        (await late).Should().Be(NotificationReaction.Pending);
+
+        // Subsequent resolve is a no-op; second dispose is a no-op.
+        hub.Resolve(new Notification(NotificationType.Notification, "ghost"), NotificationReaction.Approve);
+        hub.Dispose();
     }
 }

@@ -118,6 +118,29 @@ describe("BLD-005", () => {
 
     trigger2.next();
     expect(firings).toBe(2);
+
+    // Insertion order (catalog And-clause): derive both triggers from ONE
+    // parent emission and record which trigger's chain delivers first — the
+    // merged stream subscribes its sources in insertion order, so o1's tap
+    // must run before o2's. (A sequential next/next probe is vacuous: it
+    // passes regardless of subscription order.)
+    const { tap } = await import("rxjs");
+    const parent = new Subject<void>();
+    const via: string[] = [];
+    const o1 = parent.pipe(tap(() => via.push("via-o1")));
+    const o2 = parent.pipe(tap(() => via.push("via-o2")));
+    const orderCmd = RelayCommand.builder().triggers(o1).triggers(o2).build();
+    orderCmd.canExecuteChanged.subscribe(() => undefined);
+    parent.next();
+    expect(via, "o1 must precede o2 (insertion order)").toEqual(["via-o1", "via-o2"]);
+
+    // Non-additive setters overwrite on repeated calls (catalog And-clause).
+    const vm = ComponentVM.builder()
+      .name("first")
+      .name("second")
+      .withNullServices()
+      .build();
+    expect(vm.name, "name() must overwrite, not accumulate").toBe("second");
   });
 });
 

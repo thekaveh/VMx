@@ -1,5 +1,7 @@
 using FluentAssertions;
+using VMx.Components;
 using VMx.Lifecycle;
+using VMx.Tests.Helpers;
 using Xunit;
 
 namespace VMx.Conformance.Tests;
@@ -7,21 +9,33 @@ namespace VMx.Conformance.Tests;
 /// <summary>
 /// LIFE-001 through LIFE-013 — see spec/12-conformance.md.
 ///
-/// The component-VM lifecycle tests that exercise actual VM instances live in
-/// ComponentVMConformanceTests; the LIFE-* tests here exercise the static
-/// transition contract directly (state machine, exception type/message, fixture
-/// table). Where a LIFE-* test depends on an actual VM instance (e.g., emit-zero-
-/// messages from Disposed), the test re-runs against a freshly-built ComponentVM
-/// to verify the integration.
+/// LIFE-005, LIFE-006, and LIFE-011 drive real VM instances (a maintenance
+/// audit found the earlier validator-only versions could not fail if
+/// Construct() stopped routing through Require). The remaining LIFE-* tests
+/// that need richer harnesses live in ComponentVMConformanceTests /
+/// CompositeVMConformanceTests and are delegated below.
 /// </summary>
 public class LifecycleConformanceTests
 {
+    private static ComponentVM<string> BuildVm(
+        Action? onConstruct = null, Action? onDestruct = null)
+    {
+        var builder = ComponentVM<string>.Builder()
+            .Name("life-vm")
+            .Services(new TestHub(), new TestDispatcher())
+            .Model("m");
+        if (onConstruct is not null) builder = builder.OnConstruct(onConstruct);
+        if (onDestruct is not null) builder = builder.OnDestruct(onDestruct);
+        return builder.Build();
+    }
+
     // LIFE-005 — construct from Disposed raises (message must mention state + op).
     [Fact, Trait("Conformance", "LIFE-005")]
     public void LIFE_005_Construct_From_Disposed_Raises_With_Message()
     {
-        var ex = Assert.Throws<StatusTransitionException>(
-            () => LifecycleTransitionValidator.Require(ConstructionStatus.Disposed, "construct"));
+        var vm = BuildVm();
+        vm.Dispose();
+        var ex = Assert.Throws<StatusTransitionException>(() => vm.Construct());
         ex.Message.Should().Contain("Disposed").And.Contain("construct");
     }
 
@@ -29,34 +43,94 @@ public class LifecycleConformanceTests
     [Fact, Trait("Conformance", "LIFE-006")]
     public void LIFE_006_Destruct_From_Disposed_Raises_With_Message()
     {
-        var ex = Assert.Throws<StatusTransitionException>(
-            () => LifecycleTransitionValidator.Require(ConstructionStatus.Disposed, "destruct"));
+        var vm = BuildVm();
+        vm.Dispose();
+        var ex = Assert.Throws<StatusTransitionException>(() => vm.Destruct());
         ex.Message.Should().Contain("Disposed").And.Contain("destruct");
     }
 
-    // LIFE-011 — every row in the fixture exercised against the static validator.
+    // LIFE-011 — every fixture row driven against a real VM: legal rows reach
+    // to_final; illegal rows raise. Mid-transition rows reach Constructing /
+    // Destructing via the builder's lifecycle hooks (the catalog's
+    // "controllable hook" allowance).
     [Fact, Trait("Conformance", "LIFE-011")]
-    public void LIFE_011_Validator_Matches_Fixture_Table()
+    public void LIFE_011_Vm_Transitions_Match_Fixture_Table()
     {
-        // For each row in the fixture, verify the validator's IsLegal matches.
-        // The validator already loads the same fixture as its source-of-truth,
-        // so this test guards against future divergence (e.g., someone hand-codes
-        // a transition that disagrees with the fixture).
-        foreach (var (from, op, expectedLegal) in EnumerateFixtureRows())
+        foreach (var row in EnumerateFixtureRows())
         {
-            LifecycleTransitionValidator.IsLegal(from, op).Should().Be(expectedLegal,
-                $"row {from}/{op} should have legal={expectedLegal}");
+            var from = Enum.Parse<ConstructionStatus>(row.From, ignoreCase: false);
+
+            // Validator-level agreement (fast feedback on table drift).
+            LifecycleTransitionValidator.IsLegal(from, row.Via).Should().Be(row.Legal,
+                $"row {row.From}/{row.Via} should have legal={row.Legal}");
+
+            var (error, final) = DriveTransition(from, row.Via);
+            if (row.Legal)
+            {
+                error.Should().BeNull($"row {row.From}/{row.Via} is legal");
+                var expectedFinal = Enum.Parse<ConstructionStatus>(row.ToFinal!, ignoreCase: false);
+                final.Should().Be(expectedFinal, $"row {row.From}/{row.Via}");
+            }
+            else
+            {
+                error.Should().BeOfType<StatusTransitionException>(
+                    $"row {row.From}/{row.Via} is illegal");
+            }
         }
     }
 
-    private static IEnumerable<(ConstructionStatus from, string op, bool legal)> EnumerateFixtureRows()
+    private static (Exception? error, ConstructionStatus final) DriveTransition(
+        ConstructionStatus from, string op)
+    {
+        Exception? captured = null;
+        ComponentVM<string>? vm = null;
+
+        void Invoke()
+        {
+            try
+            {
+                switch (op)
+                {
+                    case "construct": vm!.Construct(); break;
+                    case "destruct": vm!.Destruct(); break;
+                    case "reconstruct": vm!.Reconstruct(); break;
+                    case "dispose": vm!.Dispose(); break;
+                    default: throw new InvalidOperationException($"unknown op '{op}'");
+                }
+            }
+            catch (StatusTransitionException ex)
+            {
+                captured = ex;
+            }
+        }
+
+        switch (from)
+        {
+            case ConstructionStatus.Constructing:
+                vm = BuildVm(onConstruct: Invoke);
+                vm.Construct();
+                break;
+            case ConstructionStatus.Destructing:
+                vm = BuildVm(onDestruct: Invoke);
+                vm.Construct();
+                vm.Destruct();
+                break;
+            default:
+                vm = BuildVm();
+                if (from == ConstructionStatus.Constructed) vm.Construct();
+                else if (from == ConstructionStatus.Disposed) vm.Dispose();
+                // Destructed is the freshly-built state.
+                Invoke();
+                break;
+        }
+
+        return (captured, vm.Status);
+    }
+
+    private static List<FixtureRow> EnumerateFixtureRows()
     {
         var table = Fixtures.FixtureLoader.Load<FixtureRoot>("lifecycle-transitions.json");
-        foreach (var row in table.Transitions)
-        {
-            var from = Enum.Parse<ConstructionStatus>(row.From, ignoreCase: false);
-            yield return (from, row.Via, row.Legal);
-        }
+        return table.Transitions;
     }
 
     // LIFE-001..004, LIFE-007..010, LIFE-012, LIFE-013 — these all require an
@@ -115,5 +189,6 @@ public class LifecycleConformanceTests
         public string From { get; init; } = "";
         public string Via { get; init; } = "";
         public bool Legal { get; init; }
+        public string? ToFinal { get; init; }
     }
 }

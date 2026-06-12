@@ -108,11 +108,12 @@ emission is published. The semantics match the existing
 `fixtures/derived-properties.json` encodes scenarios the `DPROP-NNN` tests
 load. Each scenario has:
 
-- `sources`: an ordered list of source value-sequences.
+- `sources_initial`: an ordered list holding the initial value of each source.
 - `transform`: a symbolic name resolved by the test runner (e.g., `"sum"`,
   `"concat"`).
 - `mutations`: ordered `(source_index, new_value)` events.
-- `expected_values`: the expected `Value` after each mutation.
+- `expected_values`: the expected `Value` readings — one for the initial
+  state, then one after each mutation (see DPROP-012).
 
 ## 8. Recipe: avoiding double-subscription on lazy initialization (spec v2.1)
 

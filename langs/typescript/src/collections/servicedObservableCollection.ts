@@ -73,6 +73,11 @@ export class ServicedObservableCollection<T> {
    */
   splice(start: number, deleteCount?: number, ...newItems: T[]): T[] {
     const removed = this.#items.splice(start, deleteCount ?? this.#items.length, ...newItems);
+    if (removed.length === 0 && newItems.length === 0) {
+      // No-op splice: nothing mutated, so nothing is emitted
+      // (spec/21 §2.4 — messages are emitted per mutation).
+      return removed;
+    }
     if (removed.length === 1 && newItems.length === 0) {
       this.#emit(
         CollectionChangedMessage.forRemove(this, removed[0] as T, start),

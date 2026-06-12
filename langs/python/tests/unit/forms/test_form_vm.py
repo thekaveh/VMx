@@ -242,3 +242,70 @@ def test_on_approved_completes_on_dispose() -> None:
 
     sut.dispose()
     assert len(completed) == 1, "on_approved observable completes on dispose"
+
+
+def test_dispose_is_idempotent() -> None:
+    """Second dispose must be a no-op, not a reactivex DisposedException."""
+    sut = _make()
+    sut.dispose()
+    sut.dispose()
+
+
+def test_deny_after_dispose_is_noop() -> None:
+    """Deny on a disposed form must not raise and must not revert the model."""
+    sut = _make()
+    sut.set_model(Model("B", 2))
+    sut.dispose()
+
+    sut.deny_command.execute()
+
+    assert sut.model == Model("B", 2)
+
+
+async def test_approve_after_dispose_does_not_invoke_persister() -> None:
+    """Approve on a disposed form is a full no-op — the persister is an
+    external side effect and must not run (symmetric with the deny guard)."""
+    persisted: list[Model] = []
+
+    async def persister(m: Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    sut.dispose()
+
+    await sut.approve_async()
+
+    assert persisted == []
+
+
+def test_builder_snapshotter_is_used() -> None:
+    """The builder's snapshotter setter reaches the FormVM (was ctor-only tested)."""
+    snaps: list[Model] = []
+
+    def snap(m: Model) -> Model:
+        snaps.append(m)
+        return Model(m.name, m.value)
+
+    sut = FormVM.builder().initial(Model("A", 1)).persister(_noop).snapshotter(snap).build()
+
+    assert snaps, "snapshotter runs for the initial snapshot"
+    assert sut.snapshot is not sut.model
+
+
+async def test_dispose_during_inflight_approve_does_not_raise() -> None:
+    """dispose() during the persister await must not raise DisposedException
+    from the completed subjects (mirrors the C# post-await guard)."""
+    import asyncio
+
+    gate: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+
+    async def persister(m: Model) -> None:
+        await gate
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    sut.set_model(Model("B", 2))
+    task = asyncio.ensure_future(sut.approve_async())
+    await asyncio.sleep(0)  # let approve reach the persister await
+    sut.dispose()
+    gate.set_result(None)
+    await task  # must not raise

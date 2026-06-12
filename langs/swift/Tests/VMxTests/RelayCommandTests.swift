@@ -1,5 +1,9 @@
 //
-// RelayCommand conformance subset (CMD-001..CMD-007).
+// RelayCommand conformance tests.
+//
+// Claimed IDs: CMD-001..004, CMD-006, plus BLD-005 (additive triggers on
+// the command builder). CMD-005 (parameterized variant) and CMD-007
+// (truth-table fixture) are NOT implemented by this flavor (ADR-0037).
 //
 import XCTest
 import Combine
@@ -45,8 +49,16 @@ final class RelayCommandTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// CMD-005 — execute gated on canExecute: skips task when false.
-    func testCmd005ExecuteSkippedWhenPredicateFalse() {
+    /// CMD-006 — execute with null task is a no-op.
+    func testCmd006ExecuteWithNullTaskIsNoOp() {
+        let cmd = RelayCommand.builder().build()
+        cmd.execute() // must not crash
+        XCTAssertTrue(cmd.canExecute())
+    }
+
+    /// Execute is gated on canExecute: skips the task when false
+    /// (spec/04 §5; no dedicated catalog ID).
+    func testExecuteSkippedWhenPredicateFalse() {
         var calls = 0
         let cmd = RelayCommand.builder()
             .task { calls += 1 }
@@ -56,8 +68,9 @@ final class RelayCommandTests: XCTestCase {
         XCTAssertEqual(calls, 0)
     }
 
-    /// CMD-006 — multiple `.triggers(...)` calls combine additively.
-    func testCmd006MultipleTriggers() {
+    /// BLD-005 — additive setters: multiple `.triggers(...)` calls retain
+    /// prior values.
+    func testBld005MultipleTriggersAdditive() {
         let t1 = PassthroughSubject<Void, Never>()
         let t2 = PassthroughSubject<Void, Never>()
         let cmd = RelayCommand.builder()
@@ -71,8 +84,8 @@ final class RelayCommandTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// CMD-007 — dispose is idempotent.
-    func testCmd007DisposeIdempotent() {
+    /// Dispose is idempotent (no dedicated catalog ID).
+    func testDisposeIdempotent() {
         let cmd = RelayCommand.builder().task {}.build()
         cmd.dispose()
         cmd.dispose() // must not crash

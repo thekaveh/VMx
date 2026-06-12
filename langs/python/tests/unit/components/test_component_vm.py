@@ -455,3 +455,65 @@ class TestComponentVMOfBuilder:
         assert vm_a is not vm_b
         assert vm_a.name == vm_b.name
         assert vm_a.model == vm_b.model
+
+
+def test_builder_vm_type_overrides_reported_type() -> None:
+    """The optional vm_type setter (spec/10 §2) overrides the reported type."""
+    vm = (
+        ComponentVMOfBuilder()
+        .name("typed")
+        .model("m")
+        .vm_type(ViewModelType.AGGREGATE)
+        .with_null_services()
+        .build()
+    )
+    assert vm.type is ViewModelType.AGGREGATE
+
+
+def test_dispose_during_inflight_background_construct_does_not_resurrect() -> None:
+    """spec/02 invariant 3: Disposed is terminal even against scheduled work."""
+    from typing import Any as _Any
+
+    from reactivex.scheduler import ImmediateScheduler
+
+    class _DeferredScheduler:
+        def __init__(self) -> None:
+            self.actions: list[_Any] = []
+
+        def schedule(self, action: _Any, state: _Any = None) -> None:
+            self.actions.append(action)
+
+        def run_all(self) -> None:
+            for action in self.actions:
+                action(self, None)
+
+    bg = _DeferredScheduler()
+    dispatcher = RxDispatcher(ImmediateScheduler(), bg)  # type: ignore[arg-type]
+    hub: MessageHub[object] = MessageHub()
+    hook_calls: list[None] = []
+    vm = (
+        ComponentVMBuilder()
+        .name("bgvm")
+        .services(hub, dispatcher)
+        .background(True)
+        .on_construct(lambda: hook_calls.append(None))
+        .build()
+    )
+
+    statuses: list[ConstructionStatus] = []
+    hub.messages.subscribe(
+        lambda m: (
+            statuses.append(m.status) if isinstance(m, ConstructionStatusChangedMessage) else None
+        )
+    )
+
+    vm.construct()  # CONSTRUCTING emitted; work deferred
+    vm.dispose()  # terminal before the background work runs
+    bg.run_all()  # the scheduled work must now no-op
+
+    assert vm.status is ConstructionStatus.DISPOSED
+    assert ConstructionStatus.CONSTRUCTED not in statuses
+    assert statuses[-1] is ConstructionStatus.DISPOSED
+    # The scheduled work itself must be skipped, not merely silenced by the
+    # _set_status terminal guard (pins the background-skip guard in isolation).
+    assert hook_calls == []

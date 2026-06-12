@@ -1,5 +1,10 @@
 //
-// GroupVM conformance subset (GRP-001..GRP-006).
+// GroupVM conformance tests.
+//
+// Claimed IDs: GRP-002, GRP-003, GRP-004 (plus the group path of
+// LIFE-013). GRP-001 (CollectionChanged on add), GRP-005
+// (AutoConstructOnAdd), and GRP-006 (BatchUpdate) are NOT claimed —
+// those behaviors are not implemented by this flavor yet (ADR-0037).
 //
 import XCTest
 @testable import VMx
@@ -10,21 +15,36 @@ final class GroupVMTests: XCTestCase {
         try! ComponentVM.builder().name(name).withNullServices().build()
     }
 
-    /// GRP-001 — group reports the Group kind.
-    func testGrp001Type() throws {
+    /// Group reports the Group kind.
+    func testGroupType() throws {
         let g = try GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [] }.build()
         XCTAssertEqual(g.type, .group)
     }
 
-    /// GRP-002 — add appends to the peers list.
-    func testGrp002AddAppends() {
+    /// `add` appends to the peers list.
+    func testAddAppends() {
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [] }.build()
         let a = leaf("a")
         g.add(a)
         XCTAssertEqual(g.count, 1)
         XCTAssertTrue(g.at(0) === a)
+    }
+
+    /// GRP-002 — Group lacks child-navigation/selection members, while
+    /// the baseline SelectCommand/DeselectCommand remain present (they
+    /// act on the group's own selection within its parent) and
+    /// SelectNext/SelectPrevious predicates are permanently false.
+    func testGrp002SurfaceContract() throws {
+        let g = try GroupVM<ComponentVM>.builder()
+            .name("g").withNullServices().children { [] }.build()
+        g.construct()
+        XCTAssertFalse(g.selectNextCommand.canExecute())
+        XCTAssertFalse(g.selectPreviousCommand.canExecute())
+        // Present, but not executable without a parent to be selected in.
+        XCTAssertFalse(g.selectCommand.canExecute())
+        XCTAssertFalse(g.deselectCommand.canExecute())
     }
 
     /// GRP-003 — construct cascades to peers.
@@ -47,18 +67,26 @@ final class GroupVMTests: XCTestCase {
         XCTAssertEqual(a.status, .destructed)
     }
 
-    /// GRP-005 — Groups have no selection concept: a child's
-    /// `canSelect()` is false (parent has no current child slot).
-    func testGrp005GroupChildCannotSelect() {
+    /// A group child reports `canSelect() == true` once constructed
+    /// (spec/05 §5 — parent non-nil, not current, constructed) but
+    /// `select()` is a no-op because a group has no selection slot
+    /// (spec/07 — children are peers).
+    func testGroupChildSelectIsNoOp() {
         let a = leaf("a")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a] }.build()
         g.construct()
-        XCTAssertFalse(a.canSelect())
+
+        XCTAssertTrue(a.canSelect())
+
+        a.select()
+
+        XCTAssertFalse(a.isCurrent)
+        XCTAssertFalse(a.canDeselect())
     }
 
-    /// GRP-006 — dispose cascades to peers.
-    func testGrp006DisposeCascade() {
+    /// LIFE-013 (group path) — dispose cascades to peers.
+    func testLife013DisposeCascadesToPeers() {
         let a = leaf("a")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a] }.build()

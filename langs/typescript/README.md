@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.4.0** — implements `spec-v2.4.0` end-to-end. 232/232 conformance IDs
+**v2.5.0** — implements `spec-v2.5.0` end-to-end. 230/230 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -83,7 +83,7 @@ identifier casing differs.
 See [docs/getting-started/typescript.md](../../docs/getting-started/typescript.md)
 for the full walkthrough.
 
-## 3.4 Cross-language naming
+### 3.1 Cross-language naming
 
 The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
@@ -102,7 +102,7 @@ variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their
 generics syntax cannot overload an unparameterised name.
 
-## 3.5. Browser usage
+### 3.2 Browser usage
 
 VMx-TS is browser-safe and works out of the box with all modern bundlers —
 **Vite, Webpack, esbuild, Rollup, Bun, and Tauri webviews**. The dist
@@ -194,7 +194,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 232 conformance IDs from `spec/12-conformance.md` are covered.
+All 230 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -223,6 +223,7 @@ npm test
 npm ci
 npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
 npm run typecheck
+npm run typecheck:tests
 npm run lint
 npm run build
 npm test

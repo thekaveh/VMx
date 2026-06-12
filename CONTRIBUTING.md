@@ -56,8 +56,8 @@ swift test --parallel
 Swift requires the toolchain shipped with a current Xcode (5.9+) and a
 macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
 is not available on Linux. See `langs/swift/README.md` §5 for the in /
-deferred conformance matrix; the v2.4.0 release ships a documented
-subset rather than full spec parity.
+deferred conformance matrix; the v2.5.0 release ships a documented
+39-ID subset rather than full spec parity.
 
 ### 2.5 Cross-cutting checks (conformance + example-app contracts)
 

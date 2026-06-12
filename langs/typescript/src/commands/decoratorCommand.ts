@@ -17,6 +17,7 @@ export class DecoratorCommand implements ICommand {
   readonly #pre: (() => void) | null;
   readonly #post: (() => void) | null;
   readonly #extra: (() => boolean) | null;
+  #disposed = false;
 
   constructor(inner: ICommand, opts: DecoratorCommandOptions = {}) {
     this.#inner = inner;
@@ -49,5 +50,14 @@ export class DecoratorCommand implements ICommand {
       // in preExecute always gets cleared.
       if (this.#post) this.#post();
     }
+  }
+
+  /**
+   * Mark the decorator as disposed. Idempotent. `canExecuteChanged`
+   * delegates lazily to the inner command, so nothing is owned or released
+   * here — provided for teardown symmetry with the C# IDisposable surface.
+   */
+  dispose(): void {
+    this.#disposed = true;
   }
 }

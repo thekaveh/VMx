@@ -1,3 +1,5 @@
+using System.Reactive.Concurrency;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Builders;
@@ -32,6 +34,9 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private string _tagDraft = string.Empty;
     private bool _ownDisposed;
     private readonly Subject<System.Reactive.Unit> _canExecuteTrigger = new();
+    private readonly Subject<NoteModel> _onSaved = new();
+    private readonly IDispatcher _dispatcher;
+    private IDisposable? _approvedSub;
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -120,9 +125,22 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     public ICommand ApproveCommand { get; }
 
     /// <summary>Deny = revert draft to snapshot.</summary>
-    public ICommand DenyCommand => _form?.DenyCommand ?? _noopCommand;
+    /// <summary>
+    /// Stable command that reverts the currently-bound form (no-op when
+    /// unbound). One object for the VM's lifetime — and it re-emits this
+    /// VM's own draft channels: the inner FormVM's Deny publishes with
+    /// sender = FormVM, which the XAML bindings (keyed on this VM) never
+    /// observe, so the editor kept the edited text on screen (real-wiring
+    /// audit, pass 6).
+    /// </summary>
+    public ICommand DenyCommand { get; }
 
-    private static readonly ICommand _noopCommand = RelayCommand.Builder().Build();
+    /// <summary>
+    /// Emits the persisted note after each successful save — the workspace
+    /// refreshes the matching list row (Title/Starred were
+    /// construction-time snapshots otherwise).
+    /// </summary>
+    public IObservable<NoteModel> OnSaved => _onSaved.AsObservable();
 
     /// <summary>Buffer text for "add tag" input.</summary>
     public string TagDraft
@@ -151,12 +169,14 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     public void BindTo(NoteModel note)
     {
         _form?.Dispose();
+        _approvedSub?.Dispose();
         _bound = note;
         _form = new FormVM<NoteModel>(
             initial: note,
             persister: PersistAsync,
             hub: Hub,
             strict: true);
+        _approvedSub = _form.OnApproved.Subscribe(m => _onSaved.OnNext(m));
         EmitDraftChanges();
     }
 
@@ -200,13 +220,20 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     {
         if (_form is null) return;
         await _form.ApproveAsync().ConfigureAwait(false);
-        EmitDraftChanges();
-        if (_notificationHub is not null)
+        // This continuation runs off the UI thread (ConfigureAwait(false));
+        // EmitDraftChanges raises INPC into live XAML bindings, so marshal
+        // (real-wiring audit, pass 6).
+        _dispatcher.Foreground.Schedule(() =>
         {
-            _ = _notificationHub.Post(new Notification(
-                NotificationType.Notification,
-                $"Saved “{_form.Snapshot.Title}”"));
-        }
+            if (_ownDisposed) return; // queued tail may outlive the VM
+            EmitDraftChanges();
+            if (_notificationHub is not null)
+            {
+                _ = _notificationHub.Post(new Notification(
+                    NotificationType.Notification,
+                    $"Saved “{Snapshot.Title}”"));
+            }
+        });
     }
 
     private async Task PersistAsync(NoteModel note)
@@ -243,12 +270,9 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Tags)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagsText)));
-        // Round-3 Important B-I2: ApproveCommand / DenyCommand expose getters
-        // that delegate to `_form` (and to `_noopCommand` before BindTo). XAML
-        // captures the reference once at bind time, so without raising
-        // PropertyChanged after BindTo the binding keeps the stale
-        // `_noopCommand` reference for DenyCommand. Mirror the C# pattern in
-        // Py (NoteFormVM.deny_command) and TS (NoteFormVM.denyCommand).
+        // Round-3 Important B-I2: both commands are stable objects now, but
+        // consumers that re-resolve on change notifications still expect the
+        // signal on rebinds (cross-flavor parity).
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(ApproveCommand)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(DenyCommand)));
         RaisePropertyChanged(nameof(Draft));
@@ -276,6 +300,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     {
         _repo = repo;
         _notificationHub = notificationHub;
+        _dispatcher = dispatcher;
         // Phase 5.a binding gap #1: draft mutation must flip
         // ApproveCommand.CanExecute reactively for Avalonia buttons. Wire the
         // ``_canExecuteTrigger`` subject through .Triggers(...) so each
@@ -284,6 +309,13 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             .Predicate(() => IsDirty && IsValid)
             .Task(() => _ = ApproveAsync())
             .Triggers(_canExecuteTrigger)
+            .Build();
+        DenyCommand = RelayCommand.Builder()
+            .Task(() =>
+            {
+                _form?.DenyCommand.Execute(null);
+                EmitDraftChanges();
+            })
             .Build();
         AddTagCommand = RelayCommand.Builder()
             .Predicate(() => HasBoundNote && !string.IsNullOrWhiteSpace(_tagDraft))
@@ -312,11 +344,15 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         if (_ownDisposed) { base.Dispose(); return; }
         _ownDisposed = true;
         _form?.Dispose();
+        _approvedSub?.Dispose();
         (ApproveCommand as IDisposable)?.Dispose();
+        (DenyCommand as IDisposable)?.Dispose();
         (AddTagCommand as IDisposable)?.Dispose();
         (RemoveTagCommand as IDisposable)?.Dispose();
         _canExecuteTrigger.OnCompleted();
         _canExecuteTrigger.Dispose();
+        _onSaved.OnCompleted();
+        _onSaved.Dispose();
         base.Dispose();
     }
 

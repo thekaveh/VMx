@@ -11,7 +11,7 @@
  * `exportCommand`) and the `focusedVM` derivation (which feeds
  * `CapabilityActionsVM`).
  */
-import { BehaviorSubject, filter, observeOn, type Subscription } from "rxjs";
+import { BehaviorSubject, Subject, filter, observeOn, type Subscription } from "rxjs";
 import {
   AggregateVM6,
   DerivedProperty,
@@ -29,6 +29,7 @@ import {
 } from "@thekaveh/vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
+import type { NotebookVM } from "./notebookVM.js";
 import type { INoteRepository } from "../models/noteRepository.js";
 import { CapabilityActionsVM } from "./capabilityActionsVM.js";
 import { type IDialogService, NullDialogService } from "./dialogService.js";
@@ -70,11 +71,15 @@ export class WorkspaceVM {
   readonly #exportCommand: RelayCommand;
 
   // Round-3 Critical-2 parity: rebind noteForm whenever notesView.current
-  // changes. The React `NotesList` view also calls `noteForm.bindTo`
-  // directly on select; the VM-level subscription ensures behavior parity
-  // with the C# / Python flavors and survives any host that does not
-  // re-implement that bridging step.
+  // changes. The VM-level subscription is the single bridge — views set
+  // `notesView.current` and everything downstream flows from here.
   readonly #currentNoteSubscription: Subscription;
+  readonly #savedNoteSubscription: Subscription;
+  // Pushed whenever toolbar-command predicates may have flipped
+  // (construct completes, notebook selection changes) — without a trigger
+  // the commands' canExecuteChanged never fires and useCommand's disabled
+  // mirror stays frozen at first render (real-wiring audit, pass 6).
+  readonly #commandTrigger = new Subject<void>();
 
   readonly #focusSubject: BehaviorSubject<object | null>;
   readonly #focusedVMDerived: DerivedProperty<object | null>;
@@ -208,24 +213,51 @@ export class WorkspaceVM {
         }
       });
 
+    // Real-wiring audit, pass 6: refresh the saved note's list row (title /
+    // star were construction-time snapshots and went stale after every
+    // save). Mirrors the Python flagship's on_saved → refresh_note wiring.
+    this.#savedNoteSubscription = this.#noteForm.onSaved
+      .pipe(observeOn(opts.dispatcher.foreground))
+      .subscribe((saved) => {
+        notesViewRef.refreshNote(saved);
+      });
+
     this.#newNotebookCommand = RelayCommand.builder()
       .predicate(() => this.isConstructed)
       .task(() => {
         void this.#notebooks.addNotebookAsync(null, "New Notebook");
       })
+      .triggers(this.#commandTrigger)
       .build();
     this.#newNoteCommand = RelayCommand.builder()
       .predicate(() => this.isConstructed && this.#notebooks.current !== null)
       .task(() => {
         void this.#addNewNoteToCurrentAsync();
       })
+      .triggers(this.#commandTrigger)
       .build();
     this.#exportCommand = RelayCommand.builder()
       .predicate(() => this.isConstructed)
       .task(() => {
         void this.#exportInternalAsync();
       })
+      .triggers(this.#commandTrigger)
       .build();
+  }
+
+  /**
+   * Selects *nb* as the current notebook: updates the tree selection,
+   * focus, the readonly mirror the capability bar gates on, and rebinds
+   * the notes view. The single entry the tree view calls — the readonly
+   * mirror was previously set only at construct time, so capability
+   * gating went stale on every selection change (real-wiring audit,
+   * pass 6).
+   */
+  selectNotebook(nb: NotebookVM): void {
+    this.#notebooks.current = nb;
+    this.setFocus(nb);
+    this.#notesView.currentNotebookIsReadonly = nb.model.isReadonly ?? false;
+    void this.#notesView.bindToAsync(nb.model.id);
   }
 
   // ── Component accessors ───────────────────────────────────────────────────
@@ -285,6 +317,7 @@ export class WorkspaceVM {
     this.#focused = focused;
     this.#focusSubject.next(focused);
     this.#capabilityActions.recomputeActions();
+    this.#commandTrigger.next();
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -311,6 +344,7 @@ export class WorkspaceVM {
         first.model.isReadonly ?? false;
       await this.#notesView.bindToAsync(first.model.id);
     }
+    this.#commandTrigger.next();
   }
 
   destruct(): void {
@@ -319,6 +353,8 @@ export class WorkspaceVM {
 
   dispose(): void {
     this.#currentNoteSubscription.unsubscribe();
+    this.#savedNoteSubscription.unsubscribe();
+    this.#commandTrigger.complete();
     this.#focusedVMDerived.dispose();
     this.#focusSubject.complete();
     this.#newNotebookCommand.dispose();

@@ -205,16 +205,31 @@ def test_reset_fires_on_clear() -> None:
     assert len(resets) == 1
 
 
-def test_reset_does_not_fire_count_changed() -> None:
-    """Reset is coarse — no separate PropertyChanged("Count") required by spec."""
+def test_clear_fires_count_changed_after_reset() -> None:
+    """Clear changes Count, so PropertyChanged("Count") fires after Reset.
+
+    spec/21 §3.3 (clarified by ADR-0037): Count fires after every mutation
+    that changes Count — including bulk clears, matching the batch-exit rule.
+    """
     sut: ObservableList[int] = ObservableList()
     sut.append(1)
+    events: list[str] = []
+    sut.on_reset.subscribe(lambda _: events.append("reset"))
+    sut.on_property_changed.subscribe(events.append)
+
+    sut.clear()
+
+    assert events == ["reset", "Count"]
+
+
+def test_clear_on_empty_list_does_not_fire_count_changed() -> None:
+    """Clearing an empty list does not change Count, so no notification."""
+    sut: ObservableList[int] = ObservableList()
     prop_events: list[str] = []
     sut.on_property_changed.subscribe(prop_events.append)
 
     sut.clear()
 
-    # Spec §3.3 says Count changed fires after add/remove — clear emits Reset, not granular events
     assert "Count" not in prop_events
 
 
@@ -441,3 +456,81 @@ def test_batch_nested_count_changed_emits_on_outermost_exit() -> None:
 
     # outermost exited — count changed (0 → 1), notification fires
     assert "Count" in prop_changes
+
+
+def test_remove_at_negative_index_emits_normalized_payload() -> None:
+    """spec/21 §3.2: the removed-event payload carries the index before
+    removal — a Python-idiomatic -1 must normalize, not leak into the event."""
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, int]] = []
+    sut.on_item_removed.subscribe(events.append)
+
+    sut.remove_at(-1)
+
+    assert events == [("y", 1)]
+    assert list(sut) == ["x"]
+
+
+def test_replace_negative_index_emits_normalized_payload() -> None:
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, str, int]] = []
+    sut.on_item_replaced.subscribe(events.append)
+
+    sut.replace(-1, "z")
+
+    assert events == [("z", "y", 1)]
+    assert list(sut) == ["x", "z"]
+
+
+def test_remove_at_far_out_of_range_negative_raises() -> None:
+    """A negative index beyond -len must raise, not wrap to a valid negative
+    (regression: -6 on a 4-list once removed the wrong element)."""
+    sut: ObservableList[str] = ObservableList()
+    for item in ("a", "b", "c", "d"):
+        sut.append(item)
+    events: list[tuple[str, int]] = []
+    sut.on_item_removed.subscribe(events.append)
+
+    with pytest.raises(IndexError):
+        sut.remove_at(-6)
+    with pytest.raises(IndexError):
+        sut.replace(-6, "z")
+
+    assert events == []
+    assert list(sut) == ["a", "b", "c", "d"]
+
+
+def test_insert_negative_index_emits_normalized_payload() -> None:
+    """spec/21 §3.2: the added-event payload carries the actual insertion
+    index — stdlib insert(-1) lands before the last element, so the event
+    must say len-1, not -1."""
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, int]] = []
+    sut.on_item_added.subscribe(events.append)
+
+    sut.insert(-1, "m")
+
+    assert events == [("m", 1)]
+    assert list(sut) == ["x", "m", "y"]
+
+
+def test_insert_out_of_range_clamps_and_emits_effective_index() -> None:
+    """stdlib list.insert clamps out-of-range indexes; the payload must
+    carry the clamped (effective) index, not the raw argument."""
+    sut: ObservableList[str] = ObservableList()
+    sut.append("x")
+    sut.append("y")
+    events: list[tuple[str, int]] = []
+    sut.on_item_added.subscribe(events.append)
+
+    sut.insert(99, "tail")
+    sut.insert(-99, "head")
+
+    assert events == [("tail", 2), ("head", 0)]
+    assert list(sut) == ["head", "x", "y", "tail"]

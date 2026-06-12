@@ -38,8 +38,10 @@ from reactivex.disposable import CompositeDisposable
 
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.messages.property_changed import PropertyChangedMessage
+from vmx.messages.tree_structure_changed import TreeStructureChangedMessage
 
 from notes_showcase.views.adapter._hub_accessor import resolve_hub
+from notes_showcase.views.adapter.property import _invoke_class_watcher
 
 
 def bind_collection(
@@ -73,7 +75,15 @@ def bind_collection(
     def _on_event(event: object) -> None:
         if not isinstance(event, CollectionChangedEvent):
             return
-        if event.action == "add" and event.new_index >= 0 and len(event.new_items) == 1:
+        if (
+            event.action == "add"
+            and len(event.new_items) == 1
+            and event.new_index == len(list_view.children)
+        ):
+            # Tail insert only — ListView.append cannot honor a mid-list
+            # position, so any other insertion index rebuilds (an
+            # unconditional append rendered mid-list inserts at the wrong
+            # row; real-wiring audit, pass 5).
             list_view.append(factory(event.new_items[0]))
         elif event.action == "remove" and event.old_index >= 0:
             list_view.pop(event.old_index)
@@ -99,8 +109,14 @@ def bind_collection(
     # Seed list_view.index from the VM (None → -1 / first row blank).
     list_view.index = _index_of_current(vm_collection)
 
-    # Widget→VM selection via Textual reactive watcher.
+    # Widget→VM selection via Textual reactive watcher, chaining the class
+    # watcher (ListView.watch_index drives row highlighting — an instance
+    # override must not shadow it; real-wiring audit, pass 5).
+    cls_watcher = getattr(type(list_view), "watch_index", None)
+
     def _watch_index(_old: object, new: int | None) -> None:
+        if cls_watcher is not None:
+            _invoke_class_watcher(cls_watcher, list_view, _old, new)
         target: Any | None = None
         if new is not None and new >= 0:
             children = list(vm_collection)
@@ -129,6 +145,22 @@ def _index_of_current(vm_collection: Any) -> int | None:
         if child is current:
             return i
     return None
+
+
+def on_tree_structure_changed(vm: Any, callback: Callable[[], None]) -> DisposableBase:
+    """Invoke ``callback()`` whenever *vm* publishes a
+    :class:`~vmx.TreeStructureChangedMessage` on its hub.
+
+    Lets a tree view repopulate on structural changes (notebook add/remove)
+    without subscribing to the hub itself — the "no hub subscriptions in
+    views" contract check stays green.
+    """
+
+    def _on_message(message: object) -> None:
+        if isinstance(message, TreeStructureChangedMessage) and message.sender is vm:
+            callback()
+
+    return resolve_hub(vm).messages.subscribe(on_next=_on_message)
 
 
 def bind_observable_list(

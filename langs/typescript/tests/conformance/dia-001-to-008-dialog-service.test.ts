@@ -95,7 +95,7 @@ describe("DIA-004", () => {
 
 describe("DIA-005", () => {
   it("NullDialogService: pickFile* returns null; confirm returns false; notify no-op", async () => {
-    const sut = new NullDialogService();
+    const sut = NullDialogService.INSTANCE;
 
     expect(await sut.pickFileToOpen()).toBeNull();
     expect(await sut.pickFileToSave()).toBeNull();

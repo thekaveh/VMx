@@ -50,8 +50,10 @@ class ModeledCrudCommands(Generic[M, VM]):
             RelayCommand.builder().task(_do_delete).predicate(lambda: current() is not None).build()
         )
 
-        # Inner RelayCommands hold trigger subscriptions; track them so dispose()
-        # can tear them down (parity with C# ModeledCrudCommands.Dispose).
+        # Track the inner RelayCommands so dispose() can complete their
+        # can_execute_changed subjects (parity with C# ModeledCrudCommands.
+        # Dispose). No triggers are wired here, so there are no trigger
+        # subscriptions to release.
         self._inner_relays = (create, update, delete)
         self._disposed = False
 

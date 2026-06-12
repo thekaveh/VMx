@@ -1,5 +1,10 @@
 //
-// CompositeVM conformance subset (COMP-001..COMP-010).
+// CompositeVM conformance tests.
+//
+// Claimed IDs: COMP-003 (select via child delegation), COMP-004,
+// COMP-005. COMP-001/002 (CollectionChanged), COMP-006/010 (foreground
+// dispatch), COMP-007 (modeled composite), COMP-008, and COMP-009
+// (raises — a trap in this flavor, ADR-0037) are NOT claimed.
 //
 import XCTest
 @testable import VMx
@@ -13,16 +18,16 @@ final class CompositeVMTests: XCTestCase {
             .build()
     }
 
-    /// COMP-001 — composite reports the Composite kind.
-    func testComp001Type() throws {
+    /// Composite reports the Composite kind.
+    func testCompositeType() throws {
         let c = try CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [self.leaf("a")] }
             .build()
         XCTAssertEqual(c.type, .composite)
     }
 
-    /// COMP-002 — add appends to the children list.
-    func testComp002AddAppends() {
+    /// `add` appends to the children list.
+    func testAddAppends() {
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [] }.build()
         let a = leaf("a")
@@ -31,8 +36,8 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertTrue(c.at(0) === a)
     }
 
-    /// COMP-003 — construct cascades to children.
-    func testComp003ConstructCascades() {
+    /// COMP-004 — construct cascades to (waits on) children.
+    func testComp004ConstructCascades() {
         let a = leaf("a"); let b = leaf("b")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices()
@@ -43,8 +48,8 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(b.status, .constructed)
     }
 
-    /// COMP-004 — destruct cascades to children.
-    func testComp004DestructCascades() {
+    /// COMP-005 — destruct cascades to (waits on) children.
+    func testComp005DestructCascades() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
@@ -53,8 +58,8 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(a.status, .destructed)
     }
 
-    /// COMP-005 — setting `current` to a child member updates the slot.
-    func testComp005CurrentSet() {
+    /// Setting `current` to a child member updates the slot.
+    func testCurrentSet() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
@@ -64,8 +69,8 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertTrue(a.isCurrent)
     }
 
-    /// COMP-006 — removing the current child drops the current slot.
-    func testComp006RemoveCurrent() {
+    /// Removing the current child drops the current slot.
+    func testRemoveCurrentDropsSlot() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
@@ -75,9 +80,9 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertNil(c.current)
     }
 
-    /// COMP-007 — clear-like behaviour via repeated remove drops all
-    /// children. (Full `clear()` lands in the follow-up PR.)
-    func testComp007RemoveAllChildren() {
+    /// Clear-like behaviour via repeated remove drops all children.
+    /// (Full `clear()` lands in a follow-up.)
+    func testRemoveAllChildren() {
         let a = leaf("a"); let b = leaf("b")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a, b] }.build()
@@ -86,10 +91,9 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(c.count, 0)
     }
 
-    /// COMP-008 — composite dispose cascades to children (LIFE-013 in
-    /// the lifecycle suite is the canonical assertion; here we cover
-    /// the composite path explicitly).
-    func testComp008DisposeCascade() {
+    /// Dispose cascades to children (canonical assertion is LIFE-013 in
+    /// the lifecycle suite; this covers the composite path explicitly).
+    func testDisposeCascade() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
@@ -99,21 +103,19 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(c.status, .disposed)
     }
 
-    /// COMP-009 — child's `_parent` is wired on add.
-    func testComp009ChildParentWired() {
+    /// Child's `_parent` is wired on add — observed via `canSelect()`.
+    func testChildParentWiredOnAdd() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [] }.build()
         c.add(a)
-        // Parent backpointer is internal; we observe its effect: a.canSelect()
-        // should now return true once the leaf is in `.constructed` state.
         a.construct()
         XCTAssertTrue(a.canSelect())
     }
 
-    /// COMP-010 — selecting via the child's `select()` updates parent's
-    /// current slot.
-    func testComp010SelectThroughChild() {
+    /// COMP-003 — selecting through the child (`select()` delegates to the
+    /// parent's select-child path) sets the parent's `current` slot.
+    func testComp003SelectThroughChildSetsCurrent() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()

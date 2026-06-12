@@ -39,6 +39,8 @@ namespace NotesShowcase.ViewModels;
 /// other flavors mirror this shape under their own idiomatic casing.
 /// </para>
 /// </summary>
+// TODO(workspaceVM-wireup): compose ThemeVM into WorkspaceVM once AggregateVM7
+// exists (proposal §8 / ADR-0036 §4 decision #3); see the wire-up status above.
 public sealed class ThemeVM : ComponentVMBase
 {
     private readonly BehaviorSubject<ThemeModel> _modelSubject;

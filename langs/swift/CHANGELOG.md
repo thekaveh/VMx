@@ -1,11 +1,64 @@
 # Changelog — VMx (Swift)
 
-All notable changes to the Swift flavor of VMx are documented here. This
-project adheres to [Semantic Versioning](https://semver.org/).
+All notable changes to the Swift flavor of VMx are documented here. The
+format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## 2.4.0 — 2026-06-02
+## [2.5.0] — 2026-06-10
+
+Implements the spec-v2.5.0 subset (ADR-0037). 39 conformance IDs claimed
+(honest recount — see the corrected 2.4.0 notes below).
+
+### Changed
+
+- **`ParentVM.supportsSelection` removed.** spec/05 §5 defines
+  `can_select()` without a parent-slot condition, so a constructed group
+  child now reports `canSelect() == true` and `select()` is a no-op,
+  matching C# / Python / TypeScript. Code conforming to `ParentVM` no
+  longer declares the member.
+- **Hub `PropertyChangedMessage` names are camelCase everywhere** per the
+  Swift idiom (spec/04 §4, ADR-0037): `"model"`, `"modeledHint"`,
+  `"current"`, `"isCurrent"`, `"component1".."component6"`.
+- Illegal lifecycle transitions remain traps (`preconditionFailure`) — now
+  a *documented* divergence (spec/02 §2, ADR-0037) rather than an accident;
+  LIFE-005/006 are claimed at the gating-predicate level and LIFE-008 is
+  not claimed.
+
+### Fixed
+
+- **The five built-in commands were permanent no-op placeholders** —
+  `selectCommand.canExecute()` returned `true` for orphan VMs and
+  `execute()` silently discarded. They are now wired to the spec/05 §5
+  predicates/tasks with the status trigger driving `canExecuteChanged`.
+- `ReadonlyComponentVMOf.builder()` resolved to the inherited writable
+  builder and produced a writable VM; the dedicated
+  `ReadonlyComponentVMOfBuilder<Model>()` is now the readonly entry point.
+  (A static `builder()` shadow on the subclass is not expressible in
+  Swift — a different-return variant is ambiguous at annotation-free call
+  sites and a same-signature redeclaration is an illegal static override —
+  so the inherited `builder()` still resolves and builds a value
+  statically typed `ComponentVMOf`; prefer the dedicated builder.)
+- `ComponentVMOf.builder()` actually defaults `modelEquals` to `==` for
+  `Equatable` models, as the documentation always claimed (the builder
+  previously fell back to an always-false predicate).
+- A background construct/destruct racing `dispose()` could resurrect the VM
+  and publish post-dispose status messages; `.disposed` is now terminal in
+  `_setStatus` and the scheduled work (spec/02 invariant 3). The same
+  invariant now also gates the `_setIsCurrent` / `_setModel` hub sends,
+  which previously published from disposed VMs.
+- Conformance-ID citations in the test suite re-mapped against
+  `spec/12-conformance.md` (~30 of 53 were shifted or vacuous).
+
+### Added
+
+- `VMxVersion.current` / `VMxVersion.minSpecVersion` constants (parity with
+  the other flavors' programmatic version exports).
+- New tests for CVM-001/003/006, AGG-004, CMD-006, BLD-003/004, GRP-002,
+  and the Equatable builder default.
+
+## [2.4.0] — 2026-06-02
 
 **First release of the Swift flavor.** Implements a subset of spec
 v2.4.0 covering the core viewmodel family + builders. This is a
@@ -47,13 +100,18 @@ cross-language parity.
 
 ### Conformance subset
 
-- `LIFE-001..013` — lifecycle state machine.
-- `CVM-001..006` — ComponentVM / ComponentVMOf identity + model.
-- `COMP-001..010` — CompositeVM children + current slot (subset).
-- `GRP-001..006` — GroupVM peers + cascade (subset).
+*(Corrected post-release — see ADR-0037. The list below originally
+claimed `LIFE-001..013`, `CVM-001..006`, `COMP-001..010`, `GRP-001..006`,
+`AGG-001..006`, `CMD-001..007`, `BLD-001..005`; several of those IDs'
+behaviors did not exist in this release.)*
+
+- `LIFE-001..007, 009, 010, 012, 013` — lifecycle state machine
+  (LIFE-005/006 assert the gates; the raise is a trap).
+- `CVM-002, 004, 005` — modeled component basics, as released.
+- `COMP-003..005`, `GRP-003, 004` — lifecycle cascades + child-select.
 - `AGG-001..006` — AggregateVM1..6 parametric coverage.
-- `CMD-001..007` — RelayCommand task + predicate + triggers (subset).
-- `BLD-001..005` — builders immutable + validation + null-services.
+- `CMD-001..004` — RelayCommand task + predicate + triggers.
+- `BLD-001, 002, 004, 005` — builders immutable + validation + defaults.
 
 ### Deferred to follow-up PRs
 

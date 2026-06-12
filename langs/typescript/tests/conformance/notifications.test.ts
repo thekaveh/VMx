@@ -96,8 +96,18 @@ describe("NOTIF-007", () => {
 describe("NOTIF-008", () => {
   it("Resolving a notification not in Pending is a no-op", () => {
     const hub = new NotificationHub();
+    const posted = new Notification(NotificationType.Confirmation, "real");
+    void hub.post(posted);
+    const snapshots: Array<readonly Notification[]> = [];
+    hub.pending.subscribe((s) => snapshots.push(s));
+
     const orphan = new Notification(NotificationType.Notification, "stray");
     expect(() => hub.resolve(orphan, NotificationReaction.Approve)).not.toThrow();
+
+    // Catalog And-clause: Pending is unchanged — no emission beyond the
+    // subscription snapshot, which still contains exactly the posted one.
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toEqual([posted]);
   });
 });
 
@@ -286,5 +296,33 @@ describe("NOTIF-016", () => {
     expect(sut.isResolved).toBe(true);
 
     sut.dispose();
+  });
+});
+
+describe("NOTIF-017", () => {
+  it("dispose resolves in-flight waiters with Pending, completes pending, and is idempotent", async () => {
+    const hub = new NotificationHub();
+    let completed = false;
+    hub.pending.subscribe({ complete: () => (completed = true) });
+    const task = hub.post(
+      new Notification(NotificationType.Confirmation, "in-flight"),
+    );
+
+    hub.dispose();
+
+    await expect(task).resolves.toBe(NotificationReaction.Pending);
+    expect(completed).toBe(true);
+
+    // Subsequent post resolves immediately with Pending and does not enqueue.
+    await expect(
+      hub.post(new Notification(NotificationType.Notification, "late")),
+    ).resolves.toBe(NotificationReaction.Pending);
+
+    // Subsequent resolve is a no-op; second dispose is a no-op.
+    hub.resolve(
+      new Notification(NotificationType.Notification, "ghost"),
+      NotificationReaction.Approve,
+    );
+    hub.dispose();
   });
 });

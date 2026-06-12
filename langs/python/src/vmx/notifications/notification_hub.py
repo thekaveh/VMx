@@ -56,10 +56,15 @@ class NotificationHub:
     """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        # RLock, not Lock: pending snapshots are emitted while holding the
+        # lock (NOTIF-017 ordering discipline), and a subscriber handler may
+        # synchronously call back into post/resolve on the same thread —
+        # mirroring C#'s reentrant Monitor.
+        self._lock = threading.RLock()
         self._pending: list[Notification] = []
         self._waiters: dict[Notification, asyncio.Future[NotificationReaction]] = {}
         self._pending_subject: BehaviorSubject[list[Notification]] = BehaviorSubject([])
+        self._disposed = False
 
     @property
     def pending(self) -> Observable[list[Notification]]:
@@ -75,10 +80,17 @@ class NotificationHub:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[NotificationReaction] = loop.create_future()
         with self._lock:
+            # Post after dispose resolves PENDING and does not enqueue,
+            # matching dispose()'s shutdown semantics (NOTIF-017).
+            if self._disposed:
+                future.set_result(NotificationReaction.PENDING)
+                return future
             self._pending.append(notification)
             self._waiters[notification] = future
-            snapshot = list(self._pending)
-        self._pending_subject.on_next(snapshot)
+            # Emit inside the lock (NOTIF-017 discipline, mirroring the C#
+            # hub): emitting outside raced dispose()'s subject completion and
+            # let concurrent posts publish snapshots out of order.
+            self._pending_subject.on_next(list(self._pending))
         return future
 
     def resolve(self, notification: Notification, reaction: NotificationReaction) -> None:
@@ -87,8 +99,7 @@ class NotificationHub:
             if future is None:
                 return
             self._pending.remove(notification)
-            snapshot = list(self._pending)
-        self._pending_subject.on_next(snapshot)
+            self._pending_subject.on_next(list(self._pending))
         if future.done():
             return
         # asyncio.Future.set_result is not thread-safe — route through the
@@ -97,3 +108,30 @@ class NotificationHub:
         # background-worker threads that complete the underlying interaction.)
         loop = future.get_loop()
         loop.call_soon_threadsafe(_complete_future_if_pending, future, reaction)
+
+    def dispose(self) -> None:
+        """Resolve in-flight waiters with ``PENDING`` and complete ``pending``.
+
+        Idempotent (NOTIF-017). Mirrors the C# hub's shutdown semantics:
+        subsequent :meth:`post` calls resolve immediately with ``PENDING``
+        without enqueueing, and subsequent :meth:`resolve` calls are no-ops.
+        """
+        with self._lock:
+            if self._disposed:
+                return
+            self._disposed = True
+            waiters = list(self._waiters.values())
+            self._waiters.clear()
+            self._pending.clear()
+            self._pending_subject.on_completed()
+            self._pending_subject.dispose()
+        for future in waiters:
+            try:
+                future.get_loop().call_soon_threadsafe(
+                    _complete_future_if_pending, future, NotificationReaction.PENDING
+                )
+            except RuntimeError:
+                # The waiter's loop is already closed (typical shutdown
+                # ordering); keep resolving the remaining waiters — the C#
+                # parity model (TrySetResult) never throws here either.
+                continue

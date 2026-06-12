@@ -85,8 +85,8 @@ describe("NotebookVM", () => {
     vm.model = { id: "nb-test", name: "New", parentId: null };
     expect(vm.notebookName).toBe("New");
     const names = messages.map((m) => m.propertyName).sort();
-    expect(names).toContain("Model");
-    expect(names).toContain("NotebookName");
+    expect(names).toContain("model");
+    expect(names).toContain("notebookName");
   });
 
   it("setting the same model reference is a no-op", () => {

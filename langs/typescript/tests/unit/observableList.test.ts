@@ -29,6 +29,18 @@ describe("ObservableList – basic mutations", () => {
     expect(sut.toArray()).toEqual([10, 20, 30]);
   });
 
+  it("insert at length appends; out-of-bounds throws RangeError", () => {
+    // splice would silently normalize/clamp a bad index while the emitted
+    // payload carried the raw value — bounds must fail fast instead.
+    const sut = new ObservableList<number>();
+    sut.push(10);
+    sut.insert(1, 20);
+    expect(sut.toArray()).toEqual([10, 20]);
+    expect(() => sut.insert(-1, 99)).toThrow(RangeError);
+    expect(() => sut.insert(3, 99)).toThrow(RangeError);
+    expect(sut.toArray()).toEqual([10, 20]);
+  });
+
   it("pop removes and returns last item", () => {
     const sut = new ObservableList<string>();
     sut.push("a");
@@ -492,5 +504,33 @@ describe("ObservableList – withBatch Count notification", () => {
 
     // outermost exited — count changed (0 → 1), notification fires
     expect(propChanges).toContain("Count");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clear → Count (spec/21 §3.3, clarified by ADR-0037)
+// ---------------------------------------------------------------------------
+
+describe("ObservableList – clear emits Count", () => {
+  it('fires propertyChanged("Count") after reset when count changed', () => {
+    const sut = new ObservableList<number>();
+    sut.push(1);
+    const events: string[] = [];
+    sut.reset.subscribe(() => events.push("reset"));
+    sut.propertyChanged.subscribe((name) => events.push(name));
+
+    sut.clear();
+
+    expect(events).toEqual(["reset", "Count"]);
+  });
+
+  it("does not fire Count when clearing an empty list", () => {
+    const sut = new ObservableList<number>();
+    const events: string[] = [];
+    sut.propertyChanged.subscribe((name) => events.push(name));
+
+    sut.clear();
+
+    expect(events).not.toContain("Count");
   });
 });

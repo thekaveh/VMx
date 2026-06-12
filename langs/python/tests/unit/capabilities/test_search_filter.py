@@ -60,3 +60,16 @@ def test_searchable_state_search_term_setter_skips_noop_re_set() -> None:
         "setting search_term to the same value must NOT trigger a recompute "
         f"(got {after_second - after_first} extra emission(s))"
     )
+
+
+def test_can_search_true_when_first_item_is_none() -> None:
+    """A legal None item must not read as 'no items' (sentinel regression)."""
+    s = SearchableState(items=lambda: [None, 1, 2], predicate=lambda i, t: True, debounce_seconds=0)
+    assert s.can_search() is True
+    s.dispose()
+
+
+def test_can_search_false_when_empty() -> None:
+    s = SearchableState(items=lambda: [], predicate=lambda i, t: True, debounce_seconds=0)
+    assert s.can_search() is False
+    s.dispose()

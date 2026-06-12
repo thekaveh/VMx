@@ -108,5 +108,5 @@ async def test_status_bar_text_updates_via_derived_property_bridge() -> None:
         # The status bar's note-count Static should display the current
         # filtered-items count via bind_derived_property.
         slot = app.query_one("#status_note_count", Static)
-        rendered = str(slot.renderable)
+        rendered = str(slot.content)
         assert "note" in rendered.lower()

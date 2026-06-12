@@ -114,6 +114,22 @@ def test_insert_emits_collection_changed_add_at_index() -> None:
     assert child_b in events[0].new_items
 
 
+def test_insert_negative_index_emits_effective_position() -> None:
+    """spec/21 §3.2: new_index carries the actual insertion position —
+    stdlib insert(-1) lands before the last child, not at raw -1."""
+    comp, _ = _build_composite()
+    comp.append(_build_child("a"))
+    comp.append(_build_child("b"))
+    child_c = _build_child("c")
+    events: list[CollectionChangedEvent] = []
+    comp.on_collection_changed.subscribe(events.append)
+
+    comp.insert(-1, child_c)
+
+    assert events[0].new_index == 1
+    assert comp[1] is child_c
+
+
 def test_clear_emits_collection_changed_reset() -> None:
     comp, _ = _build_composite()
     comp.append(_build_child("a"))
@@ -514,3 +530,19 @@ def test_builder_missing_children_raises() -> None:
     with pytest.raises(BuilderValidationError) as exc_info:
         CompositeVMBuilder().name("x").services(hub, disp).build()
     assert exc_info.value.missing_field == "children"
+
+
+def test_clear_resets_current_child_state() -> None:
+    """clear() must route through _set_current so the old current child's
+    is_current flag is dropped (parity with C# Clear / _remove_at)."""
+    comp, _ = _build_composite()
+    child = _build_child()
+    comp.append(child)
+    child.construct()
+    comp.current = child
+    assert child.is_current is True
+
+    comp.clear()
+
+    assert comp.current is None
+    assert child.is_current is False

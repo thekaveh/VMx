@@ -272,6 +272,52 @@ public class FormVMTests
         propChange.PropertyName.Should().Be("Model");
     }
 
+    // ── Dispose races ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Dispose_During_InFlight_Approve_Does_Not_Throw()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sut = new FormVM<Model>(new Model("A", 1), _ => gate.Task);
+        sut.SetModel(new Model("B", 2));
+
+        var approve = sut.ApproveAsync();   // parked on the persister
+        sut.Dispose();                      // completes + disposes the subjects
+        gate.SetResult();                   // persister finishes after dispose
+
+        // The post-await path must observe _disposed and skip the emissions
+        // instead of throwing ObjectDisposedException in an unobserved task.
+        var completed = await Task.WhenAny(approve, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(approve);
+        await approve;
+    }
+
+    [Fact]
+    public void Deny_After_Dispose_Is_NoOp()
+    {
+        var sut = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask);
+        sut.SetModel(new Model("B", 2));
+        sut.Dispose();
+
+        sut.DenyCommand.Execute(null);
+
+        sut.Model.Should().Be(new Model("B", 2), "deny on a disposed form must not revert");
+    }
+
+    [Fact]
+    public async Task Approve_After_Dispose_Does_Not_Invoke_Persister()
+    {
+        // The persister is an external side effect and must not run on a
+        // disposed form (symmetric with the Deny guard).
+        var persisted = new List<Model>();
+        var sut = new FormVM<Model>(new Model("A", 1), m => { persisted.Add(m); return Task.CompletedTask; });
+        sut.Dispose();
+
+        await sut.ApproveAsync();
+
+        persisted.Should().BeEmpty();
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>

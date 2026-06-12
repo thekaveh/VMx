@@ -1,4 +1,4 @@
-#pragma warning disable CA1715 // Spec uses 'VM' type parameter names per ADR-0006
+#pragma warning disable CA1715 // Spec uses 'VM1..VMN' type parameter names per spec/08-aggregate-vm.md §2
 using VMx.Components;
 
 namespace VMx.Aggregates;

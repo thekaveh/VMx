@@ -186,6 +186,15 @@ class NotesViewVM(
         self._raise_property_changed("current_notebook_is_readonly")
 
     @property
+    def dialog_service(self) -> IDialogService | None:
+        """Dialog service used for delete confirmation (late-bindable)."""
+        return self._dialog_service
+
+    @dialog_service.setter
+    def dialog_service(self, value: IDialogService | None) -> None:
+        self._dialog_service = value
+
+    @property
     def is_empty(self) -> DerivedProperty[bool]:
         return self._is_empty
 
@@ -336,18 +345,25 @@ class NotesViewVM(
                     .on_close(lambda _vm: self._clear_current())
                     .on_delete(self._delete_note)
                 )
-                if self._dialog_service is not None:
-                    dialog = self._dialog_service
 
-                    async def _confirm(
-                        _vm: NoteVM, ds: IDialogService = dialog
-                    ) -> bool:
-                        return await ds.confirm(
-                            f"Delete “{_vm.title}”?",
-                            title="Delete note",
-                        )
+                # Read the dialog service at confirm time, not at NoteVM
+                # build time: the composition root late-binds the real
+                # TextualDialogService after the App exists, and a
+                # default-arg capture here froze the boot NullDialogService
+                # (confirm -> False) into every NoteVM, making deletion
+                # impossible (real-wiring audit, pass 5). A still-unbound
+                # service falls back to proceed-unconfirmed, matching the
+                # behavior when no service was attached at all.
+                async def _confirm(_vm: NoteVM) -> bool:
+                    ds = self._dialog_service
+                    if ds is None:
+                        return True
+                    return await ds.confirm(
+                        f"Delete “{_vm.title}”?",
+                        title="Delete note",
+                    )
 
-                    builder = builder.confirm_delete(_confirm)
+                builder = builder.confirm_delete(_confirm)
                 if self._notification_hub is not None:
                     builder = builder.notification_hub(self._notification_hub)
                 vm = builder.build()
@@ -358,6 +374,22 @@ class NotesViewVM(
         self._raise_property_changed("current")
         self._recompute_filtered()
         self._paged.move_to_first_page()
+
+    def refresh_note(self, note: NoteModel) -> None:
+        """Refresh the list row for *note* after an external update (save).
+
+        Re-seats the persisted model into the matching :class:`NoteVM` and
+        re-runs the combined filter so row labels, the starred filter, and
+        search results reflect the saved values (rows otherwise kept their
+        construction-time title/star; real-wiring audit, pass 5).
+        """
+        for vm in self._inner:
+            if vm.model.id == note.id:
+                vm._set_model(note)
+                break
+        else:
+            return
+        self._recompute_filtered()
 
     def _clear_current(self) -> None:
         self.current = None

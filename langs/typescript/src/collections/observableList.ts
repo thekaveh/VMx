@@ -110,8 +110,15 @@ export class ObservableList<T> {
     this.#onAdded(item, index);
   }
 
-  /** Insert an item at the given index. */
+  /**
+   * Insert an item at the given index (`length` appends).
+   * Throws RangeError if index is out of bounds — `splice` would otherwise
+   * silently normalize/clamp while the emitted payload carried the raw index.
+   */
   insert(index: number, item: T): void {
+    if (index < 0 || index > this.#items.length) {
+      throw new RangeError(`Index ${String(index)} out of bounds`);
+    }
     this.#items.splice(index, 0, item);
     this.#onAdded(item, index);
   }
@@ -164,10 +171,16 @@ export class ObservableList<T> {
     this.#onReplaced(newItem, oldItem, index);
   }
 
-  /** Remove all items and emit reset. */
+  /** Remove all items and emit reset (and "Count" when it changed). */
   clear(): void {
+    const countChanged = this.#items.length > 0;
     this.#items.length = 0;
     this.#onReset();
+    // spec/21 §3.3: PropertyChanged("Count") fires after every mutation
+    // that changes Count. Inside a batch the batch-exit path emits it.
+    if (countChanged && this.#batchDepth === 0) {
+      this.#propertyChanged.next("Count");
+    }
   }
 
   // ── Batch ────────────────────────────────────────────────────────────────────

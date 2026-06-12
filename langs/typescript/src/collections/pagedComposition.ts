@@ -57,10 +57,11 @@ export class PagedComposition<TVM> implements IPageable {
       this.#factory = () => source as Iterable<TVM>;
     }
 
-    // Subscribe to mutation events if the source supports them
-    // (duck-typing: ObservableList exposes .itemAdded / .itemRemoved / .reset).
+    // Subscribe to mutation events if the source supports them (duck-typing:
+    // ObservableList exposes .itemAdded / .itemRemoved / .itemReplaced /
+    // .reset — replace mutates page contents too).
     const src = source as unknown as Record<string, unknown>;
-    for (const key of ["itemAdded", "itemRemoved", "reset"] as const) {
+    for (const key of ["itemAdded", "itemRemoved", "itemReplaced", "reset"] as const) {
       if (src[key] instanceof Observable) {
         this.#subscriptions.push(
           (src[key] as Observable<unknown>).subscribe({

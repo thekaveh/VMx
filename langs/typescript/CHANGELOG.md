@@ -1,11 +1,81 @@
 # Changelog — @thekaveh/vmx (TypeScript)
 
-All notable changes to the TypeScript flavor of vmx are documented here.
-This project adheres to [Semantic Versioning](https://semver.org/).
+All notable changes to the TypeScript flavor of vmx are documented here. The
+format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## 2.4.0 — 2026-06-02
+## [2.5.0] — 2026-06-10
+
+Implements `spec-v2.5.0` (ADR-0037).
+
+### Changed
+
+- **Hub `PropertyChangedMessage` names are camelCase everywhere** per the TS
+  idiom (spec/04 §4, ADR-0037): `"model"`, `"modeledHint"`, `"current"`,
+  `"component1".."component6"` — previously these emitted PascalCase while
+  `FormVM`/`HierarchicalVM` emitted camelCase. Subscribers filtering on
+  `"Model"`, `"Current"`, `"IsCurrent"`, or `"ComponentN"` must update
+  their strings.
+- `NullDialogService` now has a private constructor — consume the
+  `INSTANCE` singleton, matching every other null variant and C#.
+
+### Fixed
+
+- `FormVM`'s `approveCommand` and `ConfirmationDecoratorCommand.execute()`
+  no longer turn a rejecting persister/confirm delegate into a fatal
+  unhandled rejection on Node ≥ 15.
+- `CompositeVMBase.clear()` routes through the current-selection setter; the
+  old current child no longer keeps `isCurrent === true` with no
+  notification.
+- `PagedComposition` subscribes `itemReplaced`; `replace()` on the current
+  page refreshes `items`.
+- `ObservableList.clear()` emits `propertyChanged("Count")` after `reset`
+  when the count changed (spec/21 §3.3).
+- `GroupVM` construct/destruct iterate a snapshot so a child lifecycle hook
+  that mutates the group cannot skip siblings.
+- A background construct/destruct racing `dispose()` could resurrect the
+  VM and publish post-dispose status messages; `Disposed` is now terminal
+  in `_setStatus` and the scheduled work (spec/02 invariant 3).
+- `RxDispatcher.default()`'s doc no longer inverts the rxjs scheduler
+  semantics (queueScheduler is a synchronous trampoline; asapScheduler is
+  a Promise microtask).
+- `FormVM` no longer advances its snapshot when `dispose()` runs during
+  the persister await (rxjs silently swallowed the emissions, masking the
+  state mutation), and `onApproved` now emits the value that was actually
+  persisted rather than the live model (parity with C#'s captured
+  payload). The deny path is likewise a no-op after `dispose()`, and
+  `approveAsync()` on a disposed form no longer invokes the persister.
+- `ObservableList.insert` throws `RangeError` for out-of-bounds indexes
+  (matching `removeAt`/`replace`) — `splice` silently normalized/clamped
+  while the `itemAdded` payload carried the raw index (spec/21 §3.2).
+  `CompositeVM.insert` and `GroupVM.insert` get the same bounds check
+  (catalogued in ADR-0009).
+- `ServicedObservableCollection.splice(0, 0)` no longer emits a `Reset` for
+  a mutation that never happened (spec/21 §2.4).
+- Post-2.4.0 maintenance backfill: `AggregateVM6` walk/dispose drift and the
+  missing `DictionaryEntry` export.
+
+### Added
+
+- `FORM-014` conformance coverage: a disposed `FormVM` is inert — approve
+  never invokes the persister, deny does not revert (ADR-0038; pins the
+  guards shipped earlier in this release).
+
+- `HierarchicalVM.reparentChild` rejects self- and ancestor-reparenting
+  with `Error` instead of silently corrupting the tree (HIER-018).
+- `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
+  completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+- Typed-arity `DerivedProperty` factories `fromOne`..`fromFive` plus the
+  `fromMany` alias (ADR-0035 §2 DP2 always claimed TS had them; it never
+  did — the recorded three-flavor parity decision is now true).
+- Idempotent `dispose()` on `DecoratorCommand`,
+  `ConfirmationDecoratorCommand`, and `CompositeCommand` (teardown
+  symmetry with the C# IDisposable surface; the decorators own no
+  subscriptions).
+
+## [2.4.0] — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
 sibling + example-app theming scenario contract + test-coverage backfill
@@ -52,7 +122,7 @@ changes to existing TS APIs.
 
 - 2.4.0 (previously 2.3.0).
 
-## 2.3.0 — 2026-05-31
+## [2.3.0] — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
 Purely additive at the surface level. The C# / Python flavors gain
@@ -110,7 +180,7 @@ validation parity with TS's existing Children-at-`build()` behaviour.
 
 - 2.3.0 (previously 2.2.0).
 
-## 2.2.0 — 2026-05-30
+## [2.2.0] — 2026-05-30
 
 ### Added
 

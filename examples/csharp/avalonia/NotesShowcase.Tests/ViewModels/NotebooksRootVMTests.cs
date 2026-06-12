@@ -175,4 +175,38 @@ public sealed class NotebooksRootVMTests
         Assert.Contains(added, work.Children);
         Assert.Equal(beforeCount + 1, work.Children.Count);
     }
+
+    [Fact]
+    public async Task PopulateAsync_raises_PropertyChanged_for_Roots()
+    {
+        // Regression: Roots is a computed snapshot; without this raise an
+        // already-bound TreeView stays empty forever (the App binds the
+        // window BEFORE ConstructAsync completes).
+        var repo = new InMemoryNoteRepository(SeedData.Build());
+        var vm = BuildVM(repo);
+        vm.Construct();
+        var raised = new List<string?>();
+        ((System.ComponentModel.INotifyPropertyChanged)vm).PropertyChanged +=
+            (_, e) => raised.Add(e.PropertyName);
+
+        await vm.PopulateAsync();
+
+        Assert.Contains(nameof(NotebooksRootVM.Roots), raised);
+    }
+
+    [Fact]
+    public async Task AddNotebookAsync_root_level_raises_PropertyChanged_for_Roots()
+    {
+        var repo = new InMemoryNoteRepository(SeedData.Build());
+        var vm = BuildVM(repo);
+        vm.Construct();
+        await vm.PopulateAsync();
+        var raised = new List<string?>();
+        ((System.ComponentModel.INotifyPropertyChanged)vm).PropertyChanged +=
+            (_, e) => raised.Add(e.PropertyName);
+
+        await vm.AddNotebookAsync(parentId: null, name: "Fresh Root");
+
+        Assert.Contains(nameof(NotebooksRootVM.Roots), raised);
+    }
 }

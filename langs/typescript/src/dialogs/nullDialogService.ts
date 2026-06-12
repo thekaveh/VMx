@@ -15,6 +15,9 @@ export class NullDialogService implements IDialogService {
   /** Shared singleton instance (the service holds no state). */
   static readonly INSTANCE: NullDialogService = new NullDialogService();
 
+  // Singleton: consume via INSTANCE (matches the other null variants and C#).
+  private constructor() {}
+
   pickFileToOpen(
     _filter?: FileFilter | null,
     _title?: string | null,

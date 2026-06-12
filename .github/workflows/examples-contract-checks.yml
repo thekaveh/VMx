@@ -1,5 +1,8 @@
 name: examples-contract-checks
 
+permissions:
+  contents: read
+
 # Runs the Phase 6 Pure-VM contract + parity scripts. These tools enforce
 # architectural invariants on the flagship example apps:
 #   * check-axaml-codebehind.py — Avalonia views must not embed business logic
@@ -22,7 +25,6 @@ on:
       - "tools/check-showcase-parity.py"
       - ".github/workflows/examples-contract-checks.yml"
   pull_request:
-    branches: [main]
     paths:
       - "examples/**"
       - "tools/check-axaml-codebehind.py"

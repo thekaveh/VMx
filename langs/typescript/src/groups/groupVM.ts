@@ -90,6 +90,11 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   insert(index: number, item: VM): void {
+    // splice would silently normalize/clamp while the emitted newIndex
+    // carried the raw argument (spec/21 §3.2); `length` appends.
+    if (index < 0 || index > this._children.length) {
+      throw new RangeError(`Index ${String(index)} out of range`);
+    }
     this._children.splice(index, 0, item);
     item._parent = this.#groupParent;
     this._maybeAutoConstruct(item);
@@ -174,13 +179,15 @@ export class GroupVM<VM extends ComponentVMBase>
   protected override _onConstruct(): void {
     super._onConstruct();
     this._populateChildren();
-    for (const child of this._children) {
+    // Snapshot (parity with CompositeVMBase and dispose below): a child
+    // lifecycle hook that mutates the group must not skip/repeat siblings.
+    for (const child of [...this._children]) {
       child.construct();
     }
   }
 
   protected override _onDestruct(): void {
-    for (const child of this._children) {
+    for (const child of [...this._children]) {
       child.destruct();
     }
     super._onDestruct();

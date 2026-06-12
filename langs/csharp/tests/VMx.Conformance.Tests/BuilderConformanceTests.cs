@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Builders;
@@ -155,5 +156,26 @@ public class BuilderConformanceTests
         trigger2.OnNext(default);
         firings.Should().Be(2,
             "second trigger must ALSO fire CanExecuteChanged — Triggers is additive");
+
+        // Insertion order (catalog And-clause): derive both triggers from ONE
+        // parent emission and record which trigger's chain delivers first —
+        // the merged stream subscribes its sources in insertion order, so
+        // o1's Do must run before o2's. (A sequential OnNext/OnNext probe is
+        // vacuous: it passes regardless of subscription order.)
+        var parent = new Subject<System.Reactive.Unit>();
+        var via = new List<string>();
+        var o1 = parent.Do(_ => via.Add("via-o1"));
+        var o2 = parent.Do(_ => via.Add("via-o2"));
+        var orderCmd = RelayCommand.Builder().Triggers(o1).Triggers(o2).Build();
+        orderCmd.CanExecuteChanged += (_, _) => { };
+        parent.OnNext(default);
+        via.Should().Equal("via-o1", "via-o2");
+
+        // Non-additive setters overwrite on repeated calls (catalog And-clause).
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = Components.ComponentVM<string>.Builder()
+            .Name("first").Name("second").Services(hub, dispatcher).Model("m").Build();
+        vm.Name.Should().Be("second", "Name() must overwrite, not accumulate");
     }
 }

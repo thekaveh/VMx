@@ -230,6 +230,15 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 #pragma warning restore CA1510
         if (ReferenceEquals(child.HierarchicalParent, this)) return;
 
+        // HIER-018: reparenting this node or one of its ancestors under
+        // itself would create a parent cycle and corrupt Depth/Path/Walk.
+        // Identity comparison, not Equals: a TVM overriding Equals (e.g.
+        // model-value equality) must not falsely reject a legal reparent
+        // (Python uses `is`, TS uses SameValueZero includes()).
+        if (Path.Any(p => ReferenceEquals(p, child)))
+            throw new InvalidOperationException(
+                $"Cannot reparent '{child.Name}' under '{Name}': it is this node or one of its ancestors (HIER-018).");
+
         // Remove from old parent silently (no message — reparent covers it).
         var oldParent = child._hierarchicalParent;
         if (oldParent is not null)

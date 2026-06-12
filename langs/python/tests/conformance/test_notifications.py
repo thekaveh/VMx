@@ -148,8 +148,18 @@ async def test_NOTIF_007_confirmation_approve_or_reject() -> None:
 @pytest.mark.conformance("NOTIF-008")
 async def test_NOTIF_008_resolve_unknown_noop() -> None:
     hub = NotificationHub()
+    posted = Notification(NotificationType.CONFIRMATION, "real")
+    hub.post(posted)
+    snapshots: list[list[Notification]] = []
+    hub.pending.subscribe(snapshots.append)
+
     orphan = Notification(NotificationType.NOTIFICATION, "stray")
     hub.resolve(orphan, NotificationReaction.APPROVE)  # must not raise
+
+    # Catalog And-clause: Pending is unchanged — no new emission beyond the
+    # subscription snapshot, which still contains exactly the posted one.
+    assert len(snapshots) == 1
+    assert snapshots[0] == [posted]
 
 
 # ---------------------------------------------------------------------------
@@ -414,3 +424,30 @@ async def test_resolve_is_thread_safe() -> None:
     result = await future
     t.join(timeout=1.0)
     assert result == NotificationReaction.APPROVE
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-017 — Hub dispose resolves in-flight waiters with Pending
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-017")
+async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> None:
+    hub = NotificationHub()
+    completed: list[bool] = []
+    hub.pending.subscribe(on_completed=lambda: completed.append(True))
+    task = hub.post(Notification(NotificationType.CONFIRMATION, "in-flight"))
+
+    hub.dispose()
+
+    assert await task == NotificationReaction.PENDING
+    assert completed == [True], "pending observable completes on dispose"
+
+    # Subsequent post resolves immediately with PENDING and does not enqueue.
+    late = hub.post(Notification(NotificationType.NOTIFICATION, "late"))
+    assert late.done()
+    assert late.result() == NotificationReaction.PENDING
+
+    # Subsequent resolve is a no-op; second dispose is a no-op.
+    hub.resolve(Notification(NotificationType.NOTIFICATION, "ghost"), NotificationReaction.APPROVE)
+    hub.dispose()

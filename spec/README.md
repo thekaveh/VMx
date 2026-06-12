@@ -2,8 +2,8 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.4.0,
-Python `vmx` v2.4.0, TypeScript `@thekaveh/vmx` v2.4.0, Swift `VMx` v2.4.0
+This directory is the contract. Every published package — C# `VMx` v2.5.0,
+Python `vmx` v2.5.0, TypeScript `@thekaveh/vmx` v2.5.0, Swift `VMx` v2.5.0
 (subset) — declares the spec version it implements. Conformance tests under
 `langs/<lang>/tests/conformance/` re-implement the catalog at
 `12-conformance.md` and must pass before any flavor releases a stable
@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (232 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (235 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -119,11 +119,28 @@ v2.4.0 is a minor, non-breaking spec bump that coordinates a publication-readine
 - Chapter count stays at 22 (no new chapters); the ThemeVM contract is a
   scenario proposal, not a new chapter.
 
-### 1.7 Supporting artefacts
+### 1.7 v2.4.x → v2.5.0 changes
 
-- `VERSION` — current spec SemVer (`2.4.0`).
+v2.5.0 is a minor, non-breaking maintenance bump (see ADR-0037). All
+v2.4.x consumers continue to work unchanged.
+
+- **ADR-0037** — maintenance clarifications and additions: hub
+  `PropertyName` casing follows the flavor idiom (ch03 §2.1); `Clear()`
+  emits `Count` after `Reset` (ch21 §3.3); `ReparentChild` rejects
+  self/ancestor cycles (ch18 §5, **HIER-018**); `NotificationHub` dispose
+  semantics are normative (ch16 §9, **NOTIF-017**); the Swift lifecycle
+  trap is a documented divergence (ch02 §2); the Swift conformance subset
+  is recounted 53 → 39 (corrects ADR-0036 §2.E); fixture-prose and
+  `NULL-*` listing corrections (ch15 §7, ch03 §8, ch11 §6).
+- `12-conformance.md` — adds `HIER-018` and `NOTIF-017`; catalog total
+  goes from 232 to 235 (230 library + 5 THEME scenario IDs).
+- Chapter count stays at 22.
+
+### 1.8 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`2.5.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0036); see
+- `ADRs/` — Architecture Decision Records (0001-0037); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

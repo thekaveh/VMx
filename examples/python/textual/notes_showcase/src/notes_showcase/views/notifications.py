@@ -23,10 +23,16 @@ from notes_showcase.viewmodels.notifications_vm import NotificationsVM
 from notes_showcase.views.adapter import bind_property
 
 
+def _summary(visible: object) -> str:
+    """One line per active notification (binding the raw ObservableList
+    rendered its repr at best; real-wiring audit, pass 5)."""
+    return "\n".join(vm.notification.message for vm in visible)  # type: ignore[attr-defined]
+
+
 def _wire_bindings(view: "NotificationsView") -> CompositeDisposable:
     # ``visible`` is an ObservableList; the bounded mirror publishes a
     # PropertyChangedMessage on every sync (see NotificationsVM._sync_*),
-    # so a vanilla bind_property re-reads the collection and renders a
+    # so bind_property re-reads the collection and the transform renders a
     # compact summary string. Full rich rendering is a Phase 7 polish item.
     return CompositeDisposable(
         bind_property(
@@ -34,6 +40,7 @@ def _wire_bindings(view: "NotificationsView") -> CompositeDisposable:
             "renderable",
             view._vm,
             "visible",
+            transform=_summary,
         ),
     )
 

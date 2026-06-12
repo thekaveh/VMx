@@ -184,9 +184,10 @@ public class ComponentVMConformanceTests
         // Parent has no current: CanSelect is true.
         vm.SelectCommand.CanExecute(null).Should().BeTrue();
 
-        // Simulate selection via the internal setter.
-        parent.SetCurrent(vm);
-        vm.IsCurrent = true; // use internal setter (InternalsVisibleTo)
+        // Select through the real pathway (catalog: "after vm.select()") —
+        // Select() delegates to the parent's SelectChild.
+        vm.Select();
+        vm.IsCurrent = true; // the mock parent doesn't flip the child flag
 
         // Now SelectCommand.CanExecute reflects the new state after trigger fires.
         // The trigger fires asynchronously based on status changes, but for selection

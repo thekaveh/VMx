@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reactive.Concurrency;
 using System.Windows.Input;
 using VMx.Builders;
 using VMx.Capabilities;
@@ -115,7 +116,21 @@ public sealed class NotebooksRootVM
         if (parentId is not null)
         {
             var parent = _all.FirstOrDefault(nb => nb.Model.Id == parentId);
-            parent?.NotifyChildrenChanged();
+            // Same marshaling rationale as the root branch below — this
+            // continuation runs off the UI thread and the raise feeds a
+            // live TreeView binding.
+            if (parent is not null)
+            {
+                _dispatcher.Foreground.Schedule(() => parent.NotifyChildrenChanged());
+            }
+        }
+        else
+        {
+            // Root-level add: Roots is a computed snapshot, so an
+            // already-bound TreeView only re-reads it on an explicit raise.
+            // Marshal to the foreground — this continuation runs off the UI
+            // thread after ConfigureAwait(false).
+            _dispatcher.Foreground.Schedule(() => RaisePropertyChanged(nameof(Roots)));
         }
         // Index is the new tail of _all (we just appended).
         Hub.Send(new TreeStructureChangedMessage(
@@ -146,6 +161,14 @@ public sealed class NotebooksRootVM
         foreach (var prev in _all) prev.Dispose();
         _all.Clear();
         _current = null;
+        // Marshal: this continuation runs off the UI thread after
+        // ConfigureAwait(false) and Current feeds a TwoWay TreeView binding
+        // (same rationale as the Roots raise below; pass-7 review).
+        _dispatcher.Foreground.Schedule(() =>
+        {
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
+            RaisePropertyChanged(nameof(Current));
+        });
 
         foreach (var nb in notebooks)
         {
@@ -165,6 +188,12 @@ public sealed class NotebooksRootVM
             Change: TreeStructureChange.Added,
             Affected: this,
             Index: -1));
+
+        // Roots is a computed snapshot: a TreeView bound before this populate
+        // completed (the App sets DataContext without awaiting ConstructAsync)
+        // only re-reads it on an explicit raise. Marshal to the foreground —
+        // this continuation runs off the UI thread after ConfigureAwait(false).
+        _dispatcher.Foreground.Schedule(() => RaisePropertyChanged(nameof(Roots)));
     }
 
     private NotebooksRootVM(

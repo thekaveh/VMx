@@ -18,13 +18,10 @@ namespace NotesShowcase.ViewModels;
 public sealed class StatusBarVM : ComponentVMBase
 {
     private readonly NotesViewVM _notesView;
-    private readonly NotebooksRootVM _notebooks;
     private readonly NoteFormVM _noteForm;
     private readonly BehaviorSubject<NotesViewVM> _notesViewSubject;
-    private readonly BehaviorSubject<NotebooksRootVM> _notebooksSubject;
     private readonly BehaviorSubject<NoteFormVM> _noteFormSubject;
     private readonly IDisposable _notesViewSub;
-    private readonly IDisposable _notebooksSub;
     private readonly IDisposable _noteFormSub;
     private bool _ownDisposed;
 
@@ -60,10 +57,6 @@ public sealed class StatusBarVM : ComponentVMBase
     /// <summary>INPC-aware sidecar for <see cref="EditingText"/>.</summary>
     public BindableDerived<string> EditingTextBindable { get; }
 
-    private NotesViewVM NotesViewRef => _notesView;
-    private NotebooksRootVM NotebooksRef => _notebooks;
-    private NoteFormVM NoteFormRef => _noteForm;
-
     private StatusBarVM(
         string name,
         string hint,
@@ -75,25 +68,25 @@ public sealed class StatusBarVM : ComponentVMBase
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _notesView = notesView;
-        _notebooks = notebooks;
+        _ = notebooks; // builder surface kept for cross-flavor parity
         _noteForm = noteForm;
 
         _notesViewSubject = new BehaviorSubject<NotesViewVM>(notesView);
-        _notebooksSubject = new BehaviorSubject<NotebooksRootVM>(notebooks);
         _noteFormSubject = new BehaviorSubject<NoteFormVM>(noteForm);
 
         // Re-emit each source whenever its hub publishes a relevant PropertyChanged.
+        // Pass-6 real-wiring audit: hub messages can arrive from background
+        // continuations; the subjects feed BindableDerived, which raises
+        // INPC on the caller's thread — marshal to the foreground.
         _notesViewSub = notesView.Hub.Messages
             .OfType<PropertyChangedMessage<IComponentVM>>()
             .Where(m => ReferenceEquals(m.Sender, notesView))
+            .ObserveOn(dispatcher.Foreground)
             .Subscribe(_ => _notesViewSubject.OnNext(notesView));
-        _notebooksSub = notebooks.Hub.Messages
-            .OfType<PropertyChangedMessage<IComponentVM>>()
-            .Where(m => ReferenceEquals(m.Sender, notebooks))
-            .Subscribe(_ => _notebooksSubject.OnNext(notebooks));
         _noteFormSub = noteForm.Hub.Messages
             .OfType<PropertyChangedMessage<IComponentVM>>()
             .Where(m => ReferenceEquals(m.Sender, noteForm))
+            .ObserveOn(dispatcher.Foreground)
             .Subscribe(_ => _noteFormSubject.OnNext(noteForm));
 
         NoteCountText = DerivedProperty.From(
@@ -131,10 +124,8 @@ public sealed class StatusBarVM : ComponentVMBase
         StarredText.Dispose();
         EditingText.Dispose();
         _notesViewSub.Dispose();
-        _notebooksSub.Dispose();
         _noteFormSub.Dispose();
         _notesViewSubject.OnCompleted(); _notesViewSubject.Dispose();
-        _notebooksSubject.OnCompleted(); _notebooksSubject.Dispose();
         _noteFormSubject.OnCompleted(); _noteFormSubject.Dispose();
         base.Dispose();
     }

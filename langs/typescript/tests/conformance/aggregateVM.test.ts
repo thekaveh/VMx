@@ -135,9 +135,9 @@ describe("AGG-004", () => {
 
     agg.construct();
 
-    expect(propNames).toContain("Component1");
-    expect(propNames).toContain("Component2");
-    expect(propNames).toContain("Component3");
+    expect(propNames).toContain("component1");
+    expect(propNames).toContain("component2");
+    expect(propNames).toContain("component3");
   });
 });
 

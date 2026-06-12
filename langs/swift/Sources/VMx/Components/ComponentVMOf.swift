@@ -56,10 +56,12 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     /// gate writes while still using the same machinery.
     func _setModel(_ value: Model) {
         if modelEquals(_model, value) { return }
+        // spec/02 invariant 3: a disposed VM publishes nothing further.
+        guard status != .disposed else { return }
         _model = value
 
         hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "Model"
+            sender: self, senderName: name, propertyName: "model"
         ))
         _raisePropertyChanged("model")
 
@@ -67,7 +69,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         if newHint != _modeledHint {
             _modeledHint = newHint
             hub.send(PropertyChangedMessage(
-                sender: self, senderName: name, propertyName: "ModeledHint"
+                sender: self, senderName: name, propertyName: "modeledHint"
             ))
             _raisePropertyChanged("modeledHint")
         }
@@ -88,7 +90,10 @@ open class ComponentVMOf<Model>: ComponentVMBase {
 
 extension ComponentVMOf where Model: Equatable {
     /// Equatable-aware initializer convenience — defaults `modelEquals`
-    /// to `==`.
+    /// to `==`. (The builder path gets the same default via the
+    /// constraint-overloaded `ComponentVMOfBuilder.build()` — a static
+    /// `builder()` overload here made annotation-free call sites
+    /// ambiguous, which CI caught.)
     public convenience init(
         name: String,
         hint: String = "",

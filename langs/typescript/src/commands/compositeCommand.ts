@@ -9,6 +9,7 @@ import type { ICommand } from "./types.js";
 export class CompositeCommand implements ICommand {
   readonly #inner: readonly ICommand[];
   readonly canExecuteChanged: Observable<void>;
+  #disposed = false;
 
   constructor(...inner: ICommand[]) {
     this.#inner = inner;
@@ -25,5 +26,15 @@ export class CompositeCommand implements ICommand {
 
   execute(): void {
     for (const c of this.#inner) if (c.canExecute()) c.execute();
+  }
+
+  /**
+   * Mark the composite as disposed. Idempotent. `canExecuteChanged` is a
+   * lazy merge of the inner streams — subscribers' own teardown closes the
+   * chain, so nothing is owned or released here. Provided for teardown
+   * symmetry with the C# IDisposable surface.
+   */
+  dispose(): void {
+    this.#disposed = true;
   }
 }

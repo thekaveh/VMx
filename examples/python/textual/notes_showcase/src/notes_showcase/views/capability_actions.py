@@ -25,15 +25,23 @@ from notes_showcase.views.adapter import bind_command, on_derived_change
 
 
 def _rebuild_buttons(view: "CapabilityActionsView", actions: list[ActionVM]) -> None:
-    """Dispose prior per-button command bindings, then mount fresh buttons.
+    """Schedule a button-row rebuild on the widget's message pump.
 
-    Each new ``bind_command`` Disposable is tracked on ``view._button_bindings``
-    so the next rebuild (or ``on_unmount``) tears them all down.
+    ``Widget.remove()`` is asynchronous — removing and mounting in the same
+    synchronous callback raced, and the second recompute died with
+    ``DuplicateIds``, which then poisoned the hub's ScheduledObserver lock
+    and silently starved every later hub delivery (real-wiring audit,
+    pass 5). The async body awaits the removal before mounting.
     """
+    view.call_later(_rebuild_buttons_async, view, list(actions))
+
+
+async def _rebuild_buttons_async(
+    view: "CapabilityActionsView", actions: list[ActionVM]
+) -> None:
     view._button_bindings.dispose()
     view._button_bindings = CompositeDisposable()
-    for child in list(view.children):
-        child.remove()
+    await view.remove_children()
     for action in actions:
         button = Button(
             action.label,

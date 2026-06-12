@@ -8,8 +8,7 @@ See spec/04-commands.md §9 and ADR-0027.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 from vmx.commands.composite_command import CompositeCommand
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
@@ -20,7 +19,7 @@ from vmx.dialogs.dialog_service import DialogService
 
 def confirm(
     command: Command,
-    confirm_callback: Callable[[], Any],
+    confirm_callback: Callable[[], Awaitable[bool]],
 ) -> ConfirmationDecoratorCommand:
     """Return a :class:`ConfirmationDecoratorCommand` wrapping *command*.
 

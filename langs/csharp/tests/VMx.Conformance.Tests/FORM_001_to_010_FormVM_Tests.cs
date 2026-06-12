@@ -242,6 +242,26 @@ public class FORM_001_to_010_FormVM_Tests
         sut.Model.Should().Be(initial, "Model restored to Snapshot");
     }
 
+    [Fact]
+    [Trait("Conformance", "FORM-014")]
+    public async Task FORM_014_Disposed_Form_Is_Inert()
+    {
+        var persisted = new List<Model>();
+        var sut = new FormVM<Model>(
+            new Model("Alice", 1),
+            m => { persisted.Add(m); return Task.CompletedTask; });
+        sut.SetModel(new Model("Bob", 2));
+        sut.IsDirty.Should().BeTrue();
+
+        sut.Dispose();
+
+        await sut.ApproveAsync();
+        sut.DenyCommand.Execute(null);
+
+        persisted.Should().BeEmpty("the persister must not run on a disposed form");
+        sut.Model.Should().Be(new Model("Bob", 2), "deny must not revert a disposed form");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static FormVM<Model> MakeFormVM(Model initial)

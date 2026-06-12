@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 
 namespace VMx.Notifications;
@@ -15,13 +16,12 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     private bool _disposed;
 
     /// <inheritdoc/>
-    public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject;
+    public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject.AsObservable();
 
     /// <inheritdoc/>
     public Task<NotificationReaction> Post(Notification notification)
     {
         var tcs = new TaskCompletionSource<NotificationReaction>(TaskCreationOptions.RunContinuationsAsynchronously);
-        IReadOnlyList<Notification> snapshot;
         lock (_lock)
         {
             // Post after Dispose returns Pending and does not enqueue: matches the
@@ -34,9 +34,12 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             }
             _pending.Add(notification);
             _waiters[notification] = tcs;
-            snapshot = _pending.ToArray();
+            // Emit while holding the lock: emitting outside raced Dispose()'s
+            // subject disposal (ObjectDisposedException) and let two concurrent
+            // posts publish snapshots out of order, leaving the BehaviorSubject
+            // caching a stale pending list.
+            _pendingSubject.OnNext(_pending.ToArray());
         }
-        _pendingSubject.OnNext(snapshot);
         return tcs.Task;
     }
 
@@ -44,15 +47,13 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     public void Resolve(Notification notification, NotificationReaction reaction)
     {
         TaskCompletionSource<NotificationReaction>? tcs;
-        IReadOnlyList<Notification> snapshot;
         lock (_lock)
         {
             if (!_waiters.TryGetValue(notification, out tcs)) return;
             _waiters.Remove(notification);
             _pending.Remove(notification);
-            snapshot = _pending.ToArray();
+            _pendingSubject.OnNext(_pending.ToArray());
         }
-        _pendingSubject.OnNext(snapshot);
         tcs.TrySetResult(reaction);
     }
 
@@ -70,9 +71,11 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             waiters = _waiters.Values.ToArray();
             _waiters.Clear();
             _pending.Clear();
+            // Complete inside the lock so a racing Post/Resolve can never
+            // observe a disposed subject.
+            _pendingSubject.OnCompleted();
+            _pendingSubject.Dispose();
         }
         foreach (var w in waiters) w.TrySetResult(NotificationReaction.Pending);
-        _pendingSubject.OnCompleted();
-        _pendingSubject.Dispose();
     }
 }

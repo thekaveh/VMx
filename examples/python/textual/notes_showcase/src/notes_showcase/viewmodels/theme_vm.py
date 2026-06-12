@@ -25,7 +25,7 @@ prior and the freshly-adopted :class:`ThemeModel`. The base
 ``PropertyChangedMessage("model")`` so generic adapters (the property bridge,
 the status bar) keep working without ThemeVM-specific code.
 
-TODO(spec v2.5.0):
+TODO(workspaceVM-wireup):
     Wire-up into :class:`WorkspaceVM` is intentionally out of scope here.
     Composing a seventh child into ``WorkspaceVM`` requires ``AggregateVM7``
     (currently only ``AggregateVM6`` exists in core) plus a matching

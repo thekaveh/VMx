@@ -8,7 +8,7 @@
  * PropertyChangedMessages from the upstream `NotesViewVM` / `NoteFormVM`.
  * Equality-guarded internally by DerivedProperty (Object.is on the new value).
  */
-import { BehaviorSubject, filter, map, merge } from "rxjs";
+import { BehaviorSubject, filter, map, merge, type Subscription } from "rxjs";
 import {
   ComponentVMBase,
   DerivedProperty,
@@ -28,6 +28,7 @@ export class StatusBarVM extends ComponentVMBase {
   readonly #notebooks: NotebooksRootVM;
   readonly #notesViewTick: BehaviorSubject<void>;
   readonly #noteFormTick: BehaviorSubject<void>;
+  readonly #hubSubs: Subscription[] = [];
   readonly #noteCountText: DerivedProperty<string>;
   readonly #starredText: DerivedProperty<string>;
   readonly #editingText: DerivedProperty<string>;
@@ -60,7 +61,7 @@ export class StatusBarVM extends ComponentVMBase {
           m instanceof PropertyChangedMessage && m.sender === opts.notesView,
       ),
     );
-    notesViewMsgs.subscribe(() => this.#notesViewTick.next());
+    this.#hubSubs.push(notesViewMsgs.subscribe(() => this.#notesViewTick.next()));
 
     const noteFormMsgs = opts.noteForm.hub.messages.pipe(
       filter(
@@ -68,7 +69,7 @@ export class StatusBarVM extends ComponentVMBase {
           m instanceof PropertyChangedMessage && m.sender === opts.noteForm,
       ),
     );
-    noteFormMsgs.subscribe(() => this.#noteFormTick.next());
+    this.#hubSubs.push(noteFormMsgs.subscribe(() => this.#noteFormTick.next()));
 
     const notesViewStream = merge(this.#notesViewTick).pipe(
       map(() => {
@@ -137,6 +138,9 @@ export class StatusBarVM extends ComponentVMBase {
   }
 
   protected override _onDispose(): void {
+    // The hub outlives this VM — drop our callbacks so a disposed status bar
+    // stops ticking (the Python flagship already does this via self._subs).
+    for (const sub of this.#hubSubs) sub.unsubscribe();
     this.#noteCountText.dispose();
     this.#starredText.dispose();
     this.#editingText.dispose();

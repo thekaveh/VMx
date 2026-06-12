@@ -1294,6 +1294,17 @@ virtual time 0
 **And** auto-dismiss fires exactly once
 **And** no further effects occur when the scheduler advances beyond `L`
 
+### NOTIF-017 — Hub dispose resolves in-flight waiters with `Pending` — spec v2.5.0
+
+**Given** a `NotificationHub` with one or more posted-but-unresolved notifications
+**When** the hub is disposed
+**Then** every in-flight awaitable returned by `Post` resolves with
+`NotificationReaction.Pending`
+**And** the `Pending` observable completes
+**And** a subsequent `Post` resolves immediately with `Pending` and does not enqueue
+**And** a subsequent `Resolve` is a no-op
+**And** disposing again is a no-op (idempotent)
+
 ______________________________________________________________________
 
 ## 20. CompositeVM v2.0 additions (`COMP-014..024`)
@@ -1862,6 +1873,17 @@ but no `Model`
 flavor-idiomatic equivalent), and `node.Children` is materialized **lazily** on first
 access (the default for `EagerChildren = false`)
 
+### HIER-018 — `ReparentChild` rejects self- and ancestor-reparenting — spec v2.5.0
+
+**Given** a hierarchy `root → mid → leaf`
+**When** `leaf.ReparentChild(root)` is called (reparenting an ancestor under its own
+descendant) or `node.ReparentChild(node)` is called (self-reparenting)
+**Then** the flavor's standard invalid-operation error is raised
+(`InvalidOperationException` / `ValueError` / `Error`)
+**And** the tree structure is unchanged (`Parent`, `Depth`, and `Path` of every node
+are as before)
+**And** no `TreeStructureChangedMessage` is published
+
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract
@@ -1980,6 +2002,12 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
 **Then** `IsDirty == true`
 
+**Note** (v2.5.0, ADR-0037): structural equality is evaluated by each
+flavor's chapter 20 §4 mechanism. TypeScript's `JSON.stringify` comparison
+is key-order sensitive, so in TypeScript the equal-values guarantee is
+scoped to same-key-order objects (see chapter 20 §4 for the caveat and the
+custom-snapshotter escape hatch).
+
 ### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
 
 **Given** a `FormVM<TM>` with initial model `m0`
@@ -2085,6 +2113,19 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **And** `form.Snapshot == m0` (the default snapshotter shallow-copies)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
+
+### FORM-014 — Disposed form is inert
+
+**Given** a `FormVM` whose persister records its invocations, with
+`Model != Snapshot` (dirty)
+**When** `Dispose()` is called and then `ApproveCommand` (or the awaitable
+approve entry point) and `DenyCommand` are executed
+**Then** the persister is never invoked
+**And** `Model` retains its pre-dispose value (no revert)
+**And** no exception is raised
+
+*(Added in v2.5.0 via ADR-0038 — the guards shipped as v2.5.0 maintenance;
+this ID pins them normatively.)*
 
 ## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 

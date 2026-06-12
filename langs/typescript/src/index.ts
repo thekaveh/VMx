@@ -188,7 +188,13 @@ export {
 export {
   DerivedProperty,
   type DerivedFromSourcesOptions,
+  fromFive,
+  fromFour,
+  fromMany,
+  fromOne,
   fromSources,
+  fromThree,
+  fromTwo,
 } from "./properties/index.js";
 
 // Localization (spec v2.0)

@@ -1,4 +1,5 @@
 using System.Reactive;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Commands;
@@ -135,9 +136,9 @@ public sealed class FormVM<TM> : IDisposable
     public ICommand ApproveCommand { get; }
 
     /// <summary>
-    /// Observable that emits the current <see cref="Model"/> value after each successful persist.
+    /// Observable that emits the persisted model value after each successful persist.
     /// </summary>
-    public IObservable<TM> OnApproved => _onApproved;
+    public IObservable<TM> OnApproved => _onApproved.AsObservable();
 
     /// <summary>
     /// Awaitable entry-point to the approve flow. Invokes the persister, advances
@@ -183,6 +184,7 @@ public sealed class FormVM<TM> : IDisposable
 
     private void Deny()
     {
+        if (_disposed) return;
         var wasDirty = IsDirty;
         _model = _snapshotter(_snapshot);
 
@@ -195,11 +197,20 @@ public sealed class FormVM<TM> : IDisposable
 
     private async Task ApproveInternalAsync()
     {
+        // A disposed form is a full no-op — the persister must not be
+        // invoked (symmetric with the Deny guard).
+        if (_disposed) return;
+
         // Capture model to avoid TOCTOU if SetModel is called concurrently.
         var current = _model;
 
         // May throw — intentional. No state mutation if this throws.
         await _persister(current).ConfigureAwait(false);
+
+        // Dispose() may have run during the await; the subjects below are
+        // completed and disposed, so emitting would throw inside an
+        // unobserved task.
+        if (_disposed) return;
 
         // Success: advance snapshot and notify.
         var wasDirty = IsDirty;

@@ -23,7 +23,8 @@ def test_expected_slug_list_matches_documented_set() -> None:
     """Pin the EXPECTED list so accidental removals are caught."""
     assert "workspace_vm" in csp.EXPECTED
     assert "in_memory_repository" in csp.EXPECTED
-    assert len(csp.EXPECTED) == 10  # 9 VMs + 1 repository
+    assert "theme_vm" in csp.EXPECTED
+    assert len(csp.EXPECTED) == 11  # 10 VMs + 1 repository
 
 
 def test_main_exits_zero_on_real_repo(monkeypatch, capsys) -> None:

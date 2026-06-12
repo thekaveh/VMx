@@ -167,11 +167,16 @@ public sealed class ObservableList<T> :
         OnReplaced(newItem, oldItem, index);
     }
 
-    /// <summary>Remove all items and emit <see cref="Reset"/>.</summary>
+    /// <summary>Remove all items and emit <see cref="Reset"/> (and <c>Count</c> when it changed).</summary>
     public void Clear()
     {
+        bool countChanged = _items.Count > 0;
         _items.Clear();
         OnReset();
+        // spec/21 §3.3: PropertyChanged("Count") fires after every mutation
+        // that changes Count. Inside a batch the batch-exit path emits it.
+        if (countChanged && _batchDepth == 0)
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
     }
 
     // ── Batch update ──────────────────────────────────────────────────────────

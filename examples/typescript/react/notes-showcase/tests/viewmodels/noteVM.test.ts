@@ -97,9 +97,9 @@ describe("NoteVM", () => {
     });
     vm.model = model({ title: "Updated", starred: true });
     const names = messages.map((m) => m.propertyName);
-    expect(names).toContain("Model");
-    expect(names).toContain("Title");
-    expect(names).toContain("Starred");
+    expect(names).toContain("model");
+    expect(names).toContain("title");
+    expect(names).toContain("starred");
     expect(vm.title).toBe("Updated");
     expect(vm.starred).toBe(true);
   });

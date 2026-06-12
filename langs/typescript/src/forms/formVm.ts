@@ -54,6 +54,7 @@ export class FormVM<TM> {
 
   #model: TM;
   #snapshot: TM;
+  #disposed = false;
 
   readonly #onApproved = new Subject<TM>();
   readonly #canExecuteTrigger = new Subject<void>();
@@ -95,7 +96,11 @@ export class FormVM<TM> {
 
     this.approveCommand = RelayCommand.builder()
       .task(() => {
-        void this.approveAsync();
+        // Fire-and-forget parity: Python retrieves the task exception and C#
+        // discards the Task; a bare `void` here turned a rejecting persister
+        // into a fatal unhandled rejection on Node >= 15. Callers who need
+        // the failure await approveAsync() directly.
+        void this.approveAsync().catch(() => undefined);
       })
       .predicate(() => !this.#strict || this.isDirty)
       .triggers(this.#canExecuteTrigger)
@@ -151,10 +156,21 @@ export class FormVM<TM> {
    * and fires `onApproved`. Throws when the persister throws (no state mutation).
    */
   async approveAsync(): Promise<void> {
+    // A disposed form is a full no-op — the persister must not be invoked
+    // (symmetric with the deny guard).
+    if (this.#disposed) return;
     const current = this.#model;
 
     // May throw — intentional. No state mutation if this throws.
     await this.#persister(current);
+
+    // dispose() may have run during the await; rxjs would silently no-op
+    // the emissions below, but the snapshot advance is a real state
+    // mutation on a disposed form (C#/Python guard identically). The
+    // analyzer narrows #disposed from the entry guard, but the await is a
+    // genuine interleaving point.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (this.#disposed) return;
 
     // Success: advance snapshot and notify.
     const wasDirty = this.isDirty;
@@ -164,13 +180,18 @@ export class FormVM<TM> {
       this.#canExecuteTrigger.next();
     }
 
-    this.#onApproved.next(this.#model);
+    // Emit the value that was actually persisted (parity with C#'s captured
+    // `current`): a SetModel racing the persister await must not swap the
+    // approved payload for a newer un-persisted model.
+    this.#onApproved.next(current);
   }
 
   // ── Dispose ────────────────────────────────────────────────────────────────
 
-  /** Complete the `onApproved` observable and dispose resources. */
+  /** Complete the `onApproved` observable and dispose resources. Idempotent. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#onApproved.complete();
     this.#canExecuteTrigger.complete();
     this.denyCommand.dispose();
@@ -180,6 +201,7 @@ export class FormVM<TM> {
   // ── Internal ───────────────────────────────────────────────────────────────
 
   #deny(): void {
+    if (this.#disposed) return;
     const wasDirty = this.isDirty;
     this.#model = this.#snapshotter(this.#snapshot);
 

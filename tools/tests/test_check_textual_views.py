@@ -66,3 +66,50 @@ def test_check_flags_disallowed_method(tmp_path: Path) -> None:
     violations = ctv.check_module(f)
     assert len(violations) == 1
     assert "_compute_thing" in violations[0]
+
+
+def test_hub_rule_flags_direct_subscription_with_statement_line(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _write(
+        f,
+        """\
+        from textual.widget import Widget
+        class MyView(Widget):
+            def on_mount(self):
+                x = 1
+                self._sub = self._vm.hub.messages.subscribe(print)
+        """,
+    )
+    violations = ctv.check_module(f)
+    assert len(violations) == 1
+    assert "subscribes to the hub" in violations[0]
+    # The reported line is the offending statement, not the method def.
+    assert ":5:" in violations[0]
+
+
+def test_hub_rule_is_word_anchored_not_substring(tmp_path: Path) -> None:
+    """`github.subscribe(...)` must not trip the hub rule; `theme_hub` must."""
+    f = tmp_path / "view.py"
+    _write(
+        f,
+        """\
+        from textual.widget import Widget
+        class MyView(Widget):
+            def on_mount(self):
+                self._sub = self.github.events.subscribe(print)
+        """,
+    )
+    assert ctv.check_module(f) == []
+
+    g = tmp_path / "view2.py"
+    _write(
+        g,
+        """\
+        from textual.widget import Widget
+        class MyView2(Widget):
+            def on_mount(self):
+                self._sub = self.theme_hub.messages.subscribe(print)
+        """,
+    )
+    violations = ctv.check_module(g)
+    assert len(violations) == 1

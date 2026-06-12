@@ -7,6 +7,7 @@ from typing import Any, cast
 from reactivex.abc import DisposableBase
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.message import Message as TextualMessage
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, Tree
 from textual.widgets.tree import TreeNode
@@ -36,6 +37,14 @@ def _build_parent_map(root: ComponentVMProto) -> dict[int, str]:
             except TypeError:
                 pass
     return result
+
+
+class HubMessageArrived(TextualMessage):
+    """Internal Textual message carrying one VMx hub message to the UI."""
+
+    def __init__(self, hub_message: Message) -> None:
+        super().__init__()
+        self.hub_message = hub_message
 
 
 class VMxInspectorApp(App[None]):
@@ -82,6 +91,7 @@ class VMxInspectorApp(App[None]):
 
     def on_mount(self) -> None:
         tree = self.query_one(Tree)
+        tree.show_root = False  # synthetic root; the VM root is the top node
         populate_tree(tree, self._root)
         details = self.query_one(DetailsView)
         details.parent_map = _build_parent_map(self._root)
@@ -90,13 +100,23 @@ class VMxInspectorApp(App[None]):
     def on_unmount(self) -> None:
         if self._hub_sub is not None:
             self._hub_sub.dispose()
+        # Tear down the inspected tree and the hub it publishes on — the
+        # sample root is constructed at compose time and was never disposed.
+        self._root.dispose()
+        self._hub.dispose()
 
     def _on_hub_message(self, msg: Message) -> None:
-        self.call_from_thread(self._dispatch_hub_message, msg)
+        # post_message is thread-safe from BOTH the app thread and foreign
+        # threads. The previous call_from_thread raised RuntimeError when the
+        # hub published on the app thread (the sample tree's immediate
+        # dispatcher always does), and the hub swallowed the subscriber error
+        # per HUB-007 — so the message log stayed empty and tree labels never
+        # refreshed, silently (real-wiring audit, pass 7).
+        self.post_message(HubMessageArrived(msg))
 
-    def _dispatch_hub_message(self, msg: Message) -> None:
+    def on_hub_message_arrived(self, event: "HubMessageArrived") -> None:
         log = self.query_one(MessageLog)
-        log.append_message(msg)
+        log.append_message(event.hub_message)
         self._refresh_tree()
 
     def _refresh_tree(self) -> None:
@@ -153,4 +173,7 @@ class VMxInspectorApp(App[None]):
             self.notify(str(exc), severity="error")
 
     def action_toggle_help(self) -> None:
-        self.action_show_help_panel()
+        if self.screen.query("HelpPanel"):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()

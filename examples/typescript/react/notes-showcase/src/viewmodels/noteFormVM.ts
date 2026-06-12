@@ -10,6 +10,8 @@
  * `onApproved` persists via the repository (delegated through the FormVM's
  * `persister`) and then publishes a "Saved" notification.
  */
+import { Subject, type Observable } from "rxjs";
+
 import {
   ComponentVMBase,
   declareCapabilities,
@@ -51,7 +53,8 @@ export class NoteFormVM extends ComponentVMBase {
   readonly #approveCommand: RelayCommand;
   readonly #addTagCommand: RelayCommand;
   readonly #removeTagCommand: RelayCommandOf<string>;
-  readonly #noopCommand: RelayCommand;
+  readonly #denyCommand: RelayCommand;
+  readonly #onSaved = new Subject<NoteModel>();
   #form: FormVM<NoteModel> | null = null;
   #bound: NoteModel | null = null;
   #tagDraft = "";
@@ -74,7 +77,16 @@ export class NoteFormVM extends ComponentVMBase {
     this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(this, "IReconstructable");
 
-    this.#noopCommand = RelayCommand.builder().build();
+    // Stable deny delegate (real-wiring audit, pass 6): the inner FormVM's
+    // denyCommand publishes with sender = FormVM, which useVm's sender
+    // filter drops — the DOM never re-rendered a revert. One stable command
+    // delegates to the live form and re-emits this VM's own draft channels.
+    this.#denyCommand = RelayCommand.builder()
+      .task(() => {
+        this.#form?.denyCommand.execute();
+        this.#emitDraftChanges();
+      })
+      .build();
 
     this.#approveCommand = RelayCommand.builder()
       .predicate(() => this.isDirty && this.isValid)
@@ -143,7 +155,14 @@ export class NoteFormVM extends ComponentVMBase {
   }
 
   get denyCommand(): ICommand {
-    return this.#form?.denyCommand ?? this.#noopCommand;
+    return this.#denyCommand;
+  }
+
+  /** Emits the persisted NoteModel after each successful save — the
+   * workspace refreshes the matching list row (row labels / star /
+   * filter inputs were construction-time snapshots otherwise). */
+  get onSaved(): Observable<NoteModel> {
+    return this.#onSaved.asObservable();
   }
 
   get tagDraft(): string {
@@ -177,6 +196,7 @@ export class NoteFormVM extends ComponentVMBase {
       hub: this._hub,
       strict: true,
     });
+    this.#form.onApproved.subscribe((m) => this.#onSaved.next(m));
     this.#emitDraftChanges();
   }
 
@@ -287,7 +307,8 @@ export class NoteFormVM extends ComponentVMBase {
     this.#approveCommand.dispose();
     this.#addTagCommand.dispose();
     this.#removeTagCommand.dispose();
-    this.#noopCommand.dispose();
+    this.#denyCommand.dispose();
+    this.#onSaved.complete();
     super._onDispose();
   }
 

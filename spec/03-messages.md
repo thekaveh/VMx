@@ -47,6 +47,12 @@ PropertyChangedMessage<TSender> : IMessage<TSender>:
 
 A factory `Create(sender, senderName, propertyName)` exists per language.
 
+The `PropertyName` payload follows the emitting flavor's naming idiom per
+ADR-0006 — `"IsValid"` (C#), `"is_valid"` (Python), `"isValid"` (TypeScript /
+Swift). Subscribers filter with the idiomatic string of the flavor they are
+written in (clarified in v2.5.0 via ADR-0037 after the TS and Swift flavors
+were found emitting mixed casings).
+
 ### 2.2 `ConstructionStatusChangedMessage`
 
 Emitted on every legal `Status` transition (see `02-lifecycle.md`). Carries:
@@ -163,7 +169,9 @@ See ADR-0032 for the rationale and full per-flavor signature table.
 
 ## 8. Conformance
 
-`HUB-001` through `HUB-007` and `PROP-001` through `PROP-004` in `12-conformance.md` cover:
+`HUB-001` through `HUB-007`, `PROP-001` through `PROP-004`, and the null-object
+IDs `NULL-001` (NullMessageHub is a safe no-op) and `NULL-003` (paired null
+variants exist for the core service contracts) in `12-conformance.md` cover:
 
 - `Send` delivers to current subscribers synchronously
 - late subscribers do not see prior messages (no replay)

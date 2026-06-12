@@ -21,6 +21,7 @@ from __future__ import annotations
 from notes_showcase.views.adapter.collection import (
     bind_collection,
     bind_observable_list,
+    on_tree_structure_changed,
 )
 from notes_showcase.views.adapter.command import bind_command
 from notes_showcase.views.adapter.dialog import TextualDialogService
@@ -30,6 +31,7 @@ from notes_showcase.views.adapter.property import (
     bind_property,
     bind_property_two_way,
     on_derived_change,
+    on_vm_property_change,
 )
 
 __all__ = [
@@ -42,4 +44,6 @@ __all__ = [
     "bind_property",
     "bind_property_two_way",
     "on_derived_change",
+    "on_tree_structure_changed",
+    "on_vm_property_change",
 ]

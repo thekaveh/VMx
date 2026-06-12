@@ -114,7 +114,16 @@ class ObservableList(Generic[T]):
         self._on_added(item, index)
 
     def insert(self, index: int, item: T) -> None:
-        """Insert *item* at *index*."""
+        """Insert *item* at *index* (stdlib semantics: negative indexes count
+        from the end; out-of-range indexes clamp like :meth:`list.insert`).
+        """
+        # Normalize before emitting: spec/21 §3.2 mandates the payload carry
+        # the actual insertion index — a raw -1 (or an out-of-range 99 that
+        # stdlib silently clamps to len) violates the contract.
+        if index < 0:
+            index = max(index + len(self._items), 0)
+        elif index > len(self._items):
+            index = len(self._items)
         self._items.insert(index, item)
         self._on_added(item, index)
 
@@ -129,21 +138,37 @@ class ObservableList(Generic[T]):
         return True
 
     def remove_at(self, index: int) -> None:
-        """Remove the item at *index*."""
+        """Remove the item at *index* (negative indexes count from the end)."""
+        # Normalize before emitting: spec/21 §3.2 mandates the payload carry
+        # the index *before removal* — a raw -1 violates the contract even
+        # though negative indexing itself is Python-idiomatic (ADR-0006).
+        if index < 0:
+            index += len(self._items)
+            if index < 0:
+                raise IndexError("list index out of range")
         item = self._items[index]
         del self._items[index]
         self._on_removed(item, index)
 
     def replace(self, index: int, new_item: T) -> None:
-        """Replace the item at *index* with *new_item*."""
+        """Replace the item at *index* (negative indexes count from the end)."""
+        if index < 0:
+            index += len(self._items)
+            if index < 0:
+                raise IndexError("list index out of range")
         old_item = self._items[index]
         self._items[index] = new_item
         self._on_replaced(new_item, old_item, index)
 
     def clear(self) -> None:
-        """Remove all items and emit Reset."""
+        """Remove all items and emit Reset (and ``Count`` when it changed)."""
+        count_changed = bool(self._items)
         self._items.clear()
         self._on_reset()
+        # spec/21 §3.3: PropertyChanged("Count") fires after every mutation
+        # that changes Count. Inside a batch the batch-exit path emits it.
+        if count_changed and self._batch_depth == 0:
+            self._prop_changed_subject.on_next("Count")
 
     # ── Batch update ──────────────────────────────────────────────────────────
 

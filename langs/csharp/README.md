@@ -5,16 +5,16 @@ spec-compatible with the Python, TypeScript, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.4.0** — implements `spec-v2.4.0` end-to-end. 232/232 conformance IDs
+**v2.5.0** — implements `spec-v2.5.0` end-to-end. 230/230 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
-`INotificationHub`) at `1.1.0`. Each is independently versioned per
-ADR-0009 / ADR-0013 and stays on its own release line (neither pulls
-the 2.4.0 core bump); see `../../compatibility-matrix.md`. A Swift
-flavor sibling lands as a skeleton at `langs/swift/` (subset of
-`spec-v2.4.0`); see `../swift/README.md` §5 for the in / deferred
-matrix.
+`INotificationHub`) at `1.2.0` (min spec 2.5.0). Each is independently
+versioned per ADR-0009 / ADR-0013 and stays on its own release line
+(the DI companion does not pull the 2.5.0 core bump); see
+`../../compatibility-matrix.md`. A Swift flavor sibling lands as a
+skeleton at `langs/swift/` (39-ID subset of `spec-v2.5.0`); see
+`../swift/README.md` §5 for the in / deferred matrix.
 
 ## 2. Install
 
@@ -88,7 +88,7 @@ identifier casing differs.
 See [docs/getting-started/csharp.md](../../docs/getting-started/csharp.md)
 for the full walkthrough.
 
-## 3.5 Cross-language naming
+### 3.1 Cross-language naming
 
 The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
@@ -107,7 +107,7 @@ variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their
 generics syntax cannot overload an unparameterised name.
 
-## 3.6 Subclassing & composition
+### 3.2 Subclassing & composition
 
 `ComponentVM<M>`, `ComponentVM`, and `ReadonlyComponentVM<M>` are all
 declared `sealed` by design (ADR-0018 — the post-2012 flat hierarchy avoids
@@ -209,7 +209,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 232 conformance IDs from `spec/12-conformance.md` are covered.
+All 230 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -235,7 +235,7 @@ dotnet test
 
 ```bash
 # From this directory
-dotnet restore
+dotnet restore VMx.sln --locked-mode
 dotnet build
 dotnet test
 dotnet format --verify-no-changes

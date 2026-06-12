@@ -28,3 +28,23 @@ def test_post_execute_runs_even_when_inner_raises() -> None:
         dec.execute()
 
     assert log == ["pre", "post"], "post_execute must run even if inner raises"
+
+
+def test_decorator_dispose_is_idempotent() -> None:
+    """Teardown parity with the C# IDisposable surface."""
+    inner = RelayCommandBuilder().task(lambda: None).build()
+    deco = DecoratorCommand(inner)
+    deco.dispose()
+    deco.dispose()
+
+
+def test_confirmation_decorator_dispose_is_idempotent() -> None:
+    from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
+
+    async def _yes() -> bool:
+        return True
+
+    inner = RelayCommandBuilder().task(lambda: None).build()
+    deco = ConfirmationDecoratorCommand(inner, _yes)
+    deco.dispose()
+    deco.dispose()

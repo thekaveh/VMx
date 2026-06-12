@@ -56,8 +56,12 @@ predicate signals "the operation is safe to call" rather than "the operation wil
 produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
-`StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#). The exception's
-message MUST include the current state and the attempted operation.
+`StatusTransitionError` (Python / TS) / `StatusTransitionException` (C#). The exception's
+message MUST include the current state and the attempted operation. The Swift
+flavor surfaces the violation as a trap (`preconditionFailure` carrying the
+`StatusTransitionError` description) rather than a thrown error — a documented
+divergence (ADR-0037): traps are the Swift-stdlib convention for API misuse,
+and a throwing lifecycle would force `try` onto every legal call site.
 
 ## 3. Invariants
 

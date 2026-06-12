@@ -68,6 +68,8 @@ class FormVM(Generic[TM]):
         self._model: TM = initial
         self._snapshot: TM = self._snapshotter(initial)
 
+        self._disposed = False
+
         # Observables
         self._on_approved: Subject[TM] = Subject()
         self._can_execute_trigger: Subject[None] = Subject()
@@ -90,10 +92,12 @@ class FormVM(Generic[TM]):
     def builder() -> FormVMBuilder[TM]:
         """Return a fresh :class:`FormVMBuilder` for this generic type.
 
-        Equivalent to ``FormVMBuilder[TM]()``; provided for parity with the
-        other VMx VM family entry points. See ADR-0035 §2 FV1.
+        Provided for parity with the other VMx VM family entry points.
+        See ADR-0035 §2 FV1. (Instantiated bare, like every sibling
+        ``builder()``: subscripted instantiation of a frozen+slots dataclass
+        raises ``TypeError`` when typing assigns ``__orig_class__``.)
         """
-        return FormVMBuilder[TM]()
+        return FormVMBuilder()
 
     @property
     def model(self) -> TM:
@@ -146,11 +150,21 @@ class FormVM(Generic[TM]):
 
         Invokes the persister, advances :attr:`snapshot` on success, and fires
         :attr:`on_approved`.  Raises when the persister raises (no state mutation).
+        A disposed form is a full no-op — the persister is not invoked
+        (symmetric with the deny guard).
         """
+        if self._disposed:
+            return
         current = self._model
 
         # May raise — intentional.  No state mutation if this raises.
         await self._persister(current)
+
+        # dispose() may have run during the await; the subjects below are
+        # completed and disposed, so emitting would raise DisposedException
+        # (mirrors the C# guard).
+        if self._disposed:
+            return
 
         # Success: advance snapshot and notify.
         was_dirty = self.is_dirty
@@ -159,12 +173,20 @@ class FormVM(Generic[TM]):
         if self._strict and self.is_dirty != was_dirty:
             self._can_execute_trigger.on_next(None)
 
-        self._on_approved.on_next(self._model)
+        # Emit the value that was actually persisted (parity with C#'s
+        # captured `current`): a set_model racing the persister await must
+        # not swap the approved payload for a newer un-persisted model.
+        self._on_approved.on_next(current)
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 
     def dispose(self) -> None:
-        """Complete the ``on_approved`` observable and dispose resources."""
+        """Complete the ``on_approved`` observable and dispose resources. Idempotent."""
+        # reactivex Subjects raise DisposedException on a second on_completed,
+        # unlike rxjs (no-op) and the guarded C# FormVM — guard for parity.
+        if self._disposed:
+            return
+        self._disposed = True
         self._on_approved.on_completed()
         self._on_approved.dispose()
         self._can_execute_trigger.on_completed()
@@ -175,6 +197,8 @@ class FormVM(Generic[TM]):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _deny(self) -> None:
+        if self._disposed:
+            return
         was_dirty = self.is_dirty
         self._model = self._snapshotter(self._snapshot)
 

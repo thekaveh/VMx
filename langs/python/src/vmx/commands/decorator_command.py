@@ -28,6 +28,7 @@ class DecoratorCommand:
         self._pre = pre_execute
         self._post = post_execute
         self._extra = extra_predicate
+        self._disposed = False
 
     @property
     def can_execute_changed(self) -> Observable[None]:
@@ -55,3 +56,12 @@ class DecoratorCommand:
             # flag set in pre_execute always gets cleared.
             if self._post is not None:
                 self._post()
+
+    def dispose(self) -> None:
+        """Mark the decorator as disposed. Idempotent.
+
+        ``can_execute_changed`` delegates lazily to the inner command, so the
+        decorator owns no subscriptions to release. Provided for API symmetry
+        with the C# IDisposable surface (see ``CompositeCommand.dispose``).
+        """
+        self._disposed = True

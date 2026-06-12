@@ -53,9 +53,7 @@ const NotebookTreeNode: React.FC<NotebookTreeNodeProps> = ({ ws, nb, level }) =>
   const isCurrent = liveRoot.current === nb;
 
   const onSelect = (): void => {
-    ws.notebooksRoot.current = nb;
-    ws.setFocus(nb);
-    void ws.notesView.bindToAsync(nb.model.id);
+    ws.selectNotebook(nb);
   };
 
   const onToggle = (e: React.MouseEvent): void => {

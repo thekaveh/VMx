@@ -152,6 +152,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   insert(index: number, item: VM): void {
+    // splice would silently normalize/clamp while the emitted newIndex
+    // carried the raw argument (spec/21 §3.2); `length` appends.
+    if (index < 0 || index > this._children.length) {
+      throw new RangeError(`Index ${String(index)} out of range`);
+    }
     this._children.splice(index, 0, item);
     item._parent = this;
     this._maybeAutoConstruct(item);
@@ -217,7 +222,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       child._parent = null;
     }
     this._children = [];
-    this.#current = null;
+    // Route through _setCurrent (mirrors C# Clear / removeAt): a bare
+    // `this.#current = null` left the old current child's isCurrent true
+    // and skipped the "current" property notification.
+    this._setCurrent(null, false);
     this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
   }
 
@@ -320,7 +328,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (value !== null) value._setIsCurrent(true);
 
     this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "Current"),
+      PropertyChangedMessage.create(this, this._name, "current"),
     );
     this._raisePropertyChanged("current");
   }

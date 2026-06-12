@@ -220,6 +220,15 @@ export abstract class HierarchicalVM<
     if ((child as unknown) == null) throw new Error("child must not be null");
     if (child.#hierarchicalParent === (this as unknown as TVM)) return; // no-op
 
+    // HIER-018: reparenting this node or one of its ancestors under
+    // itself would create a parent cycle and corrupt depth/path/walk.
+    if (this.path.includes(child)) {
+      throw new Error(
+        `Cannot reparent '${child.name}' under '${this.name}': ` +
+          `it is this node or one of its ancestors (HIER-018).`,
+      );
+    }
+
     // Detach from old parent silently.
     const oldParent = child.#hierarchicalParent;
     if (oldParent !== null) {

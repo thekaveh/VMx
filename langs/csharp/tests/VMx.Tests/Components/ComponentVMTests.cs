@@ -44,6 +44,17 @@ public class ComponentVMTests
     }
 
     [Fact]
+    public void Builder_Type_Overrides_Reported_Type()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("typed").Services(hub, dispatcher).Model("m")
+            .Type(ViewModelType.Aggregate).Build();
+        vm.Type.Should().Be(ViewModelType.Aggregate);
+    }
+
+    [Fact]
     public void Hint_Can_Be_Set_In_Builder()
     {
         var hub = new TestHub();

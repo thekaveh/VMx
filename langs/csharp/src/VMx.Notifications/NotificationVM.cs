@@ -47,7 +47,10 @@ public class NotificationVM : IDisposable
             .Task(Dismiss)
             .Build();
 
-        // Schedule auto-dismiss at Lifespan expiry.
+        // Schedule auto-dismiss at Lifespan expiry. The scheduler MUST be
+        // asynchronous (the production default is): a synchronous scheduler
+        // would block this constructor for the whole lifespan and invoke the
+        // virtual OnExpire on a partially-constructed derived instance.
         _timerSub = _scheduler.Schedule(_lifespan, OnExpire);
 
         // Subscribe to hub Pending: if our notification was present and then disappears

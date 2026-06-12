@@ -185,6 +185,34 @@ def test_BLD_005_additive_setters_retain_prior_values() -> None:
         "second trigger must ALSO fire can_execute_changed — triggers is additive"
     )
 
+    # Insertion order (catalog And-clause): derive both triggers from ONE
+    # parent emission and record which trigger's chain delivers first — the
+    # merged stream subscribes its sources in insertion order, so o1's tap
+    # must run before o2's. (A sequential next/next probe is vacuous: it
+    # passes regardless of subscription order.)
+    from reactivex import operators as ops
+
+    parent: Subject[None] = Subject()
+    via: list[str] = []
+    o1 = parent.pipe(ops.do_action(on_next=lambda _: via.append("via-o1")))
+    o2 = parent.pipe(ops.do_action(on_next=lambda _: via.append("via-o2")))
+    order_cmd = RelayCommand.builder().triggers(o1).triggers(o2).build()
+    order_cmd.can_execute_changed.subscribe(lambda _: None)
+    parent.on_next(None)
+    assert via == ["via-o1", "via-o2"], "o1 must precede o2 (insertion order)"
+
+    # Non-additive setters overwrite on repeated calls (catalog And-clause).
+    vm = (
+        ComponentVMOf[str]
+        .builder()
+        .name("first")
+        .name("second")
+        .model("m")
+        .with_null_services()
+        .build()
+    )
+    assert vm.name == "second", "name() must overwrite, not accumulate"
+
 
 def test_with_null_services_returns_new_builder_instance() -> None:
     """``with_null_services()`` adheres to BLD-001: returns a new builder

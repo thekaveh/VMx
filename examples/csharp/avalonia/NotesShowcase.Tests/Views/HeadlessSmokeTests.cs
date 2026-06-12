@@ -53,6 +53,10 @@ public sealed class HeadlessSmokeTests
             .Dispatcher(new AvaloniaDispatcher())
             .Build();
         await workspace.ConstructAsync();
+        // ConstructAsync and BindToAsync marshal their INPC-raising tails
+        // onto the UI dispatcher (pass-6 threading fixes) — drain it so the
+        // queued work runs before assertions.
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
         var note = (await repo.LoadAllAsync()).Notes.First();
         workspace.NoteForm.BindTo(note);
@@ -98,10 +102,15 @@ public sealed class HeadlessSmokeTests
             .Dispatcher(new AvaloniaDispatcher())
             .Build();
         await workspace.ConstructAsync();
+        // ConstructAsync and BindToAsync marshal their INPC-raising tails
+        // onto the UI dispatcher (pass-6 threading fixes) — drain it so the
+        // queued work runs before assertions.
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Assert.False(workspace.NoteForm.HasBoundNote);
 
         // Bind the notes view to a notebook with notes and select one.
         await workspace.NotesView.BindToAsync("nb-personal");
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         var first = workspace.NotesView.Inner[0];
         workspace.NotesView.Current = first;
 
@@ -144,7 +153,16 @@ public sealed class HeadlessSmokeTests
             .Dispatcher(dispatcher)
             .Build();
         await workspace.ConstructAsync();
+        // ConstructAsync and BindToAsync marshal their INPC-raising tails
+        // onto the UI dispatcher (pass-6 threading fixes) — drain it so the
+        // queued work runs before assertions.
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
+        // NOTE: this smoke test binds after construct, so it covers the view
+        // plumbing only. The real App binds BEFORE ConstructAsync completes;
+        // that ordering depends on the Roots PropertyChanged raise, which is
+        // pinned by NotebooksRootVMTests.PopulateAsync_raises_PropertyChanged
+        // _for_Roots (the raise was missing and this test masked it).
         var window = new MainWindow { DataContext = workspace };
         window.Show();
         window.UpdateLayout();

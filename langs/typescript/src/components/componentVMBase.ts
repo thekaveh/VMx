@@ -10,7 +10,7 @@
  *
  * See spec/05-component-vm.md and spec/02-lifecycle.md.
  */
-import { Subject, Subscription } from "rxjs";
+import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import type { ViewModelType } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
@@ -54,7 +54,6 @@ export abstract class ComponentVMBase {
   readonly #selectNextCommand: RelayCommand;
   readonly #selectPreviousCommand: RelayCommand;
   readonly #reconstructCommand: RelayCommand;
-  readonly #commandSubs: Subscription[] = [];
 
   constructor(opts: {
     name: string;
@@ -148,7 +147,7 @@ export abstract class ComponentVMBase {
     if (this.#isCurrent === value) return;
     this.#isCurrent = value;
     this._raisePropertyChanged("isCurrent");
-    this.#hub.send(PropertyChangedMessage.create(this, this.#name, "IsCurrent"));
+    this.#hub.send(PropertyChangedMessage.create(this, this.#name, "isCurrent"));
   }
 
   // ── propertyChanged observable ───────────────────────────────────────────
@@ -221,8 +220,12 @@ export abstract class ComponentVMBase {
       this._setStatus(ConstructionStatus.Constructing);
       this.#dispatcher.background.schedule(() => {
         try {
-          this._onConstruct();
-          this._setStatus(ConstructionStatus.Constructed);
+          // dispose() may have run between scheduling and execution;
+          // Disposed is terminal (spec/02 invariant 3), so skip the work.
+          if (this.#status !== ConstructionStatus.Disposed) {
+            this._onConstruct();
+            this._setStatus(ConstructionStatus.Constructed);
+          }
         } finally {
           this.#inFlight = false;
         }
@@ -252,8 +255,12 @@ export abstract class ComponentVMBase {
       this._setStatus(ConstructionStatus.Destructing);
       this.#dispatcher.background.schedule(() => {
         try {
-          this._onDestruct();
-          this._setStatus(ConstructionStatus.Destructed);
+          // dispose() may have run between scheduling and execution;
+          // Disposed is terminal (spec/02 invariant 3), so skip the work.
+          if (this.#status !== ConstructionStatus.Disposed) {
+            this._onDestruct();
+            this._setStatus(ConstructionStatus.Destructed);
+          }
         } finally {
           this.#inFlight = false;
         }
@@ -302,7 +309,6 @@ export abstract class ComponentVMBase {
       this.#propertyChangedSubject.complete();
     }
 
-    for (const sub of this.#commandSubs) sub.unsubscribe();
     this.#selectCommand.dispose();
     this.#deselectCommand.dispose();
     this.#selectNextCommand.dispose();
@@ -353,6 +359,11 @@ export abstract class ComponentVMBase {
   // ── Internal helpers ─────────────────────────────────────────────────────
 
   protected _setStatus(newStatus: ConstructionStatus): void {
+    // Disposed is terminal (spec/02 invariant 3): a background transition
+    // racing dispose() must neither resurrect the VM nor publish
+    // post-dispose status messages.
+    if (this.#status === ConstructionStatus.Disposed) return;
+
     this.#status = newStatus;
 
     this.#hub.send(

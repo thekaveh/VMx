@@ -6,7 +6,81 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
-## 2.4.0 — 2026-06-02
+## [2.5.0] — 2026-06-10
+
+Implements `spec-v2.5.0` (ADR-0037).
+
+### Fixed
+
+- `FormVM.dispose()` is idempotent — a second call raised reactivex
+  `DisposedException` (rxjs no-ops, C# guards).
+- `CompositeVM.clear()` routes through the current-selection setter; the old
+  current child no longer keeps `is_current == True` with no notification.
+- `PagedComposition` subscribes `on_item_replaced`; `replace()` on the
+  current page refreshes `items`.
+- `ObservableList.clear()` emits `PropertyChanged("Count")` after `Reset`
+  when the count changed (spec/21 §3.3).
+- `GroupVM` construct/destruct iterate a snapshot so a child lifecycle hook
+  that mutates the group cannot skip siblings.
+- A background construct/destruct racing `dispose()` could resurrect the
+  VM and publish post-dispose status messages; `DISPOSED` is now terminal
+  in `_set_status` and the scheduled work (spec/02 invariant 3).
+- `FormVM.approve_async` no longer raises `DisposedException` when
+  `dispose()` runs during the persister await (mirrors the C# guard).
+- `NotificationHub.dispose()` tolerates waiters whose event loop is
+  already closed instead of raising and skipping the remaining waiters.
+- `ObservableList.remove_at`/`replace` normalize negative indexes before
+  emitting, so the event payload carries the spec-mandated
+  index-before-removal instead of a raw `-1` (spec/21 §3.2; TS/C# raise
+  on negative indexes by design). Out-of-range negatives raise
+  `IndexError` instead of wrapping to a valid index.
+- `FormVM`'s deny path is a no-op after `dispose()` (previously it
+  reverted the model and re-published hub messages on a disposed form;
+  same guard added in C# and TS). `approve_async()` on a disposed form
+  is likewise a full no-op — the persister is no longer invoked.
+- `ObservableList.insert` emits the actual insertion index: in-range
+  negatives normalize and out-of-range indexes clamp per stdlib
+  `list.insert` semantics, instead of the raw argument leaking into the
+  `ItemAdded` payload (spec/21 §3.2). The same normalization applies to
+  `ServicedObservableCollection.insert`, `CompositeVM.insert`, and
+  `GroupVM.insert` (catalogued vs the C#/TS fail-fast contracts in
+  ADR-0009).
+- `FormVM`'s `on_approved` now emits the value that was actually
+  persisted rather than the live model (parity with C#'s captured
+  payload under a racing `set_model`).
+- `NotificationHub` emits pending snapshots inside the lock (ordering +
+  dispose-race discipline, mirroring C#).
+- Post-2.4.0 maintenance backfill: `AggregateVM1..6` dispose ordering
+  (LIFE-013) and aggregates walk/dispose drift.
+- `FormVM.builder()` raised `TypeError` on every call (subscripted
+  instantiation of a frozen+slots dataclass); it was the only builder
+  entrypoint no test had ever exercised.
+- `SearchableState.can_search()` returned `False` when the first item was
+  a legal `None` value (sentinel conflation; C#/TS were unaffected).
+- `ConfirmationDecoratorCommand`'s fire-and-forget done-callback raised
+  `CancelledError` into the event loop when the task was cancelled.
+- `fluent.confirm()` now types its callback as
+  `Callable[[], Awaitable[bool]]`, matching the constructor contract it
+  forwards to (a sync callback previously passed mypy and failed at
+  `await`).
+
+### Added
+
+- `FORM-014` conformance coverage: a disposed `FormVM` is inert — approve
+  never invokes the persister, deny does not revert (ADR-0038; pins the
+  guards shipped earlier in this release).
+
+- `HierarchicalVM.reparent_child` rejects self- and ancestor-reparenting
+  with `ValueError` instead of silently corrupting the tree (HIER-018).
+- `NotificationHub.dispose()` — resolves in-flight waiters with `PENDING`,
+  completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+- The `Dispatcher` protocol is exported from the top-level `vmx` package
+  (parity with TS `IDispatcher` / C# `IDispatcher`).
+- Idempotent `dispose()` on `DecoratorCommand` and
+  `ConfirmationDecoratorCommand` (teardown symmetry with the C#
+  IDisposable surface; the decorators own no subscriptions).
+
+## [2.4.0] — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
 sibling + example-app theming scenario contract + test-coverage backfill
@@ -47,7 +121,7 @@ to existing Python APIs.
 
 - 2.4.0 (previously 2.3.0).
 
-## 2.3.0 — 2026-05-31
+## [2.3.0] — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
 Purely additive at the surface level. One behaviour change brings
@@ -94,7 +168,7 @@ on the previously-lazy validation were already buggy.
 
 - 2.3.0 (previously 2.2.0).
 
-## 2.2.0 — 2026-05-30
+## [2.2.0] — 2026-05-30
 
 ### Added
 

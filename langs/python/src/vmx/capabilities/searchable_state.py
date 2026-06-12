@@ -19,6 +19,9 @@ from vmx.capabilities.search import ISearchable
 
 T = TypeVar("T")
 
+# Sentinel for "no first item": a legal None item must not read as "empty".
+_NO_ITEM: object = object()
+
 
 class SearchableState(ISearchable, Generic[T]):
     """Implements ISearchable with a debounced filter pipeline.
@@ -75,9 +78,10 @@ class SearchableState(ISearchable, Generic[T]):
         return self._filtered_subject
 
     def can_search(self) -> bool:
-        # next(iter(...), None) materialises just one element instead of the
-        # whole sequence; matters for large items_source results.
-        return next(iter(self._items_source()), None) is not None
+        # next(iter(...), sentinel) materialises just one element instead of
+        # the whole sequence; the dedicated sentinel keeps a legal None item
+        # from reading as "empty" (C# uses .Any(), TS a for-loop probe).
+        return next(iter(self._items_source()), _NO_ITEM) is not _NO_ITEM
 
     def search(self) -> None:
         self._force_search.on_next(None)

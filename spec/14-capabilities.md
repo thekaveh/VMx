@@ -196,10 +196,13 @@ See ADR-0023.
    use a wrapper that adds the capability.
 1. **Capability composition.** A single VM may implement any number of
    capabilities. There is no exclusivity constraint.
-1. **`can_*` precedes the verb.** Every capability with a verb also exposes a
-   `can_*` predicate. The verb must not be called when `can_*` returns false
-   — calling regardless is implementation-defined behavior (typically a raised
-   exception or a no-op, decided per implementation).
+1. **`can_*` precedes the verb.** Every capability whose verb can be invalid
+   also exposes a `can_*` predicate, and the verb must not be called when
+   `can_*` returns false — calling regardless is implementation-defined
+   behavior (typically a raised exception or a no-op, decided per
+   implementation). Verb families defined as bound-safe need no predicate:
+   `IPageable`'s `move_to_*` methods (§2.10) clamp at the page bounds by
+   contract, so every call is legal. (Scoped in v2.5.0 via ADR-0038.)
 1. **Per-language idiom.** Capability interfaces follow the per-language
    identifier convention from ADR-0006 (PascalCase in C#, snake_case in
    Python, camelCase in TypeScript). The conceptual surface is identical.

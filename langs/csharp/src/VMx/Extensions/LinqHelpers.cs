@@ -39,9 +39,17 @@ public static class LinqHelpers
     /// <returns>Elements at indices 0, N, 2N, 3N, …</returns>
     public static IEnumerable<T> Sample<T>(this IEnumerable<T> source, int every)
     {
+        // Validate eagerly: the iterator body below is deferred, so without
+        // this wrapper a bad interval would only throw on first enumeration,
+        // far from the buggy call site.
         if (every < 1)
             throw new ArgumentOutOfRangeException(nameof(every), every, "Sampling interval must be ≥ 1.");
 
+        return SampleIterator(source, every);
+    }
+
+    private static IEnumerable<T> SampleIterator<T>(IEnumerable<T> source, int every)
+    {
         var i = 0;
         foreach (var item in source)
         {

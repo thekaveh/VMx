@@ -133,7 +133,7 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         value?._setIsCurrent(true)
 
         hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "Current"
+            sender: self, senderName: name, propertyName: "current"
         ))
         _raisePropertyChanged("current")
     }

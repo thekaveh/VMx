@@ -41,7 +41,7 @@ describe("THR-001", () => {
     vm.model = "m2";
 
     // With queueScheduler (synchronous), the event is delivered synchronously.
-    expect(received).toContain("Model");
+    expect(received).toContain("model");
   });
 });
 

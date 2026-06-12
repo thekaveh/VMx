@@ -65,6 +65,14 @@ class WorkspaceVM:
     ) -> None:
         self._repo = repository
         self._dialog_service = dialog_service
+        # Notebook-bind race bookkeeping (see _fire_bind_notes): the id of
+        # the most recent bind request, and a COUNTER of binds currently
+        # awaiting the repository. A counter, not an id — an id-keyed
+        # marker collides when two outstanding binds target the same
+        # notebook (B,A,B: the first B's cleanup erased the second B's
+        # marker and resurrected the race; pass-7 adversarial review).
+        self._requested_notebook_id: str | None = None
+        self._inflight_binds: int = 0
         self._notification_hub = notification_hub
         self._hub = hub
         self._dispatcher = dispatcher
@@ -199,6 +207,37 @@ class WorkspaceVM:
             ops.observe_on(dispatcher.foreground),
         ).subscribe(on_next=_on_notes_view_msg)
 
+        # Pass-5 real-wiring audit: the tree view sets notebooks.current on
+        # node selection, but nothing re-bound the notes view — the centre
+        # pane stayed on the first notebook forever. Mirror the
+        # construct_async wiring on every notebook-selection change.
+        def _is_notebook_change(m: Message) -> bool:
+            return (
+                isinstance(m, PropertyChangedMessage)
+                and m.sender is notebooks
+                and m.property_name == "current"
+            )
+
+        def _on_notebook_msg(_m: Message) -> None:
+            nb = notebooks.current
+            if nb is None:
+                return
+            self.set_focus(nb)
+            notes_view.current_notebook_is_readonly = nb.model.is_readonly
+            self._fire_bind_notes(nb.model.id)
+
+        self._notebook_subscription: DisposableBase = notebooks.hub.messages.pipe(
+            ops.filter(_is_notebook_change),
+            ops.observe_on(dispatcher.foreground),
+        ).subscribe(on_next=_on_notebook_msg)
+
+        # Pass-5 real-wiring audit: refresh the saved note's list row (title /
+        # star marker were construction-time snapshots and went stale after
+        # every save).
+        self._saved_note_subscription: DisposableBase = note_form.on_saved.pipe(
+            ops.observe_on(dispatcher.foreground),
+        ).subscribe(on_next=notes_view.refresh_note)
+
         self._new_notebook_command = (
             RelayCommand.builder()
             .predicate(lambda: self.is_constructed)
@@ -275,9 +314,14 @@ class WorkspaceVM:
     @dialog_service.setter
     def dialog_service(self, value: IDialogService) -> None:
         """Late-bind the dialog service (used by the composition root once
-        the host UI exists — Avalonia / Textual / React).
+        the host UI exists — Avalonia / Textual / React). Forwarded to the
+        notes view, whose delete-confirmation path reads it (the boot-time
+        NullDialogService denies every confirm).
         """
         self._dialog_service = value
+        notes_view = self._agg.component_2
+        if notes_view is not None:
+            notes_view.dialog_service = value
 
     @property
     def focused_vm(self) -> object | None:
@@ -313,25 +357,61 @@ class WorkspaceVM:
         await self.notebooks_root.populate()
         first = next(iter(self.notebooks_root.roots), None)
         if first is not None:
-            self.notebooks_root.current = first
-            self.set_focus(first)
             # Edge-case backfill (readonly notebook gating): mirror the
             # notebook's readonly flag into notes_view so
             # CapabilityActionsVM.add_note_command observes it.
             self.notes_view.current_notebook_is_readonly = first.model.is_readonly
+            # Bind BEFORE assigning current: the notebook-selection
+            # subscription fires on the assignment and would otherwise queue
+            # a concurrent bind whose token supersedes (discards) this
+            # awaited one; with the notes view already bound the queued task
+            # dedupes on bound_notebook_id and exits.
             await self.notes_view.bind_to_async(first.model.id)
+            self.notebooks_root.current = first
+            self.set_focus(first)
 
     def destruct(self) -> None:
         self._agg.destruct()
 
     def dispose(self) -> None:
         self._current_note_subscription.dispose()
+        self._notebook_subscription.dispose()
+        self._saved_note_subscription.dispose()
         self._new_notebook_command.dispose()
         self._new_note_command.dispose()
         self._export_command.dispose()
         self._agg.dispose()
 
     # ── Command fire-and-forget wrappers ───────────────────────────────────
+    def _fire_bind_notes(self, notebook_id: str) -> None:
+        async def _bind() -> None:
+            if self._requested_notebook_id != notebook_id:
+                return  # superseded by a newer selection before we ran
+            if (
+                self.notes_view.bound_notebook_id == notebook_id
+                and self._inflight_binds == 0
+            ):
+                # Already bound and nothing racing: construct_async awaits
+                # the initial bind explicitly, so the task its own
+                # current-assignment queues must not reload. The in-flight
+                # check matters for A→B→A: with a bind to B mid-await,
+                # "bound is still A" does NOT mean A needs no rebind — the
+                # superseding bind_to_async token must discard B's result
+                # (race confirmed by the pass-6 adversarial probe).
+                return
+            self._inflight_binds += 1
+            try:
+                await self.notes_view.bind_to_async(notebook_id)
+            finally:
+                self._inflight_binds -= 1
+
+        self._requested_notebook_id = notebook_id
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_bind())
+        except RuntimeError:
+            asyncio.run(_bind())
+
     def _fire_new_notebook(self) -> None:
         try:
             loop = asyncio.get_running_loop()

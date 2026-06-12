@@ -6,7 +6,57 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
-## 2.4.0 — 2026-06-02
+## [2.5.0] — 2026-06-10
+
+Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
+1.2.0 (min spec 2.5.0).
+
+### Fixed
+
+- `ConstructAsync`/`DestructAsync` on an already-Constructed/Destructed
+  background VM hung forever and leaked the hub subscription; they now
+  short-circuit and also complete when the VM is disposed mid-flight.
+- A background construct/destruct racing `Dispose()` could resurrect the VM
+  (`Disposed → Constructed`) and publish post-dispose status messages;
+  `Disposed` is now terminal in `SetStatus` and the scheduled work
+  (spec/02 invariant 3).
+- `MessageHub.Send` racing `Dispose` no longer surfaces
+  `ObjectDisposedException`.
+- `NotificationHub` emits pending snapshots and completes its subject inside
+  the lock, closing out-of-order-snapshot and emit-after-dispose windows.
+- `FormVM` dispose-during-approve no longer throws in an unobserved task.
+- `ObservableList.Clear()` emits `PropertyChanged("Count")` after `Reset`
+  when the count changed (spec/21 §3.3).
+- Post-2.4.0 maintenance backfill: `AggregateVM6` walk reachability and
+  dispose ordering (LIFE-013), `NotificationHub` Post-after-Dispose race,
+  and `ServicedObservableCollection.Move` silent corruption.
+- The HIER-018 reparent guard compares by reference identity, not
+  `Equals` — a `TVM` overriding `Equals` no longer falsely rejects a
+  legal reparent (Python/TS already used identity).
+- `LinqHelpers.Sample` validates its interval eagerly instead of on first
+  enumeration.
+- `SearchableState.Filtered`, `ExpandableState.IsExpandedChanged`,
+  `NotificationHub.Pending`, and `FormVM.OnApproved` are wrapped with
+  `AsObservable()` so callers can no longer downcast to the live subject
+  (matches `DerivedProperty.ValueChanged`).
+- `FormVM`'s deny path is a no-op after `Dispose()` (previously it
+  reverted the model and re-published hub messages on a disposed form),
+  and `ApproveAsync()` on a disposed form no longer invokes the
+  persister.
+
+### Added
+
+- `FORM-014` conformance coverage: a disposed `FormVM` is inert — approve
+  never invokes the persister, deny does not revert (ADR-0038; pins the
+  guards shipped earlier in this release).
+
+- `HierarchicalVM.ReparentChild` rejects self- and ancestor-reparenting with
+  `InvalidOperationException` instead of silently corrupting the tree
+  (HIER-018).
+- `NOTIF-017` conformance coverage for the hub's dispose semantics (now
+  normative across flavors).
+
+## [2.4.0] — 2026-06-02
 
 Implements spec v2.4.0 — umbrella publication-readiness + Swift flavor
 sibling + example-app theming scenario contract + test-coverage backfill
@@ -45,7 +95,7 @@ to existing C# APIs.
 
 - 2.4.0 (previously 2.3.0).
 
-## 2.3.0 — 2026-05-31
+## [2.3.0] — 2026-05-31
 
 Implements spec v2.3.0 — builder pattern audit follow-through (ADR-0035).
 Purely additive at the surface level. One behaviour change brings
@@ -86,7 +136,7 @@ relying on the previously-lazy validation were already buggy.
 
 - 2.3.0 (previously 2.2.0).
 
-## 2.2.0 — 2026-05-30
+## [2.2.0] — 2026-05-30
 
 ### Added
 

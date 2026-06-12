@@ -41,7 +41,7 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // overwriting so subscribers don't leak across the Reconstruct boundary.
     this.#component1?.dispose();
     this.#component1 = this.#factory1();
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "Component1"));
+    this._hub.send(PropertyChangedMessage.create(this, this._name, "component1"));
     this._raisePropertyChanged("component1");
     this.#component1.construct();
   }

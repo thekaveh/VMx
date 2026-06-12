@@ -2,8 +2,8 @@
 // ImmediateDispatcher — test-friendly dispatcher that runs every
 // scheduled closure synchronously on the calling thread.
 //
-// Equivalent to `RxDispatcher.immediate()` in TS and `ImmediateDispatcher`
-// in Python / C#.
+// Equivalent to `RxDispatcher.immediate()` in TS / Python and
+// `RxDispatcher.Immediate()` in C#.
 //
 import Foundation
 

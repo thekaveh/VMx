@@ -137,6 +137,7 @@ from vmx.properties import (
 from vmx.services import (
     NULL_DISPATCHER,
     NULL_MESSAGE_HUB,
+    Dispatcher,
     MessageHub,
     MessageHubProto,
     NullDispatcher,
@@ -189,6 +190,7 @@ __all__ = [
     "DecoratorCommand",
     "DerivedProperty",
     "DialogService",
+    "Dispatcher",
     "ExpandableState",
     "FileFilter",
     "Filterable",

@@ -88,6 +88,15 @@ Each flavor uses its idiomatic equality operator/method:
 - C#: `object.Equals` (record types use structural equality by default).
 - Python: `__eq__` (`@dataclass(eq=True)` or `@dataclass(frozen=True)` by default).
 - TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects.
+  Caveat (clarified in v2.5.0 via ADR-0037): `JSON.stringify` is
+  key-order sensitive — two objects with the same fields/values whose keys
+  were assigned in different orders compare as *dirty*. FORM-003's
+  structurally-equal guarantee ("same fields/values, different object
+  reference") therefore holds in TypeScript for same-key-order objects
+  (the common snapshot/revert flow, where snapshots are produced by the
+  snapshotter from the model itself); consumers needing order-insensitive
+  comparison should supply a custom `snapshotter`/model normalization.
+  FORM-003 in `12-conformance.md` carries the matching scope note.
 
 ## 5. Lifecycle state diagram
 
@@ -155,7 +164,22 @@ Default mode (strict = false):
 - `ApproveCommand.CanExecute` is always `true` (consumer-controlled).
 - Allows re-saving without a change (e.g., triggering a re-sync).
 
-## 9. Conformance
+## 9. Disposal
+
+`Dispose()` completes and disposes the `OnApproved` observable and the
+command surface. A disposed form is **inert** (added in v2.5.0 via
+ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
+
+- `ApproveCommand.Execute()` / the awaitable approve entry point are full
+  no-ops — in particular the **persister delegate is never invoked**, since
+  it is an external side effect.
+- `DenyCommand.Execute()` is a full no-op: no model revert, no hub messages.
+- A `Dispose()` that lands *during* an in-flight persist suppresses the
+  post-await state mutation and emissions (the persister itself, already
+  running, completes normally).
+- `Dispose()` is idempotent.
+
+## 10. Conformance
 
 - `FORM-001` — Snapshot captured at construct; `Model == Snapshot`; `IsDirty == false` immediately after construction.
 - `FORM-002` — Mutating `Model` reflects in `IsDirty == true`; `Snapshot` is
@@ -187,3 +211,5 @@ Default mode (strict = false):
   `Hub` defaults to the flavor's `NullMessageHub` singleton, `Snapshot` to
   the default shallow-copy of `Initial`, and `Strict` to `false` (so
   `ApproveCommand.CanExecute()` returns `true` regardless of `IsDirty`).
+- `FORM-014` — A disposed form is inert: approve does not invoke the
+  persister; deny does not revert the model (§9).

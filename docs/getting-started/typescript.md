@@ -132,12 +132,12 @@ const canSaveTrigger = new Subject<void>();
 let isDirty = false;
 
 const saveCommand = RelayCommand.builder()
-  .execute(() => {
+  .task(() => {
     console.log("Saving…");
     isDirty = false;
     canSaveTrigger.next(); // re-evaluate canExecute
   })
-  .canExecute(() => isDirty)
+  .predicate(() => isDirty)
   .triggers(canSaveTrigger)
   .build();
 
@@ -206,7 +206,7 @@ const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
 // Watch for current-selection changes via the hub.
 hub.messages.subscribe((msg) => {
   if (msg instanceof PropertyChangedMessage && msg.senderObject === tabs) {
-    if (msg.propertyName === "Current") {
+    if (msg.propertyName === "current") {
       const title = tabs.current ? tabs.current.model.title : "(none)";
       console.log(`Selected tab: ${title}`);
     }
@@ -217,7 +217,7 @@ hub.messages.subscribe((msg) => {
 tabs.construct();
 // stdout: "tab-bar ready"
 
-// Select a tab — publishes PropertyChangedMessage for "Current" and
+// Select a tab — publishes PropertyChangedMessage for "current" and
 // sets child.isCurrent.
 tabs.current = tab2; // stdout: "Selected tab: Settings"
 tabs.current = tab1; // stdout: "Selected tab: Home"

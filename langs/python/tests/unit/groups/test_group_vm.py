@@ -172,6 +172,20 @@ class TestGroupVMCollection:
         assert grp[0] is b
         assert grp[1] is a
 
+    def test_insert_negative_index_emits_effective_position(self) -> None:
+        """spec/21 §3.2: new_index carries the actual insertion position."""
+        grp, _ = _make_group()
+        a = _make_child("a")
+        b = _make_child("b")
+        c = _make_child("c")
+        grp.add(a)
+        grp.add(b)
+        events: list[CollectionChangedEvent] = []
+        grp.on_collection_changed.subscribe(events.append)
+        grp.insert(-1, c)
+        assert grp[1] is c
+        assert events[0].new_index == 1
+
     def test_remove_existing_returns_true(self) -> None:
         grp, _ = _make_group()
         child = _make_child()
@@ -520,3 +534,18 @@ class TestGroupVMBuilder:
         )
         assert grp.hint == ""
         assert grp.type == ViewModelType.GROUP
+
+
+def test_on_construct_iterates_snapshot_when_child_mutates_group() -> None:
+    """A child whose construct hook mutates the group must not skip siblings."""
+    h = _hub()
+    d = _dispatcher()
+    group, _ = _make_group(hub=h)
+    b = _make_child("b", hub=h)
+    a = ComponentVMBuilder().name("a").services(h, d).on_construct(lambda: group.remove(a)).build()
+    group.add(a)
+    group.add(b)
+
+    group.construct()
+
+    assert b.status is ConstructionStatus.CONSTRUCTED  # type: ignore[attr-defined]

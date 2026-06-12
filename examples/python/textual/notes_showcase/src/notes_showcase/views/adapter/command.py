@@ -8,15 +8,19 @@ Two responsibilities:
    eagerly (at bind time) and reactively (each ``can_execute_changed`` tick).
 2. Route button presses to ``command.execute()``.
 
-For (2) we monkey-patch ``button.action_press`` — Textual invokes that method
-whenever the user activates the button (key binding or click). Wiring on
-``Button.Pressed`` would require a host ``App`` / ``Widget`` to install a
-message handler, which the adapter has no business doing; ``action_press``
-keeps the bridge UI-thread agnostic and unit-testable in pure pytest.
+For (2) we monkey-patch ``button.press`` — the single funnel both activation
+paths share in Textual 8.x: a mouse click runs ``_on_click → press()`` and the
+Enter key binding runs ``action_press → press()``. (An earlier revision
+patched ``action_press``, which the click path never calls — every mouse
+click on a bound button was silently dropped; real-wiring audit, pass 5.)
+Wiring on ``Button.Pressed`` would require a host ``App`` / ``Widget`` to
+install a message handler, which the adapter has no business doing; the
+``press`` override keeps the bridge UI-thread agnostic and unit-testable in
+pure pytest.
 
 The disposable returned cancels the ``can_execute_changed`` subscription. The
-``action_press`` override is left in place — the button is logically owned by
-the bridge for its lifetime.
+``press`` override is left in place — the button is logically owned by the
+bridge for its lifetime.
 """
 
 from __future__ import annotations
@@ -32,8 +36,9 @@ def bind_command(button: Any, command: Command) -> DisposableBase:
     """Bind ``button`` to ``command``.
 
     Initialises ``button.disabled = not command.can_execute()``, redirects
-    ``button.action_press`` to ``command.execute()``, and subscribes to
-    ``command.can_execute_changed`` to keep ``button.disabled`` in sync.
+    ``button.press`` (the shared click + Enter funnel) to
+    ``command.execute()``, and subscribes to ``command.can_execute_changed``
+    to keep ``button.disabled`` in sync.
 
     Returns a :class:`~reactivex.abc.DisposableBase` for the
     ``can_execute_changed`` subscription. Accepts any :class:`Command`
@@ -43,9 +48,11 @@ def bind_command(button: Any, command: Command) -> DisposableBase:
     button.disabled = not command.can_execute()
 
     def _press() -> None:
-        command.execute()
+        # Mirror Button.press()'s own disabled guard.
+        if not button.disabled:
+            command.execute()
 
-    button.action_press = _press
+    button.press = _press
 
     def _on_can_execute_changed(_value: object) -> None:
         button.disabled = not command.can_execute()

@@ -73,7 +73,11 @@ public sealed class VMxOptions
 {
     /// <summary>
     /// Gets or sets the factory used to create the <see cref="IDispatcher"/> singleton.
-    /// When <see langword="null"/>, defaults to <see cref="RxDispatcher.CreateForCurrentContext"/>.
+    /// When <see langword="null"/>, the dispatcher binds to the
+    /// <see cref="SynchronizationContext"/> captured at <c>AddVMx</c> time,
+    /// falling back to <see cref="RxDispatcher.CreateForCurrentContext"/> at
+    /// resolution time only when no context was captured (see the
+    /// <c>AddVMx</c> remarks).
     /// </summary>
     public Func<IServiceProvider, IDispatcher>? DispatcherFactory { get; set; }
 
