@@ -126,6 +126,53 @@ def test_modeled_composite_builder_name_returns_new_instance() -> None:
     assert b2._name == "y"
 
 
+# ---------------------------------------------------------------------------
+# Builder declarative hook — current(selector) on the modeled builder
+# spec/06 §3.X, ADR-0042 (COMP-025)
+# ---------------------------------------------------------------------------
+
+
+def test_modeled_current_selector_drives_initial_selection_after_construct() -> None:
+    """current(selector) picks the initial Current after children Constructed."""
+    hub = _hub()
+    disp = _dispatcher()
+    models = [_Model(i) for i in range(3)]
+
+    comp: CompositeVMOf[_Model, ComponentVMOf[_Model]] = (
+        CompositeVMOfBuilder()
+        .name("comp")
+        .services(hub, disp)
+        .children_models(lambda: list(models))
+        .child_model_to_child_view_model(lambda m: _make_child_vm(m, hub, disp))
+        .current(lambda xs: list(xs)[1])
+        .build()
+    )
+
+    comp.construct()
+
+    assert comp.current is comp[1]
+
+
+def test_modeled_current_selector_returning_none_leaves_current_none() -> None:
+    """current(selector) returning None leaves Current at its prior value (None)."""
+    hub = _hub()
+    disp = _dispatcher()
+
+    comp: CompositeVMOf[_Model, ComponentVMOf[_Model]] = (
+        CompositeVMOfBuilder()
+        .name("comp")
+        .services(hub, disp)
+        .children_models(lambda: [_Model(1)])
+        .child_model_to_child_view_model(lambda m: _make_child_vm(m, hub, disp))
+        .current(lambda _: None)
+        .build()
+    )
+
+    comp.construct()
+
+    assert comp.current is None
+
+
 def test_modeled_composite_destruct_clears_current() -> None:
     hub = _hub()
     disp = _dispatcher()
