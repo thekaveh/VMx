@@ -485,6 +485,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
         current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
+        on_current_changed: Callable[[VM | None], None] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -496,6 +497,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
             on_construct=on_construct,
             on_destruct=on_destruct,
             current_selector=current_selector,
+            on_current_changed=on_current_changed,
         )
         self._children_models: Callable[[], Iterable[M]] = children_models
         self._child_model_to_child_vm: Callable[[M], VM] = child_model_to_child_vm

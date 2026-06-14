@@ -173,6 +173,35 @@ def test_modeled_current_selector_returning_none_leaves_current_none() -> None:
     assert comp.current is None
 
 
+# ---------------------------------------------------------------------------
+# Builder declarative hook — on_current_changed(callback) on the modeled builder
+# spec/06 §3.X, ADR-0042 (COMP-026)
+# ---------------------------------------------------------------------------
+
+
+def test_modeled_on_current_changed_fires_after_each_change() -> None:
+    """on_current_changed(callback) fires after every Current transition."""
+    hub = _hub()
+    disp = _dispatcher()
+    models = [_Model(1), _Model(2)]
+    observed: list[ComponentVMOf[_Model] | None] = []
+
+    comp: CompositeVMOf[_Model, ComponentVMOf[_Model]] = (
+        CompositeVMOfBuilder()
+        .name("comp")
+        .services(hub, disp)
+        .children_models(lambda: list(models))
+        .child_model_to_child_view_model(lambda m: _make_child_vm(m, hub, disp))
+        .on_current_changed(observed.append)
+        .build()
+    )
+    comp.construct()
+    comp.select_component(comp[1])
+    comp.deselect_component(comp[1])
+
+    assert observed == [comp[1], None]
+
+
 def test_modeled_composite_destruct_clears_current() -> None:
     hub = _hub()
     disp = _dispatcher()
