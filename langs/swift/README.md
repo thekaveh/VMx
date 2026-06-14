@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.5.0.** Covers **39 of 235**
-conformance IDs from `spec-v2.5.0` (recounted honestly in ADR-0037): the lifecycle state machine, the modeled
+**v2.6.0.** Covers **41 of 237**
+conformance IDs from `spec-v2.6.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, and the immutable fluent builders. The remaining 195 IDs
+`RelayCommand`, and the immutable fluent builders. The remaining 196 IDs
 (`HierarchicalVM`, `FormVM`, the 22 capability micro-interfaces,
 `DerivedProperty`, observable collections, the notifications sub-package,
 threading specifics, forwarding decorators, dialog service, expand/collapse
@@ -22,7 +22,7 @@ Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "2.5.0")
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "2.6.0")
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
@@ -124,7 +124,7 @@ Key exports:
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The 39 covered IDs (recounted honestly in ADR-0037 — the
+catalog. The 41 covered IDs (recounted honestly in ADR-0037 — the
 original release notes overclaimed) are:
 
 ```
@@ -134,7 +134,9 @@ LIFE-001..007, 009, 010, 012, 013   lifecycle state machine
                                     ADR-0037)
 CVM-001..006    ComponentVM / ComponentVMOf identity + model
                 (CVM-003: the readonly setter traps per ADR-0037)
-COMP-003..005   select-through-child + lifecycle cascades
+COMP-003..005,  select-through-child + lifecycle cascades +
+COMP-025/026    builder `current(selector)` / `onCurrentChanged(callback)`
+                hooks
 GRP-002..004    group surface contract + lifecycle cascades
 AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
 CMD-001..004, 006   RelayCommand task + predicate + triggers
@@ -169,7 +171,7 @@ and `CMD-007` (truth-table fixture).
 - `LIFE-011` fixture-driven transition table (currently hand-rolled)
 
 The follow-up PR will widen coverage to full parity with the other
-three flavors. **This release is NOT yet at full parity with the 235-ID catalog.**
+three flavors. **This release is NOT yet at full parity with the 237-ID catalog.**
 
 Run the suite:
 

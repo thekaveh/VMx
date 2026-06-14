@@ -6,6 +6,26 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-06-13
+
+Implements `spec-v2.6.0`. Adds two declarative selection hooks to the
+composite builders, plus four ADRs capturing absorption-audit decisions.
+
+### Added
+
+- `CompositeVMBuilder[VM].current(selector)` — declarative initial-current
+  selector (ADR-0042, COMP-025).
+- `CompositeVMBuilder[VM].on_current_changed(callback)` — synchronous
+  post-change selection callback (ADR-0042, COMP-026).
+- Same hooks on the modeled `CompositeVMOfBuilder[M, VM]`.
+
+### Documentation
+
+- ADR-0039 — `INotifyPropertyChanging` not supported (teaching).
+- ADR-0040 — `IProperty[T]` reactive backing-field not adopted (teaching).
+- ADR-0041 — Single disposable lifecycle, no two-tier bags (teaching).
+- ADR-0042 — `CompositeVMBuilder.current` + `on_current_changed` (behavior change).
+
 ## [2.5.0] — 2026-06-10
 
 Implements `spec-v2.5.0` (ADR-0037).

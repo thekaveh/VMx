@@ -2,9 +2,11 @@
 // CompositeVM conformance tests.
 //
 // Claimed IDs: COMP-003 (select via child delegation), COMP-004,
-// COMP-005. COMP-001/002 (CollectionChanged), COMP-006/010 (foreground
-// dispatch), COMP-007 (modeled composite), COMP-008, and COMP-009
-// (raises — a trap in this flavor, ADR-0037) are NOT claimed.
+// COMP-005, COMP-025 (`current(selector)` builder hook), COMP-026
+// (`onCurrentChanged(callback)` builder hook). COMP-001/002
+// (CollectionChanged), COMP-006/010 (foreground dispatch), COMP-007
+// (modeled composite), COMP-008, and COMP-009 (raises — a trap in
+// this flavor, ADR-0037) are NOT claimed.
 //
 import XCTest
 @testable import VMx
@@ -122,5 +124,137 @@ final class CompositeVMTests: XCTestCase {
         c.construct()
         a.select()
         XCTAssertTrue(c.current === a)
+    }
+
+    // ── current(_:) builder hook (COMP-025) ─────────────────────────────
+
+    func test_CurrentSelector_DrivesInitialSelectionAfterConstruct() throws {
+        let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a, b, cChild] }
+            .current { children in Array(children)[1] }
+            .build()
+        composite.construct()
+
+        XCTAssertTrue(composite.current === b)
+    }
+
+    func test_CurrentSelector_ReturningNilLeavesCurrentNil() throws {
+        let a = leaf("a")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a] }
+            .current { _ in nil }
+            .build()
+        composite.construct()
+
+        XCTAssertNil(composite.current)
+    }
+
+    // ── onCurrentChanged(_:) builder hook (COMP-026) ────────────────────
+
+    func test_OnCurrentChanged_FiresAfterEachCurrentChange() throws {
+        let a = leaf("a"); let b = leaf("b")
+        var observed: [ComponentVM?] = []
+
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a, b] }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        composite.construct()
+        composite.selectChild(b)
+        composite.deselectChild(b)
+
+        XCTAssertEqual(observed.count, 2)
+        XCTAssertTrue(observed[0] === b)
+        XCTAssertNil(observed[1])
+    }
+
+    func test_OnCurrentChanged_FiresOnceForInitialSelector() throws {
+        let a = leaf("a")
+        var observed: [ComponentVM?] = []
+
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a] }
+            .current { children in Array(children).first }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        composite.construct()
+
+        XCTAssertEqual(observed.count, 1)
+        XCTAssertTrue(observed[0] === a)
+    }
+
+    func test_OnCurrentChanged_DoesNotFireWhenSelectorReturnsNilOrOutOfSet() throws {
+        let a = leaf("a")
+        var observed: [ComponentVM?] = []
+
+        // Case 1: selector returns nil.
+        let c1 = try CompositeVM<ComponentVM>.builder()
+            .name("c-null")
+            .withNullServices()
+            .children { [a] }
+            .current { _ in nil }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        c1.construct()
+        XCTAssertTrue(observed.isEmpty)
+
+        // Case 2: selector returns out-of-set.
+        let foreign = leaf("foreign")
+        let c2 = try CompositeVM<ComponentVM>.builder()
+            .name("c-foreign")
+            .withNullServices()
+            .children { [a] }
+            .current { _ in foreign }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        c2.construct()
+        XCTAssertTrue(observed.isEmpty)
+    }
+
+    // ── Conformance — COMP-025 / COMP-026 ───────────────────────────────
+
+    /// COMP-025 — `current(selector)` builder hook drives initial selection
+    /// during construct.
+    func test_COMP_025_CurrentSelectorDrivesInitialSelection() throws {
+        let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a, b, cChild] }
+            .current { children in Array(children)[1] }
+            .build()
+        composite.construct()
+
+        XCTAssertTrue(composite.current === b)
+    }
+
+    /// COMP-026 — `onCurrentChanged(callback)` fires synchronously after
+    /// each `current` change.
+    func test_COMP_026_OnCurrentChangedFiresAfterEachChange() throws {
+        let a = leaf("a"); let b = leaf("b")
+        var observed: [ComponentVM?] = []
+
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a, b] }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        composite.construct()
+        composite.selectChild(b)
+        composite.deselectChild(b)
+
+        XCTAssertEqual(observed.count, 2)
+        XCTAssertTrue(observed[0] === b)
+        XCTAssertNil(observed[1])
     }
 }

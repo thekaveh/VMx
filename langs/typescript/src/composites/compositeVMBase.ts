@@ -38,6 +38,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #populated = false;
   #batchDepth = 0;
   #batchDirty = false;
+  readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
+  readonly #onCurrentChanged: ((vm: VM | null) => void) | null;
 
   constructor(opts: {
     name: string;
@@ -48,10 +50,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     autoConstructOnAdd?: boolean;
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
+    currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
+    onCurrentChanged?: ((vm: VM | null) => void) | null;
   }) {
     super(opts);
     this.#asyncSelection = opts.asyncSelection ?? false;
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
+    this.#currentSelector = opts.currentSelector ?? null;
+    this.#onCurrentChanged = opts.onCurrentChanged ?? null;
   }
 
   get type(): ViewModelType {
@@ -270,6 +276,16 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     for (const child of [...this._children]) {
       child.construct();
     }
+    // Apply the optional initial-current selector (spec/06 §3.X, ADR-0042).
+    // The composite is still in Constructing here; every child is Constructed.
+    // Selector returning null or an out-of-set value leaves current at its
+    // prior value and emits no notification (matches selectComponent semantics).
+    if (this.#currentSelector !== null) {
+      const initial = this.#currentSelector(this);
+      if (initial !== null && this._children.includes(initial)) {
+        this._setCurrent(initial, false);
+      }
+    }
   }
 
   protected override _onDestruct(): void {
@@ -331,5 +347,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       PropertyChangedMessage.create(this, this._name, "current"),
     );
     this._raisePropertyChanged("current");
+
+    // Invoke the optional builder-registered onCurrentChanged callback AFTER
+    // state update + hub publish + INPC raise so every observer sees the new
+    // value consistently (spec/06 §3.X, ADR-0042 §5.2).
+    if (this.#onCurrentChanged !== null) {
+      this.#onCurrentChanged(value);
+    }
   }
 }

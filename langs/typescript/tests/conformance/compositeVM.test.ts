@@ -400,6 +400,142 @@ describe("COMP-013", () => {
 // setAt _current handling (unit; not a conformance ID)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// CompositeVMOfBuilder.current(selector) — ADR-0042, spec/06 §3.X (modeled)
+// ---------------------------------------------------------------------------
+
+describe("CompositeVMOfBuilder.current(selector) (modeled)", () => {
+  it("drives initial selection after construct", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const models: M[] = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => models)
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current((xs) => [...xs][1] ?? null)
+      .build();
+    composite.construct();
+
+    expect(composite.current).toBe(composite.at(1));
+  });
+
+  it("returning null leaves current null", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current(() => null)
+      .build();
+    composite.construct();
+
+    expect(composite.current).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CompositeVMOfBuilder.onCurrentChanged(callback) — ADR-0042, spec/06 §3.X (modeled)
+// ---------------------------------------------------------------------------
+
+describe("CompositeVMOfBuilder.onCurrentChanged(callback) (modeled)", () => {
+  it("fires after each current change", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const models: M[] = [{ id: 1 }, { id: 2 }];
+    const observed: (ComponentVMOf<M> | null)[] = [];
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => models)
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    composite.construct();
+    const second = composite.at(1);
+    composite.selectComponent(second);
+    composite.deselectComponent(second);
+
+    expect(observed).toEqual([second, null]);
+  });
+
+  it("fires once for initial selector", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const observed: (ComponentVMOf<M> | null)[] = [];
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current((xs) => [...xs][0] ?? null)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    composite.construct();
+
+    expect(observed).toEqual([composite.at(0)]);
+  });
+
+  it("does not fire when selector returns null or out-of-set (ADR-0042 §5.4)", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const observed: (ComponentVMOf<M> | null)[] = [];
+
+    // Case 1: selector returns null
+    const c1 = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("c-null")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current(() => null)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    c1.construct();
+    expect(observed).toEqual([]);
+
+    // Case 2: selector returns out-of-set
+    const foreign = ComponentVMOf.builder<M>()
+      .name("foreign")
+      .model({ id: 999 })
+      .services(hub, disp)
+      .build();
+    const c2 = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("c-foreign")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current(() => foreign)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    c2.construct();
+    expect(observed).toEqual([]);
+  });
+});
+
 describe("setAt _current handling", () => {
   it("setAt replacing the current slot clears current to null", () => {
     const hub = makeHub();
@@ -440,5 +576,52 @@ describe("setAt _current handling", () => {
     composite.setAt(0, replacement);  // replace `other`, not `sticky`
 
     expect(composite.current).toBe(sticky);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-025 — Current(selector) builder hook drives initial selection during construct
+// ---------------------------------------------------------------------------
+
+describe("COMP-025", () => {
+  it("Current(selector) builder hook drives initial selection during construct", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const children = ["a", "b", "c"].map((n) => makeChild(hub, n));
+
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => children)
+      .current((xs) => [...xs][1] ?? null)
+      .build();
+    composite.construct();
+
+    expect(composite.current).toBe(children[1]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-026 — OnCurrentChanged(callback) fires synchronously after each Current change
+// ---------------------------------------------------------------------------
+
+describe("COMP-026", () => {
+  it("OnCurrentChanged(callback) fires synchronously after each Current change", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const children = ["a", "b"].map((n) => makeChild(hub, n));
+    const observed: (ComponentVM | null)[] = [];
+
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => children)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    composite.construct();
+    composite.selectComponent(children[1]!);
+    composite.deselectComponent(children[1]!);
+
+    expect(observed).toEqual([children[1], null]);
   });
 });

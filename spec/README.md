@@ -2,8 +2,8 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.5.0,
-Python `vmx` v2.5.0, TypeScript `@thekaveh/vmx` v2.5.0, Swift `VMx` v2.5.0
+This directory is the contract. Every published package — C# `VMx` v2.6.0,
+Python `vmx` v2.6.0, TypeScript `@thekaveh/vmx` v2.6.0, Swift `VMx` v2.6.0
 (subset) — declares the spec version it implements. Conformance tests under
 `langs/<lang>/tests/conformance/` re-implement the catalog at
 `12-conformance.md` and must pass before any flavor releases a stable
@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (235 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (237 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -136,11 +136,36 @@ v2.4.x consumers continue to work unchanged.
   goes from 232 to 235 (230 library + 5 THEME scenario IDs).
 - Chapter count stays at 22.
 
-### 1.8 Supporting artefacts
+### 1.8 v2.5.x → v2.6.0 changes
 
-- `VERSION` — current spec SemVer (`2.5.0`).
+v2.6.0 is a minor, non-breaking maintenance bump from the absorption-audit
+follow-up (see ADRs 0039 / 0040 / 0041 / 0042 and
+`proposals/2026-06-13-vmx-absorption-audit-followup.md`). All v2.5.x
+consumers continue to work unchanged.
+
+- **ADR-0039** — `INotifyPropertyChanging` not supported (teaching note;
+  no code change).
+- **ADR-0040** — `IProperty<T>` reactive backing-field not adopted
+  (teaching note; no code change).
+- **ADR-0041** — Single disposable lifecycle, no two-tier bags (teaching
+  note; no code change).
+- **ADR-0042** — `CompositeVMBuilder.Current(selector)` +
+  `OnCurrentChanged(callback)` declarative selection hooks on the
+  composite builders (behavior change, additive). Implemented across C# /
+  Python / TypeScript on both modeled and non-modeled builders; Swift
+  ships on the non-modeled builder (modeled composite is outside Swift's
+  documented subset).
+- `06-composite-vm.md` — §3.X documents the builder selection hooks.
+- `12-conformance.md` — adds `COMP-025` (`current(selector)` invariants)
+  and `COMP-026` (`onCurrentChanged(callback)` invariants); catalog total
+  goes from 235 to 237 (232 library + 5 THEME scenario IDs).
+- Chapter count stays at 22.
+
+### 1.9 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0037); see
+- `ADRs/` — Architecture Decision Records (0001-0042); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

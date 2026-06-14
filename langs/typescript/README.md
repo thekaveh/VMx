@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.5.0** — implements `spec-v2.5.0` end-to-end. 230/230 library conformance IDs
+**v2.6.0** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -194,7 +194,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 230 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 232 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

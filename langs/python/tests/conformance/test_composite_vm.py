@@ -585,3 +585,64 @@ def test_COMP_013_batch_update_emits_one_reset() -> None:
     assert len(events) == 1, f"Expected one Reset event, got {[e.action for e in events]}"
     assert events[0].action == "reset"
     assert len(composite) == 3
+
+
+# ===========================================================================
+# COMP-025 — current(selector) drives initial-current during construct
+# ===========================================================================
+
+
+@pytest.mark.conformance("COMP-025")
+def test_COMP_025_current_selector_drives_initial_selection() -> None:
+    """COMP-025: current(selector) runs once during construct, after all children
+    reach Constructed and before the composite reaches Constructed. The
+    selector's return value becomes current. See spec/06 §3.X and ADR-0042.
+    """
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b", "c")]
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, disp)
+        .children(lambda: children)
+        .current(lambda xs: list(xs)[1])
+        .build()
+    )
+
+    composite.construct()
+
+    assert composite.current is children[1]
+
+
+# ===========================================================================
+# COMP-026 — on_current_changed fires after each current transition
+# ===========================================================================
+
+
+@pytest.mark.conformance("COMP-026")
+def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
+    """COMP-026: on_current_changed(callback) is invoked synchronously after every
+    current transition. Receives the new current value (may be None). See
+    spec/06 §3.X and ADR-0042.
+    """
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b")]
+    observed: list[ComponentVM | None] = []
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, disp)
+        .children(lambda: children)
+        .on_current_changed(observed.append)
+        .build()
+    )
+
+    composite.construct()
+    composite.select_component(children[1])
+    composite.deselect_component(children[1])
+
+    assert observed == [children[1], None]

@@ -5,15 +5,15 @@ spec-compatible with the Python, TypeScript, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.5.0** — implements `spec-v2.5.0` end-to-end. 230/230 library conformance IDs
+**v2.6.0** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
-`INotificationHub`) at `1.2.0` (min spec 2.5.0). Each is independently
+`INotificationHub`) at `1.2.0` (min spec 2.6.0). Each is independently
 versioned per ADR-0009 / ADR-0013 and stays on its own release line
-(the DI companion does not pull the 2.5.0 core bump); see
+(the DI companion does not pull the 2.6.0 core bump); see
 `../../compatibility-matrix.md`. A Swift flavor sibling lands as a
-skeleton at `langs/swift/` (39-ID subset of `spec-v2.5.0`); see
+skeleton at `langs/swift/` (41-ID subset of `spec-v2.6.0`); see
 `../swift/README.md` §5 for the in / deferred matrix.
 
 ## 2. Install
@@ -209,7 +209,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 230 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 232 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

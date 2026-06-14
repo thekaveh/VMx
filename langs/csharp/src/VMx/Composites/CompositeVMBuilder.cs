@@ -26,6 +26,8 @@ public sealed class CompositeVMBuilder<VM>
     private readonly Func<IEnumerable<VM>>? _childrenFactory;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
+    private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
+    private readonly Action<VM?>? _onCurrentChanged;
 
     /// <summary>Empty starting builder.</summary>
     public static readonly CompositeVMBuilder<VM> Empty = new();
@@ -41,7 +43,9 @@ public sealed class CompositeVMBuilder<VM>
         bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector,
+        Action<VM?>? onCurrentChanged)
     {
         _name = name;
         _hub = hub;
@@ -52,6 +56,8 @@ public sealed class CompositeVMBuilder<VM>
         _childrenFactory = childrenFactory;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
+        _currentSelector = currentSelector;
+        _onCurrentChanged = onCurrentChanged;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -71,6 +77,28 @@ public sealed class CompositeVMBuilder<VM>
     /// </summary>
     public CompositeVMBuilder<VM> Children(Func<IEnumerable<VM>> factory)
         => With(childrenFactory: factory);
+
+    /// <summary>
+    /// Sets an optional selector that picks the initial <c>Current</c> child during
+    /// construct. The selector runs after all children reach <c>Constructed</c> and
+    /// before the composite itself transitions to <c>Constructed</c>. If it returns
+    /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
+    /// left at its prior value (initially <see langword="null"/>) and no
+    /// notification fires. See ADR-0042 and spec/06 §3.X (COMP-025).
+    /// </summary>
+    public CompositeVMBuilder<VM> Current(Func<IEnumerable<VM>, VM?> selector)
+        => With(currentSelector: selector);
+
+    /// <summary>
+    /// Sets an optional callback invoked synchronously after every <c>Current</c>
+    /// transition, AFTER the state is updated and the hub publishes
+    /// <c>PropertyChangedMessage("Current")</c>. Receives the new <c>Current</c>
+    /// value (which may be <see langword="null"/>). The callback also fires for
+    /// the initial assignment driven by <see cref="Current"/>. See ADR-0042 and
+    /// spec/06 §3.X (COMP-026).
+    /// </summary>
+    public CompositeVMBuilder<VM> OnCurrentChanged(Action<VM?> callback)
+        => With(onCurrentChanged: callback);
 
     /// <summary>Enables async selection dispatch via the foreground scheduler.</summary>
     public CompositeVMBuilder<VM> AsyncSelection(bool asyncSelection) => With(asyncSelection: asyncSelection);
@@ -101,7 +129,7 @@ public sealed class CompositeVMBuilder<VM>
         return CompositeVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd, _childrenFactory,
-            _onConstruct, _onDestruct);
+            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged);
     }
 
     private CompositeVMBuilder<VM> With(
@@ -113,7 +141,9 @@ public sealed class CompositeVMBuilder<VM>
         bool? autoConstructOnAdd = null,
         Func<IEnumerable<VM>>? childrenFactory = null,
         Action? onConstruct = null,
-        Action? onDestruct = null)
+        Action? onDestruct = null,
+        Func<IEnumerable<VM>, VM?>? currentSelector = null,
+        Action<VM?>? onCurrentChanged = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -123,7 +153,9 @@ public sealed class CompositeVMBuilder<VM>
             autoConstructOnAdd ?? _autoConstructOnAdd,
             childrenFactory ?? _childrenFactory,
             onConstruct ?? _onConstruct,
-            onDestruct ?? _onDestruct);
+            onDestruct ?? _onDestruct,
+            currentSelector ?? _currentSelector,
+            onCurrentChanged ?? _onCurrentChanged);
 }
 
 /// <summary>
@@ -149,6 +181,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     private readonly bool _autoConstructOnAdd;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
+    private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
+    private readonly Action<VM?>? _onCurrentChanged;
 
     /// <summary>Empty starting builder.</summary>
     public static readonly CompositeVMOfMBuilder<M, VM> Empty = new();
@@ -165,7 +199,9 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         Func<IEnumerable<M>>? childrenModels,
         Func<M, VM>? childModelToChildViewModel,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector,
+        Action<VM?>? onCurrentChanged)
     {
         _name = name;
         _hub = hub;
@@ -177,6 +213,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         _childModelToChildViewModel = childModelToChildViewModel;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
+        _currentSelector = currentSelector;
+        _onCurrentChanged = onCurrentChanged;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -196,6 +234,28 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// <summary>Sets the required model→VM mapper.</summary>
     public CompositeVMOfMBuilder<M, VM> ChildModelToChildViewModel(Func<M, VM> mapper)
         => With(childModelToChildViewModel: mapper);
+
+    /// <summary>
+    /// Sets an optional selector that picks the initial <c>Current</c> child during
+    /// construct. The selector runs after all children reach <c>Constructed</c> and
+    /// before the composite itself transitions to <c>Constructed</c>. If it returns
+    /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
+    /// left at its prior value (initially <see langword="null"/>) and no
+    /// notification fires. See ADR-0042 and spec/06 §3.X (COMP-025).
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> Current(Func<IEnumerable<VM>, VM?> selector)
+        => With(currentSelector: selector);
+
+    /// <summary>
+    /// Sets an optional callback invoked synchronously after every <c>Current</c>
+    /// transition, AFTER the state is updated and the hub publishes
+    /// <c>PropertyChangedMessage("Current")</c>. Receives the new <c>Current</c>
+    /// value (which may be <see langword="null"/>). The callback also fires for
+    /// the initial assignment driven by <see cref="Current"/>. See ADR-0042 and
+    /// spec/06 §3.X (COMP-026).
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> OnCurrentChanged(Action<VM?> callback)
+        => With(onCurrentChanged: callback);
 
     /// <summary>Enables async selection dispatch.</summary>
     public CompositeVMOfMBuilder<M, VM> AsyncSelection(bool asyncSelection)
@@ -230,7 +290,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd,
             _childrenModels, _childModelToChildViewModel,
-            _onConstruct, _onDestruct);
+            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged);
     }
 
     private CompositeVMOfMBuilder<M, VM> With(
@@ -243,7 +303,9 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         Func<IEnumerable<M>>? childrenModels = null,
         Func<M, VM>? childModelToChildViewModel = null,
         Action? onConstruct = null,
-        Action? onDestruct = null)
+        Action? onDestruct = null,
+        Func<IEnumerable<VM>, VM?>? currentSelector = null,
+        Action<VM?>? onCurrentChanged = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -254,6 +316,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             childrenModels ?? _childrenModels,
             childModelToChildViewModel ?? _childModelToChildViewModel,
             onConstruct ?? _onConstruct,
-            onDestruct ?? _onDestruct);
+            onDestruct ?? _onDestruct,
+            currentSelector ?? _currentSelector,
+            onCurrentChanged ?? _onCurrentChanged);
 }
 #pragma warning restore CA1715

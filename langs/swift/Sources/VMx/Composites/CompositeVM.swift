@@ -13,6 +13,8 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     private var children: [Child] = []
     private var _current: Child?
     private let childrenFactory: (() -> [Child])?
+    private let currentSelector: (([Child]) -> Child?)?
+    private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
 
     public init(
@@ -22,9 +24,13 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         dispatcher: Dispatcher,
         childrenFactory: (() -> [Child])? = nil,
         onConstruct: (() -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil
+        onDestruct: (() -> Void)? = nil,
+        currentSelector: (([Child]) -> Child?)? = nil,
+        onCurrentChanged: ((Child?) -> Void)? = nil
     ) {
         self.childrenFactory = childrenFactory
+        self.currentSelector = currentSelector
+        self.onCurrentChanged = onCurrentChanged
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -96,6 +102,11 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
             }
         }
         for child in children { child.construct() }
+        if let selector = currentSelector,
+           let initial = selector(children),
+           children.contains(where: { $0 === initial }) {
+            _setCurrent(initial)
+        }
     }
 
     open override func _onDestruct() {
@@ -136,5 +147,6 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
             sender: self, senderName: name, propertyName: "current"
         ))
         _raisePropertyChanged("current")
+        onCurrentChanged?(value)
     }
 }
