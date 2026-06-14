@@ -63,6 +63,42 @@ public class CompositeVMBuilderTests
         composite.Current.Should().BeNull();
     }
 
+    [Fact]
+    public void OnCurrentChanged_Does_Not_Fire_When_Selector_Returns_Null_Or_Out_Of_Set()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var a = BuildChild(hub, dispatcher, "a");
+        var observed = new List<ComponentVM<string>?>();
+
+        // Case 1: selector returns null → no Current change, no callback.
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite-null")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { a })
+            .Current(_ => null)
+            .OnCurrentChanged(vm => observed.Add(vm))
+            .Build();
+
+        composite.Construct();
+
+        observed.Should().BeEmpty();
+
+        // Case 2: selector returns a VM not in the composite → no Current change, no callback.
+        var foreign = BuildChild(hub, dispatcher, "foreign");
+        var composite2 = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite-foreign")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { a })
+            .Current(_ => foreign)
+            .OnCurrentChanged(vm => observed.Add(vm))
+            .Build();
+
+        composite2.Construct();
+
+        observed.Should().BeEmpty();
+    }
+
     // ── OnCurrentChanged(callback) — non-modeled ────────────────────────────
 
     [Fact]
