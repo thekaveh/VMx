@@ -64,6 +64,17 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
   If `Current != vm`, the call raises.
 - `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`.
 
+### 3.X Initial `Current` selection and change callback (spec v2.6.0)
+
+`CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
+
+- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value via the existing `SelectComponent` path. If the selector returns `null` or a value not contained in the composite, `Current` stays at its prior value (initially `null`) and no notification fires.
+- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`).
+
+Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
+
+Conformance: `CVM-007` (initial-current selector), `CVM-008` (`OnCurrentChanged` callback fires on `Current` change).
+
 ## 4. Collection change notification
 
 The collection raises `INotifyCollectionChanged.CollectionChanged` events:
@@ -219,3 +230,8 @@ modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, in
 - `deselect_component` raises when the argument is not `Current`
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the composite is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
+
+The builder hooks introduced in §3.X are covered by:
+
+- `CVM-007` — `Current(selector)` builder hook drives initial selection during construct.
+- `CVM-008` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
