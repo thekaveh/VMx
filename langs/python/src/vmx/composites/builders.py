@@ -46,6 +46,7 @@ class CompositeVMBuilder(Generic[VM]):
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
     _current_selector: Callable[[Iterable[VM]], VM | None] | None = dataclasses.field(default=None)
+    _on_current_changed: Callable[[VM | None], None] | None = dataclasses.field(default=None)
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -96,6 +97,17 @@ class CompositeVMBuilder(Generic[VM]):
         """
         return dataclasses.replace(self, _current_selector=selector)
 
+    def on_current_changed(self, callback: Callable[[VM | None], None]) -> CompositeVMBuilder[VM]:
+        """Set an optional callback invoked synchronously after every ``current`` transition.
+
+        The callback fires AFTER the state is updated, the hub publishes
+        ``PropertyChangedMessage("current")`` and ``_raise_property_changed``
+        has run. Receives the new ``current`` value (which may be ``None``).
+        The callback also fires for the initial assignment driven by
+        :meth:`current`. See ADR-0042 and spec/06 §3.X (COMP-026).
+        """
+        return dataclasses.replace(self, _on_current_changed=callback)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> CompositeVM[VM]:
@@ -121,6 +133,7 @@ class CompositeVMBuilder(Generic[VM]):
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
             current_selector=self._current_selector,
+            on_current_changed=self._on_current_changed,
         )
 
 

@@ -576,6 +576,90 @@ def test_current_selector_returning_none_leaves_current_none() -> None:
     assert composite.current is None
 
 
+# ---------------------------------------------------------------------------
+# Builder declarative hook — on_current_changed(callback)
+# spec/06 §3.X, ADR-0042 (COMP-026)
+# ---------------------------------------------------------------------------
+
+
+def test_on_current_changed_fires_after_each_change() -> None:
+    """on_current_changed(callback) fires after every Current transition."""
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b")]
+    observed: list[ComponentVM | None] = []
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, disp)
+        .children(lambda: children)
+        .on_current_changed(observed.append)
+        .build()
+    )
+    composite.construct()
+    composite.select_component(children[1])
+    composite.deselect_component(children[1])
+
+    assert observed == [children[1], None]
+
+
+def test_on_current_changed_fires_once_for_initial_selector() -> None:
+    """on_current_changed fires once when the initial-current selector picks a value."""
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child("a", hub=hub, dispatcher=disp)]
+    observed: list[ComponentVM | None] = []
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, disp)
+        .children(lambda: children)
+        .current(lambda xs: next(iter(xs)))
+        .on_current_changed(observed.append)
+        .build()
+    )
+    composite.construct()
+
+    assert observed == [children[0]]
+
+
+def test_on_current_changed_does_not_fire_when_selector_returns_none_or_out_of_set() -> None:
+    """ADR-0042 §5.4: when current(selector) returns None or out-of-set, callback must NOT fire."""
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child("a", hub=hub, dispatcher=disp)]
+    observed: list[ComponentVM | None] = []
+
+    # Case 1: selector returns None.
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite-null")
+        .services(hub, disp)
+        .children(lambda: children)
+        .current(lambda _: None)
+        .on_current_changed(observed.append)
+        .build()
+    )
+    composite.construct()
+    assert observed == []
+
+    # Case 2: selector returns an out-of-set VM.
+    foreign = _build_child("foreign", hub=hub, dispatcher=disp)
+    composite2: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite-foreign")
+        .services(hub, disp)
+        .children(lambda: children)
+        .current(lambda _: foreign)
+        .on_current_changed(observed.append)
+        .build()
+    )
+    composite2.construct()
+    assert observed == []
+
+
 def test_clear_resets_current_child_state() -> None:
     """clear() must route through _set_current so the old current child's
     is_current flag is dropped (parity with C# Clear / _remove_at)."""

@@ -52,6 +52,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
         current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
+        on_current_changed: Callable[[VM | None], None] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -70,6 +71,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
         self._current_selector: Callable[[Iterable[VM]], VM | None] | None = current_selector
+        self._on_current_changed: Callable[[VM | None], None] | None = on_current_changed
 
     # ── ViewModelType ─────────────────────────────────────────────────────────
 
@@ -392,6 +394,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._hub.send(PropertyChangedMessage.create(self, self._name, "current"))
         self._raise_property_changed("current")
 
+        # Invoke the optional builder-registered on_current_changed callback
+        # AFTER state update + hub publish + INPC raise so every observer sees
+        # the new value consistently (spec/06 §3.X, ADR-0042 §5.2).
+        if self._on_current_changed is not None:
+            self._on_current_changed(value)
+
 
 # ---------------------------------------------------------------------------
 # CompositeVM — non-modeled composite
@@ -420,6 +428,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
         current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
+        on_current_changed: Callable[[VM | None], None] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -431,6 +440,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
             on_construct=on_construct,
             on_destruct=on_destruct,
             current_selector=current_selector,
+            on_current_changed=on_current_changed,
         )
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
 
