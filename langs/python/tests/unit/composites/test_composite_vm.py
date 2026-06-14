@@ -532,6 +532,50 @@ def test_builder_missing_children_raises() -> None:
     assert exc_info.value.missing_field == "children"
 
 
+# ---------------------------------------------------------------------------
+# Builder declarative hook — current(selector)
+# spec/06 §3.X, ADR-0042 (COMP-025)
+# ---------------------------------------------------------------------------
+
+
+def test_current_selector_drives_initial_selection_after_construct() -> None:
+    """current(selector) picks the initial Current after children Constructed."""
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b", "c")]
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, disp)
+        .children(lambda: children)
+        .current(lambda xs: list(xs)[1])
+        .build()
+    )
+    composite.construct()
+
+    assert composite.current is children[1]
+
+
+def test_current_selector_returning_none_leaves_current_none() -> None:
+    """current(selector) returning None leaves Current at its prior value (None)."""
+    hub = _hub()
+    disp = _dispatcher()
+    children = [_build_child("a", hub=hub, dispatcher=disp)]
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, disp)
+        .children(lambda: children)
+        .current(lambda _: None)
+        .build()
+    )
+    composite.construct()
+
+    assert composite.current is None
+
+
 def test_clear_resets_current_child_state() -> None:
     """clear() must route through _set_current so the old current child's
     is_current flag is dropped (parity with C# Clear / _remove_at)."""

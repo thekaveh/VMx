@@ -51,6 +51,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         auto_construct_on_add: bool = False,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
+        current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -68,6 +69,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._populated: bool = False
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
+        self._current_selector: Callable[[Iterable[VM]], VM | None] | None = current_selector
 
     # ── ViewModelType ─────────────────────────────────────────────────────────
 
@@ -303,7 +305,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     # ── Lifecycle overrides ───────────────────────────────────────────────────
 
     def _on_construct(self) -> None:
-        """Populate children (once) then call construct() on each."""
+        """Populate children (once) then call construct() on each.
+
+        After all children reach Constructed, apply the optional initial-current
+        selector (spec/06 §3.X, ADR-0042). The composite is still in Constructing
+        here; every child is Constructed. A selector returning None or an
+        out-of-set value leaves current at its prior value (initially None) and
+        emits no notification — matching the select_component semantics.
+        """
         super()._on_construct()
         if not self._populated:
             self._populated = True
@@ -311,6 +320,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # Construct all children.
         for child in list(self._children):
             child.construct()
+        # Apply the optional initial-current selector.
+        if self._current_selector is not None:
+            initial = self._current_selector(self)
+            if initial is not None and initial in self._children:
+                self._set_current(initial, async_sel=False)
 
     def _on_destruct(self) -> None:
         """Set current=None then destruct all children."""
@@ -405,6 +419,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         children_factory: Callable[[], Iterable[VM]] | None = None,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
+        current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -415,6 +430,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
             auto_construct_on_add=auto_construct_on_add,
             on_construct=on_construct,
             on_destruct=on_destruct,
+            current_selector=current_selector,
         )
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
 

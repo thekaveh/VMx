@@ -45,6 +45,7 @@ class CompositeVMBuilder(Generic[VM]):
     _children_factory: Callable[[], Iterable[VM]] | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
+    _current_selector: Callable[[Iterable[VM]], VM | None] | None = dataclasses.field(default=None)
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -84,6 +85,17 @@ class CompositeVMBuilder(Generic[VM]):
         """Set the optional on_destruct lifecycle callback."""
         return dataclasses.replace(self, _on_destruct=callback)
 
+    def current(self, selector: Callable[[Iterable[VM]], VM | None]) -> CompositeVMBuilder[VM]:
+        """Set an optional selector that picks the initial ``current`` child during construct.
+
+        The selector runs after all children reach ``Constructed`` and before
+        the composite itself transitions to ``Constructed``. If it returns
+        ``None`` or a value not in the composite, ``current`` is left at its
+        prior value (initially ``None``) and no notification fires. See
+        ADR-0042 and spec/06 §3.X (COMP-025).
+        """
+        return dataclasses.replace(self, _current_selector=selector)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> CompositeVM[VM]:
@@ -108,6 +120,7 @@ class CompositeVMBuilder(Generic[VM]):
             children_factory=children_factory,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
+            current_selector=self._current_selector,
         )
 
 
