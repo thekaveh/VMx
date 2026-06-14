@@ -1,8 +1,8 @@
 # Proposal — VMx Absorption Audit Follow-up (Post-v2.5)
 
-**Status:** Open — triage pending
+**Status:** Historical (closed) — all proposed items landed in v2.6.0. See ADRs 0039-0042 and chapter 06 §3.X.
 **Date:** 2026-06-13
-**Target spec version:** TBD (v2.6.x for adopted minors, v3.0 for any breaking change)
+**Target spec version:** 2.6.0
 **Predecessor:** This proposal extends `2026-05-27-vmx-absorption-audit.md`. That audit accepted 15 candidates and landed them in v2.1.0 (ADRs 0022-0033). This follow-up covers items the prior audit missed or did not surface — including a newly-audited ancestor (`dotnet-tag/src/DotNetTag/VMx/`) that was not in the original audit's scope.
 
 **Sources audited (this round):**
@@ -65,7 +65,7 @@ C# `ComponentVMOfBuilder` exposes the equivalent. No action.
 
 **What it is:** A builder hook that, after children are constructed, sets `Current` by running the predicate over them — e.g., `xs => xs.FirstOrDefault(c => c.IsDefault)`. Today consumers manually call `SelectComponent(...)` after build to set initial.
 
-**Spec impact:** Small extension to `06-composite-vm.md` §Builders. New conformance ID under `CVM-NNN` (existing range).
+**Spec impact:** Small extension to `06-composite-vm.md` §Builders. New conformance ID under `COMP-NNN` (existing range).
 
 **ADR:** Optional. Trivial ergonomic; could be folded into a release-notes entry instead.
 
@@ -173,3 +173,16 @@ Not revisited in this proposal:
 - `GuideArch.Older/VMx/Helper.cs` (`CustomTypeHelper<T>` on Silverlight `ICustomTypeProvider`) — Silverlight-era runtime-metaclass trick, no modern equivalent needed.
 - `dotnet-tag/VMx/Contracts/IButtonVM.cs` — single-command UI-typed VM; consistent with view-agnostic core. A one-paragraph ADR rejecting it formally is optional but not blocking.
 - `dotnet-tag/VMx/Services/{IVMxConstants,VMxConstants,VMxConstantsBase}` — options/knobs surface, subsumed by per-instance `IDispatcher` injection.
+
+## 10. Closure pointers
+
+All items in this proposal have landed.
+
+- **D2 / D3** — ADR-0042 + spec/06 §3.X + `COMP-025` / `COMP-026` + per-flavor implementations in C#/Python/TypeScript/Swift. Shipped in spec v2.6.0.
+- **L1** — ADR-0039 (teaching, no code change).
+- **L2** — ADR-0040 (teaching, no code change).
+- **L3** — ADR-0041 (teaching, no code change).
+- **L4** — Deferred. Trigger: any flagship example or `THEME-NNN` scenario needing an observable single-key map.
+- **L5** — Deferred. Trigger: any flagship example with ≥7 heterogeneous children at the same composition level.
+
+With D2, D3, ADR-0039, ADR-0040, ADR-0041 landed (and L4 / L5 status recorded here), the predecessor folders (`GuideArch.Old`, `GuideArch.Older`, `My.Architecture.New`, `My.Architecture.View`, and the `dotnet-tag/src/DotNetTag/VMx/` ancestor) are safe to delete.
