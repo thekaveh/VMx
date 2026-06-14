@@ -7,7 +7,7 @@
     <Version>1.2.0</Version>
     <Description>VMx notification / confirmation hub. See spec/16-notifications.md.</Description>
     <PackageTags>mvvm;viewmodel;reactive;notifications</PackageTags>
-    <MinSpecVersion>2.5.0</MinSpecVersion>
+    <MinSpecVersion>2.6.0</MinSpecVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\VMx\VMx.csproj" />
