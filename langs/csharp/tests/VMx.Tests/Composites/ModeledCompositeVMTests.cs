@@ -166,4 +166,31 @@ public class ModeledCompositeVMTests
 
         composite.Current!.Name.Should().Be("b");
     }
+
+    // ── OnCurrentChanged(callback) — modeled (spec v2.6.0 / ADR-0042) ────────
+
+    [Fact]
+    public void OnCurrentChanged_Fires_After_Each_Current_Change_Modeled()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var models = new[] { new Model(1, "a"), new Model(2, "b") };
+        var observed = new List<ComponentVM<Model>?>();
+
+        var composite = CompositeVMOfM<Model, ComponentVM<Model>>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .ChildrenModels(() => models)
+            .ChildModelToChildViewModel(m => ComponentVM<Model>.Builder()
+                .Name(m.Label).Services(hub, dispatcher).Model(m).Build())
+            .OnCurrentChanged(vm => observed.Add(vm))
+            .Build();
+
+        composite.Construct();
+        var b = composite[1];
+        composite.SelectComponent(b);
+        composite.DeselectComponent(b);
+
+        observed.Should().Equal(b, null);
+    }
 }
