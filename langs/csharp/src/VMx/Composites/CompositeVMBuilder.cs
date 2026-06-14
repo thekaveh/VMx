@@ -165,6 +165,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     private readonly bool _autoConstructOnAdd;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
+    private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
 
     /// <summary>Empty starting builder.</summary>
     public static readonly CompositeVMOfMBuilder<M, VM> Empty = new();
@@ -181,7 +182,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         Func<IEnumerable<M>>? childrenModels,
         Func<M, VM>? childModelToChildViewModel,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector)
     {
         _name = name;
         _hub = hub;
@@ -193,6 +195,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         _childModelToChildViewModel = childModelToChildViewModel;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
+        _currentSelector = currentSelector;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -212,6 +215,17 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// <summary>Sets the required model→VM mapper.</summary>
     public CompositeVMOfMBuilder<M, VM> ChildModelToChildViewModel(Func<M, VM> mapper)
         => With(childModelToChildViewModel: mapper);
+
+    /// <summary>
+    /// Sets an optional selector that picks the initial <c>Current</c> child during
+    /// construct. The selector runs after all children reach <c>Constructed</c> and
+    /// before the composite itself transitions to <c>Constructed</c>. If it returns
+    /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
+    /// left at its prior value (initially <see langword="null"/>) and no
+    /// notification fires. See ADR-0042 and spec/06 §3.X (COMP-025).
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> Current(Func<IEnumerable<VM>, VM?> selector)
+        => With(currentSelector: selector);
 
     /// <summary>Enables async selection dispatch.</summary>
     public CompositeVMOfMBuilder<M, VM> AsyncSelection(bool asyncSelection)
@@ -246,7 +260,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd,
             _childrenModels, _childModelToChildViewModel,
-            _onConstruct, _onDestruct, currentSelector: null);
+            _onConstruct, _onDestruct, _currentSelector);
     }
 
     private CompositeVMOfMBuilder<M, VM> With(
@@ -259,7 +273,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         Func<IEnumerable<M>>? childrenModels = null,
         Func<M, VM>? childModelToChildViewModel = null,
         Action? onConstruct = null,
-        Action? onDestruct = null)
+        Action? onDestruct = null,
+        Func<IEnumerable<VM>, VM?>? currentSelector = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -270,6 +285,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             childrenModels ?? _childrenModels,
             childModelToChildViewModel ?? _childModelToChildViewModel,
             onConstruct ?? _onConstruct,
-            onDestruct ?? _onDestruct);
+            onDestruct ?? _onDestruct,
+            currentSelector ?? _currentSelector);
 }
 #pragma warning restore CA1715
