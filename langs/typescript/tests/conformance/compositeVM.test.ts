@@ -445,6 +445,97 @@ describe("CompositeVMOfBuilder.current(selector) (modeled)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// CompositeVMOfBuilder.onCurrentChanged(callback) — ADR-0042, spec/06 §3.X (modeled)
+// ---------------------------------------------------------------------------
+
+describe("CompositeVMOfBuilder.onCurrentChanged(callback) (modeled)", () => {
+  it("fires after each current change", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const models: M[] = [{ id: 1 }, { id: 2 }];
+    const observed: (ComponentVMOf<M> | null)[] = [];
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => models)
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    composite.construct();
+    const second = composite.at(1);
+    composite.selectComponent(second);
+    composite.deselectComponent(second);
+
+    expect(observed).toEqual([second, null]);
+  });
+
+  it("fires once for initial selector", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const observed: (ComponentVMOf<M> | null)[] = [];
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current((xs) => [...xs][0] ?? null)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    composite.construct();
+
+    expect(observed).toEqual([composite.at(0)]);
+  });
+
+  it("does not fire when selector returns null or out-of-set (ADR-0042 §5.4)", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const observed: (ComponentVMOf<M> | null)[] = [];
+
+    // Case 1: selector returns null
+    const c1 = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("c-null")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current(() => null)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    c1.construct();
+    expect(observed).toEqual([]);
+
+    // Case 2: selector returns out-of-set
+    const foreign = ComponentVMOf.builder<M>()
+      .name("foreign")
+      .model({ id: 999 })
+      .services(hub, disp)
+      .build();
+    const c2 = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("c-foreign")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current(() => foreign)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    c2.construct();
+    expect(observed).toEqual([]);
+  });
+});
+
 describe("setAt _current handling", () => {
   it("setAt replacing the current slot clears current to null", () => {
     const hub = makeHub();

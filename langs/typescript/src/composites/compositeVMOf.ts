@@ -26,6 +26,7 @@ export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBas
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
     currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
+    onCurrentChanged?: ((vm: VM | null) => void) | null;
   }) {
     super(opts);
     this.#childrenModels = opts.childrenModels;
@@ -60,6 +61,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
   #onConstruct: (() => void) | null = null;
   #onDestruct: (() => void) | null = null;
   #currentSelector: ((xs: Iterable<VM>) => VM | null) | null = null;
+  #onCurrentChanged: ((vm: VM | null) => void) | null = null;
 
   constructor(from?: CompositeVMOfBuilder<M, VM>) {
     if (from) {
@@ -74,6 +76,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
       this.#onConstruct = from.#onConstruct;
       this.#onDestruct = from.#onDestruct;
       this.#currentSelector = from.#currentSelector;
+      this.#onCurrentChanged = from.#onCurrentChanged;
     }
   }
 
@@ -148,6 +151,21 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
     return b;
   }
 
+  /**
+   * Sets an optional callback invoked synchronously after every `current`
+   * change, immediately after the hub `PropertyChangedMessage("current")` is
+   * published. Receives the new `current` value (or `null` on deselection).
+   * Fires once for the initial assignment driven by `current(selector)`.
+   * See ADR-0042 and spec/06 §3.X.
+   */
+  onCurrentChanged(
+    callback: (vm: VM | null) => void,
+  ): CompositeVMOfBuilder<M, VM> {
+    const b = new CompositeVMOfBuilder<M, VM>(this);
+    b.#onCurrentChanged = callback;
+    return b;
+  }
+
   build(): CompositeVMOf<M, VM> {
     if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
@@ -168,6 +186,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
       onConstruct: this.#onConstruct,
       onDestruct: this.#onDestruct,
       currentSelector: this.#currentSelector,
+      onCurrentChanged: this.#onCurrentChanged,
     });
   }
 }
