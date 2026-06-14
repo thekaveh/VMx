@@ -151,4 +151,70 @@ final class CompositeVMTests: XCTestCase {
 
         XCTAssertNil(composite.current)
     }
+
+    // ── onCurrentChanged(_:) builder hook (COMP-026) ────────────────────
+
+    func test_OnCurrentChanged_FiresAfterEachCurrentChange() throws {
+        let a = leaf("a"); let b = leaf("b")
+        var observed: [ComponentVM?] = []
+
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a, b] }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        composite.construct()
+        composite.selectChild(b)
+        composite.deselectChild(b)
+
+        XCTAssertEqual(observed.count, 2)
+        XCTAssertTrue(observed[0] === b)
+        XCTAssertNil(observed[1])
+    }
+
+    func test_OnCurrentChanged_FiresOnceForInitialSelector() throws {
+        let a = leaf("a")
+        var observed: [ComponentVM?] = []
+
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a] }
+            .current { children in Array(children).first }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        composite.construct()
+
+        XCTAssertEqual(observed.count, 1)
+        XCTAssertTrue(observed[0] === a)
+    }
+
+    func test_OnCurrentChanged_DoesNotFireWhenSelectorReturnsNilOrOutOfSet() throws {
+        let a = leaf("a")
+        var observed: [ComponentVM?] = []
+
+        // Case 1: selector returns nil.
+        let c1 = try CompositeVM<ComponentVM>.builder()
+            .name("c-null")
+            .withNullServices()
+            .children { [a] }
+            .current { _ in nil }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        c1.construct()
+        XCTAssertTrue(observed.isEmpty)
+
+        // Case 2: selector returns out-of-set.
+        let foreign = leaf("foreign")
+        let c2 = try CompositeVM<ComponentVM>.builder()
+            .name("c-foreign")
+            .withNullServices()
+            .children { [a] }
+            .current { _ in foreign }
+            .onCurrentChanged { vm in observed.append(vm) }
+            .build()
+        c2.construct()
+        XCTAssertTrue(observed.isEmpty)
+    }
 }

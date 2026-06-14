@@ -15,6 +15,7 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     private var _onConstruct: (() -> Void)?
     private var _onDestruct: (() -> Void)?
     private var _currentSelector: (([Child]) -> Child?)?
+    private var _onCurrentChanged: ((Child?) -> Void)?
 
     public init() {}
 
@@ -38,6 +39,11 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
         _ selector: @escaping ([Child]) -> Child?
     ) -> CompositeVMBuilder<Child> {
         var c = self; c._currentSelector = selector; return c
+    }
+    public func onCurrentChanged(
+        _ cb: @escaping (Child?) -> Void
+    ) -> CompositeVMBuilder<Child> {
+        var c = self; c._onCurrentChanged = cb; return c
     }
     public func onConstruct(
         _ cb: @escaping () -> Void
@@ -68,7 +74,8 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
             hub: hub, dispatcher: dispatcher,
             childrenFactory: factory,
             onConstruct: _onConstruct, onDestruct: _onDestruct,
-            currentSelector: _currentSelector
+            currentSelector: _currentSelector,
+            onCurrentChanged: _onCurrentChanged
         )
     }
 }
