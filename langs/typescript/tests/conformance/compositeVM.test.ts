@@ -578,3 +578,50 @@ describe("setAt _current handling", () => {
     expect(composite.current).toBe(sticky);
   });
 });
+
+// ---------------------------------------------------------------------------
+// COMP-025 — Current(selector) builder hook drives initial selection during construct
+// ---------------------------------------------------------------------------
+
+describe("COMP-025", () => {
+  it("Current(selector) builder hook drives initial selection during construct", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const children = ["a", "b", "c"].map((n) => makeChild(hub, n));
+
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => children)
+      .current((xs) => [...xs][1] ?? null)
+      .build();
+    composite.construct();
+
+    expect(composite.current).toBe(children[1]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMP-026 — OnCurrentChanged(callback) fires synchronously after each Current change
+// ---------------------------------------------------------------------------
+
+describe("COMP-026", () => {
+  it("OnCurrentChanged(callback) fires synchronously after each Current change", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const children = ["a", "b"].map((n) => makeChild(hub, n));
+    const observed: (ComponentVM | null)[] = [];
+
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => children)
+      .onCurrentChanged((vm) => observed.push(vm))
+      .build();
+    composite.construct();
+    composite.selectComponent(children[1]!);
+    composite.deselectComponent(children[1]!);
+
+    expect(observed).toEqual([children[1], null]);
+  });
+});
