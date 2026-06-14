@@ -96,11 +96,11 @@ hub.dispose()
 >   `null_message_hub_of(MyMessage)` factory for a narrower message type.
 
 The C# and TypeScript flavors mirror this shape: see
-[C# Quick start](../csharp/README.md#3-quick-start) and
-[TypeScript Quick start](../typescript/README.md#3-quick-start) — only the
+[C# Quick start](https://github.com/thekaveh/VMx/blob/main/langs/csharp/README.md#3-quick-start) and
+[TypeScript Quick start](https://github.com/thekaveh/VMx/blob/main/langs/typescript/README.md#3-quick-start) — only the
 identifier casing differs.
 
-See [docs/getting-started/python.md](../../docs/getting-started/python.md)
+See [docs/getting-started/python.md](https://github.com/thekaveh/VMx/blob/main/docs/getting-started/python.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
@@ -223,4 +223,4 @@ inside the wheel via hatchling's `force-include` mapping in
 
 ## 7. License
 
-MIT — see [`LICENSE`](../../LICENSE).
+MIT — see [`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE).
