@@ -58,6 +58,7 @@ cross-references each ADR carries.
 | [0037](0037-v2.5-maintenance-clarifications.md)         | v2.5.0 maintenance clarifications and additions       | 2.5.0        | Accepted                          |
 | [0038](0038-spec-accuracy-corrections-and-form-014.md)  | Spec accuracy corrections (ch. 14/16/20/21), FORM-014 | 2.5.0        | Accepted                          |
 | [0039](0039-property-changing-not-supported.md)         | `INotifyPropertyChanging` not supported (teaching)    | 2.5.0        | Accepted                          |
+| [0040](0040-iproperty-not-adopted.md)                   | `IProperty<T>` reactive backing-field not adopted     | 2.5.0        | Accepted                          |
 
 ## 2. Format
 
