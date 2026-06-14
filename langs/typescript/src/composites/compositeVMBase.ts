@@ -38,6 +38,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #populated = false;
   #batchDepth = 0;
   #batchDirty = false;
+  readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
 
   constructor(opts: {
     name: string;
@@ -48,10 +49,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     autoConstructOnAdd?: boolean;
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
+    currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
   }) {
     super(opts);
     this.#asyncSelection = opts.asyncSelection ?? false;
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
+    this.#currentSelector = opts.currentSelector ?? null;
   }
 
   get type(): ViewModelType {
@@ -269,6 +272,16 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     for (const child of [...this._children]) {
       child.construct();
+    }
+    // Apply the optional initial-current selector (spec/06 §3.X, ADR-0042).
+    // The composite is still in Constructing here; every child is Constructed.
+    // Selector returning null or an out-of-set value leaves current at its
+    // prior value and emits no notification (matches selectComponent semantics).
+    if (this.#currentSelector !== null) {
+      const initial = this.#currentSelector(this);
+      if (initial !== null && this._children.includes(initial)) {
+        this._setCurrent(initial, false);
+      }
     }
   }
 
