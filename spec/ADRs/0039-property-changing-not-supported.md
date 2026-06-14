@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-13)
 **Spec version:** 2.5.0 (teaching ADR; no code change)
-**Related:** ADR-0006, ADR-0018, `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §6 L1
+**Related:** ADR-0006, ADR-0018, ADR-0040, `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §6 L1
 
 ## 1. Context
 
@@ -23,6 +23,6 @@ VMx does not support `INotifyPropertyChanging`. None of the four flavors expose 
 
 ## 4. Consequences
 
-- `ComponentVMBase` and `ComponentVMOfM` implement `INotifyPropertyChanged` only (or the per-flavor equivalent).
+- `ComponentVMBase` and `ComponentVMBaseOfM<M>` implement `INotifyPropertyChanged` only (or the per-flavor equivalent).
 - A future consumer asking for pre-change observation gets the hub-subscription recipe in the response, not a new interface.
 - This ADR may be reconsidered if (a) a `THEME-NNN` scenario requires transactional changing→changed observation, or (b) ADR-0040 (`IProperty<T>`) is reopened — the two are conceptually paired.

@@ -25,12 +25,12 @@ Both methods are additive, default-null, and immutable-with-clone (BLD-001).
 ## 3. Rationale
 
 - **Declarative replaces imperative.** `Current(selector)` removes the post-build `SelectComponent(...)` step.
-- **Symmetric with existing hooks.** `OnCurrentChanged` mirrors `OnModelChanged` (already on `ComponentVMOfBuilder`) and `OnConstruct`/`OnDestruct` (already on `CompositeVMBuilder`).
-- **Backward compatible.** Both methods are optional; existing builders without the calls behave identically to v2.5.0.
+- **Symmetric with existing hooks.** `OnCurrentChanged` mirrors `OnModelChanged` (already on `ComponentVMBuilder<M>`) and `OnConstruct`/`OnDestruct` (already on `CompositeVMBuilder`).
 - **Cross-flavor symmetric.** ADR-0006 (idiomatic-per-language) accommodates: Python `current(selector: Callable[[Iterable[VM]], VM | None])` and `on_current_changed(callback: Callable[[VM | None], None])`; TS `current(selector: (xs: Iterable<VM>) => VM | undefined)` and `onCurrentChanged(cb: (vm: VM | undefined) => void)`; Swift `current(_ selector: @escaping ([Child]) -> Child?)` and `onCurrentChanged(_ cb: @escaping (Child?) -> Void)`.
 
 ## 4. Consequences
 
+- **Backward compatible.** Both methods are optional; existing builders without the calls behave identically to v2.5.0.
 - `spec/06-composite-vm.md` §3 (`Current` contract) gains a new subsection §3.X documenting the builder hooks.
 - New conformance IDs `CVM-007` (initial-current selector) and `CVM-008` (OnCurrentChanged callback fires on Current change) in `spec/12-conformance.md`.
 - Per-flavor implementations land in `langs/csharp/src/VMx/Composites/CompositeVMBuilder.cs` (and `CompositeVMOfMBuilder`), `langs/python/src/vmx/composites/builders.py`, `langs/typescript/src/composites/compositeVM.ts` (inline builder), `langs/swift/Sources/VMx/Builders/CompositeVMBuilder.swift`.
@@ -46,6 +46,8 @@ The selector is invoked from within the composite's construct phase **after** al
 ### 5.2 Callback invocation timing
 
 The callback runs synchronously **after** the `Current` field is updated and **after** the hub publishes `PropertyChangedMessage("Current")`. Order: state update → hub publish → callback. This order ensures hub subscribers and direct-callback subscribers observe the same value.
+
+Note: the initial `OnCurrentChanged` invocation triggered by `Current(selector)` fires while the composite itself is in `Constructing` (per §5.1) — observers that need a fully-constructed composite should check `IsConstructed` before reading composite-level state.
 
 ### 5.3 Disposal
 

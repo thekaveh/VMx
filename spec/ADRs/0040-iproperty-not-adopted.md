@@ -25,9 +25,9 @@ VMx does not adopt `IProperty<T>` as a first-class reactive backing-field type. 
 
 - **Modern language features cover the use case.** Each flavor has a one-line idiom for "field with INPC notification":
   - C#: `private string _name; public string Name { get => _name; set { if (_name != value) { _name = value; RaisePropertyChanged(); } } }`
-  - Python: `@property`-decorated descriptor plus `_set_property` helper.
-  - TypeScript: TS 4.9+ auto-accessors with a `@notify` decorator or explicit setter.
-  - Swift: `@Published` (Combine) or a property wrapper.
+  - Python: setter that calls `_raise_property_changed("Name")` after assigning the backing field.
+  - TypeScript: setter that calls `this.raisePropertyChanged("name")` after assigning the backing field.
+  - Swift: setter that calls `_raisePropertyChanged("name")` after assigning the backing field.
     Wrapping these in `IProperty<T>` adds indirection without expressive gain.
 - **`DerivedProperty` covers the multi-source case without `IProperty<T>`.** `Properties/DerivedProperty.cs` provides `From<T1..T5>` + `FromMany` with `CombineLatest` semantics, two-way `setAction` support, and `HasValue` gating via `canTransformFunction`. The predecessors' `TransformationProperty<...>` was load-bearing because `IProperty<T>` was the building block; current `DerivedProperty` is standalone.
 - **Implicit conversion is exactly the magic ADR-0018 cited as a clarity regression.** `IProperty<int> x` silently flowing into an `int` parameter hides the property identity and breaks reasoning about lifetime and subscription.

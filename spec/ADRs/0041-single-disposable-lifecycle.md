@@ -33,5 +33,5 @@ VMx retains the single disposable lifecycle. Subclasses with mixed-lifetime clea
 
 - `ComponentVMBase` exposes virtual `OnConstruct`, `OnDestruct`, `OnDispose` hooks in every flavor.
 - Subclasses with per-construct subscriptions register them in `OnConstruct`, store the `IDisposable` (or equivalent) in a local field, and dispose it in `OnDestruct`.
-- Subclasses with long-lived subscriptions register them once (e.g., in the constructor or `OnConstruct` followed by a "did this once" flag) and dispose them in `OnDispose`.
+- Subclasses with long-lived subscriptions register them in the constructor (where they truly run once) and dispose them in `OnDispose`.
 - If a future consumer pattern repeatedly forgets `OnDestruct` cleanup, revisit as a `RegisterPerConstruct(IDisposable)` ergonomic helper rather than reintroducing a second bag.
