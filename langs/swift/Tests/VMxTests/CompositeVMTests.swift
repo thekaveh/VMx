@@ -123,4 +123,32 @@ final class CompositeVMTests: XCTestCase {
         a.select()
         XCTAssertTrue(c.current === a)
     }
+
+    // ── current(_:) builder hook (COMP-025) ─────────────────────────────
+
+    func test_CurrentSelector_DrivesInitialSelectionAfterConstruct() throws {
+        let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a, b, cChild] }
+            .current { children in Array(children)[1] }
+            .build()
+        composite.construct()
+
+        XCTAssertTrue(composite.current === b)
+    }
+
+    func test_CurrentSelector_ReturningNilLeavesCurrentNil() throws {
+        let a = leaf("a")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [a] }
+            .current { _ in nil }
+            .build()
+        composite.construct()
+
+        XCTAssertNil(composite.current)
+    }
 }
