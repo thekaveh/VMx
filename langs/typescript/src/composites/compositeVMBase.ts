@@ -39,6 +39,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #batchDepth = 0;
   #batchDirty = false;
   readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
+  readonly #onCurrentChanged: ((vm: VM | null) => void) | null;
 
   constructor(opts: {
     name: string;
@@ -50,11 +51,13 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
     currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
+    onCurrentChanged?: ((vm: VM | null) => void) | null;
   }) {
     super(opts);
     this.#asyncSelection = opts.asyncSelection ?? false;
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
     this.#currentSelector = opts.currentSelector ?? null;
+    this.#onCurrentChanged = opts.onCurrentChanged ?? null;
   }
 
   get type(): ViewModelType {
@@ -344,5 +347,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       PropertyChangedMessage.create(this, this._name, "current"),
     );
     this._raisePropertyChanged("current");
+
+    // Invoke the optional builder-registered onCurrentChanged callback AFTER
+    // state update + hub publish + INPC raise so every observer sees the new
+    // value consistently (spec/06 §3.X, ADR-0042 §5.2).
+    if (this.#onCurrentChanged !== null) {
+      this.#onCurrentChanged(value);
+    }
   }
 }

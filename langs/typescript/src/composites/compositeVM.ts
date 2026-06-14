@@ -23,6 +23,7 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
     currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
+    onCurrentChanged?: ((vm: VM | null) => void) | null;
   }) {
     super(opts);
     this.#childrenFactory = opts.childrenFactory ?? null;
@@ -55,6 +56,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
   #onConstruct: (() => void) | null = null;
   #onDestruct: (() => void) | null = null;
   #currentSelector: ((xs: Iterable<VM>) => VM | null) | null = null;
+  #onCurrentChanged: ((vm: VM | null) => void) | null = null;
 
   constructor(from?: CompositeVMBuilder<VM>) {
     if (from) {
@@ -68,6 +70,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
       this.#onConstruct = from.#onConstruct;
       this.#onDestruct = from.#onDestruct;
       this.#currentSelector = from.#currentSelector;
+      this.#onCurrentChanged = from.#onCurrentChanged;
     }
   }
 
@@ -134,6 +137,21 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
     return b;
   }
 
+  /**
+   * Sets an optional callback invoked synchronously after every `current`
+   * change, immediately after the hub `PropertyChangedMessage("current")` is
+   * published. Receives the new `current` value (or `null` on deselection).
+   * Fires once for the initial assignment driven by `current(selector)`.
+   * See ADR-0042 and spec/06 §3.X.
+   */
+  onCurrentChanged(
+    callback: (vm: VM | null) => void,
+  ): CompositeVMBuilder<VM> {
+    const b = new CompositeVMBuilder<VM>(this);
+    b.#onCurrentChanged = callback;
+    return b;
+  }
+
   build(): CompositeVM<VM> {
     if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
@@ -151,6 +169,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
       onConstruct: this.#onConstruct,
       onDestruct: this.#onDestruct,
       currentSelector: this.#currentSelector,
+      onCurrentChanged: this.#onCurrentChanged,
     });
   }
 }
