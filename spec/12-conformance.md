@@ -398,6 +398,32 @@ ______________________________________________________________________
 **Then** it returns `true`
 **And** after `vm.select()`, `SelectCommand.CanExecute()` returns `false`
 
+### CVM-007 — `Current(selector)` builder hook drives initial selection during construct
+
+**Given** a `CompositeVM<VM>` built with three children `a`, `b`, `c` and
+`.Current(xs => xs.Skip(1).First())` (idiomatic per flavor) in `Destructed` state
+**When** `composite.construct()` is called
+**Then** after `construct()` returns, `composite.Current == b`
+**And** the selector ran exactly once, after every child reached `Constructed` and
+before the composite reached `Constructed`
+**And** when the same composite is instead built with `.Current(_ => null)`,
+after `construct()` returns `composite.Current` is `null` and no
+`PropertyChangedMessage("Current")` is published
+
+### CVM-008 — `OnCurrentChanged(callback)` fires synchronously after each `Current` change
+
+**Given** a `CompositeVM<VM>` built with three children `a`, `b`, `c` and
+`.OnCurrentChanged(vm => observed.Add(vm))` where `observed` is an empty list
+**And** the composite is in `Constructed` state with `Current == null`
+**When** `composite.select_component(b)` then `composite.deselect_component(b)` are called
+**Then** `observed` equals `[b, null]` (exactly two invocations)
+**And** each invocation is observed after the corresponding
+`PropertyChangedMessage("Current")` is published on the hub
+**And** when the composite is instead built with both
+`.Current(xs => xs.First())` and `.OnCurrentChanged(vm => observed.Add(vm))`,
+after `construct()` returns `observed` equals `[a]` (exactly one invocation
+from the initial-selector assignment)
+
 ______________________________________________________________________
 
 ## 8. CompositeVM (`COMP-NNN`)
