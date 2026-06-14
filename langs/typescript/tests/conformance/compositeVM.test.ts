@@ -400,6 +400,51 @@ describe("COMP-013", () => {
 // setAt _current handling (unit; not a conformance ID)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// CompositeVMOfBuilder.current(selector) — ADR-0042, spec/06 §3.X (modeled)
+// ---------------------------------------------------------------------------
+
+describe("CompositeVMOfBuilder.current(selector) (modeled)", () => {
+  it("drives initial selection after construct", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+    const models: M[] = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => models)
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current((xs) => [...xs][1] ?? null)
+      .build();
+    composite.construct();
+
+    expect(composite.current).toBe(composite.at(1));
+  });
+
+  it("returning null leaves current null", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    interface M { id: number }
+
+    const composite = CompositeVMOf.builder<M, ComponentVMOf<M>>()
+      .name("composite")
+      .services(hub, disp)
+      .childrenModels(() => [{ id: 1 }])
+      .childModelToChildViewModel((m) =>
+        ComponentVMOf.builder<M>().name(`vm-${m.id}`).model(m).services(hub, disp).build()
+      )
+      .current(() => null)
+      .build();
+    composite.construct();
+
+    expect(composite.current).toBeNull();
+  });
+});
+
 describe("setAt _current handling", () => {
   it("setAt replacing the current slot clears current to null", () => {
     const hub = makeHub();

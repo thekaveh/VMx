@@ -25,6 +25,7 @@ export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBas
     childModelToChildViewModel: (m: M) => VM;
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
+    currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
   }) {
     super(opts);
     this.#childrenModels = opts.childrenModels;
@@ -58,6 +59,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
   #childModelToChildViewModel: ((m: M) => VM) | null = null;
   #onConstruct: (() => void) | null = null;
   #onDestruct: (() => void) | null = null;
+  #currentSelector: ((xs: Iterable<VM>) => VM | null) | null = null;
 
   constructor(from?: CompositeVMOfBuilder<M, VM>) {
     if (from) {
@@ -71,6 +73,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
       this.#childModelToChildViewModel = from.#childModelToChildViewModel;
       this.#onConstruct = from.#onConstruct;
       this.#onDestruct = from.#onDestruct;
+      this.#currentSelector = from.#currentSelector;
     }
   }
 
@@ -129,6 +132,22 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
     return b;
   }
 
+  /**
+   * Sets an optional selector that picks the initial `current` child during
+   * `construct()`, after every child has reached `Constructed` but before the
+   * composite itself reaches `Constructed`. If the selector returns `null` or
+   * a value not in the composite, `current` is left unchanged and no
+   * `PropertyChangedMessage("current")` is published. See ADR-0042 and
+   * spec/06 §3.X.
+   */
+  current(
+    selector: (xs: Iterable<VM>) => VM | null,
+  ): CompositeVMOfBuilder<M, VM> {
+    const b = new CompositeVMOfBuilder<M, VM>(this);
+    b.#currentSelector = selector;
+    return b;
+  }
+
   build(): CompositeVMOf<M, VM> {
     if (this.#name === null) throw new BuilderValidationError("name");
     if (this.#hub === null || this.#dispatcher === null)
@@ -148,6 +167,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
       childModelToChildViewModel: this.#childModelToChildViewModel,
       onConstruct: this.#onConstruct,
       onDestruct: this.#onDestruct,
+      currentSelector: this.#currentSelector,
     });
   }
 }
