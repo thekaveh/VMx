@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.5.0.** Covers **41 of 235**
-conformance IDs from `spec-v2.5.0` (recounted honestly in ADR-0037): the lifecycle state machine, the modeled
+**v2.6.0.** Covers **41 of 237**
+conformance IDs from `spec-v2.6.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, and the immutable fluent builders. The remaining 195 IDs
+`RelayCommand`, and the immutable fluent builders. The remaining 196 IDs
 (`HierarchicalVM`, `FormVM`, the 22 capability micro-interfaces,
 `DerivedProperty`, observable collections, the notifications sub-package,
 threading specifics, forwarding decorators, dialog service, expand/collapse
@@ -22,7 +22,7 @@ Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "2.5.0")
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "2.6.0")
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
@@ -171,7 +171,7 @@ and `CMD-007` (truth-table fixture).
 - `LIFE-011` fixture-driven transition table (currently hand-rolled)
 
 The follow-up PR will widen coverage to full parity with the other
-three flavors. **This release is NOT yet at full parity with the 235-ID catalog.**
+three flavors. **This release is NOT yet at full parity with the 237-ID catalog.**
 
 Run the suite:
 
