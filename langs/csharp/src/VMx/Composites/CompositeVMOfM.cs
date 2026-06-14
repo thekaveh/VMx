@@ -31,8 +31,9 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
         Func<IEnumerable<M>> childrenModels,
         Func<M, VM> childModelToChildViewModel,
         Action? onConstruct,
-        Action? onDestruct)
-        : base(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, onConstruct, onDestruct)
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector)
+        : base(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, onConstruct, onDestruct, currentSelector)
     {
         _childrenModels = childrenModels;
         _childModelToChildViewModel = childModelToChildViewModel;
@@ -54,10 +55,11 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
         Func<IEnumerable<M>> childrenModels,
         Func<M, VM> childModelToChildViewModel,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector)
         => new(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd,
                childrenModels, childModelToChildViewModel,
-               onConstruct, onDestruct);
+               onConstruct, onDestruct, currentSelector);
 
     /// <inheritdoc/>
     protected override void PopulateChildren()

@@ -23,6 +23,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     private readonly IDispatcher _dispatcher;
     private readonly bool _asyncSelection;
     private readonly bool _autoConstructOnAdd;
+    private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
 
     // ── Children backing store ────────────────────────────────────────────────
     private readonly List<VM> _children = new();
@@ -92,12 +93,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         bool asyncSelection,
         bool autoConstructOnAdd,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
         _dispatcher = dispatcher;
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
+        _currentSelector = currentSelector;
     }
 
     // ── IParentCompositeVM (non-generic, used by ComponentVMBase for selection) ─
@@ -284,6 +287,16 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         PopulateChildren();
         // Construct all children.
         ConstructChildren();
+        // Apply the optional initial-current selector (spec/06 §3.X, ADR-0042).
+        // The composite is still in Constructing here; every child is Constructed.
+        // Selector returning null or an out-of-set value leaves Current at its
+        // prior value and emits no notification (matches SelectComponent semantics).
+        if (_currentSelector is not null)
+        {
+            var initial = _currentSelector(this);
+            if (initial is not null && _children.Contains(initial))
+                SetCurrent(initial, async: false);
+        }
     }
 
     /// <summary>Constructs all current children sequentially.</summary>
