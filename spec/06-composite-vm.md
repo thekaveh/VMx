@@ -73,7 +73,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
 
-Conformance: `CVM-007` (initial-current selector), `CVM-008` (`OnCurrentChanged` callback fires on `Current` change).
+Conformance: `COMP-025` (initial-current selector), `COMP-026` (`OnCurrentChanged` callback fires on `Current` change).
 
 ## 4. Collection change notification
 
@@ -213,8 +213,9 @@ Consumers wire `SearchableState` to a composite by passing
 
 ## 9. Conformance
 
-`COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, and (the
-modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, in
+`COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, (the
+modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
+the builder hooks `COMP-025` and `COMP-026` (see below), in
 `12-conformance.md` cover:
 
 - collection-change events on add/remove
@@ -233,5 +234,5 @@ modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, in
 
 The builder hooks introduced in §3.X are covered by:
 
-- `CVM-007` — `Current(selector)` builder hook drives initial selection during construct.
-- `CVM-008` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
+- `COMP-025` — `Current(selector)` builder hook drives initial selection during construct.
+- `COMP-026` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
