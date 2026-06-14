@@ -221,6 +221,10 @@ inside the wheel via hatchling's `force-include` mapping in
 [`pyproject.toml`](pyproject.toml) and consumed at runtime by
 `vmx.lifecycle.transition_validator`.
 
-## 7. License
+## 7. Releasing
+
+See [`RELEASING.md`](RELEASING.md) for the PyPI release pipeline runbook.
+
+## 8. License
 
 MIT — see [`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE).
