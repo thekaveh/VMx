@@ -421,4 +421,62 @@ public class CompositeVMConformanceTests
         disposalOrder.IndexOf("child1").Should().BeLessThan(disposalOrder.IndexOf("root"));
         disposalOrder.IndexOf("child2").Should().BeLessThan(disposalOrder.IndexOf("root"));
     }
+
+    // ── COMP-025 — Current(selector) drives initial-current during construct ──
+
+    /// <summary>
+    /// COMP-025: Current(selector) runs once during construct, after all children
+    /// reach Constructed and before the composite reaches Constructed. The
+    /// selector's return value becomes Current. See spec/06 §3.X and ADR-0042.
+    /// </summary>
+    [Fact, Trait("Conformance", "COMP-025")]
+    public void COMP_025_Current_Selector_Drives_Initial_Selection()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var a = BuildChild(hub, dispatcher, "a");
+        var b = BuildChild(hub, dispatcher, "b");
+        var c = BuildChild(hub, dispatcher, "c");
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { a, b, c })
+            .Current(xs => xs.Skip(1).First())
+            .Build();
+
+        composite.Construct();
+
+        composite.Current.Should().BeSameAs(b);
+    }
+
+    // ── COMP-026 — OnCurrentChanged fires after each Current transition ──────
+
+    /// <summary>
+    /// COMP-026: OnCurrentChanged(callback) is invoked synchronously after every
+    /// Current transition. Receives the new Current value (may be null). See
+    /// spec/06 §3.X and ADR-0042.
+    /// </summary>
+    [Fact, Trait("Conformance", "COMP-026")]
+    public void COMP_026_OnCurrentChanged_Fires_After_Each_Change()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var a = BuildChild(hub, dispatcher, "a");
+        var b = BuildChild(hub, dispatcher, "b");
+        var observed = new List<ComponentVM<string>?>();
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { a, b })
+            .OnCurrentChanged(vm => observed.Add(vm))
+            .Build();
+
+        composite.Construct();
+        composite.SelectComponent(b);
+        composite.DeselectComponent(b);
+
+        observed.Should().Equal(b, null);
+    }
 }
