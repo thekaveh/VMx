@@ -62,4 +62,50 @@ public class CompositeVMBuilderTests
 
         composite.Current.Should().BeNull();
     }
+
+    // ── OnCurrentChanged(callback) — non-modeled ────────────────────────────
+
+    [Fact]
+    public void OnCurrentChanged_Fires_After_Each_Current_Change()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var a = BuildChild(hub, dispatcher, "a");
+        var b = BuildChild(hub, dispatcher, "b");
+        var observed = new List<ComponentVM<string>?>();
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { a, b })
+            .OnCurrentChanged(vm => observed.Add(vm))
+            .Build();
+
+        composite.Construct();
+        composite.SelectComponent(b);
+        composite.DeselectComponent(b);
+
+        observed.Should().Equal(b, null);
+    }
+
+    [Fact]
+    public void OnCurrentChanged_Fires_Once_For_Initial_Selector()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var a = BuildChild(hub, dispatcher, "a");
+        var observed = new List<ComponentVM<string>?>();
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { a })
+            .Current(xs => xs.First())
+            .OnCurrentChanged(vm => observed.Add(vm))
+            .Build();
+
+        composite.Construct();
+
+        observed.Should().Equal(a);
+    }
 }

@@ -27,6 +27,7 @@ public sealed class CompositeVMBuilder<VM>
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
     private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
+    private readonly Action<VM?>? _onCurrentChanged;
 
     /// <summary>Empty starting builder.</summary>
     public static readonly CompositeVMBuilder<VM> Empty = new();
@@ -43,7 +44,8 @@ public sealed class CompositeVMBuilder<VM>
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
         Action? onDestruct,
-        Func<IEnumerable<VM>, VM?>? currentSelector)
+        Func<IEnumerable<VM>, VM?>? currentSelector,
+        Action<VM?>? onCurrentChanged)
     {
         _name = name;
         _hub = hub;
@@ -55,6 +57,7 @@ public sealed class CompositeVMBuilder<VM>
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
         _currentSelector = currentSelector;
+        _onCurrentChanged = onCurrentChanged;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -86,6 +89,17 @@ public sealed class CompositeVMBuilder<VM>
     public CompositeVMBuilder<VM> Current(Func<IEnumerable<VM>, VM?> selector)
         => With(currentSelector: selector);
 
+    /// <summary>
+    /// Sets an optional callback invoked synchronously after every <c>Current</c>
+    /// transition, AFTER the state is updated and the hub publishes
+    /// <c>PropertyChangedMessage("Current")</c>. Receives the new <c>Current</c>
+    /// value (which may be <see langword="null"/>). The callback also fires for
+    /// the initial assignment driven by <see cref="Current"/>. See ADR-0042 and
+    /// spec/06 §3.X (COMP-026).
+    /// </summary>
+    public CompositeVMBuilder<VM> OnCurrentChanged(Action<VM?> callback)
+        => With(onCurrentChanged: callback);
+
     /// <summary>Enables async selection dispatch via the foreground scheduler.</summary>
     public CompositeVMBuilder<VM> AsyncSelection(bool asyncSelection) => With(asyncSelection: asyncSelection);
 
@@ -115,7 +129,7 @@ public sealed class CompositeVMBuilder<VM>
         return CompositeVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd, _childrenFactory,
-            _onConstruct, _onDestruct, _currentSelector);
+            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged);
     }
 
     private CompositeVMBuilder<VM> With(
@@ -128,7 +142,8 @@ public sealed class CompositeVMBuilder<VM>
         Func<IEnumerable<VM>>? childrenFactory = null,
         Action? onConstruct = null,
         Action? onDestruct = null,
-        Func<IEnumerable<VM>, VM?>? currentSelector = null)
+        Func<IEnumerable<VM>, VM?>? currentSelector = null,
+        Action<VM?>? onCurrentChanged = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -139,7 +154,8 @@ public sealed class CompositeVMBuilder<VM>
             childrenFactory ?? _childrenFactory,
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct,
-            currentSelector ?? _currentSelector);
+            currentSelector ?? _currentSelector,
+            onCurrentChanged ?? _onCurrentChanged);
 }
 
 /// <summary>
@@ -260,7 +276,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd,
             _childrenModels, _childModelToChildViewModel,
-            _onConstruct, _onDestruct, _currentSelector);
+            _onConstruct, _onDestruct, _currentSelector, onCurrentChanged: null);
     }
 
     private CompositeVMOfMBuilder<M, VM> With(

@@ -24,6 +24,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     private readonly bool _asyncSelection;
     private readonly bool _autoConstructOnAdd;
     private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
+    private readonly Action<VM?>? _onCurrentChanged;
 
     // ── Children backing store ────────────────────────────────────────────────
     private readonly List<VM> _children = new();
@@ -94,13 +95,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         bool autoConstructOnAdd,
         Action? onConstruct,
         Action? onDestruct,
-        Func<IEnumerable<VM>, VM?>? currentSelector)
+        Func<IEnumerable<VM>, VM?>? currentSelector,
+        Action<VM?>? onCurrentChanged)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
         _dispatcher = dispatcher;
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _currentSelector = currentSelector;
+        _onCurrentChanged = onCurrentChanged;
     }
 
     // ── IParentCompositeVM (non-generic, used by ComponentVMBase for selection) ─
@@ -380,6 +383,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         // Emit PropertyChangedMessage for "Current" on the hub.
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
         RaisePropertyChanged(nameof(Current));
+
+        // Invoke the optional builder-registered OnCurrentChanged callback
+        // AFTER state update + hub publish + PropertyChanged so all observers
+        // see the new value consistently (spec/06 §3.X, ADR-0042 §5.2).
+        _onCurrentChanged?.Invoke(value);
     }
 }
 #pragma warning restore CA1715
