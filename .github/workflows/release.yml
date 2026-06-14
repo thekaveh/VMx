@@ -46,8 +46,14 @@ jobs:
             --skip-duplicate
 
   python:
+    # Job 1: build, validate, publish to Test PyPI, smoke-install.
+    # Trusted Publishing (OIDC) — no API token. Requires the PyPI/TestPyPI
+    # project `vmx` to have a Trusted Publisher registered for this repo +
+    # workflow + environment (see langs/python/RELEASING.md §Prerequisites).
+    name: python — build & test pypi
     if: startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
+    environment: pypi-test
     permissions:
       contents: read
       id-token: write
@@ -57,13 +63,139 @@ jobs:
         with:
           version: "0.11.19"
           enable-cache: true
-      - name: Build sdist + wheel
-        run: uv build --project langs/python --out-dir dist
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/python-v}"
+          pkg_version=$(uv run --project langs/python python -c \
+            "from vmx.__about__ import __version__; print(__version__)")
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match package version ($pkg_version). Bump langs/python/src/vmx/__about__.py before tagging." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches package version $pkg_version."
+
+      # NOTE: build wheel and sdist as separate `uv build` invocations.
+      # A single `uv build` defaults to "sdist first, then wheel-from-sdist"
+      # which fails because pyproject.toml's `force-include` points outside
+      # the project tree (../../spec/fixtures/lifecycle-transitions.json),
+      # and the sdist (correctly) omits files outside its root. Building each
+      # artifact from the live source tree sidesteps that.
+      - name: Build wheel
+        run: uv build --project langs/python --wheel --out-dir dist
+      - name: Build sdist
+        run: uv build --project langs/python --sdist --out-dir dist
+
+      - name: Twine check
+        run: |
+          set -euo pipefail
+          uv tool run --from twine twine check dist/*
+
+      - name: Publish to Test PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist/
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+      - name: Smoke test from Test PyPI
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/python-v}"
+          uv venv /tmp/smoke --python 3.12
+          # Retry Test PyPI install up to 5 times — package propagation
+          # to the simple index can take ~30s after upload.
+          for attempt in 1 2 3 4 5; do
+            if /tmp/smoke/bin/pip install \
+                --index-url https://test.pypi.org/simple/ \
+                --extra-index-url https://pypi.org/simple/ \
+                "vmx==${tag_version}"; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              echo "::error::Test PyPI install failed after 5 attempts" >&2
+              exit 1
+            fi
+            echo "Install attempt $attempt failed; retrying in 10s..."
+            sleep 10
+          done
+          /tmp/smoke/bin/python langs/python/scripts/smoke_test.py "$tag_version"
+
+      - name: Upload built artifacts for prod-publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  python-publish:
+    # Job 2: download artifacts from Job 1, publish the SAME bytes to prod
+    # PyPI with Sigstore attestations. Gated on `pypi-prod` environment
+    # (manual approval required — see langs/python/RELEASING.md).
+    name: python — publish to PyPI
+    needs: python
+    if: startsWith(github.ref, 'refs/tags/python-v')
+    runs-on: ubuntu-latest
+    environment: pypi-prod
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: dist/
+          attestations: true
           skip-existing: true
+
+  python-release-notes:
+    # Job 3: create a GitHub Release with the matching CHANGELOG section
+    # as the body. Runs only after prod publish succeeds.
+    name: python — GitHub Release
+    needs: python-publish
+    if: startsWith(github.ref, 'refs/tags/python-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract CHANGELOG section
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#python-v}"
+          # Extract the `## [VERSION]` section from langs/python/CHANGELOG.md
+          # up to (but not including) the next `## [` heading.
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' langs/python/CHANGELOG.md > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "::error::No CHANGELOG section found for version $version in langs/python/CHANGELOG.md" >&2
+            exit 1
+          fi
+          echo "Extracted release notes ($(wc -l < /tmp/release-notes.md) lines):"
+          head -20 /tmp/release-notes.md
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#python-v}"
+          gh release create "$tag" \
+            --title "Python v${version} (PyPI)" \
+            --notes-file /tmp/release-notes.md \
+            --target "$GITHUB_SHA"
 
   typescript:
     if: startsWith(github.ref, 'refs/tags/typescript-v')
