@@ -6,7 +6,7 @@ implementations sharing one language-neutral VM API. This document is the
 single-page proof that every spec feature in scope is exercised by every
 flavor.
 
-## VM hierarchy
+## 1. VM hierarchy
 
 The diagram below is the canonical visual of the example's VM tree —
 derived from the scenario contract, so it applies identically to all three
@@ -21,7 +21,7 @@ The diagram source is at
 a browsable HTML version with summary cards is at
 [`assets/notes-showcase-vm-hierarchy.html`](assets/notes-showcase-vm-hierarchy.html).
 
-## Flavors
+## 2. Flavors
 
 - **C# / Avalonia 11 on .NET 8** — `examples/csharp/avalonia/NotesShowcase/`
 - **Python / Textual ≥ 0.80** — `examples/python/textual/notes_showcase/`
@@ -64,7 +64,7 @@ renders, headless smoke covers it.
     and are exempt from the library-coverage gate via the `_SCENARIO_PREFIXES`
     set in `tools/check-conformance-coverage.py`.
 
-## Reading the matrix
+## 3. Reading the matrix
 
 - **Parity is enforced.** Each flavor ships a `tests/views/` headless smoke
   test that boots the app and asserts the main view rendered, plus per-VM
@@ -96,7 +96,7 @@ renders, headless smoke covers it.
     and
     `examples/typescript/react/notes-showcase/src/viewmodels/notebooksRootVM.ts`.
 
-## Cross-references
+## 4. Cross-references
 
 - Scenario contract: [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 - ADR-0034: [`spec/ADRs/0034-aggregate-vm6.md`](../spec/ADRs/0034-aggregate-vm6.md)
