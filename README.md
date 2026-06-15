@@ -284,6 +284,11 @@ This README is the entry point; the documents below add focused detail.
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
   [`langs/typescript/CHANGELOG.md`](langs/typescript/CHANGELOG.md),
   [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md).
+- Per-flavor release runbooks:
+  [`langs/python/RELEASING.md`](langs/python/RELEASING.md) — PyPI release
+  pipeline (Test PyPI gate → manual approval → prod PyPI with Sigstore
+  attestations → GitHub Release). Other-flavor runbooks land as their
+  pipelines are uplifted.
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
   [`docs/getting-started/python.md`](docs/getting-started/python.md),

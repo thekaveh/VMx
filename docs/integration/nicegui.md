@@ -5,13 +5,13 @@ declarative UI components. Wire a `ComponentVMOf[M]` by subscribing to
 the VMx hub and calling `element.update()` (or rebinding `.text`,
 `.value`, etc.) on property changes.
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 NiceGUI elements expose mutable `.text`, `.value`, `.props`, and similar
 attributes. Pushing a new value followed by `element.update()` re-renders
 the element. There is no built-in observable model.
 
-## Mapping
+## 2. Mapping
 
 | NiceGUI                             | VMx                                            |
 | ----------------------------------- | ---------------------------------------------- |
@@ -20,7 +20,7 @@ the element. There is no built-in observable model.
 | `ui.refreshable`-decorated builder  | re-build when `CollectionChangedMessage` fires |
 | `app.add_timer` / `asyncio` loop    | `RxDispatcher.asyncio(loop)`                   |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```python
 from nicegui import ui
@@ -48,7 +48,7 @@ def render(vm: ComponentVMOf[Note], hub: MessageHubProto[Message]) -> None:
     ui.context.client.on_disconnect(dispose)
 ```
 
-## Fuller example
+## 4. Fuller example
 
 No worked NiceGUI Notes-Showcase ships yet. The Textual recipe
 ([textual.md](textual.md)) uses the same hub-subscription shape and is a

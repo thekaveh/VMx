@@ -100,8 +100,12 @@ yarn-debug.log*
 yarn-error.log*
 .npm/
 .pnpm-store/
-# Only the library's lockfile is tracked (langs/typescript/package-lock.json);
-# example lockfiles are generated locally by `npm install` and never committed.
+# The library lockfile (langs/typescript/package-lock.json) and the two
+# flagship example lockfiles (examples/typescript/console/hello-vmx,
+# examples/typescript/react/notes-showcase) ARE tracked. Any future ad-hoc
+# example projects placed directly under examples/typescript/<dir>/ are
+# excluded by the glob below (single-* doesn't recurse, so the two committed
+# examples one level deeper are unaffected).
 examples/typescript/*/package-lock.json
 
 # ─── Build / coverage artifacts ───────────────────────────────────────
