@@ -128,7 +128,7 @@ final class CompositeVMTests: XCTestCase {
 
     // ── current(_:) builder hook (COMP-025) ─────────────────────────────
 
-    func test_CurrentSelector_DrivesInitialSelectionAfterConstruct() throws {
+    func testCurrentSelectorDrivesInitialSelectionAfterConstruct() throws {
         let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
@@ -141,7 +141,7 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertTrue(composite.current === b)
     }
 
-    func test_CurrentSelector_ReturningNilLeavesCurrentNil() throws {
+    func testCurrentSelectorReturningNilLeavesCurrentNil() throws {
         let a = leaf("a")
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
@@ -156,7 +156,7 @@ final class CompositeVMTests: XCTestCase {
 
     // ── onCurrentChanged(_:) builder hook (COMP-026) ────────────────────
 
-    func test_OnCurrentChanged_FiresAfterEachCurrentChange() throws {
+    func testOnCurrentChangedFiresAfterEachCurrentChange() throws {
         let a = leaf("a"); let b = leaf("b")
         var observed: [ComponentVM?] = []
 
@@ -175,7 +175,7 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertNil(observed[1])
     }
 
-    func test_OnCurrentChanged_FiresOnceForInitialSelector() throws {
+    func testOnCurrentChangedFiresOnceForInitialSelector() throws {
         let a = leaf("a")
         var observed: [ComponentVM?] = []
 
@@ -192,7 +192,7 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertTrue(observed[0] === a)
     }
 
-    func test_OnCurrentChanged_DoesNotFireWhenSelectorReturnsNilOrOutOfSet() throws {
+    func testOnCurrentChangedDoesNotFireWhenSelectorReturnsNilOrOutOfSet() throws {
         let a = leaf("a")
         var observed: [ComponentVM?] = []
 
@@ -224,7 +224,7 @@ final class CompositeVMTests: XCTestCase {
 
     /// COMP-025 — `current(selector)` builder hook drives initial selection
     /// during construct.
-    func test_COMP_025_CurrentSelectorDrivesInitialSelection() throws {
+    func testCOMP025CurrentSelectorDrivesInitialSelection() throws {
         let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
@@ -239,7 +239,15 @@ final class CompositeVMTests: XCTestCase {
 
     /// COMP-026 — `onCurrentChanged(callback)` fires synchronously after
     /// each `current` change.
-    func test_COMP_026_OnCurrentChangedFiresAfterEachChange() throws {
+    ///
+    /// Spec/12 COMP-026 phrases the scenario as `composite.select_component(b)`
+    /// then `composite.deselect_component(b)`. Swift's documented subset
+    /// (langs/swift/README.md §5 and ADR-0037) exposes selection via the
+    /// `IParentVM.selectChild` callback (`child.select()` delegates to it);
+    /// there is no public `selectComponent` / `canSelectComponent` surface in
+    /// Swift. Both code paths converge at `_setCurrent → onCurrentChanged?`,
+    /// so the callback-ordering invariant is identical.
+    func testCOMP026OnCurrentChangedFiresAfterEachChange() throws {
         let a = leaf("a"); let b = leaf("b")
         var observed: [ComponentVM?] = []
 

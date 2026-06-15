@@ -1744,7 +1744,7 @@ count-preserving mutations (e.g., only replace operations)
 ### HIER-001 — Recursive generic constraint compiles
 
 **Given** a concrete subclass `MyNode : HierarchicalVM<MyModel, MyNode>`
-(using per-flavor recursive-constraint idiom per ADR-0028 §3.2)
+(using per-flavor recursive-constraint idiom per ADR-0028 §3 item 2)
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
 **And** per-flavor idiomatic naming applies (C#/Python/TS conventions per ADR-0006)

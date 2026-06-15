@@ -26,7 +26,7 @@ provides:
 ## 2. Shape
 
 `HierarchicalVM<TModel, TVM>` is a recursive generic type. `TVM` is the concrete
-subclass; the recursive constraint is enforced per flavor (ADR-0028 §3.2).
+subclass; the recursive constraint is enforced per flavor (ADR-0028 §3 item 2).
 
 ```
 HierarchicalVM<TModel, TVM>:
