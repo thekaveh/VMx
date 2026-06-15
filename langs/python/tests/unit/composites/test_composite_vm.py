@@ -534,7 +534,7 @@ def test_builder_missing_children_raises() -> None:
 
 # ---------------------------------------------------------------------------
 # Builder declarative hook — current(selector)
-# spec/06 §3.X, ADR-0042 (COMP-025)
+# spec/06 §3.2, ADR-0042 (COMP-025)
 # ---------------------------------------------------------------------------
 
 
@@ -578,7 +578,7 @@ def test_current_selector_returning_none_leaves_current_none() -> None:
 
 # ---------------------------------------------------------------------------
 # Builder declarative hook — on_current_changed(callback)
-# spec/06 §3.X, ADR-0042 (COMP-026)
+# spec/06 §3.2, ADR-0042 (COMP-026)
 # ---------------------------------------------------------------------------
 
 

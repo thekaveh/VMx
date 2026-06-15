@@ -1,6 +1,6 @@
 # Proposal — VMx Absorption Audit Follow-up (Post-v2.5)
 
-**Status:** Historical (closed) — all proposed items landed in v2.6.0. See ADRs 0039-0042 and chapter 06 §3.X.
+**Status:** Historical (closed) — all proposed items landed in v2.6.0. See ADRs 0039-0042 and chapter 06 §3.2.
 **Date:** 2026-06-13
 **Target spec version:** 2.6.0
 **Predecessor:** This proposal extends `2026-05-27-vmx-absorption-audit.md`. That audit accepted 15 candidates and landed them in v2.1.0 (ADRs 0022-0033). This follow-up covers items the prior audit missed or did not surface — including a newly-audited ancestor (`dotnet-tag/src/DotNetTag/VMx/`) that was not in the original audit's scope.
@@ -178,7 +178,7 @@ Not revisited in this proposal:
 
 All items in this proposal have landed.
 
-- **D2 / D3** — ADR-0042 + spec/06 §3.X + `COMP-025` / `COMP-026` + per-flavor implementations in C#/Python/TypeScript/Swift. Shipped in spec v2.6.0.
+- **D2 / D3** — ADR-0042 + spec/06 §3.2 + `COMP-025` / `COMP-026` + per-flavor implementations in C#/Python/TypeScript/Swift. Shipped in spec v2.6.0.
 - **L1** — ADR-0039 (teaching, no code change).
 - **L2** — ADR-0040 (teaching, no code change).
 - **L3** — ADR-0041 (teaching, no code change).

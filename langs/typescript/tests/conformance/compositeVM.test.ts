@@ -401,7 +401,7 @@ describe("COMP-013", () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// CompositeVMOfBuilder.current(selector) — ADR-0042, spec/06 §3.X (modeled)
+// CompositeVMOfBuilder.current(selector) — ADR-0042, spec/06 §3.2 (modeled)
 // ---------------------------------------------------------------------------
 
 describe("CompositeVMOfBuilder.current(selector) (modeled)", () => {
@@ -446,7 +446,7 @@ describe("CompositeVMOfBuilder.current(selector) (modeled)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CompositeVMOfBuilder.onCurrentChanged(callback) — ADR-0042, spec/06 §3.X (modeled)
+// CompositeVMOfBuilder.onCurrentChanged(callback) — ADR-0042, spec/06 §3.2 (modeled)
 // ---------------------------------------------------------------------------
 
 describe("CompositeVMOfBuilder.onCurrentChanged(callback) (modeled)", () => {

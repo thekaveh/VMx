@@ -427,7 +427,7 @@ public class CompositeVMConformanceTests
     /// <summary>
     /// COMP-025: Current(selector) runs once during construct, after all children
     /// reach Constructed and before the composite reaches Constructed. The
-    /// selector's return value becomes Current. See spec/06 §3.X and ADR-0042.
+    /// selector's return value becomes Current. See spec/06 §3.2 and ADR-0042.
     /// </summary>
     [Fact, Trait("Conformance", "COMP-025")]
     public void COMP_025_Current_Selector_Drives_Initial_Selection()
@@ -455,7 +455,7 @@ public class CompositeVMConformanceTests
     /// <summary>
     /// COMP-026: OnCurrentChanged(callback) is invoked synchronously after every
     /// Current transition. Receives the new Current value (may be null). See
-    /// spec/06 §3.X and ADR-0042.
+    /// spec/06 §3.2 and ADR-0042.
     /// </summary>
     [Fact, Trait("Conformance", "COMP-026")]
     public void COMP_026_OnCurrentChanged_Fires_After_Each_Change()

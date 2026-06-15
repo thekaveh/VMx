@@ -9,7 +9,7 @@ namespace VMx.Tests.Composites;
 /// <summary>
 /// Unit tests for <see cref="CompositeVMBuilder{VM}"/> declarative hooks
 /// added in spec v2.6.0: <c>Current(selector)</c> and
-/// <c>OnCurrentChanged(callback)</c>. See ADR-0042 and spec/06 §3.X.
+/// <c>OnCurrentChanged(callback)</c>. See ADR-0042 and spec/06 §3.2.
 /// Conformance-level tests live in VMx.Conformance.Tests.
 /// </summary>
 public class CompositeVMBuilderTests

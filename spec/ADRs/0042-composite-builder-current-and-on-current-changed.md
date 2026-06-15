@@ -31,7 +31,7 @@ Both methods are additive, default-null, and immutable-with-clone (BLD-001).
 ## 4. Consequences
 
 - **Backward compatible.** Both methods are optional; existing builders without the calls behave identically to v2.5.0.
-- `spec/06-composite-vm.md` §3 (`Current` contract) gains a new subsection §3.X documenting the builder hooks.
+- `spec/06-composite-vm.md` §3 (`Current` contract) gains a new subsection §3.2 documenting the builder hooks.
 - New conformance IDs `COMP-025` (initial-current selector) and `COMP-026` (OnCurrentChanged callback fires on Current change) in `spec/12-conformance.md`.
 - Per-flavor implementations land in `langs/csharp/src/VMx/Composites/CompositeVMBuilder.cs` (and `CompositeVMOfMBuilder`), `langs/python/src/vmx/composites/builders.py`, `langs/typescript/src/composites/compositeVM.ts` (inline builder), `langs/swift/Sources/VMx/Builders/CompositeVMBuilder.swift`.
 - Conformance stubs (`COMP-025`, `COMP-026`) ship in C# / Python / TypeScript per `spec-discipline.yml`.

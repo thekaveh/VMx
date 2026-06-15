@@ -155,7 +155,7 @@ consumers continue to work unchanged.
   Python / TypeScript on both modeled and non-modeled builders; Swift
   ships on the non-modeled builder (modeled composite is outside Swift's
   documented subset).
-- `06-composite-vm.md` — §3.X documents the builder selection hooks.
+- `06-composite-vm.md` — §3.2 documents the builder selection hooks.
 - `12-conformance.md` — adds `COMP-025` (`current(selector)` invariants)
   and `COMP-026` (`onCurrentChanged(callback)` invariants); catalog total
   goes from 235 to 237 (232 library + 5 THEME scenario IDs).

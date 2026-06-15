@@ -57,7 +57,7 @@ describe("CompositeVM – insert bounds", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CompositeVMBuilder.current(selector) — ADR-0042, spec/06 §3.X
+// CompositeVMBuilder.current(selector) — ADR-0042, spec/06 §3.2
 // ---------------------------------------------------------------------------
 
 describe("CompositeVMBuilder.current(selector)", () => {
@@ -93,7 +93,7 @@ describe("CompositeVMBuilder.current(selector)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CompositeVMBuilder.onCurrentChanged(callback) — ADR-0042, spec/06 §3.X
+// CompositeVMBuilder.onCurrentChanged(callback) — ADR-0042, spec/06 §3.2
 // ---------------------------------------------------------------------------
 
 describe("CompositeVMBuilder.onCurrentChanged(callback)", () => {
