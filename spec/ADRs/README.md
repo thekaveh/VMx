@@ -57,9 +57,9 @@ cross-references each ADR carries.
 | [0036](0036-v2.4-platform-and-theming.md)                        | v2.4.0 platform expansion + theming as a VM concern   | 2.4.0        | Accepted (§2.E corrected by 0037) |
 | [0037](0037-v2.5-maintenance-clarifications.md)                  | v2.5.0 maintenance clarifications and additions       | 2.5.0        | Accepted                          |
 | [0038](0038-spec-accuracy-corrections-and-form-014.md)           | Spec accuracy corrections (ch. 14/16/20/21), FORM-014 | 2.5.0        | Accepted                          |
-| [0039](0039-property-changing-not-supported.md)                  | `INotifyPropertyChanging` not supported (teaching)    | 2.5.0        | Accepted                          |
-| [0040](0040-iproperty-not-adopted.md)                            | `IProperty<T>` reactive backing-field not adopted     | 2.5.0        | Accepted                          |
-| [0041](0041-single-disposable-lifecycle.md)                      | Single disposable lifecycle (no two-tier bags)        | 2.5.0        | Accepted                          |
+| [0039](0039-property-changing-not-supported.md)                  | `INotifyPropertyChanging` not supported (teaching)    | 2.6.0        | Accepted                          |
+| [0040](0040-iproperty-not-adopted.md)                            | `IProperty<T>` reactive backing-field not adopted     | 2.6.0        | Accepted                          |
+| [0041](0041-single-disposable-lifecycle.md)                      | Single disposable lifecycle (no two-tier bags)        | 2.6.0        | Accepted                          |
 | [0042](0042-composite-builder-current-and-on-current-changed.md) | `CompositeVMBuilder.Current` + `OnCurrentChanged`     | 2.6.0        | Accepted                          |
 
 ## 2. Format
