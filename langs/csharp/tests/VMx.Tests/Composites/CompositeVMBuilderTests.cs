@@ -68,14 +68,18 @@ public class CompositeVMBuilderTests
     {
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
-        var a = BuildChild(hub, dispatcher, "a");
         var observed = new List<ComponentVM<string>?>();
 
         // Case 1: selector returns null → no Current change, no callback.
+        // Each composite owns its own child instance — Add() calls
+        // SetParent(this) on the child, so sharing a child across composites
+        // would silently re-point its Parent. Use distinct fixtures to keep
+        // the invariant "a child VM has at most one parent" intact.
+        var a1 = BuildChild(hub, dispatcher, "a1");
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite-null")
             .Services(hub, dispatcher)
-            .Children(() => new[] { a })
+            .Children(() => new[] { a1 })
             .Current(_ => null)
             .OnCurrentChanged(vm => observed.Add(vm))
             .Build();
@@ -85,11 +89,12 @@ public class CompositeVMBuilderTests
         observed.Should().BeEmpty();
 
         // Case 2: selector returns a VM not in the composite → no Current change, no callback.
+        var a2 = BuildChild(hub, dispatcher, "a2");
         var foreign = BuildChild(hub, dispatcher, "foreign");
         var composite2 = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite-foreign")
             .Services(hub, dispatcher)
-            .Children(() => new[] { a })
+            .Children(() => new[] { a2 })
             .Current(_ => foreign)
             .OnCurrentChanged(vm => observed.Add(vm))
             .Build();
