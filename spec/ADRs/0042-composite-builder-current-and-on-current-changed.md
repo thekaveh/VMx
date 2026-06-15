@@ -51,7 +51,7 @@ Note: the initial `OnCurrentChanged` invocation triggered by `Current(selector)`
 
 ### 5.3 Disposal
 
-The callback registration is owned by the composite for its lifetime. No explicit subscription is exposed; the callback reference is released when the composite is disposed.
+The callback registration is owned by the composite for its lifetime. No explicit subscription handle is exposed. The callback reference is held in a private field on the composite — it becomes unreachable along with the composite once the host releases its reference and the GC collects, matching the disposal semantics of `OnConstruct` / `OnDestruct` and `OnModelChanged`. Implementations do NOT null the field on `Dispose()`; consumers must drop their composite reference to let the closure be collected.
 
 ### 5.4 Null and out-of-set selector returns
 
