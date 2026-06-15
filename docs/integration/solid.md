@@ -3,7 +3,7 @@
 Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 `createEffect` — Solid's fine-grained reactivity primitives.
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 - `createSignal(initial)` returns a `[get, set]` pair. Reads are tracked
   inside JSX and reactive scopes; writes trigger re-renders for any
@@ -11,7 +11,7 @@ Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 - `createEffect(fn)` runs `fn` on every change to signals it reads.
 - `onCleanup(fn)` registers teardown.
 
-## Mapping
+## 2. Mapping
 
 | Solid                      | VMx                                  |
 | -------------------------- | ------------------------------------ |
@@ -20,7 +20,7 @@ Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 | `createMemo(() => ...)`    | `DerivedProperty<T>` / `fromSources` |
 | `onCleanup(() => cleanup)` | dispose the subscription             |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```ts
 import { createSignal, onCleanup, type Accessor } from "solid-js";
@@ -54,7 +54,7 @@ export function NoteView(props: { vm: ComponentVMOf<Note>; hub: IMessageHub<unkn
 }
 ```
 
-## Fuller example
+## 4. Fuller example
 
 No worked Solid Notes-Showcase ships yet. The React recipe
 ([react.md](react.md)) shares the same hub-subscription shape.

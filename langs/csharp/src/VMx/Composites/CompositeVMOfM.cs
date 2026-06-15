@@ -9,7 +9,7 @@ namespace VMx.Composites;
 /// <c>ChildrenModels</c> factory and mapping each model <typeparamref name="M"/>
 /// to a child VM via <c>ChildModelToChildViewModel</c>, lazily on first Construct.
 ///
-/// Use <c>CompositeVM&lt;M, VM&gt;.Builder()</c> to create instances.
+/// Use <c>CompositeVMOfM&lt;M, VM&gt;.Builder()</c> to create instances.
 /// See spec/06-composite-vm.md §Modeled variant.
 /// </summary>
 /// <typeparam name="M">The model type.</typeparam>

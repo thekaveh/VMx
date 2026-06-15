@@ -93,7 +93,7 @@ class CompositeVMBuilder(Generic[VM]):
         the composite itself transitions to ``Constructed``. If it returns
         ``None`` or a value not in the composite, ``current`` is left at its
         prior value (initially ``None``) and no notification fires. See
-        ADR-0042 and spec/06 §3.X (COMP-025).
+        ADR-0042 and spec/06 §3.2 (COMP-025).
         """
         return dataclasses.replace(self, _current_selector=selector)
 
@@ -104,7 +104,7 @@ class CompositeVMBuilder(Generic[VM]):
         ``PropertyChangedMessage("current")`` and ``_raise_property_changed``
         has run. Receives the new ``current`` value (which may be ``None``).
         The callback also fires for the initial assignment driven by
-        :meth:`current`. See ADR-0042 and spec/06 §3.X (COMP-026).
+        :meth:`current`. See ADR-0042 and spec/06 §3.2 (COMP-026).
         """
         return dataclasses.replace(self, _on_current_changed=callback)
 
@@ -206,7 +206,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         the composite itself transitions to ``Constructed``. If it returns
         ``None`` or a value not in the composite, ``current`` is left at its
         prior value (initially ``None``) and no notification fires. See
-        ADR-0042 and spec/06 §3.X (COMP-025).
+        ADR-0042 and spec/06 §3.2 (COMP-025).
         """
         return dataclasses.replace(self, _current_selector=selector)
 
@@ -219,7 +219,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         ``PropertyChangedMessage("current")`` and ``_raise_property_changed``
         has run. Receives the new ``current`` value (which may be ``None``).
         The callback also fires for the initial assignment driven by
-        :meth:`current`. See ADR-0042 and spec/06 §3.X (COMP-026).
+        :meth:`current`. See ADR-0042 and spec/06 §3.2 (COMP-026).
         """
         return dataclasses.replace(self, _on_current_changed=callback)
 

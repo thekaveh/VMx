@@ -2,7 +2,7 @@
 //
 // VMx — Swift flavor (skeleton).
 //
-// Implements a 39-ID subset of spec v2.5.0 (LIFE, CVM, COMP, GRP, AGG,
+// Implements a 41-ID subset of spec v2.6.0 (LIFE, CVM, COMP, GRP, AGG,
 // CMD, BLD areas). See README.md §5 for the in / deferred matrix and
 // CHANGELOG.md for per-release history.
 //

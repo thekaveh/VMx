@@ -4,14 +4,14 @@ Wire a `ComponentVMOf<M>` to a React component using
 `useSyncExternalStore` (React 18+) — the canonical hook for subscribing
 React to an external observable source.
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 `useSyncExternalStore(subscribe, getSnapshot)` re-renders when the
 `subscribe` callback fires its registered notifier. VMx VMs publish
 `PropertyChangedMessage<T>` to their hub; we adapt the hub stream to
 the `useSyncExternalStore` contract.
 
-## Mapping
+## 2. Mapping
 
 | React                                | VMx                                       |
 | ------------------------------------ | ----------------------------------------- |
@@ -20,7 +20,7 @@ the `useSyncExternalStore` contract.
 | `useMemo` over a derived value       | `DerivedProperty<T>` / `fromSources`      |
 | `useEffect(() => () => cleanup, [])` | dispose the subscription on unmount       |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```ts
 import { useSyncExternalStore, useCallback } from "react";
@@ -55,7 +55,7 @@ export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHu
 }
 ```
 
-## Fuller example
+## 4. Fuller example
 
 [`examples/typescript/react/notes-showcase/`](../../examples/typescript/react/notes-showcase/) —
 the Notes-Showcase React flagship: ships `useVm` / `useCommand` /

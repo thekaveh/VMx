@@ -4,13 +4,13 @@ Cross-platform XAML for desktop (Win/macOS/Linux), mobile, and browser
 via Avalonia 11+. Wires a `ComponentVM<M>` through an
 `INotifyPropertyChanged` adapter, similar to WPF.
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 Avalonia bindings observe `INotifyPropertyChanged.PropertyChanged` and
 `ICommand`. Avalonia ships its own `Dispatcher` for marshalling work
 back to the UI thread.
 
-## Mapping
+## 2. Mapping
 
 | Avalonia                                   | VMx                                                           |
 | ------------------------------------------ | ------------------------------------------------------------- |
@@ -19,7 +19,7 @@ back to the UI thread.
 | `AvaloniaList<T>` / `ObservableCollection` | `ServicedObservableCollection<T>` or wrap `ObservableList<T>` |
 | `Dispatcher.UIThread.Post`                 | `IDispatcher.Foreground` scheduler                            |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```csharp
 public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
@@ -50,7 +50,7 @@ Bind in XAML: `<TextBlock Text="{Binding Model.Title}"/>`. For lists,
 wrap a `ServicedObservableCollection<T>` and observe its
 `CollectionChangedMessage` to refresh an `AvaloniaList<T>`.
 
-## Fuller example
+## 4. Fuller example
 
 [`examples/csharp/avalonia/NotesShowcase/`](../../examples/csharp/avalonia/NotesShowcase/) —
 the Notes-Showcase Avalonia flagship: end-to-end `WorkspaceVM` +

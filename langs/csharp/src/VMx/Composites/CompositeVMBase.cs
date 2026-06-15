@@ -290,7 +290,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         PopulateChildren();
         // Construct all children.
         ConstructChildren();
-        // Apply the optional initial-current selector (spec/06 §3.X, ADR-0042).
+        // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
         // The composite is still in Constructing here; every child is Constructed.
         // Selector returning null or an out-of-set value leaves Current at its
         // prior value and emits no notification (matches SelectComponent semantics).
@@ -386,7 +386,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
 
         // Invoke the optional builder-registered OnCurrentChanged callback
         // AFTER state update + hub publish + PropertyChanged so all observers
-        // see the new value consistently (spec/06 §3.X, ADR-0042 §5.2).
+        // see the new value consistently (spec/06 §3.2, ADR-0042 §5.2).
         _onCurrentChanged?.Invoke(value);
     }
 }

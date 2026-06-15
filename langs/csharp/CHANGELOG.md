@@ -26,6 +26,14 @@ composite builders, plus four ADRs capturing absorption-audit decisions.
 - ADR-0041 — Single disposable lifecycle, no two-tier bags (teaching).
 - ADR-0042 — `CompositeVMBuilder.Current` + `OnCurrentChanged` (behavior change).
 
+### Companion packages
+
+- `VMx.Notifications` — `MinSpecVersion` bumped 2.5.0 → 2.6.0; package
+  `Version` unchanged at 1.2.0 (no behavior change; companion follows its
+  independent release line per ADR-0009 / ADR-0013).
+- `VMx.Extensions.DependencyInjection` — unchanged (Version 2.1.0,
+  MinSpecVersion 2.1.0). DI surface has not required updates since v2.1.0.
+
 ## [2.5.0] — 2026-06-10
 
 Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to

@@ -596,7 +596,7 @@ def test_COMP_013_batch_update_emits_one_reset() -> None:
 def test_COMP_025_current_selector_drives_initial_selection() -> None:
     """COMP-025: current(selector) runs once during construct, after all children
     reach Constructed and before the composite reaches Constructed. The
-    selector's return value becomes current. See spec/06 §3.X and ADR-0042.
+    selector's return value becomes current. See spec/06 §3.2 and ADR-0042.
     """
     hub = _hub()
     disp = _dispatcher()
@@ -625,7 +625,7 @@ def test_COMP_025_current_selector_drives_initial_selection() -> None:
 def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
     """COMP-026: on_current_changed(callback) is invoked synchronously after every
     current transition. Receives the new current value (may be None). See
-    spec/06 §3.X and ADR-0042.
+    spec/06 §3.2 and ADR-0042.
     """
     hub = _hub()
     disp = _dispatcher()

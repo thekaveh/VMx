@@ -84,7 +84,7 @@ public sealed class CompositeVMBuilder<VM>
     /// before the composite itself transitions to <c>Constructed</c>. If it returns
     /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
     /// left at its prior value (initially <see langword="null"/>) and no
-    /// notification fires. See ADR-0042 and spec/06 §3.X (COMP-025).
+    /// notification fires. See ADR-0042 and spec/06 §3.2 (COMP-025).
     /// </summary>
     public CompositeVMBuilder<VM> Current(Func<IEnumerable<VM>, VM?> selector)
         => With(currentSelector: selector);
@@ -95,7 +95,7 @@ public sealed class CompositeVMBuilder<VM>
     /// <c>PropertyChangedMessage("Current")</c>. Receives the new <c>Current</c>
     /// value (which may be <see langword="null"/>). The callback also fires for
     /// the initial assignment driven by <see cref="Current"/>. See ADR-0042 and
-    /// spec/06 §3.X (COMP-026).
+    /// spec/06 §3.2 (COMP-026).
     /// </summary>
     public CompositeVMBuilder<VM> OnCurrentChanged(Action<VM?> callback)
         => With(onCurrentChanged: callback);
@@ -241,7 +241,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// before the composite itself transitions to <c>Constructed</c>. If it returns
     /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
     /// left at its prior value (initially <see langword="null"/>) and no
-    /// notification fires. See ADR-0042 and spec/06 §3.X (COMP-025).
+    /// notification fires. See ADR-0042 and spec/06 §3.2 (COMP-025).
     /// </summary>
     public CompositeVMOfMBuilder<M, VM> Current(Func<IEnumerable<VM>, VM?> selector)
         => With(currentSelector: selector);
@@ -252,7 +252,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// <c>PropertyChangedMessage("Current")</c>. Receives the new <c>Current</c>
     /// value (which may be <see langword="null"/>). The callback also fires for
     /// the initial assignment driven by <see cref="Current"/>. See ADR-0042 and
-    /// spec/06 §3.X (COMP-026).
+    /// spec/06 §3.2 (COMP-026).
     /// </summary>
     public CompositeVMOfMBuilder<M, VM> OnCurrentChanged(Action<VM?> callback)
         => With(onCurrentChanged: callback);

@@ -3,13 +3,13 @@
 Wire a `ComponentVMOf<M>` to a Vue 3 component via the Composition API
 `reactive()` / `ref()` primitives.
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 Vue 3's reactivity tracks reads and writes to `reactive(obj)` and
 `ref()` values; templates re-render automatically when tracked
 values change. Bridge VMx by syncing a local `ref` from VMx hub events.
 
-## Mapping
+## 2. Mapping
 
 | Vue 3                         | VMx                                  |
 | ----------------------------- | ------------------------------------ |
@@ -18,7 +18,7 @@ values change. Bridge VMx by syncing a local `ref` from VMx hub events.
 | `computed(() => ...)`         | `DerivedProperty<T>` / `fromSources` |
 | `onUnmounted(() => cleanup)`  | dispose the subscription             |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```ts
 // composables/useVm.ts
@@ -56,7 +56,7 @@ const model = useVm(props.vm, props.hub, "model");
 </template>
 ```
 
-## Fuller example
+## 4. Fuller example
 
 No worked Vue Notes-Showcase ships yet. The React recipe
 ([react.md](react.md)) uses the same hub-subscription shape (just with

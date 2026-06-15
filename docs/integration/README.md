@@ -26,9 +26,9 @@ Each recipe explains:
 | Vue 3     | TypeScript | [vue.md](vue.md)           | none yet — recipe-only                                       |
 | Svelte    | TypeScript | [svelte.md](svelte.md)     | none yet — recipe-only                                       |
 | SolidJS   | TypeScript | [solid.md](solid.md)       | none yet — recipe-only                                       |
-| SwiftUI   | Swift      | [swiftui.md](swiftui.md)   | none yet — Swift flavor is a v2.5.0 subset (recipe-only)     |
+| SwiftUI   | Swift      | [swiftui.md](swiftui.md)   | none yet — Swift flavor is a v2.6.0 subset (recipe-only)     |
 
-## Common pattern
+## 1. Common pattern
 
 Every recipe bridges three things:
 
@@ -46,7 +46,7 @@ into the framework's reactivity primitive — `INotifyPropertyChanged`,
 `textual.reactive.reactive`, `useSyncExternalStore`, etc. — and route
 button clicks back to `command.execute(parameter)`.
 
-## Don't see your framework?
+## 2. Don't see your framework?
 
 Open an issue or PR with a new one-page recipe following the template
 above. The reference adapters in

@@ -4,7 +4,7 @@ Wire a `ComponentVMOf<Model>` to a SwiftUI view using `@StateObject` /
 `@ObservedObject` plus a tiny Combine adapter that bridges the VMx
 message hub into SwiftUI's `ObservableObject` machinery.
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 SwiftUI re-renders when an `ObservableObject` publishes through its
 `objectWillChange` publisher. VMx VMs publish `PropertyChangedMessage`
@@ -12,7 +12,7 @@ to their hub and emit a string-keyed `propertyChanged` Combine
 publisher. The adapter forwards every relevant event into
 `objectWillChange.send()`.
 
-## Mapping
+## 2. Mapping
 
 | SwiftUI                            | VMx                                       |
 | ---------------------------------- | ----------------------------------------- |
@@ -21,7 +21,7 @@ publisher. The adapter forwards every relevant event into
 | `Button(action: …)`                | `command.execute()`                       |
 | `.onDisappear { … }`               | cancel subscriptions / dispose VM         |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```swift
 import SwiftUI
@@ -54,14 +54,14 @@ struct TabView: View {
 }
 ```
 
-## Fuller example
+## 4. Fuller example
 
 The Swift flavor's first release does not yet ship a Notes-Showcase
 SwiftUI app; the [`langs/swift/README.md`](../../langs/swift/README.md)
 covers the broader install + quick-start flow. A SwiftUI flagship is
 planned for the follow-up PR.
 
-## Cross-flavor parity
+## 5. Cross-flavor parity
 
 This recipe parallels the React adapter ([react.md](react.md)) — both
 bridge a hub message stream into the framework's "re-render this view"

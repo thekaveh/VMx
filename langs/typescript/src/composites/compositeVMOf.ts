@@ -141,7 +141,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
    * composite itself reaches `Constructed`. If the selector returns `null` or
    * a value not in the composite, `current` is left unchanged and no
    * `PropertyChangedMessage("current")` is published. See ADR-0042 and
-   * spec/06 §3.X.
+   * spec/06 §3.2.
    */
   current(
     selector: (xs: Iterable<VM>) => VM | null,
@@ -156,7 +156,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
    * change, immediately after the hub `PropertyChangedMessage("current")` is
    * published. Receives the new `current` value (or `null` on deselection).
    * Fires once for the initial assignment driven by `current(selector)`.
-   * See ADR-0042 and spec/06 §3.X.
+   * See ADR-0042 and spec/06 §3.2.
    */
   onCurrentChanged(
     callback: (vm: VM | null) => void,

@@ -64,7 +64,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
   If `Current != vm`, the call raises.
 - `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`.
 
-### 3.X Initial `Current` selection and change callback (spec v2.6.0)
+### 3.2 Initial `Current` selection and change callback (spec v2.6.0)
 
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
@@ -232,7 +232,7 @@ the builder hooks `COMP-025` and `COMP-026` (see below), in
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the composite is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
 
-The builder hooks introduced in §3.X are covered by:
+The builder hooks introduced in §3.2 are covered by:
 
 - `COMP-025` — `Current(selector)` builder hook drives initial selection during construct.
 - `COMP-026` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.

@@ -52,6 +52,24 @@ in multiple language flavors with semantically equivalent behavior.
   §2.A) and example-app edge-case coverage backfill (ADR-0036 §2.D). No new
   chapter files; the scenario contract lives at
   `spec/proposals/2026-06-02-theme-vm-scenario.md`.
+- **v2.5 additions**. Maintenance-pass clarifications (ADR-0037) — Swift
+  conformance subset accurately recounted 53 → 39 (corrects ADR-0036 §2.E);
+  three new normative IDs added — `HIER-018` (`HierarchicalVM` reparent guard
+  against self/ancestor cycles, chapter 18 §5), `NOTIF-017` (`NotificationHub`
+  dispose semantics, chapter 16 §9), and `FORM-014` ("disposed form is inert",
+  ADR-0038, chapter 20). Catalog total grows 232 → 235 (230 library + 5 THEME).
+- **v2.6 additions**. Absorption-audit follow-up — `CompositeVMBuilder` gains
+  two declarative selection hooks: `Current(selector)` (`COMP-025`) for
+  initial-current selection during construct, and `OnCurrentChanged(callback)`
+  (`COMP-026`) for synchronous post-change selection callback (chapter 06 §3.2,
+  ADR-0042). Both hooks ship on the non-modeled and modeled composite builders
+  in C#/Python/TypeScript; Swift covers the non-modeled builder per the
+  documented subset (ADR-0037). Catalog total grows 235 → 237 (232 library + 5
+  THEME). Three teaching ADRs formalize prior-art rejections: ADR-0039
+  (`INotifyPropertyChanging` not supported), ADR-0040 (`IProperty<T>` reactive
+  backing-field not adopted), ADR-0041 (single disposable lifecycle, no
+  two-tier bags). Predecessor folders cleared for follow-up deletion per
+  `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §10.
 
 ## 2. Out of scope
 

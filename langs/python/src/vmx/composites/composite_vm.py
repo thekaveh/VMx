@@ -310,7 +310,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         """Populate children (once) then call construct() on each.
 
         After all children reach Constructed, apply the optional initial-current
-        selector (spec/06 §3.X, ADR-0042). The composite is still in Constructing
+        selector (spec/06 §3.2, ADR-0042). The composite is still in Constructing
         here; every child is Constructed. A selector returning None or an
         out-of-set value leaves current at its prior value (initially None) and
         emits no notification — matching the select_component semantics.
@@ -396,7 +396,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
         # Invoke the optional builder-registered on_current_changed callback
         # AFTER state update + hub publish + INPC raise so every observer sees
-        # the new value consistently (spec/06 §3.X, ADR-0042 §5.2).
+        # the new value consistently (spec/06 §3.2, ADR-0042 §5.2).
         if self._on_current_changed is not None:
             self._on_current_changed(value)
 

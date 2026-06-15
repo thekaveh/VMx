@@ -31,7 +31,7 @@ Both methods are additive, default-null, and immutable-with-clone (BLD-001).
 ## 4. Consequences
 
 - **Backward compatible.** Both methods are optional; existing builders without the calls behave identically to v2.5.0.
-- `spec/06-composite-vm.md` §3 (`Current` contract) gains a new subsection §3.X documenting the builder hooks.
+- `spec/06-composite-vm.md` §3 (`Current` contract) gains a new subsection §3.2 documenting the builder hooks.
 - New conformance IDs `COMP-025` (initial-current selector) and `COMP-026` (OnCurrentChanged callback fires on Current change) in `spec/12-conformance.md`.
 - Per-flavor implementations land in `langs/csharp/src/VMx/Composites/CompositeVMBuilder.cs` (and `CompositeVMOfMBuilder`), `langs/python/src/vmx/composites/builders.py`, `langs/typescript/src/composites/compositeVM.ts` (inline builder), `langs/swift/Sources/VMx/Builders/CompositeVMBuilder.swift`.
 - Conformance stubs (`COMP-025`, `COMP-026`) ship in C# / Python / TypeScript per `spec-discipline.yml`.
@@ -51,7 +51,7 @@ Note: the initial `OnCurrentChanged` invocation triggered by `Current(selector)`
 
 ### 5.3 Disposal
 
-The callback registration is owned by the composite for its lifetime. No explicit subscription is exposed; the callback reference is released when the composite is disposed.
+The callback registration is owned by the composite for its lifetime. No explicit subscription handle is exposed. The callback reference is held in a private field on the composite — it becomes unreachable along with the composite once the host releases its reference and the GC collects, matching the disposal semantics of `OnConstruct` / `OnDestruct` and `OnModelChanged`. Implementations do NOT null the field on `Dispose()`; consumers must drop their composite reference to let the closure be collected.
 
 ### 5.4 Null and out-of-set selector returns
 

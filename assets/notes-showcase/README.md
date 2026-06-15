@@ -10,7 +10,7 @@ runs.
 | `textual.png`  | [`examples/python/textual/notes_showcase/`](../../examples/python/textual/notes_showcase/) | `uv run --project examples/python/textual/notes_showcase python -m notes_showcase` |
 | `react.png`    | [`examples/typescript/react/notes-showcase/`](../../examples/typescript/react/notes-showcase/) | `npm run dev` from the example dir, then capture `localhost:5173`     |
 
-## Capture convention
+## 1. Capture convention
 
 1. Launch the app via the command above.
 1. Wait for the workspace to finish its `construct()` (≈300 ms): the

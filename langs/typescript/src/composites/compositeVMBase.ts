@@ -276,7 +276,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     for (const child of [...this._children]) {
       child.construct();
     }
-    // Apply the optional initial-current selector (spec/06 §3.X, ADR-0042).
+    // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
     // The composite is still in Constructing here; every child is Constructed.
     // Selector returning null or an out-of-set value leaves current at its
     // prior value and emits no notification (matches selectComponent semantics).
@@ -350,7 +350,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
     // Invoke the optional builder-registered onCurrentChanged callback AFTER
     // state update + hub publish + INPC raise so every observer sees the new
-    // value consistently (spec/06 §3.X, ADR-0042 §5.2).
+    // value consistently (spec/06 §3.2, ADR-0042 §5.2).
     if (this.#onCurrentChanged !== null) {
       this.#onCurrentChanged(value);
     }

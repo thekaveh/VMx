@@ -4,13 +4,13 @@ Wire a `ComponentVM<M>` to a WPF view via `INotifyPropertyChanged` and the
 existing `RelayCommand` infrastructure. WPF is Windows-only; for
 cross-platform XAML, see [avalonia.md](avalonia.md).
 
-## Reactivity primitive
+## 1. Reactivity primitive
 
 WPF data binding observes `INotifyPropertyChanged.PropertyChanged` events.
 VMx VMs publish `PropertyChangedMessage<TValue>(sender, propertyName, newValue)`
 to their `IMessageHub` instead. The adapter translates one to the other.
 
-## Mapping
+## 2. Mapping
 
 | WPF                        | VMx                                                                |
 | -------------------------- | ------------------------------------------------------------------ |
@@ -19,7 +19,7 @@ to their `IMessageHub` instead. The adapter translates one to the other.
 | `INotifyCollectionChanged` | `CollectionChangedMessage` on the hub                              |
 | `Dispatcher.Invoke`        | `IDispatcher.Foreground` scheduler                                 |
 
-## Adapter skeleton
+## 3. Adapter skeleton
 
 ```csharp
 public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
@@ -50,7 +50,7 @@ Then in XAML: `<TextBlock Text="{Binding Model.Title}"/>` and
 `<Button Command="{Binding SaveCommand}"/>` where `SaveCommand` is a
 `RelayCommand` exposed by your domain wrapper.
 
-## Fuller example
+## 4. Fuller example
 
 [`examples/csharp/wpf/TodoApp/`](../../examples/csharp/wpf/TodoApp/) — a
 working WPF Todo app backed by a `CompositeVM<TodoVM>`.
