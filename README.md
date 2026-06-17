@@ -129,7 +129,7 @@ Each flavor implements the same conceptual stack:
 | Flavor     | Package                                                              | Status            | Reactive primitive |
 | ---------- | -------------------------------------------------------------------- | ----------------- | ------------------ |
 | C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v2.6.0            | System.Reactive    |
-| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v2.6.0            | reactivex          |
+| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v2.6.1            | reactivex          |
 | TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v2.6.0            | rxjs               |
 | Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v2.6.0 *(subset)* | Combine            |
 
@@ -154,7 +154,7 @@ as a sub-path export.
 
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
-| 2.6.x | 2.6.0          | 2.6.0          | 2.6.0          | 2.6.0 (subset) |
+| 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
 | 2.5.x | 2.5.0          | 2.5.0          | 2.5.0          | 2.5.0 (subset) |
 | 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
 | 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
