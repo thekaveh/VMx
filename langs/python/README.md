@@ -1,5 +1,9 @@
 # vmx — Python
 
+[![PyPI](https://img.shields.io/pypi/v/vmx.svg)](https://pypi.org/project/vmx/)
+[![Python versions](https://img.shields.io/pypi/pyversions/vmx.svg)](https://pypi.org/project/vmx/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/thekaveh/VMx/blob/main/LICENSE)
+
 Hierarchical lifecycle-aware MVVM viewmodel framework for Python,
 spec-compatible with the C#, TypeScript, and Swift (subset) flavors.
 

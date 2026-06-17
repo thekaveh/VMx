@@ -40,6 +40,22 @@ No API tokens. No Test PyPI. Trusted Publishing only.
 - Leave "Allow self review" unchecked — every publish requires an explicit click after the test gate passes.
 - (Optional) Set "Environment URL" to `https://pypi.org/p/vmx`.
 
+### 1.3 Pre-publish URL + metadata validation
+
+Every URL in `langs/python/pyproject.toml` `[project.urls]` becomes a clickable link in the PyPI project sidebar at <https://pypi.org/project/vmx/>. A 404 there is visible to every consumer and **requires a patch release to fix** (PyPI freezes metadata at upload time per version). Before tagging, validate:
+
+```bash
+python3 -c "import tomllib; d=tomllib.load(open('langs/python/pyproject.toml','rb')); [print(k, v) for k,v in d['project']['urls'].items()]" \
+  | while read key url; do
+      code=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+      printf '%s %s -> HTTP %s\n' "$key" "$url" "$code"
+    done
+```
+
+Anything not 200 must be fixed before tagging — either point at a real URL or drop the entry from `[project.urls]` entirely. Safe defaults when no dedicated docs site exists: `Documentation = "https://github.com/thekaveh/VMx#readme"` (anchor renders the README) or any `https://github.com/thekaveh/VMx/tree/main/…` folder URL.
+
+The same lesson applies to npm `package.json` `homepage`/`bugs`/`repository`, NuGet `<PackageProjectUrl>`/`<RepositoryUrl>`, and SwiftPM Index entries when those flavors uplift to the same pattern.
+
 ## 2. Cutting a release
 
 ### 2.1 Routine release (release-please-driven)
@@ -66,6 +82,8 @@ git push origin python-v2.6.0
 ```
 
 The same four publish jobs run.
+
+> **Tag-ordering gotcha for new flavors.** When wiring `release-please` for the first time on a flavor (current Python adoption; future C#/TypeScript/Swift uplifts), push the bootstrap tag **before** merging the PR that adds the release-please config. Otherwise `release-please-action`'s first run on `main` sees no matching `<component>-v<X.Y.Z>` tag in the new format, walks the full repo history, and proposes a wildly-oversized release PR (it happened during the Python adoption — bot proposed `2.7.0` built from years-old `feat: absorption-cycle-*` commits). The branch lingers indefinitely after later runs correctly say "No user facing commits found"; recover with `git push origin --delete release-please--branches--main--components--<component>`.
 
 ### 2.3 Pre-release (`alpha`, `beta`, `rc`)
 
