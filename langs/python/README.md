@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift (subset) flavors.
 
 ## 1. Status
 
-**v2.6.0** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
+**v2.6.1** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. A Swift flavor sibling lands
