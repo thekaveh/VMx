@@ -9,6 +9,8 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
+
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
 from reactivex.scheduler.eventloop import AsyncIOScheduler
@@ -36,13 +38,32 @@ def test_immediate_factory_returns_rx_dispatcher() -> None:
     assert isinstance(d.background, ImmediateScheduler)
 
 
-def test_asyncio_factory_returns_rx_dispatcher() -> None:
-    """asyncio() returns an RxDispatcher with AsyncIOScheduler fg + ThreadPoolScheduler bg."""
-    d = RxDispatcher.asyncio()
+def test_asyncio_factory_with_explicit_loop() -> None:
+    """asyncio(loop) wires the supplied loop into the AsyncIOScheduler."""
+    loop = asyncio.new_event_loop()
+    try:
+        d = RxDispatcher.asyncio(loop)
 
-    assert isinstance(d, RxDispatcher)
-    assert isinstance(d.foreground, AsyncIOScheduler)
-    assert isinstance(d.background, ThreadPoolScheduler)
+        assert isinstance(d, RxDispatcher)
+        assert isinstance(d.foreground, AsyncIOScheduler)
+        assert d.foreground._loop is loop
+        assert isinstance(d.background, ThreadPoolScheduler)
+    finally:
+        loop.close()
+
+
+def test_asyncio_factory_creates_loop_when_none() -> None:
+    """asyncio() with no loop creates a fresh event loop (closed here to avoid a leak)."""
+    d = RxDispatcher.asyncio()
+    try:
+        assert isinstance(d, RxDispatcher)
+        assert isinstance(d.foreground, AsyncIOScheduler)
+        assert isinstance(d.background, ThreadPoolScheduler)
+    finally:
+        # The factory created this loop internally; close it so it is not
+        # finalised by the garbage collector at interpreter teardown
+        # (which raises "Invalid file descriptor" on the selector loop).
+        d.foreground._loop.close()
 
 
 def test_rx_dispatcher_satisfies_dispatcher_protocol() -> None:
