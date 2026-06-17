@@ -80,7 +80,7 @@ jobs:
 
       - name: Enforce conformance coverage (csharp + python + typescript)
         # The csharp / python / typescript flavors ship at the current spec
-        # version (v2.5.0 as of this comment); CI enforces 100% conformance
+        # version; CI enforces 100% conformance
         # coverage for the full catalog across all three. The swift flavor
         # (added v2.4.0) is a documented subset — see compatibility-matrix.md.
         # It is not in --require because the tool has no swift scraper yet

@@ -30,7 +30,7 @@ import type { IMessageHub } from "@thekaveh/vmx";
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
-  hub: IMessageHub<unknown>,
+  hub: IMessageHub,
   property: K
 ): ComponentVMOf<M>[K] {
   const subscribe = useCallback((notify: () => void) => {
@@ -46,7 +46,7 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   return useSyncExternalStore(subscribe, () => vm[property]);
 }
 
-export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHub<unknown> }) {
+export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHub }) {
   const model = useVm(vm, hub, "model");
   return <>
     <h1>{model.title}</h1>
