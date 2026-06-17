@@ -286,9 +286,12 @@ This README is the entry point; the documents below add focused detail.
   [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md).
 - Per-flavor release runbooks:
   [`langs/python/RELEASING.md`](langs/python/RELEASING.md) — PyPI release
-  pipeline (Test PyPI gate → manual approval → prod PyPI with Sigstore
-  attestations → GitHub Release). Other-flavor runbooks land as their
-  pipelines are uplifted.
+  pipeline (`python-test` matrix gate → `pypi-python` environment approval →
+  Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740) attestations →
+  `python-verify-published` fresh-venv smoke test → `python-release-notes`
+  CHANGELOG-extracted GitHub Release). release-please automates routine
+  version bumps + CHANGELOG entries via Conventional Commits. Other-flavor
+  runbooks land as their pipelines are uplifted.
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
   [`docs/getting-started/python.md`](docs/getting-started/python.md),
