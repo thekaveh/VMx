@@ -111,6 +111,12 @@ jobs:
         with:
           version: "0.11.19"
           enable-cache: true
+          # VMx is a library project — uv.lock is gitignored (matches
+          # python.yml's cache-key derivation). Override the default
+          # `**/uv.lock` glob so setup-uv doesn't error out searching for
+          # a lockfile we deliberately don't track.
+          cache-dependency-glob: |
+            langs/python/pyproject.toml
       - name: Set up Python
         run: uv python install 3.12
 
