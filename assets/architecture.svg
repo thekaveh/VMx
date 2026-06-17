@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 880" width="1100" height="880" font-family="ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 880" width="1200" height="880" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" style="background:#020617">
   <defs>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
@@ -8,199 +8,222 @@
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
     </pattern>
   </defs>
-  <rect width="100%" height="100%" fill="#020617"/>
+
+  <!-- Background -->
   <rect width="100%" height="100%" fill="url(#grid)"/>
 
-  <!-- LAYER 1 — SPEC -->
-  <rect x="30" y="30" width="1040" height="78" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-  <text x="550" y="54" fill="white" font-size="13" font-weight="700" text-anchor="middle">spec/ — source of truth</text>
-  <text x="550" y="74" fill="#fbbf24" font-size="10" text-anchor="middle">22 chapters · 36 ADRs · 4 JSON fixtures · 232 conformance IDs · spec/VERSION = 2.4.0</text>
-  <text x="550" y="94" fill="#94a3b8" font-size="9" text-anchor="middle">00-overview · 01-concepts · 02-lifecycle · 03-messages · 04-commands · 05..09 VMs · 10 builders · 11 threading · 12 conformance · 13 tree · 14 capabilities · 15 derived · 16 notifications · 17 localization · 18 hierarchical · 19 dialogs · 20 form-vm · 21 collections</text>
+  <!-- ROW 1: SPEC (source of truth) -->
+  <rect x="20" y="20" width="1160" height="80" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="600" y="44" fill="white" font-size="13" font-weight="700" text-anchor="middle">Spec · source of truth</text>
+  <text x="600" y="64" fill="#94a3b8" font-size="10" text-anchor="middle">spec/VERSION 2.6.0 · 22 numbered chapters · 42 ADRs · 237 conformance IDs · 4 JSON fixtures</text>
+  <text x="600" y="82" fill="#22d3ee" font-size="9" text-anchor="middle">language-neutral · spec discipline: any spec/ change requires an ADR; new conformance ID requires a stub per full-parity flavor</text>
 
-  <line x1="550" y1="108" x2="550" y2="138" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
-  <text x="565" y="125" fill="#94a3b8" font-size="9">implements (parity per ADR-0006)</text>
+  <!-- ROW 2: Lifecycle + Capabilities -->
+  <rect x="20" y="120" width="580" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="310" y="142" fill="white" font-size="12" font-weight="600" text-anchor="middle">Lifecycle state machine</text>
+  <text x="310" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">ConstructionStatus enum · LIFE-001..013 · spec/02 · ADR-0008</text>
+  <text x="310" y="178" fill="#94a3b8" font-size="9" text-anchor="middle">Created → Constructing → Constructed → Destructing → Destructed → Disposed</text>
+  <text x="310" y="194" fill="#34d399" font-size="8" text-anchor="middle">fixture-backed transitions (spec/fixtures/lifecycle-transitions.json) · Swift traps; C#/Py/TS throw (ADR-0037)</text>
 
-  <!-- LAYER 2 — FLAVOR SURFACES (4 flavors as of v2.4.0; Swift is a subset) -->
-  <rect x="30" y="145" width="248" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-  <text x="154" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/csharp — VMx</text>
-  <text x="154" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">netstandard2.0 + net8.0 · PascalCase · System.Reactive</text>
-  <text x="154" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.4.0 on NuGet</text>
+  <rect x="620" y="120" width="560" height="80" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+  <text x="900" y="142" fill="white" font-size="12" font-weight="600" text-anchor="middle">Capability micro-interfaces</text>
+  <text x="900" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">22 opt-in contracts · CAP-001..022 · spec/14 · ADR-0010</text>
+  <text x="900" y="178" fill="#94a3b8" font-size="9" text-anchor="middle">ISelectable · IExpandable · ICollapsible · IClosable · ISearchable</text>
+  <text x="900" y="194" fill="#94a3b8" font-size="9" text-anchor="middle">IFilterable · IPageable · ICountable · ICrudable · IDialogProvider · …</text>
 
-  <rect x="288" y="145" width="248" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-  <text x="412" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/python — vmx</text>
-  <text x="412" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">Python 3.10..3.13 · snake_case · reactivex · mypy --strict</text>
-  <text x="412" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.4.0 on PyPI</text>
+  <!-- ROW 3: ViewModel hierarchy -->
+  <text x="600" y="234" fill="#34d399" font-size="10" font-weight="600" text-anchor="middle">ViewModel hierarchy · spec/05..09 + 18 + 20</text>
 
-  <rect x="546" y="145" width="248" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-  <text x="670" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/typescript — @thekaveh/vmx</text>
-  <text x="670" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">Node ≥18 · camelCase · rxjs · dual ESM + CJS</text>
-  <text x="670" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.4.0 on npm (renamed from `vmx`)</text>
+  <rect x="20" y="244" width="180" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="110" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">ComponentVM</text>
+  <text x="110" y="282" fill="#94a3b8" font-size="9" text-anchor="middle">leaf · &lt;M&gt; modeled · Readonly&lt;M&gt;</text>
+  <text x="110" y="298" fill="#94a3b8" font-size="9" text-anchor="middle">CVM-001..006</text>
+  <text x="110" y="316" fill="#34d399" font-size="8" text-anchor="middle">spec/05</text>
 
-  <rect x="804" y="145" width="266" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="6,3"/>
-  <text x="937" y="166" fill="white" font-size="12" font-weight="600" text-anchor="middle">langs/swift — VMx</text>
-  <text x="937" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">Swift 5.9 · camelCase · Combine · SPM</text>
-  <text x="937" y="198" fill="#22d3ee" font-size="8" text-anchor="middle">v2.4.0 Swift Package (subset, skeleton)</text>
+  <rect x="210" y="244" width="180" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="300" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">CompositeVM&lt;VM&gt;</text>
+  <text x="300" y="282" fill="#94a3b8" font-size="9" text-anchor="middle">selectable · Current slot</text>
+  <text x="300" y="298" fill="#94a3b8" font-size="9" text-anchor="middle">COMP-001..026</text>
+  <text x="300" y="316" fill="#34d399" font-size="8" text-anchor="middle">spec/06 · v2.6 hooks ADR-0042</text>
 
-  <line x1="154" y1="208" x2="154" y2="232" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="412" y1="208" x2="412" y2="232" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="670" y1="208" x2="670" y2="232" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="937" y1="208" x2="937" y2="232" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrowhead)"/>
+  <rect x="400" y="244" width="180" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="490" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">GroupVM&lt;VM&gt;</text>
+  <text x="490" y="282" fill="#94a3b8" font-size="9" text-anchor="middle">peers · no Current slot</text>
+  <text x="490" y="298" fill="#94a3b8" font-size="9" text-anchor="middle">GRP-001..010</text>
+  <text x="490" y="316" fill="#34d399" font-size="8" text-anchor="middle">spec/07</text>
 
-  <!-- LAYER 3 — CORE (v1.x baseline) -->
-  <rect x="30" y="238" width="800" height="380" rx="12" fill="rgba(15, 23, 42, 0.3)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
-  <text x="50" y="260" fill="#34d399" font-size="11" font-weight="700">Core (v1.x baseline)</text>
+  <rect x="590" y="244" width="180" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="680" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">AggregateVM1..6</text>
+  <text x="680" y="282" fill="#94a3b8" font-size="9" text-anchor="middle">heterogeneous · fixed arity</text>
+  <text x="680" y="298" fill="#94a3b8" font-size="9" text-anchor="middle">AGG-001..006</text>
+  <text x="680" y="316" fill="#34d399" font-size="8" text-anchor="middle">spec/08 · ADR-0034 (arity 6)</text>
 
-  <rect x="50" y="278" width="190" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="145" y="298" fill="white" font-size="11" font-weight="600" text-anchor="middle">Lifecycle state machine</text>
-  <text x="145" y="316" fill="#94a3b8" font-size="9" text-anchor="middle">Destructed → Constructing →</text>
-  <text x="145" y="328" fill="#94a3b8" font-size="9" text-anchor="middle">Constructed → Destructing → Disposed</text>
-  <text x="145" y="346" fill="#34d399" font-size="8" text-anchor="middle">spec/02 · LIFE-001..013</text>
+  <rect x="780" y="244" width="200" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="880" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">Forwarding decorators</text>
+  <text x="880" y="282" fill="#94a3b8" font-size="9" text-anchor="middle">wrap + re-expose surface</text>
+  <text x="880" y="298" fill="#94a3b8" font-size="9" text-anchor="middle">FWD-001..003</text>
+  <text x="880" y="316" fill="#34d399" font-size="8" text-anchor="middle">spec/09</text>
 
-  <rect x="260" y="278" width="190" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="355" y="298" fill="white" font-size="11" font-weight="600" text-anchor="middle">MessageHub</text>
-  <text x="355" y="316" fill="#94a3b8" font-size="9" text-anchor="middle">PropertyChangedMessage</text>
-  <text x="355" y="328" fill="#94a3b8" font-size="9" text-anchor="middle">ConstructionStatusChangedMessage</text>
-  <text x="355" y="346" fill="#34d399" font-size="8" text-anchor="middle">spec/03 · HUB / PROP-NNN</text>
+  <rect x="990" y="244" width="190" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="1085" y="266" fill="white" font-size="11" font-weight="600" text-anchor="middle">HierarchicalVM</text>
+  <text x="1085" y="282" fill="#94a3b8" font-size="9" text-anchor="middle">recursive tree · v2.1+</text>
+  <text x="1085" y="298" fill="#94a3b8" font-size="9" text-anchor="middle">HIER-001..018</text>
+  <text x="1085" y="316" fill="#34d399" font-size="8" text-anchor="middle">spec/18 · ADR-0028</text>
 
-  <rect x="470" y="278" width="190" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="565" y="298" fill="white" font-size="11" font-weight="600" text-anchor="middle">RxDispatcher</text>
-  <text x="565" y="316" fill="#94a3b8" font-size="9" text-anchor="middle">Foreground + Background</text>
-  <text x="565" y="328" fill="#94a3b8" font-size="9" text-anchor="middle">IScheduler pair</text>
-  <text x="565" y="346" fill="#34d399" font-size="8" text-anchor="middle">spec/11 · THR-001..004</text>
+  <!-- ROW 4: Commands + FormVM -->
+  <text x="600" y="346" fill="#34d399" font-size="10" font-weight="600" text-anchor="middle">Commands · spec/04 + FormVM · spec/20</text>
 
-  <rect x="680" y="278" width="135" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="747" y="298" fill="white" font-size="11" font-weight="600" text-anchor="middle">Builders</text>
-  <text x="747" y="316" fill="#94a3b8" font-size="9" text-anchor="middle">immutable fluent</text>
-  <text x="747" y="328" fill="#94a3b8" font-size="9" text-anchor="middle">validate on Build()</text>
-  <text x="747" y="346" fill="#34d399" font-size="8" text-anchor="middle">spec/10 · BLD-001..005</text>
+  <rect x="20" y="356" width="220" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="130" y="378" fill="white" font-size="11" font-weight="600" text-anchor="middle">RelayCommand / &lt;T&gt;</text>
+  <text x="130" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">execute · canExecute · triggers</text>
+  <text x="130" y="410" fill="#94a3b8" font-size="9" text-anchor="middle">CMD-001..011 (incl. fluent v2.1)</text>
+  <text x="130" y="426" fill="#34d399" font-size="8" text-anchor="middle">RelayCommandBuilder · ADR-0027</text>
 
-  <rect x="50" y="372" width="765" height="120" rx="8" fill="rgba(6, 78, 59, 0.2)" stroke="#34d399" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="68" y="390" fill="#34d399" font-size="10" font-weight="700">ViewModel hierarchy (spec/05..09)</text>
+  <rect x="250" y="356" width="200" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="350" y="378" fill="white" font-size="11" font-weight="600" text-anchor="middle">CompositeCommand</text>
+  <text x="350" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">aggregate N inner commands</text>
+  <text x="350" y="410" fill="#94a3b8" font-size="9" text-anchor="middle">CMD-002 (v2.0)</text>
+  <text x="350" y="426" fill="#34d399" font-size="8" text-anchor="middle">all-must-canExecute gate</text>
 
-  <rect x="68" y="402" width="170" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="153" y="421" fill="white" font-size="11" font-weight="600" text-anchor="middle">ComponentVM</text>
-  <text x="153" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">leaf · &lt;M&gt; modeled</text>
-  <text x="153" y="450" fill="#94a3b8" font-size="9" text-anchor="middle">Readonly&lt;M&gt; immutable</text>
-  <text x="153" y="468" fill="#34d399" font-size="8" text-anchor="middle">CVM-001..006</text>
+  <rect x="460" y="356" width="210" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="565" y="378" fill="white" font-size="11" font-weight="600" text-anchor="middle">DecoratorCommand chain</text>
+  <text x="565" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">pre/post · can-execute gate</text>
+  <text x="565" y="410" fill="#94a3b8" font-size="9" text-anchor="middle">CMDD-001..009</text>
+  <text x="565" y="426" fill="#34d399" font-size="8" text-anchor="middle">ADR-0012 (decorators)</text>
 
-  <rect x="248" y="402" width="170" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="333" y="421" fill="white" font-size="11" font-weight="600" text-anchor="middle">CompositeVM&lt;VM&gt;</text>
-  <text x="333" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">selectable · Current slot</text>
-  <text x="333" y="450" fill="#94a3b8" font-size="9" text-anchor="middle">&lt;M, VM&gt; model-driven</text>
-  <text x="333" y="468" fill="#34d399" font-size="8" text-anchor="middle">COMP-001..024</text>
+  <rect x="680" y="356" width="240" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="800" y="378" fill="white" font-size="11" font-weight="600" text-anchor="middle">ConfirmationDecoratorCommand</text>
+  <text x="800" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">async confirm · NotificationHub bridge</text>
+  <text x="800" y="410" fill="#94a3b8" font-size="9" text-anchor="middle">ModeledCrudCommands&lt;M,VM&gt; (ADR-0016)</text>
+  <text x="800" y="426" fill="#34d399" font-size="8" text-anchor="middle">fluent v2.1 · confirm/precedeWith/succeedWith</text>
 
-  <rect x="428" y="402" width="170" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="513" y="421" fill="white" font-size="11" font-weight="600" text-anchor="middle">GroupVM&lt;VM&gt;</text>
-  <text x="513" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">peers · no Current</text>
-  <text x="513" y="450" fill="#94a3b8" font-size="9" text-anchor="middle">BatchUpdate · AutoConstruct</text>
-  <text x="513" y="468" fill="#34d399" font-size="8" text-anchor="middle">GRP-001..010</text>
+  <rect x="930" y="356" width="250" height="80" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="1055" y="378" fill="white" font-size="11" font-weight="600" text-anchor="middle">FormVM&lt;TM&gt;</text>
+  <text x="1055" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">snapshot / revert lifecycle · v2.1+</text>
+  <text x="1055" y="410" fill="#94a3b8" font-size="9" text-anchor="middle">FORM-001..014</text>
+  <text x="1055" y="426" fill="#34d399" font-size="8" text-anchor="middle">spec/20 · ADR-0030</text>
 
-  <rect x="608" y="402" width="190" height="76" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="703" y="421" fill="white" font-size="11" font-weight="600" text-anchor="middle">AggregateVM1..5</text>
-  <text x="703" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">fixed-arity tuple</text>
-  <text x="703" y="450" fill="#94a3b8" font-size="9" text-anchor="middle">heterogeneous slots</text>
-  <text x="703" y="468" fill="#34d399" font-size="8" text-anchor="middle">AGG-001..005</text>
+  <!-- ROW 5: Services + Notifications -->
+  <text x="600" y="448" fill="#a78bfa" font-size="10" font-weight="600" text-anchor="middle">Services · constructor-injected (ADR-0003) · null-object variants (ADR-0017)</text>
 
-  <rect x="50" y="506" width="240" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="170" y="525" fill="white" font-size="11" font-weight="600" text-anchor="middle">RelayCommand / RelayCommand&lt;T&gt;</text>
-  <text x="170" y="542" fill="#94a3b8" font-size="9" text-anchor="middle">predicate · task · reactive triggers</text>
-  <text x="170" y="556" fill="#34d399" font-size="8" text-anchor="middle">spec/04 · CMD-001..007 (CMD-008..011 in v2.1 box)</text>
+  <rect x="20" y="456" width="190" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="115" y="478" fill="white" font-size="11" font-weight="600" text-anchor="middle">MessageHub&lt;M&gt;</text>
+  <text x="115" y="494" fill="#94a3b8" font-size="9" text-anchor="middle">Rx Subject-backed pub/sub</text>
+  <text x="115" y="510" fill="#94a3b8" font-size="9" text-anchor="middle">HUB-001..007 · spec/03</text>
+  <text x="115" y="526" fill="#a78bfa" font-size="8" text-anchor="middle">NullMessageHub (always safe)</text>
 
-  <rect x="305" y="506" width="240" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="425" y="525" fill="white" font-size="11" font-weight="600" text-anchor="middle">Forwarding decorators</text>
-  <text x="425" y="542" fill="#94a3b8" font-size="9" text-anchor="middle">ForwardingComponentVM / CompositeVM</text>
-  <text x="425" y="556" fill="#34d399" font-size="8" text-anchor="middle">spec/09 · FWD-001..003</text>
+  <rect x="220" y="456" width="190" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="315" y="478" fill="white" font-size="11" font-weight="600" text-anchor="middle">RxDispatcher</text>
+  <text x="315" y="494" fill="#94a3b8" font-size="9" text-anchor="middle">fg + bg IScheduler pair</text>
+  <text x="315" y="510" fill="#94a3b8" font-size="9" text-anchor="middle">THR-001..004 · spec/11</text>
+  <text x="315" y="526" fill="#a78bfa" font-size="8" text-anchor="middle">NullDispatcher (always safe)</text>
 
-  <rect x="560" y="506" width="255" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="687" y="525" fill="white" font-size="11" font-weight="600" text-anchor="middle">Tree utilities</text>
-  <text x="687" y="542" fill="#94a3b8" font-size="9" text-anchor="middle">walk · find · walk_expanded (v2.0)</text>
-  <text x="687" y="556" fill="#34d399" font-size="8" text-anchor="middle">spec/13 · UTIL-001..003</text>
+  <rect x="420" y="456" width="180" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="510" y="478" fill="white" font-size="11" font-weight="600" text-anchor="middle">ILocalizer</text>
+  <text x="510" y="494" fill="#94a3b8" font-size="9" text-anchor="middle">i18n hook</text>
+  <text x="510" y="510" fill="#94a3b8" font-size="9" text-anchor="middle">LOC-001..003 · spec/17</text>
+  <text x="510" y="526" fill="#a78bfa" font-size="8" text-anchor="middle">NullLocalizer · ADR-0019</text>
 
-  <rect x="50" y="578" width="765" height="28" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
-  <text x="62" y="596" fill="#fb923c" font-size="9" font-weight="600">Null-object variants (ADR-0017):</text>
-  <text x="232" y="596" fill="#94a3b8" font-size="9">NullMessageHub  ·  NullDispatcher  ·  NullLocalizer  ·  NullNotificationHub</text>
+  <rect x="610" y="456" width="180" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="700" y="478" fill="white" font-size="11" font-weight="600" text-anchor="middle">IDialogService</text>
+  <text x="700" y="494" fill="#94a3b8" font-size="9" text-anchor="middle">file / confirm / notify (v2.1+)</text>
+  <text x="700" y="510" fill="#94a3b8" font-size="9" text-anchor="middle">DIA-001..008 · spec/19</text>
+  <text x="700" y="526" fill="#a78bfa" font-size="8" text-anchor="middle">NullDialogService · ADR-0029</text>
 
-  <!-- LAYER 4 — v2.0+v2.1 ADDITIONS -->
-  <rect x="850" y="238" width="220" height="380" rx="12" fill="rgba(15, 23, 42, 0.3)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
-  <text x="870" y="260" fill="#a78bfa" font-size="11" font-weight="700">v2.0+v2.1 additions (opt-in)</text>
+  <rect x="800" y="456" width="380" height="80" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+  <text x="990" y="478" fill="white" font-size="11" font-weight="600" text-anchor="middle">Notifications sub-package · opt-in · separate distribution</text>
+  <text x="990" y="494" fill="#94a3b8" font-size="9" text-anchor="middle">INotificationHub · NotificationVM · ConfirmationVM</text>
+  <text x="990" y="510" fill="#94a3b8" font-size="9" text-anchor="middle">NOTIF-001..017 · spec/16 · ADR-0013 + ADR-0031</text>
+  <text x="990" y="526" fill="#fb923c" font-size="8" text-anchor="middle">NullNotificationHub · bridges ConfirmationDecoratorCommand</text>
 
-  <rect x="870" y="278" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="960" y="296" fill="white" font-size="11" font-weight="600" text-anchor="middle">Capability interfaces</text>
-  <text x="960" y="313" fill="#94a3b8" font-size="9" text-anchor="middle">22 micro-contracts: opt-in</text>
-  <text x="960" y="325" fill="#94a3b8" font-size="8" text-anchor="middle">ISelectable · IExpandable · IClosable</text>
-  <text x="960" y="337" fill="#94a3b8" font-size="8" text-anchor="middle">IFilterable · IPageable (v2.1) · …</text>
-  <text x="960" y="354" fill="#a78bfa" font-size="8" text-anchor="middle">spec/14 · CAP-001..022</text>
+  <!-- ROW 6: Messages, State, Collections, Tree, Builders -->
+  <rect x="20" y="550" width="240" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="140" y="572" fill="white" font-size="11" font-weight="600" text-anchor="middle">Messages</text>
+  <text x="140" y="588" fill="#94a3b8" font-size="9" text-anchor="middle">PropertyChangedMessage</text>
+  <text x="140" y="604" fill="#94a3b8" font-size="9" text-anchor="middle">ConstructionStatusChangedMessage</text>
+  <text x="140" y="620" fill="#a78bfa" font-size="8" text-anchor="middle">TreeStructureChangedMessage (v2.1)</text>
 
-  <rect x="870" y="384" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="960" y="402" fill="white" font-size="11" font-weight="600" text-anchor="middle">State helpers</text>
-  <text x="960" y="419" fill="#94a3b8" font-size="9" text-anchor="middle">ExpandableState</text>
-  <text x="960" y="431" fill="#94a3b8" font-size="9" text-anchor="middle">SearchableState&lt;T&gt;</text>
-  <text x="960" y="443" fill="#94a3b8" font-size="9" text-anchor="middle">DerivedProperty&lt;TValue&gt;</text>
-  <text x="960" y="460" fill="#a78bfa" font-size="8" text-anchor="middle">spec/15 · EXP / DPROP-NNN</text>
+  <rect x="270" y="550" width="220" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="380" y="572" fill="white" font-size="11" font-weight="600" text-anchor="middle">State helpers</text>
+  <text x="380" y="588" fill="#94a3b8" font-size="9" text-anchor="middle">DerivedProperty · SearchableState</text>
+  <text x="380" y="604" fill="#94a3b8" font-size="9" text-anchor="middle">ExpandableState · v2.0+</text>
+  <text x="380" y="620" fill="#a78bfa" font-size="8" text-anchor="middle">DPROP-001..012 · EXP-001..005 · ADR-0011/14/15</text>
 
-  <rect x="870" y="490" width="180" height="92" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="960" y="508" fill="white" font-size="11" font-weight="600" text-anchor="middle">Command decorators</text>
-  <text x="960" y="525" fill="#94a3b8" font-size="9" text-anchor="middle">CompositeCommand · Decorator</text>
-  <text x="960" y="537" fill="#94a3b8" font-size="9" text-anchor="middle">ConfirmationDecorator · fluent (v2.1)</text>
-  <text x="960" y="549" fill="#94a3b8" font-size="9" text-anchor="middle">ModeledCrudCommands&lt;M,VM&gt;</text>
-  <text x="960" y="566" fill="#a78bfa" font-size="8" text-anchor="middle">CMDD-001..009 · CMD-008..011 · COMP-019..024</text>
+  <rect x="500" y="550" width="260" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="630" y="572" fill="white" font-size="11" font-weight="600" text-anchor="middle">Collections (v2.1)</text>
+  <text x="630" y="588" fill="#94a3b8" font-size="9" text-anchor="middle">ServicedObservableCollection · ObservableList</text>
+  <text x="630" y="604" fill="#94a3b8" font-size="9" text-anchor="middle">ObservableDictionary · PagedComposition</text>
+  <text x="630" y="620" fill="#a78bfa" font-size="8" text-anchor="middle">COL-001..023 · spec/21 · ADR-0024/25/26</text>
 
-  <rect x="870" y="586" width="180" height="20" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
-  <text x="960" y="600" fill="#fb923c" font-size="9" text-anchor="middle">ILocalizer (spec/17 · LOC-001..003)</text>
+  <rect x="770" y="550" width="180" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="860" y="572" fill="white" font-size="11" font-weight="600" text-anchor="middle">Tree utilities</text>
+  <text x="860" y="588" fill="#94a3b8" font-size="9" text-anchor="middle">walk · find · walk_expanded</text>
+  <text x="860" y="604" fill="#94a3b8" font-size="9" text-anchor="middle">UTIL-001..003 · spec/13</text>
+  <text x="860" y="620" fill="#a78bfa" font-size="8" text-anchor="middle">DFS pre-order · gated by IExpandable</text>
 
-  <!-- LAYER 5 — OPT-IN SUB-PACKAGE -->
-  <rect x="30" y="650" width="1040" height="100" rx="12" fill="rgba(136, 19, 55, 0.2)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
-  <text x="50" y="672" fill="#fb7185" font-size="11" font-weight="700">Opt-in sub-package (spec/16 · NOTIF-001..016 · ADR-0013 + ADR-0031)</text>
-  <text x="50" y="688" fill="#94a3b8" font-size="9">C# separate assembly · Python sub-package · TS sub-path export</text>
+  <rect x="960" y="550" width="220" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="1070" y="572" fill="white" font-size="11" font-weight="600" text-anchor="middle">Builders · fluent · immutable</text>
+  <text x="1070" y="588" fill="#94a3b8" font-size="9" text-anchor="middle">validate on Build()</text>
+  <text x="1070" y="604" fill="#94a3b8" font-size="9" text-anchor="middle">BLD-001..005 · spec/10</text>
+  <text x="1070" y="620" fill="#fbbf24" font-size="8" text-anchor="middle">v2.6 hooks (ADR-0042 modeled/factory)</text>
 
-  <rect x="50" y="700" width="240" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
-  <text x="170" y="718" fill="white" font-size="11" font-weight="600" text-anchor="middle">Notification primitives</text>
-  <text x="170" y="732" fill="#94a3b8" font-size="9" text-anchor="middle">Notification · Type · Reaction</text>
+  <!-- ROW 7: Flavor surfaces -->
+  <text x="600" y="654" fill="#fbbf24" font-size="10" font-weight="600" text-anchor="middle">Flavor surfaces · idiomatic per ADR-0006 · spec implementation contract</text>
 
-  <rect x="310" y="700" width="240" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
-  <text x="430" y="718" fill="white" font-size="11" font-weight="600" text-anchor="middle">INotificationHub</text>
-  <text x="430" y="732" fill="#94a3b8" font-size="9" text-anchor="middle">async Post / Resolve / Pending</text>
+  <rect x="20" y="664" width="280" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="160" y="686" fill="white" font-size="11" font-weight="600" text-anchor="middle">langs/csharp — VMx</text>
+  <text x="160" y="702" fill="#94a3b8" font-size="9" text-anchor="middle">v2.6.0 on NuGet</text>
+  <text x="160" y="718" fill="#94a3b8" font-size="9" text-anchor="middle">netstandard2.0 + net8.0 · PascalCase</text>
+  <text x="160" y="734" fill="#fbbf24" font-size="8" text-anchor="middle">System.Reactive · + DI + Notifications side-packages</text>
 
-  <rect x="570" y="700" width="240" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
-  <text x="690" y="718" fill="white" font-size="11" font-weight="600" text-anchor="middle">NullNotificationHub</text>
-  <text x="690" y="732" fill="#94a3b8" font-size="9" text-anchor="middle">Post resolves Approve immediately</text>
+  <rect x="310" y="664" width="280" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="450" y="686" fill="white" font-size="11" font-weight="600" text-anchor="middle">langs/python — vmx</text>
+  <text x="450" y="702" fill="#94a3b8" font-size="9" text-anchor="middle">v2.6.1 on PyPI · Trusted Publishing</text>
+  <text x="450" y="718" fill="#94a3b8" font-size="9" text-anchor="middle">Python 3.10..3.13 · snake_case · reactivex</text>
+  <text x="450" y="734" fill="#fbbf24" font-size="8" text-anchor="middle">mypy --strict · opt-in vmx.notifications subpackage</text>
 
-  <rect x="830" y="700" width="220" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
-  <text x="940" y="718" fill="white" font-size="11" font-weight="600" text-anchor="middle">ConfirmHelper</text>
-  <text x="940" y="732" fill="#94a3b8" font-size="9" text-anchor="middle">bridges Confirmation→delegate</text>
+  <rect x="600" y="664" width="280" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="740" y="686" fill="white" font-size="11" font-weight="600" text-anchor="middle">langs/typescript — @thekaveh/vmx</text>
+  <text x="740" y="702" fill="#94a3b8" font-size="9" text-anchor="middle">v2.6.0 on npm · scoped (renamed v2.4.0)</text>
+  <text x="740" y="718" fill="#94a3b8" font-size="9" text-anchor="middle">Node ≥20 · camelCase · rxjs</text>
+  <text x="740" y="734" fill="#fbbf24" font-size="8" text-anchor="middle">dual ESM + CJS · @thekaveh/vmx/notifications subpath</text>
 
-  <path d="M 940 700 Q 940 660 960 612 L 960 586" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
-  <text x="978" y="660" fill="#fb7185" font-size="8">bridge</text>
+  <rect x="890" y="664" width="290" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="1035" y="686" fill="white" font-size="11" font-weight="600" text-anchor="middle">langs/swift — VMx (Swift Package)</text>
+  <text x="1035" y="702" fill="#94a3b8" font-size="9" text-anchor="middle">v2.6.0 (subset · 41/237 IDs) · SPM</text>
+  <text x="1035" y="718" fill="#94a3b8" font-size="9" text-anchor="middle">Swift 5.9 · camelCase · Combine</text>
+  <text x="1035" y="734" fill="#fbbf24" font-size="8" text-anchor="middle">macOS-only CI · traps illegal transitions (ADR-0037)</text>
+
+  <!-- ARROWS: spec implements (dashed vertical lines, behind) -->
+  <line x1="160" y1="100" x2="160" y2="660" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" opacity="0.35"/>
+  <line x1="450" y1="100" x2="450" y2="660" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" opacity="0.35"/>
+  <line x1="740" y1="100" x2="740" y2="660" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" opacity="0.35"/>
+  <line x1="1035" y1="100" x2="1035" y2="660" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" opacity="0.35"/>
+  <text x="20" y="115" fill="#22d3ee" font-size="8" font-weight="600">implements (parity per ADR-0006)</text>
 
   <!-- LEGEND -->
-  <text x="50" y="790" fill="white" font-size="11" font-weight="700">Legend</text>
+  <text x="20" y="785" fill="white" font-size="11" font-weight="600">Legend</text>
 
-  <rect x="50" y="802" width="18" height="12" rx="3" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-  <text x="76" y="812" fill="#94a3b8" font-size="9">Spec (source of truth)</text>
+  <rect x="20" y="795" width="18" height="12" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+  <text x="44" y="805" fill="#94a3b8" font-size="9">Spec (cyan) · source of truth</text>
 
-  <rect x="220" y="802" width="18" height="12" rx="3" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-  <text x="246" y="812" fill="#94a3b8" font-size="9">Flavor surface (C# / Py / TS)</text>
+  <rect x="240" y="795" width="18" height="12" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+  <text x="264" y="805" fill="#94a3b8" font-size="9">Core library (emerald) · lifecycle, VMs, commands</text>
 
-  <rect x="430" y="802" width="18" height="12" rx="3" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-  <text x="456" y="812" fill="#94a3b8" font-size="9">Core (v1.x baseline)</text>
+  <rect x="570" y="795" width="18" height="12" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+  <text x="594" y="805" fill="#94a3b8" font-size="9">Services + messages + state + collections (violet)</text>
 
-  <rect x="600" y="802" width="18" height="12" rx="3" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="626" y="812" fill="#94a3b8" font-size="9">v2.0+v2.1 additions (opt-in)</text>
+  <rect x="20" y="815" width="18" height="12" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+  <text x="44" y="825" fill="#94a3b8" font-size="9">Capability contracts (rose) · opt-in interfaces</text>
 
-  <rect x="780" y="802" width="18" height="12" rx="3" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="3,3"/>
-  <text x="806" y="812" fill="#94a3b8" font-size="9">Sub-package (separate dist)</text>
+  <rect x="240" y="815" width="18" height="12" rx="2" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
+  <text x="264" y="825" fill="#94a3b8" font-size="9">Sub-package (orange) · opt-in distribution</text>
 
-  <rect x="50" y="822" width="18" height="12" rx="3" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
-  <text x="76" y="832" fill="#94a3b8" font-size="9">Null-object variant (always safe)</text>
+  <rect x="570" y="815" width="18" height="12" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+  <text x="594" y="825" fill="#94a3b8" font-size="9">Packaging + flavor surfaces (amber)</text>
 
-  <line x1="240" y1="828" x2="270" y2="828" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
-  <text x="278" y="832" fill="#94a3b8" font-size="9">spec implementation contract</text>
+  <line x1="930" y1="801" x2="950" y2="801" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" opacity="0.6"/>
+  <text x="955" y="805" fill="#94a3b8" font-size="9">implements / spec-conforms</text>
 
-  <line x1="500" y1="828" x2="530" y2="828" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <text x="538" y="832" fill="#94a3b8" font-size="9">dependency (uses)</text>
-
-  <line x1="700" y1="828" x2="730" y2="828" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
-  <text x="738" y="832" fill="#94a3b8" font-size="9">opt-in bridge</text>
-
-  <text x="550" y="868" fill="#475569" font-size="9" text-anchor="middle">Generated via the architecture-diagram skill — re-run when spec / source diverges.</text>
+  <text x="1180" y="858" fill="#475569" font-size="8" text-anchor="end">VMx · spec/VERSION 2.6.0 · 4 flavors · cluster-level architecture map</text>
 </svg>
