@@ -30,7 +30,7 @@ import { ComponentVMOf, IMessageHub, PropertyChangedMessage } from "@thekaveh/vm
 
 export function vmStore<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
-  hub: IMessageHub<unknown>,
+  hub: IMessageHub,
   property: K
 ): Readable<ComponentVMOf<M>[K]> {
   return readable(vm[property], (set) => {
@@ -49,7 +49,7 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 <script lang="ts">
   import { vmStore } from "$lib/vmStore";
   export let vm: ComponentVMOf<Note>;
-  export let hub: IMessageHub<unknown>;
+  export let hub: IMessageHub;
   const model = vmStore(vm, hub, "model");
 </script>
 

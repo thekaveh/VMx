@@ -107,7 +107,7 @@ userVM.construct();
 
 // Update the model.
 userVM.model = { name: "Alice Smith", email: "asmith@example.com" };
-// stdout: "Property 'Model' changed on user-card"
+// stdout: "Property 'model' changed on user-card"
 
 console.log(userVM.modeledHint); // "Alice Smith"
 console.log(userVM.isConstructed); // true

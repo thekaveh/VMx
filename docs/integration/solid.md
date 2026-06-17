@@ -29,7 +29,7 @@ import { ComponentVMOf, IMessageHub, PropertyChangedMessage } from "@thekaveh/vm
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
-  hub: IMessageHub<unknown>,
+  hub: IMessageHub,
   property: K
 ): Accessor<ComponentVMOf<M>[K]> {
   const [value, setValue] = createSignal(vm[property]);
@@ -43,7 +43,7 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   return value;
 }
 
-export function NoteView(props: { vm: ComponentVMOf<Note>; hub: IMessageHub<unknown> }) {
+export function NoteView(props: { vm: ComponentVMOf<Note>; hub: IMessageHub }) {
   const model = useVm(props.vm, props.hub, "model");
   return (
     <>

@@ -122,7 +122,7 @@ userVM.Construct();
 // Update the model — triggers OnModelChanged and publishes PropertyChangedMessage.
 userVM.Model = new UserModel("Alice Smith", "asmith@example.com");
 
-Console.WriteLine(userVM.Hint);  // "Alice Smith"  (ModeledHinter result)
+Console.WriteLine(userVM.ModeledHint);  // "Alice Smith"  (ModeledHinter result)
 ```
 
 > See `spec/05-component-vm.md` for the full `IComponentVM<M>` contract and
