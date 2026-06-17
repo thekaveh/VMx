@@ -1,165 +1,133 @@
 # Releasing the `vmx` Python package
 
-This runbook documents how to publish a new version of `vmx` to PyPI.
+This runbook documents how `vmx` is published to PyPI.
 
-The release pipeline lives in `.github/workflows/release.yml` (three Python jobs:
-`python`, `python-publish`, `python-release-notes`). It is triggered by pushing a
-tag of the form `python-v<MAJOR>.<MINOR>.<PATCH>`.
+The release pipeline has two halves:
+
+- **Routine releases.** `release-please` watches `main` for Conventional
+  Commits and maintains a long-lived "release PR" that bumps the version
+  in `langs/python/src/vmx/__about__.py` and writes the new section in
+  `langs/python/CHANGELOG.md`. Merging that PR pushes a `python-v<X.Y.Z>`
+  tag, which fires the publish pipeline.
+- **Publish pipeline.** `.github/workflows/release.yml` runs four jobs on
+  the new tag: `python-test` (full pytest matrix gate), `python-build-and-publish`
+  (gated on the `pypi-python` GitHub environment for manual approval, then
+  Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740) attestations),
+  `python-verify-published` (5-attempt fresh-venv `pip install` + smoke test),
+  and `python-release-notes` (CHANGELOG-extracted GitHub Release).
+
+No API tokens. No Test PyPI. Trusted Publishing only.
 
 ## 1. Prerequisites (one-time, done by the package owner)
 
 ### 1.1 PyPI Trusted Publisher
 
-- Create a PyPI account at <https://pypi.org/account/register/> if you don't have one.
-- On <https://pypi.org/manage/account/publishing/>, "Add a new pending publisher" with:
-  - PyPI project name: `vmx`
-  - Owner: `thekaveh`
-  - Repository: `VMx`
-  - Workflow name: `release.yml`
-  - Environment: `pypi-prod`
+- A PyPI account at <https://pypi.org/account/register/> with 2FA enabled.
+- On <https://pypi.org/manage/account/publishing/>, "Add a new pending publisher":
 
-### 1.2 Test PyPI Trusted Publisher
+  | Field             | Value         |
+  | ----------------- | ------------- |
+  | PyPI Project Name | `vmx`         |
+  | Owner             | `thekaveh`    |
+  | Repository name   | `VMx`         |
+  | Workflow name     | `release.yml` |
+  | Environment name  | `pypi-python` |
 
-Repeat the same registration at <https://test.pypi.org/manage/account/publishing/>:
+### 1.2 GitHub environment `pypi-python`
 
-- Test PyPI project name: `vmx`
-- Owner / Repository / Workflow: same as above
-- Environment: `pypi-test`
-
-### 1.3 GitHub environments
-
-In the repo's Settings → Environments:
-
-- Create `pypi-test` — no protection rules.
-- Create `pypi-prod` — add "Required reviewers" and put yourself on the list. This is the manual approval gate.
-
-### 1.4 Verify
-
-Push a `python-v0.0.0a0` tag to a throwaway commit — the `python` job should run, fail the version-match check (because `__about__.py` says the current version, not `0.0.0a0`), and stop. That confirms the trigger wires correctly without actually publishing.
-
-Delete the bad tag locally and remotely:
-
-```bash
-git tag -d python-v0.0.0a0
-git push origin :refs/tags/python-v0.0.0a0
-```
+- In the repo's Settings → Environments, create `pypi-python`.
+- Under "Deployment protection rules", enable "Required reviewers" and add yourself.
+- Leave "Allow self review" unchecked — every publish requires an explicit click after the test gate passes.
+- (Optional) Set "Environment URL" to `https://pypi.org/p/vmx`.
 
 ## 2. Cutting a release
 
-### 2.1 Release-prep PR
+### 2.1 Routine release (release-please-driven)
 
-A release prep PR is the version-bump commit that lands the new version into `main`. Typical contents:
+1. Land Conventional-Commit-style PRs on `main` (`feat: …`, `fix: …`, `docs: …`, etc.).
+2. `release-please` opens a "chore(main): release vmx-python …" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry.
+3. If the spec version also bumped, update `__min_spec_version__` in the same PR (release-please does not auto-bump that — see the comment in `__about__.py`).
+4. Merge the release PR. release-please pushes a `python-v<X.Y.Z>` tag on the merge commit.
+5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
+6. The `python-build-and-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy".
+7. `python-verify-published` installs `vmx==<X.Y.Z>` from PyPI in a fresh venv with retry-on-CDN-lag (5 attempts × 30s backoff) and runs the smoke test.
+8. `python-release-notes` posts the matching CHANGELOG section as a GitHub Release.
 
-- Bump `langs/python/src/vmx/__about__.py` `__version__` and `__min_spec_version__`.
-- Add a `## [<version>] — YYYY-MM-DD` section to `langs/python/CHANGELOG.md` (move items from `[Unreleased]`).
-- Update `langs/python/README.md` if the version is mentioned (e.g., the v2.X.X status line).
-- Per-spec-bump rules in `CLAUDE.md` may require additional updates (compatibility matrix, count claims). Follow the existing checklist for the bump magnitude.
+### 2.2 Bootstrap release (manual tag, one-time)
 
-Open the PR, wait for `python.yml` + `conformance.yml` + `spec-discipline.yml` CI to pass, merge to `main`.
-
-### 2.2 Tag and push
-
-After the prep PR merges:
+For the very first release where `__about__.py` is already at the target version (so release-please won't propose a release PR for that version), push the tag manually:
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-# Verify the merge commit is what you want to publish:
-grep '^__version__' langs/python/src/vmx/__about__.py
-# Tag it (no prefix `v` — the tag is `python-v<version>`):
+grep '^__version__' langs/python/src/vmx/__about__.py    # confirm target version
 git tag python-v2.6.0
 git push origin python-v2.6.0
 ```
 
-### 2.3 Watch the workflow
+The same four publish jobs run.
 
-Open <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease>. The newest run for the `release` workflow has three Python jobs:
+### 2.3 Pre-release (`alpha`, `beta`, `rc`)
 
-1. **`python — build & test pypi`** — runs immediately. Builds, runs `twine check`, publishes to Test PyPI, pip-installs from Test PyPI, runs the smoke test. ~2 minutes.
-2. **`python — publish to PyPI`** — waits for **your approval**. When you see it pending, click "Review pending deployments", check `pypi-prod`, approve. The job then publishes to prod PyPI with Sigstore attestations.
-3. **`python — GitHub Release`** — runs after job 2 succeeds. Extracts the matching CHANGELOG section, posts a GitHub Release.
+PEP 440 segments are supported. Tag examples:
 
-### 2.4 Verify
-
-After the workflow completes:
-
-```bash
-# Verify prod PyPI page renders:
-curl -sS https://pypi.org/pypi/vmx/json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['info']['name'], d['info']['version'])"
-# Expected: vmx 2.6.0 (or whichever version)
-
-# Verify install in a fresh venv:
-python3 -m venv /tmp/vmx-verify
-/tmp/vmx-verify/bin/pip install --upgrade pip
-/tmp/vmx-verify/bin/pip install vmx==2.6.0
-/tmp/vmx-verify/bin/python langs/python/scripts/smoke_test.py 2.6.0
-# Expected: OK
-
-# Verify the GitHub Release exists:
-gh release view python-v2.6.0
-```
-
-## 3. Failure modes
-
-### 3.1 Test PyPI publish failed
-
-Symptom: Job 1 ends red at the "Publish to Test PyPI" step.
-
-Likely causes:
-
-- The Test PyPI Trusted Publisher is not yet registered for environment `pypi-test`. Re-register per §1.2.
-- The same version already exists on Test PyPI from a prior failed attempt. `skip-existing: true` should make this a no-op; if it doesn't, the issue is propagation lag — retry the workflow.
-
-### 3.2 Smoke test failed after Test PyPI install
-
-Symptom: Job 1 succeeds through the publish step but fails at "Smoke test from Test PyPI".
-
-Likely causes:
-
-- A required runtime import is missing or moved. Look at the error: `ImportError: cannot import name X from vmx`. Fix the `vmx/__init__.py` exports or update the smoke test to match the new public surface.
-- The package version was correctly tagged but `__about__.py` was not bumped before tagging — the smoke test catches this with the explicit `version` arg.
-
-The fix is a new release-prep PR + a new tag (e.g., `python-v2.6.1`). PyPI does NOT allow overwriting a published version, even on Test PyPI in many cases.
-
-### 3.3 Prod publish approval declined
-
-Symptom: Job 2 is pending; you click Review and choose Reject.
-
-Effect: Job 2 fails immediately, Job 3 does not run, nothing is published to prod PyPI. Test PyPI still has the version uploaded.
-
-To recover: address whatever issue caused you to reject, prep a new release with a new version (bump patch or minor), tag, push.
-
-### 3.4 Prod publish succeeded but the release is broken
-
-PyPI does not allow deletion of a published version. You can **yank** a release via the web UI at <https://pypi.org/manage/project/vmx/release/X.Y.Z/> ("Options" → "Yank release").
-
-After yanking, `pip install vmx` will not install the yanked version unless the user pins it exactly. Then publish a fix as a new patch version.
-
-### 3.5 GitHub Release creation failed
-
-Symptom: Jobs 1 and 2 succeed, Job 3 fails at "Extract CHANGELOG section" or "Create GitHub Release".
-
-Most common cause: the CHANGELOG doesn't have a `## [<version>] — <date>` section for the version being released. Add the section to `langs/python/CHANGELOG.md` on `main` (small follow-up PR), then re-run Job 3 from the Actions UI.
-
-## 4. Pre-release versions (alpha, beta, rc)
-
-PEP 440 supports pre-release segments: `2.7.0a1`, `2.7.0b2`, `2.7.0rc1`. The release pipeline tolerates these automatically (the tag-vs-version check just compares strings; the CHANGELOG section heading must match the version exactly, including the pre-release segment).
-
-Tag examples:
-
-- `python-v2.7.0a1` → publishes `vmx==2.7.0a1` to Test PyPI and prod PyPI.
+- `python-v2.7.0a1` → publishes `vmx==2.7.0a1` to PyPI.
 - `pip install vmx` (no version pin) will NOT pick up a pre-release; users must `pip install --pre vmx` or pin explicitly.
 
-The CHANGELOG section heading for a pre-release should also include the pre-release segment, e.g.,:
+The CHANGELOG section heading must match the version exactly (including the pre-release segment):
 
 ```
 ## [2.7.0a1] — 2026-07-15
 ```
 
-## 5. Spec compatibility
+For routine pre-releases via release-please, mark commits with `feat!:` / `fix!:` to drive the bump policy, or override the bump in the release-please PR before merging.
 
-`__min_spec_version__` in `langs/python/src/vmx/__about__.py` declares the minimum
-`spec/VERSION` this package implements. Bumping the spec major (e.g., 2.x → 3.0)
-requires a corresponding flavor major bump per the policy in `README.md` §6.1.
-The release pipeline does NOT enforce this — the spec-discipline GHA does, on the
-prep PR.
+## 3. Verifying a release
+
+```bash
+# PyPI page renders:
+curl -sS https://pypi.org/pypi/vmx/json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['info']['name'], d['info']['version'])"
+# → vmx 2.6.0
+
+# Install in a fresh venv:
+python3 -m venv /tmp/vmx-verify
+/tmp/vmx-verify/bin/pip install --upgrade pip
+/tmp/vmx-verify/bin/pip install vmx==2.6.0
+/tmp/vmx-verify/bin/python langs/python/scripts/smoke_test.py 2.6.0
+# → OK
+
+# GitHub Release:
+gh release view python-v2.6.0
+```
+
+## 4. Failure modes
+
+### 4.1 `python-test` failed
+
+The publish never reaches the build job. Fix the broken test on `main` and re-cut the tag — but since release-please-driven releases bump the version on the release PR, the tag for the same version will be different commits and the fix lands in a follow-up patch release.
+
+### 4.2 `python-build-and-publish` approval declined
+
+The environment publishes nothing. To recover: address whatever caused you to reject, land the fix, let release-please open a new release PR with a bumped version, merge.
+
+### 4.3 Publish succeeded but the release is broken
+
+PyPI does not allow deletion of a published version. Yank it via <https://pypi.org/manage/project/vmx/release/X.Y.Z/> ("Options" → "Yank release"). Then publish a fix as a new patch version.
+
+### 4.4 `python-verify-published` failed after publish
+
+This means PyPI accepted the upload but the package can't be installed or imported. Diagnose the error in the workflow log. The published artifact is permanent — the fix is a new patch release with the import/install fault corrected. Consider yanking the bad version.
+
+### 4.5 `python-release-notes` failed
+
+If the GitHub Release didn't get created (e.g., CHANGELOG section missing), re-run that job alone from the Actions UI after fixing the CHANGELOG. The PyPI artifact is already live.
+
+## 5. Tag scheme and multi-flavor coexistence
+
+Python releases use `python-v<X.Y.Z>`. Other flavors will adopt the same flavor-prefixed convention (`csharp-v*`, `typescript-v*`, `swift-v*`); `release.yml` already filters by prefix per job, so adding more flavors does not change the Python pipeline.
+
+`release-please-config.json` is monorepo-aware. When other flavors adopt release-please, add their package entries alongside `langs/python` — each gets its own component-prefixed tag and its own changelog.
+
+## 6. Spec compatibility
+
+`__min_spec_version__` in `langs/python/src/vmx/__about__.py` declares the minimum `spec/VERSION` this package implements. Bumping the spec major (e.g., 2.x → 3.0) requires a corresponding flavor major bump per the policy in `README.md` §6.1. The release pipeline does NOT enforce this — `.github/workflows/spec-discipline.yml` does, on the prep PR. release-please leaves `__min_spec_version__` untouched; bump it manually in the release PR review if a spec major bumps in the same window.

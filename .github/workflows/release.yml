@@ -45,18 +45,66 @@ jobs:
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
-  python:
-    # Job 1: build, validate, publish to Test PyPI, smoke-install.
-    # Trusted Publishing (OIDC) — no API token. Requires the PyPI/TestPyPI
-    # project `vmx` to have a Trusted Publisher registered for this repo +
-    # workflow + environment (see langs/python/RELEASING.md §Prerequisites).
-    name: python — build & test pypi
+  python-test:
+    # Gate: full test matrix before letting the publish job run. Without
+    # this, a tag push on a red branch would still publish to PyPI
+    # (versions can be yanked but not deleted — a poisoned release is
+    # permanent). The matrix mirrors python.yml's pull-request gate so a
+    # tag push receives the same coverage as a PR.
+    name: python — test before release
     if: startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
-    environment: pypi-test
+    timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          version: "0.11.19"
+          enable-cache: true
+          cache-dependency-glob: |
+            langs/python/pyproject.toml
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      - name: Sync dependencies
+        working-directory: langs/python
+        run: uv sync --all-extras
+      - name: Ruff lint
+        working-directory: langs/python
+        run: uv run ruff check src tests
+      - name: Ruff format check
+        working-directory: langs/python
+        run: uv run ruff format --check src tests
+      - name: mypy --strict
+        working-directory: langs/python
+        run: uv run mypy --strict src/vmx
+      - name: pytest
+        working-directory: langs/python
+        run: uv run pytest
+
+  python-build-and-publish:
+    # OIDC-based PyPI trusted publishing — no API token in repo secrets.
+    # The PyPI project `vmx` is configured with a Trusted Publisher pointing
+    # to this repo + workflow + environment `pypi-python`. The environment
+    # has a required-reviewer rule (see langs/python/RELEASING.md §1.2), so
+    # the publish job pauses for approval before any irreversible PyPI
+    # upload.
+    name: python — build & publish
+    needs: python-test
+    if: startsWith(github.ref, 'refs/tags/python-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi-python
+      url: https://pypi.org/p/vmx
+    permissions:
       id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
@@ -67,6 +115,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Verify tag matches package version
+        # PyPI uploads are permanent (yank-not-delete), so a typo'd tag
+        # (python-v2.6.1 against a 2.6.0 __about__.py) MUST abort before
+        # publish. verify-published would only catch it after the
+        # irreversible upload.
         run: |
           set -euo pipefail
           tag_version="${GITHUB_REF#refs/tags/python-v}"
@@ -82,85 +134,77 @@ jobs:
       # A single `uv build` defaults to "sdist first, then wheel-from-sdist"
       # which fails because pyproject.toml's `force-include` points outside
       # the project tree (../../spec/fixtures/lifecycle-transitions.json),
-      # and the sdist (correctly) omits files outside its root. Building each
-      # artifact from the live source tree sidesteps that.
+      # and the sdist (correctly) omits files outside its root. Building
+      # each artifact from the live source tree sidesteps that.
       - name: Build wheel
         run: uv build --project langs/python --wheel --out-dir dist
       - name: Build sdist
         run: uv build --project langs/python --sdist --out-dir dist
 
       - name: Twine check
+        # Catches common metadata issues (missing long_description, invalid
+        # RST/MD, malformed classifiers) before uploading. Cheap pre-flight.
         run: |
           set -euo pipefail
           uv tool run --from twine twine check dist/*
 
-      - name: Publish to Test PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
-        with:
-          packages-dir: dist/
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
-
-      - name: Smoke test from Test PyPI
-        run: |
-          set -euo pipefail
-          tag_version="${GITHUB_REF#refs/tags/python-v}"
-          uv venv /tmp/smoke --python 3.12
-          # Retry Test PyPI install up to 5 times — package propagation
-          # to the simple index can take ~30s after upload.
-          for attempt in 1 2 3 4 5; do
-            if /tmp/smoke/bin/pip install \
-                --index-url https://test.pypi.org/simple/ \
-                --extra-index-url https://pypi.org/simple/ \
-                "vmx==${tag_version}"; then
-              break
-            fi
-            if [ "$attempt" = "5" ]; then
-              echo "::error::Test PyPI install failed after 5 attempts" >&2
-              exit 1
-            fi
-            echo "Install attempt $attempt failed; retrying in 10s..."
-            sleep 10
-          done
-          /tmp/smoke/bin/python langs/python/scripts/smoke_test.py "$tag_version"
-
-      - name: Upload built artifacts for prod-publish job
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-dist
-          path: dist/
-          retention-days: 7
-          if-no-files-found: error
-
-  python-publish:
-    # Job 2: download artifacts from Job 1, publish the SAME bytes to prod
-    # PyPI with Sigstore attestations. Gated on `pypi-prod` environment
-    # (manual approval required — see langs/python/RELEASING.md).
-    name: python — publish to PyPI
-    needs: python
-    if: startsWith(github.ref, 'refs/tags/python-v')
-    runs-on: ubuntu-latest
-    environment: pypi-prod
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-dist
-          path: dist/
       - name: Publish to PyPI
+        # Sigstore attestations (`attestations: true`, PEP 740) ship signed
+        # provenance alongside the sdist and wheel.
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: dist/
           attestations: true
-          skip-existing: true
+
+  python-verify-published:
+    # Install the just-published release in a clean venv and import-check
+    # it. PyPI's CDN can lag tens of seconds after a successful upload, so
+    # retry up to 5 times with 30s backoff. Each attempt starts from a
+    # fresh venv to ensure a partial install on attempt N can't mask the
+    # regression on attempt N+1. No pip cache — fresh resolution catches
+    # PyPI propagation lag honestly.
+    name: python — verify published
+    needs: python-build-and-publish
+    if: startsWith(github.ref, 'refs/tags/python-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Wait for PyPI CDN + install in fresh venv
+        run: |
+          set -e
+          version="${GITHUB_REF#refs/tags/python-v}"
+          for attempt in 1 2 3 4 5; do
+            rm -rf .verify-venv
+            python -m venv .verify-venv
+            if .verify-venv/bin/python -m pip install --no-cache-dir "vmx==$version"; then
+              echo "✓ pip install succeeded on attempt $attempt"
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::pip install failed after 5 attempts; PyPI CDN propagation timeout"
+              exit 1
+            fi
+            echo "Attempt $attempt failed (PyPI CDN propagation lag?); waiting 30s..."
+            sleep 30
+          done
+      - name: Smoke test (import + version check + lifecycle round-trip)
+        run: |
+          set -e
+          version="${GITHUB_REF#refs/tags/python-v}"
+          .verify-venv/bin/python langs/python/scripts/smoke_test.py "$version"
 
   python-release-notes:
-    # Job 3: create a GitHub Release with the matching CHANGELOG section
-    # as the body. Runs only after prod publish succeeds.
+    # Create a GitHub Release with the matching CHANGELOG section as the
+    # body. Runs only after verify-published succeeds, so a GitHub Release
+    # exists iff the package is genuinely live and importable on PyPI.
     name: python — GitHub Release
-    needs: python-publish
+    needs: python-verify-published
     if: startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     permissions:

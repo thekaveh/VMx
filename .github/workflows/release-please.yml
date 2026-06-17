@@ -1,0 +1,34 @@
+name: release-please
+
+# release-please watches main for Conventional Commits and maintains a
+# long-lived "release PR" per package that bumps the version + updates
+# CHANGELOG.md according to what's accumulated since the last tag.
+# Merging that PR pushes a `python-v<X.Y.Z>` tag (the component prefix
+# comes from release-please-config.json's `component: python` setting,
+# which keeps tags coexisting with future `csharp-v*`, `typescript-v*`,
+# and `swift-v*` flavors), which fires `release.yml`'s tag-triggered
+# publish pipeline.
+#
+# Human gate stays on the release PR merge: review the version bump,
+# review the auto-generated CHANGELOG entry, then merge → tag fires →
+# publish runs → environment approval gates the actual PyPI upload.
+
+on:
+  push:
+    branches: [main]
+
+# release-please needs to push commits to its release branch and open
+# PRs against main. Everything else stays read-only.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
