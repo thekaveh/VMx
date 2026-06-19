@@ -35,6 +35,7 @@ public sealed class NoteVM
     private readonly Action<NoteVM>? _onSave;
     private readonly Func<NoteVM, Task<bool>>? _confirmDelete;
     private readonly INotificationHub? _notificationHub;
+    private readonly ICommand _innerDeleteCommand;
     private NoteModel _model;
 
     /// <inheritdoc/>
@@ -158,13 +159,13 @@ public sealed class NoteVM
         // invoke the host delete callback. Without a confirm delegate the
         // command stays plain — preserves tests that exercise the raw delete
         // path (e.g. NoteVMTests.DeleteCommand_invokes_OnDelete_callback).
-        var inner = RelayCommand.Builder()
+        _innerDeleteCommand = RelayCommand.Builder()
             .Predicate(() => CanDelete(this))
             .Task(() => PerformDelete(this))
             .Build();
         DeleteCommand = _confirmDelete is null
-            ? inner
-            : new ConfirmationDecoratorCommand(inner, () => _confirmDelete(this));
+            ? _innerDeleteCommand
+            : new ConfirmationDecoratorCommand(_innerDeleteCommand, () => _confirmDelete(this));
     }
 
     private void PerformDelete(NoteVM item)
@@ -184,7 +185,13 @@ public sealed class NoteVM
     {
         (CloseCommand as IDisposable)?.Dispose();
         (SaveCommand as IDisposable)?.Dispose();
+        // Dispose the decorator (detaches its CanExecuteChanged relay) AND the
+        // inner RelayCommand: ConfirmationDecoratorCommand.Dispose does not
+        // dispose its inner command, so disposing only DeleteCommand would leak
+        // the inner command in the decorated path. Idempotent when DeleteCommand
+        // IS the inner (no confirm delegate wired).
         (DeleteCommand as IDisposable)?.Dispose();
+        (_innerDeleteCommand as IDisposable)?.Dispose();
         base.OnDispose();
     }
 
