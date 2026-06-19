@@ -138,6 +138,9 @@ describe("AGG-004", () => {
     expect(propNames).toContain("component1");
     expect(propNames).toContain("component2");
     expect(propNames).toContain("component3");
+    // Exactly the three slot changes fire — no duplicate/spurious slot
+    // property-change (matches the Python AGG-004 `len == 3` assertion).
+    expect(propNames).toHaveLength(3);
   });
 });
 
