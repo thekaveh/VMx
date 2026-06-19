@@ -148,8 +148,17 @@ describe("UTIL-003", () => {
       .build();
     root.construct();
 
-    const result = find(root, (vm) => vm.name === "c2");
+    const visited: string[] = [];
+    const result = find(root, (vm) => {
+      visited.push(vm.name);
+      return vm.name === "c2";
+    });
     expect(result).toBe(c2);
+    // Short-circuits: the predicate is not invoked after the first match, so
+    // c3 (traversed after the matched c2) is never visited and c2 is the last
+    // predicate call — matches the Python/C# UTIL-003 visited-order assertion.
+    expect(visited[visited.length - 1]).toBe("c2");
+    expect(visited).not.toContain("c3");
 
     // When nothing matches, returns null.
     const missing = find(root, (vm) => vm.name === "ghost");
