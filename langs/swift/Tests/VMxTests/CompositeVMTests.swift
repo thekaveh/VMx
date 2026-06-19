@@ -50,14 +50,19 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(b.status, .constructed)
     }
 
-    /// COMP-005 — destruct cascades to (waits on) children.
+    /// COMP-005 — destruct cascades to (waits on) children, clears `current`,
+    /// and the composite itself reaches `.destructed`.
     func testComp005DestructCascades() {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
         c.construct()
+        c.current = a
+        XCTAssertTrue(c.current === a)
         c.destruct()
         XCTAssertEqual(a.status, .destructed)
+        XCTAssertNil(c.current)                 // current cleared on destruct
+        XCTAssertEqual(c.status, .destructed)   // composite itself destructed
     }
 
     /// Setting `current` to a child member updates the slot.
@@ -124,6 +129,7 @@ final class CompositeVMTests: XCTestCase {
         c.construct()
         a.select()
         XCTAssertTrue(c.current === a)
+        XCTAssertTrue(a.isCurrent)   // child's own isCurrent flag flips
     }
 
     // ── current(_:) builder hook (COMP-025) ─────────────────────────────
