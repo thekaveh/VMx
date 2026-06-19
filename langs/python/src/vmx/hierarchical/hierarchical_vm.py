@@ -5,7 +5,7 @@ See spec/18-hierarchical-vm.md and ADR-0028.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any, Generic, TypeVar
 
 from vmx.components.base import _ComponentVMBase
@@ -163,7 +163,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
     # ── __iter__ — supports walk / walk_expanded ─────────────────────────────
 
-    def __iter__(self) -> Any:
+    def __iter__(self) -> Iterator[TVM]:
         """Iterate materialized children — enables ``walk`` / ``walk_expanded``."""
         return iter(self.children)
 

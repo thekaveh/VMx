@@ -6,10 +6,6 @@ See spec/20-form-vm.md §7 — Hub messages.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass(frozen=True, slots=True)
