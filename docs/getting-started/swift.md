@@ -138,7 +138,7 @@ import VMx
 let canSaveTrigger = PassthroughSubject<Void, Never>()
 var isDirty = false
 
-let saveCommand = try RelayCommand.builder()
+let saveCommand = RelayCommand.builder()
     .task {
         print("Saving…")
         isDirty = false
