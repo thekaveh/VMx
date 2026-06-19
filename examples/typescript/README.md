@@ -34,13 +34,15 @@ npx tsx console/hello-vmx/index.ts
 **Run against the local source build (from a clone of this repo):**
 
 ```bash
-# From the repo root
+# From the repo root: build the library first
 cd langs/typescript
 npm ci
 npm run build
-cd ../../examples/typescript
-npm install ../../langs/typescript
-npx tsx console/hello-vmx/index.ts
+# Then run the example — its package.json already pins
+# "@thekaveh/vmx": "file:../../../../langs/typescript"
+cd ../../examples/typescript/console/hello-vmx
+npm install
+npm start
 ```
 
 ---

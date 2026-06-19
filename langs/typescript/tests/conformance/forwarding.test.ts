@@ -5,6 +5,7 @@ import {
   ComponentVMOf,
   CompositeVM,
   ComponentVM,
+  ConstructionStatus,
   ForwardingComponentVM,
   ForwardingCompositeVM,
 } from "../../src/index.js";
@@ -32,6 +33,7 @@ describe("FWD-001", () => {
 
     const fwd = new NoopForwarding();
 
+    // Identity / state / model read-through
     expect(fwd.name).toBe(inner.name);
     expect(fwd.hint).toBe(inner.hint);
     expect(fwd.type).toBe(inner.type);
@@ -39,10 +41,36 @@ describe("FWD-001", () => {
     expect(fwd.isConstructed).toBe(inner.isConstructed);
     expect(fwd.isCurrent).toBe(inner.isCurrent);
     expect(fwd.model).toBe(inner.model);
+    expect(fwd.modeledHint).toBe(inner.modeledHint);
 
+    // Command forwarders delegate to the SAME inner command instances
+    expect(fwd.selectCommand).toBe(inner.selectCommand);
+    expect(fwd.deselectCommand).toBe(inner.deselectCommand);
+    expect(fwd.selectNextCommand).toBe(inner.selectNextCommand);
+    expect(fwd.selectPreviousCommand).toBe(inner.selectPreviousCommand);
+    expect(fwd.reconstructCommand).toBe(inner.reconstructCommand);
+
+    // Lifecycle + selection predicates delegate to the wrapped VM
+    expect(fwd.canConstruct()).toBe(inner.canConstruct());
+    expect(fwd.canDestruct()).toBe(inner.canDestruct());
+    expect(fwd.canReconstruct()).toBe(inner.canReconstruct());
+    expect(fwd.canSelect()).toBe(inner.canSelect());
+    expect(fwd.canDeselect()).toBe(inner.canDeselect());
+
+    // Lifecycle mutators call through to the wrapped VM, observed via inner
+    // state (legal order: construct → reconstruct → destruct → dispose).
     fwd.construct();
     expect(inner.isConstructed).toBe(true);
     expect(fwd.isConstructed).toBe(true);
+
+    fwd.reconstruct();
+    expect(inner.status).toBe(ConstructionStatus.Constructed);
+
+    fwd.destruct();
+    expect(inner.status).toBe(ConstructionStatus.Destructed);
+
+    fwd.dispose();
+    expect(inner.status).toBe(ConstructionStatus.Disposed);
   });
 });
 

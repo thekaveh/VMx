@@ -86,7 +86,7 @@ class NoteVM(
         # the delete in a ConfirmationDecoratorCommand. The inner command
         # invokes `_perform_delete`, which posts a "Note deleted" notification
         # (if a hub is wired) and calls the host delete callback.
-        inner_delete: Command = (
+        self._inner_delete_command = (
             RelayCommand.builder()
             .predicate(lambda: self.can_delete(self))
             .task(lambda: self._perform_delete(self))
@@ -94,11 +94,11 @@ class NoteVM(
         )
         self._delete_command: Command = (
             ConfirmationDecoratorCommand(
-                inner_delete,
+                self._inner_delete_command,
                 lambda: confirm_delete(self),
             )
             if confirm_delete is not None
-            else inner_delete
+            else self._inner_delete_command
         )
 
     # ── Convenience accessors / proxies ────────────────────────────────────
@@ -203,10 +203,10 @@ class NoteVM(
     def _on_dispose(self) -> None:
         self._close_command.dispose()
         self._save_command.dispose()
-        # ConfirmationDecoratorCommand is not Disposable in VMx-Py; only
-        # dispose the inner RelayCommand when delete_command is undecorated.
-        if isinstance(self._delete_command, RelayCommand):
-            self._delete_command.dispose()
+        # ConfirmationDecoratorCommand owns nothing to dispose in VMx-Py; dispose
+        # the raw inner RelayCommand explicitly so its can_execute subscriptions
+        # don't leak when the delete command is decorated (matches the TS flavor).
+        self._inner_delete_command.dispose()
         super()._on_dispose()
 
     # ── Builder entry-point ────────────────────────────────────────────────

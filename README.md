@@ -135,7 +135,8 @@ Each flavor implements the same conceptual stack:
 
 The **Swift flavor is a skeleton subset** (41 of 237 conformance IDs as
 of v2.6.0), covering the lifecycle + leaf / composite / group / aggregate
-viewmodel families + builders only. Full cross-flavor conformance parity
+viewmodel families plus builders and commands. Full
+cross-flavor conformance parity
 lands in a follow-up release. See
 [`langs/swift/README.md`](langs/swift/README.md) §5 for the
 in / deferred matrix. The C# flavor multi-targets `netstandard2.0` and

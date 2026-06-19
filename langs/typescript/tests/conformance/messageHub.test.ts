@@ -191,6 +191,9 @@ describe("HUB-007", () => {
     hub.send(makeMsg("msg1"));
     hub.send(makeMsg("msg2"));
 
-    expect(received).toHaveLength(2);
+    // Assert content + order (not just length), matching the Python/C#
+    // HUB-007 corpus — a throwing subscriber must not drop, reorder, or
+    // duplicate messages for the healthy subscriber.
+    expect(received.map((m) => m.senderName)).toEqual(["msg1", "msg2"]);
   });
 });

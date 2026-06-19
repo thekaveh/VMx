@@ -48,7 +48,7 @@ renders, headless smoke covers it.
 | 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | ✓ | ✓             | ✓                  |
 | 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | ✓           | ✓                | ✓                  |
 | 13  | `IDialogService` (ch. 19) — export → save-file dialog | ✓             | ✓                | ✓                  |
-| 14  | Capability-aware UI (§14.4) — capability action bar   | ✓             | ✓                | ✓                  |
+| 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | ✓     | ✓                | ✓                  |
 | 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  |
 | 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ |
 
@@ -63,6 +63,20 @@ renders, headless smoke covers it.
     `examples/<lang>/.../tests/` (not in `langs/<flavor>/tests/conformance/`)
     and are exempt from the library-coverage gate via the `_SCENARIO_PREFIXES`
     set in `tools/check-conformance-coverage.py`.
+
+[^readonly]: The core capability action bar (CRUD capability dispatch +
+    `DerivedProperty`-driven enablement) ships in all three flavors. The Python
+    and TypeScript `CapabilityActionsVM` additionally expose a host-gated
+    **add-note command** (`add_note_command` / `addNoteCommand`, fed by
+    `can_add_note`/`add_note_action` builder hooks) backed by a
+    `NotebookModel.is_readonly` / `isReadonly` flag, with dedicated unit tests.
+    The C#/Avalonia flavor does **not** ship this sub-feature yet. It is dormant
+    in every flavor — no seed notebook is marked read-only and no host UI renders
+    the add-note command — so there is no user-visible behavioral difference
+    today; the gap is a VM-surface/test asymmetry only. Bringing C# to parity
+    (model flag + gated command + `WorkspaceVM` wiring + tests) is **deferred to a
+    follow-up PR** rather than handled in the maintenance loop, since it is
+    feature work on the example app.
 
 ## 3. Reading the matrix
 

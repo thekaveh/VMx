@@ -138,7 +138,7 @@ import VMx
 let canSaveTrigger = PassthroughSubject<Void, Never>()
 var isDirty = false
 
-let saveCommand = try RelayCommand.builder()
+let saveCommand = RelayCommand.builder()
     .task {
         print("Saving…")
         isDirty = false
@@ -235,9 +235,12 @@ tabs.dispose()                  // disposes children, then itself
 hub.dispose()
 ```
 
-A `StatusTransitionError` is thrown on any illegal transition (e.g.,
-calling `construct()` on a disposed VM). A `BuilderValidationError` is
-thrown when a builder is missing a required field at `build()` time.
+An illegal transition (e.g. calling `construct()` on a disposed VM) is a
+programming error: the Swift flavor **traps** via `preconditionFailure`
+(Swift's API-misuse convention, ADR-0037) rather than throwing — gate with
+`canConstruct()` / `canDestruct()` if a state is uncertain. A
+`BuilderValidationError` *is* thrown when a builder is missing a required
+field at `build()` time (hence the `try` on builder chains above).
 
 > See `spec/02-lifecycle.md` for the full transition table (LIFE-001..013).
 

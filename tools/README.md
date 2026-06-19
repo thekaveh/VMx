@@ -52,11 +52,11 @@ exits 0 on success / non-zero with a per-line violation report on failure.
     INPC-aware sidecars co-located with the VM).
     Views → anywhere.
 
-- `check-showcase-parity.py` — verifies each flavor ships the ten
+- `check-showcase-parity.py` — verifies each flavor ships the eleven
   canonical VM test files (`workspace_vm`, `notebooks_root_vm`,
   `notebook_vm`, `notes_view_vm`, `note_vm`, `note_form_vm`,
   `status_bar_vm`, `notifications_vm`, `capability_actions_vm`,
-  `in_memory_repository`).
+  `theme_vm`, `in_memory_repository`).
 
 A fifth check is the React ESLint rule under
 `examples/typescript/react/notes-showcase/.eslintrc.cjs` —

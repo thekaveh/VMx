@@ -9,7 +9,7 @@ Expected slugs (each must have a matching test file in each flavor):
     workspace_vm, notebooks_root_vm, notebook_vm,
     notes_view_vm, note_vm, note_form_vm,
     status_bar_vm, notifications_vm, capability_actions_vm,
-    in_memory_repository
+    theme_vm, in_memory_repository
 
 Per-flavor naming conventions:
 
@@ -106,9 +106,9 @@ def _stem_contains(stem: str, key: str) -> bool:
     return key in stem
 
 
-def check() -> int:
+def check(roots: dict[str, Path]) -> int:
     failed = False
-    for flavor, root in ROOTS.items():
+    for flavor, root in roots.items():
         if flavor == "csharp":
             stems = _file_stems(root, ["*Tests.cs"])
         elif flavor == "python":
@@ -141,11 +141,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".", help="Repo root (default: current dir)")
     args = ap.parse_args()
-    # Resolve flavor roots against the repo root.
+    # Resolve flavor roots against the repo root. ROOTS holds repo-relative
+    # subpaths and is never mutated, so main() is safe to call repeatedly.
     repo_root = Path(args.root).resolve()
-    global ROOTS
-    ROOTS = {f: repo_root / r for f, r in ROOTS.items()}
-    return check()
+    roots = {f: repo_root / r for f, r in ROOTS.items()}
+    return check(roots)
 
 
 if __name__ == "__main__":

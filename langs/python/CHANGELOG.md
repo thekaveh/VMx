@@ -11,8 +11,6 @@ All notable changes to the Python flavor are documented here. The format is base
 
 * **python:** RELEASING URL-validation checklist + bootstrap tag-ordering gotcha + PyPI badge ([#24](https://github.com/thekaveh/VMx/issues/24)) ([cef3629](https://github.com/thekaveh/VMx/commit/cef3629d623e694350989754c225de1a9c27f909))
 
-## [Unreleased]
-
 ## [2.6.0] — 2026-06-13
 
 Implements `spec-v2.6.0`. Adds two declarative selection hooks to the

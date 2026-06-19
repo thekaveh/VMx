@@ -261,9 +261,10 @@ describe("ThemeVM — accent color", () => {
   });
 
   it("setAccentColor with the same value is a no-op", () => {
-    const { vm } = makeVM();
+    const { vm, hub } = makeVM();
     vm.setAccentColor.execute("#abcdef");
-    const { hub } = makeVM();
+    // Observe the VM's OWN hub (not a second VM's) so the assertion can
+    // actually catch a spurious same-value emission.
     const msgs = captureMessages(hub);
     vm.setAccentColor.execute("#abcdef");
     expect(msgs).toHaveLength(0);
