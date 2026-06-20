@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/vmx.svg)](https://pypi.org/project/vmx/)
 [![Python versions](https://img.shields.io/pypi/pyversions/vmx.svg)](https://pypi.org/project/vmx/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/thekaveh/VMx/blob/main/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/thekaveh/VMx/blob/main/LICENSE)
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for Python,
 spec-compatible with the C#, TypeScript, and Swift (subset) flavors.
@@ -233,4 +233,4 @@ See [`RELEASING.md`](RELEASING.md) for the PyPI release pipeline runbook.
 
 ## 8. License
 
-MIT — see [`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE).
+Apache-2.0 — see [`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE) and [`NOTICE`](https://github.com/thekaveh/VMx/blob/main/NOTICE).

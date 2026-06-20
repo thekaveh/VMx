@@ -6,6 +6,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
+  forward; the already-published 2.6.0 artifact remains MIT-licensed.
+
 ## [2.6.0] — 2026-06-13
 
 Implements `spec-v2.6.0`. Adds two declarative selection hooks to the

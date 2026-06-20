@@ -13,7 +13,7 @@
     <Authors>Kaveh Razavi</Authors>
     <Company>Kaveh Razavi</Company>
     <Copyright>Copyright (c) Kaveh Razavi</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/thekaveh/VMx</PackageProjectUrl>
     <RepositoryUrl>https://github.com/thekaveh/VMx</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
