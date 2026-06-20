@@ -61,6 +61,7 @@ cross-references each ADR carries.
 | [0040](0040-iproperty-not-adopted.md)                            | `IProperty<T>` reactive backing-field not adopted     | 2.6.0        | Accepted                          |
 | [0041](0041-single-disposable-lifecycle.md)                      | Single disposable lifecycle (no two-tier bags)        | 2.6.0        | Accepted                          |
 | [0042](0042-composite-builder-current-and-on-current-changed.md) | `CompositeVMBuilder.Current` + `OnCurrentChanged`     | 2.6.0        | Accepted                          |
+| [0043](0043-relicense-apache-2.0.md)                             | Relicense from MIT to Apache-2.0                      | —            | Accepted                          |
 
 ## 2. Format
 

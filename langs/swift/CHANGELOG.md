@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
+  forward; the already-published 2.6.0 subset remains MIT-licensed.
+
 ## [2.6.0] — 2026-06-13
 
 Implements the spec-v2.6.0 subset. Adds two declarative selection hooks
