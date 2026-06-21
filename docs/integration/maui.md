@@ -31,7 +31,7 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
     {
         _vm = vm;
         _sub = hub.Messages
-            .OfType<PropertyChangedMessage<object>>()
+            .OfType<IPropertyChangedMessage<IComponentVM>>()
             .Where(m => ReferenceEquals(m.Sender, vm))
             .Subscribe(m => PropertyChanged?.Invoke(this,
                 new PropertyChangedEventArgs(m.PropertyName)));

@@ -7,7 +7,7 @@ cross-platform XAML, see [avalonia.md](avalonia.md).
 ## 1. Reactivity primitive
 
 WPF data binding observes `INotifyPropertyChanged.PropertyChanged` events.
-VMx VMs publish `PropertyChangedMessage<TValue>(sender, propertyName, newValue)`
+VMx VMs publish `PropertyChangedMessage<TSender>(sender, senderName, propertyName)`
 to their `IMessageHub` instead. The adapter translates one to the other.
 
 ## 2. Mapping
@@ -31,7 +31,7 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
     {
         _vm = vm;
         _sub = hub.Messages
-            .OfType<PropertyChangedMessage<object>>()
+            .OfType<IPropertyChangedMessage<IComponentVM>>()
             .Where(m => ReferenceEquals(m.Sender, vm))
             .Subscribe(m => PropertyChanged?.Invoke(this,
                 new PropertyChangedEventArgs(m.PropertyName)));

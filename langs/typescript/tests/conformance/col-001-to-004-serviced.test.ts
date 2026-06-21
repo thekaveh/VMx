@@ -17,11 +17,23 @@ describe("COL-001", () => {
 
     const localEvents: CollectionChangedMessage<string>[] = [];
     const hubMessages: unknown[] = [];
+    // Shared order log: the local CollectionChanged event MUST fire before the
+    // hub message is published (spec/21 §2; parity with Python/C#).
+    const callOrder: string[] = [];
 
-    sut.collectionChanged.subscribe((e) => localEvents.push(e));
-    hub.messages.subscribe((m) => hubMessages.push(m));
+    sut.collectionChanged.subscribe((e) => {
+      localEvents.push(e);
+      callOrder.push("local");
+    });
+    hub.messages.subscribe((m) => {
+      hubMessages.push(m);
+      callOrder.push("hub");
+    });
 
     sut.push("alpha");
+
+    // Local-before-hub ordering
+    expect(callOrder).toEqual(["local", "hub"]);
 
     // Local event
     expect(localEvents).toHaveLength(1);

@@ -251,11 +251,9 @@ def test_LIFE_001_construct_emits_status_messages() -> None:
     msgs = _status_messages(hub)
     vm.construct()
     statuses = [m.status for m in msgs]
-    assert ConstructionStatus.CONSTRUCTING in statuses
-    assert ConstructionStatus.CONSTRUCTED in statuses
-    assert statuses.index(ConstructionStatus.CONSTRUCTING) < statuses.index(
-        ConstructionStatus.CONSTRUCTED
-    )
+    # Spec LIFE-001: the subscriber observes EXACTLY two messages, Constructing
+    # then Constructed in that order (parity with C#/TS/Swift exact-sequence).
+    assert statuses == [ConstructionStatus.CONSTRUCTING, ConstructionStatus.CONSTRUCTED]
     assert vm.is_constructed is True
 
 
@@ -267,11 +265,9 @@ def test_LIFE_002_destruct_emits_status_messages() -> None:
     msgs = _status_messages(hub)
     vm.destruct()
     statuses = [m.status for m in msgs]
-    assert ConstructionStatus.DESTRUCTING in statuses
-    assert ConstructionStatus.DESTRUCTED in statuses
-    assert statuses.index(ConstructionStatus.DESTRUCTING) < statuses.index(
-        ConstructionStatus.DESTRUCTED
-    )
+    # Spec LIFE-002: destruct emits EXACTLY two messages, Destructing then
+    # Destructed in that order (parity with C#/TS/Swift exact-sequence).
+    assert statuses == [ConstructionStatus.DESTRUCTING, ConstructionStatus.DESTRUCTED]
     assert vm.is_constructed is False
 
 

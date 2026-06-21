@@ -64,7 +64,7 @@ ThemeVM : ComponentVM<ThemeModel>
   # commands:
   setThemeCommand     : RelayCommand<string>       # arg is preset name; raises on unknown
   toggleHighContrast  : RelayCommand               # flips model.highContrast; non-destructive over current accent + scale
-  setAccentColor      : RelayCommand<string>       # accepts a hex string; raises on parse failure
+  setAccentColor      : RelayCommand<string>       # accepts a hex string; hex parse-validation is flavor-discretionary (in-VM per TS, or delegated to the adapter to keep the VM framework-agnostic per Python/C#) — not gated by a THEME conformance ID
   setFontScale        : RelayCommand<Double>       # clamps to [0.75..1.75]
   followSystemCommand : RelayCommand               # sets followSystem=true and re-reads the host's current theme
 
