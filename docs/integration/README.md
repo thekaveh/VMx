@@ -33,7 +33,7 @@ Each recipe explains:
 Every recipe bridges three things:
 
 - **State.** A property on the VM whose value changes over time. VMx
-  publishes `PropertyChangedMessage<TValue>(sender, propertyName, value)`
+  publishes `PropertyChangedMessage<TSender>(sender, senderName, propertyName)`
   to the message hub each time the property changes.
 - **Commands.** `RelayCommand` (and friends) expose `execute` and
   `canExecute`; bind them to buttons and menu items.
