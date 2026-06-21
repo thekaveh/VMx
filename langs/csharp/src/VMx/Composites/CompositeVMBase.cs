@@ -72,10 +72,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
             if (ReferenceEquals(_current, old))
                 SetCurrent(null, async: false);
             value.SetParent(this);
-            MaybeAutoConstruct(value);
-            // Notify replace as Remove then Add (standard INCC pattern).
+            // Notify replace as Remove then Add (standard INCC pattern). The new
+            // child is auto-constructed BETWEEN the two events, matching Python/TS:
+            // subscribers observe the remove before the new child's construct
+            // messages, and the add after.
             RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Remove, old, index));
+            MaybeAutoConstruct(value);
             RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Add, value, index));
         }
