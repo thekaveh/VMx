@@ -84,8 +84,6 @@ class FormVM(Generic[TM]):
             .build()
         )
 
-    # ── Properties ────────────────────────────────────────────────────────────
-
     # ── Builder entrypoint ───────────────────────────────────────────────────
 
     @staticmethod

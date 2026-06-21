@@ -4,9 +4,9 @@ namespace VMx.Aggregates;
 
 /// <summary>
 /// Internal helper interface used by <see cref="Tree.Tree"/> to enumerate the
-/// non-null component slots of an aggregate VM without reflection. All five
+/// non-null component slots of an aggregate VM without reflection. All six
 /// concrete <c>AggregateVMN</c> classes implement this explicitly; consumers
-/// should depend on the public <c>IAggregateVM1..IAggregateVM5</c> interfaces
+/// should depend on the public <c>IAggregateVM1..IAggregateVM6</c> interfaces
 /// instead.
 /// </summary>
 internal interface IAggregateSlots
