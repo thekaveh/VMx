@@ -168,21 +168,30 @@ public class AggregateVMConformanceTests
             .Component3(() => MakeLeaf(hub, dispatcher, "c3"))
             .Build();
 
-        var observedPropNames = new List<string>();
+        // Scope to PropertyChangedMessages sent BY the aggregate itself for the
+        // three component slots (parity with Python/TS, which filter on sender
+        // and assert exactly three slot changes).
+        var slotChanges = new List<string>();
         hub.Messages.Subscribe(m =>
         {
-            if (m is IPropertyChangedMessage<IComponentVM> pcm)
-                observedPropNames.Add(pcm.PropertyName);
+            if (m is IPropertyChangedMessage<IComponentVM> pcm &&
+                ReferenceEquals(pcm.SenderObject, agg) &&
+                pcm.PropertyName is "Component1" or "Component2" or "Component3")
+            {
+                slotChanges.Add(pcm.PropertyName);
+            }
         });
 
         agg.Construct();
 
-        observedPropNames.Should().Contain("Component1",
+        slotChanges.Should().Contain("Component1",
             "PropertyChangedMessage(Component1) must be emitted on construct");
-        observedPropNames.Should().Contain("Component2",
+        slotChanges.Should().Contain("Component2",
             "PropertyChangedMessage(Component2) must be emitted on construct");
-        observedPropNames.Should().Contain("Component3",
+        slotChanges.Should().Contain("Component3",
             "PropertyChangedMessage(Component3) must be emitted on construct");
+        slotChanges.Should().HaveCount(3,
+            "exactly three slot PropertyChangedMessages are observed on construct");
     }
 
     // ── AGG-005 — Destruction waits for all children Destructed ───────────────

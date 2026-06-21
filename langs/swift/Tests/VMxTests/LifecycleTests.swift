@@ -81,10 +81,26 @@ final class LifecycleTests: XCTestCase {
 
     /// LIFE-004 — dispose transitions to Disposed from any state.
     func testLife004DisposeFromConstructed() {
-        let vm = makeVM()
+        let hub = MessageHub()
+        let vm = makeVM(hub: hub)
         vm.construct()
+
+        // Subscribe after construct so only the dispose-phase messages are seen.
+        var seen: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { seen.append($0) }
+
         vm.dispose()
+
         XCTAssertEqual(vm.status, .disposed)
+        // Spec LIFE-004: a ConstructionStatusChangedMessage with Status = Disposed
+        // is observed on the hub (parity with Python/C#/TS).
+        XCTAssertTrue(
+            seen.contains(.disposed),
+            "a ConstructionStatusChangedMessage with .disposed must be observed"
+        )
+        cancel.cancel()
     }
 
     func testLife004DisposeFromDestructed() {

@@ -33,8 +33,10 @@ def test_BLD_002_missing_required_field_raises() -> None:
     with pytest.raises(BuilderValidationError) as exc_info:
         # Omit services() — hub and dispatcher are required
         ComponentVMOf[str].builder().name("vm").model("init").build()
-    assert exc_info.value.missing_field is not None
-    assert exc_info.value.missing_field != ""
+    # The omitted services() call leaves both hub and dispatcher unset; the
+    # error must identify which required field is missing (parity with C#/TS,
+    # which assert the field identity rather than mere non-emptiness).
+    assert exc_info.value.missing_field in {"hub", "dispatcher"}
 
 
 @pytest.mark.conformance("BLD-003")
