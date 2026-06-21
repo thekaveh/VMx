@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   ConfirmationDecoratorCommand,
   confirm as fluentConfirm,
+  confirmWithDialogService,
   RelayCommand,
 } from "../../src/index.js";
 import type { IDialogService, FileFilter, NotificationSeverity } from "../../src/index.js";
@@ -331,5 +332,27 @@ describe("DIA-008", () => {
     dialog.nextResult = true;
     await safeCmd.executeAsync();
     expect(innerExecuted).toBe(true);
+
+    // Also exercise the dedicated confirmWithDialogService overload. Spec
+    // DIA-008 explicitly covers both the lambda form above and this fluent
+    // overload.
+    let overloadExecuted = false;
+    const inner2 = RelayCommand.builder()
+      .task(() => {
+        overloadExecuted = true;
+      })
+      .build();
+    const overloadCmd = confirmWithDialogService(inner2, dialog, "Proceed?");
+
+    expect(overloadCmd).toBeInstanceOf(ConfirmationDecoratorCommand);
+    expect(overloadCmd.canExecute()).toBe(true);
+
+    dialog.nextResult = false;
+    await overloadCmd.executeAsync();
+    expect(overloadExecuted).toBe(false);
+
+    dialog.nextResult = true;
+    await overloadCmd.executeAsync();
+    expect(overloadExecuted).toBe(true);
   });
 });

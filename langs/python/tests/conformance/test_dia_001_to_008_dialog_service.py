@@ -12,6 +12,7 @@ import pytest
 
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.fluent import confirm as fluent_confirm
+from vmx.commands.fluent import confirm_with_dialog_service
 from vmx.commands.relay_command import RelayCommand
 from vmx.dialogs import (
     DialogService,
@@ -367,3 +368,28 @@ async def test_dia_008_confirmation_decorator_command_integration() -> None:
     dialog.next_result = True
     await safe_cmd.execute_async()
     assert inner_executed is True, "inner executed when confirm returns True"
+
+    # Also exercise the dedicated confirm_with_dialog_service overload. Spec
+    # DIA-008 explicitly covers both the lambda form above and this fluent
+    # overload ("or the fluent innerCommand.Confirm(dialogService, prompt)").
+    overload_executed = False
+
+    def _set_overload_flag() -> None:
+        nonlocal overload_executed
+        overload_executed = True
+
+    inner2 = RelayCommand.builder().task(_set_overload_flag).build()
+    overload_cmd = confirm_with_dialog_service(inner2, dialog, "Proceed?")
+
+    assert isinstance(overload_cmd, ConfirmationDecoratorCommand), (
+        "overload result is a ConfirmationDecoratorCommand"
+    )
+    assert overload_cmd.can_execute() is True, "overload delegates can_execute to inner"
+
+    dialog.next_result = False
+    await overload_cmd.execute_async()
+    assert overload_executed is False, "overload: inner not executed when confirm returns False"
+
+    dialog.next_result = True
+    await overload_cmd.execute_async()
+    assert overload_executed is True, "overload: inner executed when confirm returns True"

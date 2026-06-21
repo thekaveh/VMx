@@ -202,6 +202,24 @@ public class DIA_001_to_008_DialogService_Tests
         dialog.NextResult = true;
         await ((ConfirmationDecoratorCommand)safeCmd).ExecuteAsync(null);
         innerExecuted.Should().BeTrue("inner executed when Confirm returns true");
+
+        // Also exercise the dedicated Confirm(IDialogService, prompt) overload.
+        // Spec DIA-008 explicitly covers both the lambda form above and this
+        // fluent overload.
+        var overloadExecuted = false;
+        var inner2 = RelayCommand.Builder().Task(() => overloadExecuted = true).Build();
+        var overloadCmd = inner2.Confirm(dialog, "Proceed?");
+
+        overloadCmd.Should().BeAssignableTo<ICommand>("overload result is a valid ICommand");
+        overloadCmd.CanExecute(null).Should().BeTrue("overload delegates CanExecute to inner");
+
+        dialog.NextResult = false;
+        await ((ConfirmationDecoratorCommand)overloadCmd).ExecuteAsync(null);
+        overloadExecuted.Should().BeFalse("overload: inner not executed when Confirm returns false");
+
+        dialog.NextResult = true;
+        await ((ConfirmationDecoratorCommand)overloadCmd).ExecuteAsync(null);
+        overloadExecuted.Should().BeTrue("overload: inner executed when Confirm returns true");
     }
 
     // ── Test doubles ─────────────────────────────────────────────────────────
