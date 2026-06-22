@@ -94,7 +94,7 @@ examples/typescript/react/notes-showcase/
 | 1   | `HierarchicalVM`                 | `viewmodels/notebooksRootVM.ts` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.current`            | `viewmodels/notesViewVM.ts` (`current` two-way binding)                                     |
 | 3   | `ComponentVMOf<M>` modeled       | `viewmodels/noteVM.ts`, `viewmodels/notebookVM.ts`                                          |
-| 4   | `FormVM` snapshot / revert       | `viewmodels/noteFormVM.ts` (owns a strict `FormVMOf<NoteModel>`)                            |
+| 4   | `FormVM` snapshot / revert       | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                              |
 | 5   | `DerivedProperty`                | `viewmodels/statusBarVM.ts`, `noteFormVM.isDirty`, `capabilityActionsVM.actions`             |
 | 6   | `RelayCommand` reactive          | `noteFormVM.approveCommand` / `denyCommand`, `noteVM.deleteCommand`                          |
 | 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`)                    |
@@ -105,7 +105,7 @@ examples/typescript/react/notes-showcase/
 | 12  | `ConfirmationDecoratorCommand`   | `viewmodels/noteVM.ts` (`deleteCommand` wraps inner delete)                                  |
 | 13  | `IDialogService`                 | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/` |
 | 14  | Capability-aware UI              | `viewmodels/capabilityActionsVM.ts` + `views/components/CapabilityActions.tsx`               |
-| 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6Of<…>` of the six children)               |
+| 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                 |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
 
 ## Keyboard shortcuts

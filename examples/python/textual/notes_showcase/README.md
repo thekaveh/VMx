@@ -75,7 +75,7 @@ examples/python/textual/notes_showcase/
 | 1   | `HierarchicalVM`                 | `viewmodels/notebooks_root_vm.py` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.current`            | `viewmodels/notes_view_vm.py` (`current` two-way binding)                                      |
 | 3   | `ComponentVMOf[M]` modeled       | `viewmodels/note_vm.py`, `viewmodels/notebook_vm.py`                                            |
-| 4   | `FormVM` snapshot / revert       | `viewmodels/note_form_vm.py` (owns a strict `FormVMOf[NoteModel]`)                              |
+| 4   | `FormVM` snapshot / revert       | `viewmodels/note_form_vm.py` (owns a strict `FormVM[NoteModel]`)                                |
 | 5   | `DerivedProperty`                | `viewmodels/status_bar_vm.py`, `note_form_vm.is_dirty`, `capability_actions_vm.actions`         |
 | 6   | `RelayCommand` reactive          | `note_form_vm.approve_command` / `deny_command`, `note_vm.delete_command`                       |
 | 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`)                   |
@@ -86,7 +86,7 @@ examples/python/textual/notes_showcase/
 | 12  | `ConfirmationDecoratorCommand`   | `viewmodels/note_vm.py` (`delete_command` wraps inner delete)                                   |
 | 13  | `IDialogService`                 | `viewmodels/dialog_service.py`; implemented by `views/adapter/dialog.py` + `views/modals/`      |
 | 14  | Capability-aware UI              | `viewmodels/capability_actions_vm.py` + `views/capability_actions.py`                           |
-| 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6Of[…]` of the six children)                 |
+| 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                   |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
 
 ## Keyboard shortcuts
