@@ -276,12 +276,16 @@ describe("COMP-009", () => {
 // ---------------------------------------------------------------------------
 
 describe("COMP-010", () => {
-  it("AsyncSelection dispatches Current change via foreground scheduler", () => {
-    // Use the queueScheduler (synchronous) as the foreground scheduler.
-    // With asyncSelection=true, the change is scheduled on the foreground scheduler.
-    // With queueScheduler, it executes synchronously within the same task.
+  it("AsyncSelection defers the Current change to the foreground scheduler", () => {
     const hub = makeHub();
-    const disp = makeDisp(); // both use queueScheduler
+    // A controllable virtual-time scheduler as the composite's foreground, so
+    // the test can prove the selection is deferred (not synchronous) — mirrors
+    // the Python TestDispatcher and C# TestScheduler bodies. queueScheduler
+    // (immediate) would mask the deferral and pass even for synchronous select.
+    const foreground = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+    const disp = new RxDispatcher(foreground, foreground);
     const vmA = makeChild(hub, "vmA");
     const composite = CompositeVM.builder<ComponentVM>()
       .name("c")
@@ -291,11 +295,14 @@ describe("COMP-010", () => {
       .build();
     composite.construct();
 
-    // With queueScheduler (synchronous), current changes synchronously
-    // when the scheduler flushes (which is immediate for queueScheduler).
     composite.selectComponent(vmA);
 
-    // queueScheduler is synchronous, so the selection completes immediately.
+    // With AsyncSelection, Current does NOT change synchronously.
+    expect(composite.current, "Current must not change synchronously").toBeNull();
+
+    // Advancing the foreground scheduler completes the dispatch.
+    foreground.flush();
+
     expect(composite.current).toBe(vmA);
   });
 });
