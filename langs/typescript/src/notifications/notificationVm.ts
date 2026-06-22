@@ -42,6 +42,7 @@ export class NotificationVM {
   readonly #startTime: number;
 
   #isResolved = false;
+  #disposed = false;
   #timerHandle: ReturnType<SchedulerLike["schedule"]> | null = null;
   #pendingSub: Subscription | null = null;
 
@@ -120,6 +121,8 @@ export class NotificationVM {
 
   /** Disposes resources: cancels the timer, pending subscription, and command. */
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
     this.#pendingSub?.unsubscribe();

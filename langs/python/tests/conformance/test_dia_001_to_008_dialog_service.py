@@ -343,8 +343,6 @@ async def test_dia_008_confirmation_decorator_command_integration() -> None:
     dialog = _ControllableDialogService()
     inner_executed = False
 
-    inner = RelayCommand.builder().task(lambda: _set_flag()).build()
-
     def _set_flag() -> None:
         nonlocal inner_executed
         inner_executed = True

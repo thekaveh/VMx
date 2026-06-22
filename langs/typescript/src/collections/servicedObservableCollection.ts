@@ -72,6 +72,7 @@ export class ServicedObservableCollection<T> {
    * For single-item operations (no inserts, count=1) emits a Remove.
    */
   splice(start: number, deleteCount?: number, ...newItems: T[]): T[] {
+    const lengthBeforeSplice = this.#items.length;
     const removed = this.#items.splice(start, deleteCount ?? this.#items.length, ...newItems);
     if (removed.length === 0 && newItems.length === 0) {
       // No-op splice: nothing mutated, so nothing is emitted
@@ -79,8 +80,16 @@ export class ServicedObservableCollection<T> {
       return removed;
     }
     if (removed.length === 1 && newItems.length === 0) {
+      // Normalize the start index the way Array.prototype.splice resolves it
+      // (negatives count from the end, out-of-range clamps) so the emitted
+      // Remove carries the actual removal position (spec/21 line 148,
+      // "indexBeforeRemoval"), not a raw negative/out-of-range argument.
+      const resolvedStart =
+        start < 0
+          ? Math.max(lengthBeforeSplice + start, 0)
+          : Math.min(start, lengthBeforeSplice);
       this.#emit(
-        CollectionChangedMessage.forRemove(this, removed[0] as T, start),
+        CollectionChangedMessage.forRemove(this, removed[0] as T, resolvedStart),
       );
     } else {
       this.#emit(CollectionChangedMessage.forReset(this));

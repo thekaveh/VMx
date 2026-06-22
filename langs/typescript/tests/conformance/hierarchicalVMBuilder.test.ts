@@ -154,7 +154,7 @@ describe("HIER-016", () => {
 // ---------------------------------------------------------------------------
 
 describe("HIER-017", () => {
-  it("hint defaults to empty string and eagerChildren defaults to false", () => {
+  it("hint, name, and eagerChildren defaults applied when not set", () => {
     let materialized = false;
     const node = builder()
       .model("root")
@@ -167,6 +167,8 @@ describe("HIER-017", () => {
       .build();
 
     expect(node.hint).toBe("");
+    // name defaults to the concrete VM type name (spec HIER-017: typeof(TVM).Name).
+    expect(node.name).toBe("TestNode");
     // eagerChildren defaults to false: children NOT materialized at construct().
     expect(materialized).toBe(false);
     // Sanity check: accessing `children` lazily materializes them.

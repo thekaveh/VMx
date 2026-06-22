@@ -183,6 +183,7 @@ public class FORM_001_to_010_FormVM_Tests
         var revertMsg = messages.OfType<FormRevertedMessage>().SingleOrDefault();
         revertMsg.Should().NotBeNull("FormRevertedMessage published");
         revertMsg!.Sender.Should().BeSameAs(sut);
+        revertMsg.SenderName.Should().Be("FormVM", "SenderName is the type name");
 
         var propMsg = messages.OfType<PropertyChangedMessage<FormVM<Model>>>().SingleOrDefault();
         propMsg.Should().NotBeNull("PropertyChangedMessage published");

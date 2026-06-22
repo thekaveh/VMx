@@ -95,6 +95,38 @@ def test_insert_negative_index_emits_effective_position() -> None:
     assert events[0].index == 1
 
 
+def test_setitem_negative_index_emits_effective_position() -> None:
+    """spec/21 §3.2: a replace via a negative index reports the resolved position."""
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection()
+    sut.append(10)
+    sut.append(30)
+    events: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(events.append)
+
+    sut[-1] = 99  # replaces index 1, not -1
+
+    assert sut[1] == 99
+    assert len(events) == 1
+    assert events[0].action == "replace"
+    assert events[0].index == 1
+
+
+def test_delitem_negative_index_emits_effective_position() -> None:
+    """spec/21 §3.2: a delete via a negative index reports the resolved position."""
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection()
+    sut.append(10)
+    sut.append(30)
+    events: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(events.append)
+
+    del sut[-1]  # removes index 1, not -1
+
+    assert list(sut) == [10]
+    assert len(events) == 1
+    assert events[0].action == "remove"
+    assert events[0].index == 1
+
+
 # ---------------------------------------------------------------------------
 # Hub wiring
 # ---------------------------------------------------------------------------

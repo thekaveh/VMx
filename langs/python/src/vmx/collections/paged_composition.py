@@ -198,9 +198,6 @@ class PagedComposition(Pageable, Generic[TVM]):
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _source_items(self) -> Iterable[TVM]:
-        return self._source_factory()
-
     def _source_count(self) -> int:
         src = self._source_factory()
         # Fast path for sized sequences

@@ -99,9 +99,10 @@ Emission on `ValueChanged` is gated by equality. The exact semantics:
 - Python: `prev == next` (built-in equality)
 - TypeScript: `Object.is(prev, next)` (matches `distinctUntilChanged` default)
 
-If equal, the new value still replaces `Value`, but no `ValueChanged`
-emission is published. The semantics match the existing
-`PROP-002` rule for VM properties.
+If equal, no `ValueChanged` emission is published and `Value` retains its
+current instance (an equal-valued recompute is a no-op — the prior instance is
+kept, not replaced). The semantics match the existing `PROP-002` rule for VM
+properties, where setting a property to an equal value is likewise a no-op.
 
 ## 7. Fixture
 

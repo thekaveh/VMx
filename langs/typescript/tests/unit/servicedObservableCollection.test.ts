@@ -204,3 +204,28 @@ describe("ServicedObservableCollection – no-op splice", () => {
     expect(events).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// splice with a negative start resolves the emitted index (spec/21 line 148:
+// the Remove carries the actual removal position, not the raw argument).
+// ---------------------------------------------------------------------------
+
+describe("ServicedObservableCollection – negative-index splice", () => {
+  it("emits the resolved removal index for splice(-1, 1)", () => {
+    const sut = new ServicedObservableCollection<string>();
+    sut.push("a");
+    sut.push("b");
+    sut.push("c");
+    const events: CollectionChangedMessage<string>[] = [];
+    sut.collectionChanged.subscribe((e) => events.push(e));
+
+    const removed = sut.splice(-1, 1);
+
+    expect(removed).toEqual(["c"]);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.action).toBe("remove");
+    expect(events[0]?.oldItems).toEqual(["c"]);
+    // index must be the resolved position (2), not the raw -1.
+    expect(events[0]?.index).toBe(2);
+  });
+});

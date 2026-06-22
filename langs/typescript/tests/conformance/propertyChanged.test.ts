@@ -40,9 +40,11 @@ describe("PROP-001", () => {
 
     vm.model = m2;
 
-    const modelMsg = received.find((m) => m.propertyName === "model");
-    expect(modelMsg).toBeDefined();
-    expect(modelMsg?.sender).toBe(vm);
+    // Spec PROP-001: the subscriber observes exactly one PropertyChangedMessage
+    // for "model" (a duplicate-emission regression must fail here).
+    const modelMsgs = received.filter((m) => m.propertyName === "model");
+    expect(modelMsgs, "exactly one PropertyChangedMessage for 'model'").toHaveLength(1);
+    expect(modelMsgs[0]!.sender).toBe(vm);
   });
 });
 

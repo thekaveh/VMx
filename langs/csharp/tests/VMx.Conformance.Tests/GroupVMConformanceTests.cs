@@ -55,7 +55,9 @@ public class GroupVMConformanceTests
         evt.Should().NotBeNull();
         evt!.Action.Should().Be(NotifyCollectionChangedAction.Add);
         evt.NewItems.Should().NotBeNull();
-        evt.NewItems![0].Should().BeSameAs(child);
+        // Spec GRP-001: NewItems == [vm] exactly (single element).
+        evt.NewItems!.Count.Should().Be(1);
+        evt.NewItems[0].Should().BeSameAs(child);
         evt.NewStartingIndex.Should().Be(0);
     }
 
@@ -64,12 +66,12 @@ public class GroupVMConformanceTests
     /// <summary>
     /// GRP-002: The API surface of GroupVM must:
     /// - have no <c>Current</c> property
-    /// - have no <c>SelectNextCommand</c> or <c>SelectPreviousCommand</c> declared on
-    ///   the type itself (they are inherited from IComponentVM / ComponentVMBase and
-    ///   remain always-disabled)
     /// - have no <c>SelectComponent</c>, <c>DeselectComponent</c>, or
     ///   <c>CanSelectComponent</c> methods
     /// - DO have <c>SelectCommand</c> and <c>DeselectCommand</c> (IComponentVM baseline)
+    /// - DO have <c>SelectNextCommand</c> and <c>SelectPreviousCommand</c> (inherited from
+    ///   the IComponentVM baseline) but always-disabled — their predicates return false,
+    ///   since the group exposes no internal navigation slot.
     /// </summary>
     [Fact, Trait("Conformance", "GRP-002")]
     public void GRP_002_Group_Lacks_Child_Navigation_And_Selection_Members()
@@ -92,6 +94,16 @@ public class GroupVMConformanceTests
         var (group, _, _) = BuildGroup();
         group.SelectCommand.Should().NotBeNull("SelectCommand must be present (IComponentVM baseline)");
         group.DeselectCommand.Should().NotBeNull("DeselectCommand must be present (IComponentVM baseline)");
+
+        // SelectNextCommand and SelectPreviousCommand ARE present (inherited from the
+        // IComponentVM baseline) but always-disabled: the group has no internal
+        // navigation slot, so their predicates return false (spec GRP-002).
+        group.SelectNextCommand.Should().NotBeNull("SelectNextCommand must be present (IComponentVM baseline)");
+        group.SelectNextCommand.CanExecute(null).Should()
+            .BeFalse("SelectNextCommand must be always-disabled for GroupVM");
+        group.SelectPreviousCommand.Should().NotBeNull("SelectPreviousCommand must be present (IComponentVM baseline)");
+        group.SelectPreviousCommand.CanExecute(null).Should()
+            .BeFalse("SelectPreviousCommand must be always-disabled for GroupVM");
     }
 
     // ── GRP-003 — Construct waits until all children reach Constructed ────────

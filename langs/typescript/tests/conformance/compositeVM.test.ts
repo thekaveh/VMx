@@ -93,8 +93,12 @@ describe("COMP-003", () => {
     composite.construct();
 
     const propNames: string[] = [];
+    const isCurrentSenders: unknown[] = [];
     hub.messages.subscribe((m) => {
-      if (m instanceof PropertyChangedMessage) propNames.push(m.propertyName);
+      if (m instanceof PropertyChangedMessage) {
+        propNames.push(m.propertyName);
+        if (m.propertyName === "isCurrent") isCurrentSenders.push(m.sender);
+      }
     });
 
     composite.selectComponent(vm);
@@ -102,7 +106,8 @@ describe("COMP-003", () => {
     expect(composite.current).toBe(vm);
     expect(vm.isCurrent).toBe(true);
     expect(propNames).toContain("current");
-    expect(propNames).toContain("isCurrent");
+    // Spec COMP-003: exactly one IsCurrent PropertyChangedMessage with Sender == vm.
+    expect(isCurrentSenders).toEqual([vm]);
   });
 });
 
@@ -276,12 +281,16 @@ describe("COMP-009", () => {
 // ---------------------------------------------------------------------------
 
 describe("COMP-010", () => {
-  it("AsyncSelection dispatches Current change via foreground scheduler", () => {
-    // Use the queueScheduler (synchronous) as the foreground scheduler.
-    // With asyncSelection=true, the change is scheduled on the foreground scheduler.
-    // With queueScheduler, it executes synchronously within the same task.
+  it("AsyncSelection defers the Current change to the foreground scheduler", () => {
     const hub = makeHub();
-    const disp = makeDisp(); // both use queueScheduler
+    // A controllable virtual-time scheduler as the composite's foreground, so
+    // the test can prove the selection is deferred (not synchronous) — mirrors
+    // the Python TestDispatcher and C# TestScheduler bodies. queueScheduler
+    // (immediate) would mask the deferral and pass even for synchronous select.
+    const foreground = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+    const disp = new RxDispatcher(foreground, foreground);
     const vmA = makeChild(hub, "vmA");
     const composite = CompositeVM.builder<ComponentVM>()
       .name("c")
@@ -291,11 +300,14 @@ describe("COMP-010", () => {
       .build();
     composite.construct();
 
-    // With queueScheduler (synchronous), current changes synchronously
-    // when the scheduler flushes (which is immediate for queueScheduler).
     composite.selectComponent(vmA);
 
-    // queueScheduler is synchronous, so the selection completes immediately.
+    // With AsyncSelection, Current does NOT change synchronously.
+    expect(composite.current, "Current must not change synchronously").toBeNull();
+
+    // Advancing the foreground scheduler completes the dispatch.
+    foreground.flush();
+
     expect(composite.current).toBe(vmA);
   });
 });
@@ -589,15 +601,39 @@ describe("COMP-025", () => {
     const disp = makeDisp();
     const children = ["a", "b", "c"].map((n) => makeChild(hub, n));
 
+    let selectorCalls = 0;
     const composite = CompositeVM.builder<ComponentVM>()
       .name("composite")
       .services(hub, disp)
       .children(() => children)
-      .current((xs) => [...xs][1] ?? null)
+      .current((xs) => {
+        selectorCalls++;
+        return [...xs][1] ?? null;
+      })
       .build();
     composite.construct();
 
     expect(composite.current).toBe(children[1]);
+    expect(selectorCalls, "the selector must run exactly once during construct").toBe(1);
+
+    // A null-returning selector leaves current null and publishes no
+    // PropertyChangedMessage("current").
+    const hub2 = makeHub();
+    const children2 = ["a", "b", "c"].map((n) => makeChild(hub2, n));
+    const propNames: string[] = [];
+    hub2.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage) propNames.push(m.propertyName);
+    });
+    const composite2 = CompositeVM.builder<ComponentVM>()
+      .name("composite2")
+      .services(hub2, disp)
+      .children(() => children2)
+      .current(() => null)
+      .build();
+    composite2.construct();
+
+    expect(composite2.current).toBeNull();
+    expect(propNames).not.toContain("current");
   });
 });
 
@@ -623,5 +659,21 @@ describe("COMP-026", () => {
     composite.deselectComponent(children[1]!);
 
     expect(observed).toEqual([children[1], null]);
+
+    // Combined current(first) + onCurrentChanged: the initial-selector
+    // assignment fires the hook exactly once with the first child.
+    const hub2 = makeHub();
+    const children2 = ["a", "b"].map((n) => makeChild(hub2, n));
+    const observed2: (ComponentVM | null)[] = [];
+    const composite2 = CompositeVM.builder<ComponentVM>()
+      .name("composite2")
+      .services(hub2, disp)
+      .children(() => children2)
+      .current((xs) => [...xs][0] ?? null)
+      .onCurrentChanged((vm) => observed2.push(vm))
+      .build();
+    composite2.construct();
+
+    expect(observed2).toEqual([children2[0]]);
   });
 });

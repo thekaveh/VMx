@@ -16,7 +16,7 @@ Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 | Solid                      | VMx                                  |
 | -------------------------- | ------------------------------------ |
 | `createSignal(x)` set      | `PropertyChangedMessage<T>` handler  |
-| `onClick={() => fn()}`     | `command.execute(undefined)` in `fn` |
+| `onClick={() => fn()}`     | `command.execute()` in `fn`          |
 | `createMemo(() => ...)`    | `DerivedProperty<T>` / `fromSources` |
 | `onCleanup(() => cleanup)` | dispose the subscription             |
 
@@ -48,7 +48,7 @@ export function NoteView(props: { vm: ComponentVMOf<Note>; hub: IMessageHub }) {
   return (
     <>
       <h1>{model().title}</h1>
-      <button onClick={() => props.vm.saveCommand.execute(undefined)}>Save</button>
+      <button onClick={() => props.vm.saveCommand.execute()}>Save</button>
     </>
   );
 }

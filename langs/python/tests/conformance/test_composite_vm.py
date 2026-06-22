@@ -602,18 +602,46 @@ def test_COMP_025_current_selector_drives_initial_selection() -> None:
     disp = _dispatcher()
     children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b", "c")]
 
+    selector_calls = 0
+
+    def selector(xs: object) -> ComponentVM:
+        nonlocal selector_calls
+        selector_calls += 1
+        return list(xs)[1]  # type: ignore[call-overload]
+
     composite: CompositeVM[ComponentVM] = (
         CompositeVMBuilder()
         .name("composite")
         .services(hub, disp)
         .children(lambda: children)
-        .current(lambda xs: list(xs)[1])
+        .current(selector)
         .build()
     )
 
     composite.construct()
 
     assert composite.current is children[1]
+    assert selector_calls == 1, "the selector must run exactly once during construct"
+
+    # A null-returning selector leaves current None and publishes no
+    # PropertyChangedMessage('current').
+    hub2 = _hub()
+    children2 = [_build_child(name, hub=hub2, dispatcher=disp) for name in ("a", "b", "c")]
+    prop_msgs = _prop_messages(hub2)
+    composite2: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite2")
+        .services(hub2, disp)
+        .children(lambda: children2)
+        .current(lambda xs: None)
+        .build()
+    )
+    composite2.construct()
+
+    assert composite2.current is None
+    assert [m for m in prop_msgs if m.property_name == "current"] == [], (
+        "a null-returning current selector must publish no PropertyChangedMessage('current')"
+    )
 
 
 # ===========================================================================
@@ -646,3 +674,21 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
     composite.deselect_component(children[1])
 
     assert observed == [children[1], None]
+
+    # Combined current(first) + on_current_changed: the initial-selector
+    # assignment fires the hook exactly once with the first child.
+    hub2 = _hub()
+    children2 = [_build_child(name, hub=hub2, dispatcher=disp) for name in ("a", "b")]
+    observed2: list[ComponentVM | None] = []
+    composite2: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite2")
+        .services(hub2, disp)
+        .children(lambda: children2)
+        .current(lambda xs: next(iter(xs)))
+        .on_current_changed(observed2.append)
+        .build()
+    )
+    composite2.construct()
+
+    assert observed2 == [children2[0]]

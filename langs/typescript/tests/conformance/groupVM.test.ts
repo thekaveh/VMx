@@ -36,7 +36,8 @@ describe("GRP-001", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.action).toBe("add");
-    expect(events[0]?.newItems).toContain(vm);
+    // Spec GRP-001: newItems == [vm] exactly (single element).
+    expect(events[0]?.newItems).toEqual([vm]);
     expect(events[0]?.newIndex).toBe(0);
   });
 });

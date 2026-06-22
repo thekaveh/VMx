@@ -118,15 +118,18 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def __setitem__(self, index: int, value: VM) -> None:
         old = self._children[index]
+        # Emit the actual position; a negative index counts from the end
+        # (mirrors insert/remove_at and ObservableList).
+        resolved_index = index + len(self._children) if index < 0 else index
         self._children[index] = value
         old._set_parent(None)
         value._set_parent(self._as_parent())
         self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(old,), old_index=index)
+            CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
         )
         self._maybe_auto_construct(value)
         self._emit_collection_changed(
-            CollectionChangedEvent(action="add", new_items=(value,), new_index=index)
+            CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
         )
 
     def __delitem__(self, index: int) -> None:
@@ -178,12 +181,18 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         return True
 
     def remove_at(self, index: int) -> None:
-        """Remove the child at *index*."""
+        """Remove the child at *index*.
+
+        The emitted ``old_index`` is the actual removal position; a negative
+        index counts from the end (mirrors :meth:`insert` and
+        ``ObservableList.remove_at``).
+        """
         item = self._children[index]
+        resolved_index = index + len(self._children) if index < 0 else index
         del self._children[index]
         item._set_parent(None)
         self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(item,), old_index=index)
+            CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
         )
 
     def clear(self) -> None:

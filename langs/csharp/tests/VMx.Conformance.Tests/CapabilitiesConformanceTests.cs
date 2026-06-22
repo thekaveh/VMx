@@ -386,11 +386,16 @@ public class CapabilitiesConformanceTests
     public void CAP_019_Multiple_Capabilities()
     {
         var f = new MultiCapabilityFixture();
-        ((ISelectable)f).Should().NotBeNull();
-        ((IExpandable)f).Should().NotBeNull();
-        ((IClosable)f).Should().NotBeNull();
-        ((IApprovable)f).Should().NotBeNull();
-        ((ICancelable)f).Should().NotBeNull();
+        // Query the runtime type for each interface (spec §15: "queried true for
+        // all five"). Cast through object so the check is a real runtime `is`
+        // test, not a tautological upcast of a statically-typed reference
+        // (mirrors the CAP-020 pattern in this file).
+        object vm = f;
+        (vm is ISelectable).Should().BeTrue();
+        (vm is IExpandable).Should().BeTrue();
+        (vm is IClosable).Should().BeTrue();
+        (vm is IApprovable).Should().BeTrue();
+        (vm is ICancelable).Should().BeTrue();
 
         ((ISelectable)f).Select();
         ((IExpandable)f).Expand();

@@ -63,6 +63,26 @@ flavor surfaces the violation as a trap (`preconditionFailure` carrying the
 divergence (ADR-0037): traps are the Swift-stdlib convention for API misuse,
 and a throwing lifecycle would force `try` onto every legal call site.
 
+### 2.2 Subclass lifecycle hooks (`OnConstruct` / `OnDestruct` / `OnDispose`)
+
+`ComponentVMBase` exposes three protected, overridable hooks so subclasses can
+attach per-phase logic without reimplementing the status state machine. Names
+follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
+`_onConstruct` TS; the Swift subset uses the same shape where present):
+
+- `OnConstruct` — invoked during `construct()` (and the construct phase of
+  `reconstruct()`), after the VM enters `Constructing` and before it reaches
+  `Constructed`. Register **per-construct** subscriptions here.
+- `OnDestruct` — invoked during `destruct()` (and the destruct phase of
+  `reconstruct()`). Release the per-construct subscriptions acquired in
+  `OnConstruct`.
+- `OnDispose` — invoked once during `dispose()`. Release **long-lived**
+  resources acquired in the constructor (hub subscriptions, injected services).
+
+The hooks express the per-construct vs. long-lived cleanup split as method
+overrides rather than a second disposable bag (ADR-0041). The container VMs of
+§6 and §7 use them to drive their child construct/destruct/dispose cascades.
+
 ## 3. Invariants
 
 These hold for every VM at every point in its lifetime:
