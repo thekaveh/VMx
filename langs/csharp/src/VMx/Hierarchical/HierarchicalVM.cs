@@ -240,11 +240,15 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 $"Cannot reparent '{child.Name}' under '{Name}': it is this node or one of its ancestors (HIER-018).");
 
         // Remove from old parent silently (no message — reparent covers it).
+        // Detach by identity (not Equals) to match the HIER-018 cycle check
+        // above and the TS flavor: a TVM overriding Equals must not cause the
+        // wrong sibling to be removed.
         var oldParent = child._hierarchicalParent;
         if (oldParent is not null)
         {
             oldParent.EnsureChildrenMaterialized();
-            oldParent._children!.Remove(child);
+            var detachIndex = oldParent._children!.FindIndex(c => ReferenceEquals(c, child));
+            if (detachIndex >= 0) oldParent._children.RemoveAt(detachIndex);
         }
 
         EnsureChildrenMaterialized();

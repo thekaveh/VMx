@@ -238,14 +238,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 "it is this node or one of its ancestors (HIER-018)."
             )
 
-        # Detach from old parent silently.
+        # Detach from old parent silently. Detach by identity (not value
+        # equality) to match the HIER-018 cycle check and the TS flavor: a TVM
+        # overriding __eq__ must not cause the wrong sibling to be removed.
         old_parent = child._hierarchical_parent
         if old_parent is not None:
             old_parent._ensure_children_materialized()
-            try:
-                old_parent._children_list.remove(child)
-            except ValueError:
-                pass
+            assert old_parent._children_list is not None
+            for i, sibling in enumerate(old_parent._children_list):
+                if sibling is child:
+                    del old_parent._children_list[i]
+                    break
 
         # Attach to new parent.
         self._ensure_children_materialized()

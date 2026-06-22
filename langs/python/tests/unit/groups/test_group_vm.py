@@ -290,6 +290,34 @@ class TestCollectionChangedEvents:
         grp.add(b)
         assert events[1].new_index == 1
 
+    def test_remove_at_negative_index_emits_resolved_index(self) -> None:
+        grp, _ = _make_group()
+        a = _make_child("a")
+        b = _make_child("b")
+        grp.add(a)
+        grp.add(b)
+        events = self._collect_events(grp)
+        grp.remove_at(-1)  # removes the last child (b)
+        assert len(events) == 1
+        assert events[0].action == "remove"
+        assert events[0].old_items == (b,)
+        # old_index is the resolved position (1), not the raw -1.
+        assert events[0].old_index == 1
+
+    def test_setitem_negative_index_emits_resolved_index(self) -> None:
+        grp, _ = _make_group()
+        a = _make_child("a")
+        b = _make_child("b")
+        grp.add(a)
+        grp.add(b)
+        events = self._collect_events(grp)
+        c = _make_child("c")
+        grp[-1] = c  # replaces the last child (b) with c
+        # remove(old) then add(new), both at the resolved index 1.
+        assert [e.action for e in events] == ["remove", "add"]
+        assert events[0].old_index == 1
+        assert events[1].new_index == 1
+
     def test_insert_emits_add_event(self) -> None:
         grp, _ = _make_group()
         a = _make_child("a")
