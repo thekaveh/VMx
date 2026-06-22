@@ -205,11 +205,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         if child is None:
             raise ValueError("child must not be None")
         self._ensure_children_materialized()
-        try:
-            index = self._children_list.index(child)  # type: ignore[union-attr]
-        except ValueError:
+        assert self._children_list is not None
+        # Match by identity (not value equality) so a TVM overriding __eq__
+        # cannot cause the wrong sibling to be removed — consistent with the
+        # HIER-018 cycle check and the reparent detach.
+        index = next(
+            (i for i, sibling in enumerate(self._children_list) if sibling is child),
+            -1,
+        )
+        if index < 0:
             return  # not a child — no-op
-        self._children_list.pop(index)  # type: ignore[union-attr]
+        self._children_list.pop(index)
         child._set_hierarchical_parent(None)
         self._hub.send(
             TreeStructureChangedMessage(

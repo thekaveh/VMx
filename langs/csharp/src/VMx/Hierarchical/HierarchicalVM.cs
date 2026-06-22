@@ -205,7 +205,10 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 #pragma warning restore CA1510
 
         EnsureChildrenMaterialized();
-        var index = _children!.IndexOf(child);
+        // Match by identity (not Equals) so a TVM overriding Equals cannot
+        // cause the wrong sibling to be removed — consistent with the HIER-018
+        // cycle check and the reparent detach.
+        var index = _children!.FindIndex(c => ReferenceEquals(c, child));
         if (index < 0) return;
 
         _children.RemoveAt(index);
