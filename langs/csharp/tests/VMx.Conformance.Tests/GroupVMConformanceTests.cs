@@ -55,7 +55,9 @@ public class GroupVMConformanceTests
         evt.Should().NotBeNull();
         evt!.Action.Should().Be(NotifyCollectionChangedAction.Add);
         evt.NewItems.Should().NotBeNull();
-        evt.NewItems![0].Should().BeSameAs(child);
+        // Spec GRP-001: NewItems == [vm] exactly (single element).
+        evt.NewItems!.Count.Should().Be(1);
+        evt.NewItems[0].Should().BeSameAs(child);
         evt.NewStartingIndex.Should().Be(0);
     }
 

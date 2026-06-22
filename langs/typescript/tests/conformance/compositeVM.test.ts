@@ -93,8 +93,12 @@ describe("COMP-003", () => {
     composite.construct();
 
     const propNames: string[] = [];
+    const isCurrentSenders: unknown[] = [];
     hub.messages.subscribe((m) => {
-      if (m instanceof PropertyChangedMessage) propNames.push(m.propertyName);
+      if (m instanceof PropertyChangedMessage) {
+        propNames.push(m.propertyName);
+        if (m.propertyName === "isCurrent") isCurrentSenders.push(m.sender);
+      }
     });
 
     composite.selectComponent(vm);
@@ -102,7 +106,8 @@ describe("COMP-003", () => {
     expect(composite.current).toBe(vm);
     expect(vm.isCurrent).toBe(true);
     expect(propNames).toContain("current");
-    expect(propNames).toContain("isCurrent");
+    // Spec COMP-003: exactly one IsCurrent PropertyChangedMessage with Sender == vm.
+    expect(isCurrentSenders).toEqual([vm]);
   });
 });
 

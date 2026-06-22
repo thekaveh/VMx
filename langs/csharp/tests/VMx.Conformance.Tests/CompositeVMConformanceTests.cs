@@ -105,8 +105,10 @@ public class CompositeVMConformanceTests
         {
             if (m is IPropertyChangedMessage<IComponentVM> pcm)
                 currentMessages.Add(pcm.PropertyName);
+            // Spec COMP-003: the IsCurrent PropertyChangedMessage carries Sender == vm.
             if (m is IPropertyChangedMessage<IComponentVM> pcm2 &&
-                pcm2.PropertyName == nameof(ComponentVMBase.IsCurrent))
+                pcm2.PropertyName == nameof(ComponentVMBase.IsCurrent) &&
+                ReferenceEquals(pcm2.SenderObject, child))
                 isCurrentMessages.Add(m);
         });
 
