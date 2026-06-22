@@ -177,6 +177,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def __setitem__(self, index: int, value: VM) -> None:
         old = self._children[index]
+        # Emit the actual position; a negative index counts from the end
+        # (mirrors insert and ObservableList).
+        resolved_index = index + len(self._children) if index < 0 else index
         self._children[index] = value
         old._set_parent(None)
         # Mirror _remove_at: if the slot we just replaced held the current
@@ -186,11 +189,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._set_current(None, async_sel=False)
         value._set_parent(self)
         self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(old,), old_index=index)
+            CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
         )
         self._maybe_auto_construct(value)
         self._emit_collection_changed(
-            CollectionChangedEvent(action="add", new_items=(value,), new_index=index)
+            CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
         )
 
     def __delitem__(self, index: int) -> None:
@@ -263,12 +266,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def _remove_at(self, index: int) -> None:
         item = self._children[index]
+        # Emit the actual position; a negative index counts from the end.
+        resolved_index = index + len(self._children) if index < 0 else index
         del self._children[index]
         item._set_parent(None)
         if self._current is item:
             self._set_current(None, async_sel=False)
         self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(item,), old_index=index)
+            CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
         )
 
     # ── Batch + auto-construct (spec v1.1) ────────────────────────────────────

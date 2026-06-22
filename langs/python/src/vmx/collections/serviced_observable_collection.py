@@ -80,8 +80,13 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         else:
             old_item: T = self._items[index]
             new_item: T = value  # type: ignore[assignment]
+            # Emit the actual position; a negative index counts from the end
+            # (mirrors insert).
+            resolved_index = index + len(self._items) if index < 0 else index
             self._items[index] = new_item
-            self._emit(CollectionChangedMessage.for_replace(self, new_item, old_item, index))
+            self._emit(
+                CollectionChangedMessage.for_replace(self, new_item, old_item, resolved_index)
+            )
 
     def __delitem__(self, index: int | slice) -> None:
         if isinstance(index, slice):
@@ -89,8 +94,10 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
             self._emit(CollectionChangedMessage.for_reset(self))
         else:
             item: T = self._items[index]
+            # Emit the actual position; a negative index counts from the end.
+            resolved_index = index + len(self._items) if index < 0 else index
             del self._items[index]
-            self._emit(CollectionChangedMessage.for_remove(self, item, index))
+            self._emit(CollectionChangedMessage.for_remove(self, item, resolved_index))
 
     def insert(self, index: int, value: T) -> None:
         """Insert *value* before *index* (stdlib semantics: negative indexes

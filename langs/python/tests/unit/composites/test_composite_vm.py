@@ -176,6 +176,40 @@ def test_setitem_emits_remove_then_add() -> None:
     assert comp[0] is child_b
 
 
+def test_remove_at_negative_index_emits_resolved_index() -> None:
+    comp, _ = _build_composite()
+    child_a = _build_child("a")
+    child_b = _build_child("b")
+    comp.append(child_a)
+    comp.append(child_b)
+    events: list[CollectionChangedEvent] = []
+    comp.on_collection_changed.subscribe(events.append)
+
+    comp.remove_at(-1)  # removes the last child (b)
+
+    assert len(events) == 1
+    assert events[0].action == "remove"
+    assert child_b in events[0].old_items
+    # old_index is the resolved position (1), not the raw -1.
+    assert events[0].old_index == 1
+
+
+def test_setitem_negative_index_emits_resolved_index() -> None:
+    comp, _ = _build_composite()
+    child_a = _build_child("a")
+    child_b = _build_child("b")
+    comp.append(child_a)
+    comp.append(child_b)
+    events: list[CollectionChangedEvent] = []
+    comp.on_collection_changed.subscribe(events.append)
+
+    comp[-1] = _build_child("c")  # replaces the last child at resolved index 1
+
+    assert [e.action for e in events] == ["remove", "add"]
+    assert events[0].old_index == 1
+    assert events[1].new_index == 1
+
+
 # ---------------------------------------------------------------------------
 # Current setter tests
 # ---------------------------------------------------------------------------
