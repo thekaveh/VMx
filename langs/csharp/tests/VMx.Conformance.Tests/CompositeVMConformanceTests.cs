@@ -438,16 +438,44 @@ public class CompositeVMConformanceTests
         var b = BuildChild(hub, dispatcher, "b");
         var c = BuildChild(hub, dispatcher, "c");
 
+        var selectorCalls = 0;
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite")
             .Services(hub, dispatcher)
             .Children(() => new[] { a, b, c })
-            .Current(xs => xs.Skip(1).First())
+            .Current(xs => { selectorCalls++; return xs.Skip(1).First(); })
             .Build();
 
         composite.Construct();
 
         composite.Current.Should().BeSameAs(b);
+        selectorCalls.Should().Be(1, "the selector must run exactly once during construct");
+
+        // A null-returning selector leaves Current null and publishes no
+        // PropertyChangedMessage("Current").
+        var hub2 = new TestHub();
+        var a2 = BuildChild(hub2, dispatcher, "a");
+        var b2 = BuildChild(hub2, dispatcher, "b");
+        var c2 = BuildChild(hub2, dispatcher, "c");
+        var propNames = new List<string>();
+        hub2.Messages.Subscribe(m =>
+        {
+            if (m is IPropertyChangedMessage<IComponentVM> pcm)
+                propNames.Add(pcm.PropertyName);
+        });
+
+        var composite2 = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite2")
+            .Services(hub2, dispatcher)
+            .Children(() => new[] { a2, b2, c2 })
+            .Current(_ => (ComponentVM<string>?)null)
+            .Build();
+
+        composite2.Construct();
+
+        composite2.Current.Should().BeNull();
+        propNames.Should().NotContain("Current",
+            "a null-returning Current selector must publish no PropertyChangedMessage(\"Current\")");
     }
 
     // ── COMP-026 — OnCurrentChanged fires after each Current transition ──────
@@ -478,5 +506,24 @@ public class CompositeVMConformanceTests
         composite.DeselectComponent(b);
 
         observed.Should().Equal(b, null);
+
+        // Combined Current(first) + OnCurrentChanged: the initial-selector
+        // assignment fires the hook exactly once with the first child.
+        var hub2 = new TestHub();
+        var a2 = BuildChild(hub2, dispatcher, "a");
+        var b2 = BuildChild(hub2, dispatcher, "b");
+        var observed2 = new List<ComponentVM<string>?>();
+
+        var composite2 = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite2")
+            .Services(hub2, dispatcher)
+            .Children(() => new[] { a2, b2 })
+            .Current(xs => xs.First())
+            .OnCurrentChanged(vm => observed2.Add(vm))
+            .Build();
+
+        composite2.Construct();
+
+        observed2.Should().Equal(a2);
     }
 }

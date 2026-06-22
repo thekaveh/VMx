@@ -99,17 +99,16 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         sut.DismissCommand.Execute(null);
         sut.IsResolved.Should().BeTrue("resolved by manual dismiss");
 
-        // Track hub state: a second resolve call must not occur.
-        var resolveCount = 0;
+        // Track the latest Pending snapshot so we can confirm the notification
+        // stays removed after the timer would have fired.
         IReadOnlyList<Notification>? lastPending = null;
-        hub.Pending.Subscribe(list => { lastPending = list; resolveCount++; });
+        hub.Pending.Subscribe(list => lastPending = list);
 
         // Advance past the original Lifespan — the timer must no longer fire.
         scheduler.AdvanceBy(TimeSpan.FromSeconds(20).Ticks);
 
-        // resolveCount tracks Pending emissions; it may have had initial ones.
-        // The key is that IsResolved was set to true exactly once and the
-        // notification is no longer in Pending.
+        // The manual dismiss resolved the notification exactly once; the timer
+        // tick must not re-resolve it or re-add it to Pending.
         sut.IsResolved.Should().BeTrue("still resolved after timer tick");
         lastPending.Should().NotContain(notification, "notification was removed on dismiss");
     }

@@ -53,6 +53,7 @@ def test_BLD_003_repeated_build_produces_equivalent_distinct_vms() -> None:
     assert vm_a is not vm_b
     assert vm_a.name == vm_b.name == "vm"
     assert vm_a.hint == vm_b.hint == "h"
+    assert vm_a.type == vm_b.type  # Type must be equal across builds (spec BLD-003)
     assert vm_a.model == vm_b.model == "init"
     vm_a.dispose()
     vm_b.dispose()
@@ -66,6 +67,9 @@ def test_BLD_004_field_defaults_applied() -> None:
     vm = ComponentVMOf[str].builder().name("vm").services(hub, dispatcher).model("init").build()
     assert vm.hint == ""  # default
     assert vm.type is ViewModelType.COMPONENT  # default derived from class
+    # Parent defaults to null; the observable proxy is is_current == False
+    # (spec BLD-004 "Parent == null"; matches the TS isCurrent proxy).
+    assert vm.is_current is False
     vm.dispose()
 
 

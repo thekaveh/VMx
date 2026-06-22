@@ -589,15 +589,39 @@ describe("COMP-025", () => {
     const disp = makeDisp();
     const children = ["a", "b", "c"].map((n) => makeChild(hub, n));
 
+    let selectorCalls = 0;
     const composite = CompositeVM.builder<ComponentVM>()
       .name("composite")
       .services(hub, disp)
       .children(() => children)
-      .current((xs) => [...xs][1] ?? null)
+      .current((xs) => {
+        selectorCalls++;
+        return [...xs][1] ?? null;
+      })
       .build();
     composite.construct();
 
     expect(composite.current).toBe(children[1]);
+    expect(selectorCalls, "the selector must run exactly once during construct").toBe(1);
+
+    // A null-returning selector leaves current null and publishes no
+    // PropertyChangedMessage("current").
+    const hub2 = makeHub();
+    const children2 = ["a", "b", "c"].map((n) => makeChild(hub2, n));
+    const propNames: string[] = [];
+    hub2.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage) propNames.push(m.propertyName);
+    });
+    const composite2 = CompositeVM.builder<ComponentVM>()
+      .name("composite2")
+      .services(hub2, disp)
+      .children(() => children2)
+      .current(() => null)
+      .build();
+    composite2.construct();
+
+    expect(composite2.current).toBeNull();
+    expect(propNames).not.toContain("current");
   });
 });
 
@@ -623,5 +647,21 @@ describe("COMP-026", () => {
     composite.deselectComponent(children[1]!);
 
     expect(observed).toEqual([children[1], null]);
+
+    // Combined current(first) + onCurrentChanged: the initial-selector
+    // assignment fires the hook exactly once with the first child.
+    const hub2 = makeHub();
+    const children2 = ["a", "b"].map((n) => makeChild(hub2, n));
+    const observed2: (ComponentVM | null)[] = [];
+    const composite2 = CompositeVM.builder<ComponentVM>()
+      .name("composite2")
+      .services(hub2, disp)
+      .children(() => children2)
+      .current((xs) => [...xs][0] ?? null)
+      .onCurrentChanged((vm) => observed2.push(vm))
+      .build();
+    composite2.construct();
+
+    expect(observed2).toEqual([children2[0]]);
   });
 });

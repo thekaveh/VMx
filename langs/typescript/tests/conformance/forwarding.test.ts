@@ -95,9 +95,25 @@ describe("FWD-002", () => {
 
     const fwd = new OverrideHint();
 
+    // Overridden member returns the override value; the wrapped VM is unchanged.
     expect(fwd.hint).toBe("OVERRIDE");
-    expect(fwd.name).toBe("inner"); // other members still delegate
-    expect(fwd.model).toBe("m");
+    expect(inner.hint).toBe("inner-hint");
+
+    // All other members still delegate to the wrapped VM unchanged (spec FWD-002).
+    expect(fwd.name).toBe(inner.name);
+    expect(fwd.type).toBe(inner.type);
+    expect(fwd.isConstructed).toBe(inner.isConstructed);
+    expect(fwd.status).toBe(inner.status);
+    expect(fwd.isCurrent).toBe(inner.isCurrent);
+    expect(fwd.model).toBe(inner.model);
+    expect(fwd.modeledHint).toBe(inner.modeledHint);
+
+    // Commands still delegate (same instances as the wrapped VM's).
+    expect(fwd.selectCommand).toBe(inner.selectCommand);
+    expect(fwd.deselectCommand).toBe(inner.deselectCommand);
+    expect(fwd.selectNextCommand).toBe(inner.selectNextCommand);
+    expect(fwd.selectPreviousCommand).toBe(inner.selectPreviousCommand);
+    expect(fwd.reconstructCommand).toBe(inner.reconstructCommand);
   });
 });
 

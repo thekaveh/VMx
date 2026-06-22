@@ -130,8 +130,11 @@ describe("CVM-005", () => {
     expect(vm.name).toBe("orig");
     expect(vm.hint).toBe("h");
 
+    // Spec CVM-005: neither Name nor Hint exposes a public setter.
     const nameDesc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(vm), "name");
     expect(nameDesc?.set).toBeUndefined();
+    const hintDesc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(vm), "hint");
+    expect(hintDesc?.set).toBeUndefined();
   });
 });
 
