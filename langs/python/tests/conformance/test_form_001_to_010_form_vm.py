@@ -222,6 +222,7 @@ def test_form_008_hub_messages_on_revert() -> None:
     revert_msgs = [m for m in messages if isinstance(m, FormRevertedMessage)]
     assert len(revert_msgs) == 1, "FormRevertedMessage published"
     assert revert_msgs[0].sender is sut, "sender is the FormVM instance"
+    assert revert_msgs[0].sender_name == "FormVM", "sender_name is the type name"
 
     prop_msgs = [m for m in messages if isinstance(m, PropertyChangedMessage)]
     assert len(prop_msgs) == 1, "PropertyChangedMessage published"

@@ -25,17 +25,27 @@ function makeChild(hub: MessageHub, name: string) {
 // ---------------------------------------------------------------------------
 
 describe("AGG-001", () => {
-  it("Arity-1 ComponentN factory invoked on construct", () => {
+  it("Arity-1 ComponentN factory invoked lazily, exactly once, on construct", () => {
     const hub = makeHub();
-    const child = makeChild(hub, "c1");
+    let factoryCalls = 0;
+    let child: ComponentVM | null = null;
     const agg = AggregateVM1.builder<ComponentVM>()
       .name("agg")
       .services(hub, makeDisp())
-      .component1(() => child)
+      .component1(() => {
+        factoryCalls++;
+        child = makeChild(hub, "c1");
+        return child;
+      })
       .build();
+
+    // Lazy: the factory has not run and the slot is empty before construct().
+    expect(factoryCalls, "factory must not run before construct()").toBe(0);
+    expect(agg.component1).toBeNull();
 
     agg.construct();
 
+    expect(factoryCalls, "factory must run exactly once during construct()").toBe(1);
     expect(agg.component1).toBe(child);
     expect(agg.component1?.status).toBe(ConstructionStatus.Constructed);
   });

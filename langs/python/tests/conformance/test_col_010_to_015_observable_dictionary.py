@@ -258,29 +258,39 @@ def test_COL_022_hub_publication_mutations_publish_to_hub() -> None:
     assert isinstance(msg, CollectionChangedMessage)
     assert msg.action == "add"
     assert msg.sender_object is sut
+    # new_items carries the full entry (key1, key2, value); old_items empty.
+    assert msg.new_items == (("alpha", 1, 3.14),)
+    assert msg.old_items == ()
 
     received.clear()
 
-    # Replace via __setitem__ — publishes a "replace" message
+    # Replace via __setitem__ — publishes a "replace" message; new_items carries
+    # the new value and old_items the prior value, both with the keys.
     sut["alpha", 1] = 9.99
     assert len(received) == 1
     assert received[0].action == "replace"
+    assert received[0].new_items == (("alpha", 1, 9.99),)
+    assert received[0].old_items == (("alpha", 1, 3.14),)
 
     received.clear()
 
-    # Remove — publishes a "remove" message
+    # Remove — publishes a "remove" message; old_items carries the removed entry.
     sut.remove("alpha", 1)
     assert len(received) == 1
     assert received[0].action == "remove"
+    assert received[0].new_items == ()
+    assert received[0].old_items == (("alpha", 1, 9.99),)
 
     received.clear()
 
-    # Clear — publishes a "reset" message
+    # Clear — publishes a "reset" message with empty new_items/old_items.
     sut.add("beta", 2, 2.72)
     received.clear()  # discard the Add from above
     sut.clear()
     assert len(received) == 1
     assert received[0].action == "reset"
+    assert received[0].new_items == ()
+    assert received[0].old_items == ()
 
 
 @pytest.mark.conformance("COL-022")

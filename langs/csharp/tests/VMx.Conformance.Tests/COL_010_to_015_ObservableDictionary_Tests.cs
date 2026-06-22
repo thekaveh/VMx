@@ -255,32 +255,44 @@ public class COL_010_to_015_ObservableDictionaryTests
 
         received.Clear();
 
-        // Replace (indexer set) — publishes a Replace message
+        // Replace (indexer set) — publishes a Replace message; NewItems carries
+        // the new value and OldItems the prior value, both with the keys.
         sut["alpha", 1] = 9.99;
         received.Should().HaveCount(1);
-        received[0]
+        var replaceMsg = received[0]
             .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
-            .Which.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Replace);
+            .Subject;
+        replaceMsg.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Replace);
+        replaceMsg.NewItems.Should().ContainSingle()
+            .Which.Should().Be(new KeyValuePair<(string, int), double>(("alpha", 1), 9.99));
+        replaceMsg.OldItems.Should().ContainSingle()
+            .Which.Should().Be(new KeyValuePair<(string, int), double>(("alpha", 1), 3.14));
 
         received.Clear();
 
-        // Remove — publishes a Remove message
+        // Remove — publishes a Remove message; OldItems carries the removed entry.
         sut.Remove("alpha", 1);
         received.Should().HaveCount(1);
-        received[0]
+        var removeMsg = received[0]
             .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
-            .Which.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Remove);
+            .Subject;
+        removeMsg.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Remove);
+        removeMsg.OldItems.Should().ContainSingle()
+            .Which.Should().Be(new KeyValuePair<(string, int), double>(("alpha", 1), 9.99));
 
         received.Clear();
 
-        // Clear — publishes a Reset message
+        // Clear — publishes a Reset message with empty NewItems/OldItems.
         sut.Add("beta", 2, 2.72);
         received.Clear(); // discard the Add from above
         sut.Clear();
         received.Should().HaveCount(1);
-        received[0]
+        var resetMsg = received[0]
             .Should().BeAssignableTo<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
-            .Which.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+            .Subject;
+        resetMsg.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+        resetMsg.NewItems.Should().BeEmpty();
+        resetMsg.OldItems.Should().BeEmpty();
     }
 
     /// <summary>COL-022 (no-hub path): ObservableDictionary with null hub does not throw and does not publish.</summary>

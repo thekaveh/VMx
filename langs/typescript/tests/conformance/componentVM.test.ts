@@ -59,7 +59,8 @@ describe("CVM-002", () => {
 
     vm.model = "m2";
 
-    expect(received).toContain("model");
+    // Exactly one PropertyChanged for "model" (catches duplicate emissions).
+    expect(received.filter((p) => p === "model")).toHaveLength(1);
   });
 });
 
@@ -110,7 +111,8 @@ describe("CVM-004", () => {
     vm.model = { id: 8 };
 
     expect(vm.modeledHint).toBe("hint:8");
-    expect(received).toContain("modeledHint");
+    // Exactly one PropertyChanged for "modeledHint" (catches duplicate emissions).
+    expect(received.filter((p) => p === "modeledHint")).toHaveLength(1);
   });
 });
 

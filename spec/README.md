@@ -165,7 +165,7 @@ consumers continue to work unchanged.
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0043); see
+- `ADRs/` — Architecture Decision Records (0001-0044); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.
