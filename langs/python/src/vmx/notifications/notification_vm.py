@@ -86,6 +86,7 @@ class NotificationVM:
             ops.filter(_is_not_present),
             ops.take(1),
         ).subscribe(on_next=lambda _: self._notify_external_resolve())
+        self._disposed = False
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -137,7 +138,10 @@ class NotificationVM:
         self._notify_external_resolve()
 
     def dispose(self) -> None:
-        """Cancel the timer, pending subscription, and command."""
+        """Cancel the timer, pending subscription, and command (idempotent)."""
+        if self._disposed:
+            return
+        self._disposed = True
         if self._timer_sub is not None:
             self._timer_sub.dispose()
             self._timer_sub = None

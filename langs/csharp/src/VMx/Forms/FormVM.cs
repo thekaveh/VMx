@@ -224,14 +224,12 @@ public sealed class FormVM<TM> : IDisposable
 
     private static TM DefaultSnapshotter(TM model)
     {
-        // For record types, MemberwiseClone provides a shallow copy equivalent to `with {}`.
-        // For non-record types the consumer should supply a custom snapshotter.
+        // MemberwiseClone is inherited from System.Object, so it resolves for
+        // every TM. For record types it yields a shallow copy equivalent to
+        // `with {}`; non-record consumers should supply a custom snapshotter
+        // when they need deep-copy semantics.
         var method = typeof(TM).GetMethod("MemberwiseClone",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        if (method is not null)
-            return (TM)method.Invoke(model, null)!;
-
-        // Last resort: identity (works for immutable value types).
-        return model;
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        return (TM)method.Invoke(model, null)!;
     }
 }
