@@ -377,9 +377,19 @@ describe("LIFE-013", () => {
       .build();
 
     root.construct();
-    // We can't intercept dispose directly, but we verify all are Disposed afterwards.
-    // For depth-first ordering, use onDestruct callbacks would be needed—
-    // but the spec for LIFE-013 says: when parent.dispose() returns, all children are Disposed.
+
+    // Capture disposal order via the hub so we can assert depth-first ordering
+    // (grand-children before child before root), matching the C#/Python
+    // composite cases and the AggregateVMN case below.
+    const disposalOrder: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (
+        m instanceof ConstructionStatusChangedMessage &&
+        m.status === ConstructionStatus.Disposed
+      ) {
+        disposalOrder.push(m.senderName);
+      }
+    });
 
     root.dispose();
 
@@ -387,6 +397,12 @@ describe("LIFE-013", () => {
     expect(gc2.status).toBe(ConstructionStatus.Disposed);
     expect(child.status).toBe(ConstructionStatus.Disposed);
     expect(root.status).toBe(ConstructionStatus.Disposed);
+
+    // Depth-first: each grand-child disposes before its parent, which disposes
+    // before the root.
+    expect(disposalOrder.indexOf("gc1")).toBeLessThan(disposalOrder.indexOf("child"));
+    expect(disposalOrder.indexOf("gc2")).toBeLessThan(disposalOrder.indexOf("child"));
+    expect(disposalOrder.indexOf("child")).toBeLessThan(disposalOrder.indexOf("root"));
   });
 
   // LIFE-013 for AggregateVMN: children's Disposed transition must fire BEFORE
