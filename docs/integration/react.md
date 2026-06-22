@@ -16,7 +16,7 @@ the `useSyncExternalStore` contract.
 | React                                | VMx                                       |
 | ------------------------------------ | ----------------------------------------- |
 | `useSyncExternalStore(sub, snap)`    | hub `PropertyChangedMessage` subscription |
-| `onClick={() => fn()}`               | `command.execute(undefined)`              |
+| `onClick={() => fn()}`               | `command.execute()`                       |
 | `useMemo` over a derived value       | `DerivedProperty<T>` / `fromSources`      |
 | `useEffect(() => () => cleanup, [])` | dispose the subscription on unmount       |
 
@@ -50,7 +50,7 @@ export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHu
   const model = useVm(vm, hub, "model");
   return <>
     <h1>{model.title}</h1>
-    <button onClick={() => vm.saveCommand.execute(undefined)}>Save</button>
+    <button onClick={() => vm.saveCommand.execute()}>Save</button>
   </>;
 }
 ```

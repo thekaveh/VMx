@@ -16,7 +16,7 @@ Wire a `ComponentVMOf<M>` to a Svelte component via Svelte 5 runes
 | Svelte                           | VMx                                  |
 | -------------------------------- | ------------------------------------ |
 | `$state(x)` / `writable(x)`      | `PropertyChangedMessage<T>` handler  |
-| `on:click={fn}`                  | `command.execute(undefined)` in `fn` |
+| `on:click={fn}`                  | `command.execute()` in `fn`          |
 | `$derived(...)` / `derived(...)` | `DerivedProperty<T>` / `fromSources` |
 | `onDestroy(() => cleanup)`       | dispose the subscription             |
 
@@ -54,7 +54,7 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 </script>
 
 <h1>{$model.title}</h1>
-<button on:click={() => vm.saveCommand.execute(undefined)}>Save</button>
+<button on:click={() => vm.saveCommand.execute()}>Save</button>
 ```
 
 For Svelte 5, drop the store wrapper and assign into a `$state(...)`

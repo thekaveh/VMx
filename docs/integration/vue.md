@@ -14,7 +14,7 @@ values change. Bridge VMx by syncing a local `ref` from VMx hub events.
 | Vue 3                         | VMx                                  |
 | ----------------------------- | ------------------------------------ |
 | `ref(value).value = newValue` | `PropertyChangedMessage<T>` handler  |
-| `@click="fn"`                 | `command.execute(undefined)` in `fn` |
+| `@click="fn"`                 | `command.execute()` in `fn`          |
 | `computed(() => ...)`         | `DerivedProperty<T>` / `fromSources` |
 | `onUnmounted(() => cleanup)`  | dispose the subscription             |
 
@@ -52,7 +52,7 @@ const model = useVm(props.vm, props.hub, "model");
 
 <template>
   <h1>{{ model.title }}</h1>
-  <button @click="vm.saveCommand.execute(undefined)">Save</button>
+  <button @click="vm.saveCommand.execute()">Save</button>
 </template>
 ```
 
