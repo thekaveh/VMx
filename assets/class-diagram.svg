@@ -283,5 +283,5 @@
   <rect x="870" y="1155" width="14" height="10" rx="2" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
   <text x="890" y="1164" fill="#94a3b8" font-size="9">5. Notifications + specialized VMs</text>
 
-  <text x="1180" y="1164" fill="#475569" font-size="8" text-anchor="end">VMx · spec/VERSION 2.6.0 · 43 ADRs · 237 conformance IDs</text>
+  <text x="1180" y="1164" fill="#475569" font-size="8" text-anchor="end">VMx · spec/VERSION 2.6.0 · 44 ADRs · 237 conformance IDs</text>
 </svg>
