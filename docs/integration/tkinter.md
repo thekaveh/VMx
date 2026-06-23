@@ -57,4 +57,4 @@ root.mainloop()
 ## 4. Fuller example
 
 [`examples/python/tk/todo_app/`](../../examples/python/tk/todo_app/) — a
-working Tkinter Todo app backed by a `CompositeVM[TodoVM]`.
+working Tkinter Todo app backed by a `CompositeVM[TodoItemVM]`.
