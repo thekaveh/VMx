@@ -109,7 +109,7 @@ ComponentVM<UserModel> userVM =
 
 // Subscribe to PropertyChangedMessage BEFORE constructing so you don't miss it.
 hub.Messages
-   .OfType<IPropertyChangedMessage<ComponentVM<UserModel>>>()
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
    .Where(msg => msg.Sender == userVM)
    .Subscribe(msg =>
        Console.WriteLine($"Property '{msg.PropertyName}' changed on {msg.Sender.Name}"));
@@ -218,12 +218,11 @@ CompositeVM<ComponentVM<TabModel>> tabs =
 
 // Watch for Current changes on the hub.
 hub.Messages
-   .OfType<IPropertyChangedMessage<CompositeVM<ComponentVM<TabModel>>>>()
-   .Where(msg => msg.PropertyName == nameof(tabs.Current))
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
+   .Where(msg => msg.Sender == tabs && msg.PropertyName == nameof(tabs.Current))
    .Subscribe(msg =>
    {
-       var composite = msg.Sender;
-       Console.WriteLine($"Selected tab: {composite.Current?.Model.Title ?? "(none)"}");
+       Console.WriteLine($"Selected tab: {tabs.Current?.Model.Title ?? "(none)"}");
    });
 
 // Construct cascades: the composite constructs itself, then each child.
@@ -285,7 +284,7 @@ controls. Use `ObserveOn` to marshal:
 
 ```csharp
 hub.Messages
-   .OfType<IPropertyChangedMessage<ComponentVM<UserModel>>>()
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
    .ObserveOn(dispatcher.Foreground)     // marshal to UI thread
    .Subscribe(msg => UpdateLabel(msg));  // safe to touch UI here
 ```
