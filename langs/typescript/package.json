@@ -47,7 +47,7 @@
     "pretest": "npm run sync-fixtures",
     "pretest:watch": "npm run sync-fixtures",
     "precoverage": "npm run sync-fixtures",
-    "prepack": "npm run sync-fixtures && npm run check-version-sync && npm run build"
+    "prepack": "npm run sync-fixtures && npm run check-version-sync && npm run typecheck && npm run build"
   },
   "keywords": [
     "mvvm",

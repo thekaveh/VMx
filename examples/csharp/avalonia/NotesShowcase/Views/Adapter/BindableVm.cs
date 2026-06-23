@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Reactive.Linq;
+using System.Reflection;
 using VMx.Messages;
 using VMx.Services;
 
@@ -57,25 +59,25 @@ public sealed class BindableVm : INotifyPropertyChanged, IDisposable
             .Subscribe(m => Raise(GetPropertyName(m)));
     }
 
+    // Per-message-type reflection is memoized: for each runtime message type we
+    // resolve once whether it is a closed PropertyChangedMessage<T> and, if so,
+    // its PropertyName accessor — so the GetGenericTypeDefinition / GetProperty
+    // lookups run once per type instead of once per message.
+    private static readonly ConcurrentDictionary<Type, PropertyInfo?> PropertyNameInfoCache = new();
+
+    private static PropertyInfo? PropertyNameInfoFor(Type messageType)
+        => PropertyNameInfoCache.GetOrAdd(messageType, static t =>
+            t.IsGenericType && t.GetGenericTypeDefinition() == typeof(PropertyChangedMessage<>)
+                ? t.GetProperty(nameof(IPropertyChangedMessage<object>.PropertyName))
+                : null);
+
     private static bool IsPropertyChangedFor(IMessage message, object vm)
-    {
-        // PropertyChangedMessage<T> is a generic record; we filter via the
-        // open-generic interface so any T is accepted.
-        if (message is not IMessage typed) return false;
-        var t = message.GetType();
-        if (!t.IsGenericType) return false;
-        if (t.GetGenericTypeDefinition() != typeof(PropertyChangedMessage<>)) return false;
-        return ReferenceEquals(message.SenderObject, vm);
-    }
+        // A closed PropertyChangedMessage<T> (any T) whose sender is this VM.
+        => PropertyNameInfoFor(message.GetType()) is not null
+           && ReferenceEquals(message.SenderObject, vm);
 
     private static string GetPropertyName(IMessage message)
-    {
-        // The runtime type is PropertyChangedMessage<TSender>; PropertyName is a
-        // public record property. Reflection lookup is cheap and avoids
-        // taking a dependency on a closed generic.
-        var prop = message.GetType().GetProperty(nameof(IPropertyChangedMessage<object>.PropertyName));
-        return (string?)prop?.GetValue(message) ?? string.Empty;
-    }
+        => (string?)PropertyNameInfoFor(message.GetType())?.GetValue(message) ?? string.Empty;
 
     private void Raise(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

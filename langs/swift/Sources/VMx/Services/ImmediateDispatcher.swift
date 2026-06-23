@@ -11,7 +11,8 @@ public final class ImmediateDispatcher: Dispatcher {
     /// Shared singleton — the dispatcher holds no state.
     public static let INSTANCE = ImmediateDispatcher()
 
-    public init() {}
+    // Private init — construct via the shared `INSTANCE` (singleton parity with NullDispatcher).
+    private init() {}
 
     public func scheduleForeground(_ work: @escaping () -> Void) {
         work()

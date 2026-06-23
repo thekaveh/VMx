@@ -11,6 +11,7 @@ module-level helpers:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -62,14 +63,19 @@ def _load_table() -> list[dict[str, Any]]:
     return transitions
 
 
-# Lazy cache — loaded once on first use.
+# Lazy cache — loaded once on first use. The lock makes first-touch
+# initialization thread-safe (double-checked locking); reads after init stay
+# lock-free since the reference assignment is atomic.
 _table: list[dict[str, Any]] | None = None
+_table_lock = threading.Lock()
 
 
 def _get_table() -> list[dict[str, Any]]:
     global _table
     if _table is None:
-        _table = _load_table()
+        with _table_lock:
+            if _table is None:
+                _table = _load_table()
     return _table
 
 

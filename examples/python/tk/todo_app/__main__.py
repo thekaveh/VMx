@@ -229,6 +229,9 @@ class MainWindow:
     def __init__(self, root: tk.Tk) -> None:
         self._root = root
         self._vm = MainWindowViewModel()
+        # Snapshot of the VM items currently shown, row-aligned with the Listbox,
+        # so selection can be restored by item identity rather than by position.
+        self._row_items: list[TodoItemVM] = []
 
         root.title("VMx Todo App")
         root.resizable(True, True)
@@ -334,15 +337,28 @@ class MainWindow:
 
     def _refresh_list(self) -> None:
         """Rebuild the Listbox from the VM's items list."""
+        # Capture the selected item's identity (not its index) before the rebuild
+        # so selection survives reordering, not just append/remove.
         prev_sel = self._listbox.curselection()
+        prev_item = (
+            self._row_items[prev_sel[0]]
+            if prev_sel and prev_sel[0] < len(self._row_items)
+            else None
+        )
+
+        self._row_items = list(self._vm.items)
         self._listbox.delete(0, tk.END)
-        for item_vm in self._vm.items:
+        for item_vm in self._row_items:
             self._listbox.insert(tk.END, item_vm.display)
-        # Restore selection if still valid.
-        if prev_sel:
-            idx = prev_sel[0]
-            if idx < self._listbox.size():
-                self._listbox.selection_set(idx)
+
+        # Restore selection by item identity.
+        if prev_item is not None:
+            new_idx = next(
+                (i for i, vm in enumerate(self._row_items) if vm is prev_item),
+                None,
+            )
+            if new_idx is not None:
+                self._listbox.selection_set(new_idx)
         self._refresh_button_states()
 
     def _refresh_button_states(self) -> None:

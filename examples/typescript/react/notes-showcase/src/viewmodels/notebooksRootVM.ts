@@ -3,8 +3,9 @@
  *
  * VMx-API adaptation (parity with C# / Python flavors): the plan asked for
  * `HierarchicalVM<NotebookModel, NotebookVM>`, but VMx TS's
- * `HierarchicalVM` materializes its children from a factory at construct
- * time and lacks a "current selection" / "walk" surface the showcase needs.
+ * `HierarchicalVM` sources each node's children from a per-node factory
+ * (materialized lazily on first access, not eagerly at construct time) and
+ * lacks the "current selection" / "walk" surface the showcase needs.
  * We own a flat collection and expose roots / children-of / walk over it.
  * `addNotebookAsync` persists via the repo and publishes a
  * `TreeStructureChangedMessage` so subscribers observe structural changes

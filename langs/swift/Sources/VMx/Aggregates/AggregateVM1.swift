@@ -21,6 +21,7 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
     open override var type: ViewModelType { .aggregate }
 
     open override func _onConstruct() {
+        super._onConstruct()
         component1?.dispose()
         let c1 = factory1()
         component1 = c1
@@ -33,6 +34,7 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
 
     open override func _onDestruct() {
         component1?.destruct()
+        super._onDestruct()
     }
 
     open override func dispose() {

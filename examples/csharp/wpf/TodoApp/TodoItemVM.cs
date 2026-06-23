@@ -98,11 +98,16 @@ public sealed class TodoItemVM : INotifyPropertyChanged, IDisposable
             _canExecute = canExecute;
         }
 
-        public event EventHandler? CanExecuteChanged;
+        // Hook WPF's central requery so CanExecute is re-evaluated on UI
+        // interaction (the standard WPF RelayCommand idiom) instead of staying
+        // frozen at its first-queried value.
+        public event EventHandler? CanExecuteChanged
+        {
+            add => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+
         public bool CanExecute(object? _) => _canExecute();
         public void Execute(object? _)    => _execute();
-
-        public void RaiseCanExecuteChanged() =>
-            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
 }

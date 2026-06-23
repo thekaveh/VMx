@@ -117,6 +117,11 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     private readonly ObservableList<TKey1> _keys1 = new();
     private readonly ObservableList<TKey2> _keys2 = new();
 
+    // Per-axis reference counts, so distinct-key view membership is maintained
+    // in O(1) on each mutation instead of scanning _data / _keys1 / _keys2.
+    private readonly Dictionary<TKey1, int> _key1Counts = [];
+    private readonly Dictionary<TKey2, int> _key2Counts = [];
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -219,11 +224,33 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _data.Remove((key1, key2));
         _keyOrder.Remove((key1, key2));
 
-        // Update key-axis views: remove only if no other entry still uses this key.
-        if (!_data.Keys.Any(k => EqualityComparer<TKey1>.Default.Equals(k.Item1, key1)))
-            _keys1.Remove(key1);
-        if (!_data.Keys.Any(k => EqualityComparer<TKey2>.Default.Equals(k.Item2, key2)))
-            _keys2.Remove(key2);
+        // Update key-axis views: drop a key only when its last entry is gone
+        // (O(1) via refcounts, no scan over _data).
+        if (_key1Counts.TryGetValue(key1, out int c1))
+        {
+            if (c1 <= 1)
+            {
+                _key1Counts.Remove(key1);
+                _keys1.Remove(key1);
+            }
+            else
+            {
+                _key1Counts[key1] = c1 - 1;
+            }
+        }
+
+        if (_key2Counts.TryGetValue(key2, out int c2))
+        {
+            if (c2 <= 1)
+            {
+                _key2Counts.Remove(key2);
+                _keys2.Remove(key2);
+            }
+            else
+            {
+                _key2Counts[key2] = c2 - 1;
+            }
+        }
 
         OnRemoved(key1, key2, value);
         return true;
@@ -257,6 +284,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _keyOrder.Clear();
         _keys1.Clear();
         _keys2.Clear();
+        _key1Counts.Clear();
+        _key2Counts.Clear();
         OnReset();
     }
 
@@ -278,11 +307,22 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _keyOrder.Add((key1, key2));
         _data[(key1, key2)] = value;
 
-        // Update key-axis views only on first appearance.
-        if (!_keys1.Contains(key1))
+        // Update key-axis views only on first appearance (O(1) via refcounts).
+        if (_key1Counts.TryGetValue(key1, out int c1))
+            _key1Counts[key1] = c1 + 1;
+        else
+        {
+            _key1Counts[key1] = 1;
             _keys1.Add(key1);
-        if (!_keys2.Contains(key2))
+        }
+
+        if (_key2Counts.TryGetValue(key2, out int c2))
+            _key2Counts[key2] = c2 + 1;
+        else
+        {
+            _key2Counts[key2] = 1;
             _keys2.Add(key2);
+        }
 
         OnAdded(key1, key2, value);
     }

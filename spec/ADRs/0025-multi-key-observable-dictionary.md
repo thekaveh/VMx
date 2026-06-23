@@ -76,3 +76,12 @@ Key rules:
 - Enumeration order is insertion order (matches `LinkedHashMap`/`OrderedDict`
   semantics). Flavors that cannot guarantee insertion order MUST document the
   deviation in `spec/ADRs/0009-cross-flavor-divergence-catalogue.md`.
+
+## 5. Amendments
+
+- **ADR-0038** (2026-06-11, spec v2.5.0) corrected the §3 implementation
+  description: no base `ObservableDictionary<TKey, TValue>` type exists in any
+  flavor (the multi-key dictionary is implemented directly, not as a thin
+  wrapper over a base type), and TypeScript's internal compound key is a
+  serialized string, not a `readonly` object literal. The §3 decision text is
+  retained as the original record; see ADR-0038 for the corrected wording.

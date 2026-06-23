@@ -1307,10 +1307,11 @@ virtual time 0
 
 ______________________________________________________________________
 
-## 20. CompositeVM v2.0 additions (`COMP-014..026`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..026`)
 
-Search/filter (COMP-014..018, see ADR-0014) and modeled CRUD (COMP-019..024,
-see ADR-0016) additions to chapter 06.
+Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
+see ADR-0016), and builder hooks (COMP-025..026, see ADR-0042) additions to
+chapter 06.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -1551,14 +1552,14 @@ ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
 **And** a subscriber that records the order of local `CollectionChanged` and hub `CollectionChangedMessage` receipts
 **When** an item is added
 **Then** the local `CollectionChanged` event fires before the hub message is published
-**And** the hub `CollectionChangedMessage` carries `Action == Added` and the correct `NewItems` and `StartingIndex`
+**And** the hub `CollectionChangedMessage` carries `Action == Add` and the correct `NewItems` and `Index`
 
 ### COL-002 — `ServicedObservableCollection<T>` publishes on remove and replace
 
 **Given** a `ServicedObservableCollection<T>` constructed with a hub and containing items
 **When** an item is removed, then another is replaced
 **Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub
-**And** the `Action` field equals `Removed` for the removal and `Replaced` for the replacement
+**And** the `Action` field equals `Remove` for the removal and `Replace` for the replacement
 **And** `OldItems` is populated for the removal and both `OldItems` / `NewItems` are populated for the replacement
 
 ### COL-003 — Null-hub fallback: no hub means no publication, no error
@@ -1711,7 +1712,7 @@ ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
 replaced, then `Clear()` is called
 **Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub after
 the local `CollectionChanged` event fires
-**And** the `Action` field carries the correct value (`Added`, `Removed`, `Replaced`,
+**And** the `Action` field carries the correct value (`Add`, `Remove`, `Replace`,
 `Reset`) for each mutation
 
 **Given** an `ObservableDictionary` constructed with no hub (or an explicit null)
