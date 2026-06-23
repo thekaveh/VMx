@@ -23,8 +23,11 @@ the element. There is no built-in observable model.
 ## 3. Adapter skeleton
 
 ```python
+from collections.abc import Callable
+
 from nicegui import ui
 import reactivex.operators as ops
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
 
 def bind_label(label: ui.label, vm: ComponentVMOf[Note],
                hub: MessageHubProto[Message]) -> Callable[[], None]:

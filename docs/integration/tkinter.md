@@ -23,8 +23,11 @@ observable; lists need to be re-applied to a `Listbox`.
 ## 3. Adapter skeleton
 
 ```python
+from collections.abc import Callable
+
 import tkinter as tk
 import reactivex.operators as ops
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
 
 def bind_string(var: tk.StringVar, vm: ComponentVMOf[Note],
                 hub: MessageHubProto[Message], property_name: str = "model"
