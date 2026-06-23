@@ -18,12 +18,6 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
     }
 
-    private void AddButton_Click(object sender, RoutedEventArgs e)
-    {
-        _viewModel.AddItem(_viewModel.NewItemTitle);
-        NewItemBox.Focus();
-    }
-
     private void Window_Closed(object sender, EventArgs e)
     {
         _viewModel.Shutdown();

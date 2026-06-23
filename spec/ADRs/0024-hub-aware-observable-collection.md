@@ -18,7 +18,8 @@ collection mutations must wire up `CollectionChanged` handlers manually and call
 across every collection a consumer wants to observe.
 
 ADR-0010 established that VMx collections should be opt-in primitives, not part
-of the base VM hierarchy. ADR-0013 introduced the `IMessageHub` contract.
+of the base VM hierarchy. The `IMessageHub` contract is core, defined in
+`spec/03-messages.md` (ch. 03).
 
 ## 2. Options considered
 
@@ -67,3 +68,11 @@ defined in `spec/21-collections.md` §2. Key rules:
   `CollectionChangedMessage` is defined in `spec/21-collections.md` §2.4 as a
   v2.1 domain-specific message (per chapter 03 §2). Flavors add the type to
   their existing typed-message catalog.
+
+## 5. Amendments
+
+- **Correction (2026-06, spec v2.6.x maintenance):** §1 originally read
+  "ADR-0013 introduced the `IMessageHub` contract." That attribution is
+  incorrect — ADR-0013 introduced `INotificationHub`; `IMessageHub` is a core
+  contract defined in `spec/03-messages.md` (ch. 03) and predates ADR-0013.
+  The §1 sentence has been corrected accordingly.

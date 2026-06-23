@@ -41,12 +41,6 @@ import { StatusBarVM } from "./statusBarVM.js";
 
 const SENTINEL = Symbol("not-set");
 
-let noteCounter = 0;
-function newNoteId(): string {
-  noteCounter += 1;
-  return `note-new-${Date.now().toString(36)}-${noteCounter}`;
-}
-
 export class WorkspaceVM {
   readonly #repo: INoteRepository;
   readonly #dialogService: IDialogService;
@@ -57,6 +51,7 @@ export class WorkspaceVM {
   readonly #statusBar: StatusBarVM;
   readonly #notifications: NotificationsVM;
   readonly #capabilityActions: CapabilityActionsVM;
+  #noteCounter = 0;
   readonly #aggregate: AggregateVM6<
     NotebooksRootVM,
     NotesViewVM,
@@ -365,12 +360,17 @@ export class WorkspaceVM {
 
   // ── Internal command implementations ──────────────────────────────────────
 
+  #newNoteId(): string {
+    this.#noteCounter += 1;
+    return `note-new-${Date.now().toString(36)}-${this.#noteCounter}`;
+  }
+
   async #addNewNoteToCurrentAsync(): Promise<void> {
     const nb = this.#notebooks.current;
     if (nb === null) return;
     const now = new Date().toISOString();
     const note: NoteModel = {
-      id: newNoteId(),
+      id: this.#newNoteId(),
       notebookId: nb.model.id,
       title: "Untitled",
       tags: [],

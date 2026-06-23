@@ -39,6 +39,7 @@ open class AggregateVM5<
     open override var type: ViewModelType { .aggregate }
 
     open override func _onConstruct() {
+        super._onConstruct()
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
         component5?.dispose()
@@ -64,6 +65,7 @@ open class AggregateVM5<
         component1?.destruct(); component2?.destruct()
         component3?.destruct(); component4?.destruct()
         component5?.destruct()
+        super._onDestruct()
     }
 
     open override func dispose() {

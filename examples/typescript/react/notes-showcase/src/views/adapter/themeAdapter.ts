@@ -61,18 +61,11 @@ function varsFor(model: ThemeModel): CssVars {
         pane: "#000000",
         textDim: "#FFFFFF",
       };
-    case "system":
-      // The VM should never publish a "system"-named model; the
-      // followSystemCommand collapses to a concrete preset before commit.
-      // Defensive default to dark.
-      return {
-        bg: "#0e1320",
-        accent,
-        pane: "#141b2d",
-        textDim: "#8a93a8",
-      };
     case "dark":
     default:
+      // The VM never publishes a "system"-named model (followSystemCommand
+      // collapses to a concrete preset before commit); any unknown name falls
+      // back to the dark preset here.
       return {
         bg: "#0e1320",
         accent,

@@ -67,3 +67,10 @@ notification sub-package as a helper function — keeping the core
 - The hub holds notifications until resolved. There is no built-in
   cap or timeout; the consumer is responsible for resolving in a
   bounded time.
+
+## 5. Amendments
+
+- The `NOTIF` family has grown beyond the original ten: **ADR-0031** added
+  `NOTIF-011..NOTIF-016` (notification-rendering VMs) and **ADR-0037**
+  (2026-06-10, spec v2.5.0) added `NOTIF-017` (`NotificationHub` dispose
+  semantics). The family is now 17 conformance IDs (`NOTIF-001..NOTIF-017`).

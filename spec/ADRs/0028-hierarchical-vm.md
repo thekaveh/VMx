@@ -80,3 +80,5 @@ Option 3, with the following six specific resolutions:
   `HierarchicalVMBuilder.validate` (HIER-015), default-on-`build()` semantics
   (HIER-016), and repeat-`build()` immutability (HIER-017). The family is now
   17 conformance IDs.
+- **ADR-0037** (2026-06-10, spec v2.5.0) added `HIER-018` (`ReparentChild`
+  rejects self/ancestor cycles). The family is now 18 conformance IDs.

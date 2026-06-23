@@ -33,12 +33,14 @@ export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
   const newNotebook = useCommand(ws.newNotebookCommand);
   const newNote = useCommand(ws.newNoteCommand);
   const exportCmd = useCommand(ws.exportCommand);
+  const save = useCommand(ws.noteForm.approveCommand);
 
-  // Hotkeys: Mod+N new note, Mod+Shift+N new notebook, Mod+E export.
+  // Hotkeys: Mod+N new note, Mod+Shift+N new notebook, Mod+E export, Mod+S save.
   useHotkeys({
     "Mod+N": () => newNote.canExecute && newNote.execute(),
     "Mod+Shift+N": () => newNotebook.canExecute && newNotebook.execute(),
     "Mod+E": () => exportCmd.canExecute && exportCmd.execute(),
+    "Mod+S": () => save.canExecute && save.execute(),
   });
 
   return (

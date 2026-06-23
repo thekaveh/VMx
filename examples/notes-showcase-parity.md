@@ -96,8 +96,9 @@ renders, headless smoke covers it.
 [^hier]: All three flavors implement an equivalent flat-collection +
     parent-id navigation pattern instead of subclassing
     `HierarchicalVM<TModel, TVM>` directly, because the canonical class
-    materializes children eagerly from a factory at construct time
-    (awkward for dynamic add). The observable contract —
+    sources each node's children from a per-node factory (materialized
+    lazily on first access, not eagerly) — an awkward fit for a flat,
+    freely-mutated `parent_id` collection. The observable contract —
     `TreeStructureChangedMessage` emission on add/remove, `current`
     selection, and `walk()` / `childrenOf()` accessors — is preserved
     identically across all three flavors, so capability dispatch and

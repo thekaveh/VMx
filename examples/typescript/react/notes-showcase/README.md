@@ -37,21 +37,6 @@ npm test
 npm run typecheck
 ```
 
-### Temporary `node:*` shim (Phase 5.c workaround)
-
-`vite.config.ts` registers a small `nodeBuiltinStub()` plugin that maps
-`node:fs` / `node:path` / `node:url` to a Proxy module so rollup's parser is
-satisfied when bundling VMx core for the browser. VMx core's
-`lifecycle/transitionValidator.ts` imports those built-ins eagerly to read a
-JSON fixture; the React UI never triggers that code path, but rollup would
-fail at build time without the shim. The plugin is excluded under
-`VITEST=true` so unit tests load the real validator from Node.
-
-This shim is a **temporary workaround**, not a permanent design. The proper
-fix is for VMx core to lazy-load the validator's fixture (or expose a
-no-side-effects entry point for browser bundlers); track that as a follow-up
-on the VMx TypeScript flavor — once it lands, this plugin should be removed.
-
 ## Project layout
 
 ```

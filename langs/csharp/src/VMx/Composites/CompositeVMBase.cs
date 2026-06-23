@@ -20,7 +20,6 @@ namespace VMx.Composites;
 public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, IParentCompositeVM
     where VM : class, IComponentVM
 {
-    private readonly IDispatcher _dispatcher;
     private readonly bool _asyncSelection;
     private readonly bool _autoConstructOnAdd;
     private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
@@ -102,7 +101,6 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         Action<VM?>? onCurrentChanged)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
-        _dispatcher = dispatcher;
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _currentSelector = currentSelector;

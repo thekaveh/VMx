@@ -60,3 +60,5 @@ consumer-controlled (`Approve.CanExecute = true`).
   `FormVMBuilder.validate` (FORM-011), default-on-`build()` semantics
   (FORM-012), and repeat-`build()` immutability (FORM-013). The family is now
   13 conformance IDs.
+- **ADR-0038** (2026-06-11, spec v2.5.0) added `FORM-014` (a disposed form is
+  inert). The family is now 14 conformance IDs.

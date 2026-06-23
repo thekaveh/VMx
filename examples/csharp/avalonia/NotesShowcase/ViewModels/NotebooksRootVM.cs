@@ -18,8 +18,10 @@ namespace NotesShowcase.ViewModels;
 ///
 /// VMx-API adaptation (plan §3.a.7): the plan asked for
 /// <c>HierarchicalVM&lt;NotebookModel, NotebookVM&gt;</c>, but
-/// <see cref="HierarchicalVM{TModel,TVM}"/> materializes its children from a
-/// factory at construct time and is awkward to mutate dynamically (it has
+/// <see cref="HierarchicalVM{TModel,TVM}"/> sources each node's children from
+/// a per-node factory (lazily, on first access — not eagerly at construct
+/// time) and is an awkward fit for a flat, freely-mutated parent-id
+/// collection (it has
 /// <c>AddChild</c>, but no first-class "current selection" / "walk" surface
 /// the plan assumed). Instead we own a flat list of <see cref="NotebookVM"/>
 /// instances, exposing <see cref="Roots"/> and <see cref="Walk"/> for the

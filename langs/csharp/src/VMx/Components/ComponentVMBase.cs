@@ -61,7 +61,13 @@ internal static class ComponentVMExtensions
 public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 {
     private readonly IMessageHub _hub;
-    private readonly IDispatcher _dispatcher;
+
+    /// <summary>
+    /// The dispatcher supplied at construction. <c>private protected</c> so
+    /// same-assembly container subclasses can schedule on it without re-storing
+    /// their own copy.
+    /// </summary>
+    private protected readonly IDispatcher _dispatcher;
     private readonly bool _background;
 
     // ── Lifecycle state ─────────────────────────────────────────────────────

@@ -1,8 +1,10 @@
 """NotebooksRootVM — root of the notebooks tree.
 
 VMx-API adaptation (cross-reference with the C# §3.a flavor):
-:class:`vmx.HierarchicalVM` materialises its children eagerly from a factory at
-construct time and is awkward to mutate dynamically (it supports
+:class:`vmx.HierarchicalVM` sources each node's children from a per-node
+factory (materialised lazily on first access, not eagerly at construct time)
+and is an awkward fit for a flat, freely-mutated ``parent_id`` collection (it
+supports
 ``add_child``/``remove_child`` but has no first-class "current selection"
 surface the plan assumed). Instead we own a flat
 :class:`~vmx.ObservableList` of :class:`NotebookVM` instances, exposing

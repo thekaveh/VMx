@@ -85,8 +85,12 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// <summary><see langword="true"/> when <see cref="HierarchicalParent"/> is <see langword="null"/>.</summary>
     public bool IsRoot => _hierarchicalParent is null;
 
-    /// <summary>Distance from the root. Root is 0; a child of root is 1; etc.</summary>
-    public int Depth => _hierarchicalParent is null ? 0 : _hierarchicalParent.Depth + 1;
+    /// <summary>
+    /// Distance from the root. Root is 0; a child of root is 1; etc.
+    /// Derived from the cached <see cref="Path"/> (root-to-this, inclusive), so it
+    /// rides the same cache and invalidation rather than recursing per call.
+    /// </summary>
+    public int Depth => Path.Count - 1;
 
     /// <summary>
     /// <see langword="true"/> when this node has no children.

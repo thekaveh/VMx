@@ -1,6 +1,10 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Reactive;
 using System.Reactive.Concurrency;
+using System.Reactive.Subjects;
+using System.Windows.Input;
+using VMx.Commands;
 using VMx.Services;
 
 namespace WpfTodoApp;
@@ -20,6 +24,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private readonly IMessageHub _hub;
     private readonly IDispatcher _dispatcher;
+    private readonly Subject<Unit> _newItemTitleChanged = new();
     private string _newItemTitle = string.Empty;
 
     /// <summary>
@@ -37,10 +42,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             if (_newItemTitle == value) return;
             _newItemTitle = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(NewItemTitle)));
+            _newItemTitleChanged.OnNext(Unit.Default);
         }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// Adds the item currently typed in <see cref="NewItemTitle"/>. CanExecute is
+    /// false while the input is empty/whitespace and is re-evaluated on every
+    /// <see cref="NewItemTitle"/> change, so the Add button enables/disables live.
+    /// </summary>
+    public ICommand AddCommand { get; }
 
     public MainWindowViewModel()
     {
@@ -48,6 +61,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         // the ViewModel is created in App.OnStartup / MainWindow constructor).
         _hub        = new MessageHub();
         _dispatcher = RxDispatcher.CreateForCurrentContext();
+
+        AddCommand = RelayCommand.Builder()
+            .Task(() => AddItem(NewItemTitle))
+            .Predicate(() => !string.IsNullOrWhiteSpace(NewItemTitle))
+            .Triggers(_newItemTitleChanged)
+            .Build();
 
         // Seed with a couple of items so the UI isn't empty on first launch.
         AddItem("Buy groceries");
@@ -82,6 +101,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             item.Dispose();
         }
 
+        (AddCommand as IDisposable)?.Dispose();
+        _newItemTitleChanged.Dispose();
         _hub.Dispose();
     }
 }
