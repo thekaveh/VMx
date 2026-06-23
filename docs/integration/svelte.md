@@ -26,7 +26,7 @@ Wire a `ComponentVMOf<M>` to a Svelte component via Svelte 5 runes
 // lib/vmStore.ts
 import { readable, type Readable } from "svelte/store";
 import { filter } from "rxjs/operators";
-import { ComponentVMOf, IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
+import { ComponentVMOf, type IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
 
 export function vmStore<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
