@@ -64,7 +64,7 @@ const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
   .children(() => [tab1, tab2])
   .build();
 
-// 4. Transition the lifecycle from Created → Constructed before use.
+// 4. Transition the lifecycle from Destructed → Constructed before use.
 tabs.construct();
 console.log(tabs.status);             // ConstructionStatus.Constructed
 

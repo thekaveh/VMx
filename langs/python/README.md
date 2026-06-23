@@ -77,7 +77,7 @@ tabs = (
     .build()
 )
 
-# 4. Transition the lifecycle from CREATED → CONSTRUCTED before use.
+# 4. Transition the lifecycle from DESTRUCTED → CONSTRUCTED before use.
 tabs.construct()
 print(tabs.status)  # ConstructionStatus.CONSTRUCTED
 

@@ -24,6 +24,8 @@ reactive attributes.
 ```python
 from textual.widget import Widget
 from textual.reactive import reactive
+import reactivex.operators as ops
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
 
 class BindableWidget(Widget):
     title: reactive[str] = reactive("")

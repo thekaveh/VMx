@@ -23,8 +23,11 @@ observable; lists need to be re-applied to a `Listbox`.
 ## 3. Adapter skeleton
 
 ```python
+from collections.abc import Callable
+
 import tkinter as tk
 import reactivex.operators as ops
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
 
 def bind_string(var: tk.StringVar, vm: ComponentVMOf[Note],
                 hub: MessageHubProto[Message], property_name: str = "model"
@@ -54,4 +57,4 @@ root.mainloop()
 ## 4. Fuller example
 
 [`examples/python/tk/todo_app/`](../../examples/python/tk/todo_app/) — a
-working Tkinter Todo app backed by a `CompositeVM[TodoVM]`.
+working Tkinter Todo app backed by a `CompositeVM[TodoItemVM]`.

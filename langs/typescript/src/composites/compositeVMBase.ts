@@ -335,6 +335,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   private _applyCurrentChange(value: VM | null): void {
+    // Async TOCTOU guard: with async selection the child may have been removed
+    // between _setCurrent's membership check and this deferred foreground
+    // delivery. Dropping silently upholds the spec/06 §3 invariant that a
+    // non-null current is always a member of the children collection.
+    if (value !== null && !this._children.includes(value)) return;
     if (this.#current === value) return;
 
     const previous = this.#current;

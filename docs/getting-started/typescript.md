@@ -242,13 +242,15 @@ import { ConstructionStatus } from "@thekaveh/vmx";
 
 console.log(userVM.status); // ConstructionStatus.Constructed
 
+// reconstruct() is destruct() + construct() in a single call. It is only valid
+// from Constructed (canReconstruct() is true iff status === Constructed); it
+// round-trips through Destructed and back to Constructed.
+userVM.reconstruct();
+console.log(userVM.status); // ConstructionStatus.Constructed
+
 // destruct() transitions back to Destructed and runs onDestruct.
 userVM.destruct();
 console.log(userVM.status); // ConstructionStatus.Destructed
-
-// reconstruct() is destruct() + construct() in a single call.
-userVM.reconstruct();
-console.log(userVM.status); // ConstructionStatus.Constructed
 
 // dispose() is terminal and idempotent. Calling construct() or destruct()
 // on a disposed VM raises StatusTransitionError.

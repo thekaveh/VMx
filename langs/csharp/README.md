@@ -61,7 +61,7 @@ var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
     .Children(() => new[] { home, settings })
     .Build();
 
-// 4. Transition the lifecycle from Created → Constructed before use.
+// 4. Transition the lifecycle from Destructed → Constructed before use.
 tabs.Construct();
 Console.WriteLine(tabs.Status);  // Constructed
 

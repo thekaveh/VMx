@@ -109,7 +109,7 @@ ComponentVM<UserModel> userVM =
 
 // Subscribe to PropertyChangedMessage BEFORE constructing so you don't miss it.
 hub.Messages
-   .OfType<IPropertyChangedMessage<ComponentVM<UserModel>>>()
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
    .Where(msg => msg.Sender == userVM)
    .Subscribe(msg =>
        Console.WriteLine($"Property '{msg.PropertyName}' changed on {msg.Sender.Name}"));
@@ -218,12 +218,11 @@ CompositeVM<ComponentVM<TabModel>> tabs =
 
 // Watch for Current changes on the hub.
 hub.Messages
-   .OfType<IPropertyChangedMessage<CompositeVM<ComponentVM<TabModel>>>>()
-   .Where(msg => msg.PropertyName == nameof(tabs.Current))
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
+   .Where(msg => msg.Sender == tabs && msg.PropertyName == nameof(tabs.Current))
    .Subscribe(msg =>
    {
-       var composite = msg.Sender;
-       Console.WriteLine($"Selected tab: {composite.Current?.Model.Title ?? "(none)"}");
+       Console.WriteLine($"Selected tab: {tabs.Current?.Model.Title ?? "(none)"}");
    });
 
 // Construct cascades: the composite constructs itself, then each child.
@@ -247,12 +246,15 @@ Every VM follows a five-state lifecycle: `Destructed → Constructing → Constr
 // States are exposed via IComponentVM.Status (a ConstructionStatus enum).
 Console.WriteLine(userVM.Status);  // Constructed (after Construct())
 
+// Reconstruct is Destruct + Construct in one call. It is only valid from
+// Constructed (CanReconstruct is true iff Status == Constructed); it
+// round-trips through Destructed and back to Constructed.
+userVM.Reconstruct();
+Console.WriteLine(userVM.Status);  // Constructed
+
 // Destruct transitions back to Destructed and runs OnDestruct.
 userVM.Destruct();
 Console.WriteLine(userVM.Status);  // Destructed
-
-// Reconstruct is Destruct + Construct in one call.
-userVM.Reconstruct();
 
 // Dispose is terminal and idempotent. Calling Construct() or Destruct() on a
 // disposed VM raises StatusTransitionException.
@@ -285,7 +287,7 @@ controls. Use `ObserveOn` to marshal:
 
 ```csharp
 hub.Messages
-   .OfType<IPropertyChangedMessage<ComponentVM<UserModel>>>()
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
    .ObserveOn(dispatcher.Foreground)     // marshal to UI thread
    .Subscribe(msg => UpdateLabel(msg));  // safe to touch UI here
 ```

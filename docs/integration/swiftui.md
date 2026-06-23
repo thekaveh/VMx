@@ -41,7 +41,7 @@ final class TabAdapter<M>: ObservableObject {
     }
 }
 
-struct TabView: View {
+struct TabContentView: View {
     @StateObject var adapter: TabAdapter<TabModel>
 
     var body: some View {

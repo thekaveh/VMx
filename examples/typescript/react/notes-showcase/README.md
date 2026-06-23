@@ -100,6 +100,7 @@ examples/typescript/react/notes-showcase/
 | `Mod+N`         | New note in the current notebook      |
 | `Mod+Shift+N`   | New notebook at the root              |
 | `Mod+E`         | Export the workspace snapshot         |
+| `Mod+S`         | Save the current note                 |
 
 `Mod` is `Cmd` on macOS, `Ctrl` elsewhere. Bindings are registered via
 `useHotkeys` in `src/views/components/Layout.tsx`; each map entry calls a VM

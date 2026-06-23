@@ -53,4 +53,5 @@ Then in XAML: `<TextBlock Text="{Binding Model.Title}"/>` and
 ## 4. Fuller example
 
 [`examples/csharp/wpf/TodoApp/`](../../examples/csharp/wpf/TodoApp/) — a
-working WPF Todo app backed by a `CompositeVM<TodoVM>`.
+working WPF Todo app demonstrating `RelayCommand` + `IMessageHub` with
+per-item `ComponentVM<TodoItem>` children in an `ObservableCollection`.

@@ -310,6 +310,32 @@ describe("COMP-010", () => {
 
     expect(composite.current).toBe(vmA);
   });
+
+  it("drops the selection when the child is removed before the foreground dispatch", () => {
+    // Regression: a child removed between selectComponent and the deferred
+    // foreground dispatch must NOT become current (spec/06 §3 — a non-null
+    // current is always a member of the children collection).
+    const hub = makeHub();
+    const foreground = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+    const disp = new RxDispatcher(foreground, foreground);
+    const vmA = makeChild(hub, "vmA");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .asyncSelection(true)
+      .children(() => [vmA])
+      .build();
+    composite.construct();
+
+    composite.selectComponent(vmA); // deferred
+    composite.remove(vmA); // removed before dispatch
+    foreground.flush(); // deliver
+
+    expect(composite.current).toBeNull();
+    expect(vmA.isCurrent).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

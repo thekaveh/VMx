@@ -206,7 +206,7 @@ print(tabs.current?.model.title ?? "(none)")  // "Settings"
 tabs.current = tab1
 print(tabs.current?.model.title ?? "(none)")  // "Home"
 
-print(tabs.map(\.name))  // ["home-tab", "settings-tab"]
+print((0..<tabs.count).map { tabs.at($0).name })  // ["home-tab", "settings-tab"]
 ```
 
 > See `spec/06-composite-vm.md` for the full `CompositeVM` contract.
@@ -222,11 +222,12 @@ plus the terminal `disposed`.
 ```swift
 print(userVM.status)            // ConstructionStatus.constructed
 
+userVM.reconstruct()            // destruct + construct in one call — only valid
+                                // from .constructed; round-trips back to it
+print(userVM.status)            // ConstructionStatus.constructed
+
 userVM.destruct()
 print(userVM.status)            // ConstructionStatus.destructed
-
-userVM.reconstruct()            // destruct + construct in one call
-print(userVM.status)            // ConstructionStatus.constructed
 
 userVM.dispose()                // idempotent + terminal
 print(userVM.status)            // ConstructionStatus.disposed

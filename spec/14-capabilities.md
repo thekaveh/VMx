@@ -169,7 +169,7 @@ IManagable<T>:
 IPageable:
     PageSize         : int   # mutable; 0 means "all items in one page"
     CurrentPageIndex : int   # mutable; clamped to [0, PageCount-1]
-    PageCount        : int   # derived: ceil(itemCount / PageSize)
+    PageCount        : int   # derived: ceil(itemCount / PageSize), or 1 when PageSize == 0
     IsPagingEnabled  : bool  # derived: PageSize > 0
     move_to_first_page()     # no-op when CurrentPageIndex == 0
     move_to_previous_page()  # no-op at lower bound

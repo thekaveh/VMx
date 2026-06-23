@@ -383,6 +383,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def _apply_current_change(self, value: VM | None) -> None:
         """Synchronously update _current and fire notifications."""
+        # Async TOCTOU guard: with async selection the child may have been removed
+        # between _set_current's membership check and this deferred foreground
+        # delivery. Dropping silently upholds the spec/06 §3 invariant that a
+        # non-null current is always a member of the children collection.
+        if value is not None and value not in self._children:
+            return
         if self._current is value:
             return
 

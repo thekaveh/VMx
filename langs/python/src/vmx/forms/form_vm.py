@@ -222,6 +222,9 @@ class FormVM(Generic[TM]):
             loop = asyncio.get_running_loop()
             _task = loop.create_task(self.approve_async())
             # Retrieve any exception so Python does not log "exception never retrieved".
-            _task.add_done_callback(lambda _t: _t.exception())
+            # Guard against cancellation: Task.exception() raises CancelledError on a
+            # cancelled task, which would surface to the loop's exception handler
+            # (mirrors commands/confirmation_decorator_command.py).
+            _task.add_done_callback(lambda _t: None if _t.cancelled() else _t.exception())
         except RuntimeError:
             asyncio.run(self.approve_async())
