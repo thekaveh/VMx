@@ -216,7 +216,7 @@ consumers remains `DictionaryEntry`). There is no single-key base type.
 ObservableDictionary<TKey1, TKey2, TValue>:
     constructor(hub?: IMessageHub)              # hub is optional; absence is a safe no-op
     this[key1: TKey1, key2: TKey2] : TValue    # per-flavor indexer
-    TryGetValue(key1, key2, out value) : bool
+    TryGetValue(key1, key2) : (found, value)   # per-flavor shape (C# out-param, Python tuple, TS object)
     Add(key1: TKey1, key2: TKey2, value: TValue) : void
     Remove(key1: TKey1, key2: TKey2) : bool
     ContainsKey(key1, key2) : bool

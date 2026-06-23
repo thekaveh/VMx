@@ -29,7 +29,7 @@ Key properties:
 
 ```
 FormVM<TM>:
-    Model          : TM            # live, editable (read-only; mutate via SetModel)
+    Model          : TM            # live working copy; mutate via SetModel (no direct assignment)
     Snapshot       : TM            # read-only after construct (until next approve)
     IsDirty        : bool          # Model != Snapshot (structural equality)
     DenyCommand    : ICommand      # reverts Model to Snapshot; publishes hub messages

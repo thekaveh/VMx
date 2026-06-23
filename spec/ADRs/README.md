@@ -63,6 +63,7 @@ cross-references each ADR carries.
 | [0042](0042-composite-builder-current-and-on-current-changed.md) | `CompositeVMBuilder.Current` + `OnCurrentChanged`     | 2.6.0        | Accepted                          |
 | [0043](0043-relicense-apache-2.0.md)                             | Relicense from MIT to Apache-2.0                      | —            | Accepted                          |
 | [0044](0044-v2.6-spec-accuracy-clarifications.md)                | v2.6 spec-accuracy clarifications (ch. 02 / 15)       | 2.6.0        | Accepted                          |
+| [0045](0045-v2.6-spec-accuracy-clarifications-2.md)              | v2.6 spec-accuracy clarifications (ch. 06 / 20 / 21)  | 2.6.0        | Accepted                          |
 
 ## 2. Format
 
