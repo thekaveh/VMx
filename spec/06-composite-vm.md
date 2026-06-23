@@ -61,7 +61,8 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 - `select_component(vm)` sets `Current = vm` after verifying `can_select_component(vm)`.
   If the predicate is false, the call raises.
 - `deselect_component(vm)` sets `Current = null` after verifying `Current == vm`.
-  If `Current != vm`, the call raises.
+  If `Current != vm`, the call raises. This is a guarded convenience; the raw
+  `Current = null` setter (§3) stays unconditional.
 - `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`.
 
 ### 3.2 Initial `Current` selection and change callback (spec v2.6.0)
