@@ -48,6 +48,7 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 ```svelte
 <script lang="ts">
   import { vmStore } from "$lib/vmStore";
+  import type { ComponentVMOf, IMessageHub } from "@thekaveh/vmx";
   export let vm: ComponentVMOf<Note>;
   export let hub: IMessageHub;
   const model = vmStore(vm, hub, "model");

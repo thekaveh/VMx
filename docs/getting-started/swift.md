@@ -206,7 +206,7 @@ print(tabs.current?.model.title ?? "(none)")  // "Settings"
 tabs.current = tab1
 print(tabs.current?.model.title ?? "(none)")  // "Home"
 
-print(tabs.map(\.name))  // ["home-tab", "settings-tab"]
+print((0..<tabs.count).map { tabs.at($0).name })  // ["home-tab", "settings-tab"]
 ```
 
 > See `spec/06-composite-vm.md` for the full `CompositeVM` contract.
