@@ -6,9 +6,12 @@ namespace NotesShowcase.Tests.Models;
 
 /// <summary>
 /// Repository tests per plan §3.a.4.
-/// Timing assertions use generous margins (±50 %) because Task.Delay precision
-/// varies under load. We use the default delays here; faster overrides exist
-/// for VM tests that don't care about wall-clock timing.
+/// Timing tests assert only a lower-bound floor — that the simulated delay
+/// actually elapsed (the load is not instant / did not take a TimeSpan.Zero
+/// override) — and deliberately omit an upper bound: a wall-clock upper bound
+/// is flaky on loaded CI runners (e.g. a ~150 ms delay can measure >500 ms
+/// under load). We use the default delays here; faster overrides exist for VM
+/// tests that don't care about wall-clock timing.
 /// </summary>
 public sealed class InMemoryNoteRepositoryTests
 {
@@ -19,7 +22,9 @@ public sealed class InMemoryNoteRepositoryTests
         var sw = Stopwatch.StartNew();
         var (notebooks, notes) = await repo.LoadAllAsync();
         sw.Stop();
-        Assert.InRange(sw.ElapsedMilliseconds, 200, 800);
+        Assert.True(
+            sw.ElapsedMilliseconds >= 200,
+            $"expected the ~300 ms simulated load delay; took {sw.ElapsedMilliseconds} ms");
         Assert.NotEmpty(notebooks);
         Assert.NotEmpty(notes);
     }
@@ -31,7 +36,9 @@ public sealed class InMemoryNoteRepositoryTests
         var sw = Stopwatch.StartNew();
         var notes = await repo.LoadNotesAsync("nb-reviews");
         sw.Stop();
-        Assert.InRange(sw.ElapsedMilliseconds, 100, 500);
+        Assert.True(
+            sw.ElapsedMilliseconds >= 100,
+            $"expected the ~150 ms simulated load delay; took {sw.ElapsedMilliseconds} ms");
         Assert.NotEmpty(notes);
         Assert.All(notes, n => Assert.Equal("nb-reviews", n.NotebookId));
     }
