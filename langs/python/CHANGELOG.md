@@ -4,6 +4,13 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2](https://github.com/thekaveh/VMx/compare/python-v2.6.1...python-v2.6.2) (2026-06-23)
+
+
+### Bug Fixes
+
+* **maint:** audit-report verification follow-ups (code, spec/ADR, examples) ([#32](https://github.com/thekaveh/VMx/issues/32)) ([63b9c51](https://github.com/thekaveh/VMx/commit/63b9c51ef0c3014f68cb11de21f3b9e5a17076a8))
+
 ## [2.6.1](https://github.com/thekaveh/VMx/compare/python-v2.6.0...python-v2.6.1) (2026-06-17)
 
 
