@@ -300,13 +300,15 @@ from vmx.lifecycle.status import ConstructionStatus
 
 print(user_vm.status)    # ConstructionStatus.CONSTRUCTED  (after construct())
 
+# reconstruct() is destruct() + construct() in a single call. It is only valid
+# from CONSTRUCTED (can_reconstruct() is True iff status == CONSTRUCTED); it
+# round-trips through DESTRUCTED and back to CONSTRUCTED.
+user_vm.reconstruct()
+print(user_vm.status)    # ConstructionStatus.CONSTRUCTED
+
 # destruct() transitions back to DESTRUCTED and runs on_destruct.
 user_vm.destruct()
 print(user_vm.status)    # ConstructionStatus.DESTRUCTED
-
-# reconstruct() is destruct() + construct() in a single call.
-user_vm.reconstruct()
-print(user_vm.status)    # ConstructionStatus.CONSTRUCTED
 
 # dispose() is terminal and idempotent. Calling construct() or destruct() on a
 # disposed VM raises StatusTransitionError.

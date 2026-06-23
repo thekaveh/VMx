@@ -246,12 +246,15 @@ Every VM follows a five-state lifecycle: `Destructed → Constructing → Constr
 // States are exposed via IComponentVM.Status (a ConstructionStatus enum).
 Console.WriteLine(userVM.Status);  // Constructed (after Construct())
 
+// Reconstruct is Destruct + Construct in one call. It is only valid from
+// Constructed (CanReconstruct is true iff Status == Constructed); it
+// round-trips through Destructed and back to Constructed.
+userVM.Reconstruct();
+Console.WriteLine(userVM.Status);  // Constructed
+
 // Destruct transitions back to Destructed and runs OnDestruct.
 userVM.Destruct();
 Console.WriteLine(userVM.Status);  // Destructed
-
-// Reconstruct is Destruct + Construct in one call.
-userVM.Reconstruct();
 
 // Dispose is terminal and idempotent. Calling Construct() or Destruct() on a
 // disposed VM raises StatusTransitionException.

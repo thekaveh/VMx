@@ -222,11 +222,12 @@ plus the terminal `disposed`.
 ```swift
 print(userVM.status)            // ConstructionStatus.constructed
 
+userVM.reconstruct()            // destruct + construct in one call — only valid
+                                // from .constructed; round-trips back to it
+print(userVM.status)            // ConstructionStatus.constructed
+
 userVM.destruct()
 print(userVM.status)            // ConstructionStatus.destructed
-
-userVM.reconstruct()            // destruct + construct in one call
-print(userVM.status)            // ConstructionStatus.constructed
 
 userVM.dispose()                // idempotent + terminal
 print(userVM.status)            // ConstructionStatus.disposed
