@@ -74,9 +74,8 @@ npm run build       # static bundle in dist/
 ```
 
 See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for
-the project layout, feature-traceability, keybindings (`Mod+N`, `Mod+S`,
-etc.), and a note on the temporary Vite plugin stubbing `node:fs|path|url`
-for browser builds. Cross-flavor parity is documented in
+the project layout, feature-traceability, and keybindings (`Mod+N`, `Mod+S`,
+etc.). Cross-flavor parity is documented in
 [`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
 scenario contract lives at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).

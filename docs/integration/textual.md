@@ -24,6 +24,7 @@ reactive attributes.
 ```python
 from textual.widget import Widget
 from textual.reactive import reactive
+import reactivex.operators as ops
 
 class BindableWidget(Widget):
     title: reactive[str] = reactive("")
