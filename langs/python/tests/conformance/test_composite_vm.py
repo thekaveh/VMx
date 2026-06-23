@@ -73,6 +73,34 @@ def _prop_messages(hub: MessageHub[object]) -> list[PropertyChangedMessage]:
     return collected
 
 
+def test_async_selection_drops_removed_child_before_dispatch() -> None:
+    """Regression: with async selection, a child removed between select_component
+    and the deferred foreground dispatch must NOT become current (spec/06 §3 — a
+    non-null current is always a member of the children collection)."""
+    from tests.unit.helpers.test_dispatcher import TestDispatcher
+
+    test_disp = TestDispatcher()
+    hub = _hub()
+    child = _build_child("a", hub=hub, dispatcher=test_disp)
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, test_disp)
+        .async_selection(True)
+        .children(lambda: ())
+        .build()
+    )
+    child.construct()
+    comp.append(child)
+
+    comp.select_component(child)  # deferred
+    comp.remove(child)  # removed before dispatch
+    test_disp.foreground_scheduler.advance_by(10)  # deliver
+
+    assert comp.current is None, "a removed child must not become current"
+    assert child.is_current is False, "removed child's is_current must not be set"
+
+
 # ===========================================================================
 # COMP-001 — Add emits CollectionChanged(action=Add)
 # ===========================================================================

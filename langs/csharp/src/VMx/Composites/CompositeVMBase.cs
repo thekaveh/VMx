@@ -370,6 +370,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
 
     private void ApplyCurrentChange(VM? value)
     {
+        // Async TOCTOU guard: with AsyncSelection the child may have been removed
+        // between SetCurrent's membership check and this deferred foreground
+        // delivery. Dropping silently upholds the spec/06 §3 invariant that a
+        // non-null Current is always a member of the children collection.
+        if (value is not null && !_children.Contains(value)) return;
         if (ReferenceEquals(_current, value)) return;
 
         var previous = _current;

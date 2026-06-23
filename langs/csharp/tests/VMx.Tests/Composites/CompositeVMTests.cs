@@ -65,6 +65,25 @@ public class CompositeVMTests
         composite.Current.Should().BeNull();
     }
 
+    [Fact]
+    public void AsyncSelection_Drops_Selection_When_Child_Removed_Before_Dispatch()
+    {
+        // Regression: with AsyncSelection, a child removed between SelectComponent
+        // and the deferred foreground dispatch must NOT become Current
+        // (spec/06 §3 — a non-null Current is always a member of the collection).
+        var (composite, hub, dispatcher) = BuildComposite(asyncSelection: true);
+        var vmA = BuildChild(hub, dispatcher, "vmA");
+        composite.Add(vmA);
+        composite.Construct();
+
+        composite.SelectComponent(vmA);                 // deferred
+        composite.Remove(vmA);                          // removed before dispatch
+        dispatcher.ForegroundScheduler.AdvanceBy(1);    // deliver
+
+        composite.Current.Should().BeNull("a removed child must not become Current");
+        vmA.IsCurrent.Should().BeFalse("the removed child's IsCurrent must not be set");
+    }
+
     // ── IList<VM>: Add ───────────────────────────────────────────────────────
 
     [Fact]
