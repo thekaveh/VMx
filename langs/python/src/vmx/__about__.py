@@ -6,5 +6,5 @@
 # adjusts it together with `spec/VERSION` and the compatibility matrix in
 # the release-prep PR review (or in a follow-up commit on the release PR
 # before merging).
-__version__ = "2.6.1"  # x-release-please-version
+__version__ = "2.6.2"  # x-release-please-version
 __min_spec_version__ = "2.6.0"
