@@ -2045,11 +2045,15 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
 **Then** `IsDirty == true`
 
-**Note** (v2.5.0, ADR-0037): structural equality is evaluated by each
-flavor's chapter 20 §4 mechanism. TypeScript's `JSON.stringify` comparison
-is key-order sensitive, so in TypeScript the equal-values guarantee is
-scoped to same-key-order objects (see chapter 20 §4 for the caveat and the
-custom-snapshotter escape hatch).
+**Note** (v3, ADR-0048; supersedes the ADR-0037 caveat): structural equality is
+evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals` (C#),
+`__eq__` (Python), and an injectable structural deep-equal (TypeScript, default).
+The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
+crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
+and handles `Date`/`Map`/`Set`/`BigInt`/circular references, so the equal-values
+guarantee now holds unconditionally in all three flavors. Consumers needing
+field-subset or reference semantics inject a custom `equals` (TypeScript) or define
+their model's own equality (C#/Python).
 
 ### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
 
@@ -2074,7 +2078,10 @@ custom-snapshotter escape hatch).
 **Given** a `FormVM<TM>` with a subscriber to `OnApproved`
 **And** `Model` has been updated to `m1`
 **When** `ApproveAsync()` is awaited and the persister succeeds
-**Then** `OnApproved` fires exactly once with a value equal to `m1`
+**Then** `OnApproved` fires exactly once with the persisted value — the model
+captured before the persister await (`m1`), uniform across flavors (chapter 20 §7;
+a `SetModel` racing the in-flight persist does not change the emitted value —
+ADR-0048)
 
 **Given** a persister that throws an exception
 **When** `ApproveAsync()` is awaited
@@ -2153,7 +2160,7 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
 **When** `.Build()` is called
 **Then** `form.Hub == NullMessageHub` (singleton equivalent for the flavor)
-**And** `form.Snapshot == m0` (the default snapshotter shallow-copies)
+**And** `form.Snapshot == m0` (the default snapshotter deep-copies — chapter 20 §3)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
 
@@ -2169,6 +2176,21 @@ approve entry point) and `DenyCommand` are executed
 
 *(Added in v2.5.0 via ADR-0038 — the guards shipped as v2.5.0 maintenance;
 this ID pins them normatively.)*
+
+### FORM-015 — `ApproveCommand` surfaces persister failure on `ApproveErrors`
+
+**Given** a `FormVM<TM>` whose persister rejects/throws an error `e`
+**And** a subscriber to `ApproveErrors`
+**And** `Model` has been updated to `m1` (so `IsDirty == true`)
+**When** `ApproveCommand.Execute()` is invoked (the fire-and-forget command path)
+**Then** the error `e` is emitted on `ApproveErrors` (it is not swallowed with the
+discarded faulted task)
+**And** no state is mutated: `Snapshot` is unchanged and `IsDirty` is still `true`
+**And** `OnApproved` does not fire
+
+*(Added in v3 via ADR-0048. The awaitable `ApproveAsync()` path keeps its
+throw-to-the-awaiter behavior — FORM-007 — and emits nothing on `ApproveErrors`;
+this ID pins the command-path error channel, chapter 20 §2/§7.)*
 
 ## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 

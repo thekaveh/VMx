@@ -12,7 +12,7 @@
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
 specification, four idiomatic language flavors (C# / Python / TypeScript at full
-parity; Swift as a subset), 233 library conformance IDs verified on every commit
+parity; Swift as a subset), 234 library conformance IDs verified on every commit
 (plus 5 THEME scenario IDs exercised by the example-app suites).
 
 ## Contents
@@ -104,7 +104,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 Each flavor implements the same conceptual stack:
 
 - **Spec** — `spec/` is the source of truth: 22 markdown chapters, 46 ADRs,
-  4 JSON fixtures, 238 conformance IDs, version pinned in `spec/VERSION`.
+  4 JSON fixtures, 239 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
@@ -136,7 +136,7 @@ Each flavor implements the same conceptual stack:
 | TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v2.6.0            | rxjs               |
 | Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v2.6.0 *(subset)* | Combine            |
 
-The **Swift flavor is a skeleton subset** (41 of 238 conformance IDs as
+The **Swift flavor is a skeleton subset** (41 of 239 conformance IDs as
 of v2.6.0), covering the lifecycle + leaf / composite / group / aggregate
 viewmodel families plus builders and commands. Full
 cross-flavor conformance parity
@@ -274,7 +274,7 @@ This README is the entry point; the documents below add focused detail.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
 - [`spec/README.md`](spec/README.md) — index of the 22 chapters, 46 ADRs,
-  4 fixtures, and the 238-ID conformance catalog.
+  4 fixtures, and the 239-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
   [`langs/csharp/README.md`](langs/csharp/README.md),
@@ -326,7 +326,7 @@ compatible and ships in flavors as a minor bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 238 normative test scenarios keyed by ID
+`spec/12-conformance.md` enumerates 239 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
 `THEME-001`, …). Every flavor at full parity (C# / Python / TypeScript)

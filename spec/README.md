@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (238 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (239 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -177,16 +177,35 @@ the `v3-framework-overhaul` branch.
   `IsCurrent` change is a silent no-op (`02` invariant 3); and a throwing
   `OnConstruct`/`OnDestruct` hook rolls `Status` back to the prior settled state
   (`02 §2.4`, the new **`LIFE-014`**).
+
 - `02-lifecycle.md` and `11-threading.md` are revised accordingly.
+
 - `12-conformance.md` — adds `LIFE-014` (transactional hook-failure rollback);
   catalog total goes from 237 to 238 (233 library + 5 THEME scenario IDs).
+
+- Chapter count stays at 22.
+
+- **ADR-0048** — v3 FormVM semantics: `IsDirty` uses an injectable structural
+  equality (TypeScript default is a deep-equal, not `JSON.stringify`; C#/Python
+  use the model's own value equality); the default snapshot is a deep value-copy
+  (`System.Text.Json` round-trip / `copy.deepcopy` / `structuredClone`) with the
+  snapshotter still injectable; `ApproveCommand.Execute()` is fire-and-forget and
+  surfaces persister failures on a new `ApproveErrors` observable instead of
+  swallowing them; and `OnApproved` is pinned to the persisted value across flavors
+  (`20 §2/§3/§4/§7/§9`).
+
+- `20-form-vm.md` is revised accordingly.
+
+- `12-conformance.md` — adds `FORM-015` (approve command-path error channel);
+  catalog total goes from 238 to 239 (234 library + 5 THEME scenario IDs).
+
 - Chapter count stays at 22.
 
 ### 1.10 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0047); see
+- `ADRs/` — Architecture Decision Records (0001-0048); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

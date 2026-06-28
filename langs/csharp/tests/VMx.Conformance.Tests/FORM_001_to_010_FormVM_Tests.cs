@@ -263,6 +263,41 @@ public class FORM_001_to_010_FormVM_Tests
         sut.Model.Should().Be(new Model("Bob", 2), "deny must not revert a disposed form");
     }
 
+    // ── FORM-015 ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// FORM-015: A persister failure on the fire-and-forget command path is
+    /// surfaced on ApproveErrors (not swallowed); no state is mutated and
+    /// OnApproved does not fire. See spec/20 §2/§7 and ADR-0048.
+    /// </summary>
+    [Fact]
+    [Trait("Conformance", "FORM-015")]
+    public async Task FORM_015_ApproveCommand_Surfaces_Persister_Failure_On_ApproveErrors()
+    {
+        var boom = new InvalidOperationException("persist failed");
+        var observed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var initial = new Model("Alice", 1);
+        using var sut = new FormVM<Model>(initial, _ => Task.FromException(boom));
+        using var errSub = sut.ApproveErrors.Subscribe(e => observed.TrySetResult(e));
+
+        var approvedFired = false;
+        using var apprSub = sut.OnApproved.Subscribe(_ => approvedFired = true);
+
+        sut.SetModel(new Model("Bob", 2));
+
+        // Fire-and-forget command path (ICommand.Execute is void).
+        sut.ApproveCommand.Execute(null);
+
+        var completed = await Task.WhenAny(observed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(observed.Task, "the persister failure must surface on ApproveErrors");
+        (await observed.Task).Should().BeSameAs(boom, "the original persister exception is surfaced");
+
+        sut.IsDirty.Should().BeTrue("a failed persist must not advance the snapshot");
+        sut.Snapshot.Should().Be(initial, "Snapshot unchanged after a failed persist");
+        approvedFired.Should().BeFalse("OnApproved must not fire on a failed persist");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static FormVM<Model> MakeFormVM(Model initial)

@@ -308,3 +308,32 @@ describe("FORM-014", () => {
     expect(sut.model).toEqual(makeModel("Bob", 2));
   });
 });
+
+describe("FORM-015", () => {
+  it("surfaces a persister failure on approveErrors (command path); no state mutation, no onApproved", async () => {
+    // ApproveCommand.execute() is fire-and-forget (RelayCommand.execute is void),
+    // so a rejecting persister cannot propagate to the caller — it must surface on
+    // approveErrors rather than being swallowed (spec/20 §2/§7, ADR-0048).
+    const boom = new Error("persist failed");
+    const errors: unknown[] = [];
+    const approved: IModel[] = [];
+    const initial = makeModel("Alice", 1);
+    const sut = new FormVM<IModel>({
+      initial,
+      persister: () => Promise.reject(boom),
+    });
+    sut.approveErrors.subscribe((e) => errors.push(e));
+    sut.onApproved.subscribe((m) => approved.push(m));
+
+    sut.setModel(makeModel("Bob", 2));
+
+    sut.approveCommand.execute(); // fire-and-forget command path
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([boom]); // observed, not swallowed
+    expect(approved).toEqual([]); // onApproved must not fire on failure
+    expect(sut.isDirty).toBe(true); // a failed persist must not advance the snapshot
+    expect(sut.snapshot).toEqual(initial);
+    sut.dispose();
+  });
+});
