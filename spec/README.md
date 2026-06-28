@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (239 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (240 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -201,11 +201,27 @@ the `v3-framework-overhaul` branch.
 
 - Chapter count stays at 22.
 
+- **ADR-0049** — v3 command semantics: `ConfirmationDecoratorCommand`'s
+  synchronous fire-and-forget `Execute()` surfaces a rejecting `confirm` delegate
+  or a throwing inner command on a new `errors` observable instead of swallowing
+  them — normative in every flavor that ships the decorator (C#/Python/TypeScript;
+  the C# swallow is fixed for parity); the awaitable `ExecuteAsync()` keeps its
+  throw behavior (`04 §8.3.1`). `ModeledCrudCommands` Update/Delete `CanExecute`
+  becomes reactive to current-selection change via an optional `current_changed`
+  trigger so bound buttons refresh (`04 §4.2`, `06 §7`; VMX-011).
+
+- `04-commands.md` and `06-composite-vm.md` are revised accordingly.
+
+- `12-conformance.md` — adds `CMDD-010` (confirmation-decorator error channel);
+  catalog total goes from 239 to 240 (235 library + 5 THEME scenario IDs).
+
+- Chapter count stays at 22.
+
 ### 1.10 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0048); see
+- `ADRs/` — Architecture Decision Records (0001-0049); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

@@ -1103,7 +1103,7 @@ ______________________________________________________________________
 ## 18. Command decorators (`CMDD-NNN`) — spec v2.0
 
 Each CMDD-NNN test verifies behaviour of the three decorators added in
-spec/04-commands.md §Decorators.
+spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -1173,6 +1173,20 @@ delegate that resolves `true`
 no extra predicate)
 **When** `dec.Execute()` is called and awaited
 **Then** `relay` records exactly one invocation
+
+### CMDD-010 — ConfirmationDecoratorCommand surfaces fire-and-forget errors on `errors`
+
+Per spec/04-commands.md §8.3.1 and ADR-0049. Full-parity in every flavor that
+ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript); Swift does not
+ship the command decorators.
+
+**Given** a `ConfirmationDecoratorCommand` wrapping `inner`, and a subscriber to its
+`errors` observable
+**When** the fire-and-forget `Execute()` runs with a `confirm` delegate that
+rejects/raises
+**Then** the subscriber observes that exception on `errors` (it is NOT swallowed)
+**And** when instead `confirm` resolves `true` and `inner.Execute()` throws, the
+subscriber observes the inner exception on `errors`
 
 ______________________________________________________________________
 

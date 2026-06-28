@@ -165,4 +165,41 @@ public class CommandDecoratorsConformanceTests
         await conf.ExecuteAsync(null);
         log.Should().Equal("relay");
     }
+
+    // ── CMDD-010 ────────────────────────────────────────────────────────────
+
+    /// <summary>CMDD-010: ConfirmationDecoratorCommand surfaces a rejecting confirm
+    /// delegate (and a throwing inner command) on the Errors channel from the
+    /// fire-and-forget Execute path instead of swallowing it.</summary>
+    [Fact, Trait("Conformance", "CMDD-010")]
+    public async Task CMDD_010_Confirmation_Surfaces_Errors_On_Errors_Channel()
+    {
+        // (a) the confirm delegate rejects
+        var confirmBoom = new InvalidOperationException("confirm rejected");
+        var inner = RelayCommand.Builder().Task(() => { }).Build();
+        using var rejecting = new ConfirmationDecoratorCommand(
+            inner, () => Task.FromException<bool>(confirmBoom));
+        var observedReject = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sub1 = rejecting.Errors.Subscribe(e => observedReject.TrySetResult(e));
+
+        rejecting.Execute(null); // fire-and-forget across the async confirm gate
+
+        var done1 = await Task.WhenAny(observedReject.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        done1.Should().BeSameAs(observedReject.Task, "a rejecting confirm must surface on Errors, not be swallowed");
+        (await observedReject.Task).Should().BeSameAs(confirmBoom);
+
+        // (b) the inner command throws once confirmed
+        var innerBoom = new InvalidOperationException("inner boom");
+        var throwing = RelayCommand.Builder().Task(() => throw innerBoom).Build();
+        using var confirming = new ConfirmationDecoratorCommand(
+            throwing, () => Task.FromResult(true));
+        var observedInner = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sub2 = confirming.Errors.Subscribe(e => observedInner.TrySetResult(e));
+
+        confirming.Execute(null);
+
+        var done2 = await Task.WhenAny(observedInner.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        done2.Should().BeSameAs(observedInner.Task, "a throwing inner command must surface on Errors");
+        (await observedInner.Task).Should().BeSameAs(innerBoom);
+    }
 }

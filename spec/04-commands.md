@@ -84,6 +84,33 @@ hub.messages.pipe(
 No new helper is needed — the existing `triggers` parameter and the
 `Messages`/`messages` stream compose naturally.
 
+### 4.2 Recipe: selection-driven `CanExecute` (spec v3, ADR-0049)
+
+A command whose `CanExecute` depends on a mutable provider — most notably one
+gated on "is something currently selected" — has no way to refresh a bound
+control's enabled state unless a trigger fires `CanExecuteChanged` when that
+provider changes. A predicate alone is insufficient: per §4, `CanExecuteChanged`
+fires **only** on a trigger emission, never on its own.
+
+The canonical case is `ModeledCrudCommands` (chapter 06 §7): its
+`UpdateCurrentCommand` / `DeleteCurrentCommand` predicates read `current != null`,
+so they MUST be wired with a current-changed trigger derived from the owning
+composite's current-selection stream:
+
+```
+# the composite's current-changed stream, projected to Unit, becomes the trigger
+currentChanged = composite.OnCurrentChanged.Select(_ => Unit.Default)
+update = RelayCommand.Builder()
+    .Task(() => update(current()))
+    .Predicate(() => current() != null)
+    .Triggers(currentChanged)        // ← without this, the button never refreshes
+    .Build()
+```
+
+Absent the trigger, the predicate's value goes stale: the button enables on
+construction (or never) and never tracks the selection. See chapter 06 §7 for
+the normative `ModeledCrudCommands` contract.
+
 ## 5. RelayCommand
 
 `RelayCommand` is the concrete `ICommand` implementation, built via a fluent
@@ -157,6 +184,40 @@ Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
 depend on the notification service (chapter 16). Consumers may bridge it to
 `INotificationHub` via an optional helper in the notifications sub-package.
 
+#### 8.3.1 Async gating and the `errors` channel (spec v3, ADR-0049)
+
+The `confirm` delegate is asynchronous (`() -> Task<bool>`) while the
+`ICommand.Execute` contract is synchronous and returns `void` (§1). The
+synchronous `Execute` therefore realizes the confirm gate as a **fire-and-forget
+continuation**: it schedules the `confirm()` → `inner.Execute()` flow and returns
+immediately, before the gate has resolved. Each flavor also exposes an awaitable
+`ExecuteAsync()` (`execute_async` / `executeAsync`) entry-point that runs the same
+flow and can be awaited to sequence it inline.
+
+Because the synchronous `Execute` has already returned, a `confirm` delegate that
+rejects/raises and an `inner.Execute()` that throws have **no caller to propagate
+to** — unlike the base `RelayCommand`, whose throwing task propagates to the
+caller of `Execute` (§3). Such a failure MUST NOT be silently swallowed. The
+decorator surfaces it on an `errors` observable instead:
+
+- `errors` (`Errors` / `errors`) is an `Observable` that emits the exception
+  raised by either the `confirm` delegate or the throwing `inner.Execute()`,
+  when the failure arrives via the fire-and-forget `Execute` path.
+- The awaitable `ExecuteAsync()` path keeps the ordinary throw/reject behavior —
+  awaiting it propagates the failure directly, so the error is NOT additionally
+  re-emitted on `errors` for callers that await.
+- `errors` completes when the decorator is disposed; emitting after dispose is a
+  no-op (it MUST NOT raise).
+
+This mirrors the `FormVM` approve-error channel (chapter 20 §8, ADR-0048): a
+fire-and-forget command entry-point routes a failure that cannot propagate to a
+dedicated error observable rather than discarding it.
+
+> **Cross-flavor parity (ADR-0006/ADR-0049).** The `errors` channel is normative
+> in every flavor that ships `ConfirmationDecoratorCommand` (C#, Python,
+> TypeScript). Swift does not ship the command decorators and is therefore out of
+> scope. The decorator's `errors` channel is exercised by `CMDD-010`.
+
 ## 9. Fluent composition (spec v2.1)
 
 Four fluent helper methods provide ergonomic shortcuts over the decorator
@@ -218,7 +279,7 @@ yields a semantically transparent decorator (no extra gate, no pre/post hooks).
 
 ## 10. Conformance
 
-`CMD-001` through `CMD-011` and `CMDD-001` through `CMDD-009` in
+`CMD-001` through `CMD-011` and `CMDD-001` through `CMDD-010` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -229,3 +290,6 @@ yields a semantically transparent decorator (no extra gate, no pre/post hooks).
 - `Execute` is a no-op when the predicate returns `false`
 - table-driven configurations from `fixtures/command-truthtable.json`
 - `CMD-008..CMD-011` — each fluent method produces an equivalent object graph
+- `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
+  delegate or a throwing inner command on its `errors` channel instead of
+  swallowing it (§8.3.1, ADR-0049)
