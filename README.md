@@ -9,8 +9,8 @@
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
 specification, four idiomatic language flavors (C# / Python / TypeScript at full
-parity; Swift as a subset), 237 cross-language conformance IDs verified
-on every commit.
+parity; Swift as a subset), 232 library conformance IDs verified on every commit
+(plus 5 THEME scenario IDs exercised by the example-app suites).
 
 ## Contents
 
@@ -156,7 +156,6 @@ as a sub-path export.
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
 | 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
-| 2.5.x | 2.5.0          | 2.5.0          | 2.5.0          | 2.5.0 (subset) |
 | 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
 | 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
 | 2.2.x | 2.2.0          | 2.2.0          | 2.2.0          | —              |

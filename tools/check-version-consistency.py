@@ -39,6 +39,14 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+# ─── enforcement policy ───────────────────────────────────────────────
+
+# Only hard-fail (exit 1) for missing tags when the version's major
+# component is at least this value.  Pre-2.0 releases (1.0.x, 1.1.x)
+# pre-date consistent tagging; absent tags for those rows are printed
+# as informational notes and do NOT cause exit 1.
+MIN_ENFORCED_MAJOR: int = 2
+
 # ─── regexes ──────────────────────────────────────────────────────────
 
 # Matches a semver triple like 2.6.0 or 1.12.3.
@@ -46,6 +54,20 @@ _VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+)\b")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
 _SPEC_ROW_RE = re.compile(r"^(\d+\.\d+)\.x$")
+
+
+# ─── helpers ──────────────────────────────────────────────────────────
+
+
+def _tag_major(tag: str) -> int:
+    """Return the major version component embedded in a tag name.
+
+    Handles patterns like ``csharp-v2.6.0``, ``spec-v1.0.0``, ``v2.4.0``.
+    Returns 0 for tags whose version cannot be parsed (treated as enforced,
+    i.e. fail-safe).
+    """
+    m = re.search(r"[vV](\d+)\.\d+\.\d+", tag)
+    return int(m.group(1)) if m else 0
 
 
 # ─── manifest parsers ─────────────────────────────────────────────────
@@ -289,6 +311,7 @@ def render_report(
     matrix_rows: list[dict[str, object]],
     msv_issues: list[str],
     missing_tags: dict[str, list[str]],
+    info_tags: dict[str, list[str]] | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"spec/VERSION: {spec_version}")
@@ -298,6 +321,15 @@ def render_report(
 
     if not msv_issues and not missing_tags:
         lines.append("OK: all manifest versions, matrix rows, and git tags are consistent.")
+        if info_tags:
+            lines.append("")
+            lines.append(
+                f"Note: {len(info_tags)} pre-v{MIN_ENFORCED_MAJOR}.0 tag(s) absent"
+                " (informational only; not enforced):"
+            )
+            for tag in sorted(info_tags):
+                reasons = "; ".join(sorted(set(info_tags[tag])))
+                lines.append(f"  INFO     {tag:<40}  ← {reasons}")
         return "\n".join(lines)
 
     if msv_issues:
@@ -310,6 +342,16 @@ def render_report(
         for tag in sorted(missing_tags):
             reasons = "; ".join(sorted(set(missing_tags[tag])))
             lines.append(f"  MISSING  {tag:<40}  ← {reasons}")
+
+    if info_tags:
+        lines.append("")
+        lines.append(
+            f"Note: {len(info_tags)} pre-v{MIN_ENFORCED_MAJOR}.0 tag(s) absent"
+            " (informational only; not enforced):"
+        )
+        for tag in sorted(info_tags):
+            reasons = "; ".join(sorted(set(info_tags[tag])))
+            lines.append(f"  INFO     {tag:<40}  ← {reasons}")
 
     return "\n".join(lines)
 
@@ -347,12 +389,19 @@ def main(argv: Iterable[str] | None = None) -> int:
     tags = get_git_tags(repo_root)
 
     msv_issues = check_min_spec_versions(spec_version, manifests)
-    missing_tags = find_missing_tags(spec_version, manifests, matrix_rows, tags)
+    all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
-    report = render_report(spec_version, manifests, matrix_rows, msv_issues, missing_tags)
+    # Split missing tags into enforced (major >= MIN_ENFORCED_MAJOR) and
+    # informational (major < MIN_ENFORCED_MAJOR, e.g. pre-2.0 legacy rows).
+    enforced_missing = {t: r for t, r in all_missing.items() if _tag_major(t) >= MIN_ENFORCED_MAJOR}
+    info_missing = {t: r for t, r in all_missing.items() if _tag_major(t) < MIN_ENFORCED_MAJOR}
+
+    report = render_report(
+        spec_version, manifests, matrix_rows, msv_issues, enforced_missing, info_missing or None
+    )
     print(report)
 
-    if msv_issues or missing_tags:
+    if msv_issues or enforced_missing:
         return 1
     return 0
 

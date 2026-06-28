@@ -408,9 +408,10 @@ def _make_repo(tmp_path: Path) -> None:
 
 
 def test_main_exits_nonzero_when_tags_missing(tmp_path: Path, monkeypatch: object) -> None:
-    """main() returns 1 when the matrix row has versions but no tags exist for them."""
+    """main() returns 1 when a 2.x matrix row has versions but no enforced tags exist."""
     _make_repo(tmp_path)
     # Have 2.6.x flavor tags but missing spec-v2.6.0, v2.6.0, and all 2.5.x tags.
+    # The 2.5.x and spec/repo-wide gaps are major-2 → enforced → exit 1.
     import check_version_consistency as _cvc
 
     monkeypatch.setattr(
@@ -493,5 +494,81 @@ def test_main_reports_min_spec_version_mismatch(tmp_path: Path, monkeypatch: obj
         "v2.5.0",
     }
     monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: full_tags)
+    rc = _cvc.main(["--repo-root", str(tmp_path)])
+    assert rc == 1
+
+
+# ── MIN_ENFORCED_MAJOR: pre-2.0 tolerance (VMX-060) ───────────────────
+
+
+def test_main_tolerates_missing_1x_tags(tmp_path: Path, monkeypatch: object) -> None:
+    """(VMX-060a) A 1.x matrix row with no matching tags exits 0 (informational only)."""
+    spec_dir = tmp_path / "spec"
+    spec_dir.mkdir()
+    (spec_dir / "VERSION").write_text("2.6.0\n", encoding="utf-8")
+    (tmp_path / "compatibility-matrix.md").write_text(
+        textwrap.dedent("""\
+            # matrix
+
+            ## 1. Matrix
+
+            | spec  | csharp | python | typescript | swift |
+            | ----- | ------ | ------ | ---------- | ----- |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 |
+            | 1.1.x | 1.1.0  | 1.1.0  | 1.1.0      | —     |
+            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     |
+        """),
+        encoding="utf-8",
+    )
+    # Minimal manifests at 2.6.0
+    cs_dir = tmp_path / "langs" / "csharp" / "src" / "VMx"
+    cs_dir.mkdir(parents=True)
+    (cs_dir / "VMx.csproj").write_text(
+        "<Version>2.6.0</Version><MinSpecVersion>2.6.0</MinSpecVersion>",
+        encoding="utf-8",
+    )
+    py_dir = tmp_path / "langs" / "python" / "src" / "vmx"
+    py_dir.mkdir(parents=True)
+    (py_dir / "__about__.py").write_text(
+        '__version__ = "2.6.0"\n__min_spec_version__ = "2.6.0"\n',
+        encoding="utf-8",
+    )
+    ts_dir = tmp_path / "langs" / "typescript"
+    ts_dir.mkdir(parents=True)
+    (ts_dir / "package.json").write_text(json.dumps({"version": "2.6.0"}), encoding="utf-8")
+    ts_src = ts_dir / "src"
+    ts_src.mkdir()
+    (ts_src / "version.ts").write_text(
+        'export const __minSpecVersion__ = "2.6.0";\n', encoding="utf-8"
+    )
+    import check_version_consistency as _cvc
+
+    # Provide all 2.6.x tags but NO 1.x tags.
+    all_2_6_tags = {
+        "csharp-v2.6.0",
+        "python-v2.6.0",
+        "typescript-v2.6.0",
+        "swift-v2.6.0",
+        "spec-v2.6.0",
+        "v2.6.0",
+    }
+    monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: all_2_6_tags)
+    rc = _cvc.main(["--repo-root", str(tmp_path)])
+    # 1.x gaps are informational only; must not cause exit 1.
+    assert rc == 0
+
+
+def test_main_still_fails_2x_missing_tags(tmp_path: Path, monkeypatch: object) -> None:
+    """(VMX-060b) A 2.x matrix row with missing tags still exits 1 after the policy change."""
+    _make_repo(tmp_path)  # matrix has 2.6.x and 2.5.x rows (both major=2)
+    import check_version_consistency as _cvc
+
+    # Only 2.6.x flavor tags — spec-v2.6.0, v2.6.0, and all 2.5.x tags absent.
+    # Major-2 gaps → enforced → exit 1.
+    monkeypatch.setattr(
+        _cvc,
+        "get_git_tags",
+        lambda _root: {"csharp-v2.6.0", "python-v2.6.0", "typescript-v2.6.0", "swift-v2.6.0"},
+    )
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1
