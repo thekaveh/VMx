@@ -42,6 +42,20 @@ export class AggregateVM4<
   get component3(): VM3 | null { return this.#component3; }
   get component4(): VM4 | null { return this.#component4; }
 
+  /**
+   * VMX-023: component slots in declaration order (null slots omitted). Tree
+   * traversal uses this typed accessor instead of `component${i}` reflection.
+   */
+  components(): readonly ComponentVMBase[] {
+    const slots: readonly (ComponentVMBase | null)[] = [
+      this.#component1,
+      this.#component2,
+      this.#component3,
+      this.#component4,
+    ];
+    return slots.filter((c): c is ComponentVMBase => c !== null);
+  }
+
   protected override _onConstruct(): void {
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.

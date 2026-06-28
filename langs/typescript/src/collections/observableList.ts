@@ -127,7 +127,7 @@ export class ObservableList<T> {
   pop(): T | undefined {
     if (this.#items.length === 0) return undefined;
     const index = this.#items.length - 1;
-    const item = this.#items[index] as T;
+    const item = this.#itemAt(index);
     this.#items.pop();
     this.#onRemoved(item, index);
     return item;
@@ -141,7 +141,7 @@ export class ObservableList<T> {
     if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
-    const item = this.#items[index] as T;
+    const item = this.#itemAt(index);
     this.#items.splice(index, 1);
     this.#onRemoved(item, index);
   }
@@ -166,7 +166,7 @@ export class ObservableList<T> {
     if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
-    const oldItem = this.#items[index] as T;
+    const oldItem = this.#itemAt(index);
     this.#items[index] = newItem;
     this.#onReplaced(newItem, oldItem, index);
   }
@@ -213,6 +213,21 @@ export class ObservableList<T> {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────────
+
+  /**
+   * VMX-090: single localized element accessor. Callers already validate the
+   * index; this re-checks for a genuinely out-of-range index (turning a silent
+   * `undefined` into a loud `RangeError`) and centralizes the one `as T` cast
+   * that `noUncheckedIndexedAccess` otherwise forces at each read site. A
+   * legitimately-stored `undefined` at an in-range index is returned unchanged.
+   */
+  #itemAt(index: number): T {
+    const item = this.#items[index];
+    if (item === undefined && (index < 0 || index >= this.#items.length)) {
+      throw new RangeError(`Index ${String(index)} out of bounds`);
+    }
+    return item as T;
+  }
 
   #onAdded(item: T, index: number): void {
     if (this.#batchDepth > 0) {

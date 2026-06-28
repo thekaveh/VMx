@@ -68,6 +68,16 @@ export class SearchableState<T> implements ISearchable {
     this.#termSubject.next(value);
   }
 
+  /**
+   * The current filtered view, recomputed on each *term* change (debounced)
+   * and on each explicit {@link search} call.
+   *
+   * VMX-093: `filtered` does NOT react to mutations of the underlying source —
+   * `items` is read lazily only when the term changes or `search()` is called.
+   * After mutating the source collection (add/remove/replace) while the term is
+   * unchanged, callers MUST call {@link search} to refresh this view. (This
+   * differs from `PagedComposition`, which observes its source.)
+   */
   get filtered(): Observable<readonly T[]> {
     return this.#filteredSubject.asObservable();
   }

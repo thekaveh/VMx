@@ -1,7 +1,7 @@
 // Unit tests for ConfirmationVM — edge cases and implementation details.
 // Conformance-level tests live in tests/conformance/notifications.test.ts.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ConfirmationVM,
@@ -9,6 +9,7 @@ import {
   NotificationHub,
   NotificationReaction,
   NotificationType,
+  NotificationVM,
 } from "../../../src/notifications/index.js";
 import { FakeScheduler } from "./fakeScheduler.js";
 
@@ -57,6 +58,36 @@ describe("ConfirmationVM construction", () => {
 // ---------------------------------------------------------------------------
 // No auto-dismiss on expiry
 // ---------------------------------------------------------------------------
+
+describe("ConfirmationVM expiry timer (VMX-092)", () => {
+  it("does NOT arm a lifespan expiry timer", () => {
+    const scheduler = new FakeScheduler();
+    const scheduleSpy = vi.spyOn(scheduler, "schedule");
+    const hub = new NotificationHub();
+    const notif = new Notification(NotificationType.Confirmation, "x");
+    void hub.post(notif);
+
+    const vm = new ConfirmationVM(notif, hub, scheduler);
+
+    // ConfirmationVM never auto-resolves, so it must not schedule a no-op
+    // expiry action (it declines via armsExpiryTimer()).
+    expect(scheduleSpy).not.toHaveBeenCalled();
+    vm.dispose();
+  });
+
+  it("NotificationVM (the base) DOES arm its expiry timer — contrast", () => {
+    const scheduler = new FakeScheduler();
+    const scheduleSpy = vi.spyOn(scheduler, "schedule");
+    const hub = new NotificationHub();
+    const notif = new Notification(NotificationType.Notification, "x");
+    void hub.post(notif);
+
+    const vm = new NotificationVM(notif, hub, scheduler);
+
+    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    vm.dispose();
+  });
+});
 
 describe("ConfirmationVM auto-dismiss behavior", () => {
   it("does NOT auto-resolve on lifespan expiry", () => {

@@ -79,6 +79,20 @@ export abstract class HierarchicalVM<
     return this.#model;
   }
 
+  // ── CRTP self-reference ──────────────────────────────────────────────────
+
+  /**
+   * VMX-084: the concrete-subclass (CRTP) view of `this`. The recursive
+   * constraint `TVM extends HierarchicalVM<TModel, TVM>` guarantees `this` IS a
+   * TVM at runtime, but TypeScript cannot prove it through the abstract base —
+   * so the one unavoidable `as unknown as TVM` lives here, instead of being
+   * scattered across every self-reference (sibling checks, structural-mutation
+   * messages, the children factory, path building). See ADR-0028 §3.2.
+   */
+  get #self(): TVM {
+    return this as unknown as TVM;
+  }
+
   // ── Tree identity ────────────────────────────────────────────────────────
 
   /** The parent node; null when this node is the root. */
@@ -110,7 +124,7 @@ export abstract class HierarchicalVM<
   get isFirst(): boolean {
     if (this.#hierarchicalParent === null) return false;
     const sibs = this.#hierarchicalParent.children;
-    return sibs.length > 0 && sibs[0] === (this as unknown as TVM);
+    return sibs.length > 0 && sibs[0] === (this.#self);
   }
 
   /** true when this is the last child in its parent's children list. */
@@ -119,7 +133,7 @@ export abstract class HierarchicalVM<
     const sibs = this.#hierarchicalParent.children;
     return (
       sibs.length > 0 &&
-      sibs[sibs.length - 1] === (this as unknown as TVM)
+      sibs[sibs.length - 1] === (this.#self)
     );
   }
 
@@ -176,10 +190,10 @@ export abstract class HierarchicalVM<
     const list = this.#requireChildren();
     const index = list.length;
     list.push(child);
-    child.#setHierarchicalParent(this as unknown as TVM);
+    child.#setHierarchicalParent(this.#self);
     this._hub.send(
       new TreeStructureChangedMessage(
-        this as unknown as TVM,
+        this.#self,
         this._name,
         "added" satisfies TreeStructureChange,
         child,
@@ -202,7 +216,7 @@ export abstract class HierarchicalVM<
     child.#setHierarchicalParent(null);
     this._hub.send(
       new TreeStructureChangedMessage(
-        this as unknown as TVM,
+        this.#self,
         this._name,
         "removed" satisfies TreeStructureChange,
         child,
@@ -218,7 +232,7 @@ export abstract class HierarchicalVM<
   reparentChild(child: TVM): void {
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
-    if (child.#hierarchicalParent === (this as unknown as TVM)) return; // no-op
+    if (child.#hierarchicalParent === (this.#self)) return; // no-op
 
     // HIER-018: reparenting this node or one of its ancestors under
     // itself would create a parent cycle and corrupt depth/path/walk.
@@ -240,10 +254,10 @@ export abstract class HierarchicalVM<
     // Attach to new parent.
     const list = this.#requireChildren();
     list.push(child);
-    child.#setHierarchicalParent(this as unknown as TVM);
+    child.#setHierarchicalParent(this.#self);
     this._hub.send(
       new TreeStructureChangedMessage(
-        this as unknown as TVM,
+        this.#self,
         this._name,
         "reparented" satisfies TreeStructureChange,
         child,
@@ -256,10 +270,10 @@ export abstract class HierarchicalVM<
 
   #materializeChildren(): TVM[] {
     const children = Array.from(
-      this.#childrenFactory(this as unknown as TVM),
+      this.#childrenFactory(this.#self),
     );
     for (const child of children) {
-      child.#hierarchicalParent = this as unknown as TVM;
+      child.#hierarchicalParent = this.#self;
     }
     return children;
   }
@@ -279,7 +293,7 @@ export abstract class HierarchicalVM<
 
   #buildPath(): readonly TVM[] {
     const chain: TVM[] = [];
-    let node: TVM | null = this as unknown as TVM;
+    let node: TVM | null = this.#self;
     while (node !== null) {
       chain.push(node);
       node = node.#hierarchicalParent;
@@ -295,7 +309,7 @@ export abstract class HierarchicalVM<
     this.#invalidatePathCacheDescendants();
     this._hub.send(
       PropertyChangedMessage.create(
-        this as unknown as TVM,
+        this.#self,
         this._name,
         "parent",
       ),

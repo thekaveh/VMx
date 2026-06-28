@@ -64,11 +64,16 @@ export class NotificationVM {
       .task(() => this.#dismiss())
       .build();
 
-    // Schedule auto-dismiss at lifespan expiry.
-    this.#timerHandle = scheduler.schedule(
-      () => this.#onExpire(),
-      this.#lifespanMs,
-    );
+    // Schedule auto-dismiss at lifespan expiry — unless a subclass opts out
+    // (VMX-092). ConfirmationVM never auto-resolves, so arming a full-lifespan
+    // (default 300 s) timer only to no-op on fire pins a scheduler action +
+    // closure for no effect; it declines via `armsExpiryTimer()`.
+    if (this.armsExpiryTimer()) {
+      this.#timerHandle = scheduler.schedule(
+        () => this.#onExpire(),
+        this.#lifespanMs,
+      );
+    }
 
     // Subscribe to hub Pending: detect external resolution.
     // skipWhile: skip while notification is NOT yet seen.
@@ -131,6 +136,17 @@ export class NotificationVM {
   }
 
   // ── Internal ────────────────────────────────────────────────────────────────
+
+  /**
+   * Whether this VM arms the lifespan expiry timer at construction.
+   * Default: `true` (auto-dismiss on expiry). `ConfirmationVM` overrides this
+   * to `false` because it never auto-resolves — avoiding a no-op timer
+   * (VMX-092). Called from the constructor; overrides must not read
+   * subclass-initialized state.
+   */
+  protected armsExpiryTimer(): boolean {
+    return true;
+  }
 
   /**
    * Called when the lifespan timer fires.

@@ -6,8 +6,10 @@ import pytest
 
 from vmx.aggregates.aggregate_vm import AggregateVM3, AggregateVM6
 from vmx.aggregates.builders import AggregateVMBuilder3, AggregateVMBuilder6
+from vmx.components.base import _ComponentVMBase
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
+from vmx.components.protocols import ComponentVMProto, ViewModelType
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.composites.composite_vm import CompositeVM
 from vmx.services.dispatcher import RxDispatcher
@@ -103,6 +105,38 @@ def test_UTIL_002_walk_visits_component_6_on_aggregate_vm6() -> None:
     )
     agg.construct()
     assert [vm.name for vm in walk(agg)] == ["agg6", "a", "b", "c", "d", "e", "f"]
+
+
+@pytest.mark.conformance("UTIL-002")
+def test_UTIL_002_walk_descends_via_typed_components_accessor_beyond_arity_6() -> None:
+    """VMX-137: walk descends into aggregate slots via the typed ``components()``
+    accessor, not a ``range(1, 7)`` ``component_{i}`` probe — so an aggregate
+    with MORE than six slots (a future AggregateVM7+) is traversed in full. The
+    old probe would have silently dropped slot 7 and beyond with no test
+    failure."""
+    h = _hub()
+    d = _dispatcher()
+    children = [_leaf(f"c{i}", h, d) for i in range(1, 8)]  # seven slots
+
+    class _Arity7Aggregate(_ComponentVMBase):
+        @property
+        def type(self) -> ViewModelType:
+            return ViewModelType.AGGREGATE
+
+        def components(self) -> list[ComponentVMProto]:
+            return list(children)
+
+    agg = _Arity7Aggregate(name="agg7", hint="", hub=h, dispatcher=d)
+    assert [vm.name for vm in walk(agg)] == [
+        "agg7",
+        "c1",
+        "c2",
+        "c3",
+        "c4",
+        "c5",
+        "c6",
+        "c7",
+    ]
 
 
 @pytest.mark.conformance("UTIL-003")

@@ -92,12 +92,21 @@ export abstract class ComponentVMBase {
     // canExecute report false for any orphan leaf, mirroring GRP-002's
     // "predicates always return false when there's no navigation slot"
     // pattern (spec/12-conformance.md §9 GRP-002).
+    //
+    // VMX-104: the status trigger is wired here too (matching select/deselect
+    // and the C#/Python/Swift flavors) so canExecuteChanged fires on lifecycle
+    // transitions. The predicate still returns false, but a bound view's
+    // "next/previous" affordance now refreshes on status changes instead of
+    // going stale — the prior TS-only omission left these commands without any
+    // canExecuteChanged signal.
     this.#selectNextCommand = RelayCommand.builder()
       .predicate(() => false)
+      .triggers(trigger)
       .build();
 
     this.#selectPreviousCommand = RelayCommand.builder()
       .predicate(() => false)
+      .triggers(trigger)
       .build();
 
     this.#reconstructCommand = RelayCommand.builder()

@@ -4,6 +4,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MessageHub } from "../../src/index.js";
 import type { IMessage } from "../../src/index.js";
+import { allowRxUnhandledErrors } from "../setup.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -181,6 +182,10 @@ describe("HUB-006", () => {
 
 describe("HUB-007", () => {
   it("Subscriber handler that raises does not break the hub", () => {
+    // VMX-085: this test intentionally throws inside a subscriber; rxjs routes
+    // that through reportUnhandledError on a macrotask. Opt this test in to the
+    // scoped suppression instead of relying on a suite-wide global no-op.
+    allowRxUnhandledErrors();
     const hub = new MessageHub();
     hub.messages.subscribe(() => {
       throw new Error("subscriber A blows up");
