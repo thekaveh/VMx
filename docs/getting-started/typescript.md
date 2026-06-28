@@ -96,7 +96,7 @@ const userVM = ComponentVMOf.builder<UserModel>()
 
 // Subscribe to hub messages BEFORE constructing.
 hub.messages.subscribe((msg) => {
-  if (msg instanceof PropertyChangedMessage && msg.senderObject === userVM) {
+  if (msg instanceof PropertyChangedMessage && msg.sender === userVM) {
     console.log(`Property '${msg.propertyName}' changed on ${msg.senderName}`);
   }
 });
@@ -205,7 +205,7 @@ const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
 
 // Watch for current-selection changes via the hub.
 hub.messages.subscribe((msg) => {
-  if (msg instanceof PropertyChangedMessage && msg.senderObject === tabs) {
+  if (msg instanceof PropertyChangedMessage && msg.sender === tabs) {
     if (msg.propertyName === "current") {
       const title = tabs.current ? tabs.current.model.title : "(none)";
       console.log(`Selected tab: ${title}`);

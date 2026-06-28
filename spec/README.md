@@ -246,7 +246,7 @@ the `v3-framework-overhaul` branch.
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0053); see
+- `ADRs/` — Architecture Decision Records (0001-0054); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

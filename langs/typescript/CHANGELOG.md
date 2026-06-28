@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **BREAKING (v3.0.0):** the untyped `senderObject` field is **renamed to the
+  canonical `sender`** on every message — the base `IMessage` and
+  `ConstructionStatusChangedMessage`, `CollectionChangedMessage`,
+  `PropertyChangedMessage`, `TreeStructureChangedMessage`, `FormRevertedMessage`.
+  This restores ADR-0006 cross-flavor parity with the `sender`/`Sender` field
+  documented by C#/Python/Swift (ADR-0054, VMX-016/083). The base
+  `IMessage.sender` is typed `unknown`; `ITypedMessage<TSender>` /
+  `PropertyChangedMessage<TSender>` narrow it to `TSender`. Migration: replace
+  `msg.senderObject` with `msg.sender` (identical instance, now typed).
 - Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
   forward; the already-published 2.6.0 artifact remains MIT-licensed.
 

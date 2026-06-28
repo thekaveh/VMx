@@ -45,6 +45,30 @@ ADR-0006 and require no further action:
 | Collection `insert` out-of-range handling                      | `ArgumentOutOfRangeException` (BCL `List<T>.Insert`)                                                                                | Clamps + normalizes negatives per stdlib `list.insert`, payload carries the effective index | `RangeError` (matching `removeAt`/`replace`)                             | C# and Python mirror their native list's insert contract; TS deliberately rejects out-of-range (native `splice` clamps, but `removeAt`/`replace` already throw `RangeError`, so `insert` matches its siblings). spec/21 §3.2 only mandates the emitted payload carry the actual insertion index, which all three honor. |
 | `ServicedObservableCollection.Move` hub message                | Inherited BCL `ObservableCollection<T>.Move` raises only the platform `CollectionChanged` event — no hub `CollectionChangedMessage` | No `move` member                                                                            | No `move` member                                                         | `Move` is a BCL affordance the other flavors don't ship; C# keeps it for WPF/Avalonia compatibility but the hub contract (spec/21 §2.3) covers only the spec-defined mutations.                                                                                                                                         |
 
+### `IMessage` sender field name (post-v3.0.0, ADR-0054)
+
+- **Spec / canonical**: `Sender` is the single canonical runtime-sender field on
+  every message; `IMessage<TSender>` narrows it to the typed `TSender`
+  (spec/03-messages.md §1).
+- **C#**: `IMessage.SenderObject` (untyped base) + `IMessage<TSender>.Sender`
+  (typed). `SenderObject` is a **deprecated** alias returning the same instance
+  as `Sender`; removal deferred to the next C# major.
+- **Python**: `Message.sender_object` (untyped base) + `TypedMessage.sender`
+  (typed). `sender_object` is a **deprecated** alias of `sender`; removal
+  deferred to the next Python major.
+- **Swift**: `Message.senderObject` (untyped base) + `PropertyChangedMessage.sender`
+  (typed alias). `senderObject` is **deprecated**; removal deferred to the next
+  Swift major.
+- **TypeScript**: `IMessage.sender` only (typed `unknown`, narrowed to `TSender`
+  by `ITypedMessage<TSender>`). The former untyped `senderObject` field was
+  **removed in v3.0.0** (ADR-0054, VMX-016) — TypeScript is the first flavor to
+  reach the single-`sender` end state.
+- **Rationale**: per ADR-0006 the canonical accessor must read the same in every
+  flavor's guide (`msg.sender` / `msg.Sender`). TypeScript collapsed to the sole
+  `sender` field on the v3 major; the other three retain the untyped alias for
+  source compatibility, tracked here as scheduled removals (not drift). See
+  ADR-0054.
+
 ### `TreeStructureChangedMessage` field name
 
 - **Spec**: §18 defines the field as `Source`.
@@ -354,7 +378,10 @@ here so audits don't reopen them prematurely:
 ### 2.1 Historical: divergences resolved in v1.2.0 (pre-v2 era)
 
 - C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
-- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive).
+- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
+  v3.0.0 `sender` became the message's sole stored field and the untyped
+  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
+  field-name section above.
 - C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
   on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
 

@@ -13,8 +13,4 @@ export class FormRevertedMessage implements IMessage {
     this.sender = sender;
     this.senderName = senderName;
   }
-
-  get senderObject(): object {
-    return this.sender;
-  }
 }

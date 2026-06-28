@@ -11,18 +11,29 @@ Every message implements `IMessage` (rendered per language as `Message`):
 ```
 IMessage:
     SenderName : string
-    SenderObject : object
+    Sender : object
 ```
 
-Strongly-typed senders are exposed via `IMessage<TSender>`:
+Strongly-typed senders narrow `Sender` via `IMessage<TSender>`:
 
 ```
 IMessage<TSender> : IMessage:
     Sender : TSender
 ```
 
-`SenderName` typically equals `Sender.Name`. `SenderObject` is the runtime sender
-without compile-time type information (used by polymorphic subscribers).
+`SenderName` typically equals `Sender.Name`. `Sender` is the runtime sender
+instance — the **single canonical sender field** in every flavor (ADR-0006).
+On the untyped base it carries no compile-time type information (`object` /
+`unknown`, for polymorphic subscribers); `IMessage<TSender>` narrows it to the
+concrete `TSender`.
+
+TypeScript exposes `Sender` as its sole sender field as of v3.0.0, having
+removed an earlier redundant untyped alias (ADR-0054). C#, Python, and Swift
+additionally retain a deprecated untyped alias on the base message
+(`IMessage.SenderObject`, `Message.sender_object`, `Message.senderObject`)
+for source compatibility; that alias returns the same instance as `Sender`
+and is slated for removal at each of those flavors' next major. The canonical
+accessor across all four flavors is `Sender`.
 
 ## 2. Concrete message types
 

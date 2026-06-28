@@ -9,7 +9,7 @@ import { allowRxUnhandledErrors } from "../setup.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function makeMsg(id: string): IMessage {
-  return { senderName: id, senderObject: {} };
+  return { senderName: id, sender: {} };
 }
 
 // ---------------------------------------------------------------------------

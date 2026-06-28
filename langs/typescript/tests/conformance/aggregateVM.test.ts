@@ -101,7 +101,7 @@ describe("AGG-003", () => {
       if (
         m instanceof ConstructionStatusChangedMessage &&
         m.status === ConstructionStatus.Constructed &&
-        m.senderObject === agg
+        m.sender === agg
       ) {
         allChildrenConstructedBeforeParent =
           cs.every((c) => c.status === ConstructionStatus.Constructed);
@@ -138,7 +138,7 @@ describe("AGG-004", () => {
 
     const propNames: string[] = [];
     hub.messages.subscribe((m) => {
-      if (m instanceof PropertyChangedMessage && m.senderObject === agg) {
+      if (m instanceof PropertyChangedMessage && m.sender === agg) {
         propNames.push(m.propertyName);
       }
     });

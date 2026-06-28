@@ -7,7 +7,7 @@ import type { IMessage } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 
 export class ConstructionStatusChangedMessage implements IMessage {
-  readonly senderObject: object;
+  readonly sender: object;
   readonly senderName: string;
   readonly status: ConstructionStatus;
 
@@ -16,19 +16,9 @@ export class ConstructionStatusChangedMessage implements IMessage {
     senderName: string,
     status: ConstructionStatus,
   ) {
-    this.senderObject = sender;
+    this.sender = sender;
     this.senderName = senderName;
     this.status = status;
-  }
-
-  /**
-   * Alias of {@link senderObject}. Matches the `sender` field on the C# and
-   * Python flavors — kept as a getter to avoid duplicating storage and to
-   * preserve the existing `senderObject` shape (spec/03-messages.md §Required
-   * fields treats them as the same value).
-   */
-  get sender(): object {
-    return this.senderObject;
   }
 
   static create(

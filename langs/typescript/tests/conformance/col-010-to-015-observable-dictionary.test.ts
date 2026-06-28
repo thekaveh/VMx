@@ -242,7 +242,7 @@ describe("COL-022", () => {
     sut.set("alpha", 1, 3.14);
     expect(received).toHaveLength(1);
     expect(received[0]?.action).toBe("add");
-    expect(received[0]?.senderObject).toBe(sut);
+    expect(received[0]?.sender).toBe(sut);
     const addEntry = received[0]?.newItems[0];
     expect(addEntry?.key1).toBe("alpha");
     expect(addEntry?.key2).toBe(1);

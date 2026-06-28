@@ -147,7 +147,7 @@ describe("THR-004", () => {
       observeOn(scheduler),
     ).subscribe((m) => received.push(m));
 
-    const msg: IMessage = { senderName: "test", senderObject: {} };
+    const msg: IMessage = { senderName: "test", sender: {} };
     hub.send(msg);
 
     // Before advancing the scheduler, delivery must be buffered.
