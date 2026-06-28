@@ -71,7 +71,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly bool _background;
 
     // ── Lifecycle state ─────────────────────────────────────────────────────
-    private ConstructionStatus _status = ConstructionStatus.Destructed;
+    // _gate serializes every lifecycle state transition — the _status RMW, the
+    // hub publish, and the status-trigger emission inside SetStatus — against
+    // Dispose(). A background completion (Construct/Destruct dispatched on the
+    // background scheduler) therefore cannot interleave with disposal: it
+    // observes the terminal Disposed state and aborts instead of resurrecting
+    // the VM, publishing a post-dispose status message, or calling OnNext on a
+    // disposed Subject (VMX-001/054; spec/02 invariant 3 — Disposed is terminal).
+    private readonly object _gate = new();
+
+    // volatile so the unlocked fast-path reads (Status, IsConstructed, the Can*
+    // predicates, the idempotent lifecycle guards) never observe a stale value
+    // written by a transition completing on the background scheduler.
+    private volatile ConstructionStatus _status = ConstructionStatus.Destructed;
     private volatile bool _inFlight;
 
     // ── Selection state ─────────────────────────────────────────────────────
@@ -268,9 +280,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             {
                 try
                 {
-                    // Dispose() may have run between scheduling and execution;
-                    // Disposed is terminal (spec/02 invariant 3), so skip the work.
-                    if (_status != ConstructionStatus.Disposed)
+                    // Dispose() may have run between scheduling and execution.
+                    // Re-check the terminal state under _gate and abort if disposed
+                    // (spec/02 invariant 3). SetStatus re-checks under the same lock,
+                    // so even a Dispose() that lands while OnConstruct() runs cannot
+                    // complete the Constructed transition — no resurrection, no
+                    // post-dispose publish, no OnNext on a disposed Subject.
+                    if (!IsDisposed())
                     {
                         OnConstruct();
                         SetStatus(ConstructionStatus.Constructed);
@@ -361,9 +377,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             {
                 try
                 {
-                    // Dispose() may have run between scheduling and execution;
-                    // Disposed is terminal (spec/02 invariant 3), so skip the work.
-                    if (_status != ConstructionStatus.Disposed)
+                    // Dispose() may have run between scheduling and execution.
+                    // Re-check the terminal state under _gate and abort if disposed
+                    // (spec/02 invariant 3). SetStatus re-checks under the same lock,
+                    // so even a Dispose() that lands while OnDestruct() runs cannot
+                    // complete the Destructed transition — no resurrection, no
+                    // post-dispose publish, no OnNext on a disposed Subject.
+                    if (!IsDisposed())
                     {
                         OnDestruct();
                         SetStatus(ConstructionStatus.Destructed);
@@ -477,11 +497,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // status value or touch hub-published subjects during cleanup.
         OnDispose();
 
-        if (!_triggerDisposed)
+        // Tear down the status trigger under _gate so the flag flip and the
+        // Subject disposal cannot interleave with an in-flight background
+        // SetStatus: that transition either completes its guarded OnNext before
+        // this runs, or observes Disposed/_triggerDisposed under the same lock
+        // and skips it — never an OnNext on a disposed Subject (VMX-001).
+        lock (_gate)
         {
-            _triggerDisposed = true;
-            _statusTrigger.OnCompleted();
-            _statusTrigger.Dispose();
+            if (!_triggerDisposed)
+            {
+                _triggerDisposed = true;
+                _statusTrigger.OnCompleted();
+                _statusTrigger.Dispose();
+            }
         }
 
         (_selectCommand as IDisposable)?.Dispose();
@@ -520,25 +548,45 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private void SelectPrevious() { }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reads the terminal-state flag under <see cref="_gate"/> so a background
+    /// completion observes a concurrently in-progress <see cref="Dispose()"/> and
+    /// aborts its transition rather than resurrecting the VM (VMX-001/054).
+    /// </summary>
+    private bool IsDisposed()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Disposed;
+        }
+    }
+
     private void SetStatus(ConstructionStatus newStatus)
     {
-        // Disposed is terminal (spec/02 invariant 3): a background transition
-        // racing Dispose() must neither resurrect the VM nor publish
-        // post-dispose status messages.
-        if (_status == ConstructionStatus.Disposed) return;
+        // The terminal check, the _status write, the hub publish and the
+        // status-trigger OnNext all run under _gate so the whole transition is
+        // atomic with respect to Dispose() — a background transition racing
+        // Dispose() can neither resurrect the VM, publish a post-dispose status
+        // message, nor OnNext a disposed Subject (VMX-001/054; spec/02 invariant
+        // 3: Disposed is terminal).
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed) return;
 
-        _status = newStatus;
+            _status = newStatus;
 
-        _hub.Send(ConstructionStatusChangedMessage.Create(this, Name, newStatus));
+            _hub.Send(ConstructionStatusChangedMessage.Create(this, Name, newStatus));
 
-        // Status and IsConstructed are computed/read-only, so they raise INPC only;
-        // no PropertyChangedMessage on the hub (spec 03-messages.md restricts hub
-        // PropertyChangedMessage to setter-assigned properties).
-        RaisePropertyChanged(nameof(Status));
-        RaisePropertyChanged(nameof(IsConstructed));
+            // Status and IsConstructed are computed/read-only, so they raise INPC only;
+            // no PropertyChangedMessage on the hub (spec 03-messages.md restricts hub
+            // PropertyChangedMessage to setter-assigned properties).
+            RaisePropertyChanged(nameof(Status));
+            RaisePropertyChanged(nameof(IsConstructed));
 
-        if (!_triggerDisposed)
-            _statusTrigger.OnNext(Unit.Default);
+            if (!_triggerDisposed)
+                _statusTrigger.OnNext(Unit.Default);
+        }
     }
 
     /// <summary>Raises <see cref="PropertyChanged"/> for the named property.</summary>
