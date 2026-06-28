@@ -204,11 +204,13 @@ class WorkspaceVM:
             else:
                 note_form.unbind()
 
-        self._current_note_subscription: DisposableBase = when_property_changed(
-            notes_view.hub, notes_view, "current"
-        ).pipe(
-            ops.observe_on(dispatcher.foreground),
-        ).subscribe(on_next=_on_notes_view_msg)
+        self._current_note_subscription: DisposableBase = (
+            when_property_changed(notes_view.hub, notes_view, "current")
+            .pipe(
+                ops.observe_on(dispatcher.foreground),
+            )
+            .subscribe(on_next=_on_notes_view_msg)
+        )
 
         # Pass-5 real-wiring audit: the tree view sets notebooks.current on
         # node selection, but nothing re-bound the notes view — the centre
@@ -222,11 +224,13 @@ class WorkspaceVM:
             notes_view.current_notebook_is_readonly = nb.model.is_readonly
             self._fire_bind_notes(nb.model.id)
 
-        self._notebook_subscription: DisposableBase = when_property_changed(
-            notebooks.hub, notebooks, "current"
-        ).pipe(
-            ops.observe_on(dispatcher.foreground),
-        ).subscribe(on_next=_on_notebook_msg)
+        self._notebook_subscription: DisposableBase = (
+            when_property_changed(notebooks.hub, notebooks, "current")
+            .pipe(
+                ops.observe_on(dispatcher.foreground),
+            )
+            .subscribe(on_next=_on_notebook_msg)
+        )
 
         # Pass-5 real-wiring audit: refresh the saved note's list row (title /
         # star marker were construction-time snapshots and went stale after

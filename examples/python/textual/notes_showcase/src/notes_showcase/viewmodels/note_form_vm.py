@@ -24,6 +24,7 @@ from vmx import (
     FormVM,
     IReconstructable,
     MessageHub,
+    MessageHubProto,
     PropertyChangedMessage,
     RelayCommand,
     RelayCommandOf,
@@ -57,7 +58,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         repository: INoteRepository,
         notification_hub: INotificationHub | None = None,
@@ -141,7 +142,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     # ── Convenience hub accessor ───────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         return self._hub
 
     # ── Bound state ────────────────────────────────────────────────────────
@@ -463,7 +464,7 @@ class NoteFormVMBuilder:
 
     _name: str | None = None
     _hint: str = ""
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _repo: INoteRepository | None = None
     _notification_hub: INotificationHub | None = None
@@ -475,7 +476,7 @@ class NoteFormVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> NoteFormVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

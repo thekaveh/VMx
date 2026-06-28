@@ -35,10 +35,6 @@ export class ThemeChangedMessage<TSender>
     this.curr = curr;
   }
 
-  get senderObject(): object {
-    return this.sender as object;
-  }
-
   static create<TSender>(
     sender: TSender,
     senderName: string,

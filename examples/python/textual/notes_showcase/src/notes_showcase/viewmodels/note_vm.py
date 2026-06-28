@@ -23,6 +23,7 @@ from vmx import (
     ISavable,
     ISelectable,
     MessageHub,
+    MessageHubProto,
     PropertyChangedMessage,
     RelayCommand,
     RxDispatcher,
@@ -50,7 +51,7 @@ class NoteVM(
         name: str,
         hint: str,
         model: NoteModel,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_close: Callable[["NoteVM"], None] | None = None,
         on_delete: Callable[["NoteVM"], None] | None = None,
@@ -103,7 +104,7 @@ class NoteVM(
 
     # ── Convenience accessors / proxies ────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         return self._hub
 
     @property
@@ -232,7 +233,7 @@ class NoteVMBuilder:
     _name: str | None = None
     _hint: str = ""
     _model: NoteModel | None = None
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _on_close: Callable[[NoteVM], None] | None = None
     _on_delete: Callable[[NoteVM], None] | None = None
@@ -250,7 +251,7 @@ class NoteVMBuilder:
         return dataclasses.replace(self, _model=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> NoteVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

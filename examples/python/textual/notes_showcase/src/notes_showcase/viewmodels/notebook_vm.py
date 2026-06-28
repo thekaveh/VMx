@@ -23,6 +23,7 @@ from vmx import (
     IReconstructable,
     ISelectable,
     MessageHub,
+    MessageHubProto,
     PropertyChangedMessage,
     RxDispatcher,
 )
@@ -48,7 +49,7 @@ class NotebookVM(
         name: str,
         hint: str,
         model: NotebookModel,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         initially_expanded: bool = False,
         children_getter: Callable[["NotebookVM"], list["NotebookVM"]] | None = None,
@@ -71,7 +72,7 @@ class NotebookVM(
 
     # ── Convenience accessors ──────────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         """Public hub accessor — exposed so views/tests can subscribe."""
         return self._hub
 
@@ -169,7 +170,7 @@ class NotebookVMBuilder:
     _name: str | None = None
     _hint: str = ""
     _model: NotebookModel | None = None
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _initially_expanded: bool = False
     _children_getter: Callable[[NotebookVM], list[NotebookVM]] | None = None
@@ -184,7 +185,7 @@ class NotebookVMBuilder:
         return dataclasses.replace(self, _model=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> NotebookVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

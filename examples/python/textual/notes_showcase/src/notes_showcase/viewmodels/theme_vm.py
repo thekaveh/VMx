@@ -46,6 +46,7 @@ from vmx import (
     ComponentVMOf,
     DerivedProperty,
     MessageHub,
+    MessageHubProto,
     RelayCommand,
     RelayCommandOf,
     RxDispatcher,
@@ -90,7 +91,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         name: str,
         hint: str,
         initial: ThemeModel,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         host_theme_provider: Callable[[], ThemeModel] | None = None,
     ) -> None:
@@ -185,7 +186,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
 
     # ── Public surface ──────────────────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         """Hub accessor — exposed so views/tests can subscribe."""
         return self._hub
 
@@ -327,7 +328,7 @@ class ThemeVMBuilder:
     _name: str | None = None
     _hint: str = ""
     _initial: ThemeModel = DARK_PRESET
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _host_theme_provider: Callable[[], ThemeModel] | None = None
 
@@ -342,7 +343,7 @@ class ThemeVMBuilder:
         return dataclasses.replace(self, _initial=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> ThemeVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
