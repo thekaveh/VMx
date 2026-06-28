@@ -544,10 +544,6 @@ def test_LIFE_013_dispose_cascades_depth_first() -> None:
     )
 
 
-# Alias imported by tests/conformance/test_lifecycle.py delegation.
-test_LIFE_013_dispose_cascade = test_LIFE_013_dispose_cascades_depth_first  # noqa: N816
-
-
 # ===========================================================================
 # COMP-012 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
 # ===========================================================================
