@@ -5,8 +5,8 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.6.0.** Covers **42 of 237**
-conformance IDs from `spec-v2.6.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053): the lifecycle state machine, the modeled
+**v3.0.0 (subset).** Covers **42 of 237**
+conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
 `RelayCommand`, and the immutable fluent builders. The remaining 195 IDs
 (`HierarchicalVM`, `FormVM`, the 22 capability micro-interfaces,
@@ -22,7 +22,7 @@ Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "2.6.0")
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "3.0.0")
 ],
 targets: [
     .target(name: "MyApp", dependencies: [

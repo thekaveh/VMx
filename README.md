@@ -131,13 +131,13 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Package                                                              | Status            | Reactive primitive |
 | ---------- | -------------------------------------------------------------------- | ----------------- | ------------------ |
-| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v2.6.0            | System.Reactive    |
-| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v2.6.1            | reactivex          |
-| TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v2.6.0            | rxjs               |
-| Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v2.6.0 *(subset)* | Combine            |
+| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v3.0.0            | System.Reactive    |
+| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v3.0.0            | reactivex          |
+| TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v3.0.0            | rxjs               |
+| Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v3.0.0 *(subset)* | Combine            |
 
-The **Swift flavor is a skeleton subset** (41 of 242 conformance IDs as
-of v2.6.0), covering the lifecycle + leaf / composite / group / aggregate
+The **Swift flavor is a skeleton subset** (42 of 242 conformance IDs as
+of v3.0.0), covering the lifecycle + leaf / composite / group / aggregate
 viewmodel families plus builders and commands. Full
 cross-flavor conformance parity
 lands in a follow-up release. See
@@ -158,6 +158,7 @@ as a sub-path export.
 
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
+| 3.0.x | 3.0.0          | 3.0.0          | 3.0.0          | 3.0.0 (subset) |
 | 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
 | 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
 | 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
@@ -198,7 +199,7 @@ npm install @thekaveh/vmx rxjs
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor
-  ships as a v2.6.0 subset; see `langs/swift/README.md` §5).
+  ships as a v3.0.0 subset; see `langs/swift/README.md` §5).
 
 ### 4.3 Examples
 
@@ -243,7 +244,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 21-collections.md   (22 chapters)
-│   ├── ADRs/              architecture decision records (0001..0056)
+│   ├── ADRs/              architecture decision records (0001..0058)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         historical planning artifacts (not part of published docs)
 │   └── VERSION            spec SemVer
@@ -251,7 +252,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (skeleton, v2.6.0)
+│   └── swift/             VMx Swift Package (skeleton, v3.0.0)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -280,7 +281,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (subset, v2.6.0).
+  [`langs/swift/README.md`](langs/swift/README.md) (subset, v3.0.0).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
@@ -326,13 +327,14 @@ compatible and ships in flavors as a minor bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 241 normative test scenarios keyed by ID
+`spec/12-conformance.md` enumerates 242 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`THEME-001`, …). Every flavor at full parity (C# / Python / TypeScript)
-re-implements the catalog under `langs/<flavor>/tests/conformance/`, and
+`THEME-001`, …) — 237 library IDs plus 5 `THEME` scenario IDs. Every flavor at
+full parity (C# / Python / TypeScript) re-implements the 237 library IDs under
+`langs/<flavor>/tests/conformance/`, and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. The
-Swift flavor implements a documented 41-ID subset as of v2.6.0
+Swift flavor implements a documented 42-ID subset as of v3.0.0
 (see [`langs/swift/README.md`](langs/swift/README.md) §5).
 
 ```bash

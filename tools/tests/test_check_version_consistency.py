@@ -572,3 +572,130 @@ def test_main_still_fails_2x_missing_tags(tmp_path: Path, monkeypatch: object) -
     )
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1
+
+
+# ── _tag_version helper ───────────────────────────────────────────────
+
+
+def test_tag_version_extracts_semver() -> None:
+    assert cvc._tag_version("csharp-v3.0.0") == "3.0.0"
+    assert cvc._tag_version("spec-v3.0.0") == "3.0.0"
+    assert cvc._tag_version("v3.0.0") == "3.0.0"
+    assert cvc._tag_version("python-v2.6.1") == "2.6.1"
+
+
+def test_tag_version_empty_when_unparseable() -> None:
+    assert cvc._tag_version("not-a-tag") == ""
+
+
+# ── in-development (== spec/VERSION) exemption ────────────────────────
+
+
+def _make_repo_v3(tmp_path: Path) -> None:
+    """Minimal repo at spec/VERSION 3.0.0 with a current 3.0.x row + a tagged 2.6.x row."""
+    spec_dir = tmp_path / "spec"
+    spec_dir.mkdir()
+    (spec_dir / "VERSION").write_text("3.0.0\n", encoding="utf-8")
+
+    (tmp_path / "compatibility-matrix.md").write_text(
+        textwrap.dedent("""\
+            # matrix
+
+            ## 1. Matrix
+
+            | spec  | csharp | python | typescript | swift          |
+            | ----- | ------ | ------ | ---------- | -------------- |
+            | 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0          |
+        """),
+        encoding="utf-8",
+    )
+
+    cs_dir = tmp_path / "langs" / "csharp" / "src" / "VMx"
+    cs_dir.mkdir(parents=True)
+    (cs_dir / "VMx.csproj").write_text(
+        "<Version>3.0.0</Version><MinSpecVersion>3.0.0</MinSpecVersion>",
+        encoding="utf-8",
+    )
+    py_dir = tmp_path / "langs" / "python" / "src" / "vmx"
+    py_dir.mkdir(parents=True)
+    (py_dir / "__about__.py").write_text(
+        '__version__ = "3.0.0"\n__min_spec_version__ = "3.0.0"\n',
+        encoding="utf-8",
+    )
+    ts_dir = tmp_path / "langs" / "typescript"
+    ts_dir.mkdir(parents=True)
+    (ts_dir / "package.json").write_text(json.dumps({"version": "3.0.0"}), encoding="utf-8")
+    ts_src = ts_dir / "src"
+    ts_src.mkdir()
+    (ts_src / "version.ts").write_text(
+        'export const __minSpecVersion__ = "3.0.0";\n', encoding="utf-8"
+    )
+    swift_dir = tmp_path / "langs" / "swift" / "Sources" / "VMx"
+    swift_dir.mkdir(parents=True)
+    (swift_dir / "Version.swift").write_text(
+        'static let current = "3.0.0"\nstatic let minSpecVersion = "3.0.0"\n',
+        encoding="utf-8",
+    )
+
+
+# Tags for the already-released 2.6.x row (everything EXCEPT the in-dev 3.0.0).
+_TAGS_2_6_ONLY = {
+    "csharp-v2.6.0",
+    "python-v2.6.0",
+    "typescript-v2.6.0",
+    "swift-v2.6.0",
+    "spec-v2.6.0",
+    "v2.6.0",
+}
+
+
+def test_main_exits_zero_when_indev_version_untagged(tmp_path: Path, monkeypatch: object) -> None:
+    """The current version (== spec/VERSION) needs no tag; absent 3.0.0 tags exit 0."""
+    _make_repo_v3(tmp_path)
+    import check_version_consistency as _cvc
+
+    # Only the prior 2.6.x tags exist; NO v3.0.0 / spec-v3.0.0 / <flavor>-v3.0.0 tags.
+    monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+    rc = _cvc.main(["--repo-root", str(tmp_path)])
+    assert rc == 0
+
+
+def test_indev_tags_reported_separately() -> None:
+    """The 3.0.0 (in-dev) gaps are carved out of enforced_missing in find_missing_tags."""
+    rows = [
+        {
+            "spec_row": "3.0.x",
+            "csharp": ["3.0.0"],
+            "python": ["3.0.0"],
+            "typescript": ["3.0.0"],
+            "swift": ["3.0.0"],
+        },
+        {
+            "spec_row": "2.6.x",
+            "csharp": ["2.6.0"],
+            "python": ["2.6.0"],
+            "typescript": ["2.6.0"],
+            "swift": ["2.6.0"],
+        },
+    ]
+    missing = cvc.find_missing_tags("3.0.0", {}, rows, set(_TAGS_2_6_ONLY))
+    # 3.0.0 tags are missing but identified as in-dev by _tag_version == spec/VERSION.
+    indev = {t for t in missing if cvc._tag_version(t) == "3.0.0"}
+    enforced = {t for t in missing if cvc._tag_version(t) != "3.0.0"}
+    assert "spec-v3.0.0" in indev
+    assert "v3.0.0" in indev
+    assert "csharp-v3.0.0" in indev
+    # The released 2.6.x row is fully tagged, so nothing else is missing.
+    assert enforced == set()
+
+
+def test_main_still_fails_when_non_current_2x_untagged(tmp_path: Path, monkeypatch: object) -> None:
+    """In-dev 3.0.0 is exempt, but a non-current 2.6.x row with NO tags still exits 1."""
+    _make_repo_v3(tmp_path)
+    import check_version_consistency as _cvc
+
+    # No tags at all: 3.0.0 gaps are exempt (in-dev) but the 2.6.x row is enforced.
+    monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set())
+    rc = _cvc.main(["--repo-root", str(tmp_path)])
+    assert rc == 1

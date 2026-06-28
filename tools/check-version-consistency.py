@@ -14,6 +14,14 @@ Rules enforced:
      matching flavor tag (e.g. ``csharp-v2.5.0``).  A spec row also
      implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
 
+In-development exemption:
+  The current version — the one that EQUALS ``spec/VERSION`` — is being
+  prepared on the release branch but is not tagged yet (tags are created at
+  release time).  Tags whose embedded version equals ``spec/VERSION`` are
+  therefore reported as "in development, untagged — OK" and do NOT cause a
+  non-zero exit.  All OTHER ``major >= 2`` matrix rows / manifest versions
+  still require a matching tag.
+
 Exit codes:
     0  No mismatches detected.
     1  At least one mismatch found.
@@ -68,6 +76,17 @@ def _tag_major(tag: str) -> int:
     """
     m = re.search(r"[vV](\d+)\.\d+\.\d+", tag)
     return int(m.group(1)) if m else 0
+
+
+def _tag_version(tag: str) -> str:
+    """Return the ``X.Y.Z`` semver embedded in a tag name, or ``""`` if absent.
+
+    Handles patterns like ``csharp-v3.0.0``, ``spec-v3.0.0``, ``v3.0.0``.
+    Used to identify tags for the current (in-development) version, which is
+    exempt from the tag requirement until it is tagged at release.
+    """
+    m = re.search(r"[vV](\d+\.\d+\.\d+)", tag)
+    return m.group(1) if m else ""
 
 
 # ─── manifest parsers ─────────────────────────────────────────────────
@@ -305,6 +324,34 @@ def find_missing_tags(
 # ─── reporting ────────────────────────────────────────────────────────
 
 
+def _render_indev_note(
+    lines: list[str],
+    spec_version: str,
+    indev_tags: dict[str, list[str]],
+) -> None:
+    """Append the in-development (current, untagged) note to ``lines``."""
+    lines.append("")
+    lines.append(
+        f"Note: {len(indev_tags)} tag(s) for the current in-development version"
+        f" v{spec_version} absent (== spec/VERSION; tagged at release — OK):"
+    )
+    for tag in sorted(indev_tags):
+        reasons = "; ".join(sorted(set(indev_tags[tag])))
+        lines.append(f"  IN-DEV   {tag:<40}  ← {reasons}")
+
+
+def _render_info_note(lines: list[str], info_tags: dict[str, list[str]]) -> None:
+    """Append the pre-v2.0 informational note to ``lines``."""
+    lines.append("")
+    lines.append(
+        f"Note: {len(info_tags)} pre-v{MIN_ENFORCED_MAJOR}.0 tag(s) absent"
+        " (informational only; not enforced):"
+    )
+    for tag in sorted(info_tags):
+        reasons = "; ".join(sorted(set(info_tags[tag])))
+        lines.append(f"  INFO     {tag:<40}  ← {reasons}")
+
+
 def render_report(
     spec_version: str,
     manifests: dict[str, dict[str, str]],
@@ -312,6 +359,7 @@ def render_report(
     msv_issues: list[str],
     missing_tags: dict[str, list[str]],
     info_tags: dict[str, list[str]] | None = None,
+    indev_tags: dict[str, list[str]] | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"spec/VERSION: {spec_version}")
@@ -321,15 +369,10 @@ def render_report(
 
     if not msv_issues and not missing_tags:
         lines.append("OK: all manifest versions, matrix rows, and git tags are consistent.")
+        if indev_tags:
+            _render_indev_note(lines, spec_version, indev_tags)
         if info_tags:
-            lines.append("")
-            lines.append(
-                f"Note: {len(info_tags)} pre-v{MIN_ENFORCED_MAJOR}.0 tag(s) absent"
-                " (informational only; not enforced):"
-            )
-            for tag in sorted(info_tags):
-                reasons = "; ".join(sorted(set(info_tags[tag])))
-                lines.append(f"  INFO     {tag:<40}  ← {reasons}")
+            _render_info_note(lines, info_tags)
         return "\n".join(lines)
 
     if msv_issues:
@@ -343,15 +386,11 @@ def render_report(
             reasons = "; ".join(sorted(set(missing_tags[tag])))
             lines.append(f"  MISSING  {tag:<40}  ← {reasons}")
 
+    if indev_tags:
+        _render_indev_note(lines, spec_version, indev_tags)
+
     if info_tags:
-        lines.append("")
-        lines.append(
-            f"Note: {len(info_tags)} pre-v{MIN_ENFORCED_MAJOR}.0 tag(s) absent"
-            " (informational only; not enforced):"
-        )
-        for tag in sorted(info_tags):
-            reasons = "; ".join(sorted(set(info_tags[tag])))
-            lines.append(f"  INFO     {tag:<40}  ← {reasons}")
+        _render_info_note(lines, info_tags)
 
     return "\n".join(lines)
 
@@ -391,13 +430,25 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues = check_min_spec_versions(spec_version, manifests)
     all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
-    # Split missing tags into enforced (major >= MIN_ENFORCED_MAJOR) and
+    # Carve out the current, in-development version first: tags whose embedded
+    # semver equals spec/VERSION are not created until release, so their absence
+    # is expected and must NOT fail the check.
+    indev_missing = {t: r for t, r in all_missing.items() if _tag_version(t) == spec_version}
+    remaining = {t: r for t, r in all_missing.items() if _tag_version(t) != spec_version}
+
+    # Split the rest into enforced (major >= MIN_ENFORCED_MAJOR) and
     # informational (major < MIN_ENFORCED_MAJOR, e.g. pre-2.0 legacy rows).
-    enforced_missing = {t: r for t, r in all_missing.items() if _tag_major(t) >= MIN_ENFORCED_MAJOR}
-    info_missing = {t: r for t, r in all_missing.items() if _tag_major(t) < MIN_ENFORCED_MAJOR}
+    enforced_missing = {t: r for t, r in remaining.items() if _tag_major(t) >= MIN_ENFORCED_MAJOR}
+    info_missing = {t: r for t, r in remaining.items() if _tag_major(t) < MIN_ENFORCED_MAJOR}
 
     report = render_report(
-        spec_version, manifests, matrix_rows, msv_issues, enforced_missing, info_missing or None
+        spec_version,
+        manifests,
+        matrix_rows,
+        msv_issues,
+        enforced_missing,
+        info_missing or None,
+        indev_missing or None,
     )
     print(report)
 

@@ -4,10 +4,21 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.0.0] — 2026-06-28
+
+The **v3 framework overhaul** (subset). Implements the `spec-v3.0.0` subset.
+See ADRs 0047–0058; the Swift-specific convergence is ADR-0053.
 
 ### Changed
 
+- **BREAKING:** Illegal lifecycle transitions and a non-child `current`
+  assignment now **throw catchable errors** (`StatusTransitionError` /
+  `CompositeMembershipError`) instead of trapping via `preconditionFailure`
+  (ADR-0053, superseding ADR-0037 §2.5). `construct()` / `destruct()` /
+  `reconstruct()` and `setCurrent(_:)` are throwing; `LIFE-005` / `LIFE-006` /
+  `LIFE-008` now assert a catchable throw. `dispose()` stays terminal/idempotent
+  and never throws; the read-only model setter (`CVM-003`) still traps because
+  Swift setters cannot throw. The conformance subset grows 41 → 42 (+`LIFE-008`).
 - Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
   forward; the already-published 2.6.0 subset remains MIT-licensed.
 

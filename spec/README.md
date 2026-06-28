@@ -164,14 +164,15 @@ consumers continue to work unchanged.
   goes from 235 to 237 (232 library + 5 THEME scenario IDs).
 - Chapter count stays at 22.
 
-### 1.9 v2.6.x → v3.0.0 changes (in progress)
+### 1.9 v2.6.x → v3.0.0 changes
 
-The v3 framework overhaul hardens the lifecycle/dispose concurrency path and
-reconciles the spec with it (see ADR-0047 and
-`docs/audit/2026-06-27-vmx-merged-critique.md`). The `spec/VERSION` bump to
-`3.0.0` and the per-flavor package/version/count reconciliation are coordinated
-at the v3 release; the entries below describe the spec-level changes landing on
-the `v3-framework-overhaul` branch.
+v3.0.0 is a **breaking** major bump: the framework overhaul hardens the
+lifecycle/dispose concurrency path and reconciles the spec with it (see ADR-0047
+and `docs/audit/2026-06-27-vmx-merged-critique.md`). `spec/VERSION` is `3.0.0`
+and every active flavor bumps to `3.0.0` in lockstep (per the README §6.1 SemVer
+policy: a spec major triggers a major in every flavor). The entries below
+describe the spec-level changes; the per-flavor public-surface breaks are
+catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
 
 - **ADR-0047** — v3 lifecycle/threading semantics: status transitions are atomic
   and dispose-safe behind a per-VM guard (`02 §2.3`); background lifecycle
@@ -264,9 +265,25 @@ the `v3-framework-overhaul` branch.
 
 - Chapter count stays at 22.
 
+- **ADRs 0051 / 0053 / 0054 / 0055 / 0057 / 0058** — the remaining v3 decisions
+  add no new conformance ID. **ADR-0051** reconciles the tree / collections /
+  capability chapters and the proposal-as-normative-scenario-contract wording
+  (`13`/`14`/`21`, and `README` §1.10). **ADR-0053** converges the Swift flavor to
+  throw on illegal lifecycle transitions and a non-child `current` (documented as
+  the divergence-resolution to ch. 02 §2; names `LIFE-008` in the Swift subset).
+  **ADR-0054** renames the TypeScript `senderObject` field to the canonical
+  `sender` for ADR-0006 parity (ch. 03 §2.1, informative). **ADR-0055** adds the
+  positional-options `Create`/`create` construction path alongside the builders
+  (ch. 10, informative). **ADR-0057** holds capability micro-interface granularity
+  as-is, and **ADR-0058** holds the explicit `AggregateVM1..6` arity surface — both
+  are "no change" decisions (teaching notes).
+
+- The catalog therefore ends v3 at **242 total (237 library + 5 THEME scenario
+  IDs)**; chapter count stays at 22.
+
 ### 1.10 Supporting artefacts
 
-- `VERSION` — current spec SemVer (`2.6.0`).
+- `VERSION` — current spec SemVer (`3.0.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
 - `ADRs/` — Architecture Decision Records (0001-0058); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.

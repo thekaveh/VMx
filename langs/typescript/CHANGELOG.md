@@ -4,7 +4,12 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.0.0] — 2026-06-28
+
+The **v3 framework overhaul** — a breaking release that hardens the
+lifecycle/dispose concurrency path and reconciles the public surface across
+flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
+`docs/audit/2026-06-27-vmx-merged-critique.md`.
 
 ### Added
 
@@ -16,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `GroupVMOptions<VM>` types). Delegates to the builder, so required-field
   validation (`BuilderValidationError`) and the resulting VM are identical to the
   fluent path (ADR-0055; VMX-020).
+- `AsyncRelayCommand` — an additive async command that flows an `AbortSignal` into
+  a long-running task and adds a `cancel()` method, closing the cancellation gap
+  the synchronous `RelayCommand` had. Cancellation is non-throwing to the caller by
+  default with an opt-in throwing mode; fire-and-forget task faults route to an
+  `errors` observable. `RelayCommand` is unchanged (ADR-0056; CMD-012; VMX-052).
+- `FormVM` surfaces approve-path persister failures on a new `approveErrors`
+  observable instead of swallowing them; `isDirty` uses an injectable structural
+  equality (the default is a deep-equal, not `JSON.stringify`) and the default
+  snapshot is a `structuredClone` deep value-copy (ADR-0048; FORM-015).
 
 ### Changed
 
@@ -28,8 +42,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `IMessage.sender` is typed `unknown`; `ITypedMessage<TSender>` /
   `PropertyChangedMessage<TSender>` narrow it to `TSender`. Migration: replace
   `msg.senderObject` with `msg.sender` (identical instance, now typed).
+- **BREAKING:** `ConfirmationDecoratorCommand.execute()` (synchronous
+  fire-and-forget) now surfaces a rejecting `confirm` delegate or a throwing inner
+  command on a new `errors` observable instead of swallowing them; the awaitable
+  `executeAsync()` keeps its throw behavior (ADR-0049; CMDD-010).
+  `ModeledCrudCommands` update/delete `canExecute` is now reactive to
+  current-selection change so bound buttons refresh (ADR-0049; VMX-011).
 - Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
   forward; the already-published 2.6.0 artifact remains MIT-licensed.
+
+### Fixed
+
+- **Lifecycle/dispose concurrency cluster (ADR-0047):** status transitions are
+  atomic and dispose-safe behind a per-VM guard; background lifecycle completions
+  marshal their terminal emission onto the foreground dispatcher; a post-dispose
+  `isCurrent` change is a silent no-op; and a throwing `onConstruct`/`onDestruct`
+  hook rolls `status` back to the prior settled state (LIFE-008, the new LIFE-014).
 
 ## [2.6.0] — 2026-06-13
 
