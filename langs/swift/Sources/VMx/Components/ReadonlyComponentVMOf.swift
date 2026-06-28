@@ -31,14 +31,23 @@ open class ReadonlyComponentVMOf<Model>: ComponentVMOf<Model> {
         }
     }
 
-    // The readonly builder entry point is `ReadonlyComponentVMOfBuilder<Model>()`
-    // directly. A subclass `builder()` shadow is not expressible: a
-    // different-return variant makes every annotation-free call ambiguous
-    // against the inherited `ComponentVMOf.builder()` (no derived-type
-    // preference for static members), and a same-signature redeclaration —
-    // even `@available(*, unavailable)` — is rejected as an illegal static
-    // override. Note that the *inherited* `builder()` therefore still
-    // resolves here and produces a WRITABLE `ComponentVMOf<Model>`; the
-    // result is statically typed as such, so it cannot masquerade as
-    // readonly, but prefer the dedicated builder.
+    /// Builder entry point for the **read-only** modeled component.
+    ///
+    /// ⚠️ Do **not** call the inherited `ReadonlyComponentVMOf.builder()`: a
+    /// same-named static override that returns `ReadonlyComponentVMOfBuilder`
+    /// is inexpressible in Swift (a different-return shadow makes every
+    /// annotation-free call ambiguous against the inherited
+    /// `ComponentVMOf.builder()` — there is no derived-type preference for
+    /// static members — and a same-signature redeclaration, even
+    /// `@available(*, unavailable)`, is rejected as an illegal static
+    /// override). The inherited `builder()` therefore still resolves here and
+    /// produces a **WRITABLE** `ComponentVMOf<Model>`. It is statically typed
+    /// as such (so it cannot masquerade as read-only), but it is the wrong
+    /// entry point.
+    ///
+    /// Use this `readonlyBuilder()` (or `ReadonlyComponentVMOfBuilder<Model>()`
+    /// directly) to obtain a builder that produces a read-only VM.
+    public static func readonlyBuilder() -> ReadonlyComponentVMOfBuilder<Model> {
+        ReadonlyComponentVMOfBuilder<Model>()
+    }
 }

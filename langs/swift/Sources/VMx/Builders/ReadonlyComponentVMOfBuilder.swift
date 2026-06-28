@@ -97,7 +97,10 @@ public struct ReadonlyComponentVMOfBuilder<Model> {
             throw BuilderValidationError(missingField: "services")
         }
         let hinter = _modeledHinter ?? { _ in "" }
-        let equals = _modelEquals ?? { _, _ in false }
+        // See `_defaultModelEquals`: reference-identity suppression for class
+        // models, "always changed" for non-Equatable value models; Equatable
+        // models get `==` via the constrained `build()` overload below.
+        let equals = _modelEquals ?? { _defaultModelEquals($0, $1) }
         return ReadonlyComponentVMOf<Model>(
             name: name,
             hint: _hint,

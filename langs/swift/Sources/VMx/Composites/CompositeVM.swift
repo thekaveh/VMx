@@ -45,7 +45,11 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     public var currentChild: ComponentVMBase? { _current }
 
     public func selectChild(_ vm: ComponentVMBase) {
-        for child in children where child === vm {
+        // Mirror C# `CanSelectComponent`: the target must be a member *and*
+        // Constructed. C# throws on a violation; Swift keeps the existing
+        // no-op rather than introducing an (uncatchable) trap — the
+        // trap-vs-throw recoverability gap is tracked separately (ADR-0037).
+        for child in children where child === vm && child.status == .constructed {
             _setCurrent(child)
             return
         }

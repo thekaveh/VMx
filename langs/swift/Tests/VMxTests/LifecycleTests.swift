@@ -202,6 +202,37 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(vm.status, .destructed)
     }
 
+    /// VMX-103 — drift guard for the hand-rolled transition table. The legal
+    /// canConstruct/canDestruct/canReconstruct truth table (which mirrors the
+    /// `_isLegalTransition` table) is asserted across every externally
+    /// observable status, so a future edit to either encoding that drifts from
+    /// the `lifecycle-transitions.json` legal set fails here. LIFE-011 (loading
+    /// the shared JSON fixture and asserting equality) remains a tracked
+    /// follow-up — it needs the fixture bundled as a SwiftPM resource; this
+    /// test is the in-tree partial guard until then (ADR-0037).
+    func testTransitionTablePredicateDriftGuard() {
+        // .destructed
+        let d = makeVM()
+        XCTAssertEqual(d.status, .destructed)
+        XCTAssertTrue(d.canConstruct())       // destructed → construct    ✅
+        XCTAssertTrue(d.canDestruct())        // destructed → destruct     ✅ (idempotent)
+        XCTAssertFalse(d.canReconstruct())    // destructed → reconstruct  ❌
+
+        // .constructed
+        let c = makeVM(); c.construct()
+        XCTAssertEqual(c.status, .constructed)
+        XCTAssertTrue(c.canConstruct())       // constructed → construct   ✅ (idempotent)
+        XCTAssertTrue(c.canDestruct())        // constructed → destruct    ✅
+        XCTAssertTrue(c.canReconstruct())     // constructed → reconstruct ✅
+
+        // .disposed (terminal)
+        let x = makeVM(); x.dispose()
+        XCTAssertEqual(x.status, .disposed)
+        XCTAssertFalse(x.canConstruct())      // disposed → construct      ❌
+        XCTAssertFalse(x.canDestruct())       // disposed → destruct       ❌
+        XCTAssertFalse(x.canReconstruct())    // disposed → reconstruct    ❌
+    }
+
     /// LIFE-012 — dispose from Disposed emits no message.
     func testLife012DisposeFromDisposedIsNoOp() {
         let hub = MessageHub()

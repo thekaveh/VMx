@@ -13,6 +13,13 @@ private struct Tab: Equatable {
     let title: String
 }
 
+/// Non-`Equatable` *reference* (class) model — exercises the
+/// reference-identity default suppression (VMX-005).
+private final class RefModel {
+    let n: Int
+    init(_ n: Int) { self.n = n }
+}
+
 final class ComponentVMTests: XCTestCase {
 
     /// CVM-001 — Construct emits ConstructionStatusChangedMessage(Constructed).
@@ -213,5 +220,71 @@ final class ComponentVMTests: XCTestCase {
         vm.model = Tab(title: "settings")
 
         XCTAssertEqual(seen.map(\.title), ["settings"])
+    }
+
+    /// VMX-005 — a non-`Equatable` *class* model suppresses a re-publish when
+    /// set to the *same instance* (HUB-005 idempotent-set via reference
+    /// identity, parity with C#/Py/TS); a different instance still publishes.
+    /// Previously the non-Equatable default was a constant-`false` predicate,
+    /// so every set — including the same instance — published.
+    func testNonEquatableClassModelSuppressesIdentitySet() throws {
+        let hub = MessageHub()
+        let first = RefModel(1)
+        let vm = try ComponentVMOf<RefModel>.builder()
+            .name("ref")
+            .model(first)
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        var seen: [String] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? PropertyChangedMessage)?.propertyName }
+            .sink { seen.append($0) }
+
+        vm.model = first            // same instance — suppressed (HUB-005)
+        XCTAssertFalse(seen.contains("model"), "identity-equal set must not publish")
+
+        vm.model = RefModel(2)      // different instance — publishes
+        XCTAssertTrue(seen.contains("model"), "a different instance must publish")
+        cancel.cancel()
+    }
+
+    /// VMX-100 — `ReadonlyComponentVMOf.readonlyBuilder()` is the distinctly
+    /// named, correctly-typed entry point: it produces a read-only VM (the
+    /// inherited static `builder()` would produce a *writable* `ComponentVMOf`).
+    func testReadonlyBuilderEntryPointProducesReadonlyVM() throws {
+        let vm = try ReadonlyComponentVMOf<Tab>.readonlyBuilder()
+            .name("r")
+            .model(Tab(title: "fixed"))
+            .withNullServices()
+            .build()
+        XCTAssertEqual(vm.type, .readOnlyComponent)
+        XCTAssertEqual(vm.model.title, "fixed")
+    }
+
+    /// VMX-102 — after dispose, setting `model` still updates the model
+    /// *field* (the getter reflects the latest value — parity with C#, whose
+    /// field write is unconditional) but publishes nothing further
+    /// (spec/02 invariant 3). Previously the field update was short-circuited
+    /// too, leaving the disposed getter stale.
+    func testDisposedModelSetUpdatesFieldButDoesNotPublish() throws {
+        let hub = MessageHub()
+        let vm = try ComponentVMOf<Tab>.builder()
+            .name("tab")
+            .model(Tab(title: "home"))
+            .modelEquals(==)
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        vm.dispose()
+
+        var seen: [String] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? PropertyChangedMessage)?.propertyName }
+            .sink { seen.append($0) }
+
+        vm.model = Tab(title: "after-dispose")
+
+        XCTAssertEqual(vm.model.title, "after-dispose", "field reflects the new value")
+        XCTAssertFalse(seen.contains("model"), "disposed VM publishes nothing")
+        cancel.cancel()
     }
 }

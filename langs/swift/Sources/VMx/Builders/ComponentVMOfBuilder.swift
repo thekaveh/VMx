@@ -100,10 +100,11 @@ public struct ComponentVMOfBuilder<Model> {
             throw BuilderValidationError(missingField: "services")
         }
         let hinter = _modeledHinter ?? { _ in "" }
-        // Non-Equatable models default to an always-false predicate (every
-        // set publishes); Equatable models get `==` via the constrained
-        // `build()` overload below.
-        let equals = _modelEquals ?? { _, _ in false }
+        // Non-Equatable models default to reference-identity suppression for
+        // *class* models (and "always changed" for non-Equatable value models)
+        // via `_defaultModelEquals`; Equatable models get `==` via the
+        // constrained `build()` overload below.
+        let equals = _modelEquals ?? { _defaultModelEquals($0, $1) }
         return ComponentVMOf<Model>(
             name: name,
             hint: _hint,

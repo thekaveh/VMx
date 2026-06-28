@@ -271,4 +271,24 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertTrue(observed[0] === b)
         XCTAssertNil(observed[1])
     }
+
+    /// VMX-098 — `selectChild` gates on Constructed, mirroring C#
+    /// `CanSelectComponent` (`member && status == .constructed`). Selecting a
+    /// member that is not yet constructed is a no-op (Swift keeps the no-op
+    /// rather than the C# throw — trap-vs-throw is tracked separately,
+    /// ADR-0037); once constructed, the same call selects it.
+    func testSelectChildGatesOnConstructed() {
+        let a = leaf("a")
+        let c = try! CompositeVM<ComponentVM>.builder()
+            .name("c").withNullServices().children { [] }.build()
+        c.add(a)                       // member, but still .destructed
+
+        c.selectChild(a)
+        XCTAssertNil(c.current, "a non-constructed child must not be selectable")
+
+        a.construct()
+        c.selectChild(a)
+        XCTAssertTrue(c.current === a, "a constructed member is selectable")
+        XCTAssertTrue(a.isCurrent)
+    }
 }
