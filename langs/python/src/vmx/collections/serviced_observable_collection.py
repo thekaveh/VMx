@@ -5,13 +5,15 @@ See spec/21-collections.md §2 and ADR-0024.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, MutableSequence
+from collections.abc import Iterable, Iterator, MutableSequence
 from typing import Generic, TypeVar, overload
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.messages.collection_changed import CollectionChangedMessage
+from vmx.services.message_hub import MessageHubProto
 
 T = TypeVar("T")
 
@@ -33,7 +35,7 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def __init__(
         self,
-        hub: object = None,
+        hub: MessageHubProto[CollectionChangedMessage[T]] | None = None,
     ) -> None:
         self._hub = hub
         self._items: list[T] = []
@@ -43,8 +45,13 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     @property
     def on_collection_changed(self) -> rx.Observable[CollectionChangedMessage[T]]:
-        """Hot observable of :class:`CollectionChangedMessage` events."""
-        return self._subject
+        """Hot observable of :class:`CollectionChangedMessage` events.
+
+        The backing Subject is sealed behind ``as_observable`` so external
+        subscribers can only subscribe — never ``on_next``/``dispose`` the
+        internal stream (VMX-013).
+        """
+        return self._subject.pipe(ops.as_observable())
 
     # ── MutableSequence ABC ───────────────────────────────────────────────────
 
@@ -139,5 +146,4 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         self._subject.on_next(msg)
         # 2. Publish to hub (when one is wired).
         if self._hub is not None:
-            send: Callable[[CollectionChangedMessage[T]], None] = self._hub.send  # type: ignore[attr-defined]
-            send(msg)
+            self._hub.send(msg)

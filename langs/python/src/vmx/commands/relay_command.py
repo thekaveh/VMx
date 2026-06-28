@@ -31,6 +31,7 @@ from collections.abc import Callable
 from typing import Generic, TypeVar
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 T = TypeVar("T")
@@ -91,8 +92,13 @@ class RelayCommand:
 
     @property
     def can_execute_changed(self) -> rx.Observable[None]:
-        """Observable that emits ``None`` on each trigger emission."""
-        return self._can_execute_changed_subject
+        """Observable that emits ``None`` on each trigger emission.
+
+        The backing Subject is sealed behind ``as_observable`` so callers can
+        only subscribe — never ``on_next``/``dispose`` the internal stream
+        (VMX-013).
+        """
+        return self._can_execute_changed_subject.pipe(ops.as_observable())
 
     def dispose(self) -> None:
         """Dispose all trigger subscriptions and complete the subject.
@@ -204,8 +210,13 @@ class RelayCommandOfT(Generic[T]):
 
     @property
     def can_execute_changed(self) -> rx.Observable[None]:
-        """Observable that emits ``None`` on each trigger emission."""
-        return self._can_execute_changed_subject
+        """Observable that emits ``None`` on each trigger emission.
+
+        The backing Subject is sealed behind ``as_observable`` so callers can
+        only subscribe — never ``on_next``/``dispose`` the internal stream
+        (VMX-013).
+        """
+        return self._can_execute_changed_subject.pipe(ops.as_observable())
 
     def dispose(self) -> None:
         """Dispose all trigger subscriptions and complete the subject.

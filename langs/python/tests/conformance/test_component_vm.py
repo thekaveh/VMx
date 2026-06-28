@@ -206,8 +206,11 @@ def test_CVM_005_name_and_hint_immutable() -> None:
 def test_CVM_006_select_command_predicate() -> None:
     """CVM-006: SelectCommand.can_execute() reflects current/parent state."""
 
-    # Build a minimal parent stub.
+    # Build a minimal parent stub. Represents a selection-supporting composite
+    # (groups, which do not support child selection, set this False — VMX-077).
     class _FakeParent:
+        supports_child_selection = True
+
         def __init__(self) -> None:
             self.current_child: object | None = None
 

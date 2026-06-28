@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 import reactivex as rx
@@ -9,6 +10,8 @@ from reactivex.abc import DisposableBase, ObserverBase
 from reactivex.subject import Subject
 
 from vmx.messages.protocols import Message
+
+_logger = logging.getLogger(__name__)
 
 TMessage = TypeVar("TMessage", bound=Message, contravariant=True)
 
@@ -59,7 +62,15 @@ class MessageHub(Generic[_THubMessage]):
             try:
                 observer.on_next(value)
             except Exception:
-                pass  # swallow — spec/03-messages.md §Subscriber resilience
+                # Isolate the failing subscriber (HUB-007): the exception is
+                # swallowed so it cannot terminate the stream for other
+                # subscribers (spec/03-messages.md §Subscriber resilience). It
+                # is logged (not silently discarded) so the failure is still
+                # observable to operators via the logging framework.
+                _logger.exception(
+                    "MessageHub subscriber raised while handling %r; isolating per HUB-007",
+                    type(value).__name__,
+                )
 
         return self._subject.subscribe(
             on_next=on_next,

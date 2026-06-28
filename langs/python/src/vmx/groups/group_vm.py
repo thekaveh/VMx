@@ -15,6 +15,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from typing import Generic, TypeVar
 
+import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
@@ -89,6 +91,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Observable collection-change stream.
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
 
+        # Single cached parent adaptor reused for every child op (VMX-077):
+        # a fresh _GroupParent per add/insert was wasteful and gave children an
+        # unstable parent identity. Lazily created on first use.
+        self._group_parent: _GroupParent[VM] | None = None
+
     # ── ViewModelType ────────────────────────────────────────────────────────
 
     @property
@@ -98,9 +105,14 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     # ── Collection-change observable ─────────────────────────────────────────
 
     @property
-    def on_collection_changed(self) -> Subject[CollectionChangedEvent]:
-        """Observable that emits :class:`CollectionChangedEvent` on structural changes."""
-        return self._collection_changed_subject
+    def on_collection_changed(self) -> rx.Observable[CollectionChangedEvent]:
+        """Observable that emits :class:`CollectionChangedEvent` on structural changes.
+
+        The backing Subject is sealed behind ``as_observable`` so external
+        callers can only subscribe — never ``on_next``/``dispose`` the internal
+        stream (VMX-013). The public type is ``Observable`` (was ``Subject``).
+        """
+        return self._collection_changed_subject.pipe(ops.as_observable())
 
     # ── MutableSequence-like interface ───────────────────────────────────────
 
@@ -277,8 +289,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _as_parent(self) -> _GroupParent[VM]:
-        """Return a _ParentCompositeVM adaptor for child.set_parent() calls."""
-        return _GroupParent(self)
+        """Return the cached _ParentCompositeVM adaptor for child.set_parent() calls."""
+        if self._group_parent is None:
+            self._group_parent = _GroupParent(self)
+        return self._group_parent
 
     # ── count property alias ─────────────────────────────────────────────────
 
@@ -306,6 +320,12 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
     @property
     def current_child(self) -> object | None:
         return None
+
+    @property
+    def supports_child_selection(self) -> bool:
+        # GroupVM has no selection slot — a group child's select() is a no-op,
+        # so its select_command must report can_execute == False (VMX-077).
+        return False
 
     def select_child(self, vm: _ComponentVMBase) -> None:
         """No-op: GroupVM has no selection concept."""

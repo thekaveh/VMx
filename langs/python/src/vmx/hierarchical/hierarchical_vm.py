@@ -6,7 +6,7 @@ See spec/18-hierarchical-vm.md and ADR-0028.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, overload
 
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
@@ -17,6 +17,48 @@ from vmx.services.message_hub import MessageHub
 
 TModel = TypeVar("TModel")
 TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")
+_T = TypeVar("_T")
+
+
+class _ReadOnlyList(Sequence[_T]):
+    """Immutable, list-comparable read-only view over a backing list.
+
+    Reads through to the live backing list but exposes no mutators, so a
+    consumer handed a node's ``children``/``path`` cannot mutate it and corrupt
+    the identity-cache invariants (HIER-004) or other descendants' paths
+    (VMX-078). Compares equal to any list/tuple with the same elements so
+    existing ``== [...]`` assertions keep working, and is intentionally
+    unhashable (mirroring the ``list`` it replaces).
+    """
+
+    __slots__ = ("_backing",)
+
+    def __init__(self, backing: list[_T]) -> None:
+        self._backing = backing
+
+    @overload
+    def __getitem__(self, index: int) -> _T: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[_T]: ...
+
+    def __getitem__(self, index: int | slice) -> _T | Sequence[_T]:
+        return self._backing[index]
+
+    def __len__(self) -> int:
+        return len(self._backing)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, _ReadOnlyList):
+            return bool(self._backing == other._backing)
+        if isinstance(other, list | tuple):
+            return bool(list(self._backing) == list(other))
+        return NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]  # unhashable, like the list it wraps
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self._backing!r})"
 
 
 class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
@@ -79,7 +121,11 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
         self._hierarchical_parent: TVM | None = None
         self._children_list: list[TVM] | None = None
-        self._path_cache: list[TVM] | None = None
+        # Cached read-only facade over ``_children_list`` (VMX-078). The view
+        # reads through to the live list (mutated in place by add/remove/
+        # reparent) and is identity-stable across accesses.
+        self._children_view: _ReadOnlyList[TVM] | None = None
+        self._path_cache: _ReadOnlyList[TVM] | None = None
 
     # ── Abstract requirement (ViewModelType) ─────────────────────────────────
 
@@ -138,14 +184,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     def children(self) -> Sequence[TVM]:
         """The ordered, read-only sequence of child nodes (lazily materialized).
 
-        Spec (chapter 18 §2) mandates ``IReadOnlyList<TVM>``; Python returns
-        a ``Sequence`` view of the cached list. Callers must NOT mutate the
-        returned object — the cache invariant relies on identity-equality
-        per HIER-004.
+        Spec (chapter 18 §2) mandates ``IReadOnlyList<TVM>``; Python returns a
+        genuinely read-only view (``_ReadOnlyList``) over the cached list, so a
+        caller cannot mutate it and corrupt the HIER-004 identity cache
+        (VMX-078). The view reads through to the live list and is identity-stable
+        across accesses.
         """
         if self._children_list is None:
             self._children_list = self._materialize_children()
-        return self._children_list
+        if self._children_view is None:
+            self._children_view = _ReadOnlyList(self._children_list)
+        return self._children_view
 
     # ── Path ─────────────────────────────────────────────────────────────────
 
@@ -153,12 +202,13 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     def path(self) -> Sequence[TVM]:
         """Materialized, cached read-only path from the root to this node (inclusive).
 
-        The cache is invalidated when :attr:`parent` changes. Callers must NOT
-        mutate the returned object — HIER-004 asserts cached-identity
-        (``grandchild.path is path``) and mutation would corrupt the cache.
+        The cache is invalidated when :attr:`parent` changes. The returned value
+        is a genuinely read-only view (``_ReadOnlyList``) — HIER-004 asserts
+        cached-identity (``grandchild.path is path``) and a mutable return would
+        let a caller corrupt the cache (VMX-078).
         """
         if self._path_cache is None:
-            self._path_cache = self._build_path()
+            self._path_cache = _ReadOnlyList(self._build_path())
         return self._path_cache
 
     # ── __iter__ — supports walk / walk_expanded ─────────────────────────────

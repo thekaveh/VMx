@@ -10,6 +10,7 @@ import threading
 from typing import Protocol, runtime_checkable
 
 from reactivex import Observable
+from reactivex import operators as ops
 from reactivex.subject import BehaviorSubject
 
 from vmx.notifications.notification import Notification
@@ -68,7 +69,10 @@ class NotificationHub:
 
     @property
     def pending(self) -> Observable[list[Notification]]:
-        return self._pending_subject
+        # Sealed behind ``as_observable`` so subscribers can only subscribe —
+        # never ``on_next``/``dispose`` the internal BehaviorSubject (VMX-013).
+        # Replay of the current pending snapshot is preserved.
+        return self._pending_subject.pipe(ops.as_observable())
 
     def post(self, notification: Notification) -> asyncio.Future[NotificationReaction]:
         """Post a notification and return a future that resolves on Resolve.

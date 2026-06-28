@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import Generic, TypeVar, overload
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
@@ -101,8 +102,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     @property
     def on_collection_changed(self) -> rx.Observable[CollectionChangedEvent]:
-        """Observable that emits a CollectionChangedEvent on every mutation."""
-        return self._collection_changed_subject
+        """Observable that emits a CollectionChangedEvent on every mutation.
+
+        The backing Subject is sealed behind ``as_observable`` so external
+        callers can only subscribe — never ``on_next``/``dispose`` the internal
+        stream (VMX-013).
+        """
+        return self._collection_changed_subject.pipe(ops.as_observable())
 
     # ── current property ─────────────────────────────────────────────────────
 

@@ -18,6 +18,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
@@ -49,6 +50,17 @@ class _ParentCompositeVM(ABC):
     @property
     @abstractmethod
     def current_child(self) -> object | None: ...
+
+    @property
+    def supports_child_selection(self) -> bool:
+        """Whether a child of this parent can meaningfully be selected.
+
+        ``True`` for composites (which own a Current slot); ``False`` for
+        groups, whose children are peers with no selection slot. A child uses
+        this to keep ``can_select`` honest — a group child reported
+        ``can_select == True`` while ``select()`` was an inert no-op (VMX-077).
+        """
+        return True
 
     @abstractmethod
     def select_child(self, vm: _ComponentVMBase) -> None: ...
@@ -215,8 +227,12 @@ class _ComponentVMBase(ABC):
 
         Equivalent to .NET INotifyPropertyChanged — subscribers receive the
         property name (snake_case) on each change.
+
+        The backing :class:`~reactivex.subject.Subject` is sealed behind
+        ``as_observable`` so external subscribers cannot ``on_next``/``dispose``
+        the internal stream and corrupt other subscribers (VMX-013).
         """
-        return self._property_changed_subject
+        return self._property_changed_subject.pipe(ops.as_observable())
 
     def _raise_property_changed(self, property_name: str) -> None:
         """Emit *property_name* on the property_changed subject."""
@@ -433,9 +449,15 @@ class _ComponentVMBase(ABC):
 
     # ── Selection predicates ─────────────────────────────────────────────────
     def can_select(self) -> bool:
-        """True iff parent is not None, this is not current, and Constructed."""
+        """True iff parent supports selection, this is not current, and Constructed.
+
+        A parent that owns no selection slot (e.g. a group — see
+        ``supports_child_selection``) yields ``False`` so the inherited
+        ``select_command`` is not enabled-but-inert (VMX-077).
+        """
         return (
             self._parent is not None
+            and self._parent.supports_child_selection
             and self._parent.current_child is not self
             and self._status == ConstructionStatus.CONSTRUCTED
         )
