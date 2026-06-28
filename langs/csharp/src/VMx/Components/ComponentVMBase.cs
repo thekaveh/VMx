@@ -156,6 +156,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         get => _isCurrent;
         internal set
         {
+            // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal.
+            // A selection change on an already-disposed VM is a silent no-op
+            // (no INPC raise, no hub PropertyChangedMessage), mirroring Swift
+            // (VMX-006). Reads the terminal state under the same _gate the
+            // lifecycle-race guards use.
+            if (IsDisposed()) return;
+
             // Idempotent-set guard: spec/03-messages.md mandates that a property
             // assignment to the same value MUST NOT emit a PropertyChanged hub
             // message (HUB-005). The guard also avoids redundant INPC raises.

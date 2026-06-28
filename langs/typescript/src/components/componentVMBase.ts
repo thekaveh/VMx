@@ -144,6 +144,11 @@ export abstract class ComponentVMBase {
   }
 
   _setIsCurrent(value: boolean): void {
+    // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
+    // selection change on an already-disposed VM is a silent no-op (no
+    // propertyChanged emit, no hub PropertyChangedMessage), mirroring Swift
+    // (VMX-006).
+    if (this.#status === ConstructionStatus.Disposed) return;
     if (this.#isCurrent === value) return;
     this.#isCurrent = value;
     this._raisePropertyChanged("isCurrent");

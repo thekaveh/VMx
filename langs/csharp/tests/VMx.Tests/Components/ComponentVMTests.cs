@@ -488,6 +488,44 @@ public class ComponentVMTests
         props.Should().Contain("IsConstructed");
     }
 
+    // ── VMX-006: post-dispose IsCurrent change is a silent no-op ───────────────
+
+    [Fact]
+    public void IsCurrent_Set_After_Dispose_Emits_No_Hub_Message()
+    {
+        var (vm, hub, _) = BuildVm();
+        vm.Construct();
+        vm.Dispose();
+
+        var messages = new List<IPropertyChangedMessage<IComponentVM>>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IPropertyChangedMessage<IComponentVM> pcm && pcm.PropertyName == "IsCurrent")
+                messages.Add(pcm);
+        });
+
+        vm.IsCurrent = true;
+
+        // spec/02 invariant 3 — Disposed is terminal: no PropertyChangedMessage leaks.
+        messages.Should().BeEmpty();
+        vm.IsCurrent.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsCurrent_Set_After_Dispose_Raises_No_INPC()
+    {
+        var (vm, _, _) = BuildVm();
+        vm.Construct();
+        vm.Dispose();
+
+        var props = new List<string?>();
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, e) => props.Add(e.PropertyName);
+
+        vm.IsCurrent = true;
+
+        props.Should().NotContain("IsCurrent");
+    }
+
     // ── Concurrent operation guard ────────────────────────────────────────────
 
     [Fact]

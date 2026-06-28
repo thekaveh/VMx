@@ -191,6 +191,13 @@ class _ComponentVMBase(ABC):
 
     def _set_is_current(self, value: bool) -> None:
         """Called by the parent composite when selection changes."""
+        # Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
+        # selection change on an already-disposed VM is a silent no-op (no
+        # property_changed emit, no hub PropertyChangedMessage), mirroring Swift
+        # (VMX-006). Reads the terminal state under the same lock the
+        # lifecycle-race guards use.
+        if self._is_disposed():
+            return
         if self._is_current == value:
             return
         self._is_current = value
