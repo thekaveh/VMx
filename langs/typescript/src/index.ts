@@ -100,10 +100,12 @@ export { ViewModelType } from "./components/types.js";
 export type { IComponentVM, IComponentVMOf } from "./components/types.js";
 export { ComponentVMBase, type IParentVM } from "./components/componentVMBase.js";
 export { ComponentVM, ComponentVMBuilder } from "./components/componentVM.js";
+export type { ComponentVMOptions } from "./components/componentVM.js";
 export {
   ComponentVMOf,
   ComponentVMOfBuilder,
 } from "./components/componentVMOf.js";
+export type { ComponentVMOfOptions } from "./components/componentVMOf.js";
 export {
   ReadonlyComponentVMOf,
   ReadonlyComponentVMOfBuilder,
@@ -112,6 +114,7 @@ export {
 // Composites
 export { CompositeVMBase } from "./composites/compositeVMBase.js";
 export { CompositeVM, CompositeVMBuilder } from "./composites/compositeVM.js";
+export type { CompositeVMOptions } from "./composites/compositeVM.js";
 export {
   CompositeVMOf,
   CompositeVMOfBuilder,
@@ -119,6 +122,7 @@ export {
 
 // Groups
 export { GroupVM, GroupVMBuilder } from "./groups/groupVM.js";
+export type { GroupVMOptions } from "./groups/groupVM.js";
 
 // Aggregates
 export {

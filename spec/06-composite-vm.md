@@ -127,6 +127,11 @@ Nested batches are ref-counted: only the outermost completion fires the `Reset`.
 
 ## 5. Children construction orchestration
 
+The non-modeled `CompositeVM<VM>` may be built with the fluent builder or the
+additive positional-options form (`Create`/`create` — see `10-builders.md §7`);
+both validate the same required fields (`name`, services, `children`) and produce
+an identical VM.
+
 `CompositeVM` overrides the base `construct()` and `destruct()` to coordinate
 children:
 

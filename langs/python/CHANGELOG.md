@@ -6,6 +6,15 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+### Added
+
+- Positional-options construction for the common VMs — a `create(...)` classmethod
+  taking keyword-only arguments alongside the unchanged fluent builders:
+  `ComponentVM.create(...)`, `ComponentVMOf.create(...)`, `CompositeVM.create(...)`,
+  `GroupVM.create(...)`. Delegates to the builder, so required-field validation
+  (`BuilderValidationError`) and the resulting VM are identical to the fluent path
+  (ADR-0055; VMX-020).
+
 ### Removed
 
 - **BREAKING:** Removed the legacy v1.0.0 `RelayCommandOfT` /

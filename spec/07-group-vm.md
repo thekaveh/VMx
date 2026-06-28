@@ -44,6 +44,10 @@ The builder accepts:
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
 Only the non-modeled variant currently ships.
 
+`GroupVM<VM>` may also be built with the additive positional-options form
+(`Create`/`create` — see `10-builders.md §7`), which validates the same required
+fields (`name`, services, `children`) and produces an identical VM.
+
 ## 4. Auto-construct on add (spec v1.1)
 
 A group built with `AutoConstructOnAdd(true)` MUST automatically call

@@ -11,6 +11,28 @@ import { NullMessageHub } from "../services/nullMessageHub.js";
 import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 
+/**
+ * Options for the additive {@link ComponentVM.create} construction form
+ * (ADR-0055 / VMX-020). A one-call alternative to the fluent
+ * {@link ComponentVMBuilder}.
+ */
+export interface ComponentVMOptions {
+  /** Required VM name. */
+  name: string;
+  /** Required message hub. */
+  hub: IMessageHub;
+  /** Required dispatcher. */
+  dispatcher: IDispatcher;
+  /** Optional hint (default: ""). */
+  hint?: string;
+  /** Optional OnConstruct lifecycle callback. */
+  onConstruct?: () => void;
+  /** Optional OnDestruct lifecycle callback. */
+  onDestruct?: () => void;
+  /** Optional background-construction flag (default: false). */
+  background?: boolean;
+}
+
 export class ComponentVM extends ComponentVMBase {
   get type(): ViewModelType {
     return ViewModelType.Component;
@@ -18,6 +40,27 @@ export class ComponentVM extends ComponentVMBase {
 
   static builder(): ComponentVMBuilder {
     return new ComponentVMBuilder();
+  }
+
+  /**
+   * Constructs a {@link ComponentVM} from an options object in a single call —
+   * an additive alternative to the fluent {@link ComponentVMBuilder}. Delegates
+   * to that builder, so the required-field validation
+   * ({@link BuilderValidationError} on a missing name/services) and the
+   * resulting VM are identical to the fluent path.
+   */
+  static create(options: ComponentVMOptions): ComponentVM {
+    // Widen to Partial so the required-field guards remain meaningful for JS
+    // callers / casts that bypass the type; validation is delegated to build().
+    const o = options as Partial<ComponentVMOptions>;
+    let b = new ComponentVMBuilder();
+    if (o.name !== undefined) b = b.name(o.name);
+    if (o.hint !== undefined) b = b.hint(o.hint);
+    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
+    if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
+    if (o.background !== undefined) b = b.background(o.background);
+    return b.build();
   }
 }
 

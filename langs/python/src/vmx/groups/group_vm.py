@@ -301,6 +301,42 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         """Number of children (alias for ``len(group)``)."""
         return len(self._children)
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str | None = None,
+        hub: MessageHub[Message] | None = None,
+        dispatcher: Dispatcher | None = None,
+        children: Callable[[], Iterable[VM]],
+        hint: str = "",
+        auto_construct_on_add: bool = False,
+        on_construct: Callable[[], None] | None = None,
+        on_destruct: Callable[[], None] | None = None,
+    ) -> GroupVM[VM]:
+        """Construct a :class:`GroupVM` from keyword options in one call.
+
+        An additive alternative to :class:`~vmx.groups.builders.GroupVMBuilder`
+        (ADR-0055 / VMX-020). Delegates to that builder, so required-field
+        validation (``BuilderValidationError`` on a missing
+        ``name``/``hub``/``dispatcher``) and the resulting VM are identical to
+        the fluent path. ``children`` is a required keyword (pass ``lambda: ()``
+        for an initially empty group).
+        """
+        from vmx.groups.builders import GroupVMBuilder
+
+        builder: GroupVMBuilder[VM] = GroupVMBuilder()
+        builder = builder.hint(hint).auto_construct_on_add(auto_construct_on_add).children(children)
+        if name is not None:
+            builder = builder.name(name)
+        if hub is not None and dispatcher is not None:
+            builder = builder.services(hub, dispatcher)
+        if on_construct is not None:
+            builder = builder.on_construct(on_construct)
+        if on_destruct is not None:
+            builder = builder.on_destruct(on_destruct)
+        return builder.build()
+
 
 # ---------------------------------------------------------------------------
 # _GroupParent — adaptor implementing _ParentCompositeVM for GroupVM

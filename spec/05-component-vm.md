@@ -164,6 +164,9 @@ The set-on-add / clear-on-remove wiring is conformance-tested by `COMP-027`.
 Construction in this variant amounts to publishing the status transitions. There is
 no child orchestration (components have no children). Override hooks for user code
 exist (`OnConstruct` / `OnDestruct` callbacks at build time) — see `10-builders.md`.
+`ComponentVM` and `ComponentVM<M>` may be built either with the fluent builder or
+the additive positional-options form (`Create`/`create` — see `10-builders.md §7`);
+both validate the same required fields and produce an identical VM.
 
 ## 8. `IExpandable` integration (spec v2.0)
 

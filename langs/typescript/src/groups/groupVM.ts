@@ -218,6 +218,52 @@ export class GroupVM<VM extends ComponentVMBase>
   static builder<VM extends ComponentVMBase>(): GroupVMBuilder<VM> {
     return new GroupVMBuilder<VM>();
   }
+
+  /**
+   * Constructs a {@link GroupVM} from an options object in a single call — an
+   * additive alternative to the fluent {@link GroupVMBuilder}. Delegates to that
+   * builder, so the required-field validation ({@link BuilderValidationError} on
+   * a missing name/services/children) and the resulting VM are identical to the
+   * fluent path.
+   */
+  static create<VM extends ComponentVMBase>(options: GroupVMOptions<VM>): GroupVM<VM> {
+    // Widen to Partial so the required-field guards remain meaningful for JS
+    // callers / casts that bypass the type; validation is delegated to build().
+    const o = options as Partial<GroupVMOptions<VM>>;
+    let b = new GroupVMBuilder<VM>();
+    if (o.children !== undefined) b = b.children(o.children);
+    if (o.name !== undefined) b = b.name(o.name);
+    if (o.hint !== undefined) b = b.hint(o.hint);
+    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
+    if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
+    if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
+    return b.build();
+  }
+}
+
+/**
+ * Options for the additive {@link GroupVM.create} construction form
+ * (ADR-0055 / VMX-020). A one-call alternative to the fluent
+ * {@link GroupVMBuilder}.
+ */
+export interface GroupVMOptions<VM extends ComponentVMBase> {
+  /** Required VM name. */
+  name: string;
+  /** Required message hub. */
+  hub: IMessageHub;
+  /** Required dispatcher. */
+  dispatcher: IDispatcher;
+  /** Required children factory (invoked lazily on construct; `() => []` for empty). */
+  children: () => Iterable<VM>;
+  /** Optional hint (default: ""). */
+  hint?: string;
+  /** Optional auto-construct-on-add flag (default: false). */
+  autoConstructOnAdd?: boolean;
+  /** Optional OnConstruct lifecycle callback. */
+  onConstruct?: () => void;
+  /** Optional OnDestruct lifecycle callback. */
+  onDestruct?: () => void;
 }
 
 // ---------------------------------------------------------------------------

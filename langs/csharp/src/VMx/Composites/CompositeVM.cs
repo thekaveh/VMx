@@ -37,6 +37,32 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
     /// <summary>Returns a new empty builder for <see cref="CompositeVM{VM}"/>.</summary>
     public static CompositeVMBuilder<VM> Builder() => CompositeVMBuilder<VM>.Empty;
 
+    // ── Options factory (additive; ADR-0055 / VMX-020) ──────────────────────
+    /// <summary>
+    /// Constructs a <see cref="CompositeVM{VM}"/> from a <see cref="CompositeVMOptions{VM}"/>
+    /// record in a single call — an additive alternative to the fluent
+    /// <see cref="CompositeVMBuilder{VM}"/>. Delegates to that builder, so the
+    /// required-field validation (<see cref="VMx.Builders.BuilderValidationException"/>
+    /// on a missing Name/Hub/Dispatcher/Children) and the resulting VM are identical
+    /// to the fluent path.
+    /// </summary>
+    public static CompositeVM<VM> Create(CompositeVMOptions<VM> options)
+    {
+        var b = CompositeVMBuilder<VM>.Empty
+            .Hint(options.Hint)
+            .AsyncSelection(options.AsyncSelection)
+            .AutoConstructOnAdd(options.AutoConstructOnAdd);
+        if (options.Name is not null) b = b.Name(options.Name);
+        if (options.Hub is not null && options.Dispatcher is not null)
+            b = b.Services(options.Hub, options.Dispatcher);
+        if (options.Children is not null) b = b.Children(options.Children);
+        if (options.Current is not null) b = b.Current(options.Current);
+        if (options.OnCurrentChanged is not null) b = b.OnCurrentChanged(options.OnCurrentChanged);
+        if (options.OnConstruct is not null) b = b.OnConstruct(options.OnConstruct);
+        if (options.OnDestruct is not null) b = b.OnDestruct(options.OnDestruct);
+        return b.Build();
+    }
+
     /// <summary>Internal factory called by the builder.</summary>
     internal static CompositeVM<VM> Create(
         string name,

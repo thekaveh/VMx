@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Positional-options construction for the common VMs — a static `create(options)`
+  factory alongside the unchanged fluent builders, taking an options object:
+  `ComponentVM.create({ … })`, `ComponentVMOf.create({ … })`,
+  `CompositeVM.create({ … })`, `GroupVM.create({ … })` (with exported
+  `ComponentVMOptions` / `ComponentVMOfOptions<M>` / `CompositeVMOptions<VM>` /
+  `GroupVMOptions<VM>` types). Delegates to the builder, so required-field
+  validation (`BuilderValidationError`) and the resulting VM are identical to the
+  fluent path (ADR-0055; VMX-020).
+
 ### Changed
 
 - **BREAKING (v3.0.0):** the untyped `senderObject` field is **renamed to the

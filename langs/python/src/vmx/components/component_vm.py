@@ -61,6 +61,36 @@ class ComponentVM(_ComponentVMBase):
         """Return a new immutable builder for :class:`ComponentVM`."""
         return ComponentVMBuilder()
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str | None = None,
+        hub: MessageHubProto[Message] | None = None,
+        dispatcher: Dispatcher | None = None,
+        hint: str = "",
+        on_construct: Callable[[], None] | None = None,
+        on_destruct: Callable[[], None] | None = None,
+        background: bool = False,
+    ) -> ComponentVM:
+        """Construct a :class:`ComponentVM` from keyword options in one call.
+
+        An additive alternative to :meth:`builder` (ADR-0055 / VMX-020).
+        Delegates to :class:`ComponentVMBuilder`, so required-field validation
+        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``)
+        and the resulting VM are identical to the fluent path.
+        """
+        builder = ComponentVMBuilder().hint(hint).background(background)
+        if name is not None:
+            builder = builder.name(name)
+        if hub is not None and dispatcher is not None:
+            builder = builder.services(hub, dispatcher)
+        if on_construct is not None:
+            builder = builder.on_construct(on_construct)
+        if on_destruct is not None:
+            builder = builder.on_destruct(on_destruct)
+        return builder.build()
+
 
 # ---------------------------------------------------------------------------
 # ComponentVMOf[M] — modeled leaf VM (settable model)
@@ -150,6 +180,46 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
     def builder() -> ComponentVMOfBuilder[M]:
         """Return a new immutable builder for :class:`ComponentVMOf`."""
         return ComponentVMOfBuilder()
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str | None = None,
+        model: M,
+        hub: MessageHubProto[Message] | None = None,
+        dispatcher: Dispatcher | None = None,
+        hint: str = "",
+        modeled_hinter: Callable[[M], str] | None = None,
+        on_model_changed: Callable[[M], None] | None = None,
+        on_construct: Callable[[], None] | None = None,
+        on_destruct: Callable[[], None] | None = None,
+        background: bool = False,
+        vm_type: ViewModelType = ViewModelType.COMPONENT,
+    ) -> ComponentVMOf[M]:
+        """Construct a :class:`ComponentVMOf` from keyword options in one call.
+
+        An additive alternative to :meth:`builder` (ADR-0055 / VMX-020).
+        Delegates to :class:`ComponentVMOfBuilder`, so required-field validation
+        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``)
+        and the resulting VM are identical to the fluent path. ``model`` is a
+        required keyword.
+        """
+        builder: ComponentVMOfBuilder[M] = ComponentVMOfBuilder()
+        builder = builder.model(model).hint(hint).background(background).vm_type(vm_type)
+        if name is not None:
+            builder = builder.name(name)
+        if hub is not None and dispatcher is not None:
+            builder = builder.services(hub, dispatcher)
+        if modeled_hinter is not None:
+            builder = builder.modeled_hinter(modeled_hinter)
+        if on_model_changed is not None:
+            builder = builder.on_model_changed(on_model_changed)
+        if on_construct is not None:
+            builder = builder.on_construct(on_construct)
+        if on_destruct is not None:
+            builder = builder.on_destruct(on_destruct)
+        return builder.build()
 
 
 # Deferred import to avoid circular references — builders imports component_vm.

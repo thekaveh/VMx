@@ -6,6 +6,17 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Positional-options construction for the common VMs — a static `Create(options)`
+  factory alongside the unchanged fluent builders, taking an options `record`:
+  `ComponentVM.Create(new ComponentVMOptions { … })`,
+  `ComponentVM<M>.Create(new ComponentVMOptions<M> { … })`,
+  `CompositeVM<VM>.Create(new CompositeVMOptions<VM> { … })`,
+  `GroupVM<VM>.Create(new GroupVMOptions<VM> { … })`. Delegates to the builder, so
+  required-field validation (`BuilderValidationException`) and the resulting VM are
+  identical to the fluent path (ADR-0055; VMX-020).
+
 ### Removed
 
 - **BREAKING:** Removed `VMx.Extensions.LinqHelpers`

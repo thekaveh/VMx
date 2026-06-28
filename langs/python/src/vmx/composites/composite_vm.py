@@ -466,6 +466,51 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         """Return a new immutable builder for :class:`CompositeVM`."""
         return CompositeVMBuilder()
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str | None = None,
+        hub: MessageHub[Message] | None = None,
+        dispatcher: Dispatcher | None = None,
+        children: Callable[[], Iterable[VM]],
+        hint: str = "",
+        async_selection: bool = False,
+        auto_construct_on_add: bool = False,
+        current: Callable[[Iterable[VM]], VM | None] | None = None,
+        on_current_changed: Callable[[VM | None], None] | None = None,
+        on_construct: Callable[[], None] | None = None,
+        on_destruct: Callable[[], None] | None = None,
+    ) -> CompositeVM[VM]:
+        """Construct a :class:`CompositeVM` from keyword options in one call.
+
+        An additive alternative to :meth:`builder` (ADR-0055 / VMX-020).
+        Delegates to :class:`CompositeVMBuilder`, so required-field validation
+        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``)
+        and the resulting VM are identical to the fluent path. ``children`` is a
+        required keyword (pass ``lambda: ()`` for an initially empty composite).
+        """
+        builder: CompositeVMBuilder[VM] = CompositeVMBuilder()
+        builder = (
+            builder.hint(hint)
+            .async_selection(async_selection)
+            .auto_construct_on_add(auto_construct_on_add)
+            .children(children)
+        )
+        if name is not None:
+            builder = builder.name(name)
+        if hub is not None and dispatcher is not None:
+            builder = builder.services(hub, dispatcher)
+        if current is not None:
+            builder = builder.current(current)
+        if on_current_changed is not None:
+            builder = builder.on_current_changed(on_current_changed)
+        if on_construct is not None:
+            builder = builder.on_construct(on_construct)
+        if on_destruct is not None:
+            builder = builder.on_destruct(on_destruct)
+        return builder.build()
+
     def _populate_children(self) -> None:
         if self._children_factory is None:
             return
