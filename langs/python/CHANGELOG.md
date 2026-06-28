@@ -4,6 +4,29 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **BREAKING:** Removed the legacy v1.0.0 `RelayCommandOfT` /
+  `RelayCommandOfTBuilder` identity aliases (ADR-0052; VMX-095, deferral recorded
+  in ADR-0009). Use the canonical `RelayCommandOf` / `RelayCommandOfBuilder`.
+- **BREAKING:** Removed the legacy `AggregateVMBuilder1..6` identity aliases
+  (ADR-0052; VMX-081). The concrete builders are the canonical
+  `AggregateVM1Builder..6Builder`.
+- **BREAKING:** Removed `null_message_hub_of` from the top-level `vmx` export
+  (ADR-0052; VMX-081). It remains available as `from vmx.services import
+  null_message_hub_of` for the narrow-typing case; the package root now offers a
+  single null hub, `NULL_MESSAGE_HUB`.
+
+### Changed
+
+- **BREAKING:** `HierarchicalVM.__init__` now requires explicit `hub` and
+  `dispatcher` arguments (the silent `MessageHub()` / `RxDispatcher.immediate()`
+  defaults are removed) so a tree node can no longer acquire an isolated hub
+  (ADR-0052; VMX-080). The builder is unchanged — it already required
+  `services(hub, dispatcher)` and still offers `with_default_services()`.
+
 ## [2.6.1](https://github.com/thekaveh/VMx/compare/python-v2.6.0...python-v2.6.1) (2026-06-17)
 
 

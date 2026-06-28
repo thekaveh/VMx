@@ -4,13 +4,10 @@ Spec: spec/04-commands.md
 
 Naming
 ------
-The parameterised command is exposed under TWO names: ``RelayCommandOf`` (parity
-with the C# ``RelayCommand<T>`` / TypeScript ``RelayCommandOf`` surface; the
-canonical name from v1.2.0 onward) and ``RelayCommandOfT`` (the original v1.0.0
-name, preserved as an alias for backward compatibility). Removal of the legacy
-``OfT`` alias was originally planned for v2.0.0 but slipped to preserve downstream
-code; it is now deferred to vmx v3.0.0 per ADR-0009. New code should prefer
-``RelayCommandOf``.
+The parameterised command is ``RelayCommandOf`` (parity with the C#
+``RelayCommand<T>`` / TypeScript ``RelayCommandOf`` surface). The legacy v1.0.0
+``RelayCommandOfT`` / ``RelayCommandOfTBuilder`` identity aliases were removed in
+vmx v3.0.0 (ADR-0052; deferral originally recorded in ADR-0009).
 
 Behavior contract:
 - Predicate null → can_execute returns True unconditionally.
@@ -157,14 +154,14 @@ class RelayCommandBuilder:
 
 
 # ---------------------------------------------------------------------------
-# RelayCommandOfT (parameterized)
+# RelayCommandOf (parameterized)
 # ---------------------------------------------------------------------------
 
 
-class RelayCommandOfT(Generic[T]):
+class RelayCommandOf(Generic[T]):
     """Parameterized command built via an immutable fluent builder.
 
-    Use ``RelayCommandOfT.builder()`` to start a build.
+    Use ``RelayCommandOf.builder()`` to start a build.
     """
 
     def __init__(
@@ -237,14 +234,14 @@ class RelayCommandOfT(Generic[T]):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def builder() -> RelayCommandOfTBuilder[T]:
-        """Return a new immutable builder for ``RelayCommandOfT``."""
-        return RelayCommandOfTBuilder()
+    def builder() -> RelayCommandOfBuilder[T]:
+        """Return a new immutable builder for ``RelayCommandOf``."""
+        return RelayCommandOfBuilder()
 
 
 @dataclasses.dataclass(frozen=True)
-class RelayCommandOfTBuilder(Generic[T]):
-    """Immutable fluent builder for :class:`RelayCommandOfT`.
+class RelayCommandOfBuilder(Generic[T]):
+    """Immutable fluent builder for :class:`RelayCommandOf`.
 
     Each setter returns a NEW builder instance via ``dataclasses.replace``
     (satisfies BLD-001).
@@ -254,36 +251,21 @@ class RelayCommandOfTBuilder(Generic[T]):
     _predicate: Callable[[T | None], bool] | None = dataclasses.field(default=None)
     _triggers: tuple[rx.Observable[object], ...] = dataclasses.field(default_factory=tuple)
 
-    def task(self, callable_: Callable[[T | None], None]) -> RelayCommandOfTBuilder[T]:
+    def task(self, callable_: Callable[[T | None], None]) -> RelayCommandOfBuilder[T]:
         """Set the parameterized task. Returns a new builder."""
         return dataclasses.replace(self, _task=callable_)
 
-    def predicate(self, callable_: Callable[[T | None], bool]) -> RelayCommandOfTBuilder[T]:
+    def predicate(self, callable_: Callable[[T | None], bool]) -> RelayCommandOfBuilder[T]:
         """Set the parameterized predicate. Returns a new builder."""
         return dataclasses.replace(self, _predicate=callable_)
 
-    def triggers(self, observable: rx.Observable[object]) -> RelayCommandOfTBuilder[T]:
+    def triggers(self, observable: rx.Observable[object]) -> RelayCommandOfBuilder[T]:
         """Add a trigger observable (additive). Returns a new builder."""
         return dataclasses.replace(self, _triggers=(*self._triggers, observable))
 
-    def build(self) -> RelayCommandOfT[T]:
-        """Build and return the :class:`RelayCommandOfT`.
+    def build(self) -> RelayCommandOf[T]:
+        """Build and return the :class:`RelayCommandOf`.
 
         Succeeds even with no task, predicate, or triggers.
         """
-        return RelayCommandOfT(self._task, self._predicate, list(self._triggers))
-
-
-# ---------------------------------------------------------------------------
-# Parity aliases (canonical from v1.2.0; old `OfT` removal deferred to v3.0.0)
-# ---------------------------------------------------------------------------
-#
-# The C# flavor uses RelayCommand<T> and the TypeScript flavor uses RelayCommandOf.
-# Python's RelayCommandOfT trails the generic parameter to mirror C#'s syntax,
-# but ``OfT`` reads awkwardly in Python and diverges from TS. ``RelayCommandOf``
-# is the parity-aligned canonical name going forward; ``RelayCommandOfT`` and
-# ``RelayCommandOfTBuilder`` remain as identity aliases (the originally planned
-# v2.0.0 removal slipped and is deferred to vmx v3.0.0 per ADR-0009).
-
-RelayCommandOf = RelayCommandOfT
-RelayCommandOfBuilder = RelayCommandOfTBuilder
+        return RelayCommandOf(self._task, self._predicate, list(self._triggers))

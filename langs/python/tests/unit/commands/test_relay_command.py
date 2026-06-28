@@ -1,4 +1,4 @@
-"""Unit tests for RelayCommand and RelayCommandOfT.
+"""Unit tests for RelayCommand and RelayCommandOf.
 
 Covers all behaviour mandated by spec/04-commands.md:
 - Predicate-null → can_execute True
@@ -19,8 +19,8 @@ from reactivex.subject import Subject
 from vmx.commands.relay_command import (
     RelayCommand,
     RelayCommandBuilder,
-    RelayCommandOfT,
-    RelayCommandOfTBuilder,
+    RelayCommandOf,
+    RelayCommandOfBuilder,
 )
 
 # ---------------------------------------------------------------------------
@@ -162,12 +162,12 @@ def test_build_with_no_args_succeeds() -> None:
 
 
 # ---------------------------------------------------------------------------
-# RelayCommandOfT — parameterized variant
+# RelayCommandOf — parameterized variant
 # ---------------------------------------------------------------------------
 
 
 def test_parameterized_no_predicate_can_execute_true() -> None:
-    cmd: RelayCommandOfT[str] = RelayCommandOfT.builder().build()
+    cmd: RelayCommandOf[str] = RelayCommandOf.builder().build()
     assert cmd.can_execute("hello") is True
 
 
@@ -178,7 +178,7 @@ def test_parameterized_predicate_receives_parameter() -> None:
         received.append(p)
         return p == "ok"
 
-    cmd: RelayCommandOfT[str] = RelayCommandOfT.builder().predicate(pred).build()
+    cmd: RelayCommandOf[str] = RelayCommandOf.builder().predicate(pred).build()
     assert cmd.can_execute("ok") is True
     assert cmd.can_execute("nope") is False
     assert received == ["ok", "nope"]
@@ -187,18 +187,15 @@ def test_parameterized_predicate_receives_parameter() -> None:
 def test_parameterized_task_receives_parameter() -> None:
     received: list[str | None] = []
 
-    cmd: RelayCommandOfT[str] = RelayCommandOfT.builder().task(lambda p: received.append(p)).build()
+    cmd: RelayCommandOf[str] = RelayCommandOf.builder().task(lambda p: received.append(p)).build()
     cmd.execute("world")
     assert received == ["world"]
 
 
 def test_parameterized_execute_gated_on_can_execute() -> None:
     called: list[int] = []
-    cmd: RelayCommandOfT[int] = (
-        RelayCommandOfT.builder()
-        .predicate(lambda p: False)
-        .task(lambda p: called.append(1))
-        .build()
+    cmd: RelayCommandOf[int] = (
+        RelayCommandOf.builder().predicate(lambda p: False).task(lambda p: called.append(1)).build()
     )
     cmd.execute(42)
     assert called == []
@@ -206,7 +203,7 @@ def test_parameterized_execute_gated_on_can_execute() -> None:
 
 def test_parameterized_trigger_fires_can_execute_changed() -> None:
     subject: Subject[None] = Subject()
-    cmd: RelayCommandOfT[str] = RelayCommandOfT.builder().triggers(subject).build()
+    cmd: RelayCommandOf[str] = RelayCommandOf.builder().triggers(subject).build()
 
     fired: list[int] = []
     cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
@@ -216,7 +213,7 @@ def test_parameterized_trigger_fires_can_execute_changed() -> None:
 
 
 def test_parameterized_builder_immutable() -> None:
-    b1: RelayCommandOfTBuilder[str] = RelayCommandOfTBuilder()
+    b1: RelayCommandOfBuilder[str] = RelayCommandOfBuilder()
     b2 = b1.task(lambda p: None)
     assert b1 is not b2
     assert b1._task is None

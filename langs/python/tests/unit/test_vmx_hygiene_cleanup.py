@@ -194,7 +194,8 @@ class _Node(HierarchicalVM[int, "_Node"]):
         super().__init__(
             model=0,
             children_factory=lambda _: children or [],
-            hub=hub,
+            hub=hub if hub is not None else MessageHub(),
+            dispatcher=RxDispatcher.immediate(),
         )
 
 

@@ -234,11 +234,19 @@ the `v3-framework-overhaul` branch.
 
 - Chapter count stays at 22.
 
+- **ADR-0052** — v3 flavor public-surface breaking removals (no spec-chapter or
+  conformance-ID change): the Python `RelayCommandOfT`/`AggregateVMBuilderN`
+  deferred aliases (ADR-0009) are removed in favor of the canonical
+  `RelayCommandOf`/`AggregateVM1Builder` names; the C# off-domain `LinqHelpers`
+  is dropped; `HierarchicalVM` requires explicit `hub`/`dispatcher` (matching the
+  builder and ADR-0003); and `null_message_hub_of` is demoted from the top-level
+  `vmx` export to `vmx.services` (VMX-095/068/080/081).
+
 ### 1.10 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0051); see
+- `ADRs/` — Architecture Decision Records (0001-0052); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

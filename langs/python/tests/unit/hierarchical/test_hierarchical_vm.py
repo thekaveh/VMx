@@ -37,8 +37,8 @@ class Node(HierarchicalVM[Model, "Node"]):
         super().__init__(
             model=model if model is not None else Model(),
             children_factory=children_factory if children_factory is not None else (lambda _: []),
-            hub=hub,
-            dispatcher=dispatcher,
+            hub=hub if hub is not None else MessageHub(),
+            dispatcher=dispatcher if dispatcher is not None else RxDispatcher.immediate(),
             name=name,
             eager_children=eager_children,
         )

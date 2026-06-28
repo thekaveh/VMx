@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from vmx.aggregates.aggregate_vm import AggregateVM3, AggregateVM6
-from vmx.aggregates.builders import AggregateVMBuilder3, AggregateVMBuilder6
+from vmx.aggregates.builders import AggregateVM3Builder, AggregateVM6Builder
 from vmx.components.base import _ComponentVMBase
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -66,7 +66,7 @@ def test_UTIL_002_walk_skips_empty_aggregate_slots() -> None:
     b = _leaf("b", h, d)
     c = _leaf("c", h, d)
     agg: AggregateVM3[ComponentVM, ComponentVM, ComponentVM] = (
-        AggregateVMBuilder3()
+        AggregateVM3Builder()
         .name("agg")
         .services(h, d)
         .component_1(lambda: a)
@@ -92,7 +92,7 @@ def test_UTIL_002_walk_visits_component_6_on_aggregate_vm6() -> None:
     agg: AggregateVM6[
         ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
     ] = (
-        AggregateVMBuilder6()
+        AggregateVM6Builder()
         .name("agg6")
         .services(h, d)
         .component_1(lambda: leaves[0])

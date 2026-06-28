@@ -6,6 +6,14 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING:** Removed `VMx.Extensions.LinqHelpers`
+  (`CartesianProduct`/`Sample`/`Product`) — general-purpose LINQ combinators
+  unrelated to the viewmodel domain, referenced by nothing but their own tests
+  (ADR-0052; VMX-068). Inline the one-line LINQ equivalents in the consuming
+  project if needed.
+
 ### Changed
 
 - Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point

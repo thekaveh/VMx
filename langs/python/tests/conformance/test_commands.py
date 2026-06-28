@@ -18,7 +18,7 @@ import pytest
 from reactivex.subject import Subject
 
 from tests.conformance.fixtures.loader import load
-from vmx.commands.relay_command import RelayCommand, RelayCommandOfT
+from vmx.commands.relay_command import RelayCommand, RelayCommandOf
 
 
 @pytest.mark.conformance("CMD-001")
@@ -58,8 +58,8 @@ def test_CMD_004_trigger_fires_can_execute_changed() -> None:
 @pytest.mark.conformance("CMD-005")
 def test_CMD_005_parameterized_variant_passes_parameter_through() -> None:
     received: list[str | None] = []
-    cmd: RelayCommandOfT[str] = (
-        RelayCommandOfT.builder()
+    cmd: RelayCommandOf[str] = (
+        RelayCommandOf.builder()
         .predicate(lambda p: True)
         .task(lambda p: received.append(p))
         .build()

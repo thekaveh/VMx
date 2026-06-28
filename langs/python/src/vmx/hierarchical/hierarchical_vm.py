@@ -82,9 +82,10 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         Called lazily on first access to :attr:`children` unless
         ``eager_children=True``.
     hub:
-        Message hub for pub/sub.
+        Message hub for pub/sub. **Required** — must be wired explicitly so a
+        tree never silently fabricates an isolated hub (ADR-0052; VMX-080).
     dispatcher:
-        Dispatcher for async/background scheduling.
+        Dispatcher for async/background scheduling. **Required** — see ``hub``.
     name:
         Optional VM name (defaults to the concrete class name).
     hint:
@@ -98,22 +99,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self,
         model: TModel,
         children_factory: Callable[[TVM], Iterable[TVM]],
-        hub: MessageHub[Any] | None = None,
-        dispatcher: Dispatcher | None = None,
+        hub: MessageHub[Any],
+        dispatcher: Dispatcher,
         name: str | None = None,
         hint: str = "",
         eager_children: bool = False,
     ) -> None:
-        from vmx.services.dispatcher import RxDispatcher
-
-        _hub: MessageHub[Any] = hub if hub is not None else MessageHub()
-        _dispatcher: Dispatcher = dispatcher if dispatcher is not None else RxDispatcher.immediate()
-
         super().__init__(
             name=name or type(self).__name__,
             hint=hint,
-            hub=_hub,
-            dispatcher=_dispatcher,
+            hub=hub,
+            dispatcher=dispatcher,
         )
         self._model: TModel = model
         self._children_factory: Callable[[TVM], Iterable[TVM]] = children_factory

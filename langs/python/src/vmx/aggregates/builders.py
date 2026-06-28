@@ -29,12 +29,12 @@ V6 = TypeVar("V6", bound=ComponentVMProto)
 
 
 # ---------------------------------------------------------------------------
-# AggregateVMBuilder1
+# AggregateVM1Builder
 # ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class AggregateVMBuilder1(Generic[V1]):
+class AggregateVM1Builder(Generic[V1]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM1`.
 
     Required fields: ``name``, ``services(hub, dispatcher)``, ``component_1(factory)``.
@@ -46,16 +46,16 @@ class AggregateVMBuilder1(Generic[V1]):
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
 
-    def name(self, value: str) -> AggregateVMBuilder1[V1]:
+    def name(self, value: str) -> AggregateVM1Builder[V1]:
         return dataclasses.replace(self, _name=value)
 
-    def hint(self, value: str) -> AggregateVMBuilder1[V1]:
+    def hint(self, value: str) -> AggregateVM1Builder[V1]:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> AggregateVMBuilder1[V1]:
+    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> AggregateVM1Builder[V1]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder1[V1]:
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVM1Builder[V1]:
         return dataclasses.replace(self, _factory1=factory)
 
     def build(self) -> AggregateVM1[V1]:
@@ -79,12 +79,12 @@ class AggregateVMBuilder1(Generic[V1]):
 
 
 # ---------------------------------------------------------------------------
-# AggregateVMBuilder2
+# AggregateVM2Builder
 # ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class AggregateVMBuilder2(Generic[V1, V2]):
+class AggregateVM2Builder(Generic[V1, V2]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM2`."""
 
     _name: str | None = dataclasses.field(default=None)
@@ -94,21 +94,21 @@ class AggregateVMBuilder2(Generic[V1, V2]):
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
 
-    def name(self, value: str) -> AggregateVMBuilder2[V1, V2]:
+    def name(self, value: str) -> AggregateVM2Builder[V1, V2]:
         return dataclasses.replace(self, _name=value)
 
-    def hint(self, value: str) -> AggregateVMBuilder2[V1, V2]:
+    def hint(self, value: str) -> AggregateVM2Builder[V1, V2]:
         return dataclasses.replace(self, _hint=value)
 
     def services(
         self, hub: MessageHub[Message], dispatcher: Dispatcher
-    ) -> AggregateVMBuilder2[V1, V2]:
+    ) -> AggregateVM2Builder[V1, V2]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder2[V1, V2]:
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVM2Builder[V1, V2]:
         return dataclasses.replace(self, _factory1=factory)
 
-    def component_2(self, factory: Callable[[], V2]) -> AggregateVMBuilder2[V1, V2]:
+    def component_2(self, factory: Callable[[], V2]) -> AggregateVM2Builder[V1, V2]:
         return dataclasses.replace(self, _factory2=factory)
 
     def build(self) -> AggregateVM2[V1, V2]:
@@ -130,12 +130,12 @@ class AggregateVMBuilder2(Generic[V1, V2]):
 
 
 # ---------------------------------------------------------------------------
-# AggregateVMBuilder3
+# AggregateVM3Builder
 # ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class AggregateVMBuilder3(Generic[V1, V2, V3]):
+class AggregateVM3Builder(Generic[V1, V2, V3]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM3`."""
 
     _name: str | None = dataclasses.field(default=None)
@@ -146,24 +146,24 @@ class AggregateVMBuilder3(Generic[V1, V2, V3]):
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
     _factory3: Callable[[], V3] | None = dataclasses.field(default=None)
 
-    def name(self, value: str) -> AggregateVMBuilder3[V1, V2, V3]:
+    def name(self, value: str) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _name=value)
 
-    def hint(self, value: str) -> AggregateVMBuilder3[V1, V2, V3]:
+    def hint(self, value: str) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _hint=value)
 
     def services(
         self, hub: MessageHub[Message], dispatcher: Dispatcher
-    ) -> AggregateVMBuilder3[V1, V2, V3]:
+    ) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder3[V1, V2, V3]:
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _factory1=factory)
 
-    def component_2(self, factory: Callable[[], V2]) -> AggregateVMBuilder3[V1, V2, V3]:
+    def component_2(self, factory: Callable[[], V2]) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _factory2=factory)
 
-    def component_3(self, factory: Callable[[], V3]) -> AggregateVMBuilder3[V1, V2, V3]:
+    def component_3(self, factory: Callable[[], V3]) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _factory3=factory)
 
     def build(self) -> AggregateVM3[V1, V2, V3]:
@@ -188,12 +188,12 @@ class AggregateVMBuilder3(Generic[V1, V2, V3]):
 
 
 # ---------------------------------------------------------------------------
-# AggregateVMBuilder4
+# AggregateVM4Builder
 # ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class AggregateVMBuilder4(Generic[V1, V2, V3, V4]):
+class AggregateVM4Builder(Generic[V1, V2, V3, V4]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM4`."""
 
     _name: str | None = dataclasses.field(default=None)
@@ -205,27 +205,27 @@ class AggregateVMBuilder4(Generic[V1, V2, V3, V4]):
     _factory3: Callable[[], V3] | None = dataclasses.field(default=None)
     _factory4: Callable[[], V4] | None = dataclasses.field(default=None)
 
-    def name(self, value: str) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    def name(self, value: str) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _name=value)
 
-    def hint(self, value: str) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    def hint(self, value: str) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _hint=value)
 
     def services(
         self, hub: MessageHub[Message], dispatcher: Dispatcher
-    ) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    ) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _factory1=factory)
 
-    def component_2(self, factory: Callable[[], V2]) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    def component_2(self, factory: Callable[[], V2]) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _factory2=factory)
 
-    def component_3(self, factory: Callable[[], V3]) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    def component_3(self, factory: Callable[[], V3]) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _factory3=factory)
 
-    def component_4(self, factory: Callable[[], V4]) -> AggregateVMBuilder4[V1, V2, V3, V4]:
+    def component_4(self, factory: Callable[[], V4]) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _factory4=factory)
 
     def build(self) -> AggregateVM4[V1, V2, V3, V4]:
@@ -253,12 +253,12 @@ class AggregateVMBuilder4(Generic[V1, V2, V3, V4]):
 
 
 # ---------------------------------------------------------------------------
-# AggregateVMBuilder5
+# AggregateVM5Builder
 # ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
+class AggregateVM5Builder(Generic[V1, V2, V3, V4, V5]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM5`."""
 
     _name: str | None = dataclasses.field(default=None)
@@ -271,30 +271,30 @@ class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
     _factory4: Callable[[], V4] | None = dataclasses.field(default=None)
     _factory5: Callable[[], V5] | None = dataclasses.field(default=None)
 
-    def name(self, value: str) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def name(self, value: str) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _name=value)
 
-    def hint(self, value: str) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def hint(self, value: str) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _hint=value)
 
     def services(
         self, hub: MessageHub[Message], dispatcher: Dispatcher
-    ) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    ) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _factory1=factory)
 
-    def component_2(self, factory: Callable[[], V2]) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def component_2(self, factory: Callable[[], V2]) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _factory2=factory)
 
-    def component_3(self, factory: Callable[[], V3]) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def component_3(self, factory: Callable[[], V3]) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _factory3=factory)
 
-    def component_4(self, factory: Callable[[], V4]) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def component_4(self, factory: Callable[[], V4]) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _factory4=factory)
 
-    def component_5(self, factory: Callable[[], V5]) -> AggregateVMBuilder5[V1, V2, V3, V4, V5]:
+    def component_5(self, factory: Callable[[], V5]) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _factory5=factory)
 
     def build(self) -> AggregateVM5[V1, V2, V3, V4, V5]:
@@ -325,12 +325,12 @@ class AggregateVMBuilder5(Generic[V1, V2, V3, V4, V5]):
 
 
 # ---------------------------------------------------------------------------
-# AggregateVMBuilder6
+# AggregateVM6Builder
 # ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class AggregateVMBuilder6(Generic[V1, V2, V3, V4, V5, V6]):
+class AggregateVM6Builder(Generic[V1, V2, V3, V4, V5, V6]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM6`.
 
     Added in spec 2.2.0 per ADR-0034.
@@ -347,33 +347,33 @@ class AggregateVMBuilder6(Generic[V1, V2, V3, V4, V5, V6]):
     _factory5: Callable[[], V5] | None = dataclasses.field(default=None)
     _factory6: Callable[[], V6] | None = dataclasses.field(default=None)
 
-    def name(self, value: str) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def name(self, value: str) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _name=value)
 
-    def hint(self, value: str) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def hint(self, value: str) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _hint=value)
 
     def services(
         self, hub: MessageHub[Message], dispatcher: Dispatcher
-    ) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    ) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def component_1(self, factory: Callable[[], V1]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def component_1(self, factory: Callable[[], V1]) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _factory1=factory)
 
-    def component_2(self, factory: Callable[[], V2]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def component_2(self, factory: Callable[[], V2]) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _factory2=factory)
 
-    def component_3(self, factory: Callable[[], V3]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def component_3(self, factory: Callable[[], V3]) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _factory3=factory)
 
-    def component_4(self, factory: Callable[[], V4]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def component_4(self, factory: Callable[[], V4]) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _factory4=factory)
 
-    def component_5(self, factory: Callable[[], V5]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def component_5(self, factory: Callable[[], V5]) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _factory5=factory)
 
-    def component_6(self, factory: Callable[[], V6]) -> AggregateVMBuilder6[V1, V2, V3, V4, V5, V6]:
+    def component_6(self, factory: Callable[[], V6]) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _factory6=factory)
 
     def build(self) -> AggregateVM6[V1, V2, V3, V4, V5, V6]:
@@ -418,23 +418,6 @@ from vmx.aggregates.aggregate_vm import (  # noqa: E402
     AggregateVM6,
 )
 
-# ---------------------------------------------------------------------------
-# Parity aliases (canonical from v1.2.0; old-name removal deferred to v3.0.0)
-# ---------------------------------------------------------------------------
-#
-# TypeScript exposes ``AggregateVM1Builder``..``AggregateVM5Builder`` (number
-# trailing the noun, then ``Builder``). The historical Python names put the
-# number AFTER ``Builder``, which reads "Builder of AggregateVM 1" rather than
-# "Builder for AggregateVM1". Aligning to TypeScript reads better and matches
-# the C# nested ``AggregateVM2.AggregateVM2Builder`` shape.
-
-AggregateVM1Builder = AggregateVMBuilder1
-AggregateVM2Builder = AggregateVMBuilder2
-AggregateVM3Builder = AggregateVMBuilder3
-AggregateVM4Builder = AggregateVMBuilder4
-AggregateVM5Builder = AggregateVMBuilder5
-AggregateVM6Builder = AggregateVMBuilder6
-
 __all__ = [
     "AggregateVM1Builder",
     "AggregateVM2Builder",
@@ -442,10 +425,4 @@ __all__ = [
     "AggregateVM4Builder",
     "AggregateVM5Builder",
     "AggregateVM6Builder",
-    "AggregateVMBuilder1",
-    "AggregateVMBuilder2",
-    "AggregateVMBuilder3",
-    "AggregateVMBuilder4",
-    "AggregateVMBuilder5",
-    "AggregateVMBuilder6",
 ]
