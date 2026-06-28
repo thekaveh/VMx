@@ -29,6 +29,22 @@ async def _noop(m: Model) -> None:
     pass
 
 
+# A model with a NESTED mutable object, for default-snapshot deep-copy tests.
+@dataclasses.dataclass
+class Inner:
+    tag: str
+
+
+@dataclasses.dataclass
+class Nested:
+    label: str
+    inner: Inner
+
+
+async def _noop_nested(m: Nested) -> None:
+    pass
+
+
 def _make(initial: Model | None = None) -> FormVM[Model]:
     return FormVM(initial or Model("A", 1), _noop)
 
@@ -57,6 +73,47 @@ def test_snapshot_is_value_equal_to_initial() -> None:
     initial = Model("Alice", 1)
     sut = _make(initial)
     assert sut.snapshot == initial
+
+
+def test_default_snapshot_is_deep_so_nested_mutation_is_dirty() -> None:
+    """A mutation to a NESTED object must make the form dirty (VMX-010).
+
+    The default snapshotter must deep-copy so the snapshot does not share the
+    nested object with the live model; otherwise an in-place mutation of the
+    nested object is invisible to ``is_dirty`` (was falsely clean).
+    """
+    sut: FormVM[Nested] = FormVM(Nested("L", Inner("X")), _noop_nested)
+    assert sut.is_dirty is False
+
+    sut.model.inner.tag = "Y"  # mutate nested object in place
+
+    assert sut.is_dirty is True
+
+
+def test_default_snapshot_deny_restores_nested_mutation() -> None:
+    """``deny``/revert must restore a nested object to its snapshot value (VMX-010)."""
+    sut: FormVM[Nested] = FormVM(Nested("L", Inner("X")), _noop_nested)
+    sut.model.inner.tag = "Y"
+
+    sut.deny_command.execute()
+
+    assert sut.model.inner.tag == "X", "nested object restored on deny"
+    assert sut.is_dirty is False
+
+
+def test_injected_snapshotter_overrides_deep_default() -> None:
+    """The injectable snapshotter hook still overrides the deep default."""
+    calls: list[Nested] = []
+
+    def snapshotter(m: Nested) -> Nested:
+        calls.append(m)
+        return Nested(m.label, Inner(m.inner.tag))
+
+    sut: FormVM[Nested] = FormVM(Nested("L", Inner("X")), _noop_nested, snapshotter=snapshotter)
+    assert len(calls) == 1, "injected snapshotter used at construction, not deepcopy"
+
+    sut.model.inner.tag = "Y"
+    assert sut.is_dirty is True
 
 
 def test_custom_snapshotter_applied_at_construction() -> None:

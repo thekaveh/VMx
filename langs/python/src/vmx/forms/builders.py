@@ -69,7 +69,7 @@ class FormVMBuilder(Generic[TM]):
         return dataclasses.replace(self, _strict=value)
 
     def snapshotter(self, value: Callable[[TM], TM]) -> FormVMBuilder[TM]:
-        """Set a custom snapshot function (default: ``copy.copy``)."""
+        """Set a custom snapshot function (default: ``copy.deepcopy``)."""
         return dataclasses.replace(self, _snapshotter=value)
 
     # ── Build ────────────────────────────────────────────────────────────────

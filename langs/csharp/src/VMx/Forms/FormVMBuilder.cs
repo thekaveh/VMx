@@ -78,8 +78,9 @@ public sealed class FormVMBuilder<TM>
     public FormVMBuilder<TM> Strict(bool strict) => With(strict: strict);
 
     /// <summary>
-    /// Sets a custom snapshot function (default: shallow copy via <c>MemberwiseClone</c>,
-    /// equivalent to <c>with {}</c> for record types).
+    /// Sets a custom snapshot function (default: a deep clone via a
+    /// <see cref="System.Text.Json"/> round-trip; inject this as the escape
+    /// hatch for models JSON cannot round-trip).
     /// </summary>
     public FormVMBuilder<TM> Snapshotter(Func<TM, TM> snapshotter) => With(snapshotter: snapshotter);
 

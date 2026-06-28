@@ -42,7 +42,10 @@ class FormVM(Generic[TM]):
         when ``is_dirty`` is ``False``.  Default ``False``.
     snapshotter:
         Custom snapshot function ``(model) -> model``.  Defaults to
-        ``copy.copy`` (shallow copy — idiomatic for ``@dataclass`` models).
+        ``copy.deepcopy`` so that a mutation to a *nested* object inside the
+        model is visible to :attr:`is_dirty` and restored by ``deny``/revert.
+        Inject a custom snapshotter as the escape hatch for models that
+        ``deepcopy`` cannot handle (e.g. live handles, unpicklable objects).
     """
 
     def __init__(
@@ -62,7 +65,7 @@ class FormVM(Generic[TM]):
         self._hub: MessageHubProto[Any] = hub if hub is not None else NULL_MESSAGE_HUB
         self._strict = strict
         self._snapshotter: Callable[[TM], TM] = (
-            snapshotter if snapshotter is not None else copy.copy
+            snapshotter if snapshotter is not None else copy.deepcopy
         )
 
         self._model: TM = initial

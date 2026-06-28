@@ -52,8 +52,10 @@ public sealed class FormVM<TM> : IDisposable
     /// <see cref="IsDirty"/> is <c>false</c>. Defaults to <c>false</c>.
     /// </param>
     /// <param name="snapshotter">
-    /// Custom snapshot function. Defaults to a shallow copy via <c>MemberwiseClone</c>.
-    /// For record types this is equivalent to <c>with {}</c>.
+    /// Custom snapshot function. Defaults to a deep clone via a
+    /// <see cref="System.Text.Json"/> round-trip (so a nested-object mutation is
+    /// tracked by <see cref="IsDirty"/> and reverted by <see cref="DenyCommand"/>).
+    /// Inject this as the escape hatch for models JSON cannot round-trip.
     /// </param>
     public FormVM(
         TM initial,
@@ -222,14 +224,29 @@ public sealed class FormVM<TM> : IDisposable
         _onApproved.OnNext(current);
     }
 
+    // Cached per closed generic (one instance per TM): System.Text.Json caches
+    // serialization metadata against the options instance, so reusing a single
+    // instance avoids a per-call metadata rebuild (and CA1869).
+    private static readonly System.Text.Json.JsonSerializerOptions DefaultSnapshotJsonOptions =
+        new() { IncludeFields = true };
+
+    /// <summary>
+    /// Default deep-clone snapshotter: a <see cref="System.Text.Json"/> serialize→deserialize
+    /// round-trip. A deep clone is required so the snapshot does not share nested
+    /// mutable state with the live model — otherwise an in-place mutation of a
+    /// nested object would be invisible to <see cref="IsDirty"/> and could not be
+    /// reverted by <see cref="DenyCommand"/> (VMX-064). <c>System.Text.Json</c> is
+    /// in the BCL, so no extra package is taken.
+    /// <para>
+    /// For models JSON cannot round-trip (delegates, cyclic graphs, non-public or
+    /// non-default-constructible members, live handles, …) inject a custom
+    /// <c>snapshotter</c> via the constructor or builder — that hook is the
+    /// documented escape hatch and always overrides this default.
+    /// </para>
+    /// </summary>
     private static TM DefaultSnapshotter(TM model)
     {
-        // MemberwiseClone is inherited from System.Object, so it resolves for
-        // every TM. For record types it yields a shallow copy equivalent to
-        // `with {}`; non-record consumers should supply a custom snapshotter
-        // when they need deep-copy semantics.
-        var method = typeof(TM).GetMethod("MemberwiseClone",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        return (TM)method.Invoke(model, null)!;
+        var json = System.Text.Json.JsonSerializer.Serialize(model, DefaultSnapshotJsonOptions);
+        return System.Text.Json.JsonSerializer.Deserialize<TM>(json, DefaultSnapshotJsonOptions)!;
     }
 }
