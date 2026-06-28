@@ -380,3 +380,94 @@ def test_scrape_csharp_ignores_line_commented_marker(tmp_path: Path) -> None:
 
     assert "XXX-001" not in found, "line-commented C# trait must be ignored"
     assert "XXX-002" in found, "genuine C# trait must still be counted"
+
+
+# ─── VMX-031: Swift conformance scraper + subset manifest ─────────────────────
+
+# Minimal catalog for the Swift subset tests.
+_SWIFT_CATALOG_TEXT = "### LIFE-001 — sample\n### LIFE-002 — sample\n"
+
+# A Swift test file whose markers exactly match the manifest below.
+_SWIFT_GOOD_TEST = (
+    "/// LIFE-001 — construct transitions\n"
+    "func testLife001() {}\n"
+    "/// LIFE-002 — destruct transitions\n"
+    "func testLife002() {}\n"
+)
+
+_SWIFT_GOOD_MANIFEST = "# header\nLIFE-001\nLIFE-002\n"
+
+
+def _make_swift_fixture(
+    tmp_path: Path,
+    catalog_text: str,
+    test_content: str,
+    manifest_content: str,
+) -> None:
+    """Helper: write catalog, swift test, and manifest into tmp_path."""
+    catalog = tmp_path / "spec" / "12-conformance.md"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text(catalog_text, encoding="utf-8")
+
+    swift_dir = tmp_path / "langs" / "swift" / "Tests" / "VMxTests"
+    swift_dir.mkdir(parents=True)
+    (swift_dir / "LifecycleTests.swift").write_text(test_content, encoding="utf-8")
+
+    manifest = tmp_path / "langs" / "swift" / "conformance-subset.txt"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(manifest_content, encoding="utf-8")
+
+
+def test_swift_matching_manifest_passes(tmp_path: Path) -> None:
+    """(a) Swift tests exactly matching the manifest with valid catalog IDs passes (VMX-031)."""
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, _SWIFT_GOOD_TEST, _SWIFT_GOOD_MANIFEST)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 0
+
+
+def test_swift_bogus_id_fails(tmp_path: Path) -> None:
+    """(b) A Swift test marker whose ID is not in the catalog (typo/bogus) must fail (VMX-031)."""
+    test_with_bogus = (
+        "/// LIFE-001 — construct transitions\n"
+        "func testLife001() {}\n"
+        "/// TYPO-999 — bogus id not in catalog\n"
+        "func testTypo999() {}\n"
+    )
+    # Manifest only declares the valid ID; the bogus one in tests causes BOGUS failure.
+    manifest = "LIFE-001\n"
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_bogus, manifest)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1
+
+
+def test_swift_manifest_id_without_test_fails(tmp_path: Path) -> None:
+    """(c) A manifest ID with no corresponding test marker must fail (VMX-031)."""
+    test_only_life001 = "/// LIFE-001 — construct transitions\nfunc testLife001() {}\n"
+    # Manifest declares LIFE-002 but no test covers it.
+    manifest = "LIFE-001\nLIFE-002\n"
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_only_life001, manifest)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1
+
+
+def test_swift_test_id_not_in_manifest_fails(tmp_path: Path) -> None:
+    """(d) A Swift test ID absent from the manifest (unlisted) must fail (VMX-031)."""
+    test_with_both = (
+        "/// LIFE-001 — construct transitions\n"
+        "func testLife001() {}\n"
+        "/// LIFE-002 — destruct transitions\n"
+        "func testLife002() {}\n"
+    )
+    # Manifest only declares LIFE-001; LIFE-002 in tests is "unlisted".
+    manifest = "LIFE-001\n"
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_both, manifest)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1
