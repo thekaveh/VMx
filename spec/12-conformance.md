@@ -1449,6 +1449,21 @@ after `construct()` returns `composite.Current` is `null` and no
 after `construct()` returns `observed` equals `[a]` (exactly one invocation
 from the initial-selector assignment)
 
+### COMP-027 — Adding a child sets its `Parent`; removing clears it
+
+**Given** a `Constructed` `CompositeVM<VM>` `composite` and a separately-built,
+`Constructed` child `c` that has not yet been added to any container
+**Then** `c.can_select()` is `false` (a VM with no `Parent` is not selectable)
+**When** `composite.Add(c)` is called
+**Then** `c.can_select()` is `true` (the container set `c`'s `Parent` to itself on add,
+and `c` is `Constructed` and not yet `Current`)
+**And** `c.select()` makes `composite.Current` equal `c` and `c.IsCurrent` `true`
+(the predicate and `select()` delegate through the newly-wired `Parent`)
+**When** `c.deselect()` then `composite.Remove(c)` are called
+**Then** `c.can_select()` is `false` again (removal cleared `c`'s `Parent` to `null`)
+**And** a subsequent `c.select()` is a no-op — `composite.Current` stays `null` —
+because `c` no longer has a `Parent` to delegate to
+
 ______________________________________________________________________
 
 ## 21. GroupVM v2.0 additions (`GRP-007..010`)

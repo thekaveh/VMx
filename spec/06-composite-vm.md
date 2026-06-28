@@ -69,7 +69,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
-- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value via the existing `SelectComponent` path. If the selector returns `null` or a value not contained in the composite, `Current` stays at its prior value (initially `null`) and no notification fires.
+- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
 - `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`).
 
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
@@ -253,3 +253,10 @@ The builder hooks introduced in §3.2 are covered by:
 
 - `COMP-025` — `Current(selector)` builder hook drives initial selection during construct.
 - `COMP-026` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
+
+The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
+`05-component-vm.md` §6.1) is covered by:
+
+- `COMP-027` — `Add` sets a child's `Parent` (the child becomes selectable and
+  `select()` delegates through it); `Remove` clears it (the child is no longer
+  selectable and `select()` becomes a no-op).

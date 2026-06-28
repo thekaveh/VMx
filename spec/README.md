@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (240 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (241 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -217,11 +217,28 @@ the `v3-framework-overhaul` branch.
 
 - Chapter count stays at 22.
 
+- **ADR-0050** — v3 spec reconciliation (no runtime change): `whenPropertyChanged`
+  is documented as the canonical typed cross-VM subscription helper (`03 §7.2`,
+  informative — no conformance ID); the `Parent` back-reference is declared as a VM
+  member with its type/nullability/set-on-add/clear-on-remove/non-observable contract
+  (`01 §1.3`, `05 §2/§6.1`); `SelectNext`/`SelectPrevious` are documented as
+  always-`false`/no-op on the base leaf (`05 §5`); and the initial-current selector is
+  reconciled to a non-raising validated assignment, not the raising `select_component`
+  path (`06 §3.2`).
+
+- `01-concepts.md`, `03-messages.md`, `05-component-vm.md`, and `06-composite-vm.md`
+  are revised accordingly.
+
+- `12-conformance.md` — adds `COMP-027` (`Add` sets a child's `Parent`, `Remove`
+  clears it); catalog total goes from 240 to 241 (236 library + 5 THEME scenario IDs).
+
+- Chapter count stays at 22.
+
 ### 1.10 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0049); see
+- `ADRs/` — Architecture Decision Records (0001-0050); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

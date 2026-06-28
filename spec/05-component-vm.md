@@ -47,6 +47,11 @@ ComponentVM:
     deselect() : void
 ```
 
+Every variant also holds an internal `Parent` back-reference (see `01-concepts.md`
+§1.3 and §6.1 below). It is not a public, consumer-settable member and does not emit
+a `PropertyChangedMessage`; it is listed here only because the selection predicates
+in §6 read it.
+
 ## 3. Modeled variant additions (`ComponentVM<M>`)
 
 ```
@@ -101,6 +106,15 @@ changes).
 All five commands re-evaluate their predicates on every relevant `Status` change of
 the VM (via a trigger derived from `Status`).
 
+`SelectNextCommand` / `SelectPreviousCommand` are present on the `IComponentVM`
+baseline for a uniform surface, but a leaf VM does not enumerate its parent's
+children. In the reference implementations of all four flavors their predicate
+therefore **always returns `false`** and their task is a **no-op** (sibling
+navigation, when a host wants it, is driven by the container, not by the leaf). This
+inert behaviour is the normative contract for the base commands and is asserted for
+the group case by `GRP-002`; the table rows above describe the *intended* sibling
+semantics a container MAY implement, not behaviour the base leaf performs.
+
 ## 6. Selection predicates
 
 ```
@@ -117,6 +131,33 @@ can_deselect() returns true iff:
 `select()` calls `parent.select_component(this)`. `deselect()` calls
 `parent.deselect_component(this)`. The selection contract is defined in
 `06-composite-vm.md`.
+
+`Parent.Current` denotes the container's `Current` slot, which only a `CompositeVM`
+owns. A `GroupVM` has no selection slot; its `Current` is conceptually always empty,
+so `Parent.Current != this` holds for every group child. (The Python flavor adds a
+"parent supports child selection" guard that additionally reports a group child's
+`can_select` / `can_deselect` as `false`; C# and TypeScript leave the predicate at
+the three clauses above. This pre-existing per-flavor nuance is unaffected by the
+`Parent` declaration here.)
+
+### 6.1 The `Parent` back-reference
+
+The selection predicates above and `IsCurrent` read an internal `Parent`
+back-reference declared on the `IComponentVM` baseline (`01-concepts.md` §1.3):
+
+- `Parent` is `null` for a VM that is not a member of any container.
+- A container (`CompositeVM` / `GroupVM`) **sets** the child's `Parent` to itself
+  when the child is added (`Add` / `Insert`, or wired as a child at build time) and
+  **clears** it to `null` when the child is removed (`Remove` / `RemoveAt` /
+  `Clear`) or re-parented into another container.
+- `Parent` is not consumer-settable and is not observable: changing it does NOT emit
+  a `PropertyChangedMessage`. Its effect is observed indirectly through the selection
+  predicates (a freshly built, un-parented VM has `can_select() == false`; after it
+  is added to a `CompositeVM` and constructed, `can_select()` becomes `true`; after
+  removal it is `false` again) and through `select()` / `deselect()` delegating to
+  the parent (a no-op once `Parent` is `null`).
+
+The set-on-add / clear-on-remove wiring is conformance-tested by `COMP-027`.
 
 ## 7. Construction
 
