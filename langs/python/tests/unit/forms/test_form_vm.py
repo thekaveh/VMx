@@ -366,3 +366,45 @@ async def test_dispose_during_inflight_approve_does_not_raise() -> None:
     sut.dispose()
     gate.set_result(None)
     await task  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Approve error channel (VMX-008)
+#
+# The approve COMMAND is fire-and-forget, so a persister failure cannot
+# propagate to the caller. Previously the task exception was retrieved and
+# discarded (swallowed). It must now be surfaced on ``approve_errors``.
+# ---------------------------------------------------------------------------
+
+
+async def test_approve_command_surfaces_persister_error_on_channel() -> None:
+    import asyncio
+
+    boom = RuntimeError("persist failed")
+
+    async def persister(m: Model) -> None:
+        raise boom
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    errors: list[BaseException] = []
+    sub = sut.approve_errors.subscribe(errors.append)
+    sut.set_model(Model("B", 2))
+
+    sut.approve_command.execute()  # fire-and-forget
+    for _ in range(5):
+        await asyncio.sleep(0)  # let the scheduled task + done-callback run
+        if errors:
+            break
+
+    assert errors == [boom], "persister error observed on approve_errors, not swallowed"
+    assert sut.is_dirty is True, "a failed persist must not advance the snapshot"
+    sub.dispose()
+
+
+def test_approve_errors_completes_on_dispose() -> None:
+    completed: list[bool] = []
+    sut = _make()
+    sut.approve_errors.subscribe(on_completed=lambda: completed.append(True))
+
+    sut.dispose()
+    assert len(completed) == 1, "approve_errors observable completes on dispose"

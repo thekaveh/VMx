@@ -173,6 +173,7 @@ export class FormVM<TM> {
   #disposed = false;
 
   readonly #onApproved = new Subject<TM>();
+  readonly #approveErrors = new Subject<unknown>();
   readonly #canExecuteTrigger = new Subject<void>();
 
   readonly denyCommand: RelayCommand;
@@ -213,11 +214,15 @@ export class FormVM<TM> {
 
     this.approveCommand = RelayCommand.builder()
       .task(() => {
-        // Fire-and-forget parity: Python retrieves the task exception and C#
-        // discards the Task; a bare `void` here turned a rejecting persister
-        // into a fatal unhandled rejection on Node >= 15. Callers who need
-        // the failure await approveAsync() directly.
-        void this.approveAsync().catch(() => undefined);
+        // Fire-and-forget: ApproveCommand.execute() is synchronous (void), so a
+        // rejecting persister cannot propagate to the caller. Surface it on the
+        // approveErrors channel instead of swallowing it (VMX-008) — a bare
+        // `void` here would also turn the rejection into a fatal unhandled
+        // rejection on Node >= 15. Callers who want to await the failure inline
+        // use approveAsync() directly.
+        void this.approveAsync().catch((err: unknown) => {
+          this.#approveErrors.next(err);
+        });
       })
       .predicate(() => !this.#strict || this.isDirty)
       .triggers(this.#canExecuteTrigger)
@@ -247,6 +252,18 @@ export class FormVM<TM> {
   /** Observable that emits the current model after each successful persist. */
   get onApproved(): Observable<TM> {
     return this.#onApproved.asObservable();
+  }
+
+  /**
+   * Observable that surfaces the error thrown by the persister when the approve
+   * COMMAND (`approveCommand.execute()`) fails. That path is fire-and-forget
+   * (`RelayCommand.execute` is `void`), so a rejection cannot propagate to the
+   * caller — it is emitted here instead of being swallowed (VMX-008). The
+   * awaitable {@link approveAsync} path keeps its throw behavior; await it
+   * directly to handle the failure inline. Completes on {@link dispose}.
+   */
+  get approveErrors(): Observable<unknown> {
+    return this.#approveErrors.asObservable();
   }
 
   // ── Mutation ───────────────────────────────────────────────────────────────
@@ -310,6 +327,7 @@ export class FormVM<TM> {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#onApproved.complete();
+    this.#approveErrors.complete();
     this.#canExecuteTrigger.complete();
     this.denyCommand.dispose();
     this.approveCommand.dispose();

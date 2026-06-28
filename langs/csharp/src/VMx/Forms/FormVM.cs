@@ -23,6 +23,7 @@ public sealed class FormVM<TM> : IDisposable
     private readonly bool _strict;
     private readonly IMessageHub _hub;
     private readonly Subject<TM> _onApproved = new();
+    private readonly Subject<Exception> _approveErrors = new();
     private readonly Subject<Unit> _canExecuteChangedTrigger = new();
 
     private TM _model;
@@ -84,10 +85,28 @@ public sealed class FormVM<TM> : IDisposable
             .Build();
 
         ApproveCommand = RelayCommand.Builder()
-            .Task(() => _ = ApproveInternalAsync())
+            .Task(ApproveCommandExecute)
             .Predicate(() => !_strict || IsDirty)
             .Triggers(canExecuteTrigger)
             .Build();
+    }
+
+    // Fire-and-forget command entry-point. ApproveCommand.Execute() is void, so a
+    // persister failure cannot propagate to the caller; route the faulted Task to
+    // the ApproveErrors channel instead of discarding it (a discarded faulted Task
+    // would otherwise surface only as an UnobservedTaskException at GC) (VMX-008).
+    // Await ApproveAsync() to observe the failure inline.
+    private void ApproveCommandExecute()
+    {
+        _ = ApproveInternalAsync().ContinueWith(
+            t =>
+            {
+                if (_disposed) return;
+                _approveErrors.OnNext(t.Exception!.GetBaseException());
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -143,6 +162,17 @@ public sealed class FormVM<TM> : IDisposable
     public IObservable<TM> OnApproved => _onApproved.AsObservable();
 
     /// <summary>
+    /// Observable that surfaces the persister exception when the approve
+    /// <em>command</em> (<c>ApproveCommand.Execute()</c>) fails. That path is
+    /// fire-and-forget (<see cref="ICommand.Execute"/> is <c>void</c>), so the
+    /// failure cannot propagate to the caller; it is emitted here instead of
+    /// being discarded with the faulted <see cref="Task"/> (VMX-008). The
+    /// awaitable <see cref="ApproveAsync"/> path keeps its throw behavior — await
+    /// it directly to handle the error inline. Completes on <see cref="Dispose"/>.
+    /// </summary>
+    public IObservable<Exception> ApproveErrors => _approveErrors.AsObservable();
+
+    /// <summary>
     /// Awaitable entry-point to the approve flow. Invokes the persister, advances
     /// <see cref="Snapshot"/> on success, and fires <see cref="OnApproved"/>.
     /// Throws when the persister throws (no state mutation occurs on failure).
@@ -176,6 +206,8 @@ public sealed class FormVM<TM> : IDisposable
         _disposed = true;
         _onApproved.OnCompleted();
         _onApproved.Dispose();
+        _approveErrors.OnCompleted();
+        _approveErrors.Dispose();
         _canExecuteChangedTrigger.OnCompleted();
         _canExecuteChangedTrigger.Dispose();
         if (DenyCommand is IDisposable d1) d1.Dispose();

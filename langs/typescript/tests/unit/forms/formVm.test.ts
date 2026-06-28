@@ -322,6 +322,44 @@ describe("FormVM – fire-and-forget approve", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Approve error channel (VMX-008)
+//
+// The approve COMMAND is fire-and-forget (RelayCommand.execute is void), so a
+// rejecting persister cannot propagate to its caller. Previously the rejection
+// was swallowed (`.catch(() => undefined)`) — a silent data-loss-class failure
+// for any UI bound to the command. The error must now be OBSERVABLE on the
+// approveErrors channel. The awaitable approveAsync() path keeps its throw.
+// ---------------------------------------------------------------------------
+
+describe("FormVM – approve error channel (VMX-008)", () => {
+  it("surfaces a persister rejection on approveErrors when the COMMAND is invoked", async () => {
+    const boom = new Error("persist failed");
+    const errors: unknown[] = [];
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: () => Promise.reject(boom),
+    });
+    form.approveErrors.subscribe((e) => errors.push(e));
+    form.setModel(m("B", 2));
+
+    form.approveCommand.execute(); // fire-and-forget
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(errors).toEqual([boom]); // observed, not swallowed
+    expect(form.isDirty).toBe(true); // failed persist did not advance the snapshot
+    form.dispose();
+  });
+
+  it("approveErrors completes on dispose", () => {
+    const completed = vi.fn();
+    const form = make();
+    form.approveErrors.subscribe({ complete: completed });
+    form.dispose();
+    expect(completed).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Builder snapshotter (was ctor-only tested)
 // ---------------------------------------------------------------------------
 

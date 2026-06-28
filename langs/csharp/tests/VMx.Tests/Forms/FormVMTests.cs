@@ -372,6 +372,42 @@ public class FormVMTests
         persisted.Should().BeEmpty();
     }
 
+    // ── Approve error channel (VMX-008) ───────────────────────────────────────
+
+    [Fact]
+    public async Task ApproveCommand_Surfaces_Persister_Failure_On_ApproveErrors()
+    {
+        // ApproveCommand.Execute() is fire-and-forget (ICommand.Execute is void),
+        // so a persister failure cannot propagate to the caller. It must be
+        // surfaced on ApproveErrors rather than discarded with the faulted Task
+        // (VMX-008).
+        var boom = new InvalidOperationException("persist failed");
+        var observed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var sut = new FormVM<Model>(new Model("A", 1), _ => Task.FromException(boom));
+        using var sub = sut.ApproveErrors.Subscribe(e => observed.TrySetResult(e));
+        sut.SetModel(new Model("B", 2));
+
+        sut.ApproveCommand.Execute(null); // fire-and-forget
+
+        var completed = await Task.WhenAny(observed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(observed.Task, "the persister failure must be observed on ApproveErrors");
+        (await observed.Task).Should().BeSameAs(boom, "the original persister exception is surfaced");
+        sut.IsDirty.Should().BeTrue("a failed persist must not advance the snapshot");
+    }
+
+    [Fact]
+    public void ApproveErrors_Completes_On_Dispose()
+    {
+        var completed = false;
+        var sut = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask);
+        using var sub = sut.ApproveErrors.Subscribe(_ => { }, () => completed = true);
+
+        sut.Dispose();
+
+        completed.Should().BeTrue("ApproveErrors completes on Dispose");
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>
