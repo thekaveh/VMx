@@ -1,0 +1,212 @@
+"""VMX-004 regression: background construct/destruct vs dispose lifecycle race.
+
+Python parity of the C# fix in commit 4afc9b6 (VMX-001/054). With a *real-thread*
+background dispatcher, a background ``construct()`` completion can interleave with
+a concurrent foreground ``dispose()``: the non-atomic check-then-act on ``_status``
+inside ``_set_status`` lets the background thread write ``_status = CONSTRUCTED``
+*after* the VM was disposed (resurrection) and publish a post-dispose status
+message. The GIL prevents torn reads, so the window is narrower than C#, but the
+resurrection-write / post-dispose-publish TOCTOU is real and reproducible.
+
+Test approach: **real-thread stress loop** (the primary option — the race
+reproduces within the iteration budget; confirmed against the unfixed source). A small
+``_RealThreadDispatcher`` runs scheduled background work on a shared
+``ThreadPoolExecutor``; a per-iteration ``threading.Barrier`` aligns the worker's
+start with the concurrent foreground ``dispose()`` so the interleaving window is
+hit reliably. The assertions encode the *correct* (locked) behaviour — final
+status ``DISPOSED`` (no resurrection), no post-dispose ``CONSTRUCTED`` message, and
+no exception on the worker thread — which the fixed code satisfies deterministically
+(0 violations regardless of timing), while the unfixed code fails it.
+"""
+
+from __future__ import annotations
+
+import datetime
+import sys
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
+
+import reactivex.disposable as rx_disposable
+from reactivex.scheduler import ImmediateScheduler
+
+from vmx.components.builders import ComponentVMOfBuilder
+from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
+from vmx.services.message_hub import MessageHub
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from reactivex.abc import DisposableBase, SchedulerBase
+
+
+# ---------------------------------------------------------------------------
+# Real-thread background dispatcher (test double)
+# ---------------------------------------------------------------------------
+
+
+class _RealThreadBackgroundScheduler:
+    """Rx-scheduler-shaped double that runs scheduled work on a real worker thread.
+
+    Unlike ``ImmediateScheduler`` / ``TestScheduler`` (which run scheduled work
+    inline on the calling thread, where the lifecycle in-flight guard is trivially
+    consistent), this submits the action to a shared ``ThreadPoolExecutor`` so a
+    background ``construct()`` completion genuinely races a foreground ``dispose()``.
+
+    An optional ``gate`` :class:`threading.Barrier` lets a test rendezvous the
+    worker's start with a concurrent foreground action, widening the (otherwise
+    GIL-narrow) interleaving window so the race is hit within the iteration budget.
+    Worker exceptions are captured in :attr:`errors` instead of being swallowed by
+    the pool.
+    """
+
+    def __init__(self, pool: ThreadPoolExecutor) -> None:
+        self._pool = pool
+        self.futures: list[Future[None]] = []
+        self.errors: list[BaseException] = []
+        self.gate: threading.Barrier | None = None
+
+    @property
+    def now(self) -> datetime.datetime:
+        return datetime.datetime.now(datetime.timezone.utc)
+
+    def schedule(
+        self,
+        action: Callable[[Any, Any], Any],
+        state: Any = None,
+    ) -> DisposableBase:
+        gate = self.gate
+
+        def run() -> None:
+            try:
+                if gate is not None:
+                    gate.wait()
+                action(self, state)
+            except Exception as exc:  # record worker error instead of crashing the pool
+                self.errors.append(exc)
+
+        self.futures.append(self._pool.submit(run))
+        return rx_disposable.Disposable()
+
+
+class _RealThreadDispatcher:
+    """``Dispatcher``-shaped double: inline foreground, real-thread background."""
+
+    def __init__(self, background: _RealThreadBackgroundScheduler) -> None:
+        self._foreground = ImmediateScheduler()
+        self._background = background
+
+    @property
+    def foreground(self) -> SchedulerBase:
+        return self._foreground
+
+    @property
+    def background(self) -> SchedulerBase:
+        return self._background  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# VMX-004 — background construct racing dispose must be atomic + dispose-safe
+# ---------------------------------------------------------------------------
+
+
+def test_background_construct_racing_dispose_is_atomic() -> None:
+    """A background ``construct()`` completion racing a foreground ``dispose()``
+    must never (a) resurrect the VM (final status flipping back to Constructed
+    after Disposed), (b) publish a post-dispose ``Constructed`` status message, or
+    (c) raise on the worker thread (e.g. ``on_next`` on a disposed Subject).
+
+    Disposed is terminal (spec/02 invariant 3). The fixed code serializes the
+    ``_status`` read-modify-write + emission against ``dispose()`` under a lock, so
+    these hold deterministically (0 violations); the unfixed check-then-act loses
+    the race within this iteration budget.
+    """
+    # A small switch interval forces frequent GIL hand-offs, widening the
+    # interleaving window so the (unfixed) race is hit early; restored below.
+    original_switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+
+    iterations = 8000
+    resurrections = 0
+    post_dispose_messages = 0
+    worker_exceptions = 0
+    first_violation = -1
+
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        for i in range(iterations):
+            background = _RealThreadBackgroundScheduler(pool)
+            dispatcher = _RealThreadDispatcher(background)
+            hub: MessageHub[object] = MessageHub()
+            vm = (
+                ComponentVMOfBuilder()
+                .name("vm")
+                .services(hub, dispatcher)
+                .model("m")
+                .background(True)
+                .build()
+            )
+
+            seen_disposed: list[bool] = []
+            constructed_after_dispose: list[bool] = []
+
+            def on_message(
+                message: object,
+                _vm: object = vm,
+                _seen_disposed: list[bool] = seen_disposed,
+                _after: list[bool] = constructed_after_dispose,
+            ) -> None:
+                if isinstance(message, ConstructionStatusChangedMessage) and message.sender is _vm:
+                    if message.status is ConstructionStatus.DISPOSED:
+                        _seen_disposed.append(True)
+                    elif message.status is ConstructionStatus.CONSTRUCTED and _seen_disposed:
+                        # A Constructed message after Disposed is a post-dispose
+                        # publish (spec/02 invariant 3 violation).
+                        _after.append(True)
+
+            sub = hub.messages.subscribe(on_message)
+
+            barrier = threading.Barrier(2)
+            background.gate = barrier
+
+            vm.construct()  # schedules _bg_construct, parked on the barrier
+            barrier.wait()  # release the worker; race its completion vs dispose()
+            vm.dispose()
+
+            for future in background.futures:
+                future.result()  # surface any unexpected worker crash
+            sub.dispose()
+
+            if vm.status is ConstructionStatus.CONSTRUCTED:
+                resurrections += 1
+            if constructed_after_dispose:
+                post_dispose_messages += 1
+            if background.errors:
+                worker_exceptions += 1
+            if first_violation < 0 and (
+                vm.status is ConstructionStatus.CONSTRUCTED
+                or constructed_after_dispose
+                or background.errors
+            ):
+                first_violation = i
+    finally:
+        pool.shutdown(wait=True)
+        sys.setswitchinterval(original_switch_interval)
+
+    assert resurrections == 0, (
+        f"a disposed VM resurrected to Constructed in {resurrections}/{iterations} "
+        "iterations (Disposed is terminal — spec/02 invariant 3)"
+    )
+    assert post_dispose_messages == 0, (
+        f"a post-dispose Constructed status message was published in "
+        f"{post_dispose_messages}/{iterations} iterations"
+    )
+    assert worker_exceptions == 0, (
+        f"the background worker raised in {worker_exceptions}/{iterations} iterations "
+        "(e.g. on_next on a disposed Subject)"
+    )
+    assert first_violation == -1, (
+        "the background transition and foreground dispose() must be atomic; "
+        f"first violation at iteration {first_violation}"
+    )

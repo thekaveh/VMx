@@ -12,6 +12,7 @@ See spec/05-component-vm.md and spec/02-lifecycle.md.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -93,6 +94,17 @@ class _ComponentVMBase(ABC):
         # ── Lifecycle state ──────────────────────────────────────────────────
         self._status: ConstructionStatus = ConstructionStatus.DESTRUCTED
         self._in_flight: bool = False
+
+        # Serializes every lifecycle state transition — the ``_status`` RMW, the
+        # hub publish, and the status-trigger emission inside ``_set_status`` —
+        # against ``dispose()``. A background completion (construct/destruct
+        # dispatched on the background scheduler) therefore cannot interleave with
+        # disposal: it observes the terminal Disposed state under the lock and
+        # aborts instead of resurrecting the VM, publishing a post-dispose status
+        # message, or calling ``on_next`` on a disposed Subject (VMX-004; spec/02
+        # invariant 3 — Disposed is terminal). Reentrant so a re-entrant lifecycle
+        # call from a same-thread subscriber cannot self-deadlock.
+        self._lifecycle_lock = threading.RLock()
 
         # ── Selection state ──────────────────────────────────────────────────
         self._is_current: bool = False
@@ -269,9 +281,14 @@ class _ComponentVMBase(ABC):
 
             def _bg_construct(scheduler: SchedulerBase, state: object | None) -> None:
                 try:
-                    # dispose() may have run between scheduling and execution;
-                    # Disposed is terminal (spec/02 invariant 3): skip the work.
-                    if self._status is not ConstructionStatus.DISPOSED:
+                    # dispose() may have run between scheduling and execution.
+                    # Re-check the terminal state under the lock and abort if
+                    # disposed (spec/02 invariant 3). _set_status re-checks under
+                    # the same lock, so even a dispose() that lands while
+                    # _on_construct() runs cannot complete the Constructed
+                    # transition — no resurrection, no post-dispose publish, no
+                    # on_next on a disposed Subject (VMX-004).
+                    if not self._is_disposed():
                         self._on_construct()
                         self._set_status(ConstructionStatus.CONSTRUCTED)
                 finally:
@@ -306,9 +323,14 @@ class _ComponentVMBase(ABC):
 
             def _bg_destruct(scheduler: SchedulerBase, state: object | None) -> None:
                 try:
-                    # dispose() may have run between scheduling and execution;
-                    # Disposed is terminal (spec/02 invariant 3): skip the work.
-                    if self._status is not ConstructionStatus.DISPOSED:
+                    # dispose() may have run between scheduling and execution.
+                    # Re-check the terminal state under the lock and abort if
+                    # disposed (spec/02 invariant 3). _set_status re-checks under
+                    # the same lock, so even a dispose() that lands while
+                    # _on_destruct() runs cannot complete the Destructed
+                    # transition — no resurrection, no post-dispose publish, no
+                    # on_next on a disposed Subject (VMX-004).
+                    if not self._is_disposed():
                         self._on_destruct()
                         self._set_status(ConstructionStatus.DESTRUCTED)
                 finally:
@@ -358,15 +380,23 @@ class _ComponentVMBase(ABC):
         if self._status == ConstructionStatus.DISPOSED:
             return
 
+        # _set_status flips _status to Disposed atomically under _lifecycle_lock.
         self._set_status(ConstructionStatus.DISPOSED)
         self._on_dispose()
 
-        if not self._trigger_disposed:
-            self._trigger_disposed = True
-            self._status_trigger.on_completed()
-            self._status_trigger.dispose()
-            self._property_changed_subject.on_completed()
-            self._property_changed_subject.dispose()
+        # Tear down the status trigger / property_changed subjects under the lock
+        # so the flag flip and the Subject disposal cannot interleave with an
+        # in-flight background _set_status: that transition either completes its
+        # guarded on_next before this runs, or observes Disposed/_trigger_disposed
+        # under the same lock and skips it — never an on_next on a disposed
+        # Subject (VMX-004).
+        with self._lifecycle_lock:
+            if not self._trigger_disposed:
+                self._trigger_disposed = True
+                self._status_trigger.on_completed()
+                self._status_trigger.dispose()
+                self._property_changed_subject.on_completed()
+                self._property_changed_subject.dispose()
 
         self._select_command.dispose()
         self._deselect_command.dispose()
@@ -435,23 +465,37 @@ class _ComponentVMBase(ABC):
         pass
 
     # ── Internal helpers ─────────────────────────────────────────────────────
+    def _is_disposed(self) -> bool:
+        """Read the terminal-state flag under the lock.
+
+        Lets a background completion observe a concurrently in-progress
+        ``dispose()`` and abort its transition rather than resurrecting the VM
+        (VMX-004).
+        """
+        with self._lifecycle_lock:
+            return self._status is ConstructionStatus.DISPOSED
+
     def _set_status(self, new_status: ConstructionStatus) -> None:
         """Update status, emit hub message, and fire command trigger."""
-        # Disposed is terminal (spec/02 invariant 3): a background transition
-        # racing dispose() must neither resurrect the VM nor publish
-        # post-dispose status messages.
-        if self._status is ConstructionStatus.DISPOSED:
-            return
+        # The terminal check, the _status write, the hub publish and the
+        # status-trigger on_next all run under _lifecycle_lock so the whole
+        # transition is atomic with respect to dispose() — a background transition
+        # racing dispose() can neither resurrect the VM, publish a post-dispose
+        # status message, nor on_next a disposed Subject (VMX-004; spec/02
+        # invariant 3: Disposed is terminal).
+        with self._lifecycle_lock:
+            if self._status is ConstructionStatus.DISPOSED:
+                return
 
-        self._status = new_status
+            self._status = new_status
 
-        self._hub.send(ConstructionStatusChangedMessage.create(self, self._name, new_status))
+            self._hub.send(ConstructionStatusChangedMessage.create(self, self._name, new_status))
 
-        # status and is_constructed are computed/read-only, so they raise INPC-equivalent
-        # property_changed only — no PropertyChangedMessage on the hub (spec 03-messages.md
-        # publishes only on setter-assigned properties).
-        self._raise_property_changed("status")
-        self._raise_property_changed("is_constructed")
+            # status and is_constructed are computed/read-only, so they raise INPC-equivalent
+            # property_changed only — no PropertyChangedMessage on the hub (spec 03-messages.md
+            # publishes only on setter-assigned properties).
+            self._raise_property_changed("status")
+            self._raise_property_changed("is_constructed")
 
-        if not self._trigger_disposed:
-            self._status_trigger.on_next(None)
+            if not self._trigger_disposed:
+                self._status_trigger.on_next(None)
