@@ -18,6 +18,113 @@ export type Persister<TM> = (model: TM) => Promise<void>;
 /** Optional custom snapshot function. Defaults to `structuredClone`. */
 export type Snapshotter<TM> = (model: TM) => TM;
 
+/**
+ * Optional custom equality predicate for dirty-tracking. Returns `true` when
+ * `a` and `b` are considered the *same* (i.e. the form is clean). Defaults to
+ * {@link deepEquals}.
+ */
+export type ModelEquals<TM> = (a: TM, b: TM) => boolean;
+
+/**
+ * Structural deep-equality used by {@link FormVM.isDirty} when no custom
+ * `equals` is supplied. It mirrors the depth the default `structuredClone`
+ * snapshotter clones, so comparison and snapshotting stay internally
+ * consistent. Unlike the previous `JSON.stringify` comparison it:
+ *
+ * - never throws on `BigInt` (compared with `===`) or circular references
+ *   (guarded with a visited-pair set);
+ * - compares `Date` by instant, `Map`/`Set` by contents, `RegExp` by
+ *   source/flags, arrays and plain objects by value;
+ * - distinguishes an `undefined`-valued key from a missing key (as
+ *   `structuredClone` preserves it);
+ * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
+ *
+ * Map/Set membership uses SameValueZero (the engine's native `has`), so
+ * object-typed Map keys / Set members are compared by reference — adequate for
+ * the primitive-keyed models dirty-tracking targets.
+ */
+export function deepEquals(
+  a: unknown,
+  b: unknown,
+  seen?: Map<unknown, Set<unknown>>,
+): boolean {
+  // Identity / primitive fast path (also makes +0 === -0 → equal).
+  if (a === b) return true;
+
+  // NaN: treat NaN as equal to NaN; any other number pair already failed `===`.
+  if (typeof a === "number" && typeof b === "number") {
+    return a !== a && b !== b;
+  }
+
+  // Anything non-object (incl. bigint, mismatched primitive types, null) that
+  // did not pass `===` above is unequal. BigInt's only equal path is `===`.
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) {
+    return false;
+  }
+
+  // Circular-reference guard: if this exact (a, b) pair is already in flight we
+  // treat it as equal — any real difference surfaces on a finite branch first.
+  const visited = seen ?? new Map<unknown, Set<unknown>>();
+  const partners = visited.get(a);
+  if (partners) {
+    if (partners.has(b)) return true;
+    partners.add(b);
+  } else {
+    visited.set(a, new Set([b]));
+  }
+
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  }
+
+  if (a instanceof RegExp || b instanceof RegExp) {
+    return (
+      a instanceof RegExp &&
+      b instanceof RegExp &&
+      a.source === b.source &&
+      a.flags === b.flags
+    );
+  }
+
+  const aIsArray = Array.isArray(a);
+  const bIsArray = Array.isArray(b);
+  if (aIsArray || bIsArray) {
+    if (!aIsArray || !bIsArray || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEquals(a[i], b[i], visited)) return false;
+    }
+    return true;
+  }
+
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map) || !(b instanceof Map) || a.size !== b.size) return false;
+    for (const [k, v] of a) {
+      if (!b.has(k) || !deepEquals(v, b.get(k), visited)) return false;
+    }
+    return true;
+  }
+
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) return false;
+    for (const v of a) {
+      if (!b.has(v)) return false;
+    }
+    return true;
+  }
+
+  // Plain objects: own enumerable string keys, including undefined-valued keys.
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObj);
+  const bKeys = Object.keys(bObj);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(bObj, key)) return false;
+    if (!deepEquals(aObj[key], bObj[key], visited)) return false;
+  }
+  return true;
+}
+
 /** Constructor options for FormVM. */
 export interface FormVMOptions<TM> {
   /** Initial domain model; also becomes the initial snapshot. */
@@ -38,6 +145,14 @@ export interface FormVMOptions<TM> {
    * contains values structuredClone cannot serialize.
    */
   snapshotter?: Snapshotter<TM>;
+  /**
+   * Custom equality predicate for dirty-tracking (`isDirty = !equals(model,
+   * snapshot)`). Defaults to {@link deepEquals}, a structural deep-equal that
+   * matches what the default `structuredClone` snapshotter clones (handles
+   * Date/Map/Set/BigInt/circular refs). Supply your own to compare on a subset
+   * of fields or with reference semantics.
+   */
+  equals?: ModelEquals<TM>;
 }
 
 /**
@@ -49,6 +164,7 @@ export interface FormVMOptions<TM> {
 export class FormVM<TM> {
   readonly #persister: Persister<TM>;
   readonly #snapshotter: Snapshotter<TM>;
+  readonly #equals: ModelEquals<TM>;
   readonly #strict: boolean;
   readonly #hub: IMessageHub;
 
@@ -72,7 +188,7 @@ export class FormVM<TM> {
   }
 
   constructor(options: FormVMOptions<TM>) {
-    const { initial, persister, hub, strict = false, snapshotter } = options;
+    const { initial, persister, hub, strict = false, snapshotter, equals } = options;
 
     if (initial === null || initial === undefined) {
       throw new Error("initial must not be null or undefined");
@@ -86,6 +202,7 @@ export class FormVM<TM> {
     this.#hub = hub ?? NullMessageHub.INSTANCE;
     this.#strict = strict;
     this.#snapshotter = snapshotter ?? ((m: TM) => structuredClone(m));
+    this.#equals = equals ?? ((a: TM, b: TM) => deepEquals(a, b));
 
     this.#model = initial;
     this.#snapshot = this.#snapshotter(initial);
@@ -121,10 +238,10 @@ export class FormVM<TM> {
 
   /**
    * True when `model` is structurally not equal to `snapshot`.
-   * Uses `JSON.stringify` comparison for plain objects.
+   * Uses the injectable `equals` predicate (default {@link deepEquals}).
    */
   get isDirty(): boolean {
-    return JSON.stringify(this.#model) !== JSON.stringify(this.#snapshot);
+    return !this.#equals(this.#model, this.#snapshot);
   }
 
   /** Observable that emits the current model after each successful persist. */
@@ -225,7 +342,8 @@ export class FormVM<TM> {
  * Immutable fluent builder for {@link FormVM}.
  *
  * Required setters: {@link initial}, {@link persister}.
- * Optional setters: {@link hub}, {@link strict}, {@link snapshotter}.
+ * Optional setters: {@link hub}, {@link strict}, {@link snapshotter},
+ * {@link equals}.
  *
  * Each setter returns a NEW builder instance (BLD-001). `build()`
  * validates the required fields and throws {@link BuilderValidationError}
@@ -238,6 +356,7 @@ export class FormVMBuilder<TM> {
   #hub: IMessageHub | null = null;
   #strict = false;
   #snapshotter: Snapshotter<TM> | null = null;
+  #equals: ModelEquals<TM> | null = null;
 
   constructor(from?: FormVMBuilder<TM>) {
     if (from) {
@@ -247,6 +366,7 @@ export class FormVMBuilder<TM> {
       this.#hub = from.#hub;
       this.#strict = from.#strict;
       this.#snapshotter = from.#snapshotter;
+      this.#equals = from.#equals;
     }
   }
 
@@ -289,6 +409,13 @@ export class FormVMBuilder<TM> {
     return b;
   }
 
+  /** Set a custom dirty-tracking equality predicate (default: {@link deepEquals}). */
+  equals(value: ModelEquals<TM>): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#equals = value;
+    return b;
+  }
+
   /**
    * Validate required fields and construct a {@link FormVM}.
    *
@@ -305,6 +432,7 @@ export class FormVMBuilder<TM> {
     if (this.#hub !== null) options.hub = this.#hub;
     options.strict = this.#strict;
     if (this.#snapshotter !== null) options.snapshotter = this.#snapshotter;
+    if (this.#equals !== null) options.equals = this.#equals;
 
     return new FormVM<TM>(options);
   }
