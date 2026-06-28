@@ -109,6 +109,20 @@ This keeps callers simple: when an implementation surfaces cancellation, the
 awaited `PickFile*` returns `null` and `Confirm` returns `false` on cancel
 rather than requiring a try/catch.
 
+The base `IDialogService` contract carries **no** cancellation parameter, so this
+clause is **conditionally normative**: cancellation support is opt-in (an
+implementation MAY add a `CancellationToken` / `AbortSignal` overload, or none at
+all), but **any implementation that does surface cancellation MUST complete with
+the safe default rather than throw**, unless it explicitly documents an
+opt-in throwing mode. `DIA-007` verifies this conditionally — it applies only to
+implementations that provide a cancellation channel and is vacuously satisfied by
+implementations (such as `NullDialogService`) that do not. The non-throwing rule
+is therefore not universal across all `IDialogService` implementations (some
+expose no cancellation at all); it is universal *within* the set that opts into
+cancellation. Making non-throwing completion an unconditional requirement of every
+implementation was rejected (ADR-0051): a host with no cancellation channel has
+nothing to make non-throwing.
+
 ## 7. `ConfirmationDecoratorCommand` integration
 
 `IDialogService.Confirm` composes naturally with `ConfirmationDecoratorCommand`

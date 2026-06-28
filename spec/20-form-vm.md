@@ -28,6 +28,39 @@ Key properties:
   is surfaced on `ApproveErrors` (§7).
 - **Strict mode** (opt-in): `ApproveCommand.CanExecute = IsDirty`.
 
+### 1.1 Relationship to `ComponentVM<M>`, validation, and persistence
+
+`FormVM<TM>` is **not** a thin alias of `ComponentVM<M>` + `OnModelChanged`
+(`05-component-vm.md` §3.2). A `ComponentVM<M>` exposes a settable model and a
+post-set callback; `FormVM<TM>` adds an entire **edit lifecycle** on top — a
+snapshot captured at construct (§3), automatic `IsDirty` derivation (§4), a
+revert path (`DenyCommand`), and a guarded persist path with success/error
+channels (`ApproveCommand` / `OnApproved` / `ApproveErrors`, §7). The two are
+orthogonal: `ComponentVM<M>` is the model-bearing leaf VM; `FormVM<TM>` is the
+snapshot/revert/approve workflow that a consumer reaches for when editing then
+committing or discarding an entity. ADR-0030 records the rationale for shipping
+it as its own type rather than a `ComponentVM<M>` recipe.
+
+**Validation is composed, not built in.** `FormVM<TM>` deliberately ships no
+validation framework. A form's validity is expressed by composing a
+`DerivedProperty<bool>` (`15-derived-properties.md`) over the model's fields and,
+in strict mode, the consumer gates `ApproveCommand` on both `IsDirty` and that
+derived `IsValid` (the flagship examples follow exactly this pattern). A
+first-class `IValidator<TM>` / `IsValid` surface on the type is recorded as
+**accepted future work** (ADR-0051) — it would be an additive opt-in collaborator,
+not a change to the present shape, so it is out of scope for the v3
+reconciliation.
+
+**Persistence is a consumer concern.** The persist step is a consumer-supplied
+delegate or `IFormPersister<TM>` collaborator (§2) — this seam *is* the framework's
+persistence integration point. Per `00-overview.md` §2, navigation routing,
+persistence, and serialization are explicitly out of scope as framework
+concerns; a flagship owning its own `INoteRepository` is by design, not a gap. A
+generalized `IRepository<T>` port and a command-level **undo/redo** stack (the
+inverse of the fire-only commands of chapter 04) are likewise recorded as
+**deferred future work** in ADR-0051: both would be new opt-in sub-packages, not
+clarifications, and neither is introduced here.
+
 ## 2. Shape
 
 ```

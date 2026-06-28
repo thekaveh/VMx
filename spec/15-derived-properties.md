@@ -136,7 +136,9 @@ If you find yourself wanting an init-token pattern:
   subscription releases automatically (see §4 above).
 
 The `InitializationTokens` dictionary pattern found in some GuideArch-era codebases
-is therefore obsolete in v2.x and should be replaced with `DerivedProperty`.
+is therefore obsolete in v2.x and should be replaced with `DerivedProperty` (the
+single-source-subscription / shared-multicast design that supersedes it is
+specified in [ADR-0011](ADRs/0011-derived-properties.md)).
 
 ## 9. Conformance
 

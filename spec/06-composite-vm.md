@@ -43,6 +43,32 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
     can_select_component(vm: VM) : bool
 ```
 
+### 2.1 The `ICompositeVM<VM>` contract
+
+`ICompositeVM<VM>` is the **canonical interface** that every `CompositeVM<VM>`
+realizes. It extends `IComponentVM` (chapter 01 / 05) with the container surface
+the members above describe:
+
+```
+ICompositeVM<VM> : IComponentVM, IList<VM>:
+    Current : VM?                         # selection slot (§3)
+    select_component(vm: VM) : void       # guarded selection (§3.1)
+    deselect_component(vm: VM) : void
+    can_select_component(vm: VM) : bool
+```
+
+The `IList<VM>` surface contributes `Add` / `Remove` / `Insert` / `RemoveAt` /
+`Clear` / `Count` / the indexer / iteration; `Current` and the three
+`*_component` methods are the composite-specific additions over the base
+`IComponentVM`. This is the interface `ForwardingCompositeVM<VM>`
+(`09-forwarding.md`) wraps and delegates; chapter 09 references this declaration
+as canonical rather than re-declaring it inline. `ICompositeVM<VM>` is the
+language-neutral contract name; each flavor realizes it per the ADR-0006 idiom:
+C# ships the literal `ICompositeVM<VM>` interface, Python the structural
+`CompositeVMProto` (the `…Proto` convention catalogued in ADR-0009), and
+TypeScript the structural `CompositeVMBase<VM>` shape the forwarding decorator
+wraps.
+
 ## 3. `Current` contract
 
 - `Current` MAY be `null` (no child selected).

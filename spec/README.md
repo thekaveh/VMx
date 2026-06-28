@@ -238,10 +238,18 @@ the `v3-framework-overhaul` branch.
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0050); see
+- `ADRs/` — Architecture Decision Records (0001-0051); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
-- `proposals/` — historical planning artifacts (accepted proposals that landed
-  in past releases); not part of the published spec.
+- `proposals/` — planning artifacts (accepted proposals that landed in past
+  releases). These are **mostly historical and not part of the published
+  normative spec**, with one documented exception: a proposal MAY carry a
+  **scenario contract** that `12-conformance.md` references normatively. The
+  ThemeVM scenario contract (`proposals/2026-06-02-theme-vm-scenario.md`,
+  ADR-0036 §2.C) is such a case — its `THEME-001..THEME-005` IDs are normative
+  for any flavor or example app that implements the contract (`12-conformance.md`
+  §28). Where `12-conformance.md` cites a proposal, that proposal's referenced
+  scenario contract is normative even though the surrounding proposal prose is
+  not (clarified in v3 via ADR-0051).
 
 ## 2. Versioning
 

@@ -163,12 +163,27 @@ IManagable<T>:
     manage(item: T) : void
 ```
 
+`IManagable<T>` is the **generic escape-hatch management capability**: `manage(item)`
+routes the consumer to whatever item-scoped management surface the implementing VM
+defines (open an editor/detail view for `item`, invoke a context action, etc.), and
+`can_manage(item)` reports whether that action is currently available for `item`.
+Unlike the specific CRUD verbs (§2.7) it prescribes **no** concrete effect — it
+exists so a consumer can advertise a single "Manage…" affordance for VMs whose
+management action does not map onto create/update/delete/save. As with every verb
+capability (§3 Rule 4), `manage(item)` must not be called when `can_manage(item)`
+is `false`; doing so is implementation-defined. `IManagable<T>` is intentionally
+retained as a thin, behaviour-agnostic contract; ADR-0051 records the decision to
+define its semantics in place rather than drop it, and to leave the broader
+capability-surface consolidation (collapsing the togglable triples / parameterizing
+the CRUD cluster) as a rejected breaking change.
+
 ### 2.10 Paging capability
 
 ```
 IPageable:
     PageSize         : int   # mutable; 0 means "all items in one page"
-    CurrentPageIndex : int   # mutable; clamped to [0, PageCount-1]
+    CurrentPageIndex : int   # mutable; clamped to [0, max(0, PageCount-1)]
+                             # (an empty source has PageCount == 0 and clamps to 0 — see 21 §5.4)
     PageCount        : int   # derived: ceil(itemCount / PageSize), or 1 when PageSize == 0
     IsPagingEnabled  : bool  # derived: PageSize > 0
     move_to_first_page()     # no-op when CurrentPageIndex == 0
