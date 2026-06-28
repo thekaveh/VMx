@@ -2,9 +2,9 @@
 
 The language-neutral specification of VMx. Source of truth for every language flavor.
 
-This directory is the contract. Every published package — C# `VMx` v2.6.0,
-Python `vmx` v2.6.1, TypeScript `@thekaveh/vmx` v2.6.0, Swift `VMx` v2.6.0
-(subset) — declares the spec version it implements. Conformance tests under
+This directory is the contract. Every published package declares the spec
+version it implements; see [`compatibility-matrix.md`](../compatibility-matrix.md)
+for current per-flavor versions. Conformance tests under
 `langs/<lang>/tests/conformance/` re-implement the catalog at
 `12-conformance.md` and must pass before any flavor releases a stable
 version.

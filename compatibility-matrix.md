@@ -38,3 +38,7 @@ version it implements.
 | --------------------------------------------------------------------------------------------- | ------- | ---- |
 | [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.1.0   | 2.1.x |
 | [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                      | 1.2.0   | 2.6.x |
+
+> **Note:** Companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`) version
+> independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
+> a divergence from the spec — it is the companion package's own version counter.
