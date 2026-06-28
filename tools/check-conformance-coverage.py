@@ -81,27 +81,50 @@ _TS_DESCRIBE_PATTERN = re.compile(
     r'describe\(\s*["\']([A-Z]{3,5}-\d{3})["\']\s*,',
 )
 
-
-def _scrape_ids(directory: Path, glob: str, pattern: re.Pattern[str]) -> set[str]:
-    """Recursively scan `directory` for files matching `glob` and collect every
-    conformance ID matched by `pattern` (which must have the ID as group 1)."""
-    return {
-        match.group(1)
-        for path in directory.rglob(glob)
-        for match in pattern.finditer(path.read_text(encoding="utf-8"))
-    }
+# Matches C-style block comments (/* ... */), including multi-line ones.
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
 def scrape_python_conformance_ids(directory: Path) -> set[str]:
-    return _scrape_ids(directory, "*.py", _PY_MARK_PATTERN)
+    """Scrape Python conformance IDs, ignoring any marker preceded by # on the same line."""
+    ids: set[str] = set()
+    for path in directory.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for match in _PY_MARK_PATTERN.finditer(text):
+            # Slice from the most-recent newline (or BOF) up to the match start.
+            # If a # appears in that prefix the decorator is inside a line comment.
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            if "#" not in text[line_start : match.start()]:
+                ids.add(match.group(1))
+    return ids
 
 
 def scrape_csharp_conformance_ids(directory: Path) -> set[str]:
-    return _scrape_ids(directory, "*.cs", _CS_TRAIT_PATTERN)
+    """Scrape C# conformance IDs, ignoring markers inside /* */ blocks or after // on a line."""
+    ids: set[str] = set()
+    for path in directory.rglob("*.cs"):
+        text = path.read_text(encoding="utf-8")
+        # Remove block comments first so their contents never reach the pattern.
+        cleaned = _BLOCK_COMMENT_RE.sub("", text)
+        for match in _CS_TRAIT_PATTERN.finditer(cleaned):
+            line_start = cleaned.rfind("\n", 0, match.start()) + 1
+            if "//" not in cleaned[line_start : match.start()]:
+                ids.add(match.group(1))
+    return ids
 
 
 def scrape_typescript_conformance_ids(directory: Path) -> set[str]:
-    return _scrape_ids(directory, "*.ts", _TS_DESCRIBE_PATTERN)
+    """Scrape TypeScript conformance IDs, ignoring markers in /* */ blocks or after //."""
+    ids: set[str] = set()
+    for path in directory.rglob("*.ts"):
+        text = path.read_text(encoding="utf-8")
+        # Remove block comments first so their contents never reach the pattern.
+        cleaned = _BLOCK_COMMENT_RE.sub("", text)
+        for match in _TS_DESCRIBE_PATTERN.finditer(cleaned):
+            line_start = cleaned.rfind("\n", 0, match.start()) + 1
+            if "//" not in cleaned[line_start : match.start()]:
+                ids.add(match.group(1))
+    return ids
 
 
 # ─── coverage math ────────────────────────────────────────────────────

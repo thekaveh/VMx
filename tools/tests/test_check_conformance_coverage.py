@@ -126,10 +126,6 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
                 [Trait("Category", "Fast")]
                 public void Combined_With_Other_Traits() { }
 
-                // Commented-out: should not be matched in v1.0 (best-effort)
-                // Note: this is a known limitation — the regex matches // [Trait(...)] forms
-                // because eliminating commented attributes requires a real C# parser.
-
                 public void UnrelatedHelper() { }
 
                 // This must NOT match — Trait outside brackets is not an attribute
@@ -277,3 +273,110 @@ def test_render_report_flags_orphan_ids() -> None:
     report = ccc.render_report(catalog, coverage, gaps={})
     assert "ORPHAN (1): LIFE-999" in report
     assert "1/1 covered" in report
+
+
+# ─── VMX-029: comment-filtering hardening ─────────────────────────────────────
+
+
+def test_scrape_python_ignores_commented_out_marker(tmp_path: Path) -> None:
+    """A Python marker preceded by # on the same line must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "test_lifecycle.py"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            import pytest
+
+            # @pytest.mark.conformance("XXX-001")
+            # def test_placeholder(): pass
+
+            @pytest.mark.conformance("XXX-002")
+            def test_real(): pass
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_python_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "commented-out Python marker must be ignored"
+    assert "XXX-002" in found, "genuine Python marker must still be counted"
+
+
+def test_scrape_typescript_ignores_line_commented_marker(tmp_path: Path) -> None:
+    """A TS describe() preceded by // on the same line must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "lifecycle.test.ts"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            import { describe, it } from "vitest";
+
+            // describe("XXX-001", () => { it("placeholder", () => {}); });
+
+            describe("XXX-002", () => {
+              it("real", () => {});
+            });
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_typescript_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "line-commented TS describe must be ignored"
+    assert "XXX-002" in found, "genuine TS describe must still be counted"
+
+
+def test_scrape_csharp_ignores_block_commented_marker(tmp_path: Path) -> None:
+    """A C# Trait inside /* ... */ must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "LifecycleTests.cs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            using Xunit;
+
+            public class LifecycleTests
+            {
+                /*
+                [Fact, Trait("Conformance", "XXX-001")]
+                public void Placeholder() { }
+                */
+
+                [Fact, Trait("Conformance", "XXX-002")]
+                public void RealTest() { }
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_csharp_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "block-commented C# trait must be ignored"
+    assert "XXX-002" in found, "genuine C# trait must still be counted"
+
+
+def test_scrape_csharp_ignores_line_commented_marker(tmp_path: Path) -> None:
+    """A C# Trait on a line starting with // must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "LifecycleTests.cs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            using Xunit;
+
+            public class LifecycleTests
+            {
+                // [Fact, Trait("Conformance", "XXX-001")]
+                // public void Placeholder() { }
+
+                [Fact, Trait("Conformance", "XXX-002")]
+                public void RealTest() { }
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_csharp_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "line-commented C# trait must be ignored"
+    assert "XXX-002" in found, "genuine C# trait must still be counted"
