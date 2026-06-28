@@ -17,9 +17,12 @@ final class MessageHubTests: XCTestCase {
         PropertyChangedMessage(sender: NSObject(), senderName: "h", propertyName: name)
     }
 
-    /// HUB-007 / VMX-027 — a throwing subscriber registered via `subscribe(_:)`
-    /// is isolated: its thrown error is swallowed inside its own sink, so it
-    /// neither stops the hub nor blocks delivery to the other subscribers.
+    /// VMX-027 — HUB-007-style isolation (opt-in, via the `subscribe(_:)` helper;
+    /// the raw `messages` path remains a documented divergence, so this is NOT
+    /// claimed as full HUB-007 conformance in the subset manifest). A throwing
+    /// subscriber registered via `subscribe(_:)` is isolated: its thrown error is
+    /// swallowed inside its own sink, so it neither stops the hub nor blocks
+    /// delivery to the other subscribers.
     func testThrowingSubscriberIsIsolated() {
         struct SubError: Error {}
         let hub = MessageHub()
