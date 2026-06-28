@@ -110,6 +110,11 @@ _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 # beyond the em-dash convention above.
 _SWIFT_COMMENT_MARKER_PATTERN = re.compile(r"(?m)^[ \t]*///?[ \t]+([A-Z]{3,5}-\d{3})\b[^\n—]*—")
 
+# Prefixes that look like conformance IDs but are NOT — e.g. `VMX-002` is an
+# audit finding-id, which Swift test files legitimately reference in doc comments
+# (`/// VMX-002 regression — ...`). They must not be mistaken for conformance markers.
+_NON_CONFORMANCE_PREFIXES = frozenset({"VMX"})
+
 
 def scrape_python_conformance_ids(directory: Path) -> set[str]:
     """Scrape Python conformance IDs, ignoring any marker preceded by # on the same line."""
@@ -171,7 +176,10 @@ def scrape_swift_conformance_ids(directory: Path) -> set[str]:
     for path in directory.rglob("*.swift"):
         text = path.read_text(encoding="utf-8")
         for match in _SWIFT_COMMENT_MARKER_PATTERN.finditer(text):
-            ids.add(match.group(1))
+            ident = match.group(1)
+            if ident.split("-", 1)[0] in _NON_CONFORMANCE_PREFIXES:
+                continue  # audit finding-id reference (e.g. VMX-002), not a conformance marker
+            ids.add(ident)
     return ids
 
 

@@ -427,6 +427,24 @@ def test_swift_matching_manifest_passes(tmp_path: Path) -> None:
     assert rc == 0
 
 
+def test_swift_ignores_vmx_finding_reference(tmp_path: Path) -> None:
+    """A `/// VMX-002 — ...` audit finding-id reference must NOT be scraped as a
+    conformance marker (it is not a catalog id and would otherwise fail as BOGUS)."""
+    test_with_finding_ref = (
+        "/// VMX-002 regression — background construct vs dispose race\n"
+        "func testVmx002Regression() {}\n"
+        "/// LIFE-001 — construct transitions\n"
+        "func testLife001() {}\n"
+        "/// LIFE-002 — destruct transitions\n"
+        "func testLife002() {}\n"
+    )
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_finding_ref, _SWIFT_GOOD_MANIFEST)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 0, "VMX-NNN finding references must be ignored, not flagged BOGUS"
+
+
 def test_swift_bogus_id_fails(tmp_path: Path) -> None:
     """(b) A Swift test marker whose ID is not in the catalog (typo/bogus) must fail (VMX-031)."""
     test_with_bogus = (
