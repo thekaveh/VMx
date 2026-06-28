@@ -1,4 +1,4 @@
-"""Conformance tests: LIFE-001..012.
+"""Conformance tests: LIFE-001..012, LIFE-014.
 
 Every LIFE id in this file drives a real ``ComponentVM`` instance and asserts
 its own normative behavior directly — transition sequence, emitted
@@ -356,3 +356,62 @@ def test_LIFE_012_dispose_from_disposed_is_noop() -> None:
 
     assert msgs == []
     assert vm.status == ConstructionStatus.DISPOSED
+
+
+# ---------------------------------------------------------------------------
+# LIFE-014 — a throwing construct/destruct hook rolls Status back (transactional)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("LIFE-014")
+def test_LIFE_014_throwing_hook_rolls_status_back() -> None:
+    """LIFE-014: a throwing on_construct/on_destruct hook rolls Status back to the
+    prior settled state (not wedged in the transient state) and leaves the VM
+    recoverable (spec/02-lifecycle.md §2.4)."""
+    flags = {"construct": True, "destruct": True}
+
+    # ── construct: hook raises → rollback to Destructed, then recoverable ──
+    def on_construct() -> None:
+        if flags["construct"]:
+            raise RuntimeError("construct hook failed")
+
+    vm = (
+        ComponentVMBuilder()
+        .name("life-014")
+        .services(_hub(), _dispatcher())
+        .on_construct(on_construct)
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="construct hook failed"):
+        vm.construct()
+    # Rolled back — not wedged in CONSTRUCTING.
+    assert vm.status == ConstructionStatus.DESTRUCTED
+    # Recoverable — a non-throwing retry reaches CONSTRUCTED.
+    flags["construct"] = False
+    vm.construct()
+    assert vm.status == ConstructionStatus.CONSTRUCTED
+
+    # ── destruct: hook raises → rollback to Constructed, then recoverable ──
+    def on_destruct() -> None:
+        if flags["destruct"]:
+            raise RuntimeError("destruct hook failed")
+
+    vm2 = (
+        ComponentVMBuilder()
+        .name("life-014b")
+        .services(_hub(), _dispatcher())
+        .on_destruct(on_destruct)
+        .build()
+    )
+    vm2.construct()
+    assert vm2.status == ConstructionStatus.CONSTRUCTED
+
+    with pytest.raises(RuntimeError, match="destruct hook failed"):
+        vm2.destruct()
+    # Rolled back — not wedged in DESTRUCTING.
+    assert vm2.status == ConstructionStatus.CONSTRUCTED
+    # Recoverable — a non-throwing retry reaches DESTRUCTED.
+    flags["destruct"] = False
+    vm2.destruct()
+    assert vm2.status == ConstructionStatus.DESTRUCTED

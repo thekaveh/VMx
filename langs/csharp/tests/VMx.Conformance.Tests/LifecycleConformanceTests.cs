@@ -9,7 +9,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// LIFE-001 through LIFE-013 — see spec/12-conformance.md.
+/// LIFE-001 through LIFE-014 — see spec/12-conformance.md.
 ///
 /// Every LIFE-* id is exercised here by a self-contained test that drives a
 /// real VM instance and asserts that id's own normative behavior (the
@@ -444,6 +444,55 @@ public class LifecycleConformanceTests
         disposalOrder.IndexOf("gc2a").Should().BeLessThan(disposalOrder.IndexOf("child2"));
         disposalOrder.IndexOf("child1").Should().BeLessThan(disposalOrder.IndexOf("root"));
         disposalOrder.IndexOf("child2").Should().BeLessThan(disposalOrder.IndexOf("root"));
+    }
+
+    // LIFE-014 — a throwing OnConstruct/OnDestruct hook rolls Status back to the
+    // prior settled state (transactional) instead of wedging the VM in the
+    // transient state, and the VM remains recoverable. See spec/02 §2.4.
+    [Fact, Trait("Conformance", "LIFE-014")]
+    public void LIFE_014_Throwing_Hook_Rolls_Status_Back()
+    {
+        // construct: hook throws → rollback to Destructed, then recoverable.
+        var failConstruct = true;
+        var ctorVm = ComponentVM<string>.Builder()
+            .Name("life-014").Services(new TestHub(), new TestDispatcher()).Model("m")
+            .OnConstruct(() =>
+            {
+                if (failConstruct) throw new InvalidOperationException("construct hook failed");
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => ctorVm.Construct())
+            .Message.Should().Be("construct hook failed");
+        ctorVm.Status.Should().Be(ConstructionStatus.Destructed,
+            "a throwing construct hook rolls back, not wedged in Constructing");
+
+        failConstruct = false;
+        ctorVm.Construct();
+        ctorVm.Status.Should().Be(ConstructionStatus.Constructed,
+            "the VM is recoverable after the rollback");
+
+        // destruct: hook throws → rollback to Constructed, then recoverable.
+        var failDestruct = true;
+        var dtorVm = ComponentVM<string>.Builder()
+            .Name("life-014b").Services(new TestHub(), new TestDispatcher()).Model("m")
+            .OnDestruct(() =>
+            {
+                if (failDestruct) throw new InvalidOperationException("destruct hook failed");
+            })
+            .Build();
+        dtorVm.Construct();
+        dtorVm.Status.Should().Be(ConstructionStatus.Constructed);
+
+        Assert.Throws<InvalidOperationException>(() => dtorVm.Destruct())
+            .Message.Should().Be("destruct hook failed");
+        dtorVm.Status.Should().Be(ConstructionStatus.Constructed,
+            "a throwing destruct hook rolls back, not wedged in Destructing");
+
+        failDestruct = false;
+        dtorVm.Destruct();
+        dtorVm.Status.Should().Be(ConstructionStatus.Destructed,
+            "the VM is recoverable after the rollback");
     }
 
     private sealed class FixtureRoot

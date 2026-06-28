@@ -171,6 +171,22 @@ each child itself a container with grand-children all `Constructed`
 **Then** when it returns, every child and every grand-child has `Status == Disposed`
 **And** the disposal order is depth-first (grand-children before children before parent)
 
+### LIFE-014 — A throwing construct/destruct hook rolls Status back (transactional)
+
+**Given** a VM whose `OnConstruct` (`_on_construct` / `_onConstruct`) hook raises
+**When** `construct()` is called
+**Then** the call propagates the hook's exception
+**And** `vm.Status` is `Destructed` (rolled back from the transient `Constructing`),
+not `Constructing`
+**And** the VM is recoverable: a subsequent `construct()` with a non-throwing hook
+reaches `Constructed`
+**And** symmetrically, for a VM in `Constructed` whose `OnDestruct` hook raises,
+`destruct()` propagates the exception, `vm.Status` rolls back to `Constructed`
+(not `Destructing`), and a subsequent `destruct()` with a non-throwing hook reaches
+`Destructed`
+
+> Normatively defined in `02-lifecycle.md §2.4`.
+
 ______________________________________________________________________
 
 ## 4. Message hub (`HUB-NNN`)

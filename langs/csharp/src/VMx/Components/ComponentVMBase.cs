@@ -282,7 +282,34 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     return Disposable.Empty;
                 }
 
-                OnConstruct();
+                try
+                {
+                    OnConstruct();
+                }
+                catch
+                {
+                    // VMX-007: roll _status back to Destructed (marshalled onto the
+                    // foreground per VMX-025; SetStatus re-checks Disposed under
+                    // _gate) and clear the in-flight guard so a throwing background
+                    // hook leaves the VM recoverable, then re-throw. Under the
+                    // immediate/test scheduler the rollback runs inline and the
+                    // exception surfaces to the caller; on TaskPoolScheduler it is
+                    // unobserved on the pool thread (delivering it to an awaiter is
+                    // tracked by VMX-049).
+                    _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                    {
+                        try
+                        {
+                            SetStatus(ConstructionStatus.Destructed);
+                        }
+                        finally
+                        {
+                            _inFlight = false;
+                        }
+                        return Disposable.Empty;
+                    });
+                    throw;
+                }
 
                 // VMX-025: marshal the terminal Constructed emission onto the
                 // foreground scheduler so subscribers observe the status change on
@@ -312,7 +339,20 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             try
             {
                 SetStatus(ConstructionStatus.Constructing);
-                OnConstruct();
+                try
+                {
+                    OnConstruct();
+                }
+                catch
+                {
+                    // VMX-007: a throwing construct hook must not wedge the VM in
+                    // the transient Constructing state. Roll _status back to the
+                    // prior settled state (Destructed) under _gate, then re-throw so
+                    // the caller sees the original failure. The VM is left
+                    // recoverable instead of unrecoverable-except-via-Dispose.
+                    SetStatus(ConstructionStatus.Destructed);
+                    throw;
+                }
                 SetStatus(ConstructionStatus.Constructed);
             }
             finally
@@ -391,7 +431,31 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     return Disposable.Empty;
                 }
 
-                OnDestruct();
+                try
+                {
+                    OnDestruct();
+                }
+                catch
+                {
+                    // VMX-007: roll _status back to Constructed (marshalled onto the
+                    // foreground per VMX-025; SetStatus re-checks Disposed under
+                    // _gate) and clear the in-flight guard so a throwing background
+                    // hook leaves the VM recoverable, then re-throw (unobserved on
+                    // the pool thread; VMX-049 tracks delivering it to an awaiter).
+                    _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                    {
+                        try
+                        {
+                            SetStatus(ConstructionStatus.Constructed);
+                        }
+                        finally
+                        {
+                            _inFlight = false;
+                        }
+                        return Disposable.Empty;
+                    });
+                    throw;
+                }
 
                 // VMX-025: marshal the terminal Destructed emission onto the
                 // foreground scheduler so subscribers observe the status change on
@@ -420,7 +484,18 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             try
             {
                 SetStatus(ConstructionStatus.Destructing);
-                OnDestruct();
+                try
+                {
+                    OnDestruct();
+                }
+                catch
+                {
+                    // VMX-007: roll _status back to the prior settled state
+                    // (Constructed) under _gate, then re-throw. The VM is left
+                    // recoverable instead of wedged in Destructing.
+                    SetStatus(ConstructionStatus.Constructed);
+                    throw;
+                }
                 SetStatus(ConstructionStatus.Destructed);
             }
             finally
@@ -481,11 +556,31 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         try
         {
             SetStatus(ConstructionStatus.Destructing);
-            OnDestruct();
+            try
+            {
+                OnDestruct();
+            }
+            catch
+            {
+                // VMX-007: a failed destruct phase rolls back to Constructed (the
+                // state reconstruct started from) so the VM stays recoverable.
+                SetStatus(ConstructionStatus.Constructed);
+                throw;
+            }
             SetStatus(ConstructionStatus.Destructed);
 
             SetStatus(ConstructionStatus.Constructing);
-            OnConstruct();
+            try
+            {
+                OnConstruct();
+            }
+            catch
+            {
+                // VMX-007: a failed construct phase rolls back to Destructed (the
+                // destruct phase already completed) so the VM stays recoverable.
+                SetStatus(ConstructionStatus.Destructed);
+                throw;
+            }
             SetStatus(ConstructionStatus.Constructed);
         }
         finally

@@ -355,6 +355,54 @@ describe("LIFE-012", () => {
 });
 
 // ---------------------------------------------------------------------------
+// LIFE-014
+// ---------------------------------------------------------------------------
+
+describe("LIFE-014", () => {
+  it("a throwing construct/destruct hook rolls Status back (transactional)", () => {
+    // construct: hook throws → rollback to Destructed, then recoverable.
+    let failConstruct = true;
+    const ctorVm = ComponentVM.builder()
+      .name("life-014")
+      .services(makeHub(), makeDisp())
+      .onConstruct(() => {
+        if (failConstruct) throw new Error("construct hook failed");
+      })
+      .build();
+
+    expect(() => ctorVm.construct()).toThrow("construct hook failed");
+    // Rolled back — not wedged in Constructing.
+    expect(ctorVm.status).toBe(ConstructionStatus.Destructed);
+
+    // Recoverable — a non-throwing retry reaches Constructed.
+    failConstruct = false;
+    ctorVm.construct();
+    expect(ctorVm.status).toBe(ConstructionStatus.Constructed);
+
+    // destruct: hook throws → rollback to Constructed, then recoverable.
+    let failDestruct = true;
+    const dtorVm = ComponentVM.builder()
+      .name("life-014b")
+      .services(makeHub(), makeDisp())
+      .onDestruct(() => {
+        if (failDestruct) throw new Error("destruct hook failed");
+      })
+      .build();
+    dtorVm.construct();
+    expect(dtorVm.status).toBe(ConstructionStatus.Constructed);
+
+    expect(() => dtorVm.destruct()).toThrow("destruct hook failed");
+    // Rolled back — not wedged in Destructing.
+    expect(dtorVm.status).toBe(ConstructionStatus.Constructed);
+
+    // Recoverable — a non-throwing retry reaches Destructed.
+    failDestruct = false;
+    dtorVm.destruct();
+    expect(dtorVm.status).toBe(ConstructionStatus.Destructed);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // LIFE-013
 // ---------------------------------------------------------------------------
 

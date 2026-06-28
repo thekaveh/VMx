@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (237 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (238 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -161,11 +161,32 @@ consumers continue to work unchanged.
   goes from 235 to 237 (232 library + 5 THEME scenario IDs).
 - Chapter count stays at 22.
 
-### 1.9 Supporting artefacts
+### 1.9 v2.6.x → v3.0.0 changes (in progress)
+
+The v3 framework overhaul hardens the lifecycle/dispose concurrency path and
+reconciles the spec with it (see ADR-0047 and
+`docs/audit/2026-06-27-vmx-merged-critique.md`). The `spec/VERSION` bump to
+`3.0.0` and the per-flavor package/version/count reconciliation are coordinated
+at the v3 release; the entries below describe the spec-level changes landing on
+the `v3-framework-overhaul` branch.
+
+- **ADR-0047** — v3 lifecycle/threading semantics: status transitions are atomic
+  and dispose-safe behind a per-VM guard (`02 §2.3`); background lifecycle
+  completions marshal their terminal emission onto `IDispatcher.Foreground`
+  (`11 §3/§4`); the `LIFE-008` enforcement primitive is named; a post-dispose
+  `IsCurrent` change is a silent no-op (`02` invariant 3); and a throwing
+  `OnConstruct`/`OnDestruct` hook rolls `Status` back to the prior settled state
+  (`02 §2.4`, the new **`LIFE-014`**).
+- `02-lifecycle.md` and `11-threading.md` are revised accordingly.
+- `12-conformance.md` — adds `LIFE-014` (transactional hook-failure rollback);
+  catalog total goes from 237 to 238 (233 library + 5 THEME scenario IDs).
+- Chapter count stays at 22.
+
+### 1.10 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0046); see
+- `ADRs/` — Architecture Decision Records (0001-0047); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — historical planning artifacts (accepted proposals that landed
   in past releases); not part of the published spec.

@@ -318,7 +318,26 @@ class _ComponentVMBase(ABC):
                     self._in_flight = False
                     return
 
-                self._on_construct()
+                try:
+                    self._on_construct()
+                except Exception:
+                    # VMX-007: a throwing background construct hook must not wedge
+                    # the VM in the transient Constructing state. Roll _status back
+                    # to the prior settled state (Destructed) — marshalled onto the
+                    # foreground per VMX-025 and re-checking Disposed under the lock
+                    # inside _set_status — and clear the in-flight guard so the VM is
+                    # recoverable, then re-raise. Under the immediate dispatcher the
+                    # rollback runs inline and the exception surfaces to the caller;
+                    # on a real background scheduler it is unobserved on the pool
+                    # thread (delivering it to an awaiter is tracked by VMX-049).
+                    def _fg_rollback(_scheduler: SchedulerBase, _state: object | None) -> None:
+                        try:
+                            self._set_status(ConstructionStatus.DESTRUCTED)
+                        finally:
+                            self._in_flight = False
+
+                    self._dispatcher.foreground.schedule(_fg_rollback)
+                    raise
 
                 # VMX-025: marshal the terminal Constructed emission onto the
                 # foreground scheduler so subscribers observe the status change on
@@ -339,7 +358,15 @@ class _ComponentVMBase(ABC):
         else:
             try:
                 self._set_status(ConstructionStatus.CONSTRUCTING)
-                self._on_construct()
+                try:
+                    self._on_construct()
+                except Exception:
+                    # VMX-007: roll _status back to the prior settled state
+                    # (Destructed) under the same lock _set_status uses, then
+                    # re-raise so the caller sees the original failure. The VM is
+                    # left recoverable instead of wedged in Constructing.
+                    self._set_status(ConstructionStatus.DESTRUCTED)
+                    raise
                 self._set_status(ConstructionStatus.CONSTRUCTED)
             finally:
                 self._in_flight = False
@@ -370,7 +397,24 @@ class _ComponentVMBase(ABC):
                     self._in_flight = False
                     return
 
-                self._on_destruct()
+                try:
+                    self._on_destruct()
+                except Exception:
+                    # VMX-007: a throwing background destruct hook must not wedge
+                    # the VM in the transient Destructing state. Roll _status back
+                    # to the prior settled state (Constructed) — marshalled onto the
+                    # foreground per VMX-025 and re-checking Disposed under the lock
+                    # inside _set_status — and clear the in-flight guard so the VM is
+                    # recoverable, then re-raise (unobserved on a real pool thread;
+                    # VMX-049 tracks delivering it to an awaiter).
+                    def _fg_rollback(_scheduler: SchedulerBase, _state: object | None) -> None:
+                        try:
+                            self._set_status(ConstructionStatus.CONSTRUCTED)
+                        finally:
+                            self._in_flight = False
+
+                    self._dispatcher.foreground.schedule(_fg_rollback)
+                    raise
 
                 # VMX-025: marshal the terminal Destructed emission onto the
                 # foreground scheduler so subscribers observe the status change on
@@ -391,7 +435,14 @@ class _ComponentVMBase(ABC):
         else:
             try:
                 self._set_status(ConstructionStatus.DESTRUCTING)
-                self._on_destruct()
+                try:
+                    self._on_destruct()
+                except Exception:
+                    # VMX-007: roll _status back to the prior settled state
+                    # (Constructed) under the lock, then re-raise. The VM is left
+                    # recoverable instead of wedged in Destructing.
+                    self._set_status(ConstructionStatus.CONSTRUCTED)
+                    raise
                 self._set_status(ConstructionStatus.DESTRUCTED)
             finally:
                 self._in_flight = False
@@ -411,12 +462,24 @@ class _ComponentVMBase(ABC):
         try:
             # Destruct phase
             self._set_status(ConstructionStatus.DESTRUCTING)
-            self._on_destruct()
+            try:
+                self._on_destruct()
+            except Exception:
+                # VMX-007: a failed destruct phase rolls back to Constructed
+                # (the state reconstruct started from) so the VM stays recoverable.
+                self._set_status(ConstructionStatus.CONSTRUCTED)
+                raise
             self._set_status(ConstructionStatus.DESTRUCTED)
 
             # Construct phase
             self._set_status(ConstructionStatus.CONSTRUCTING)
-            self._on_construct()
+            try:
+                self._on_construct()
+            except Exception:
+                # VMX-007: a failed construct phase rolls back to Destructed (the
+                # destruct phase already completed) so the VM stays recoverable.
+                self._set_status(ConstructionStatus.DESTRUCTED)
+                raise
             self._set_status(ConstructionStatus.CONSTRUCTED)
         finally:
             self._in_flight = False
