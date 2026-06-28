@@ -78,6 +78,22 @@ cross-references each ADR carries.
 | [0057](0057-v3-capability-micro-interface-granularity.md)                        | v3 capability micro-interface granularity — **keep** all 22 interfaces (`CAP-001..CAP-022`); the selection/expansion togglable triples and the four-verb CRUD cluster are deliberate opt-in granularity per ADR-0010, not redundancy. Documentation-only chapter-clarity changes (family taxonomy table + explicit togglable-vs-singular and CRUD-parameterization composition notes); collapsing/parameterizing the surface rejected as a breaking re-shape; complements ADR-0051 §2.4 (`IManagable<T>` semantics) to close VMX-123 (VMX-123)                                                                                                                                                                              | 3.0.0        | Accepted                          |
 | [0058](0058-v3-hold-explicit-aggregate-arity-surface.md)                         | v3 **holds the line** on the explicit `AggregateVM1..6` surface — the ~3,951 LOC per-arity hand-clone is the deliberate cost of compile-time arity-typed safety with cross-flavor parity, not boilerplate. Variadic/tuple rewrite rejected per flavor: C# has no variadic generics (tuple-soup regression); Python's `>=3.10` floor predates `TypeVarTuple` (3.11+); TS/Swift can but the named `ComponentN` accessors are load-bearing for `walk` and a Swift-only pack rewrite breaks ADR-0006 parity. No internal base/mixin dedup applied — the construct/dispose cascade is behaviour-observable, conformance-tested, and historically drift-prone. No surface/conformance change; extends ADR-0007/ADR-0034 (VMX-019) | 3.0.0        | Accepted                          |
 
+### 1.1 Consolidation opportunities (informative — VMX-120)
+
+The ledger has grown a few near-duplicate clusters. These are recorded here
+rather than retro-merged, because every ADR number is referenced from spec
+chapters, code comments, and prior PRs and must remain a stable anchor:
+
+- **0020 / 0021** — editorial-only siblings that could be one ADR.
+- **0044 / 0045 / 0046** — the three consecutive-day "v2.6 spec-accuracy
+  clarification" ADRs share an identical template and split only by chapter;
+  a single "v2.6 spec-accuracy" ADR would have sufficed.
+- **0039 / 0040 / 0041** — the teaching ADRs. Note **0041 is a KEEP**
+  (single-disposable-lifecycle is a live normative decision, not a "rejected
+  alternative" write-up like 0039/0040).
+
+Any future consolidation must keep a forwarding stub at each retired number.
+
 ## 2. Format
 
 Each ADR starts with a YAML-like preamble:
@@ -104,3 +120,10 @@ Each ADR starts with a YAML-like preamble:
 The preamble fields are stable so tooling can parse them; the body is
 hierarchically numbered (matching the documentation conventions used
 elsewhere in the spec).
+
+The **`Status`** vocabulary is `Accepted` / `Superseded by NNNN` /
+`Deprecated` / `Rejected` (VMX-121). The ledger is overwhelmingly `Accepted`
+today because superseding decisions have so far been recorded inline (e.g.
+0036's `Accepted (§2.E corrected by 0037)` and ADR-0053 superseding ADR-0037
+§2.5 in-body) rather than by flipping the predecessor's status; prefer the
+explicit `Superseded by NNNN` form when an ADR is wholly replaced.

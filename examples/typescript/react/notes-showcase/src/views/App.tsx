@@ -15,6 +15,7 @@
 import type React from "react";
 
 import { useVm } from "./adapter/useVm.js";
+import { useThemeAdapter } from "./adapter/themeAdapter.js";
 import type { ReactDialogService } from "./adapter/ReactDialogService.js";
 import { Layout } from "./components/Layout.js";
 import type { WorkspaceVM } from "../viewmodels/workspaceVM.js";
@@ -26,5 +27,9 @@ export interface AppProps {
 
 export const App: React.FC<AppProps> = ({ workspace, dialog }) => {
   const ws = useVm(workspace);
+  // VMX-129: drive the document theme from the workspace-owned ThemeVM
+  // (THEME-001..005). The hook applies the current palette on mount and
+  // re-applies on every effective change for the app's lifetime.
+  useThemeAdapter(ws.theme);
   return <Layout ws={ws} dialog={dialog} />;
 };

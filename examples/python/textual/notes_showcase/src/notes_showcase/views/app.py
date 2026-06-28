@@ -8,11 +8,15 @@ commands.
 
 from __future__ import annotations
 
+from typing import cast
+
+from reactivex.abc import DisposableBase
 from textual.app import App
 from textual.binding import Binding
 from textual.widgets import Input
 
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
+from notes_showcase.views.adapter.theme_adapter import bind_theme
 from notes_showcase.views.main_screen import MainScreen
 
 
@@ -31,6 +35,21 @@ class NotesShowcaseApp(App[None]):
     def __init__(self, workspace: WorkspaceVM) -> None:
         super().__init__()
         self.workspace = workspace
+        self._theme_subscription: DisposableBase | None = None
+
+    def on_mount(self) -> None:
+        # VMX-129: drive the Textual theme from the workspace-owned ThemeVM
+        # (THEME-001..005). bind_theme seeds the current palette and re-applies
+        # on every effective change; the subscription is released on unmount.
+        # cast: App[None] → App[object] (the adapter ignores the ReturnType).
+        self._theme_subscription = bind_theme(
+            cast("App[object]", self), self.workspace.theme
+        )
+
+    def on_unmount(self) -> None:
+        if self._theme_subscription is not None:
+            self._theme_subscription.dispose()
+            self._theme_subscription = None
 
     def get_default_screen(self) -> MainScreen:
         # Screens are installed, never composed: yielding a Screen from

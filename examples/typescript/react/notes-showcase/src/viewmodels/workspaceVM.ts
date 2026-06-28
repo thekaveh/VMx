@@ -11,14 +11,14 @@
  * `exportCommand`) and the `focusedVM` derivation (which feeds
  * `CapabilityActionsVM`).
  */
-import { BehaviorSubject, Subject, filter, observeOn, type Subscription } from "rxjs";
+import { BehaviorSubject, Subject, observeOn, type Subscription } from "rxjs";
 import {
   AggregateVM6,
   DerivedProperty,
   MessageHub,
-  PropertyChangedMessage,
   RelayCommand,
   RxDispatcher,
+  whenPropertyChanged,
   type ICommand,
   type IDispatcher,
   type IMessageHub,
@@ -38,6 +38,7 @@ import { NotebooksRootVM } from "./notebooksRootVM.js";
 import { NotesViewVM } from "./notesViewVM.js";
 import { NotificationsVM } from "./notificationsVM.js";
 import { StatusBarVM } from "./statusBarVM.js";
+import { ThemeVM } from "./themeVM.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -51,6 +52,10 @@ export class WorkspaceVM {
   readonly #statusBar: StatusBarVM;
   readonly #notifications: NotificationsVM;
   readonly #capabilityActions: CapabilityActionsVM;
+  // VMX-129: the theme seam is a workspace-owned sibling of the six aggregate
+  // children (an AggregateVM7 was declined in ADR-0058). Lifecycle is driven
+  // alongside the aggregate; the React `useThemeAdapter` hook binds to it.
+  readonly #theme: ThemeVM;
   #noteCounter = 0;
   readonly #aggregate: AggregateVM6<
     NotebooksRootVM,
@@ -164,6 +169,14 @@ export class WorkspaceVM {
       .component6(() => this.#capabilityActions)
       .build();
 
+    // VMX-129: build the workspace-owned theme seam on the shared services.
+    this.#theme = new ThemeVM({
+      name: "theme",
+      hint: "",
+      hub: opts.hub,
+      dispatcher: opts.dispatcher,
+    });
+
     this.#focusSubject = new BehaviorSubject<object | null>(null);
     this.#focusedVMDerived = new DerivedProperty<object | null>(
       this.#focusSubject.asObservable(),
@@ -189,16 +202,14 @@ export class WorkspaceVM {
     // spec requires for PropertyChanged delivery (THR-001 parity).
     const notesViewRef = this.#notesView;
     const noteFormRef = this.#noteForm;
-    this.#currentNoteSubscription = notesViewRef.hub.messages
-      .pipe(
-        filter(
-          (m): m is PropertyChangedMessage<unknown> =>
-            m instanceof PropertyChangedMessage &&
-            m.sender === notesViewRef &&
-            m.propertyName === "current",
-        ),
-        observeOn(opts.dispatcher.foreground),
-      )
+    // VMX-017: the typed `whenPropertyChanged` hub helper replaces the
+    // hand-rolled `filter(instanceof + sender === + propertyName)` filter.
+    this.#currentNoteSubscription = whenPropertyChanged(
+      notesViewRef.hub,
+      notesViewRef,
+      "current",
+    )
+      .pipe(observeOn(opts.dispatcher.foreground))
       .subscribe(() => {
         const current = notesViewRef.current;
         if (current !== null) {
@@ -281,6 +292,15 @@ export class WorkspaceVM {
     return this.#capabilityActions;
   }
 
+  /**
+   * Theme seam (THEME-001..005). Workspace-owned, not an aggregate child —
+   * the React `useThemeAdapter` hook binds to it so the scenario is exercised
+   * in the running app (VMX-129).
+   */
+  get theme(): ThemeVM {
+    return this.#theme;
+  }
+
   get hub(): IMessageHub {
     return this.#hub;
   }
@@ -319,6 +339,7 @@ export class WorkspaceVM {
 
   construct(): void {
     this.#aggregate.construct();
+    this.#theme.construct();
   }
 
   /**
@@ -327,6 +348,7 @@ export class WorkspaceVM {
    */
   async constructAsync(): Promise<void> {
     this.#aggregate.construct();
+    this.#theme.construct();
     await this.#notebooks.populateAsync();
     const [first] = this.#notebooks.roots;
     if (first !== undefined) {
@@ -343,6 +365,7 @@ export class WorkspaceVM {
   }
 
   destruct(): void {
+    this.#theme.destruct();
     this.#aggregate.destruct();
   }
 
@@ -355,6 +378,7 @@ export class WorkspaceVM {
     this.#newNotebookCommand.dispose();
     this.#newNoteCommand.dispose();
     this.#exportCommand.dispose();
+    this.#theme.dispose();
     this.#aggregate.dispose();
   }
 

@@ -132,8 +132,11 @@ v2.4.x consumers continue to work unchanged.
   trap is a documented divergence (ch02 §2); the Swift conformance subset
   is recounted 53 → 39 (corrects ADR-0036 §2.E); fixture-prose and
   `NULL-*` listing corrections (ch15 §7, ch03 §8, ch11 §6).
-- `12-conformance.md` — adds `HIER-018`, `NOTIF-017`, and `FORM-014`; catalog
-  total goes from 232 to 235 (230 library + 5 THEME scenario IDs).
+- **ADR-0038** — spec-accuracy corrections (ch. 14 / 16 / 20 / 21) and the
+  FormVM approve/deny round-trip clarification (ch20, **FORM-014**).
+- `12-conformance.md` — adds `HIER-018` + `NOTIF-017` (ADR-0037) and
+  `FORM-014` (ADR-0038); catalog total goes from 232 to 235 (230 library +
+  5 THEME scenario IDs).
 - Chapter count stays at 22.
 
 ### 1.8 v2.5.x → v2.6.0 changes

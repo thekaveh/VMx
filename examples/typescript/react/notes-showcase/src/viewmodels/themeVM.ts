@@ -3,11 +3,12 @@
  *
  * Conforms to `spec/proposals/2026-06-02-theme-vm-scenario.md` §4 ("VM surface").
  *
- * TODO(workspaceVM-wireup): per the proposal §8 migration plan, this VM
- * is intended to be composed into `WorkspaceVM` as a 7th child (bringing
- * the AggregateVM6 to AggregateVM7 — see ADR-0036 §2.C and §4 decision #3).
- * Wire-up is OUT OF SCOPE for this task and tracked under
- * `spec/proposals/2026-06-02-theme-vm-scenario.md` §8 (Migration).
+ * Wire-up (VMX-129): `WorkspaceVM` owns a `ThemeVM` as a sibling of the six
+ * aggregate children (not a 7th aggregate child — that would require an
+ * `AggregateVM7` in core, which ADR-0058 declined). The workspace drives its
+ * lifecycle (construct/destruct/dispose) and `App.tsx` binds the React
+ * `useThemeAdapter` hook to `workspace.theme`, so the THEME-001..005 scenario
+ * is exercised in the running app.
  *
  * Design notes:
  *
