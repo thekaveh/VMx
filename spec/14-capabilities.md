@@ -23,8 +23,33 @@ additively rather than restructuring the existing VM hierarchy around them.
 
 ## 2. The 22 capabilities
 
-Capabilities are grouped by intent. Every capability is independently
-implementable; a VM may implement any subset.
+Capabilities are grouped into **families by intent**. The families are a
+documentation aid only — every capability is an independent, opt-in contract,
+and a VM may implement any subset across any families:
+
+| Family (section)          | Capabilities                                                     |
+| ------------------------- | ---------------------------------------------------------------- |
+| Selection (§2.1)          | `ISelectable`, `IDeselectable`, `ISelectionTogglable`            |
+| Expansion (§2.2)          | `IExpandable`, `ICollapsible`, `IExpansionTogglable`             |
+| Lifecycle (§2.3)          | `IConstructable`, `IDestructable`, `IReconstructable`            |
+| Dialog / form (§2.4)      | `IClosable`, `IApprovable`, `ICancelable`                        |
+| Search (§2.5)             | `ISearchable`                                                    |
+| Filter (§2.6)             | `IFilterable<TItem>`                                             |
+| CRUD verbs (§2.7)         | `INewCreatable`, `IDeletable<T>`, `IUpdatable<T>`, `ISavable<T>` |
+| Container-current (§2.8)  | `ICurrentDeletable`, `ICurrentUpdatable`                         |
+| Generic management (§2.9) | `IManagable<T>`                                                  |
+| Paging (§2.10)            | `IPageable`                                                      |
+
+The per-verb granularity — the three-member selection/expansion **triples** and
+the four-interface CRUD verb cluster, rather than one combined toggle interface
+or one parameterized `ICrud<T>` — is **deliberate, not accidental**. It is the
+whole point of capability micro-interfaces (ADR-0010): a VM advertises *exactly*
+the verbs it supports, and a consumer depends on *exactly* the verb it renders.
+The per-cluster decision to keep these families granular at v3 (rather than
+collapse them, a rejected breaking re-shaping) is recorded in ADR-0057. The
+composition relationship between the singular verbs and the `…Togglable` member
+of each triple is made explicit in §2.1 and §2.2, and the CRUD parameterization
+in §2.7.
 
 ### 2.1 Selection capabilities
 
@@ -41,6 +66,17 @@ ISelectionTogglable:
     can_toggle_selection() : bool
     toggle_selection() : void
 ```
+
+`ISelectionTogglable` is **not** merely the conjunction of `ISelectable` and
+`IDeselectable`. A VM may implement the two singular verbs (a list row that can
+select and clear itself) without offering a single toggle affordance, and a VM
+may implement `ISelectionTogglable` alone (a checkbox-style row whose only
+exposed action is "flip my selection") without exposing standalone `select()` /
+`deselect()`. When all three are present, `toggle_selection()` is expected to
+delegate to `select()` / `deselect()`, but `can_toggle_selection()` is a
+capability in its own right — it need not equal `can_select() || can_deselect()`.
+Keeping the three as separate opt-in contracts lets a consumer bind to precisely
+the affordance it renders (ADR-0010, ADR-0057).
 
 ### 2.2 Expansion capabilities
 
@@ -59,6 +95,13 @@ IExpansionTogglable:
     can_toggle_expansion() : bool
     toggle_expansion() : void
 ```
+
+As with the selection triple (§2.1), `IExpansionTogglable` is a distinct opt-in
+contract, **not** an implied `IExpandable + ICollapsible`. A tree node may offer
+a single disclosure "toggle" control without exposing separate expand/collapse
+verbs, or expose the two directional verbs without a combined toggle. When all
+three are present, `toggle_expansion()` delegates to `expand()` / `collapse()`,
+while `can_toggle_expansion()` is reported independently.
 
 ### 2.3 Lifecycle capabilities
 
@@ -143,6 +186,25 @@ ISavable<T>:
     save(item: T) : void
 ```
 
+The CRUD cluster is **four independent verb capabilities, each parameterized by
+the item type it operates on** (`<T>`), not one monolithic `ICrud<T>`:
+
+- `INewCreatable` is **unparameterized** — creation produces a new item and so
+  takes no existing item argument.
+- `IDeletable<T>`, `IUpdatable<T>`, and `ISavable<T>` each take the target
+  `item: T`, where `<T>` is the item type the verb acts on (fixed per
+  implementing VM).
+
+Splitting them lets a VM advertise the precise mutation subset it supports — a
+read-and-create-only surface implements `INewCreatable` alone; an append-only
+log implements `INewCreatable` + `ISavable<T>` with no delete/update. A single
+parameterized `ICrud<T>` would force every implementer to advertise (and
+no-op-or-throw) verbs it does not offer, defeating the opt-in discrimination
+that is the point of these interfaces (ADR-0010, ADR-0057). The §2.8
+container-current pair (`ICurrentDeletable` / `ICurrentUpdatable`) are the
+**item-argument-free** variants of `IDeletable<T>` / `IUpdatable<T>` that act on
+the implementing container's own `Current` selection instead of a passed item.
+
 ### 2.8 Container-current capabilities
 
 ```
@@ -173,9 +235,11 @@ management action does not map onto create/update/delete/save. As with every ver
 capability (§3 Rule 4), `manage(item)` must not be called when `can_manage(item)`
 is `false`; doing so is implementation-defined. `IManagable<T>` is intentionally
 retained as a thin, behaviour-agnostic contract; ADR-0051 records the decision to
-define its semantics in place rather than drop it, and to leave the broader
-capability-surface consolidation (collapsing the togglable triples / parameterizing
-the CRUD cluster) as a rejected breaking change.
+define its semantics in place rather than drop it, and ADR-0057 records the
+per-cluster decision to **keep** the selection/expansion triples and the CRUD
+cluster granular (the family taxonomy and composition relationships are made
+explicit in §2 / §2.1 / §2.2 / §2.7) rather than collapse them — a rejected
+breaking re-shaping of the capability surface.
 
 ### 2.10 Paging capability
 
