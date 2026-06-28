@@ -44,8 +44,14 @@ jobs:
             9.0.x
           cache: true
           cache-dependency-path: langs/csharp/**/packages.lock.json
+      - name: Restore
+        run: dotnet restore langs/csharp/VMx.sln --locked-mode
+      - name: Build
+        run: dotnet build langs/csharp/VMx.sln -c Release --no-restore --nologo
+      - name: Test
+        run: dotnet test langs/csharp/VMx.sln -c Release --no-build --nologo
       - name: Pack
-        run: dotnet pack langs/csharp/VMx.sln -c Release --nologo -o /tmp/nupkgs
+        run: dotnet pack langs/csharp/VMx.sln -c Release --nologo --no-build -o /tmp/nupkgs
       - name: Push to NuGet
         if: env.NUGET_API_KEY != ''
         run: |
@@ -286,6 +292,9 @@ jobs:
       - name: Build
         working-directory: langs/typescript
         run: npm run build
+      - name: Test
+        working-directory: langs/typescript
+        run: npm test
       - name: Publish to npm
         if: env.NPM_TOKEN != ''
         working-directory: langs/typescript
@@ -295,14 +304,20 @@ jobs:
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —
     # SwiftPM consumes packages directly from git URLs). The release here just
     # cuts a GitHub Release pointing at the tag so SwiftPM consumers get a
-    # stable artifact reference. Building / testing the package is the job
-    # of `.github/workflows/swift.yml`; this workflow trusts that gate.
+    # stable artifact reference. `swift.yml` only triggers on path-push /
+    # pull_request, NOT on tag-push, so this job must run its own test gate
+    # before creating the release (VMX-038).
     if: startsWith(github.ref, 'refs/tags/swift-v')
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Build & test
+        # swift test requires full Xcode (XCTest); macos-latest provides it.
+        # Combine is macOS-only so ubuntu-latest cannot run these tests.
+        working-directory: langs/swift
+        run: swift build && swift test --parallel
       - name: Create GitHub Release for SwiftPM consumers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
