@@ -1,6 +1,6 @@
-#pragma warning disable CA1715 // Spec uses 'TModel' / 'TVM' per ADR-0006 and ADR-0028
 using System.Collections.ObjectModel;
 using VMx.Components;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -181,9 +181,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void AddChild(TVM child)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (child is null) throw new ArgumentNullException(nameof(child));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(child, nameof(child));
 
         EnsureChildrenMaterialized();
         var index = _children!.Count;
@@ -204,9 +202,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void RemoveChild(TVM child)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (child is null) throw new ArgumentNullException(nameof(child));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(child, nameof(child));
 
         EnsureChildrenMaterialized();
         // Match by identity (not Equals) so a TVM overriding Equals cannot
@@ -232,9 +228,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void ReparentChild(TVM child)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (child is null) throw new ArgumentNullException(nameof(child));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(child, nameof(child));
         if (ReferenceEquals(child.HierarchicalParent, this)) return;
 
         // HIER-018: reparenting this node or one of its ancestors under
@@ -327,4 +321,3 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         }
     }
 }
-#pragma warning restore CA1715

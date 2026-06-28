@@ -114,7 +114,6 @@ public class NotificationVM : IDisposable
     public void Dispose()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
     }
 
     /// <summary>Subclasses override to perform additional dispose work.</summary>

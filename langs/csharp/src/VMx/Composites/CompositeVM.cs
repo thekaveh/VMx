@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
 using VMx.Components;
 using VMx.Services;
 
@@ -36,9 +35,7 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
     }
 
     /// <summary>Returns a new empty builder for <see cref="CompositeVM{VM}"/>.</summary>
-#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
     public static CompositeVMBuilder<VM> Builder() => CompositeVMBuilder<VM>.Empty;
-#pragma warning restore CA1000
 
     /// <summary>Internal factory called by the builder.</summary>
     internal static CompositeVM<VM> Create(
@@ -64,4 +61,3 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
             Add(child);
     }
 }
-#pragma warning restore CA1715

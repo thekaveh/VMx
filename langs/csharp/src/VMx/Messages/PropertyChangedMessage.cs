@@ -17,10 +17,8 @@ public sealed record PropertyChangedMessage<TSender>(
     /// <inheritdoc/>
     public object SenderObject => Sender!;
 
-#pragma warning disable CA1000 // Static Create on generic type: intentional factory convenience method
     /// <summary>Factory method; equivalent to the primary constructor.</summary>
     public static PropertyChangedMessage<TSender> Create(
         TSender sender, string senderName, string propertyName)
         => new(sender, senderName, propertyName);
-#pragma warning restore CA1000
 }

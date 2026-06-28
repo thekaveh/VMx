@@ -59,4 +59,37 @@ public class DependencyInjectionTests
             SynchronizationContext.SetSynchronizationContext(previous);
         }
     }
+
+    [Fact]
+    public void AddVMx_Is_Idempotent_Does_Not_Double_Register()
+    {
+        // A library and the host app may both call AddVMx; TryAdd* must keep a
+        // single registration so the container builds only one MessageHub /
+        // RxDispatcher singleton (VMX-136).
+        var services = new ServiceCollection();
+        services.AddVMx(opts => opts.UseDispatcher(_ =>
+            new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance)));
+        services.AddVMx(opts => opts.UseDispatcher(_ =>
+            new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance)));
+
+        services.Count(d => d.ServiceType == typeof(IMessageHub))
+            .Should().Be(1, "AddVMx must not double-register IMessageHub");
+        services.Count(d => d.ServiceType == typeof(IDispatcher))
+            .Should().Be(1, "AddVMx must not double-register IDispatcher");
+    }
+
+    [Fact]
+    public void AddVMx_Preserves_A_Host_Registration_Made_First()
+    {
+        // TryAdd* means the first registration wins: a host that registers its own
+        // IMessageHub before calling AddVMx keeps it (VMX-136).
+        var hostHub = new MessageHub();
+        var services = new ServiceCollection();
+        services.AddSingleton<IMessageHub>(hostHub);
+        services.AddVMx(opts => opts.UseDispatcher(_ =>
+            new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance)));
+
+        var sp = services.BuildServiceProvider();
+        sp.GetRequiredService<IMessageHub>().Should().BeSameAs(hostHub);
+    }
 }

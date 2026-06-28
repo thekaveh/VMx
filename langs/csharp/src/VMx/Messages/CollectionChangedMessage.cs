@@ -22,7 +22,6 @@ public sealed record CollectionChangedMessage<T>(
     /// <remarks>Derived from the sender's runtime type name; no separate name field per spec §2.4.</remarks>
     public string SenderName => Sender.GetType().Name;
 
-#pragma warning disable CA1000 // Static factories on generic type: intentional — mirrors PropertyChangedMessage<T> pattern
     /// <summary>Factory for Add.</summary>
     public static CollectionChangedMessage<T> ForAdd(object sender, T item, int index)
         => new(sender, NotifyCollectionChangedAction.Add,
@@ -42,5 +41,4 @@ public sealed record CollectionChangedMessage<T>(
     public static CollectionChangedMessage<T> ForReset(object sender)
         => new(sender, NotifyCollectionChangedAction.Reset,
                Array.Empty<T>(), Array.Empty<T>(), -1);
-#pragma warning restore CA1000
 }

@@ -59,9 +59,7 @@ public interface IComponentVM
     bool CanSelect();
 
     /// <summary>Selects this VM in its parent composite (spec: select()).</summary>
-#pragma warning disable CA1716 // 'Select' is the spec-mandated name per spec/05-component-vm.md
     void Select();
-#pragma warning restore CA1716
 
     /// <summary>Returns true when this VM can be deselected.</summary>
     bool CanDeselect();

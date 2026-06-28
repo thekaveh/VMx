@@ -17,6 +17,23 @@ namespace System.Diagnostics.CodeAnalysis
     // [NotNull] arg: post-call, the compiler treats `arg` as non-null.
     [AttributeUsage(AttributeTargets.Parameter)]
     internal sealed class NotNullAttribute : Attribute { }
+
+    // [MaybeNull] field/return: the member may hold null/default even when its
+    // declared type is non-nullable (e.g. a lazily-initialised generic cache).
+    [AttributeUsage(
+        AttributeTargets.Field | AttributeTargets.Parameter |
+        AttributeTargets.Property | AttributeTargets.ReturnValue)]
+    internal sealed class MaybeNullAttribute : Attribute { }
+
+    // [MaybeNullWhen(returnValue)] out arg: when the method returns the given
+    // bool, the out parameter may be null even if its type is non-nullable.
+    [AttributeUsage(AttributeTargets.Parameter)]
+    internal sealed class MaybeNullWhenAttribute : Attribute
+    {
+        public MaybeNullWhenAttribute(bool returnValue) => ReturnValue = returnValue;
+
+        public bool ReturnValue { get; }
+    }
 }
 #pragma warning restore IDE0161
 #endif

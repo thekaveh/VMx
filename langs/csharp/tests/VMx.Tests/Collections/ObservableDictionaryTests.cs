@@ -437,4 +437,19 @@ public class ObservableDictionaryTests
         // "b" removed, "a" and "c" remain
         sut.Keys1.Should().ContainInOrder("a", "c");
     }
+
+    [Fact]
+    public void TryGetValue_Miss_ReturnsFalse_And_DefaultValue_VMX071()
+    {
+        // With [MaybeNullWhen(false)] the out value is default(TValue) on a miss —
+        // null for a reference TValue — and the hit branch is non-null (VMX-071).
+        var sut = new ObservableDictionary<string, int, string>();
+        sut.Add("a", 1, "x");
+
+        sut.TryGetValue("a", 1, out var hit).Should().BeTrue();
+        hit.Should().Be("x");
+
+        sut.TryGetValue("missing", 99, out var miss).Should().BeFalse();
+        miss.Should().BeNull("a TryGetValue miss yields default(TValue)");
+    }
 }

@@ -56,7 +56,12 @@ public static class LifecycleTransitionValidator
             ?? throw new InvalidOperationException(
                 $"Embedded resource not found: {EmbeddedResourceName}. " +
                 "Ensure spec/fixtures/lifecycle-transitions.json is embedded via the csproj.");
-        return JsonSerializer.Deserialize<TransitionTable>(stream, Options)!;
+        var table = JsonSerializer.Deserialize<TransitionTable>(stream, Options)!;
+        // Build the (from, via) → row index once, under the Lazy's
+        // ExecutionAndPublication lock, so every later Find is an O(1) lookup
+        // with no per-row enum→string allocation (VMX-073).
+        table.BuildIndex();
+        return table;
     }
 
     private static readonly JsonSerializerOptions Options = new()
@@ -78,10 +83,30 @@ public static class LifecycleTransitionValidator
         [JsonPropertyName("transitions")]
         public List<Row> Transitions { get; init; } = new();
 
+        // (from, via) → row. ValueTuple<string,string> keys hash with ordinal
+        // string equality — the same comparison the old linear scan used.
+        [JsonIgnore]
+        private Dictionary<(string From, string Via), Row> _index = new();
+
+        /// <summary>
+        /// Materializes the lookup index from <see cref="Transitions"/>. Called once
+        /// after deserialization. First row wins on a duplicate (from, via), matching
+        /// the previous <c>FirstOrDefault</c> semantics.
+        /// </summary>
+        public void BuildIndex()
+        {
+            var map = new Dictionary<(string From, string Via), Row>(Transitions.Count);
+            foreach (var r in Transitions)
+            {
+                var key = (r.From, r.Via);
+                if (!map.ContainsKey(key))
+                    map[key] = r;
+            }
+            _index = map;
+        }
+
         public Row? Find(ConstructionStatus from, string operation) =>
-            Transitions.FirstOrDefault(r =>
-                string.Equals(r.From, from.ToString(), StringComparison.Ordinal) &&
-                string.Equals(r.Via, operation, StringComparison.Ordinal));
+            _index.TryGetValue((from.ToString(), operation), out var row) ? row : null;
     }
 
     private sealed class Row

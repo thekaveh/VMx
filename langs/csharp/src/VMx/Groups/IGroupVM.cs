@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
 using System.Collections.Specialized;
 using VMx.Components;
 
@@ -21,4 +20,3 @@ public interface IGroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChange
     where VM : class, IComponentVM
 {
 }
-#pragma warning restore CA1715

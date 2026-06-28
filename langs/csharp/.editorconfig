@@ -6,3 +6,23 @@ csharp_style_namespace_declarations = file_scoped:warning
 csharp_new_line_before_open_brace = all
 csharp_indent_case_contents = true
 csharp_indent_switch_labels = true
+
+# --- Project-wide analyzer decisions (centralized here per VMX-065/066) ---
+# These were previously repeated as ~60 per-file `#pragma warning disable`
+# pairs. They are deliberate, codebase-wide choices, so they belong in one
+# place rather than scattered across every file in the area.
+#
+# CA1715: type parameters must be prefixed with 'T'. The spec mandates the
+#   single-letter idiom 'M' / 'VM' / 'VM1..VMN' for model/viewmodel type
+#   parameters (ADR-0006, ADR-0028, spec/08-aggregate-vm.md §2).
+dotnet_diagnostic.CA1715.severity = none
+# CA1000: do not declare static members on generic types. The spec mandates
+#   static factory entry points on generic types (e.g. RelayCommand<T>.Builder(),
+#   ComponentVM<M>.Builder(), PropertyChangedMessage<T>.Create()).
+dotnet_diagnostic.CA1000.severity = none
+# CA1716: identifiers should not match reserved keywords. 'Select' is the
+#   spec-mandated capability/selection name (spec/05, spec/14).
+dotnet_diagnostic.CA1716.severity = none
+# CA1816: Dispose methods should call GC.SuppressFinalize. No type in this
+#   assembly declares a finalizer, so SuppressFinalize is dead weight (VMX-066).
+dotnet_diagnostic.CA1816.severity = none

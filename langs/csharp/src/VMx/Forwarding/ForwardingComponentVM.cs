@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'M' for model type parameter per ADR-0006
 #pragma warning disable CA1051 // Protected field _wrapped is intentional: subclasses use it to override individual members
 using System.ComponentModel;
 using System.Windows.Input;
@@ -108,10 +107,8 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IDisposable
     /// <inheritdoc/>
     public virtual bool CanSelect() => _wrapped.CanSelect();
 
-#pragma warning disable CA1716 // 'Select' is the spec-mandated name per spec/05-component-vm.md
     /// <inheritdoc/>
     public virtual void Select() => _wrapped.Select();
-#pragma warning restore CA1716
 
     /// <inheritdoc/>
     public virtual bool CanDeselect() => _wrapped.CanDeselect();
@@ -134,8 +131,6 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IDisposable
     public virtual void Dispose()
     {
         _wrapped.Dispose();
-        GC.SuppressFinalize(this);
     }
 }
 #pragma warning restore CA1051
-#pragma warning restore CA1715

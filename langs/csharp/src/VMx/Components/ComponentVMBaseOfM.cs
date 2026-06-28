@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'M' for model type parameter per ADR-0006
 using VMx.Messages;
 using VMx.Services;
 
@@ -88,4 +87,3 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
         _onModelChanged?.Invoke(value);
     }
 }
-#pragma warning restore CA1715

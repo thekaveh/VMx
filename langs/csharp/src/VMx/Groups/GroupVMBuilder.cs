@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' type parameter per ADR-0006
 using VMx.Builders;
 using VMx.Components;
 using VMx.Services;
@@ -118,4 +117,3 @@ public sealed class GroupVMBuilder<VM>
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct);
 }
-#pragma warning restore CA1715

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Specialized;
+using System.Diagnostics.CodeAnalysis;
 using VMx.Messages;
 using VMx.Services;
 
@@ -268,13 +269,11 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     /// Try to get the value for the given key pair.
     /// Returns <see langword="false"/> if absent.
     /// </summary>
-    public bool TryGetValue(TKey1 key1, TKey2 key2, out TValue value)
+    public bool TryGetValue(TKey1 key1, TKey2 key2, [MaybeNullWhen(false)] out TValue value)
     {
         _ = key1 ?? throw new ArgumentNullException(nameof(key1));
         _ = key2 ?? throw new ArgumentNullException(nameof(key2));
-#pragma warning disable CS8601 // value will be default(TValue) on false — caller checks return value
-        return _data.TryGetValue((key1, key2), out value!);
-#pragma warning restore CS8601
+        return _data.TryGetValue((key1, key2), out value);
     }
 
     /// <summary>Remove all entries and emit <see cref="Reset"/>. Does NOT fire per-item events.</summary>

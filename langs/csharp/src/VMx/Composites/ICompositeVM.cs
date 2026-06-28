@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
 using System.Collections.Specialized;
 using VMx.Components;
 
@@ -39,4 +38,3 @@ public interface ICompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionCh
     /// </summary>
     bool CanSelectComponent(VM vm);
 }
-#pragma warning restore CA1715

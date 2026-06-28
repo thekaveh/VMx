@@ -14,7 +14,9 @@
 
   <ItemGroup>
     <PackageReference Include="System.Reactive" />
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+    <!-- Microsoft.Bcl.AsyncInterfaces is no longer referenced directly (no IAsync*/
+         await using/ValueTask usage); it arrives transitively via System.Text.Json on
+         netstandard2.0 and stays pinned through the central PackageVersion (VMX-070). -->
     <PackageReference Include="System.Text.Json" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
     <PackageReference Include="System.Collections.Immutable" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
   </ItemGroup>

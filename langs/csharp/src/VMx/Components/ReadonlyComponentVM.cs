@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'M' for model type parameter per ADR-0006
 using VMx.Services;
 
 namespace VMx.Components;
@@ -37,10 +36,8 @@ public sealed class ReadonlyComponentVM<M> : ComponentVMBase, IReadonlyComponent
     }
 
     // ── Builder factory ──────────────────────────────────────────────────────
-#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
     /// <summary>Returns a new empty builder for <see cref="ReadonlyComponentVM{M}"/>.</summary>
     public static ReadonlyComponentVMBuilder<M> Builder() => ReadonlyComponentVMBuilder<M>.Empty;
-#pragma warning restore CA1000
 
     // ── Internal factory used by builder ────────────────────────────────────
     internal static ReadonlyComponentVM<M> Create(
@@ -54,4 +51,3 @@ public sealed class ReadonlyComponentVM<M> : ComponentVMBase, IReadonlyComponent
         Action? onDestruct)
         => new(name, hint, model, modeledHinter, hub, dispatcher, onConstruct, onDestruct);
 }
-#pragma warning restore CA1715

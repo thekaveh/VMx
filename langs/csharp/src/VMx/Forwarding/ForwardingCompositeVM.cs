@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
 #pragma warning disable CA1051 // Protected field _wrappedComposite is intentional: subclasses use it to override individual members
 using System.Collections;
 using System.Collections.Specialized;
@@ -100,10 +99,8 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
     /// <inheritdoc/>
     public virtual bool CanSelect() => _wrappedComposite.CanSelect();
 
-#pragma warning disable CA1716 // 'Select' is the spec-mandated name per spec/05-component-vm.md
     /// <inheritdoc/>
     public virtual void Select() => _wrappedComposite.Select();
-#pragma warning restore CA1716
 
     /// <inheritdoc/>
     public virtual bool CanDeselect() => _wrappedComposite.CanDeselect();
@@ -202,8 +199,6 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
     public virtual void Dispose()
     {
         _wrappedComposite.Dispose();
-        GC.SuppressFinalize(this);
     }
 }
 #pragma warning restore CA1051
-#pragma warning restore CA1715

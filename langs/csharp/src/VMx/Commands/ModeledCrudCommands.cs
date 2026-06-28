@@ -1,4 +1,4 @@
-#pragma warning disable CA1715 // Spec uses M / VM for model / viewmodel per ADR-0006
+using System.Reactive.Disposables;
 using System.Windows.Input;
 
 namespace VMx.Commands;
@@ -20,8 +20,7 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     /// <summary>Command that invokes delete_current with the current VM. CanExecute requires current != null.</summary>
     public ICommand DeleteCurrentCommand { get; }
 
-    private readonly List<IDisposable> _disposables = new();
-    private bool _disposed;
+    private readonly CompositeDisposable _disposables = new();
 
     /// <summary>Creates a new CRUD command set.</summary>
     /// <param name="current">Provider returning the current VM (or null).</param>
@@ -75,10 +74,5 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     }
 
     /// <summary>Disposes the underlying commands. Idempotent.</summary>
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        foreach (var d in _disposables) d.Dispose();
-    }
+    public void Dispose() => _disposables.Dispose();
 }

@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' for child VM type parameter per ADR-0006
 using System.Collections;
 using System.Collections.Specialized;
 using VMx.Components;
@@ -254,20 +253,17 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCo
     /// <summary>
     /// Dispose cascade (LIFE-013): recursively dispose each child depth-first, then self.
     /// </summary>
-#pragma warning disable CA1816 // base.Dispose() already calls GC.SuppressFinalize(this)
     public override void Dispose()
     {
         // Depth-first: dispose each child before self.
         foreach (var child in _children)
             child.Dispose();
 
-        base.Dispose(); // calls GC.SuppressFinalize(this)
+        base.Dispose();
     }
-#pragma warning restore CA1816
 
     // ── IComponentVM.Type ─────────────────────────────────────────────────────
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Group;
 }
-#pragma warning restore CA1715

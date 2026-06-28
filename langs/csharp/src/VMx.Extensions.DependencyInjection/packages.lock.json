@@ -92,7 +92,6 @@
       "vmx": {
         "type": "Project",
         "dependencies": {
-          "Microsoft.Bcl.AsyncInterfaces": "[8.0.0, )",
           "System.Collections.Immutable": "[8.0.0, )",
           "System.Reactive": "[6.0.1, )",
           "System.Text.Json": "[8.0.5, )"

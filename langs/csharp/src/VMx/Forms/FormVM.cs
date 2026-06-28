@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Commands;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -36,9 +37,7 @@ public sealed class FormVM<TM> : IDisposable
     /// Returns an empty <see cref="FormVMBuilder{TM}"/> for fluent construction.
     /// See ADR-0035 §2 FV1 / FV2.
     /// </summary>
-#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
     public static FormVMBuilder<TM> Builder() => FormVMBuilder<TM>.Empty;
-#pragma warning restore CA1000
 
     // ── Constructors ──────────────────────────────────────────────────────────
 
@@ -65,10 +64,8 @@ public sealed class FormVM<TM> : IDisposable
         bool strict = false,
         Func<TM, TM>? snapshotter = null)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (initial is null) throw new ArgumentNullException(nameof(initial));
-        if (persister is null) throw new ArgumentNullException(nameof(persister));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(initial, nameof(initial));
+        ThrowHelper.ThrowIfNull(persister, nameof(persister));
 
         _persister = persister;
         _hub = hub ?? NullMessageHub.Instance;
@@ -188,9 +185,7 @@ public sealed class FormVM<TM> : IDisposable
     /// </summary>
     public void SetModel(TM model)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (model is null) throw new ArgumentNullException(nameof(model));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(model, nameof(model));
         var wasDirty = IsDirty;
         _model = model;
         if (_strict && IsDirty != wasDirty)

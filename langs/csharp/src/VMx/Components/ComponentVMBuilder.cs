@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'M' for model type parameter per ADR-0006
 using VMx.Builders;
 using VMx.Services;
 
@@ -419,4 +418,3 @@ public sealed class ReadonlyComponentVMBuilder<M>
             onDestruct ?? _onDestruct,
             parent ?? _parent);
 }
-#pragma warning restore CA1715

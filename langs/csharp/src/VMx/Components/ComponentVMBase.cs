@@ -548,8 +548,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         (_selectNextCommand as IDisposable)?.Dispose();
         (_selectPreviousCommand as IDisposable)?.Dispose();
         (_reconstructCommand as IDisposable)?.Dispose();
-
-        GC.SuppressFinalize(this);
     }
 
     // ── Selection predicates ────────────────────────────────────────────────
@@ -560,9 +558,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         _status == ConstructionStatus.Constructed;
 
     /// <inheritdoc/>
-#pragma warning disable CA1716 // 'Select' is the spec-mandated name per spec/05-component-vm.md
     public void Select() => Parent?.SelectChild(this);
-#pragma warning restore CA1716
 
     /// <inheritdoc/>
     public bool CanDeselect() =>

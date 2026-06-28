@@ -162,4 +162,41 @@ public class RelayCommandTests
 
         b2.Should().NotBeSameAs(b1, "each setter must return a NEW builder instance (BLD-001)");
     }
+
+    [Fact]
+    public void Parameterized_Command_Null_Or_Mismatched_Parameter_Is_Inert_VMX063()
+    {
+        var executed = false;
+        var cmd = RelayCommand<int>.Builder()
+            .Task(_ => executed = true)
+            .Build();
+
+        // A value-type command can never be satisfied by null or a foreign type:
+        // it must NOT coerce them to default(int) and run.
+        cmd.CanExecute(null).Should().BeFalse("null is not an int (VMX-063)");
+        cmd.CanExecute("nope").Should().BeFalse("a string is not an int (VMX-063)");
+
+        cmd.Execute(null);
+        cmd.Execute("nope");
+        executed.Should().BeFalse("Execute must be a no-op for a non-T parameter — never run with a fabricated default(int)");
+    }
+
+    [Fact]
+    public void Parameterized_Command_Predicate_Never_Sees_A_Fabricated_Default_VMX063()
+    {
+        string? sawParameter = null;
+        var cmd = RelayCommand<string>.Builder()
+            .Predicate(s => { sawParameter = s; return true; })
+            .Build();
+
+        // null / wrong type → CanExecute false WITHOUT invoking the predicate
+        // (the old code handed the predicate a coerced default!).
+        cmd.CanExecute(null).Should().BeFalse("null is not a string (VMX-063)");
+        cmd.CanExecute(123).Should().BeFalse("an int is not a string (VMX-063)");
+        sawParameter.Should().BeNull("predicate must never receive a fabricated default(T)");
+
+        // a genuine T still flows through to the predicate.
+        cmd.CanExecute("ok").Should().BeTrue();
+        sawParameter.Should().Be("ok");
+    }
 }

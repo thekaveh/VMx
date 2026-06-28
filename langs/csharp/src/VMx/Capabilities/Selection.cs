@@ -9,10 +9,8 @@ public interface ISelectable
     /// <summary>Returns true when <see cref="Select"/> is valid to call.</summary>
     bool CanSelect();
 
-#pragma warning disable CA1716 // 'Select' is the spec-mandated name per spec/14-capabilities.md
     /// <summary>Performs the selection action.</summary>
     void Select();
-#pragma warning restore CA1716
 }
 
 /// <summary>Capability: the implementer can be deselected.</summary>

@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'TModel' / 'TVM' per ADR-0006 and ADR-0028
 using VMx.Builders;
 using VMx.Services;
 
@@ -182,4 +181,3 @@ public sealed class HierarchicalVMBuilder<TModel, TVM>
             hint ?? _hint,
             eagerChildren ?? _eagerChildren);
 }
-#pragma warning restore CA1715
