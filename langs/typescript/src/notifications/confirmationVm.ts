@@ -31,8 +31,15 @@ export class ConfirmationVM extends NotificationVM {
     hub: INotificationHub,
     scheduler: SchedulerLike,
     lifespanMs?: number,
+    tickIntervalMs?: number,
   ) {
-    super(notification, hub, scheduler, lifespanMs ?? DEFAULT_LIFESPAN_MS);
+    super(
+      notification,
+      hub,
+      scheduler,
+      lifespanMs ?? DEFAULT_LIFESPAN_MS,
+      tickIntervalMs,
+    );
 
     this.approveCommand = RelayCommand.builder()
       .task(() => this.resolveWith(NotificationReaction.Approve))

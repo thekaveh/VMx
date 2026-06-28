@@ -5,8 +5,10 @@
  */
 import {
   filter,
+  type Observable,
   skip,
   skipWhile,
+  Subject,
   Subscription,
   take,
   type SchedulerLike,
@@ -29,22 +31,34 @@ const DEFAULT_LIFESPAN_MS = 60_000;
  * - `opacity` — derived `remainingMs / lifespanMs`, range [0.0, 1.0]
  * - `isResolved` — `true` once resolved
  * - `dismissCommand` — resolves with Approve and cancels the timer
+ * - `propertyChanged` — INPC-style change-notification stream (VMX-135)
  *
  * Auto-dismiss: when `remainingMs` reaches 0, the VM resolves the notification
  * with {@link NotificationReaction.Approve}.
  * Use {@link ConfirmationVM} for explicit user action instead.
+ *
+ * Change-notification (VMX-135): `propertyChanged` emits property names so a
+ * binding view can repaint. `isResolved` always emits on resolution; when a
+ * `tickIntervalMs` is supplied, `remainingMs`/`opacity` emit periodically while
+ * the notification fades. Without a tick interval the two time-varying
+ * properties stay poll-only (no recurring scheduler work), preserving the prior
+ * behaviour.
  */
 export class NotificationVM {
   readonly #notification: Notification;
   readonly #hub: INotificationHub;
   readonly #scheduler: SchedulerLike;
   readonly #lifespanMs: number;
+  readonly #tickIntervalMs: number;
+  readonly #emitsDecayTicks: boolean;
   readonly #startTime: number;
+  readonly #propertyChangedSubject = new Subject<string>();
 
   #isResolved = false;
   #disposed = false;
   #timerHandle: ReturnType<SchedulerLike["schedule"]> | null = null;
   #pendingSub: Subscription | null = null;
+  #tickHandle: Subscription | null = null;
 
   readonly dismissCommand: RelayCommand;
 
@@ -53,11 +67,14 @@ export class NotificationVM {
     hub: INotificationHub,
     scheduler: SchedulerLike,
     lifespanMs?: number,
+    tickIntervalMs?: number,
   ) {
     this.#notification = notification;
     this.#hub = hub;
     this.#scheduler = scheduler;
     this.#lifespanMs = lifespanMs ?? DEFAULT_LIFESPAN_MS;
+    this.#tickIntervalMs = tickIntervalMs ?? 0;
+    this.#emitsDecayTicks = this.#tickIntervalMs > 0 && this.#lifespanMs > 0;
     this.#startTime = scheduler.now();
 
     this.dismissCommand = RelayCommand.builder()
@@ -87,6 +104,12 @@ export class NotificationVM {
         take(1),
       )
       .subscribe(() => this.#notifyExternalResolve());
+
+    // VMX-135: when a tick cadence is requested, periodically raise
+    // propertyChanged for the decaying state so a bound view repaints the fade.
+    // The recurring action self-terminates once the notification resolves, is
+    // disposed, or the decay completes (remainingMs hits 0).
+    if (this.#emitsDecayTicks) this.#scheduleDecayTick();
   }
 
   // ── Public properties ───────────────────────────────────────────────────────
@@ -94,6 +117,15 @@ export class NotificationVM {
   /** The notification datum consumed by this VM. */
   get notification(): Notification {
     return this.#notification;
+  }
+
+  /**
+   * INPC-style change-notification stream (VMX-135): emits the name of each
+   * property whose value changed (`isResolved`, and — when a tick interval is
+   * configured — `remainingMs`/`opacity` as the notification fades).
+   */
+  get propertyChanged(): Observable<string> {
+    return this.#propertyChangedSubject.asObservable();
   }
 
   /** Configured lifespan in milliseconds (default 60 000 ms). */
@@ -132,10 +164,39 @@ export class NotificationVM {
     this.#timerHandle = null;
     this.#pendingSub?.unsubscribe();
     this.#pendingSub = null;
+    this.#tickHandle?.unsubscribe();
+    this.#tickHandle = null;
     this.dismissCommand.dispose();
+    this.#propertyChangedSubject.complete();
   }
 
   // ── Internal ────────────────────────────────────────────────────────────────
+
+  /**
+   * Schedules the next periodic decay tick (VMX-135). Each fired tick raises
+   * propertyChanged for the time-varying state and reschedules until the
+   * notification resolves, is disposed, or the decay completes.
+   */
+  #scheduleDecayTick(): void {
+    this.#tickHandle = this.#scheduler.schedule(() => {
+      if (this.#disposed || this.#isResolved) return;
+      this.#raisePropertyChanged("remainingMs");
+      this.#raisePropertyChanged("opacity");
+      if (this.remainingMs > 0) this.#scheduleDecayTick();
+    }, this.#tickIntervalMs);
+  }
+
+  /** Emits `propertyName` on the change-notification stream (VMX-135). */
+  #raisePropertyChanged(propertyName: string): void {
+    if (!this.#disposed) this.#propertyChangedSubject.next(propertyName);
+  }
+
+  /** Raises propertyChanged for the resolved + decay state (VMX-135). */
+  #raiseResolvedChanges(): void {
+    this.#raisePropertyChanged("isResolved");
+    this.#raisePropertyChanged("remainingMs");
+    this.#raisePropertyChanged("opacity");
+  }
 
   /**
    * Whether this VM arms the lifespan expiry timer at construction.
@@ -178,7 +239,10 @@ export class NotificationVM {
     this.#isResolved = true;
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
+    this.#tickHandle?.unsubscribe();
+    this.#tickHandle = null;
     this.#hub.resolve(this.#notification, NotificationReaction.Approve);
+    this.#raiseResolvedChanges();
   }
 
   #resolveWith(reaction: NotificationReaction): void {
@@ -186,7 +250,10 @@ export class NotificationVM {
     this.#isResolved = true;
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
+    this.#tickHandle?.unsubscribe();
+    this.#tickHandle = null;
     this.#hub.resolve(this.#notification, reaction);
+    this.#raiseResolvedChanges();
   }
 
   #notifyExternalResolve(): void {
@@ -194,5 +261,8 @@ export class NotificationVM {
     this.#isResolved = true;
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
+    this.#tickHandle?.unsubscribe();
+    this.#tickHandle = null;
+    this.#raiseResolvedChanges();
   }
 }

@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reactive.Concurrency;
+using VMx.Components;
+using VMx.Composites;
 using VMx.Extensions.DependencyInjection;
 using VMx.Services;
 using Xunit;
@@ -91,5 +93,41 @@ public class DependencyInjectionTests
 
         var sp = services.BuildServiceProvider();
         sp.GetRequiredService<IMessageHub>().Should().BeSameAs(hostHub);
+    }
+
+    [Fact]
+    public void Builder_Services_IServiceProvider_Resolves_Hub_And_Dispatcher()
+    {
+        // VMX-021: builders gain a Services(IServiceProvider) overload so a DI
+        // consumer can bridge the container without manually pulling the two
+        // services out by hand.
+        var services = new ServiceCollection();
+        services.AddVMx(opts => opts.UseDispatcher(_ =>
+            new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance)));
+        var sp = services.BuildServiceProvider();
+
+        var vm = ComponentVM.Builder().Name("di").Services(sp).Build();
+
+        vm.Should().NotBeNull();
+        vm.Name.Should().Be("di");
+
+        // The composite builder gains the same overload.
+        var composite = CompositeVM<ComponentVM>.Builder()
+            .Name("root")
+            .Services(sp)
+            .Children(() => System.Array.Empty<ComponentVM>())
+            .Build();
+        composite.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Builder_Services_IServiceProvider_Throws_When_Services_Unregistered()
+    {
+        var sp = new ServiceCollection().BuildServiceProvider();
+
+        var act = () => ComponentVM.Builder().Name("x").Services(sp).Build();
+
+        act.Should().Throw<InvalidOperationException>(
+            "Services(IServiceProvider) must fail fast when AddVMx was not called");
     }
 }

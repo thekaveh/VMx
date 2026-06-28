@@ -93,12 +93,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly Subject<Unit> _statusTrigger = new();
     private bool _triggerDisposed;
 
-    // ── Commands ────────────────────────────────────────────────────────────
-    private readonly ICommand _selectCommand;
-    private readonly ICommand _deselectCommand;
-    private readonly ICommand _selectNextCommand;
-    private readonly ICommand _selectPreviousCommand;
-    private readonly ICommand _reconstructCommand;
+    // ── Commands (lazily built on first access — VMX-018) ───────────────────
+    private ICommand? _selectCommand;
+    private ICommand? _deselectCommand;
+    private ICommand? _selectNextCommand;
+    private ICommand? _selectPreviousCommand;
+    private ICommand? _reconstructCommand;
 
     // ── Lifecycle callbacks ─────────────────────────────────────────────────
     private readonly Action? _onConstruct;
@@ -173,21 +173,24 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
-    // ── IComponentVM: commands ──────────────────────────────────────────────
+    // ── IComponentVM: commands (lazily built + cached — VMX-018) ────────────
     /// <inheritdoc/>
-    public ICommand SelectCommand => _selectCommand;
+    public ICommand SelectCommand => _selectCommand ??= BuildCommand(CanSelect, Select);
 
     /// <inheritdoc/>
-    public ICommand DeselectCommand => _deselectCommand;
+    public ICommand DeselectCommand => _deselectCommand ??= BuildCommand(CanDeselect, Deselect);
 
     /// <inheritdoc/>
-    public ICommand SelectNextCommand => _selectNextCommand;
+    public ICommand SelectNextCommand =>
+        _selectNextCommand ??= BuildCommand(CanSelectNext, SelectNext);
 
     /// <inheritdoc/>
-    public ICommand SelectPreviousCommand => _selectPreviousCommand;
+    public ICommand SelectPreviousCommand =>
+        _selectPreviousCommand ??= BuildCommand(CanSelectPrevious, SelectPrevious);
 
     /// <inheritdoc/>
-    public ICommand ReconstructCommand => _reconstructCommand;
+    public ICommand ReconstructCommand =>
+        _reconstructCommand ??= BuildCommand(CanReconstruct, Reconstruct);
 
     // ── INotifyPropertyChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -214,40 +217,25 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
 
-        // ── Status-change trigger observable ─────────────────────────────────
-        // Fires CanExecuteChanged on all built-in commands whenever Status changes.
-        IObservable<Unit> statusTrigger = _statusTrigger;
+        // Built-in commands are built lazily on first access (VMX-018) — see
+        // BuildCommand. Eager construction allocated five RelayCommands plus
+        // five status-trigger subscriptions per VM, four of which are
+        // permanently inert on a leaf VM.
+    }
 
-        // ── Build commands ────────────────────────────────────────────────────
-        _selectCommand = RelayCommand.Builder()
-            .Predicate(CanSelect)
-            .Task(Select)
-            .Triggers(statusTrigger)
-            .Build();
-
-        _deselectCommand = RelayCommand.Builder()
-            .Predicate(CanDeselect)
-            .Task(Deselect)
-            .Triggers(statusTrigger)
-            .Build();
-
-        _selectNextCommand = RelayCommand.Builder()
-            .Predicate(CanSelectNext)
-            .Task(SelectNext)
-            .Triggers(statusTrigger)
-            .Build();
-
-        _selectPreviousCommand = RelayCommand.Builder()
-            .Predicate(CanSelectPrevious)
-            .Task(SelectPrevious)
-            .Triggers(statusTrigger)
-            .Build();
-
-        _reconstructCommand = RelayCommand.Builder()
-            .Predicate(CanReconstruct)
-            .Task(Reconstruct)
-            .Triggers(statusTrigger)
-            .Build();
+    /// <summary>
+    /// Builds a built-in command, wiring the status trigger so its
+    /// <c>CanExecuteChanged</c> re-fires on every lifecycle transition (VMX-104).
+    /// After disposal the trigger Subject is completed/disposed, so a command
+    /// built post-dispose is built without it rather than subscribing to a
+    /// disposed Subject.
+    /// </summary>
+    private ICommand BuildCommand(Func<bool> predicate, Action task)
+    {
+        var builder = RelayCommand.Builder().Predicate(predicate).Task(task);
+        if (!_triggerDisposed)
+            builder = builder.Triggers(_statusTrigger);
+        return builder.Build();
     }
 
     // ── Lifecycle: CanXxx predicates ────────────────────────────────────────

@@ -104,6 +104,17 @@ public sealed class ComponentVMBuilder<M>
     public ComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public ComponentVMBuilder<M> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
+
     /// <summary>Sets the optional parent composite (internal: used by CompositeVMBase).</summary>
     internal ComponentVMBuilder<M> Parent(IParentCompositeVM parent) => With(parent: parent);
 
@@ -235,6 +246,17 @@ public sealed class ComponentVMBuilder
     public ComponentVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public ComponentVMBuilder Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
+
     /// <summary>Sets the optional parent composite (internal: used by CompositeVMBase).</summary>
     internal ComponentVMBuilder Parent(IParentCompositeVM parent) => With(parent: parent);
 
@@ -363,6 +385,17 @@ public sealed class ReadonlyComponentVMBuilder<M>
     /// <summary>Sets the required Services (hub + dispatcher).</summary>
     public ReadonlyComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public ReadonlyComponentVMBuilder<M> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
 
     /// <summary>Sets the optional parent composite (internal: used by CompositeVMBase).</summary>
     internal ReadonlyComponentVMBuilder<M> Parent(IParentCompositeVM parent) => With(parent: parent);

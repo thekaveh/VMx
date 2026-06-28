@@ -30,7 +30,7 @@ from vmx.messages.construction_status_changed import ConstructionStatusChangedMe
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 if TYPE_CHECKING:
     from vmx.components.protocols import ViewModelType
@@ -89,7 +89,7 @@ class _ComponentVMBase(ABC):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
@@ -97,7 +97,7 @@ class _ComponentVMBase(ABC):
     ) -> None:
         self._name: str = name
         self._hint: str = hint
-        self._hub: MessageHub[Message] = hub
+        self._hub: MessageHubProto[Message] = hub
         self._dispatcher: Dispatcher = dispatcher
         self._on_construct_cb: Callable[[], None] | None = on_construct
         self._on_destruct_cb: Callable[[], None] | None = on_destruct
@@ -130,44 +130,20 @@ class _ComponentVMBase(ABC):
         # ── Status-change trigger (drives command CanExecute re-eval) ────────
         self._status_trigger: Subject[None] = Subject()
 
-        # ── Build built-in commands ─────────────────────────────────────────
-        trigger_obs: rx.Observable[object] = self._status_trigger
-
-        self._select_command: RelayCommand = (
-            RelayCommand.builder()
-            .predicate(self.can_select)
-            .task(self.select)
-            .triggers(trigger_obs)
-            .build()
-        )
-        self._deselect_command: RelayCommand = (
-            RelayCommand.builder()
-            .predicate(self.can_deselect)
-            .task(self.deselect)
-            .triggers(trigger_obs)
-            .build()
-        )
-        self._select_next_command: RelayCommand = (
-            RelayCommand.builder()
-            .predicate(self._can_select_next)
-            .task(self._select_next)
-            .triggers(trigger_obs)
-            .build()
-        )
-        self._select_previous_command: RelayCommand = (
-            RelayCommand.builder()
-            .predicate(self._can_select_previous)
-            .task(self._select_previous)
-            .triggers(trigger_obs)
-            .build()
-        )
-        self._reconstruct_command: RelayCommand = (
-            RelayCommand.builder()
-            .predicate(self.can_reconstruct)
-            .task(self.reconstruct)
-            .triggers(trigger_obs)
-            .build()
-        )
+        # ── Built-in commands (lazily built on first access) ─────────────────
+        # Building all five RelayCommands eagerly here allocated five commands
+        # plus five status-trigger subscriptions per VM, four of which are
+        # permanently inert on a leaf VM (no parent → can_select/can_deselect
+        # are False; select_next/select_previous are hardcoded False).  They are
+        # now constructed on first property access and cached, so a VM whose
+        # navigation commands are never bound pays nothing (VMX-018).  The
+        # status-trigger wiring is preserved so a bound command's
+        # can_execute_changed still fires on lifecycle transitions (VMX-104).
+        self._select_command: RelayCommand | None = None
+        self._deselect_command: RelayCommand | None = None
+        self._select_next_command: RelayCommand | None = None
+        self._select_previous_command: RelayCommand | None = None
+        self._reconstruct_command: RelayCommand | None = None
 
     # ── Identity (read-only) ─────────────────────────────────────────────────
     @property
@@ -239,25 +215,57 @@ class _ComponentVMBase(ABC):
         if not self._trigger_disposed:
             self._property_changed_subject.on_next(property_name)
 
-    # ── Built-in commands ────────────────────────────────────────────────────
+    # ── Built-in commands (lazily built + cached — VMX-018) ──────────────────
+    def _build_command(
+        self,
+        predicate: Callable[[], bool],
+        task: Callable[[], None],
+    ) -> RelayCommand:
+        """Build a built-in RelayCommand, wiring the status trigger when live.
+
+        The status trigger re-fires ``can_execute_changed`` on every lifecycle
+        transition (VMX-104).  After the VM is disposed the trigger Subject is
+        completed/disposed, so a command built post-dispose is built without it
+        rather than subscribing to a disposed Subject.
+        """
+        builder = RelayCommand.builder().predicate(predicate).task(task)
+        if not self._trigger_disposed:
+            trigger_obs: rx.Observable[object] = self._status_trigger
+            builder = builder.triggers(trigger_obs)
+        return builder.build()
+
     @property
     def select_command(self) -> RelayCommand:
+        if self._select_command is None:
+            self._select_command = self._build_command(self.can_select, self.select)
         return self._select_command
 
     @property
     def deselect_command(self) -> RelayCommand:
+        if self._deselect_command is None:
+            self._deselect_command = self._build_command(self.can_deselect, self.deselect)
         return self._deselect_command
 
     @property
     def select_next_command(self) -> RelayCommand:
+        if self._select_next_command is None:
+            self._select_next_command = self._build_command(
+                self._can_select_next, self._select_next
+            )
         return self._select_next_command
 
     @property
     def select_previous_command(self) -> RelayCommand:
+        if self._select_previous_command is None:
+            self._select_previous_command = self._build_command(
+                self._can_select_previous, self._select_previous
+            )
         return self._select_previous_command
 
     @property
     def reconstruct_command(self) -> RelayCommand:
+        if self._reconstruct_command is None:
+            self._reconstruct_command = self._build_command(self.can_reconstruct, self.reconstruct)
         return self._reconstruct_command
 
     # ── Lifecycle: can_* predicates ──────────────────────────────────────────
@@ -441,11 +449,17 @@ class _ComponentVMBase(ABC):
                 self._property_changed_subject.on_completed()
                 self._property_changed_subject.dispose()
 
-        self._select_command.dispose()
-        self._deselect_command.dispose()
-        self._select_next_command.dispose()
-        self._select_previous_command.dispose()
-        self._reconstruct_command.dispose()
+        # Only commands that were actually accessed (lazily built — VMX-018)
+        # need disposal; un-built slots are still None.
+        for command in (
+            self._select_command,
+            self._deselect_command,
+            self._select_next_command,
+            self._select_previous_command,
+            self._reconstruct_command,
+        ):
+            if command is not None:
+                command.dispose()
 
     # ── Selection predicates ─────────────────────────────────────────────────
     def can_select(self) -> bool:

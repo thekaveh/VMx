@@ -70,6 +70,17 @@ public sealed class CompositeVMBuilder<VM>
         => With(hub: hub, dispatcher: dispatcher);
 
     /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public CompositeVMBuilder<VM> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
+
+    /// <summary>
     /// Sets the required children factory. The factory is invoked lazily on
     /// Construct. For a composite with no initial children, pass
     /// <c>() =&gt; Array.Empty&lt;VM&gt;()</c> (per spec/10 §3 / ADR-0035).
@@ -225,6 +236,17 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// <summary>Sets the required Services.</summary>
     public CompositeVMOfMBuilder<M, VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
 
     /// <summary>Sets the required model factory.</summary>
     public CompositeVMOfMBuilder<M, VM> ChildrenModels(Func<IEnumerable<M>> factory)

@@ -46,7 +46,7 @@ public sealed record HierarchicalVMConstructionContext<TModel, TVM>(
 ///
 /// Note: there is no <c>WithDefaultServices()</c> Wither on the C# builder. Per
 /// ADR-0035 §2 H2 that Wither is Python + TypeScript only — C# consumers must
-/// call <see cref="Services"/> explicitly.
+/// call <see cref="Services(IMessageHub, IDispatcher)"/> explicitly.
 /// </summary>
 /// <typeparam name="TModel">Domain model carried by the node.</typeparam>
 /// <typeparam name="TVM">Concrete subclass type (recursive constraint per ADR-0028 §3.2).</typeparam>
@@ -111,6 +111,17 @@ public sealed class HierarchicalVMBuilder<TModel, TVM>
     /// <summary>Sets the required services (hub + dispatcher).</summary>
     public HierarchicalVMBuilder<TModel, TVM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public HierarchicalVMBuilder<TModel, TVM> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
 
     /// <summary>
     /// Sets the required concrete-VM factory. Because

@@ -23,12 +23,17 @@ public sealed class ConfirmationVM : NotificationVM
     /// <param name="hub">Hub used to resolve the notification.</param>
     /// <param name="scheduler">Scheduler for time advancement.</param>
     /// <param name="lifespan">Override the default 300-second lifespan.</param>
+    /// <param name="tickInterval">
+    /// Optional decay-tick cadence forwarded to <see cref="NotificationVM"/>
+    /// (VMX-135) so a binding view can repaint the fade. Defaults to poll-only.
+    /// </param>
     public ConfirmationVM(
         Notification notification,
         INotificationHub hub,
         IScheduler scheduler,
-        TimeSpan? lifespan = null)
-        : base(notification, hub, scheduler, lifespan ?? TimeSpan.FromSeconds(300))
+        TimeSpan? lifespan = null,
+        TimeSpan? tickInterval = null)
+        : base(notification, hub, scheduler, lifespan ?? TimeSpan.FromSeconds(300), tickInterval)
     {
         ApproveCommand = RelayCommand.Builder()
             .Task(() => ResolveWith(NotificationReaction.Approve))

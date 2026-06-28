@@ -13,7 +13,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 M = TypeVar("M")
 
@@ -36,7 +36,7 @@ class ComponentVM(_ComponentVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
@@ -83,7 +83,7 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
         initial_model: M,
         modeled_hinter: Callable[[M], str],
         on_model_changed: Callable[[M], None] | None,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,

@@ -37,6 +37,9 @@ class ConfirmationVM(NotificationVM):
         Scheduler for time advancement.
     lifespan:
         Optional override for the default 300-second lifespan.
+    tick_interval:
+        Optional decay-tick cadence forwarded to :class:`NotificationVM`
+        (VMX-135) so a binding view can repaint the fade.
     """
 
     def __init__(
@@ -45,12 +48,14 @@ class ConfirmationVM(NotificationVM):
         hub: INotificationHub,
         scheduler: SchedulerBase,
         lifespan: timedelta | None = None,
+        tick_interval: timedelta | None = None,
     ) -> None:
         super().__init__(
             notification,
             hub,
             scheduler,
             lifespan if lifespan is not None else _DEFAULT_LIFESPAN,
+            tick_interval,
         )
 
         self._approve_command = (

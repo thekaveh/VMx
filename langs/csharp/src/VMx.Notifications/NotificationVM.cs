@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Windows.Input;
@@ -11,16 +12,29 @@ namespace VMx.Notifications;
 /// and auto-dismisses with <see cref="NotificationReaction.Approve"/> when
 /// <see cref="Lifespan"/> expires.
 ///
+/// <para>
+/// Implements <see cref="INotifyPropertyChanged"/> so binding views repaint the
+/// decaying state (VMX-135): <see cref="IsResolved"/> always raises a change on
+/// resolution, and — when a <c>tickInterval</c> is supplied to the constructor —
+/// <see cref="RemainingTime"/> and <see cref="Opacity"/> raise periodic changes
+/// while the notification fades. Without a tick interval the two time-varying
+/// properties remain poll-only (no extra scheduler work for callers that do not
+/// bind the fade), preserving the previous behaviour.
+/// </para>
+///
 /// See spec/16-notifications.md §NotificationVM and ADR-0031.
 /// </summary>
-public class NotificationVM : IDisposable
+public class NotificationVM : IDisposable, INotifyPropertyChanged
 {
     private readonly INotificationHub _hub;
     private readonly IScheduler _scheduler;
     private readonly TimeSpan _lifespan;
+    private readonly TimeSpan _tickInterval;
+    private readonly bool _emitsDecayTicks;
     private readonly DateTimeOffset _start;
     private IDisposable? _timerSub;
     private IDisposable? _pendingSub;
+    private IDisposable? _tickSub;
     private bool _isResolved;
     private bool _disposed;
 
@@ -31,16 +45,27 @@ public class NotificationVM : IDisposable
     /// <param name="hub">Hub used to resolve the notification.</param>
     /// <param name="scheduler">Scheduler for time advancement. Inject a TestScheduler in tests.</param>
     /// <param name="lifespan">Override the default 60-second lifespan.</param>
+    /// <param name="tickInterval">
+    /// Optional cadence at which <see cref="RemainingTime"/> and
+    /// <see cref="Opacity"/> raise <see cref="PropertyChanged"/> while the
+    /// notification fades, so a binding view repaints the decay (VMX-135). When
+    /// <see langword="null"/> (the default) the two properties are poll-only and
+    /// no recurring scheduler work is incurred. <see cref="IsResolved"/> raises a
+    /// change on resolution regardless.
+    /// </param>
     public NotificationVM(
         Notification notification,
         INotificationHub hub,
         IScheduler scheduler,
-        TimeSpan? lifespan = null)
+        TimeSpan? lifespan = null,
+        TimeSpan? tickInterval = null)
     {
         Notification = notification ?? throw new ArgumentNullException(nameof(notification));
         _hub = hub ?? throw new ArgumentNullException(nameof(hub));
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
         _lifespan = lifespan ?? TimeSpan.FromSeconds(60);
+        _tickInterval = tickInterval ?? TimeSpan.Zero;
+        _emitsDecayTicks = _tickInterval > TimeSpan.Zero && _lifespan > TimeSpan.Zero;
         _start = _scheduler.Now;
 
         DismissCommand = RelayCommand.Builder()
@@ -52,6 +77,13 @@ public class NotificationVM : IDisposable
         // would block this constructor for the whole lifespan and invoke the
         // virtual OnExpire on a partially-constructed derived instance.
         _timerSub = _scheduler.Schedule(_lifespan, OnExpire);
+
+        // VMX-135: when a tick cadence is requested, periodically raise
+        // PropertyChanged for the decaying state so bound views repaint the
+        // fade-out. The recurring action self-terminates once the notification
+        // resolves, is disposed, or the decay completes (RemainingTime hits 0).
+        if (_emitsDecayTicks)
+            _tickSub = _scheduler.Schedule(_tickInterval, DecayTick);
 
         // Subscribe to hub Pending: if our notification was present and then disappears
         // (external resolve), stop the timer and mark resolved.
@@ -98,6 +130,9 @@ public class NotificationVM : IDisposable
     /// </summary>
     public ICommand DismissCommand { get; }
 
+    /// <inheritdoc/>
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     /// <summary>
     /// Notifies the VM that the hub has resolved the notification externally.
     /// Sets <see cref="IsResolved"/> and cancels the timer.
@@ -108,6 +143,9 @@ public class NotificationVM : IDisposable
         _isResolved = true;
         _timerSub?.Dispose();
         _timerSub = null;
+        _tickSub?.Dispose();
+        _tickSub = null;
+        RaiseResolvedChanges();
     }
 
     /// <inheritdoc/>
@@ -127,9 +165,37 @@ public class NotificationVM : IDisposable
             _timerSub = null;
             _pendingSub?.Dispose();
             _pendingSub = null;
+            _tickSub?.Dispose();
+            _tickSub = null;
             if (DismissCommand is IDisposable d) d.Dispose();
         }
     }
+
+    /// <summary>
+    /// Periodic decay tick (VMX-135): raises <see cref="PropertyChanged"/> for the
+    /// time-varying state and reschedules until the notification resolves, is
+    /// disposed, or the decay completes.
+    /// </summary>
+    private void DecayTick(Action<TimeSpan> recurse)
+    {
+        if (_disposed || _isResolved) return;
+        RaisePropertyChanged(nameof(RemainingTime));
+        RaisePropertyChanged(nameof(Opacity));
+        if (RemainingTime > TimeSpan.Zero)
+            recurse(_tickInterval);
+    }
+
+    /// <summary>Raises <see cref="PropertyChanged"/> for the resolved + decay state.</summary>
+    private void RaiseResolvedChanges()
+    {
+        RaisePropertyChanged(nameof(IsResolved));
+        RaisePropertyChanged(nameof(RemainingTime));
+        RaisePropertyChanged(nameof(Opacity));
+    }
+
+    /// <summary>Raises <see cref="PropertyChanged"/> for the named property.</summary>
+    protected void RaisePropertyChanged(string propertyName)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
     /// <summary>
     /// Called when the lifespan timer fires.
@@ -148,7 +214,10 @@ public class NotificationVM : IDisposable
         _isResolved = true;
         _timerSub?.Dispose();
         _timerSub = null;
+        _tickSub?.Dispose();
+        _tickSub = null;
         _hub.Resolve(Notification, NotificationReaction.Approve);
+        RaiseResolvedChanges();
     }
 
     /// <summary>
@@ -161,6 +230,9 @@ public class NotificationVM : IDisposable
         _isResolved = true;
         _timerSub?.Dispose();
         _timerSub = null;
+        _tickSub?.Dispose();
+        _tickSub = null;
         _hub.Resolve(Notification, reaction);
+        RaiseResolvedChanges();
     }
 }

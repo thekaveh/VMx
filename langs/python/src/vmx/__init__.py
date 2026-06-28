@@ -123,6 +123,7 @@ from vmx.messages import (
     TreeStructureChangedMessage,
     TypedMessage,
     property_value_changed_messages_for,
+    when_property_changed,
 )
 from vmx.properties import (
     DerivedProperty,
@@ -273,6 +274,7 @@ __all__ = [
     "succeed_with",
     "walk",
     "walk_expanded",
+    "when_property_changed",
     "wrap_with",
 ]
 

@@ -167,4 +167,105 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(100).Ticks);
         sut.IsResolved.Should().BeTrue();
     }
+
+    // ── VMX-135: INotifyPropertyChanged on decaying state ─────────────────────
+
+    /// <summary>
+    /// VMX-135: with a tick interval, RemainingTime/Opacity raise PropertyChanged
+    /// as the notification fades, so a binding view repaints the decay.
+    /// </summary>
+    [Fact]
+    public void VMX_135_Decay_Raises_PropertyChanged_When_Tick_Interval_Supplied()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "fade");
+        _ = hub.Post(notification);
+        using var sut = new NotificationVM(
+            notification, hub, scheduler,
+            lifespan: TimeSpan.FromSeconds(10),
+            tickInterval: TimeSpan.FromSeconds(1));
+
+        var changed = new List<string?>();
+        sut.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        // Advance partway through the lifespan: several decay ticks fire.
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(3).Ticks);
+
+        changed.Should().Contain(nameof(NotificationVM.Opacity));
+        changed.Should().Contain(nameof(NotificationVM.RemainingTime));
+    }
+
+    /// <summary>
+    /// VMX-135: IsResolved raises PropertyChanged on resolution even without a
+    /// tick interval (the discrete state change is always observable).
+    /// </summary>
+    [Fact]
+    public void VMX_135_IsResolved_Raises_PropertyChanged_On_Dismiss()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "resolve");
+        _ = hub.Post(notification);
+        using var sut = new NotificationVM(notification, hub, scheduler, lifespan: TimeSpan.FromSeconds(10));
+
+        var changed = new List<string?>();
+        sut.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        sut.DismissCommand.Execute(null);
+
+        changed.Should().Contain(nameof(NotificationVM.IsResolved));
+    }
+
+    /// <summary>
+    /// VMX-135: the default (no tick interval) construction schedules no recurring
+    /// decay work — PropertyChanged is silent for the time-varying state until a
+    /// discrete resolution occurs (preserves prior poll-only behaviour).
+    /// </summary>
+    [Fact]
+    public void VMX_135_No_Tick_Interval_Is_PollOnly_For_Decay()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "poll");
+        _ = hub.Post(notification);
+        using var sut = new NotificationVM(notification, hub, scheduler, lifespan: TimeSpan.FromSeconds(10));
+
+        var decayChanges = 0;
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(NotificationVM.Opacity) or nameof(NotificationVM.RemainingTime))
+                decayChanges++;
+        };
+
+        // Advance well within the lifespan — no resolution yet.
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
+
+        decayChanges.Should().Be(0, "without a tick interval the decay is poll-only");
+        sut.IsResolved.Should().BeFalse();
+    }
+
+    /// <summary>VMX-135: ConfirmationVM forwards the decay-tick cadence.</summary>
+    [Fact]
+    public void VMX_135_ConfirmationVM_Forwards_Tick_Interval()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Confirmation, "confirm");
+        _ = hub.Post(notification);
+        using var sut = new ConfirmationVM(
+            notification, hub, scheduler,
+            lifespan: TimeSpan.FromSeconds(10),
+            tickInterval: TimeSpan.FromSeconds(1));
+
+        var sawOpacity = false;
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(NotificationVM.Opacity)) sawOpacity = true;
+        };
+
+        scheduler.AdvanceBy(TimeSpan.FromSeconds(2).Ticks);
+
+        sawOpacity.Should().BeTrue("ConfirmationVM must forward the tick interval to NotificationVM");
+    }
 }
