@@ -125,7 +125,10 @@ def scrape_python_conformance_ids(directory: Path) -> set[str]:
             # Slice from the most-recent newline (or BOF) up to the match start.
             # If a # appears in that prefix the decorator is inside a line comment.
             line_start = text.rfind("\n", 0, match.start()) + 1
-            if "#" not in text[line_start : match.start()]:
+            if (
+                "#" not in text[line_start : match.start()]
+                and match.group(1).split("-", 1)[0] not in _NON_CONFORMANCE_PREFIXES
+            ):
                 ids.add(match.group(1))
     return ids
 
@@ -139,7 +142,10 @@ def scrape_csharp_conformance_ids(directory: Path) -> set[str]:
         cleaned = _BLOCK_COMMENT_RE.sub("", text)
         for match in _CS_TRAIT_PATTERN.finditer(cleaned):
             line_start = cleaned.rfind("\n", 0, match.start()) + 1
-            if "//" not in cleaned[line_start : match.start()]:
+            if (
+                "//" not in cleaned[line_start : match.start()]
+                and match.group(1).split("-", 1)[0] not in _NON_CONFORMANCE_PREFIXES
+            ):
                 ids.add(match.group(1))
     return ids
 
@@ -153,7 +159,10 @@ def scrape_typescript_conformance_ids(directory: Path) -> set[str]:
         cleaned = _BLOCK_COMMENT_RE.sub("", text)
         for match in _TS_DESCRIBE_PATTERN.finditer(cleaned):
             line_start = cleaned.rfind("\n", 0, match.start()) + 1
-            if "//" not in cleaned[line_start : match.start()]:
+            if (
+                "//" not in cleaned[line_start : match.start()]
+                and match.group(1).split("-", 1)[0] not in _NON_CONFORMANCE_PREFIXES
+            ):
                 ids.add(match.group(1))
     return ids
 
