@@ -12,7 +12,7 @@
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
 specification, four idiomatic language flavors (C# / Python / TypeScript at full
-parity; Swift as a subset), 236 library conformance IDs verified on every commit
+parity; Swift as a subset), 237 library conformance IDs verified on every commit
 (plus 5 THEME scenario IDs exercised by the example-app suites).
 
 ## Contents
@@ -103,8 +103,8 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 22 markdown chapters, 55 ADRs,
-  4 JSON fixtures, 241 conformance IDs, version pinned in `spec/VERSION`.
+- **Spec** — `spec/` is the source of truth: 22 markdown chapters, 56 ADRs,
+  4 JSON fixtures, 242 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
@@ -136,7 +136,7 @@ Each flavor implements the same conceptual stack:
 | TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v2.6.0            | rxjs               |
 | Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v2.6.0 *(subset)* | Combine            |
 
-The **Swift flavor is a skeleton subset** (41 of 241 conformance IDs as
+The **Swift flavor is a skeleton subset** (41 of 242 conformance IDs as
 of v2.6.0), covering the lifecycle + leaf / composite / group / aggregate
 viewmodel families plus builders and commands. Full
 cross-flavor conformance parity
@@ -243,7 +243,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 21-collections.md   (22 chapters)
-│   ├── ADRs/              architecture decision records (0001..0052)
+│   ├── ADRs/              architecture decision records (0001..0056)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         historical planning artifacts (not part of published docs)
 │   └── VERSION            spec SemVer
@@ -273,8 +273,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 22 chapters, 55 ADRs,
-  4 fixtures, and the 241-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 22 chapters, 56 ADRs,
+  4 fixtures, and the 242-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
   [`langs/csharp/README.md`](langs/csharp/README.md),

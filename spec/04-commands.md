@@ -277,9 +277,97 @@ maps to the constructor's pre/post/predicate positions.
 All three arguments are optional/nullable. Passing all defaults is valid and
 yields a semantically transparent decorator (no extra gate, no pre/post hooks).
 
-## 10. Conformance
+## 10. Async command cancellation (spec v3, ADR-0056)
 
-`CMD-001` through `CMD-011` and `CMDD-001` through `CMDD-010` in
+The base `RelayCommand` task (§3) is synchronous and uncancellable. A
+long-running async task therefore had **no cancellation channel**, even though
+`IDialogService` already defines one (chapter 19 §6, `DIA-007`). Spec v3 adds an
+**async, cancellable command** so an in-flight operation can be cancelled, with
+semantics aligned to the dialog cancellation contract.
+
+### 10.1 Contract
+
+```
+IAsyncCommand : ICommand
+    IsExecuting : bool
+    ExecuteAsync(parameter?, cancellation?) : Task / awaitable
+    Cancel() : void
+```
+
+`AsyncRelayCommand` is the concrete implementation, built via the same immutable
+fluent builder pattern as `RelayCommand` (§5/§6):
+
+```
+AsyncRelayCommand.Builder()
+    .Task(token => ...)      // a cancellable async task
+    .Predicate(() => ...)    // optional
+    .Triggers(observable)    // optional, multiple calls allowed
+    .ThrowOnCancel()         // optional, opt into the throwing mode (§10.3)
+    .Build()
+```
+
+The task receives a **cancellation channel** appropriate to the flavor (chapter
+11): a `CancellationToken` (C#), idiomatic asyncio task cancellation — a
+`CancelledError` raised at the next await point — (Python), or an `AbortSignal`
+(TypeScript). The channel is linked to both `Cancel()` and any cancellation token
+supplied to `ExecuteAsync`.
+
+### 10.2 In-flight state and `CanExecute`
+
+- While an execution is in flight, `CanExecute` returns `false`. The command
+  therefore **cannot double-run**: a second `Execute`/`ExecuteAsync` while one is
+  pending is gated out and returns as a no-op (§3).
+- `CanExecuteChanged` fires when the in-flight state flips — once when execution
+  starts and once when it completes (whether by success, cancellation, or fault) —
+  so a bound control's enabled state tracks the in-flight state.
+- `IsExecuting` exposes the in-flight flag for direct binding.
+
+### 10.3 Cancellation is non-throwing by default
+
+`Cancel()` requests cancellation of the in-flight task. By default this is
+**non-throwing to the caller**, matching `IDialogService` cancellation
+(`DIA-007`, chapter 19 §6): the awaited `ExecuteAsync` **completes normally** on
+cancel rather than surfacing an `OperationCanceledException` /
+`asyncio.CancelledError` / `AbortError`. After a cancel the command returns to a
+non-executing state (`IsExecuting == false`, `CanExecute == true` once any
+predicate again permits it).
+
+A flavor MAY opt into a **throwing mode** (the builder's `ThrowOnCancel()`):
+when enabled, a cancelled `ExecuteAsync` surfaces the flavor's cancellation
+exception to the awaiter instead of completing normally. This mirrors the
+`DIA-007` opt-in clause: non-throwing is the default, throwing is explicitly
+requested. Either way, the command still returns to the non-executing state.
+
+A cancellation requested through the command's own channel is the only failure
+swallowed by the default mode. An **externally-originated** cancellation (e.g. the
+host event loop tearing down the `ExecuteAsync` call itself) is re-raised so the
+flavor's cancellation semantics are preserved.
+
+### 10.4 Task faults vs cancellation
+
+A task that faults for a non-cancellation reason is **not** swallowed:
+
+- Awaiting `ExecuteAsync` propagates the fault directly to the awaiter (parity
+  with `RelayCommand`'s throwing task, §3).
+- The synchronous fire-and-forget `Execute` (§3) — which has already returned and
+  has no caller to propagate to — routes the fault to an **`errors`** observable
+  (`Errors` / `errors`) instead of discarding it (an unobserved faulted task /
+  unhandled rejection). Cancellations never reach this channel. `errors` completes
+  on dispose. This mirrors the `ConfirmationDecoratorCommand` error channel (§8.3.1,
+  ADR-0049) and the `FormVM` approve channel (chapter 20 §8, ADR-0048).
+
+### 10.5 Cross-flavor parity (ADR-0006 / ADR-0056)
+
+`AsyncRelayCommand` / `IAsyncCommand` is normative in the three full-parity
+flavors (C#, Python, TypeScript); the cancellation channel is the idiomatic
+primitive per flavor (`CancellationToken` / asyncio cancellation / `AbortSignal`)
+and the conceptual shape is identical. Swift does not yet ship the async command
+(it ships neither the command decorators nor `ModeledCrudCommands`) and is out of
+scope for `CMD-012` — consistent with its documented subset (ADR-0037).
+
+## 11. Conformance
+
+`CMD-001` through `CMD-012` and `CMDD-001` through `CMDD-010` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -290,6 +378,9 @@ yields a semantically transparent decorator (no extra gate, no pre/post hooks).
 - `Execute` is a no-op when the predicate returns `false`
 - table-driven configurations from `fixtures/command-truthtable.json`
 - `CMD-008..CMD-011` — each fluent method produces an equivalent object graph
+- `CMD-012` — `AsyncRelayCommand.Cancel()` cancels an in-flight async task; the
+  command returns to a non-executing state (`IsExecuting == false`,
+  `CanExecute == true`); no exception surfaces by default (§10, ADR-0056)
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)

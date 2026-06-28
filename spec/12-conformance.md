@@ -365,6 +365,21 @@ constructor takes `(inner, preExecute, postExecute, extraPredicate)`) —
 including the case where all three arguments are null/absent, which yields a
 transparent decorator
 
+### CMD-012 — `AsyncRelayCommand.Cancel()` cancels an in-flight async task, non-throwing by default
+
+**Given** an `AsyncRelayCommand` built with a long-running cancellable async task
+**And** the task has started (an execution is in flight)
+**When** `command.Cancel()` is called and the awaited `ExecuteAsync` completes
+**Then** the awaited execution completes **without** surfacing a cancellation
+exception (non-throwing default, aligned with `DIA-007`)
+**And** the command returns to a non-executing state — `IsExecuting` is `false`
+and `CanExecute` returns `true`
+**And** while the task was in flight `CanExecute` returned `false` (the command
+cannot double-run)
+
+> Spec: `04-commands.md §10`, ADR-0056. Full-parity (C#/Python/TypeScript) only —
+> Swift does not ship `AsyncRelayCommand` (ADR-0037 subset).
+
 ______________________________________________________________________
 
 ## 7. ComponentVM (`CVM-NNN`)

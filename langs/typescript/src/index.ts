@@ -67,13 +67,17 @@ export { NullMessageHub } from "./services/nullMessageHub.js";
 export { NullDispatcher } from "./services/nullDispatcher.js";
 
 // Commands
-export type { ICommand, ICommandOf } from "./commands/types.js";
+export type { ICommand, ICommandOf, IAsyncCommand } from "./commands/types.js";
 export {
   RelayCommand,
   RelayCommandBuilder,
   RelayCommandOf,
   RelayCommandOfBuilder,
 } from "./commands/relayCommand.js";
+export {
+  AsyncRelayCommand,
+  AsyncRelayCommandBuilder,
+} from "./commands/asyncRelayCommand.js";
 export { CompositeCommand } from "./commands/compositeCommand.js";
 export {
   DecoratorCommand,

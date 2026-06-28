@@ -14,10 +14,13 @@ CMD-007  Table-driven configurations from command-truthtable.json
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from reactivex.subject import Subject
 
 from tests.conformance.fixtures.loader import load
+from vmx.commands.async_relay_command import AsyncRelayCommand
 from vmx.commands.relay_command import RelayCommand, RelayCommandOf
 
 
@@ -142,3 +145,65 @@ def test_CMD_007_truth_table(case: dict) -> None:  # type: ignore[type-arg]
     assert bool(task_called) is expected_task_invoked, (
         f"[{case['id']}] task invoked={bool(task_called)}, expected={expected_task_invoked}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CMD-012 — async command cancellation (spec/04-commands.md §11, ADR-0056)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("CMD-012")
+async def test_CMD_012_cancel_cancels_inflight_async_task_nonthrowing() -> None:
+    """cancel() cancels an in-flight async task; the command returns to a
+    non-executing state and no exception surfaces by default (DIA-007 alignment).
+    """
+    started = asyncio.Event()
+    observed_cancel = False
+
+    async def _task() -> None:
+        nonlocal observed_cancel
+        started.set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            observed_cancel = True
+            raise
+
+    cmd = AsyncRelayCommand.builder().task(_task).build()
+    assert cmd.can_execute() is True, "executable before it starts"
+
+    run = asyncio.ensure_future(cmd.execute_async())
+    await started.wait()  # the task is now in flight
+
+    assert cmd.is_executing is True, "executing while the task runs"
+    assert cmd.can_execute() is False, "an in-flight async command must not be re-executable"
+
+    cmd.cancel()
+    await run  # MUST complete without raising (non-throwing default)
+
+    assert observed_cancel is True, "the task observed cancellation"
+    assert cmd.is_executing is False, "returns to a non-executing state after cancel"
+    assert cmd.can_execute() is True, "can_execute reflects the cleared in-flight state"
+    cmd.dispose()
+
+
+@pytest.mark.conformance("CMD-012")
+async def test_CMD_012_throw_on_cancel_reraises() -> None:
+    """The opt-in throwing mode re-raises CancelledError to the awaiter while still
+    returning the command to a non-executing state (spec §11 opt-in clause).
+    """
+    started = asyncio.Event()
+
+    async def _task() -> None:
+        started.set()
+        await asyncio.sleep(3600)
+
+    cmd = AsyncRelayCommand.builder().throw_on_cancel().task(_task).build()
+    run = asyncio.ensure_future(cmd.execute_async())
+    await started.wait()
+    cmd.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert cmd.is_executing is False, "still returns to a non-executing state when throwing"
+    cmd.dispose()

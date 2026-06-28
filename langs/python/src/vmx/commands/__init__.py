@@ -6,6 +6,10 @@ legacy v1.0.0 ``RelayCommandOfT`` / ``RelayCommandOfTBuilder`` aliases were
 removed in vmx v3.0.0 (ADR-0052; deferral originally recorded in ADR-0009).
 """
 
+from vmx.commands.async_relay_command import (
+    AsyncRelayCommand,
+    AsyncRelayCommandBuilder,
+)
 from vmx.commands.composite_command import CompositeCommand
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.decorator_command import DecoratorCommand
@@ -26,6 +30,8 @@ from vmx.commands.relay_command import (
 )
 
 __all__ = [
+    "AsyncRelayCommand",
+    "AsyncRelayCommandBuilder",
     "Command",
     "CompositeCommand",
     "ConfirmationDecoratorCommand",

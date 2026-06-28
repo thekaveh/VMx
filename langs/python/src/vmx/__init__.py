@@ -61,6 +61,8 @@ from vmx.collections import (
     ServicedObservableCollection,
 )
 from vmx.commands import (
+    AsyncRelayCommand,
+    AsyncRelayCommandBuilder,
     Command,
     CompositeCommand,
     ConfirmationDecoratorCommand,
@@ -156,6 +158,8 @@ __all__ = [
     "AggregateVM5Builder",
     "AggregateVM6",
     "AggregateVM6Builder",
+    "AsyncRelayCommand",
+    "AsyncRelayCommandBuilder",
     "BatchUpdateHandle",
     "BuilderValidationError",
     "CollectionChangedEvent",

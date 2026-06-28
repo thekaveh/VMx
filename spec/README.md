@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (241 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (242 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -242,11 +242,30 @@ the `v3-framework-overhaul` branch.
   builder and ADR-0003); and `null_message_hub_of` is demoted from the top-level
   `vmx` export to `vmx.services` (VMX-095/068/080/081).
 
+- **ADR-0056** — v3 async command cancellation: an additive `IAsyncCommand` /
+  `AsyncRelayCommand` flows the idiomatic cancellation channel
+  (`CancellationToken` / asyncio task cancellation / `AbortSignal`) into a
+  long-running task and adds a `Cancel()` method, closing the gap where the
+  synchronous `RelayCommand` task had no cancellation while `IDialogService`
+  already did (`DIA-007`). Cancellation is non-throwing to the caller by default
+  with an opt-in throwing mode — aligned with the dialog contract; fire-and-forget
+  task faults route to an `errors` observable (`04 §10`). `RelayCommand` is
+  unchanged. Full-parity (C#/Python/TypeScript); Swift deferred (VMX-052).
+
+- `04-commands.md` is revised: §10 (new — async command cancellation), with the
+  prior §10 Conformance renumbered §11.
+
+- `12-conformance.md` — adds `CMD-012` (cancel cancels an in-flight async task;
+  the command returns to a non-executing state; no exception surfaces by default);
+  catalog total goes from 241 to 242 (237 library + 5 THEME scenario IDs).
+
+- Chapter count stays at 22.
+
 ### 1.10 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`2.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0055); see
+- `ADRs/` — Architecture Decision Records (0001-0056); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

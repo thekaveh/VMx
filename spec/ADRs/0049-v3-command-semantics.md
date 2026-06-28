@@ -94,7 +94,8 @@ mechanism (chapter 04 §4.2).
 
 - `04-commands.md` is revised: §4.2 (new — selection-driven `CanExecute` recipe),
   §8.3.1 (new — async gating + the `errors` channel + throw-propagation contract,
-  pinning the VMX-044 unspecified semantics), §10 (CMDD-010 in the conformance list).
+  pinning the VMX-044 unspecified semantics), the conformance section (CMDD-010 in
+  the conformance list; renumbered to §11 when ADR-0056 added §10 async cancellation).
 - `06-composite-vm.md` §7 is revised: the optional `current_changed` trigger is added
   to the `ModeledCrudCommands` shape and its reactivity behavior specified.
 - The catalog gains **`CMDD-010`** (the genuinely-new normative surface: the
