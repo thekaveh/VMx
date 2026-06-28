@@ -224,16 +224,26 @@ export abstract class ComponentVMBase {
     if (this.#background) {
       this._setStatus(ConstructionStatus.Constructing);
       this.#dispatcher.background.schedule(() => {
-        try {
-          // dispose() may have run between scheduling and execution;
-          // Disposed is terminal (spec/02 invariant 3), so skip the work.
-          if (this.#status !== ConstructionStatus.Disposed) {
-            this._onConstruct();
-            this._setStatus(ConstructionStatus.Constructed);
-          }
-        } finally {
+        // dispose() may have run between scheduling and execution; Disposed is
+        // terminal (spec/02 invariant 3), so skip the work and the marshalled
+        // emission.
+        if (this.#status === ConstructionStatus.Disposed) {
           this.#inFlight = false;
+          return;
         }
+        this._onConstruct();
+        // VMX-025: marshal the terminal Constructed emission onto the foreground
+        // scheduler so subscribers observe the status change on the foreground
+        // (UI) thread, not the background (pool) thread. _setStatus re-checks
+        // Disposed, so a dispose() landing before this runs still aborts the
+        // transition — no resurrection, no post-dispose publish.
+        this._scheduleForeground(() => {
+          try {
+            this._setStatus(ConstructionStatus.Constructed);
+          } finally {
+            this.#inFlight = false;
+          }
+        });
       });
     } else {
       try {
@@ -259,16 +269,26 @@ export abstract class ComponentVMBase {
     if (this.#background) {
       this._setStatus(ConstructionStatus.Destructing);
       this.#dispatcher.background.schedule(() => {
-        try {
-          // dispose() may have run between scheduling and execution;
-          // Disposed is terminal (spec/02 invariant 3), so skip the work.
-          if (this.#status !== ConstructionStatus.Disposed) {
-            this._onDestruct();
-            this._setStatus(ConstructionStatus.Destructed);
-          }
-        } finally {
+        // dispose() may have run between scheduling and execution; Disposed is
+        // terminal (spec/02 invariant 3), so skip the work and the marshalled
+        // emission.
+        if (this.#status === ConstructionStatus.Disposed) {
           this.#inFlight = false;
+          return;
         }
+        this._onDestruct();
+        // VMX-025: marshal the terminal Destructed emission onto the foreground
+        // scheduler so subscribers observe the status change on the foreground
+        // (UI) thread, not the background (pool) thread. _setStatus re-checks
+        // Disposed, so a dispose() landing before this runs still aborts the
+        // transition — no resurrection, no post-dispose publish.
+        this._scheduleForeground(() => {
+          try {
+            this._setStatus(ConstructionStatus.Destructed);
+          } finally {
+            this.#inFlight = false;
+          }
+        });
       });
     } else {
       try {

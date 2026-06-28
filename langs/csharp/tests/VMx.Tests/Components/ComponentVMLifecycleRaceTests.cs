@@ -37,7 +37,8 @@ public class ComponentVMLifecycleRaceTests
     {
         var (vm, _, dispatcher) = BuildBackgroundVm();
         vm.Construct();
-        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.BackgroundScheduler.AdvanceBy(1);  // OnConstruct on background
+        dispatcher.ForegroundScheduler.AdvanceBy(1);  // marshalled Constructed on foreground (VMX-025)
         vm.Status.Should().Be(ConstructionStatus.Constructed);
 
         var task = vm.ConstructAsync();
@@ -51,9 +52,11 @@ public class ComponentVMLifecycleRaceTests
     {
         var (vm, _, dispatcher) = BuildBackgroundVm();
         vm.Construct();
-        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.BackgroundScheduler.AdvanceBy(1);  // OnConstruct on background
+        dispatcher.ForegroundScheduler.AdvanceBy(1);  // marshalled Constructed on foreground (VMX-025)
         vm.Destruct();
-        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.BackgroundScheduler.AdvanceBy(1);  // OnDestruct on background
+        dispatcher.ForegroundScheduler.AdvanceBy(1);  // marshalled Destructed on foreground (VMX-025)
         vm.Status.Should().Be(ConstructionStatus.Destructed);
 
         var task = vm.DestructAsync();

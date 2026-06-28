@@ -285,24 +285,36 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             SetStatus(ConstructionStatus.Constructing);
             _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
             {
-                try
-                {
-                    // Dispose() may have run between scheduling and execution.
-                    // Re-check the terminal state under _gate and abort if disposed
-                    // (spec/02 invariant 3). SetStatus re-checks under the same lock,
-                    // so even a Dispose() that lands while OnConstruct() runs cannot
-                    // complete the Constructed transition — no resurrection, no
-                    // post-dispose publish, no OnNext on a disposed Subject.
-                    if (!IsDisposed())
-                    {
-                        OnConstruct();
-                        SetStatus(ConstructionStatus.Constructed);
-                    }
-                }
-                finally
+                // Dispose() may have run between scheduling and execution.
+                // Re-check the terminal state under _gate and abort if disposed
+                // (spec/02 invariant 3): no OnConstruct(), no marshalled emission.
+                if (IsDisposed())
                 {
                     _inFlight = false;
+                    return Disposable.Empty;
                 }
+
+                OnConstruct();
+
+                // VMX-025: marshal the terminal Constructed emission onto the
+                // foreground scheduler so subscribers observe the status change on
+                // the foreground (UI) thread, not the background (pool) thread.
+                // SetStatus re-checks Disposed under _gate, so a Dispose() landing
+                // before this marshalled emission runs still aborts the transition
+                // — no resurrection, no post-dispose publish, no OnNext on a
+                // disposed Subject (VMX-001/054).
+                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                {
+                    try
+                    {
+                        SetStatus(ConstructionStatus.Constructed);
+                    }
+                    finally
+                    {
+                        _inFlight = false;
+                    }
+                    return Disposable.Empty;
+                });
                 return Disposable.Empty;
             });
             // Return immediately — caller does not wait for background work.
@@ -382,24 +394,36 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             SetStatus(ConstructionStatus.Destructing);
             _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
             {
-                try
-                {
-                    // Dispose() may have run between scheduling and execution.
-                    // Re-check the terminal state under _gate and abort if disposed
-                    // (spec/02 invariant 3). SetStatus re-checks under the same lock,
-                    // so even a Dispose() that lands while OnDestruct() runs cannot
-                    // complete the Destructed transition — no resurrection, no
-                    // post-dispose publish, no OnNext on a disposed Subject.
-                    if (!IsDisposed())
-                    {
-                        OnDestruct();
-                        SetStatus(ConstructionStatus.Destructed);
-                    }
-                }
-                finally
+                // Dispose() may have run between scheduling and execution.
+                // Re-check the terminal state under _gate and abort if disposed
+                // (spec/02 invariant 3): no OnDestruct(), no marshalled emission.
+                if (IsDisposed())
                 {
                     _inFlight = false;
+                    return Disposable.Empty;
                 }
+
+                OnDestruct();
+
+                // VMX-025: marshal the terminal Destructed emission onto the
+                // foreground scheduler so subscribers observe the status change on
+                // the foreground (UI) thread, not the background (pool) thread.
+                // SetStatus re-checks Disposed under _gate, so a Dispose() landing
+                // before this marshalled emission runs still aborts the transition
+                // — no resurrection, no post-dispose publish, no OnNext on a
+                // disposed Subject (VMX-001/054).
+                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                {
+                    try
+                    {
+                        SetStatus(ConstructionStatus.Destructed);
+                    }
+                    finally
+                    {
+                        _inFlight = false;
+                    }
+                    return Disposable.Empty;
+                });
                 return Disposable.Empty;
             });
         }

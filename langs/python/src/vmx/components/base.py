@@ -287,19 +287,29 @@ class _ComponentVMBase(ABC):
             self._set_status(ConstructionStatus.CONSTRUCTING)
 
             def _bg_construct(scheduler: SchedulerBase, state: object | None) -> None:
-                try:
-                    # dispose() may have run between scheduling and execution.
-                    # Re-check the terminal state under the lock and abort if
-                    # disposed (spec/02 invariant 3). _set_status re-checks under
-                    # the same lock, so even a dispose() that lands while
-                    # _on_construct() runs cannot complete the Constructed
-                    # transition — no resurrection, no post-dispose publish, no
-                    # on_next on a disposed Subject (VMX-004).
-                    if not self._is_disposed():
-                        self._on_construct()
-                        self._set_status(ConstructionStatus.CONSTRUCTED)
-                finally:
+                # dispose() may have run between scheduling and execution.
+                # Re-check the terminal state under the lock and abort if disposed
+                # (spec/02 invariant 3): no _on_construct(), no marshalled emission.
+                if self._is_disposed():
                     self._in_flight = False
+                    return
+
+                self._on_construct()
+
+                # VMX-025: marshal the terminal Constructed emission onto the
+                # foreground scheduler so subscribers observe the status change on
+                # the foreground (UI) thread, not the background (pool) thread.
+                # _set_status re-checks DISPOSED under the lock, so a dispose()
+                # landing before this marshalled emission runs still aborts the
+                # transition — no resurrection, no post-dispose publish, no on_next
+                # on a disposed Subject (VMX-004).
+                def _fg_construct(_scheduler: SchedulerBase, _state: object | None) -> None:
+                    try:
+                        self._set_status(ConstructionStatus.CONSTRUCTED)
+                    finally:
+                        self._in_flight = False
+
+                self._dispatcher.foreground.schedule(_fg_construct)
 
             self._dispatcher.background.schedule(_bg_construct)
         else:
@@ -329,19 +339,29 @@ class _ComponentVMBase(ABC):
             self._set_status(ConstructionStatus.DESTRUCTING)
 
             def _bg_destruct(scheduler: SchedulerBase, state: object | None) -> None:
-                try:
-                    # dispose() may have run between scheduling and execution.
-                    # Re-check the terminal state under the lock and abort if
-                    # disposed (spec/02 invariant 3). _set_status re-checks under
-                    # the same lock, so even a dispose() that lands while
-                    # _on_destruct() runs cannot complete the Destructed
-                    # transition — no resurrection, no post-dispose publish, no
-                    # on_next on a disposed Subject (VMX-004).
-                    if not self._is_disposed():
-                        self._on_destruct()
-                        self._set_status(ConstructionStatus.DESTRUCTED)
-                finally:
+                # dispose() may have run between scheduling and execution.
+                # Re-check the terminal state under the lock and abort if disposed
+                # (spec/02 invariant 3): no _on_destruct(), no marshalled emission.
+                if self._is_disposed():
                     self._in_flight = False
+                    return
+
+                self._on_destruct()
+
+                # VMX-025: marshal the terminal Destructed emission onto the
+                # foreground scheduler so subscribers observe the status change on
+                # the foreground (UI) thread, not the background (pool) thread.
+                # _set_status re-checks DISPOSED under the lock, so a dispose()
+                # landing before this marshalled emission runs still aborts the
+                # transition — no resurrection, no post-dispose publish, no on_next
+                # on a disposed Subject (VMX-004).
+                def _fg_destruct(_scheduler: SchedulerBase, _state: object | None) -> None:
+                    try:
+                        self._set_status(ConstructionStatus.DESTRUCTED)
+                    finally:
+                        self._in_flight = False
+
+                self._dispatcher.foreground.schedule(_fg_destruct)
 
             self._dispatcher.background.schedule(_bg_destruct)
         else:
