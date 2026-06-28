@@ -3,6 +3,14 @@
 `AggregateVM<VM1..VMN>` is a fixed-arity tuple of heterogeneous component VMs. VMx
 ships arities 1 through 6 (`AggregateVM1` through `AggregateVM6` — see ADR-0007 and ADR-0034).
 
+The explicit per-arity surface (`AggregateVM1`…`AggregateVM6`, each with its own
+typed `ComponentN` accessors and builder) is **deliberate**, not boilerplate to be
+collapsed: it is the accepted cost of compile-time arity-typed safety with uniform
+cross-flavor parity, given that C# has no variadic generics and Python's supported
+floor predates `TypeVarTuple`. A tuple/variadic single-class rewrite is rejected;
+future arities follow the ADR-0034 precedent (one additive class per minor bump).
+See [ADR-0058](ADRs/0058-v3-hold-explicit-aggregate-arity-surface.md).
+
 ## 1. Members (arity N)
 
 ```
