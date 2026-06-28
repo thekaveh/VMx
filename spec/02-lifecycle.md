@@ -56,12 +56,20 @@ predicate signals "the operation is safe to call" rather than "the operation wil
 produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
-`StatusTransitionError` (Python / TS) / `StatusTransitionException` (C#). The exception's
-message MUST include the current state and the attempted operation. The Swift
-flavor surfaces the violation as a trap (`preconditionFailure` carrying the
-`StatusTransitionError` description) rather than a thrown error — a documented
-divergence (ADR-0037): traps are the Swift-stdlib convention for API misuse,
-and a throwing lifecycle would force `try` onto every legal call site.
+`StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#).
+The exception's message MUST include the current state and the attempted
+operation. As of v3 the Swift flavor **throws** a catchable
+`StatusTransitionError` here — the same recoverable contract as the other
+flavors — converging from its v2 trap (`preconditionFailure`) per ADR-0053,
+which supersedes the documented divergence in ADR-0037 §2.5. The throwing
+surface covers the three lifecycle operations (`construct` / `destruct` /
+`reconstruct`) and the concurrent-re-invocation guard (`LIFE-008`); these are
+`throws` in Swift, so legal call sites use `try`. Swift property setters that
+cannot be `throws` — the `CompositeVM.current` slot and the
+`ReadonlyComponentVMOf.model` read-only setter — retain a `preconditionFailure`
+trap for misuse, and expose a catchable companion where a recoverable path
+exists (`CompositeVM.setCurrent(_:)` / `canSetCurrent(_:)`, VMX-026). See
+ADR-0053.
 
 ### 2.2 Subclass lifecycle hooks (`OnConstruct` / `OnDestruct` / `OnDispose`)
 

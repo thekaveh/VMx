@@ -83,7 +83,7 @@ final class LifecycleRaceTests: XCTestCase {
     /// hub message. Deterministic — the deferred dispatcher holds the background
     /// work until after dispose has run (mirrors the C#
     /// `Dispose_During_InFlight_Background_Construct_Does_Not_Resurrect`).
-    func testDisposeDuringInFlightBackgroundConstructDoesNotResurrect() {
+    func testDisposeDuringInFlightBackgroundConstructDoesNotResurrect() throws {
         let hub = MessageHub()
         let dispatcher = DeferredDispatcher()
         let vm = try! ComponentVM.builder()
@@ -98,7 +98,7 @@ final class LifecycleRaceTests: XCTestCase {
             .filter { $0.sender === vm }
             .sink { statuses.append($0.status) }
 
-        vm.construct()   // emits .constructing; background completion parked
+        try vm.construct()   // emits .constructing; background completion parked
         vm.dispose()     // terminal before the parked work runs
         dispatcher.flush()  // background closure must now no-op (abort)
 
@@ -115,7 +115,7 @@ final class LifecycleRaceTests: XCTestCase {
     }
 
     /// Symmetric case for the background `destruct()` path.
-    func testDisposeDuringInFlightBackgroundDestructDoesNotResurrect() {
+    func testDisposeDuringInFlightBackgroundDestructDoesNotResurrect() throws {
         let hub = MessageHub()
         let dispatcher = DeferredDispatcher()
         let vm = try! ComponentVM.builder()
@@ -124,7 +124,7 @@ final class LifecycleRaceTests: XCTestCase {
             .background(true)
             .build()
 
-        vm.construct()
+        try vm.construct()
         dispatcher.flush()  // complete construction synchronously
         XCTAssertEqual(vm.status, .constructed)
 
@@ -134,7 +134,7 @@ final class LifecycleRaceTests: XCTestCase {
             .filter { $0.sender === vm }
             .sink { statuses.append($0.status) }
 
-        vm.destruct()    // emits .destructing; background completion parked
+        try vm.destruct()    // emits .destructing; background completion parked
         vm.dispose()     // terminal before the parked work runs
         dispatcher.flush()
 
@@ -145,6 +145,41 @@ final class LifecycleRaceTests: XCTestCase {
         )
         XCTAssertEqual(statuses.last, .disposed)
         cancel.cancel()
+    }
+
+    // MARK: - LIFE-008 — concurrent re-invocation while transitioning raises
+
+    /// LIFE-008 — a second `construct()` invoked while the VM is mid-transition
+    /// (`.constructing`, with its background completion still parked) raises a
+    /// catchable `StatusTransitionError`. v3 converges Swift to the throwing
+    /// contract (ADR-0053, superseding ADR-0037 §2.5, under which the in-flight
+    /// guard trapped and LIFE-008 was therefore unclaimable). The
+    /// `DeferredDispatcher` holds the VM deterministically in `.constructing`, so
+    /// the re-invocation is observed without a real race.
+    func testLife008ConcurrentConstructWhileTransitioningRaises() throws {
+        let hub = MessageHub()
+        let dispatcher = DeferredDispatcher()
+        let vm = try ComponentVM.builder()
+            .name("vm")
+            .services(hub: hub, dispatcher: dispatcher)
+            .background(true)
+            .build()
+
+        try vm.construct()            // emits .constructing; completion parked
+        XCTAssertEqual(vm.status, .constructing)
+
+        // Second invocation while in flight MUST raise (spec/12 LIFE-008).
+        XCTAssertThrowsError(try vm.construct()) { error in
+            guard let e = error as? StatusTransitionError else {
+                return XCTFail("expected StatusTransitionError, got \(error)")
+            }
+            XCTAssertEqual(e.attemptedOperation, "construct")
+            XCTAssertEqual(e.currentStatus, .constructing)
+        }
+
+        // The original transition still completes cleanly once flushed.
+        dispatcher.flush()
+        XCTAssertEqual(vm.status, .constructed)
     }
 
     // MARK: - Real-thread stress
@@ -160,7 +195,7 @@ final class LifecycleRaceTests: XCTestCase {
     /// plain-`var` state this is undefined behaviour (torn `_status`); once the
     /// transition + dispose are serialized under one lock it is impossible, so
     /// the assertions hold deterministically (zero violations) for the fixed code.
-    func testBackgroundConstructRacingDisposeNeverResurrectsOrPublishesPostDispose() {
+    func testBackgroundConstructRacingDisposeNeverResurrectsOrPublishesPostDispose() throws {
         // The locked code admits zero violations regardless of count, so the test
         // is deterministic; a high count stresses the interleaving window.
         let iterations = 5_000
@@ -201,7 +236,7 @@ final class LifecycleRaceTests: XCTestCase {
 
             // construct() schedules the background completion (parked on `gate`)
             // after emitting .constructing on this (foreground) thread.
-            vm.construct()
+            try vm.construct()
 
             // Race the worker's completion against a foreground dispose: park a
             // dispose on another queue, then release both back-to-back.

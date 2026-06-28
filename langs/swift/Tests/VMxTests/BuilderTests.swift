@@ -94,7 +94,7 @@ final class BuilderTests: XCTestCase {
         XCTAssertEqual(vm.hint, "")
         XCTAssertEqual(vm.status, .destructed)
         // Constructing succeeds via the null hub & dispatcher.
-        vm.construct()
+        try vm.construct()
         XCTAssertEqual(vm.status, .constructed)
     }
 }

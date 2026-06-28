@@ -34,7 +34,7 @@ final class ComponentVMTests: XCTestCase {
             .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
             .sink { seen.append($0) }
 
-        vm.construct()
+        try vm.construct()
 
         XCTAssertTrue(seen.contains(.constructed))
         cancel.cancel()
@@ -108,7 +108,7 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertEqual(vm.type, .component)
         XCTAssertEqual(vm.status, .destructed)
 
-        vm.construct()
+        try vm.construct()
         XCTAssertEqual(vm.name, "hello")
         XCTAssertEqual(vm.hint, "greeting")
     }
@@ -125,7 +125,7 @@ final class ComponentVMTests: XCTestCase {
             .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
             .children { [child] }
             .build()
-        comp.construct()
+        try comp.construct()
 
         XCTAssertTrue(child.selectCommand.canExecute(), "constructed and not current")
 

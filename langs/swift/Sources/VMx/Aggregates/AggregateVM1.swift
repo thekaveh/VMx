@@ -20,8 +20,8 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
 
     open override var type: ViewModelType { .aggregate }
 
-    open override func _onConstruct() {
-        super._onConstruct()
+    open override func _onConstruct() throws {
+        try super._onConstruct()
         component1?.dispose()
         let c1 = factory1()
         component1 = c1
@@ -29,12 +29,12 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
             sender: self, senderName: name, propertyName: "component1"
         ))
         _raisePropertyChanged("component1")
-        c1.construct()
+        try c1.construct()
     }
 
-    open override func _onDestruct() {
-        component1?.destruct()
-        super._onDestruct()
+    open override func _onDestruct() throws {
+        try component1?.destruct()
+        try super._onDestruct()
     }
 
     open override func dispose() {

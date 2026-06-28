@@ -69,9 +69,42 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         children[index]
     }
 
+    /// The selected child, or `nil`.
+    ///
+    /// The **setter traps** (`preconditionFailure`) if assigned a value that is
+    /// not a member of this composite (spec/06 §3.1 — `Current` must be a
+    /// member). Swift property setters cannot be `throws`, so the recoverable
+    /// path is `setCurrent(_:)` / `canSetCurrent(_:)` (VMX-026 / ADR-0053): they
+    /// validate membership and throw a catchable `CompositeMembershipError`,
+    /// mirroring the C#/Python/TypeScript catchable throw. The trapping setter
+    /// is retained (not deprecated) for ergonomic binding of an already-validated
+    /// member — assigning a known child or `nil` is the common case and never
+    /// traps.
     public var current: Child? {
         get { _current }
         set { _setCurrent(newValue) }
+    }
+
+    /// Pre-flight predicate for `setCurrent(_:)` / the `current` setter: returns
+    /// `true` iff `value` is `nil` or a member of this composite. Mirrors C#
+    /// `CanSelectComponent` membership gating for the `Current` slot (spec/06
+    /// §3.1).
+    public func canSetCurrent(_ value: Child?) -> Bool {
+        guard let value else { return true }
+        return children.contains(where: { $0 === value })
+    }
+
+    /// Throwing, catchable alternative to the `current` property setter
+    /// (VMX-026 / ADR-0053). Validates membership and throws
+    /// `CompositeMembershipError` on a non-child, instead of trapping. A `nil`
+    /// or member assignment behaves exactly like `current = value`.
+    public func setCurrent(_ value: Child?) throws {
+        guard canSetCurrent(value) else {
+            throw CompositeMembershipError(
+                memberName: value?.name ?? "<nil>", compositeName: name
+            )
+        }
+        _setCurrent(value)
     }
 
     public func add(_ child: Child) {
@@ -97,26 +130,32 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
 
     // ── Lifecycle overrides ─────────────────────────────────────────────
 
-    open override func _onConstruct() {
-        super._onConstruct()
+    open override func _onConstruct() throws {
+        try super._onConstruct()
         if !populated {
             populated = true
             if let factory = childrenFactory {
                 for c in factory() { add(c) }
             }
         }
-        for child in children { child.construct() }
+        // A child's throwing `construct()` (ADR-0053) propagates up through this
+        // hook to the composite's originating `construct()` call — parity with
+        // the C#/Python/TypeScript cascade.
+        for child in children { try child.construct() }
         if let selector = currentSelector,
            let initial = selector(children),
            children.contains(where: { $0 === initial }) {
+            // Non-raising validated assignment (spec/06 §3.1 / COMP-025): the
+            // membership is already checked above, so the internal setter never
+            // hits its non-child trap here.
             _setCurrent(initial)
         }
     }
 
-    open override func _onDestruct() {
+    open override func _onDestruct() throws {
         if _current != nil { _setCurrent(nil) }
-        for child in children { child.destruct() }
-        super._onDestruct()
+        for child in children { try child.destruct() }
+        try super._onDestruct()
     }
 
     open override func dispose() {
@@ -134,9 +173,15 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     // ── Internal ────────────────────────────────────────────────────────
 
     private func _setCurrent(_ value: Child?) {
+        // Non-child assignment is a programmer error reachable only via the
+        // (non-throwing) `current` property setter; `setCurrent(_:)` pre-validates
+        // via `canSetCurrent(_:)` and throws `CompositeMembershipError` before
+        // reaching here (VMX-026 / ADR-0053). The trap remains for the property
+        // setter, which Swift cannot make `throws`.
         if let value, !children.contains(where: { $0 === value }) {
             preconditionFailure(
-                "Cannot set current to '\(value.name)': not a child of this composite."
+                "Cannot set current to '\(value.name)': not a child of this composite. "
+                + "Use setCurrent(_:)/canSetCurrent(_:) for a catchable check."
             )
         }
         if _current === value { return }
@@ -152,5 +197,26 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         ))
         _raisePropertyChanged("current")
         onCurrentChanged?(value)
+    }
+}
+
+/// Thrown by `CompositeVM.setCurrent(_:)` when the argument is not a member of
+/// the composite's children (spec/06 §3.1 — `Current` must be a member; cf.
+/// `COMP-009`). This is the Swift convergence (ADR-0053, VMX-026) of the
+/// non-child `Current` assignment that C# surfaces as `InvalidOperationException`
+/// and Python/TypeScript as a thrown error. The non-throwing `current` property
+/// setter traps instead, because Swift setters cannot be `throws`.
+public struct CompositeMembershipError: Error, CustomStringConvertible {
+    public let memberName: String
+    public let compositeName: String
+
+    public init(memberName: String, compositeName: String) {
+        self.memberName = memberName
+        self.compositeName = compositeName
+    }
+
+    public var description: String {
+        "Cannot set current to '\(memberName)': "
+        + "not a child of composite '\(compositeName)'."
     }
 }

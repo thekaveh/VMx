@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v2.6.0.** Covers **41 of 237**
-conformance IDs from `spec-v2.6.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042): the lifecycle state machine, the modeled
+**v2.6.0.** Covers **42 of 237**
+conformance IDs from `spec-v2.6.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, and the immutable fluent builders. The remaining 196 IDs
+`RelayCommand`, and the immutable fluent builders. The remaining 195 IDs
 (`HierarchicalVM`, `FormVM`, the 22 capability micro-interfaces,
 `DerivedProperty`, observable collections, the notifications sub-package,
 threading specifics, forwarding decorators, dialog service, expand/collapse
@@ -68,13 +68,16 @@ let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
     .build()
 
 // 4. Transition the lifecycle from .destructed → .constructed before use.
-tabs.construct()
+//    Lifecycle ops are throwing in v3 (ADR-0053): an illegal transition raises
+//    a catchable `StatusTransitionError` instead of trapping.
+try tabs.construct()
 print(tabs.status)              // ConstructionStatus.constructed
 
-tabs.current = tab2
+tabs.current = tab2             // setter traps on a non-child; use
+                               // try tabs.setCurrent(tab2) for a catchable check
 print(tabs.current?.model.title) // "Settings"
 
-tabs.dispose()
+tabs.dispose()                  // dispose() is terminal/idempotent — never throws
 hub.dispose()
 ```
 
@@ -118,22 +121,25 @@ Key exports:
 | `ImmediateDispatcher.INSTANCE`  | Synchronous test dispatcher                      |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
-| `StatusTransitionError`         | Describes illegal lifecycle operations (surfaced as a trap — ADR-0037) |
+| `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
+| `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The 41 covered IDs (recounted honestly in ADR-0037 — the
-original release notes overclaimed) are:
+catalog. The 42 covered IDs (recounted honestly in ADR-0037 — the
+original release notes overclaimed — and +LIFE-008 via ADR-0053) are:
 
 ```
-LIFE-001..007, 009, 010, 012, 013   lifecycle state machine
-                                    (LIFE-005/006 assert the gating
-                                    predicates; the raise is a trap per
-                                    ADR-0037)
+LIFE-001..010, 012, 013   lifecycle state machine
+                                    (LIFE-005/006/008 now assert a
+                                    catchable throw — v3 converges Swift
+                                    from a trap, ADR-0053 superseding
+                                    ADR-0037 §2.5; LIFE-011 still deferred)
 CVM-001..006    ComponentVM / ComponentVMOf identity + model
-                (CVM-003: the readonly setter traps per ADR-0037)
+                (CVM-003: the read-only model setter still traps —
+                Swift setters cannot throw — per ADR-0053)
 COMP-003..005,  select-through-child + lifecycle cascades +
 COMP-025/026    builder `current(selector)` / `onCurrentChanged(callback)`
                 hooks
@@ -143,12 +149,14 @@ CMD-001..004, 006   RelayCommand task + predicate + triggers
 BLD-001..005    builders immutable + validation + defaults
 ```
 
-Not claimed (behavior not implemented yet): `LIFE-008` (concurrent-raise
-is a trap), `LIFE-011` (fixture-backed table), `CVM`-adjacent
-CollectionChanged events (`COMP-001/002`, `GRP-001`), foreground-dispatch
-IDs (`COMP-006/010`), `COMP-007/008/009`, `GRP-005/006`
-(AutoConstructOnAdd / BatchUpdate), `CMD-005` (parameterized variant),
-and `CMD-007` (truth-table fixture).
+Not claimed (behavior not implemented yet): `LIFE-011` (fixture-backed
+table), `CVM`-adjacent CollectionChanged events (`COMP-001/002`,
+`GRP-001`), foreground-dispatch IDs (`COMP-006/010`), `COMP-007/008`,
+`GRP-005/006` (AutoConstructOnAdd / BatchUpdate), `CMD-005`
+(parameterized variant), and `CMD-007` (truth-table fixture). `COMP-009`
+(non-child `current` raises) is partially addressed — `setCurrent(_:)`
+throws `CompositeMembershipError`, but the catalog ID is not yet claimed
+pending a dedicated marker.
 
 **Deferred to follow-up PRs:**
 

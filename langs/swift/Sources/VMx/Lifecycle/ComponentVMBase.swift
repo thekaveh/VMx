@@ -155,7 +155,10 @@ open class ComponentVMBase {
             task: nil, predicate: { false }, triggers: [trigger]
         )
         reconstructCommand = RelayCommand(
-            task: { [weak self] in self?.reconstruct() },
+            // `reconstruct()` is throwing (ADR-0053); the command is gated by
+            // `canReconstruct()` so it never throws when fired, and a command
+            // task has no error channel, so swallow with `try?`.
+            task: { [weak self] in try? self?.reconstruct() },
             predicate: { [weak self] in self?.canReconstruct() ?? false },
             triggers: [trigger]
         )
@@ -223,7 +226,7 @@ open class ComponentVMBase {
 
     // ── Lifecycle operations ────────────────────────────────────────────
 
-    public func construct() {
+    public func construct() throws {
         // Snapshot status + claim the in-flight guard atomically under the lock
         // so a concurrent transition cannot observe a torn `_status` / `inFlight`.
         lifecycleLock.lock()
@@ -234,24 +237,22 @@ open class ComponentVMBase {
         let current = _status
         guard _isLegalTransition(from: current, operation: "construct") else {
             lifecycleLock.unlock()
-            // Swift surfaces illegal transitions as a trap rather than a
-            // thrown error — a documented divergence (ADR-0037): traps are
-            // the Swift-stdlib convention for API misuse, and a throwing
-            // lifecycle would force `try` onto every legal call site.
-            // Callers gate via canConstruct()/canDestruct()/canReconstruct().
-            preconditionFailure(
-                StatusTransitionError(
-                    currentStatus: current, attemptedOperation: "construct"
-                ).description
+            // v3 (ADR-0053): Swift converges to the throwing lifecycle contract.
+            // An illegal transition surfaces a *catchable* `StatusTransitionError`
+            // (was an uncatchable `preconditionFailure` trap under ADR-0037 §2.5).
+            // Callers may still pre-flight via canConstruct()/canDestruct()/
+            // canReconstruct().
+            throw StatusTransitionError(
+                currentStatus: current, attemptedOperation: "construct"
             )
         }
 
         if inFlight {
             lifecycleLock.unlock()
-            preconditionFailure(
-                StatusTransitionError(
-                    currentStatus: current, attemptedOperation: "construct"
-                ).description
+            // LIFE-008: a concurrent re-invocation while a transition is already
+            // in flight now throws rather than trapping (ADR-0053).
+            throw StatusTransitionError(
+                currentStatus: current, attemptedOperation: "construct"
             )
         }
         inFlight = true
@@ -269,20 +270,30 @@ open class ComponentVMBase {
                 // transition — no resurrection, no post-dispose publish, no
                 // send on a finished Combine subject (VMX-002).
                 if !self._isDisposed() {
-                    self._onConstruct()
-                    self._setStatus(.constructed)
+                    // The background path has no completion/error future in this
+                    // flavor (VMX-049, deferred): a throwing hook / child
+                    // transition cannot be redelivered to the already-returned
+                    // caller, so it is caught here. The foreground form — the
+                    // common path — propagates via `throws`. Swift transactional
+                    // rollback (LIFE-014) is a Phase-3 item (ADR-0047 §2.4).
+                    do {
+                        try self._onConstruct()
+                        self._setStatus(.constructed)
+                    } catch {
+                        // swallowed: no async error channel on the bg path yet.
+                    }
                 }
                 self._setInFlight(false)
             }
         } else {
             defer { _setInFlight(false) }
             _setStatus(.constructing)
-            _onConstruct()
+            try _onConstruct()
             _setStatus(.constructed)
         }
     }
 
-    public func destruct() {
+    public func destruct() throws {
         lifecycleLock.lock()
         if _status == .destructed {
             lifecycleLock.unlock()
@@ -291,19 +302,17 @@ open class ComponentVMBase {
         let current = _status
         guard _isLegalTransition(from: current, operation: "destruct") else {
             lifecycleLock.unlock()
-            preconditionFailure(
-                StatusTransitionError(
-                    currentStatus: current, attemptedOperation: "destruct"
-                ).description
+            // v3 (ADR-0053): catchable throw instead of a trap — see construct().
+            throw StatusTransitionError(
+                currentStatus: current, attemptedOperation: "destruct"
             )
         }
 
         if inFlight {
             lifecycleLock.unlock()
-            preconditionFailure(
-                StatusTransitionError(
-                    currentStatus: current, attemptedOperation: "destruct"
-                ).description
+            // LIFE-008: concurrent re-invocation now throws (ADR-0053).
+            throw StatusTransitionError(
+                currentStatus: current, attemptedOperation: "destruct"
             )
         }
         inFlight = true
@@ -321,36 +330,39 @@ open class ComponentVMBase {
                 // transition — no resurrection, no post-dispose publish, no
                 // send on a finished Combine subject (VMX-002).
                 if !self._isDisposed() {
-                    self._onDestruct()
-                    self._setStatus(.destructed)
+                    // Background path has no error channel yet (see construct()).
+                    do {
+                        try self._onDestruct()
+                        self._setStatus(.destructed)
+                    } catch {
+                        // swallowed: no async error channel on the bg path yet.
+                    }
                 }
                 self._setInFlight(false)
             }
         } else {
             defer { _setInFlight(false) }
             _setStatus(.destructing)
-            _onDestruct()
+            try _onDestruct()
             _setStatus(.destructed)
         }
     }
 
-    public func reconstruct() {
+    public func reconstruct() throws {
         lifecycleLock.lock()
         let current = _status
         guard _isLegalTransition(from: current, operation: "reconstruct") else {
             lifecycleLock.unlock()
-            preconditionFailure(
-                StatusTransitionError(
-                    currentStatus: current, attemptedOperation: "reconstruct"
-                ).description
+            // v3 (ADR-0053): catchable throw instead of a trap — see construct().
+            throw StatusTransitionError(
+                currentStatus: current, attemptedOperation: "reconstruct"
             )
         }
         if inFlight {
             lifecycleLock.unlock()
-            preconditionFailure(
-                StatusTransitionError(
-                    currentStatus: current, attemptedOperation: "reconstruct"
-                ).description
+            // LIFE-008: concurrent re-invocation now throws (ADR-0053).
+            throw StatusTransitionError(
+                currentStatus: current, attemptedOperation: "reconstruct"
             )
         }
         inFlight = true
@@ -358,11 +370,11 @@ open class ComponentVMBase {
         defer { _setInFlight(false) }
 
         _setStatus(.destructing)
-        _onDestruct()
+        try _onDestruct()
         _setStatus(.destructed)
 
         _setStatus(.constructing)
-        _onConstruct()
+        try _onConstruct()
         _setStatus(.constructed)
     }
 
@@ -426,12 +438,19 @@ open class ComponentVMBase {
     // ── Overridable lifecycle hooks ─────────────────────────────────────
 
     /// Default: invoke the closure injected via the builder.
-    open func _onConstruct() {
+    ///
+    /// Declared `throws` (ADR-0053) so container overrides can propagate a
+    /// child's throwing `construct()` up to the originating `construct()` call —
+    /// parity with the C#/Python/TypeScript cascade. The default body does not
+    /// itself throw.
+    open func _onConstruct() throws {
         onConstructCb?()
     }
 
-    /// Default: invoke the closure injected via the builder.
-    open func _onDestruct() {
+    /// Default: invoke the closure injected via the builder. Declared `throws`
+    /// for symmetry with `_onConstruct()` (ADR-0053); the default body does not
+    /// itself throw.
+    open func _onDestruct() throws {
         onDestructCb?()
     }
 

@@ -39,7 +39,7 @@ final class GroupVMTests: XCTestCase {
     func testGrp002SurfaceContract() throws {
         let g = try GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [] }.build()
-        g.construct()
+        try g.construct()
         XCTAssertFalse(g.selectNextCommand.canExecute())
         XCTAssertFalse(g.selectPreviousCommand.canExecute())
         // Present, but not executable without a parent to be selected in.
@@ -48,22 +48,22 @@ final class GroupVMTests: XCTestCase {
     }
 
     /// GRP-003 — construct cascades to peers.
-    func testGrp003ConstructCascades() {
+    func testGrp003ConstructCascades() throws {
         let a = leaf("a"); let b = leaf("b")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a, b] }.build()
-        g.construct()
+        try g.construct()
         XCTAssertEqual(a.status, .constructed)
         XCTAssertEqual(b.status, .constructed)
     }
 
     /// GRP-004 — destruct cascades to peers.
-    func testGrp004DestructCascades() {
+    func testGrp004DestructCascades() throws {
         let a = leaf("a")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a] }.build()
-        g.construct()
-        g.destruct()
+        try g.construct()
+        try g.destruct()
         XCTAssertEqual(a.status, .destructed)
     }
 
@@ -71,11 +71,11 @@ final class GroupVMTests: XCTestCase {
     /// (spec/05 §5 — parent non-nil, not current, constructed) but
     /// `select()` is a no-op because a group has no selection slot
     /// (spec/07 — children are peers).
-    func testGroupChildSelectIsNoOp() {
+    func testGroupChildSelectIsNoOp() throws {
         let a = leaf("a")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a] }.build()
-        g.construct()
+        try g.construct()
 
         XCTAssertTrue(a.canSelect())
 
@@ -86,11 +86,11 @@ final class GroupVMTests: XCTestCase {
     }
 
     /// LIFE-013 (group path) — dispose cascades to peers.
-    func testLife013DisposeCascadesToPeers() {
+    func testLife013DisposeCascadesToPeers() throws {
         let a = leaf("a")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a] }.build()
-        g.construct()
+        try g.construct()
         g.dispose()
         XCTAssertEqual(a.status, .disposed)
     }

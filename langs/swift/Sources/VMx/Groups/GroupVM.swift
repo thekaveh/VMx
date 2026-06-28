@@ -59,18 +59,19 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
         return true
     }
 
-    open override func _onConstruct() {
-        super._onConstruct()
+    open override func _onConstruct() throws {
+        try super._onConstruct()
         if !populated, let factory = childrenFactory {
             populated = true
             for c in factory() { add(c) }
         }
-        for child in children { child.construct() }
+        // A peer's throwing `construct()` (ADR-0053) propagates up the cascade.
+        for child in children { try child.construct() }
     }
 
-    open override func _onDestruct() {
-        for child in children { child.destruct() }
-        super._onDestruct()
+    open override func _onDestruct() throws {
+        for child in children { try child.destruct() }
+        try super._onDestruct()
     }
 
     open override func dispose() {
