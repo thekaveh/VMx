@@ -21,6 +21,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "VMx", path: "Sources/VMx", resources: [.process("Resources")]),
-        .testTarget(name: "VMxTests", dependencies: ["VMx"], path: "Tests/VMxTests"),
+        .testTarget(
+            name: "VMxTests",
+            dependencies: ["VMx"],
+            path: "Tests/VMxTests",
+            resources: [.copy("Resources/derived-properties.json")]
+        ),
     ]
 )
