@@ -514,28 +514,17 @@ open class ComponentVMBase {
         }
     }
 
-    // ── Transition table (skeleton, hand-rolled) ────────────────────────
+    // ── Transition table (fixture-driven, LIFE-011) ─────────────────────
     //
-    // The other flavors load this from `spec/fixtures/lifecycle-transitions.json`.
-    // For the skeleton, we encode the legal-transition set directly. A
-    // follow-up PR will source from the same JSON fixture used by the
-    // other flavors (LIFE-011).
+    // Delegates to `LifecycleTransitionTable`, which decodes the bundled
+    // `lifecycle-transitions.json` fixture — the cross-flavor source of truth.
+    // The hand-rolled switch is replaced so Swift cannot drift from the
+    // canonical table the way C#/Python/TypeScript cannot.
 
     private func _isLegalTransition(
         from current: ConstructionStatus,
         operation: String
     ) -> Bool {
-        switch (current, operation) {
-        case (.destructed, "construct"),
-             (.constructed, "construct"):
-            return true
-        case (.constructed, "destruct"),
-             (.destructed, "destruct"):
-            return true
-        case (.constructed, "reconstruct"):
-            return true
-        default:
-            return false
-        }
+        LifecycleTransitionTable.shared.isLegal(from: current, operation: operation)
     }
 }
