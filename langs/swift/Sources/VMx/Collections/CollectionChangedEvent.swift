@@ -2,16 +2,23 @@
 // CollectionChangedEvent — immutable payload emitted on collection mutations.
 //
 // Mirrors WPF's NotifyCollectionChangedEventArgs shape and the TypeScript
-// CollectionChangedEvent interface. Action is .add, .remove, or .reset.
+// CollectionChangedEvent interface. Action is .add, .remove, .replace, or .reset.
 //
-// See spec/21-collections.md. Consumed by CompositeVM.collectionChanged and
-// GroupVM.collectionChanged (Phase 3, Inc 2 — COMP-001/002, GRP-001).
+// See spec/21-collections.md. Consumed by CompositeVM.collectionChanged,
+// GroupVM.collectionChanged (COMP-001/002, GRP-001), and
+// ServicedObservableCollection (COL-001..004, Phase 3, Inc 2).
 //
 
 /// The kind of mutation that triggered a CollectionChanged event.
+///
+/// - `add`: one or more items were appended or inserted.
+/// - `remove`: one or more items were removed.
+/// - `replace`: an item at a known index was replaced in-place (setAt).
+/// - `reset`: the collection was cleared or batch-updated (coarse-grained).
 public enum CollectionChangedAction: Sendable, Equatable {
     case add
     case remove
+    case replace
     case reset
 }
 
