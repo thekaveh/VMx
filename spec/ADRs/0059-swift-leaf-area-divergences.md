@@ -60,12 +60,13 @@ component; relying on the inherited implementation would return the decorator's
 own construction state, not the wrapped component's.
 
 **Composite surface:** `ForwardingCompositeVM` mirrors the real
-`CompositeVM<VM>` public surface (`current`, `setCurrent`, `canSetCurrent`,
-`children`, `construct`, `destruct`, `dispose`, status, name/hint). It does
-**not** expose `insert`/`setAt`/`clear`/`collectionChanged`, because
-`CompositeVM<VM>` in Swift does not have those members (Swift's CompositeVM
-uses a fixed-at-build-time child list; mutable-collection operations are
-deferred to Increment 2).
+`CompositeVM<VM>` public surface (`count`, `at(_:)`, `current`, `setCurrent`,
+`canSetCurrent`, `currentChild`, `selectChild`, `deselectChild`, `add`,
+`remove`, `removeAt`, `construct`, `destruct`, `dispose`, status, name/hint),
+plus `Sequence` conformance that forwards iteration to the wrapped children.
+It does **not** expose `insert`/`setAt`/`clear`/`collectionChanged`/`batchUpdate`,
+because `CompositeVM<VM>` in Swift does not have those members (they are
+deferred to Increment 2's collections work).
 
 ### 2.2 DerivedProperty — `DPROP-001..012`
 
@@ -78,10 +79,11 @@ remaining idiomatic. Tests for `DPROP-008` call `setValue(_:)` and catch the
 error.
 
 **`value` throws `DerivedPropertyError.noValueYet` before first emission:**
-The `value` getter is also a throwing method (not a property) for the same
-reason. Before any upstream source emits, calling `value()` throws
-`.noValueYet`. After the first emission the value is cached and subsequent
-calls succeed.
+`value` is a throwing computed property (`var value: TValue { get throws }`),
+read as `try dp.value`. Before any upstream source emits, reading `value`
+throws `.noValueYet`. After the first emission the value is cached and
+subsequent reads succeed. (Swift permits `get throws` on a property, so unlike
+`setValue` this stays a property rather than a method.)
 
 **Distinct-until-changed via `valueEquals` closure:** Other flavors call
 `.removeDuplicates()` directly on the Combine/RxJS/reactivex pipeline with
@@ -131,22 +133,26 @@ contract.
 
 ### 2.5 Null objects and tree utilities — `NULL-001..003`, `UTIL-001..003`
 
-**Null services:** The two null service singletons (`NullMessageHub.INSTANCE`,
-`NullDispatcher.INSTANCE`) were already shipped in the Inc-0 base. Increment 1
-adds `NULL-003` (`NullLocalizer`) and claims the three IDs; no new singleton
-pattern was needed.
+**Null services:** All three `NULL-001..003` IDs exercise the two null service
+singletons (`NullMessageHub.INSTANCE`, `NullDispatcher.INSTANCE`), which were
+already shipped in the Inc-0 base — Increment 1 adds the conformance tests that
+claim the three IDs; no new singleton pattern was needed. (The `NullLocalizer`
+null-object is a separate area, claimed by `LOC-002`/`LOC-003`.)
 
-**Tree utilities — materialized arrays:** `walk` and `find` (UTIL-001..002)
-return `[any ComponentVM]` arrays rather than lazy sequences. The spec does
-not mandate laziness; C#'s LINQ and Python's generators are lazy by idiom,
-but Swift's collection APIs conventionally return `Array`. The result is
+**Tree utilities — materialized arrays:** `walk` (UTIL-001 DFS pre-order,
+UTIL-002 nil-aggregate-slot skipping) and `find` (UTIL-003, short-circuiting)
+return `[ComponentVMBase]` arrays / a `ComponentVMBase?` rather than lazy
+sequences. The spec does not mandate laziness; C#'s LINQ and Python's
+generators are lazy by idiom, but Swift's collection APIs conventionally
+return `Array`. `find` still short-circuits (it recurses directly and returns
+on the first match without materializing the whole tree). The result is
 identical for non-infinite trees, which is the only supported case.
 
-The utilities are implemented via an internal `_TreeContainer` value type that
-enumerates the child list for `CompositeVM`, `GroupVM`, and `AggregateVM`
-(through the `components()` accessor). `walkExpanded` (UTIL-003) visits only
-nodes that are currently expanded; it depends on the `Expandable` protocol
-from the CAP area and is therefore included in Increment 1 alongside CAP.
+The utilities descend via an internal `_TreeContainer` **protocol**, conformed
+by `CompositeVM`/`GroupVM` (through their public `count` + `at(_:)`) and
+`AggregateVM1..6` (through their per-slot accessors, skipping empty/nil slots).
+`walkExpanded` (expansion-gated traversal) is **not** part of this increment —
+it depends on the expand/collapse `EXP-*` area and is deferred to Increment 3.
 
 ### 2.6 Bundle layout for conformance fixtures
 
@@ -172,11 +178,13 @@ before this layout was established. This arrangement is the reason
 - Consumers using `Filterable`/`Savable`/`Deletable`/`Updatable`/`Managable`
   must name the concrete item type at the use site (`some Deletable where Deletable.Item == MyModel`) — identical usage pattern to TypeScript's generic
   protocols at concrete call sites.
-- The `setValue` / `value` as throwing methods (not properties) are a
-  source-incompatible difference from other flavors; they are idiomatic Swift
-  and consistent with ADR-0006's "idiomatic surface per language" principle.
+- `setValue(_:)` being a throwing method (rather than a throwing property
+  setter, which Swift forbids) and `value` being a throwing property
+  (`get throws`, read as `try dp.value`) are source-incompatible differences
+  from other flavors; they are idiomatic Swift and consistent with ADR-0006's
+  "idiomatic surface per language" principle.
 - Future maintenance passes that see "ForwardingComponentVM does not override
-  `hint`" or "`DerivedProperty.value` is a method, not a property" must
+  `hint`" or "`DerivedProperty.value` is read with `try`" must
   consult this ADR before filing a bug — these are documented, deliberate
   choices.
 

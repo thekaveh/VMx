@@ -219,7 +219,7 @@ final class DerivedPropertyTests: XCTestCase {
     private func loadDerivedPropertiesFixture() throws -> DerivedPropertiesFixture {
         let url = try XCTUnwrap(
             Bundle.module.url(forResource: "derived-properties", withExtension: "json"),
-            "derived-properties.json missing from the VMxTests bundle"
+            "derived-properties.json missing from the library bundle"
         )
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(DerivedPropertiesFixture.self, from: data)
