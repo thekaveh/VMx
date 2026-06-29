@@ -13,6 +13,7 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     private var _children: (() -> [Child])?
     private var _onConstruct: (() -> Void)?
     private var _onDestruct: (() -> Void)?
+    private var _autoConstructOnAdd: Bool = false
 
     public init() {}
 
@@ -42,6 +43,12 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     ) -> GroupVMBuilder<Child> {
         var c = self; c._onDestruct = cb; return c
     }
+    /// When `true`, any child passed to `add(_:)` on an already-Constructed
+    /// group is constructed immediately before the `CollectionChanged(.add)`
+    /// event fires (GRP-005).
+    public func autoConstructOnAdd(_ enabled: Bool = true) -> GroupVMBuilder<Child> {
+        var c = self; c._autoConstructOnAdd = enabled; return c
+    }
     public func withNullServices() -> GroupVMBuilder<Child> {
         services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
     }
@@ -60,7 +67,8 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
             name: name, hint: _hint,
             hub: hub, dispatcher: dispatcher,
             childrenFactory: factory,
-            onConstruct: _onConstruct, onDestruct: _onDestruct
+            onConstruct: _onConstruct, onDestruct: _onDestruct,
+            autoConstructOnAdd: _autoConstructOnAdd
         )
     }
 }

@@ -4,8 +4,8 @@
 //
 // See spec/06-composite-vm.md. This is the skeleton flavor: it covers
 // add / remove / select / current and the lifecycle cascade. Batch
-// updates, autoConstructOnAdd, async selection, and the full
-// CollectionChanged event surface land in a follow-up PR.
+// updates, async selection, and the full CollectionChanged event surface
+// land in a follow-up PR.
 //
 import Foundation
 import Combine
@@ -17,6 +17,7 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     private let currentSelector: (([Child]) -> Child?)?
     private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
+    private let _autoConstructOnAdd: Bool
 
     // ── CollectionChanged publisher ─────────────────────────────────────
 
@@ -36,11 +37,13 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         onConstruct: (() -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         currentSelector: (([Child]) -> Child?)? = nil,
-        onCurrentChanged: ((Child?) -> Void)? = nil
+        onCurrentChanged: ((Child?) -> Void)? = nil,
+        autoConstructOnAdd: Bool = false
     ) {
         self.childrenFactory = childrenFactory
         self.currentSelector = currentSelector
         self.onCurrentChanged = onCurrentChanged
+        self._autoConstructOnAdd = autoConstructOnAdd
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -120,7 +123,18 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     public func add(_ child: Child) {
         children.append(child)
         child._parent = self
-        // Emit AFTER the child is appended and parent is wired.
+        // When autoConstructOnAdd is set and the composite is already
+        // Constructed, construct the child BEFORE emitting the Add event
+        // (COMP-012). `add` is non-throwing per the public API contract;
+        // failures surface through assertionFailure in debug/test builds.
+        // Divergence from TS (which throws on failure) is recorded in ADR-0060.
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        // Emit AFTER the child is appended, parent is wired, and (if
+        // autoConstructOnAdd) the child has been constructed.
         let index = children.count - 1
         collectionChangedSubject.send(.added(child, at: index))
     }

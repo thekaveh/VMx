@@ -2,8 +2,7 @@
 // GroupVM<Child> — homogeneous peer-child container (no selection slot).
 //
 // See spec/07-group-vm.md. Skeleton coverage: add / remove / iteration /
-// cascading lifecycle. Batch updates + auto-construct-on-add land in a
-// follow-up PR.
+// cascading lifecycle. Batch updates land in a follow-up PR.
 //
 import Foundation
 import Combine
@@ -22,6 +21,7 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
     private let childrenFactory: (() -> [Child])?
     private var populated = false
     private let groupParent = GroupParent()
+    private let _autoConstructOnAdd: Bool
 
     // ── CollectionChanged publisher ─────────────────────────────────────
 
@@ -39,9 +39,11 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
         dispatcher: Dispatcher,
         childrenFactory: (() -> [Child])? = nil,
         onConstruct: (() -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil
+        onDestruct: (() -> Void)? = nil,
+        autoConstructOnAdd: Bool = false
     ) {
         self.childrenFactory = childrenFactory
+        self._autoConstructOnAdd = autoConstructOnAdd
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -58,7 +60,18 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
     public func add(_ child: Child) {
         children.append(child)
         child._parent = groupParent
-        // Emit AFTER the child is appended and parent is wired.
+        // When autoConstructOnAdd is set and the group is already Constructed,
+        // construct the child BEFORE emitting the Add event (GRP-005). `add` is
+        // non-throwing per the public API contract; failures surface through
+        // assertionFailure in debug/test builds.
+        // Divergence from TS (which throws on failure) is recorded in ADR-0060.
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        // Emit AFTER the child is appended, parent is wired, and (if
+        // autoConstructOnAdd) the child has been constructed.
         let index = children.count - 1
         collectionChangedSubject.send(.added(child, at: index))
     }

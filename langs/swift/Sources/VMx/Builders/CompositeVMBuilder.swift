@@ -16,6 +16,7 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     private var _onDestruct: (() -> Void)?
     private var _currentSelector: (([Child]) -> Child?)?
     private var _onCurrentChanged: ((Child?) -> Void)?
+    private var _autoConstructOnAdd: Bool = false
 
     public init() {}
 
@@ -55,6 +56,12 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     ) -> CompositeVMBuilder<Child> {
         var c = self; c._onDestruct = cb; return c
     }
+    /// When `true`, any child passed to `add(_:)` on an already-Constructed
+    /// composite is constructed immediately before the `CollectionChanged(.add)`
+    /// event fires (COMP-012).
+    public func autoConstructOnAdd(_ enabled: Bool = true) -> CompositeVMBuilder<Child> {
+        var c = self; c._autoConstructOnAdd = enabled; return c
+    }
     public func withNullServices() -> CompositeVMBuilder<Child> {
         services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
     }
@@ -75,7 +82,8 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
             childrenFactory: factory,
             onConstruct: _onConstruct, onDestruct: _onDestruct,
             currentSelector: _currentSelector,
-            onCurrentChanged: _onCurrentChanged
+            onCurrentChanged: _onCurrentChanged,
+            autoConstructOnAdd: _autoConstructOnAdd
         )
     }
 }
