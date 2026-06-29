@@ -212,9 +212,9 @@ public sealed class NotesViewVMTests
         // for this test build) — this is the path NotesListView.axaml fires
         // when the user clicks the delete button next to a note.
         target.DeleteCommand.Execute(null);
-        // Repo delete is awaited inside DeleteNoteAsyncInternal; give the
-        // continuation a tick to run.
-        await Task.Delay(50);
+        // Repo delete is awaited inside DeleteNoteAsyncInternal; wait for the
+        // continuation to remove the row.
+        await TestWait.WaitUntilAsync(() => vm.Inner.Count == before - 1);
 
         Assert.Equal(before - 1, vm.Inner.Count);
         Assert.Null(vm.Current);
