@@ -1,10 +1,10 @@
 //
-// Capability micro-interface conformance tests.
+// Capability micro-interface conformance tests — complete CAP coverage.
 //
-// This cluster (Phase 3, Inc 1): selection / expansion / dialog —
-// CAP-001..007, CAP-009, CAP-010 — plus search / filter / paging —
-// CAP-008, CAP-021, CAP-022. Later CAP tasks (CRUD, container-current,
-// composition) append to this file.
+// This file covers all 22 capability IDs (CAP-001..022), ported in Phase 3,
+// Inc 1: selection / expansion / dialog (CAP-001..007, CAP-009, CAP-010),
+// search / filter / paging (CAP-008, CAP-021, CAP-022), and CRUD /
+// container-current / management (CAP-011..020). No further CAP tasks remain.
 //
 // Ports the CAP-001..010 blocks of
 // langs/typescript/tests/conformance/capabilities.test.ts and the
