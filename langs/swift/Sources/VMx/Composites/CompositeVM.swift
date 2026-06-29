@@ -8,6 +8,7 @@
 // CollectionChanged event surface land in a follow-up PR.
 //
 import Foundation
+import Combine
 
 open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     private var children: [Child] = []
@@ -16,6 +17,15 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     private let currentSelector: (([Child]) -> Child?)?
     private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
+
+    // ── CollectionChanged publisher ─────────────────────────────────────
+
+    private let collectionChangedSubject = PassthroughSubject<CollectionChangedEvent, Never>()
+
+    /// Emits a `CollectionChangedEvent` after each `add` or `remove` mutation.
+    public var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
+        collectionChangedSubject.eraseToAnyPublisher()
+    }
 
     public init(
         name: String,
@@ -110,6 +120,9 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     public func add(_ child: Child) {
         children.append(child)
         child._parent = self
+        // Emit AFTER the child is appended and parent is wired.
+        let index = children.count - 1
+        collectionChangedSubject.send(.added(child, at: index))
     }
 
     public func remove(_ child: Child) -> Bool {
@@ -126,6 +139,8 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         if _current === item {
             _setCurrent(nil)
         }
+        // Emit AFTER the child has been removed and parent cleared.
+        collectionChangedSubject.send(.removed(item, at: index))
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────

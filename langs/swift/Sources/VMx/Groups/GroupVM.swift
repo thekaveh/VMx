@@ -6,6 +6,7 @@
 // follow-up PR.
 //
 import Foundation
+import Combine
 
 /// Internal parent adaptor — `GroupVM` has no "current child" concept,
 /// so `selectChild`/`deselectChild` are deliberate no-ops (spec/07 —
@@ -21,6 +22,15 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
     private let childrenFactory: (() -> [Child])?
     private var populated = false
     private let groupParent = GroupParent()
+
+    // ── CollectionChanged publisher ─────────────────────────────────────
+
+    private let collectionChangedSubject = PassthroughSubject<CollectionChangedEvent, Never>()
+
+    /// Emits a `CollectionChangedEvent` after each `add` or `remove` mutation.
+    public var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
+        collectionChangedSubject.eraseToAnyPublisher()
+    }
 
     public init(
         name: String,
@@ -48,6 +58,9 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
     public func add(_ child: Child) {
         children.append(child)
         child._parent = groupParent
+        // Emit AFTER the child is appended and parent is wired.
+        let index = children.count - 1
+        collectionChangedSubject.send(.added(child, at: index))
     }
 
     public func remove(_ child: Child) -> Bool {
@@ -56,6 +69,8 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
         }
         children[idx]._parent = nil
         children.remove(at: idx)
+        // Emit AFTER the child has been removed and parent cleared.
+        collectionChangedSubject.send(.removed(child, at: idx))
         return true
     }
 
