@@ -100,3 +100,6 @@ jobs:
         # (no Swift toolchain needed). The tool exits non-zero if any required
         # language falls below full coverage of its catalog/subset.
         run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift
+
+      - name: Check Swift fixture sync
+        run: uv --project langs/python run python tools/check-swift-fixture-sync.py

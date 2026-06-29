@@ -1,10 +1,11 @@
 //
 // Lifecycle conformance tests.
 //
-// Claimed IDs: LIFE-001..007, 009, 010, 012, 013 (LIFE-005/006 now assert a
-// *catchable throw* — v3 converges Swift to the throwing contract per ADR-0053,
-// superseding ADR-0037 §2.5). LIFE-008 (concurrent re-invocation raises) is
-// claimed in `LifecycleRaceTests`. LIFE-011 is NOT claimed; see the per-test note.
+// Claimed IDs: LIFE-001..007, 009, 010, 011, 012, 013, 014 (LIFE-005/006 now
+// assert a *catchable throw* — v3 converges Swift to the throwing contract per
+// ADR-0053, superseding ADR-0037 §2.5). LIFE-008 (concurrent re-invocation
+// raises) is claimed in `LifecycleRaceTests`. LIFE-011 asserts the
+// fixture-driven table. LIFE-014 asserts transactional hook-failure rollback.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
@@ -218,10 +219,7 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// Transition-table positive cases against the hand-rolled table.
-    /// LIFE-011 (table matches `lifecycle-transitions.json`) is NOT
-    /// claimed until this flavor loads the fixture; tracked as a
-    /// follow-up in ADR-0037.
+    /// Transition-table positive cases against the fixture-driven table.
     func testHandRolledLegalTransitions() throws {
         let vm = makeVM()
         // destructed → construct → constructed
@@ -233,14 +231,10 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(vm.status, .destructed)
     }
 
-    /// VMX-103 — drift guard for the hand-rolled transition table. The legal
-    /// canConstruct/canDestruct/canReconstruct truth table (which mirrors the
-    /// `_isLegalTransition` table) is asserted across every externally
-    /// observable status, so a future edit to either encoding that drifts from
-    /// the `lifecycle-transitions.json` legal set fails here. LIFE-011 (loading
-    /// the shared JSON fixture and asserting equality) remains a tracked
-    /// follow-up — it needs the fixture bundled as a SwiftPM resource; this
-    /// test is the in-tree partial guard until then (ADR-0037).
+    /// VMX-103 — drift guard for the fixture-driven transition table. The legal
+    /// canConstruct/canDestruct/canReconstruct truth table is asserted across
+    /// every externally observable status. LIFE-011 covers the full fixture
+    /// round-trip; this test covers the predicate surface.
     func testTransitionTablePredicateDriftGuard() throws {
         // .destructed
         let d = makeVM()
@@ -326,5 +320,74 @@ final class LifecycleTests: XCTestCase {
         try vm.destruct()
         XCTAssertEqual(vm.status, .destructed)
         cancel.cancel()
+    }
+
+    /// LIFE-011 — the lifecycle state machine matches every row of the canonical
+    /// `lifecycle-transitions.json` fixture: legal rows reach `to_final`; illegal
+    /// rows raise `StatusTransitionError`.
+    func testLife011StateMachineMatchesFixtureTable() throws {
+        struct Row: Decodable {
+            let from: String, via: String, toFinal: String?, legal: Bool
+            enum CodingKeys: String, CodingKey { case from, via, legal; case toFinal = "to_final" }
+        }
+        struct Fixture: Decodable { let transitions: [Row] }
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "lifecycle-transitions", withExtension: "json"))
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+
+        // Drive a fresh VM to `row.from`, then attempt `row.via`.
+        func makeAt(_ state: String) throws -> ComponentVM {
+            let vm = ComponentVM(name: "life011", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            switch state {
+            case "Destructed": break
+            case "Constructed": try vm.construct()
+            case "Disposed": vm.dispose()
+            default: throw XCTSkip("transient source state \(state) not directly reachable")
+            }
+            return vm
+        }
+        for row in fixture.transitions where ["construct", "destruct", "reconstruct"].contains(row.via) {
+            let vm: ComponentVM
+            do { vm = try makeAt(row.from) } catch is XCTSkip { continue } catch { throw error }
+            if row.legal {
+                switch row.via {
+                case "construct": try vm.construct()
+                case "destruct": try vm.destruct()
+                case "reconstruct": try vm.reconstruct()
+                default: break
+                }
+                XCTAssertEqual(vm.status.name, row.toFinal, "\(row.from)/\(row.via) → expected \(row.toFinal ?? "nil")")
+            } else {
+                XCTAssertThrowsError(try { switch row.via {
+                    case "construct": try vm.construct()
+                    case "destruct": try vm.destruct()
+                    default: try vm.reconstruct()
+                } }()) { XCTAssertTrue($0 is StatusTransitionError) }
+            }
+        }
+    }
+
+    /// LIFE-014 — a throwing construct/destruct hook is transactional: the
+    /// exception propagates AND `status` rolls back to the prior settled state
+    /// (Destructed after a failed construct; Constructed after a failed destruct),
+    /// so the VM is recoverable rather than wedged in a transient state.
+    func testLife014ThrowingHookRollsBackStatus() throws {
+        struct HookError: Error {}
+
+        // Failed construct → rolls back to Destructed, and a retry can succeed.
+        let onC = ComponentVM(
+            name: "life014c", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE,
+            onConstruct: { throw HookError() }
+        )
+        XCTAssertThrowsError(try onC.construct()) { XCTAssertTrue($0 is HookError) }
+        XCTAssertEqual(onC.status, .destructed, "failed construct must roll back to Destructed")
+
+        // Failed destruct → rolls back to Constructed.
+        let onD = ComponentVM(
+            name: "life014d", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE,
+            onDestruct: { throw HookError() }
+        )
+        try onD.construct()
+        XCTAssertThrowsError(try onD.destruct()) { XCTAssertTrue($0 is HookError) }
+        XCTAssertEqual(onD.status, .constructed, "failed destruct must roll back to Constructed")
     }
 }

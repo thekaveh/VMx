@@ -20,7 +20,7 @@ let package = Package(
         .library(name: "VMx", targets: ["VMx"]),
     ],
     targets: [
-        .target(name: "VMx", path: "Sources/VMx"),
+        .target(name: "VMx", path: "Sources/VMx", resources: [.process("Resources")]),
         .testTarget(name: "VMxTests", dependencies: ["VMx"], path: "Tests/VMxTests"),
     ]
 )
