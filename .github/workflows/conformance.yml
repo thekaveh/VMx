@@ -32,6 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check-version-consistency.py reconciles the compatibility matrix
+          # against git tags; the default shallow checkout fetches no tags, so
+          # every released version would read as MISSING. Fetch all tags.
+          fetch-tags: true
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
