@@ -49,8 +49,8 @@ open class ComponentVMBase {
     /// Injected dispatcher.
     let dispatcher: Dispatcher
 
-    private let onConstructCb: (() -> Void)?
-    private let onDestructCb: (() -> Void)?
+    private let onConstructCb: (() throws -> Void)?
+    private let onDestructCb: (() throws -> Void)?
     private let background: Bool
 
     // ── State ───────────────────────────────────────────────────────────
@@ -100,8 +100,8 @@ open class ComponentVMBase {
         hint: String = "",
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
-        onConstruct: (() -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         background: Bool = false
     ) {
         self.name = name
@@ -259,6 +259,7 @@ open class ComponentVMBase {
         lifecycleLock.unlock()
 
         if background {
+            let priorStatus = _status           // .destructed — captured before any mutation
             _setStatus(.constructing)
             dispatcher.scheduleBackground { [weak self] in
                 guard let self else { return }
@@ -274,12 +275,12 @@ open class ComponentVMBase {
                     // flavor (VMX-049, deferred): a throwing hook / child
                     // transition cannot be redelivered to the already-returned
                     // caller, so it is caught here. The foreground form — the
-                    // common path — propagates via `throws`. Swift transactional
-                    // rollback (LIFE-014) is a Phase-3 item (ADR-0047 §2.4).
+                    // common path — propagates via `throws`.
                     do {
                         try self._onConstruct()
                         self._setStatus(.constructed)
                     } catch {
+                        self._setStatus(priorStatus)  // LIFE-014: roll back to entry state
                         // swallowed: no async error channel on the bg path yet.
                     }
                 }
@@ -287,8 +288,14 @@ open class ComponentVMBase {
             }
         } else {
             defer { _setInFlight(false) }
+            let priorStatus = _status           // .destructed — captured before any mutation
             _setStatus(.constructing)
-            try _onConstruct()
+            do {
+                try _onConstruct()
+            } catch {
+                _setStatus(priorStatus)         // LIFE-014: roll back so the VM is recoverable
+                throw error
+            }
             _setStatus(.constructed)
         }
     }
@@ -319,6 +326,7 @@ open class ComponentVMBase {
         lifecycleLock.unlock()
 
         if background {
+            let priorStatus = _status           // .constructed — captured before any mutation
             _setStatus(.destructing)
             dispatcher.scheduleBackground { [weak self] in
                 guard let self else { return }
@@ -335,6 +343,7 @@ open class ComponentVMBase {
                         try self._onDestruct()
                         self._setStatus(.destructed)
                     } catch {
+                        self._setStatus(priorStatus)  // LIFE-014: roll back to entry state
                         // swallowed: no async error channel on the bg path yet.
                     }
                 }
@@ -342,8 +351,14 @@ open class ComponentVMBase {
             }
         } else {
             defer { _setInFlight(false) }
+            let priorStatus = _status           // .constructed — captured before any mutation
             _setStatus(.destructing)
-            try _onDestruct()
+            do {
+                try _onDestruct()
+            } catch {
+                _setStatus(priorStatus)         // LIFE-014: roll back so the VM is recoverable
+                throw error
+            }
             _setStatus(.destructed)
         }
     }
@@ -444,14 +459,14 @@ open class ComponentVMBase {
     /// parity with the C#/Python/TypeScript cascade. The default body does not
     /// itself throw.
     open func _onConstruct() throws {
-        onConstructCb?()
+        try onConstructCb?()
     }
 
     /// Default: invoke the closure injected via the builder. Declared `throws`
     /// for symmetry with `_onConstruct()` (ADR-0053); the default body does not
     /// itself throw.
     open func _onDestruct() throws {
-        onDestructCb?()
+        try onDestructCb?()
     }
 
     /// Subclasses override for resource cleanup on terminal dispose.
