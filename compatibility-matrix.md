@@ -24,11 +24,15 @@ flavor ships, its cell shows the version range that implements this spec major
 The Swift flavor's `(subset)` entries cover the lifecycle, leaf
 ComponentVM, Composite, Group, Aggregate (arity 1–6), RelayCommand,
 builders, hub property accessors, null objects, localization, tree
-utilities, forwarding decorators, `DerivedProperty<T>`, and the 22
-capability micro-interfaces (94 conformance IDs as of Phase-3 Inc-1 —
-base 44 per ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059). Full
-conformance parity with the other flavors lands in a follow-up Swift
-release; see `langs/swift/README.md` §5 for the in / deferred matrix.
+utilities, forwarding decorators, `DerivedProperty<T>`, the 22
+capability micro-interfaces, and observable collections
+(`ObservableList`, `ObservableDictionary`, `ServicedObservableCollection`,
+`PagedComposition`, collection-changed events, batch updates,
+auto-construct) — 124 conformance IDs as of Phase-3 Inc-2
+(base 44 per ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059;
++30 collections IDs per ADR-0060). Full conformance parity with the
+other flavors lands in a follow-up Swift release; see
+`langs/swift/README.md` §5 for the in / deferred matrix.
 
 [^current]: 3.0.0 — current branch (`v3-framework-overhaul`); the matching
     `spec-v3.0.0` / `v3.0.0` / `<flavor>-v3.0.0` tags are created at release.
