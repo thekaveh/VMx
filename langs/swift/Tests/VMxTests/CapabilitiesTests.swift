@@ -342,4 +342,216 @@ final class CapabilitiesTests: XCTestCase {
         empty.pageSize = 5
         XCTAssertEqual(empty.pageCount, 0) // ceil(0/5) = 0 (empty source has no pages)
     }
+
+    // ── CRUD / current / management — CAP-011..017 ───────────────────────────
+    // Ports the CAP-011..017 blocks of capabilities.test.ts. Each fixture
+    // conforms to one CRUD/current/management micro-interface, calls the guard
+    // then the verb, and asserts the verb recorded its effect. The item-scoped
+    // verbs (Savable/Managable/Deletable/Updatable) infer `associatedtype Item`
+    // = String from the fixture's method signatures.
+
+    /// CAP-011 — Savable contract: guard reports availability, `save(_:)`
+    /// persists the item.
+    func testCap011SavableContract() {
+        final class Fixture: Savable {
+            var saved: [String] = []
+            func canSave(_ item: String) -> Bool { true }
+            func save(_ item: String) { saved.append(item) }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canSave("a"))
+        f.save("a")
+        XCTAssertEqual(f.saved, ["a"])
+    }
+
+    /// CAP-012 — Managable contract: guard reports availability, `manage(_:)`
+    /// records the item.
+    func testCap012ManagableContract() {
+        final class Fixture: Managable {
+            var managed: [String] = []
+            func canManage(_ item: String) -> Bool { true }
+            func manage(_ item: String) { managed.append(item) }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canManage("x"))
+        f.manage("x")
+        XCTAssertEqual(f.managed, ["x"])
+    }
+
+    /// CAP-013 — NewCreatable contract: guard reports availability, `createNew()`
+    /// fires.
+    func testCap013NewCreatableContract() {
+        final class Fixture: NewCreatable {
+            var calls = 0
+            func canCreateNew() -> Bool { true }
+            func createNew() { calls += 1 }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canCreateNew())
+        f.createNew()
+        XCTAssertEqual(f.calls, 1)
+    }
+
+    /// CAP-014 — Deletable contract: guard reports availability, `delete(_:)`
+    /// records the item.
+    func testCap014DeletableContract() {
+        final class Fixture: Deletable {
+            var deleted: [String] = []
+            func canDelete(_ item: String) -> Bool { true }
+            func delete(_ item: String) { deleted.append(item) }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canDelete("a"))
+        f.delete("a")
+        XCTAssertEqual(f.deleted, ["a"])
+    }
+
+    /// CAP-015 — Updatable contract: guard reports availability, `update(_:)`
+    /// records the item.
+    func testCap015UpdatableContract() {
+        final class Fixture: Updatable {
+            var updated: [String] = []
+            func canUpdate(_ item: String) -> Bool { true }
+            func update(_ item: String) { updated.append(item) }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canUpdate("a"))
+        f.update("a")
+        XCTAssertEqual(f.updated, ["a"])
+    }
+
+    /// CAP-016 — CurrentDeletable contract: guard reports availability,
+    /// `deleteCurrent()` fires.
+    func testCap016CurrentDeletableContract() {
+        final class Fixture: CurrentDeletable {
+            var calls = 0
+            func canDeleteCurrent() -> Bool { true }
+            func deleteCurrent() { calls += 1 }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canDeleteCurrent())
+        f.deleteCurrent()
+        XCTAssertEqual(f.calls, 1)
+    }
+
+    /// CAP-017 — CurrentUpdatable contract: guard reports availability,
+    /// `updateCurrent()` fires.
+    func testCap017CurrentUpdatableContract() {
+        final class Fixture: CurrentUpdatable {
+            var calls = 0
+            func canUpdateCurrent() -> Bool { true }
+            func updateCurrent() { calls += 1 }
+        }
+        let f = Fixture()
+        XCTAssertTrue(f.canUpdateCurrent())
+        f.updateCurrent()
+        XCTAssertEqual(f.calls, 1)
+    }
+
+    // ── Lifecycle triple / composition / opt-in — CAP-018..020 ───────────────
+
+    /// CAP-018 — Lifecycle capability set: a VM exposes the lifecycle triple
+    /// (Constructable / Destructable / Reconstructable) at the documented
+    /// signatures. `ComponentVMBase` conforms to all three by inheritance, so a
+    /// concrete VM is castable to each and its guards return `Bool`. Ports the
+    /// matching block of capabilities.test.ts (which asserts the six members are
+    /// present); Swift verifies the same via structural protocol conformance.
+    func testCap018LifecycleCapabilitySet() {
+        // Static type `Any` so the casts below are genuine runtime checks
+        // (no "'is'/'as?' is always true/false" static-resolution warning).
+        let vm: Any = ComponentVM(
+            name: "life", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        let constructable = vm as? Constructable
+        let destructable = vm as? Destructable
+        let reconstructable = vm as? Reconstructable
+        XCTAssertNotNil(constructable)
+        XCTAssertNotNil(destructable)
+        XCTAssertNotNil(reconstructable)
+        // Guards are callable and return Bool. A fresh VM is `.destructed`:
+        // construct is legal, destruct is a legal (no-op) target, reconstruct is
+        // not (only legal from `.constructed`).
+        XCTAssertTrue(constructable!.canConstruct())
+        XCTAssertTrue(destructable!.canDestruct())
+        XCTAssertFalse(reconstructable!.canReconstruct())
+    }
+
+    /// CAP-019 — Composition: a single VM may conform to several capabilities at
+    /// once, and each verb records its effect independently. Mirrors the CAP-019
+    /// block of capabilities.test.ts (5 simultaneous capabilities: Selectable,
+    /// Expandable, Closable, Approvable, Cancelable). Structural protocol
+    /// conformance is the Swift analogue of the TS `hasCapability` registry.
+    func testCap019MultipleCapabilities() {
+        final class Fixture: Selectable, Expandable, Closable, Approvable, Cancelable {
+            var selects = 0
+            var expands = 0
+            var closes = 0
+            var approves = 0
+            var cancels = 0
+            var isExpanded = false
+            func canSelect() -> Bool { true }
+            func select() { selects += 1 }
+            func canExpand() -> Bool { true }
+            func expand() { isExpanded = true; expands += 1 }
+            func canClose() -> Bool { true }
+            func close() { closes += 1 }
+            func canApprove() -> Bool { true }
+            func approve() { approves += 1 }
+            func canCancel() -> Bool { true }
+            func cancel() { cancels += 1 }
+        }
+        let f = Fixture()
+        let anyF: Any = f
+        XCTAssertTrue(anyF is Selectable)
+        XCTAssertTrue(anyF is Expandable)
+        XCTAssertTrue(anyF is Closable)
+        XCTAssertTrue(anyF is Approvable)
+        XCTAssertTrue(anyF is Cancelable)
+        f.select()
+        f.expand()
+        f.close()
+        f.approve()
+        f.cancel()
+        XCTAssertEqual(
+            [f.selects, f.expands, f.closes, f.approves, f.cancels], [1, 1, 1, 1, 1]
+        )
+        XCTAssertTrue(f.isExpanded)
+    }
+
+    /// CAP-020 — Opt-in: the lifecycle triple is BASELINE (every core VM
+    /// advertises Constructable / Destructable / Reconstructable by inheritance
+    /// from `ComponentVMBase`), but non-baseline capabilities are NOT implicitly
+    /// satisfied — even those whose verb *methods* happen to exist on the base
+    /// (e.g. `ComponentVMBase` has `canSelect()`/`select()` yet does not declare
+    /// `Selectable`, so it is not `Selectable`). Ports the CAP-020 block of
+    /// capabilities.test.ts; replaces the TS runtime `hasCapability` registry
+    /// with Swift structural `as?` / `is` conformance checks (a forced divergence
+    /// recorded in the Task-10 ADR).
+    func testCap020CapabilitiesAreOptIn() {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        // Static type `Any` so each check is a real runtime cast across the four
+        // core VM kinds (Component / Composite / Group / Aggregate).
+        let coreVMs: [Any] = [
+            ComponentVM(name: "comp", hub: hub, dispatcher: dispatcher),
+            CompositeVM<ComponentVM>(name: "composite", hub: hub, dispatcher: dispatcher),
+            GroupVM<ComponentVM>(name: "group", hub: hub, dispatcher: dispatcher),
+            AggregateVM1<ComponentVM>(name: "agg", hub: hub, dispatcher: dispatcher) {
+                ComponentVM(name: "child", hub: hub, dispatcher: dispatcher)
+            },
+        ]
+        for vm in coreVMs {
+            // Baseline: the lifecycle triple is present on every core VM.
+            XCTAssertTrue(vm is Constructable)
+            XCTAssertTrue(vm is Destructable)
+            XCTAssertTrue(vm is Reconstructable)
+            // Non-baseline capabilities are NOT implicitly satisfied.
+            XCTAssertNil(vm as? Selectable)
+            XCTAssertNil(vm as? Expandable)
+            XCTAssertNil(vm as? Closable)
+            XCTAssertNil(vm as? NewCreatable)
+            XCTAssertNil(vm as? CurrentDeletable)
+            XCTAssertNil(vm as? Searchable)
+        }
+    }
 }
