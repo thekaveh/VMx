@@ -2,11 +2,13 @@
 // Capability micro-interface conformance tests.
 //
 // This cluster (Phase 3, Inc 1): selection / expansion / dialog —
-// CAP-001..007, CAP-009, CAP-010. Later CAP tasks (search/filter/paging, CRUD,
-// container-current, composition) append to this file.
+// CAP-001..007, CAP-009, CAP-010 — plus search / filter / paging —
+// CAP-008, CAP-021, CAP-022. Later CAP tasks (CRUD, container-current,
+// composition) append to this file.
 //
-// Ports the CAP-001..007 / 009 / 010 blocks of
-// langs/typescript/tests/conformance/capabilities.test.ts. See
+// Ports the CAP-001..010 blocks of
+// langs/typescript/tests/conformance/capabilities.test.ts and the
+// cap-021-filterable / cap-022-pageable conformance files. See
 // spec/14-capabilities.md and spec/ADRs/0057-v3-capability-micro-interface-granularity.md.
 //
 // Each test defines a small local fixture conforming to the capability protocol
@@ -189,5 +191,155 @@ final class CapabilitiesTests: XCTestCase {
 
         XCTAssertEqual(emissions, [true, false, true, false])
         state.dispose()
+    }
+
+    // ── Search / filter / paging — CAP-008, CAP-021, CAP-022 ─────────────────
+
+    /// CAP-008 — Searchable contract: `searchTerm` is settable, guard reports
+    /// availability, `search()` applies the current term. Ports the CAP-008
+    /// block of capabilities.test.ts.
+    func testCap008SearchableContract() {
+        final class Fixture: Searchable {
+            var searchTerm = ""
+            var searched: [String] = []
+            func canSearch() -> Bool { true }
+            func search() { searched.append(searchTerm) }
+        }
+        let f = Fixture()
+        f.searchTerm = "abc"
+        XCTAssertTrue(f.canSearch())
+        f.search()
+        XCTAssertEqual(f.searchTerm, "abc")
+        XCTAssertEqual(f.searched, ["abc"])
+    }
+
+    /// CAP-021 — Filterable contract: a settable `(Item) -> Bool` predicate,
+    /// `nil` clears the filter, `canFilter()` reports the decision. Ports
+    /// cap-021-filterable.test.ts. (Swift uses `associatedtype Item` because
+    /// protocols cannot be generic — see Filter.swift / Task-10 ADR.)
+    func testCap021FilterableContract() {
+        final class Fixture: Filterable {
+            typealias Item = Int
+            var filter: ((Int) -> Bool)?
+            // Mirrors the TS fixture: filtering is allowed exactly while a
+            // predicate is present, so a `nil` reset disables it.
+            func canFilter() -> Bool { filter != nil }
+        }
+        let f = Fixture()
+        XCTAssertNil(f.filter)
+        XCTAssertFalse(f.canFilter())
+
+        // Set a predicate: it is retained and applied (closures aren't
+        // Equatable, so assert the bound behavior rather than identity).
+        f.filter = { $0 > 0 }
+        XCTAssertNotNil(f.filter)
+        XCTAssertTrue(f.canFilter())
+        XCTAssertTrue(f.filter!(5))
+        XCTAssertFalse(f.filter!(-1))
+
+        // nil clears the filter.
+        f.filter = nil
+        XCTAssertNil(f.filter)
+        XCTAssertFalse(f.canFilter())
+    }
+
+    /// CAP-022 — Pageable contract: `pageSize` / `currentPageIndex` mutate;
+    /// `pageCount` / `isPagingEnabled` derive; `pageSize == 0` disables paging;
+    /// navigation clamps and is a no-op at both bounds; resizing re-clamps the
+    /// index; an empty source yields `pageCount == 0`. Ports the
+    /// PageableFixture and every assertion of cap-022-pageable.test.ts.
+    func testCap022PageableContract() {
+        final class PageableFixture: Pageable {
+            private let itemCount: Int
+            private var storedPageSize = 10
+            private var storedPageIndex = 0
+
+            init(itemCount: Int) { self.itemCount = itemCount }
+
+            var pageSize: Int {
+                get { storedPageSize }
+                set {
+                    storedPageSize = newValue < 0 ? 0 : newValue
+                    storedPageIndex = clamp(storedPageIndex)
+                }
+            }
+
+            var currentPageIndex: Int {
+                get { storedPageIndex }
+                set { storedPageIndex = clamp(newValue) }
+            }
+
+            var pageCount: Int {
+                if storedPageSize <= 0 { return 1 }
+                // ceil(itemCount / pageSize) via integer arithmetic.
+                return (itemCount + storedPageSize - 1) / storedPageSize
+            }
+
+            var isPagingEnabled: Bool { storedPageSize > 0 }
+
+            func moveToFirstPage() { storedPageIndex = 0 }
+            func moveToPreviousPage() { if storedPageIndex > 0 { storedPageIndex -= 1 } }
+            func moveToNextPage() { if storedPageIndex < pageCount - 1 { storedPageIndex += 1 } }
+            func moveToLastPage() { storedPageIndex = pageCount - 1 }
+
+            private func clamp(_ index: Int) -> Int {
+                if pageCount == 0 { return 0 } // empty source: index stays at 0
+                let maxIndex = pageCount - 1
+                if index < 0 { return 0 }
+                if index > maxIndex { return maxIndex }
+                return index
+            }
+        }
+
+        // Initial state / derived values.
+        let sut = PageableFixture(itemCount: 25)
+        XCTAssertEqual(sut.pageSize, 10)
+        XCTAssertEqual(sut.currentPageIndex, 0)
+        XCTAssertTrue(sut.isPagingEnabled)
+        XCTAssertEqual(sut.pageCount, 3) // ceil(25/10)
+
+        // pageSize=0 disables paging, pageCount=1, navigation no-ops.
+        let disabled = PageableFixture(itemCount: 25)
+        disabled.pageSize = 0
+        XCTAssertFalse(disabled.isPagingEnabled)
+        XCTAssertEqual(disabled.pageCount, 1)
+        disabled.moveToFirstPage()
+        disabled.moveToLastPage()
+        XCTAssertEqual(disabled.currentPageIndex, 0)
+
+        // Clamping currentPageIndex above max and below 0.
+        let clampSut = PageableFixture(itemCount: 25)
+        clampSut.currentPageIndex = 99
+        XCTAssertEqual(clampSut.currentPageIndex, 2) // clamped to pageCount-1
+        clampSut.currentPageIndex = -1
+        XCTAssertEqual(clampSut.currentPageIndex, 0) // clamped to 0
+
+        // Navigation methods work and are no-ops at both bounds.
+        let nav = PageableFixture(itemCount: 25)
+        nav.currentPageIndex = 1
+        nav.moveToFirstPage()
+        XCTAssertEqual(nav.currentPageIndex, 0)
+        nav.moveToLastPage()
+        XCTAssertEqual(nav.currentPageIndex, 2)
+        nav.moveToNextPage() // no-op at upper bound
+        XCTAssertEqual(nav.currentPageIndex, 2)
+        nav.moveToPreviousPage()
+        XCTAssertEqual(nav.currentPageIndex, 1)
+        nav.moveToFirstPage()
+        nav.moveToPreviousPage() // no-op at lower bound
+        XCTAssertEqual(nav.currentPageIndex, 0)
+        nav.moveToNextPage()
+        XCTAssertEqual(nav.currentPageIndex, 1)
+
+        // pageSize resize re-clamps currentPageIndex.
+        let resize = PageableFixture(itemCount: 25)
+        resize.currentPageIndex = 2 // page 3 of 3
+        resize.pageSize = 20        // pageCount = ceil(25/20) = 2 → pages 0..1
+        XCTAssertEqual(resize.currentPageIndex, 1) // clamped from 2 to 1
+
+        // itemCount=0 with pageSize>0 yields pageCount=0.
+        let empty = PageableFixture(itemCount: 0)
+        empty.pageSize = 5
+        XCTAssertEqual(empty.pageCount, 0) // ceil(0/5) = 0 (empty source has no pages)
     }
 }
