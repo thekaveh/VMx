@@ -11,7 +11,7 @@ and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
 `RelayCommand`, the immutable fluent builders, `DerivedProperty<T>`, the
 22 capability micro-interfaces, null objects (`NullMessageHub`, `NullDispatcher`,
 `NullLocalizer`), localization hook (`Localizer` / `NullLocalizer`), tree
-utilities (`walk`, `find`, `walkExpanded`), hub property accessors, and
+utilities (`walk`, `find`), hub property accessors, and
 forwarding decorators (`ForwardingComponentVM`, `ForwardingCompositeVM`). The
 remaining 143 IDs (`HierarchicalVM`, `FormVM`, observable collections, the
 notifications sub-package, threading specifics, dialog service,
@@ -148,13 +148,14 @@ AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
 CMD-001..004, 006   RelayCommand task + predicate + triggers
 BLD-001..005    builders immutable + validation + defaults
 PROP-001..004   hub property-change accessors
-NULL-001..003   NullMessageHub + NullDispatcher + NullLocalizer
+NULL-001..003   NullMessageHub + NullDispatcher null-object contracts
 LOC-001..003    Localizer protocol + NullLocalizer null-object (no I-prefix — ADR-0006)
-UTIL-001..003   walk + find + walkExpanded tree utilities (materialized arrays)
+UTIL-001..003   walk (DFS, nil-slot skip) + find (short-circuit) tree utilities
+                (materialized arrays; walkExpanded deferred to Inc 3 with EXP-*)
 FWD-001..003    ForwardingComponentVM + ForwardingCompositeVM decorators
                 (name/hint copied at super.init — non-overridable let — ADR-0059;
                 composite surface mirrors real CompositeVM, no insert/setAt/clear)
-DPROP-001..012  DerivedProperty<T> — setValue(_:) throws / value() is a method;
+DPROP-001..012  DerivedProperty<T> — setValue(_:) throws / value is a throwing property;
                 distinct-until-changed via valueEquals closure (ADR-0059)
 CAP-001..022    22 capability micro-interfaces — generic verbs use associatedtype
                 Item (PAT); opt-in by structural conformance (as?/is); reactive
@@ -174,8 +175,8 @@ events (`COMP-001/002`, `GRP-001`), foreground-dispatch IDs (`COMP-006/010`),
 - `CMDD-*` — `CompositeCommand`, `DecoratorCommand`,
   `ConfirmationDecoratorCommand`, `ModeledCrudCommands`
 - `NOTIF-*` — opt-in notification sub-package (`INotificationHub`)
-- `EXP-*` — expand/collapse state (distinct from `walkExpanded` — the state
-  machine and `COMP-009` current-guard are deferred)
+- `EXP-*` — expand/collapse state machine, expansion-gated traversal
+  (`walkExpanded`), and the `COMP-009` current-guard (deferred to Increment 3)
 - `COL-*` — observable collections, batch updates, paged composition
 - `HIER-*` — `HierarchicalVM` recursive tree VM
 - `DIA-*` — `IDialogService` host modal interactions
