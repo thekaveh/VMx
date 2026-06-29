@@ -184,6 +184,25 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         return built
     }
 
+    // ── Lifecycle override — eager construction ──────────────────────────
+
+    /// When `eagerChildren` is set, override `_onConstruct()` to materialize
+    /// the child list and recursively construct each child *before* this
+    /// node's own `_onConstruct()` returns. Because `ComponentVMBase.construct()`
+    /// sets status to `.constructed` only after `_onConstruct()` completes, the
+    /// children (and their descendants) all reach `.constructed` before the parent
+    /// does — producing depth-first order (HIER-008, HIER-009). The cascade is
+    /// synchronous and throwing (ADR-0053): if any child's `construct()` throws,
+    /// the error propagates up and the caller's `construct()` rolls the parent
+    /// back to its prior status (LIFE-014).
+    open override func _onConstruct() throws {
+        try super._onConstruct()
+        guard eagerChildren else { return }
+        for child in children {
+            try node(child).construct()
+        }
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     /// Runs the factory and seeds each produced child's `parent` to this node
