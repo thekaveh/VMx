@@ -4,18 +4,56 @@
 //
 // See spec/06-composite-vm.md. This is the skeleton flavor: it covers
 // add / remove / select / current and the lifecycle cascade. Batch
-// updates, autoConstructOnAdd, async selection, and the full
-// CollectionChanged event surface land in a follow-up PR.
+// updates, async selection, and the full CollectionChanged event surface
+// land in a follow-up PR.
 //
 import Foundation
+import Combine
 
-open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
+open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batchable {
     private var children: [Child] = []
     private var _current: Child?
     private let childrenFactory: (() -> [Child])?
     private let currentSelector: (([Child]) -> Child?)?
     private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
+    private let _autoConstructOnAdd: Bool
+
+    // ── Batch-update state ──────────────────────────────────────────────
+
+    private var _batchLevel = 0
+    private var _batchDirty = false
+
+    // ── CollectionChanged publisher ─────────────────────────────────────
+
+    private let collectionChangedSubject = PassthroughSubject<CollectionChangedEvent, Never>()
+
+    /// Emits a `CollectionChangedEvent` after each `add` or `remove` mutation.
+    /// During a batch, granular events are suppressed; `dispose()` on the
+    /// returned `BatchUpdateHandle` emits a single `.reset` (if dirty).
+    public var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
+        collectionChangedSubject.eraseToAnyPublisher()
+    }
+
+    /// Begin a batch update. Per-mutation `CollectionChanged` events are
+    /// suppressed until `dispose()` is called on the returned handle, at which
+    /// point a single `.reset` event is emitted (only if a mutation occurred).
+    /// Nested `batchUpdate()` calls are supported via a reference counter; the
+    /// reset fires only when the outermost batch ends.
+    public func batchUpdate() -> BatchUpdateHandle {
+        _batchLevel += 1
+        return BatchUpdateHandle(owner: self)
+    }
+
+    /// Called by `BatchUpdateHandle.dispose()` — do not call directly.
+    func _exitBatch() {
+        guard _batchLevel > 0 else { return }
+        _batchLevel -= 1
+        if _batchLevel == 0 && _batchDirty {
+            _batchDirty = false
+            collectionChangedSubject.send(.reset())
+        }
+    }
 
     public init(
         name: String,
@@ -26,11 +64,13 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         onConstruct: (() -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         currentSelector: (([Child]) -> Child?)? = nil,
-        onCurrentChanged: ((Child?) -> Void)? = nil
+        onCurrentChanged: ((Child?) -> Void)? = nil,
+        autoConstructOnAdd: Bool = false
     ) {
         self.childrenFactory = childrenFactory
         self.currentSelector = currentSelector
         self.onCurrentChanged = onCurrentChanged
+        self._autoConstructOnAdd = autoConstructOnAdd
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -110,6 +150,24 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
     public func add(_ child: Child) {
         children.append(child)
         child._parent = self
+        // When autoConstructOnAdd is set and the composite is already
+        // Constructed, construct the child BEFORE emitting the Add event
+        // (COMP-012). `add` is non-throwing per the public API contract;
+        // failures surface through assertionFailure in debug/test builds.
+        // Divergence from TS (which throws on failure) is recorded in ADR-0060.
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        // Emit AFTER the child is appended, parent is wired, and (if
+        // autoConstructOnAdd) the child has been constructed.
+        let index = children.count - 1
+        if _batchLevel > 0 {
+            _batchDirty = true
+        } else {
+            collectionChangedSubject.send(.added(child, at: index))
+        }
     }
 
     public func remove(_ child: Child) -> Bool {
@@ -125,6 +183,12 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM {
         item._parent = nil
         if _current === item {
             _setCurrent(nil)
+        }
+        // Emit AFTER the child has been removed and parent cleared.
+        if _batchLevel > 0 {
+            _batchDirty = true
+        } else {
+            collectionChangedSubject.send(.removed(item, at: index))
         }
     }
 
