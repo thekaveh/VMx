@@ -150,6 +150,45 @@ describe("CMDD-009", () => {
   });
 });
 
+describe("CMDD-010", () => {
+  // execute() is fire-and-forget across the async confirm gate, so a rejecting
+  // confirm delegate or a throwing inner command cannot propagate to the caller
+  // the way RelayCommand's task does. They MUST be surfaced on `errors` instead
+  // of being swallowed (VMX-009).
+  it("surfaces a rejecting confirm delegate and a throwing inner on the errors channel", async () => {
+    // (a) the confirm delegate rejects
+    const confirmBoom = new Error("confirm rejected");
+    const rejectErrors: unknown[] = [];
+    const inner = buildRecording([], "inner", true);
+    const rejecting = new ConfirmationDecoratorCommand(inner, () =>
+      Promise.reject(confirmBoom),
+    );
+    rejecting.errors.subscribe((e) => rejectErrors.push(e));
+
+    rejecting.execute(); // fire-and-forget
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rejectErrors).toEqual([confirmBoom]);
+
+    // (b) the inner command throws once confirmed
+    const innerBoom = new Error("inner boom");
+    const innerErrors: unknown[] = [];
+    const throwing = RelayCommand.builder()
+      .task(() => {
+        throw innerBoom;
+      })
+      .predicate(() => true)
+      .build();
+    const confirming = new ConfirmationDecoratorCommand(throwing, () =>
+      Promise.resolve(true),
+    );
+    confirming.errors.subscribe((e) => innerErrors.push(e));
+
+    confirming.execute();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(innerErrors).toEqual([innerBoom]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // DecoratorCommand exception handling (unit; not a conformance ID)
 // ---------------------------------------------------------------------------

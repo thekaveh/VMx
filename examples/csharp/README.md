@@ -32,11 +32,26 @@ cd console/HelloVMx
 dotnet run
 ```
 
-Cross-platform — runs anywhere the .NET SDK runs.
+Cross-platform — runs anywhere the .NET SDK runs. The project targets
+**`net8.0`**, so a host that only has a newer runtime installed (e.g. .NET 9,
+no .NET 8) fails at launch with `You must install or update .NET … 8.0.0 …
+was not found`. On such a host, roll forward to the installed major:
+
+```bash
+DOTNET_ROLL_FORWARD=Major dotnet run
+```
+
+(The `avalonia/NotesShowcase` flagship also targets `net8.0` and needs the same
+roll-forward when only a newer runtime is present.)
 
 ---
 
 ## 3. Example 2 — `wpf/TodoApp/` (WPF + MVVM)
+
+> **Platform: Windows only.** WPF is a Windows-only UI framework, so this
+> example only *launches* on Windows. `dotnet restore` and `dotnet build`
+> succeed cross-platform (the off-Windows `TargetFramework` drops the
+> `-windows` suffix), but `dotnet run` requires Windows.
 
 A todo app that wires VMx into a WPF view. Demonstrates:
 

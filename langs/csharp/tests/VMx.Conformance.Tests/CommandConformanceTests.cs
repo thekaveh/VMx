@@ -121,6 +121,70 @@ public class CommandConformanceTests
         }
     }
 
+    // CMD-012 — cancel() cancels an in-flight async command task; the command returns
+    // to a non-executing state; no exception surfaces by default (spec §11, ADR-0056).
+    [Fact, Trait("Conformance", "CMD-012")]
+    public async Task CMD_012_Cancel_Cancels_InFlight_Async_Task_NonThrowing()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observedCancel = false;
+
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async ct =>
+            {
+                started.SetResult();
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    observedCancel = true;
+                    throw; // propagate up to ExecuteAsync, which swallows it by default
+                }
+            })
+            .Build();
+
+        cmd.CanExecute(null).Should().BeTrue("the command is executable before it starts");
+
+        var run = cmd.ExecuteAsync();
+        await started.Task; // the task is now in flight
+
+        cmd.IsExecuting.Should().BeTrue("the command is executing while the task runs");
+        cmd.CanExecute(null).Should().BeFalse("an in-flight async command must not be re-executable");
+
+        cmd.Cancel();
+        await run; // MUST complete without throwing (non-throwing default, DIA-007 alignment)
+
+        observedCancel.Should().BeTrue("the task observed cancellation through its CancellationToken");
+        cmd.IsExecuting.Should().BeFalse("the command returns to a non-executing state after cancel");
+        cmd.CanExecute(null).Should().BeTrue("CanExecute reflects the cleared in-flight state");
+    }
+
+    // CMD-012 (opt-in throwing variant) — ThrowOnCancel() surfaces the cancellation to
+    // the awaiter instead of completing normally (spec §11 opt-in clause, ADR-0056).
+    [Fact, Trait("Conformance", "CMD-012")]
+    public async Task CMD_012_ThrowOnCancel_Surfaces_OperationCanceledException()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var cmd = AsyncRelayCommand.Builder()
+            .ThrowOnCancel()
+            .Task(async ct =>
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+            })
+            .Build();
+
+        var run = cmd.ExecuteAsync();
+        await started.Task;
+        cmd.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
+        cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state when throwing");
+    }
+
     // -----------------------------------------------------------------------
     // Fixture DTOs
     // -----------------------------------------------------------------------

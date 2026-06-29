@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM1..VMN' type parameter names per spec/08-aggregate-vm.md §2
 using VMx.Builders;
 using VMx.Components;
 using VMx.Messages;
@@ -73,20 +72,16 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     /// <summary>
     /// Dispose cascade (LIFE-013): dispose each component slot depth-first, then self.
     /// </summary>
-#pragma warning disable CA1816 // base.Dispose() already calls GC.SuppressFinalize(this)
     public override void Dispose()
     {
         _component1?.Dispose();
-        base.Dispose(); // calls GC.SuppressFinalize(this)
+        base.Dispose();
     }
-#pragma warning restore CA1816
 
     // ── Builder factory ─────────────────────────────────────────────────────
 
-#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
     /// <summary>Returns a new empty builder for <see cref="AggregateVM1{VM1}"/>.</summary>
     public static AggregateVM1Builder Builder() => new();
-#pragma warning restore CA1000
 
     // ── Nested builder ──────────────────────────────────────────────────────
 
@@ -152,4 +147,3 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
         }
     }
 }
-#pragma warning restore CA1715

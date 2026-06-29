@@ -37,6 +37,22 @@ export function* walkExpanded(
   }
 }
 
+/**
+ * The typed accessor an aggregate VM exposes for tree traversal — its component
+ * slots in declaration order. VMX-023: walking via this method (instead of
+ * reflecting over `component${i}` name strings bounded at 6) keeps traversal
+ * correct for any arity, including a future AggregateVM7+.
+ */
+interface IAggregateComponents {
+  components(): readonly ComponentVMBase[];
+}
+
+function _hasComponents(node: object): node is IAggregateComponents {
+  return (
+    typeof (node as Partial<IAggregateComponents>).components === "function"
+  );
+}
+
 function* _children(node: ComponentVMBase): Iterable<ComponentVMBase> {
   // Composites and groups expose Symbol.iterator yielding child VMs.
   if (Symbol.iterator in node) {
@@ -45,9 +61,11 @@ function* _children(node: ComponentVMBase): Iterable<ComponentVMBase> {
     }
     return;
   }
-  // Aggregates expose component1..component6 slots.
-  for (let i = 1; i <= 6; i++) {
-    const slot = (node as unknown as Record<string, unknown>)[`component${String(i)}`];
-    if (slot instanceof ComponentVMBase) yield slot;
+  // Aggregates expose a typed components() accessor (VMX-023) — no per-arity
+  // slot-name reflection, so AggregateVM7+ is traversed automatically.
+  if (_hasComponents(node)) {
+    for (const slot of node.components()) {
+      if (slot instanceof ComponentVMBase) yield slot;
+    }
   }
 }

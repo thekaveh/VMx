@@ -15,15 +15,51 @@ Key properties:
 
 - **ORM-agnostic** — the persist step is a consumer-supplied delegate or
   `IFormPersister<TM>` collaborator.
-- **Snapshot at construct** — `Snapshot` is captured once and is immutable after that
-  (until a successful `ApproveCommand` updates it).
+- **Snapshot at construct** — `Snapshot` is captured once (by a **deep** value
+  copy, by default) and is immutable after that (until a successful
+  `ApproveCommand` updates it). The snapshot mechanism is injectable.
 - **`IsDirty`** is derived automatically from structural inequality of `Model` vs
-  `Snapshot`.
+  `Snapshot`, using an **injectable equality function** (default: a structural
+  deep-equal — §4).
 - **`DenyCommand`** (Cancel) reverts `Model` to `Snapshot` and publishes hub
   messages.
 - **`ApproveCommand`** (Save) invokes the persister; on success updates `Snapshot`
-  and raises `OnApproved`.
+  and raises `OnApproved`. A persister failure on the fire-and-forget command path
+  is surfaced on `ApproveErrors` (§7).
 - **Strict mode** (opt-in): `ApproveCommand.CanExecute = IsDirty`.
+
+### 1.1 Relationship to `ComponentVM<M>`, validation, and persistence
+
+`FormVM<TM>` is **not** a thin alias of `ComponentVM<M>` + `OnModelChanged`
+(`05-component-vm.md` §3.2). A `ComponentVM<M>` exposes a settable model and a
+post-set callback; `FormVM<TM>` adds an entire **edit lifecycle** on top — a
+snapshot captured at construct (§3), automatic `IsDirty` derivation (§4), a
+revert path (`DenyCommand`), and a guarded persist path with success/error
+channels (`ApproveCommand` / `OnApproved` / `ApproveErrors`, §7). The two are
+orthogonal: `ComponentVM<M>` is the model-bearing leaf VM; `FormVM<TM>` is the
+snapshot/revert/approve workflow that a consumer reaches for when editing then
+committing or discarding an entity. ADR-0030 records the rationale for shipping
+it as its own type rather than a `ComponentVM<M>` recipe.
+
+**Validation is composed, not built in.** `FormVM<TM>` deliberately ships no
+validation framework. A form's validity is expressed by composing a
+`DerivedProperty<bool>` (`15-derived-properties.md`) over the model's fields and,
+in strict mode, the consumer gates `ApproveCommand` on both `IsDirty` and that
+derived `IsValid` (the flagship examples follow exactly this pattern). A
+first-class `IValidator<TM>` / `IsValid` surface on the type is recorded as
+**accepted future work** (ADR-0051) — it would be an additive opt-in collaborator,
+not a change to the present shape, so it is out of scope for the v3
+reconciliation.
+
+**Persistence is a consumer concern.** The persist step is a consumer-supplied
+delegate or `IFormPersister<TM>` collaborator (§2) — this seam *is* the framework's
+persistence integration point. Per `00-overview.md` §2, navigation routing,
+persistence, and serialization are explicitly out of scope as framework
+concerns; a flagship owning its own `INoteRepository` is by design, not a gap. A
+generalized `IRepository<T>` port and a command-level **undo/redo** stack (the
+inverse of the fire-only commands of chapter 04) are likewise recorded as
+**deferred future work** in ADR-0051: both would be new opt-in sub-packages, not
+clarifications, and neither is introduced here.
 
 ## 2. Shape
 
@@ -34,7 +70,8 @@ FormVM<TM>:
     IsDirty        : bool          # Model != Snapshot (structural equality)
     DenyCommand    : ICommand      # reverts Model to Snapshot; publishes hub messages
     ApproveCommand : ICommand      # invokes persister; updates Snapshot on success
-    OnApproved     : event/obs     # fires after successful persist
+    OnApproved     : event/obs     # fires the persisted value after successful persist
+    ApproveErrors  : observable    # surfaces a persister failure from the command path
 
     SetModel(newModel : TM) -> void   # mutator (per-flavor idiomatic name)
     ApproveAsync() -> Task            # awaitable entry-point for the persist flow
@@ -42,6 +79,21 @@ FormVM<TM>:
 
 `ApproveCommand` invokes `ApproveAsync` internally; consumers may either bind the
 command or call the awaitable directly when finer control is needed.
+
+The two entry points have **different failure semantics**, because `ICommand`'s
+`Execute` returns `void` (chapter 04 §1) and therefore has no channel to propagate
+a persister failure to its caller:
+
+- **`ApproveAsync()` is awaitable.** A persister failure propagates to the awaiting
+  caller (the returned `Task`/awaitable faults). No state is mutated, `OnApproved`
+  does not fire, and nothing is emitted on `ApproveErrors`.
+- **`ApproveCommand.Execute()` is fire-and-forget.** It schedules the persist via
+  `ApproveAsync` and returns immediately; a persister failure cannot propagate to
+  the caller. Rather than discarding the faulted task — which silently swallows the
+  error and, on some runtimes, surfaces only as an unobserved-exception warning at
+  GC — the failure is emitted on the **`ApproveErrors`** observable (§7). On
+  success the command path is identical to the awaitable path (snapshot advances,
+  `OnApproved` fires).
 
 Constructor parameters (per-flavor idiomatic; order matches shipped C# / Python
 constructors — also catalogued in ADR-0009 §"FormVM<TM> constructor shape"):
@@ -52,28 +104,40 @@ FormVM(
     persister   : Func<TM, Task>,   # or IFormPersister<TM>
     hub?        : IMessageHub,      # optional hub; default is the null hub
     strict?     : bool = false,
-    snapshotter?: Func<TM, TM>      # custom snapshot function (opt-in)
+    snapshotter?: Func<TM, TM>      # custom snapshot function (opt-in; default is a deep copy — §3)
 )
 ```
 
+TypeScript additionally accepts an `equals?: (a, b) => boolean` option — the
+injectable dirty-tracking equality predicate (default: a structural deep-equal —
+§4). C# and Python derive dirty state from the model's own idiomatic value
+equality (`object.Equals` / `__eq__`), so the equality hook is the model type's
+own concern there rather than a separate constructor parameter.
+
 ## 3. Snapshot policy
 
-The default snapshot is a **per-flavor idiomatic value-copy**. The C# and
-Python defaults are shallow (nested mutable references are shared between
-`Model` and `Snapshot`); the TypeScript default is a structured deep clone
-(nested references are independent). Consumers whose model has nested
-mutable state should pick a snapshotter that matches the semantics they
-want — see the row notes:
+The default snapshot is a **per-flavor idiomatic deep value-copy**, so that the
+snapshot does not share nested mutable state with the live `Model`. This is a
+correctness requirement, not a convenience: with a shallow copy, an in-place
+mutation of a *nested* object would be invisible to `IsDirty` (both `Model` and
+`Snapshot` observe the same nested reference) and could not be reverted by
+`DenyCommand`. The deep default makes nested mutation both **tracked** and
+**revertible** without the consumer having to replace the whole model.
 
-| Flavor     | Default mechanism                                                                 |
-| ---------- | --------------------------------------------------------------------------------- |
-| C#         | reflective `MemberwiseClone` — shallow (equivalent to `with {}` for record types) |
-| Python     | `copy.copy` (`__copy__` if defined, else shallow attribute copy) — shallow        |
-| TypeScript | `structuredClone` (plain object models) — structured deep clone                   |
+| Flavor     | Default mechanism                                                            |
+| ---------- | ---------------------------------------------------------------------------- |
+| C#         | `System.Text.Json` serialize → deserialize round-trip (BCL-only; deep clone) |
+| Python     | `copy.deepcopy` — deep clone                                                 |
+| TypeScript | `structuredClone` — structured deep clone (Date/Map/Set/typed-array aware)   |
 
-Consumers whose model type requires a different strategy supply a custom
-`snapshotter: Func<TM, TM>` at construction time. The snapshotter is also applied
-when `DenyCommand` restores from `Snapshot`, ensuring consistent copy semantics.
+The **snapshotter remains injectable**: a consumer whose model type the default
+deep-copy cannot handle — JSON-unrepresentable members (delegates, cyclic graphs,
+non-default-constructible types) in C#, unpicklable/live-handle objects under
+`deepcopy` in Python, or values `structuredClone` cannot clone in TypeScript —
+supplies a custom `snapshotter: Func<TM, TM>` at construction (or via the builder).
+An injected snapshotter always overrides the default. The snapshotter is also
+applied when `DenyCommand` restores from `Snapshot`, ensuring consistent copy
+semantics in both directions.
 
 ## 4. Dirty detection
 
@@ -83,20 +147,43 @@ when `DenyCommand` restores from `Snapshot`, ensuring consistent copy semantics.
 IsDirty = (Model != Snapshot)
 ```
 
-Each flavor uses its idiomatic equality operator/method:
+Each flavor uses its idiomatic value-equality, which is overridable:
 
-- C#: `object.Equals` (record types use structural equality by default).
-- Python: `__eq__` (`@dataclass(eq=True)` or `@dataclass(frozen=True)` by default).
-- TypeScript: JSON serialization comparison (`JSON.stringify`) for plain objects.
-  Caveat (clarified in v2.5.0 via ADR-0037): `JSON.stringify` is
-  key-order sensitive — two objects with the same fields/values whose keys
-  were assigned in different orders compare as *dirty*. FORM-003's
-  structurally-equal guarantee ("same fields/values, different object
-  reference") therefore holds in TypeScript for same-key-order objects
-  (the common snapshot/revert flow, where snapshots are produced by the
-  snapshotter from the model itself); consumers needing order-insensitive
-  comparison should supply a custom `snapshotter`/model normalization.
-  FORM-003 in `12-conformance.md` carries the matching scope note.
+- C#: `object.Equals` (record types provide structural equality by default).
+  Override by defining the model's own equality (`record`, `Equals`/`==`).
+- Python: `__eq__` (`@dataclass(eq=True)` / `@dataclass(frozen=True)` by default).
+  Override by defining the model's own `__eq__`.
+- TypeScript: an **injectable structural deep-equality predicate**. Plain objects
+  have no idiomatic value equality, so the default is a structural deep-equal
+  (not `JSON.stringify`) supplied by the framework, and a custom `equals(a, b)`
+  predicate may be injected at construction (or via the builder) to compare on a
+  subset of fields or with reference semantics.
+
+The TypeScript default deep-equal is the dirty-tracking counterpart of the
+default `structuredClone` snapshotter — it compares to the same depth the
+snapshotter clones, so snapshot and comparison stay internally consistent. Unlike
+the `JSON.stringify` comparison used before v3 it:
+
+- **never throws** on `BigInt` (compared with `===`) or on circular references
+  (guarded with a visited-pair set) — the previous `JSON.stringify` path *crashed*
+  on both;
+- compares `Date` by instant, `Map`/`Set` by contents, `RegExp` by source/flags,
+  arrays and plain objects by value — the previous path was *silently wrong* on
+  all of these (`JSON.stringify` renders every `Map`/`Set` as `{}` and stringifies
+  `Date`, so distinct values compared equal);
+- preserves an `undefined`-valued key as distinct from a missing key (matching what
+  `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
+  equal, for stable dirty-tracking;
+- is no longer **key-order sensitive**: two objects with the same fields/values
+  compare as clean regardless of key-insertion order, so FORM-003's
+  structurally-equal guarantee ("same fields/values, different object reference")
+  now holds unconditionally in TypeScript (the pre-v3 `JSON.stringify` caveat in
+  ADR-0037 is retired by ADR-0048).
+
+`Map`/`Set` membership uses the engine's native `has` (SameValueZero), so
+object-typed keys/members compare by reference — adequate for the primitive-keyed
+models dirty-tracking targets; a consumer needing deep key comparison injects a
+custom `equals`.
 
 ## 5. Lifecycle state diagram
 
@@ -141,8 +228,8 @@ This is a **documented composition pattern** only — `FormVM` does not depend o
 1. **`PropertyChangedMessage("Model")`** — standard property-change notification for
    `Model`, per chapter 03 §2 rules.
 
-`ApproveCommand` does not publish hub messages directly; the `OnApproved`
-event/observable serves as the signal.
+`ApproveCommand` does not publish hub messages directly; two observables carry the
+approve outcome instead (see *Approve signals* below).
 
 ### `FormRevertedMessage`
 
@@ -151,6 +238,28 @@ FormRevertedMessage:
     sender      : FormVM          # the FormVM that was reverted
     sender_name : string          # per-flavor: type name of sender
 ```
+
+### Approve signals: `OnApproved` and `ApproveErrors`
+
+- **`OnApproved`** — fires exactly once after a *successful* persist. It carries
+  the value that was **actually persisted**: the `Model` captured at the start of
+  the approve flow, *before* the persister await. If `SetModel` is called while a
+  persist is in flight, the snapshot still advances to the persisted value (leaving
+  the form `IsDirty` against the newer, un-persisted model), and `OnApproved`
+  reports the persisted value — never the racing newer one. This is **uniform
+  across flavors**: before v3, C# emitted the captured (pre-await) value while
+  Python and TypeScript emitted the live post-await `Model`; all three now emit the
+  captured persisted value (ADR-0048 resolves the ADR-0009 divergence note for
+  `OnApproved`).
+- **`ApproveErrors`** (`ApproveErrors` / `approve_errors` / `approveErrors`) — an
+  observable that surfaces the persister exception when the **fire-and-forget
+  command path** (`ApproveCommand.Execute()`) fails (§2). Because `Execute` returns
+  `void`, the failure cannot propagate to the caller, so it is emitted here rather
+  than swallowed with the discarded faulted task. It emits **only** on the command
+  path; the awaitable `ApproveAsync()` path instead throws to its awaiter and emits
+  nothing on this channel. The observable **completes on `Dispose()`**, and a
+  persister failure that lands *after* `Dispose()` is dropped (not emitted). A
+  successful persist emits nothing on `ApproveErrors`.
 
 ## 8. Strict mode
 
@@ -166,9 +275,9 @@ Default mode (strict = false):
 
 ## 9. Disposal
 
-`Dispose()` completes and disposes the `OnApproved` observable and the
-command surface. A disposed form is **inert** (added in v2.5.0 via
-ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
+`Dispose()` completes and disposes the `OnApproved` and `ApproveErrors`
+observables and the command surface. A disposed form is **inert** (added in
+v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 
 - `ApproveCommand.Execute()` / the awaitable approve entry point are full
   no-ops — in particular the **persister delegate is never invoked**, since
@@ -176,7 +285,9 @@ ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 - `DenyCommand.Execute()` is a full no-op: no model revert, no hub messages.
 - A `Dispose()` that lands *during* an in-flight persist suppresses the
   post-await state mutation and emissions (the persister itself, already
-  running, completes normally).
+  running, completes normally). A persister *failure* that lands after
+  `Dispose()` is likewise dropped — it is **not** re-surfaced on `ApproveErrors`
+  (which has already completed).
 - `Dispose()` is idempotent.
 
 ## 10. Conformance
@@ -190,8 +301,9 @@ ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   after revert.
 - `FORM-005` — `ApproveCommand` invokes the persister delegate; on success `Snapshot`
   is updated to the current `Model` value.
-- `FORM-006` — `OnApproved` event/observable fires only after a successful persist;
-  it does not fire when the persister throws.
+- `FORM-006` — `OnApproved` event/observable fires only after a successful persist,
+  carrying the persisted value (the model captured before the persister await,
+  uniform across flavors — §7); it does not fire when the persister throws.
 - `FORM-007` — When the persister throws, no state mutation occurs: `Snapshot` and
   `Model` remain unchanged, `IsDirty` is still `true`.
 - `FORM-008` — `DenyCommand` publishes `FormRevertedMessage` and
@@ -209,7 +321,12 @@ ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   / optional fields, each starting at `IsDirty == false`.
 - `FORM-013` — `FormVMBuilder<TM>` field defaults applied when not set:
   `Hub` defaults to the flavor's `NullMessageHub` singleton, `Snapshot` to
-  the default shallow-copy of `Initial`, and `Strict` to `false` (so
+  the default deep-copy of `Initial` (§3), and `Strict` to `false` (so
   `ApproveCommand.CanExecute()` returns `true` regardless of `IsDirty`).
 - `FORM-014` — A disposed form is inert: approve does not invoke the
   persister; deny does not revert the model (§9).
+- `FORM-015` — A persister failure on the fire-and-forget command path is
+  surfaced on `ApproveErrors` rather than swallowed: invoking
+  `ApproveCommand.Execute()` with a rejecting persister emits the persister
+  exception on `ApproveErrors`, no state is mutated (`IsDirty` stays `true`),
+  and `OnApproved` does not fire (§2, §7; added in v3 via ADR-0048).

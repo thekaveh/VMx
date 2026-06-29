@@ -26,8 +26,8 @@ from vmx import (
     MessageHubProto,
     NullDispatcher,
     NullMessageHub,
-    null_message_hub_of,
 )
+from vmx.services import null_message_hub_of
 from vmx.services.dispatcher import Dispatcher
 
 # ---------------------------------------------------------------------------

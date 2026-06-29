@@ -42,7 +42,10 @@ class FormVM(Generic[TM]):
         when ``is_dirty`` is ``False``.  Default ``False``.
     snapshotter:
         Custom snapshot function ``(model) -> model``.  Defaults to
-        ``copy.copy`` (shallow copy — idiomatic for ``@dataclass`` models).
+        ``copy.deepcopy`` so that a mutation to a *nested* object inside the
+        model is visible to :attr:`is_dirty` and restored by ``deny``/revert.
+        Inject a custom snapshotter as the escape hatch for models that
+        ``deepcopy`` cannot handle (e.g. live handles, unpicklable objects).
     """
 
     def __init__(
@@ -62,7 +65,7 @@ class FormVM(Generic[TM]):
         self._hub: MessageHubProto[Any] = hub if hub is not None else NULL_MESSAGE_HUB
         self._strict = strict
         self._snapshotter: Callable[[TM], TM] = (
-            snapshotter if snapshotter is not None else copy.copy
+            snapshotter if snapshotter is not None else copy.deepcopy
         )
 
         self._model: TM = initial
@@ -72,6 +75,7 @@ class FormVM(Generic[TM]):
 
         # Observables
         self._on_approved: Subject[TM] = Subject()
+        self._approve_errors: Subject[BaseException] = Subject()
         self._can_execute_trigger: Subject[None] = Subject()
 
         # Commands
@@ -126,6 +130,18 @@ class FormVM(Generic[TM]):
     def on_approved(self) -> rx.Observable[TM]:
         """Observable that emits the current model after each successful persist."""
         return self._on_approved
+
+    @property
+    def approve_errors(self) -> rx.Observable[BaseException]:
+        """Observable that surfaces the persister error when the approve *command* fails.
+
+        ``approve_command.execute()`` is fire-and-forget, so a persister failure
+        cannot propagate to the caller; it is emitted here instead of being
+        swallowed (VMX-008). The awaitable :meth:`approve_async` keeps its
+        raising behavior — ``await`` it directly to handle the error inline.
+        Completes on :meth:`dispose`.
+        """
+        return self._approve_errors
 
     # ── Mutation ──────────────────────────────────────────────────────────────
 
@@ -187,6 +203,8 @@ class FormVM(Generic[TM]):
         self._disposed = True
         self._on_approved.on_completed()
         self._on_approved.dispose()
+        self._approve_errors.on_completed()
+        self._approve_errors.dispose()
         self._can_execute_trigger.on_completed()
         self._can_execute_trigger.dispose()
         self._deny_command.dispose()
@@ -215,16 +233,37 @@ class FormVM(Generic[TM]):
     def _approve_fire_and_forget(self) -> None:
         """Synchronous wrapper that schedules the async approve.
 
-        Called by the RelayCommand (which expects a sync callable).
-        Fire-and-forget; use :meth:`approve_async` in tests for awaitable behavior.
+        Called by the RelayCommand (which expects a sync callable). Fire-and-forget:
+        a persister failure is routed to :attr:`approve_errors` instead of being
+        swallowed (VMX-008). Use :meth:`approve_async` for awaitable raising behavior.
         """
         try:
             loop = asyncio.get_running_loop()
-            _task = loop.create_task(self.approve_async())
-            # Retrieve any exception so Python does not log "exception never retrieved".
-            # Guard against cancellation: Task.exception() raises CancelledError on a
-            # cancelled task, which would surface to the loop's exception handler
-            # (mirrors commands/confirmation_decorator_command.py).
-            _task.add_done_callback(lambda _t: None if _t.cancelled() else _t.exception())
         except RuntimeError:
-            asyncio.run(self.approve_async())
+            # No running loop: run to completion synchronously, routing a
+            # persister failure to the error channel (parity with the
+            # running-loop path rather than propagating to the sync caller).
+            try:
+                asyncio.run(self.approve_async())
+            except Exception as exc:
+                self._emit_approve_error(exc)
+            return
+        task = loop.create_task(self.approve_async())
+        # Mirror the C# continuation: surface the persister failure on the error
+        # channel. Skip cancelled tasks — Task.exception() raises CancelledError
+        # for those, which would error the loop's callback.
+        task.add_done_callback(self._on_approve_done)
+
+    def _on_approve_done(self, task: asyncio.Future[None]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            self._emit_approve_error(exc)
+
+    def _emit_approve_error(self, exc: BaseException) -> None:
+        # The subject is completed+disposed on dispose(); a persister failure
+        # arriving after dispose must not raise reactivex DisposedException.
+        if self._disposed:
+            return
+        self._approve_errors.on_next(exc)

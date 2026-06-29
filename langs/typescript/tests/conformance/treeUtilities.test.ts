@@ -8,9 +8,11 @@ import {
   AggregateVM1,
   AggregateVM6,
   ComponentVMBase,
+  ViewModelType,
   walk,
   find,
 } from "../../src/index.js";
+import type { IDispatcher } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
 function makeDisp() { return RxDispatcher.immediate(); }
@@ -163,5 +165,64 @@ describe("UTIL-003", () => {
     // When nothing matches, returns null.
     const missing = find(root, (vm) => vm.name === "ghost");
     expect(missing).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VMX-023 — arity-independent aggregate traversal via the typed components()
+// accessor (no `component${i}` slot-name reflection bounded at 6).
+// ---------------------------------------------------------------------------
+
+class _Arity7Aggregate extends ComponentVMBase {
+  readonly #slots: readonly ComponentVMBase[];
+  constructor(opts: {
+    name: string;
+    hub: MessageHub;
+    dispatcher: IDispatcher;
+    slots: readonly ComponentVMBase[];
+  }) {
+    super({
+      name: opts.name,
+      hint: "",
+      hub: opts.hub,
+      dispatcher: opts.dispatcher,
+    });
+    this.#slots = opts.slots;
+  }
+  get type(): ViewModelType {
+    return ViewModelType.Aggregate;
+  }
+  components(): readonly ComponentVMBase[] {
+    return this.#slots;
+  }
+}
+
+describe("VMX-023", () => {
+  it("walk descends into aggregate slots via components() even beyond arity 6", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const slots = Array.from({ length: 7 }, (_, i) =>
+      makeChild(hub, `c${String(i + 1)}`),
+    );
+    const agg = new _Arity7Aggregate({
+      name: "agg7",
+      hub,
+      dispatcher: disp,
+      slots,
+    });
+
+    // The old reflection (`component${i}` for i=1..6) would have silently
+    // dropped the seventh slot; the typed accessor yields all of them.
+    const visited = [...walk(agg)].map((vm) => vm.name);
+    expect(visited).toEqual([
+      "agg7",
+      "c1",
+      "c2",
+      "c3",
+      "c4",
+      "c5",
+      "c6",
+      "c7",
+    ]);
   });
 });

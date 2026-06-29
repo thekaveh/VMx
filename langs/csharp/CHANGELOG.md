@@ -4,15 +4,62 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] — 2026-06-28
+
+The **v3 framework overhaul** — a breaking release that hardens the
+lifecycle/dispose concurrency path and reconciles the public surface across
+flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
+`docs/audit/2026-06-27-vmx-merged-critique.md`.
+
+### Added
+
+- Positional-options construction for the common VMs — a static `Create(options)`
+  factory alongside the unchanged fluent builders, taking an options `record`:
+  `ComponentVM.Create(new ComponentVMOptions { … })`,
+  `ComponentVM<M>.Create(new ComponentVMOptions<M> { … })`,
+  `CompositeVM<VM>.Create(new CompositeVMOptions<VM> { … })`,
+  `GroupVM<VM>.Create(new GroupVMOptions<VM> { … })`. Delegates to the builder, so
+  required-field validation (`BuilderValidationException`) and the resulting VM are
+  identical to the fluent path (ADR-0055; VMX-020).
+- `IAsyncCommand` / `AsyncRelayCommand` — an additive async command that flows a
+  `CancellationToken` into a long-running task and adds a `Cancel()` method,
+  closing the cancellation gap the synchronous `RelayCommand` had. Cancellation is
+  non-throwing to the caller by default with an opt-in throwing mode; fire-and-forget
+  task faults route to an `Errors` observable. `RelayCommand` is unchanged
+  (ADR-0056; CMD-012; VMX-052).
+- `FormVM<TM>` surfaces approve-path persister failures on a new `ApproveErrors`
+  observable instead of swallowing them; `IsDirty` uses the model's own value
+  equality and the default snapshot is a deep value-copy (`System.Text.Json`
+  round-trip), both injectable; `OnApproved` is pinned to the persisted value
+  (ADR-0048; FORM-015).
+
+### Removed
+
+- **BREAKING:** Removed `VMx.Extensions.LinqHelpers`
+  (`CartesianProduct`/`Sample`/`Product`) — general-purpose LINQ combinators
+  unrelated to the viewmodel domain, referenced by nothing but their own tests
+  (ADR-0052; VMX-068). Inline the one-line LINQ equivalents in the consuming
+  project if needed.
 
 ### Changed
 
+- **BREAKING:** `ConfirmationDecoratorCommand.Execute()` (synchronous
+  fire-and-forget) now surfaces a rejecting `confirm` delegate or a throwing inner
+  command on a new `Errors` observable instead of swallowing them — the C# swallow
+  is fixed for cross-flavor parity; the awaitable `ExecuteAsync()` keeps its throw
+  behavior (ADR-0049; CMDD-010). `ModeledCrudCommands` Update/Delete `CanExecute`
+  is now reactive to current-selection change so bound buttons refresh
+  (ADR-0049; VMX-011).
 - Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
   forward; the already-published 2.6.0 artifact remains MIT-licensed.
 
 ### Fixed
 
+- **Lifecycle/dispose concurrency cluster (ADR-0047):** status transitions are
+  atomic and dispose-safe behind a per-VM guard; background lifecycle completions
+  marshal their terminal emission onto `IDispatcher.Foreground`; a post-dispose
+  `IsCurrent` change is a silent no-op; and a throwing `OnConstruct`/`OnDestruct`
+  hook rolls `Status` back to the prior settled state (LIFE-008, the new LIFE-014).
 - Aligned aggregate/composite/group message-emission order with the Python and
   TypeScript flavors (no spec or conformance dependency on the relative order):
   `AggregateVM6` now emits the hub `PropertyChangedMessage` before the local

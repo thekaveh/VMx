@@ -217,3 +217,55 @@ def test_CMDD_009_decorators_compose() -> None:
 
     asyncio.run(_via_dec())
     assert log == ["relay"]
+
+
+# ---------------------------------------------------------------------------
+# CMDD-010 — ConfirmationDecoratorCommand surfaces errors on the error channel
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("CMDD-010")
+async def test_CMDD_010_confirmation_surfaces_errors_on_error_channel() -> None:
+    # execute() is fire-and-forget across the async confirm gate, so a rejecting
+    # confirm delegate or a throwing inner command cannot propagate to the caller
+    # the way RelayCommand's task does. They MUST be surfaced on `errors` instead
+    # of being swallowed (VMX-009).
+
+    # (a) the confirm delegate rejects
+    confirm_boom = RuntimeError("confirm rejected")
+
+    async def _reject() -> bool:
+        raise confirm_boom
+
+    inner = RelayCommand.builder().task(lambda: None).build()
+    rejecting = ConfirmationDecoratorCommand(inner, confirm=_reject)
+    reject_errors: list[BaseException] = []
+    rejecting.errors.subscribe(reject_errors.append)
+
+    rejecting.execute()  # fire-and-forget
+    for _ in range(5):
+        await asyncio.sleep(0)
+        if reject_errors:
+            break
+    assert reject_errors == [confirm_boom]
+
+    # (b) the inner command throws once confirmed
+    inner_boom = RuntimeError("inner boom")
+
+    def _raise() -> None:
+        raise inner_boom
+
+    async def _confirm() -> bool:
+        return True
+
+    throwing = RelayCommand.builder().task(_raise).build()
+    confirming = ConfirmationDecoratorCommand(throwing, confirm=_confirm)
+    inner_errors: list[BaseException] = []
+    confirming.errors.subscribe(inner_errors.append)
+
+    confirming.execute()
+    for _ in range(5):
+        await asyncio.sleep(0)
+        if inner_errors:
+            break
+    assert inner_errors == [inner_boom]

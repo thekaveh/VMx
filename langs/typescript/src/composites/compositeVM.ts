@@ -39,6 +39,63 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
   static builder<VM extends ComponentVMBase>(): CompositeVMBuilder<VM> {
     return new CompositeVMBuilder<VM>();
   }
+
+  /**
+   * Constructs a {@link CompositeVM} from an options object in a single call —
+   * an additive alternative to the fluent {@link CompositeVMBuilder}. Delegates
+   * to that builder, so the required-field validation
+   * ({@link BuilderValidationError} on a missing name/services/children) and the
+   * resulting VM are identical to the fluent path.
+   */
+  static create<VM extends ComponentVMBase>(
+    options: CompositeVMOptions<VM>,
+  ): CompositeVM<VM> {
+    // Widen to Partial so the required-field guards remain meaningful for JS
+    // callers / casts that bypass the type; validation is delegated to build().
+    const o = options as Partial<CompositeVMOptions<VM>>;
+    let b = new CompositeVMBuilder<VM>();
+    if (o.children !== undefined) b = b.children(o.children);
+    if (o.name !== undefined) b = b.name(o.name);
+    if (o.hint !== undefined) b = b.hint(o.hint);
+    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.asyncSelection !== undefined) b = b.asyncSelection(o.asyncSelection);
+    if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
+    if (o.current !== undefined) b = b.current(o.current);
+    if (o.onCurrentChanged !== undefined) b = b.onCurrentChanged(o.onCurrentChanged);
+    if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
+    if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
+    return b.build();
+  }
+}
+
+/**
+ * Options for the additive {@link CompositeVM.create} construction form
+ * (ADR-0055 / VMX-020). A one-call alternative to the fluent
+ * {@link CompositeVMBuilder}.
+ */
+export interface CompositeVMOptions<VM extends ComponentVMBase> {
+  /** Required VM name. */
+  name: string;
+  /** Required message hub. */
+  hub: IMessageHub;
+  /** Required dispatcher. */
+  dispatcher: IDispatcher;
+  /** Required children factory (invoked lazily on construct; `() => []` for empty). */
+  children: () => Iterable<VM>;
+  /** Optional hint (default: ""). */
+  hint?: string;
+  /** Optional async-selection flag (default: false). */
+  asyncSelection?: boolean;
+  /** Optional auto-construct-on-add flag (default: false). */
+  autoConstructOnAdd?: boolean;
+  /** Optional initial-current selector (see ADR-0042). */
+  current?: (xs: Iterable<VM>) => VM | null;
+  /** Optional current-changed callback (see ADR-0042). */
+  onCurrentChanged?: (vm: VM | null) => void;
+  /** Optional OnConstruct lifecycle callback. */
+  onConstruct?: () => void;
+  /** Optional OnDestruct lifecycle callback. */
+  onDestruct?: () => void;
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ from vmx.messages.protocols import (
     TypedMessage,
 )
 from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
+from vmx.messages.when_property_changed import when_property_changed
 
 __all__ = [
     "CollectionChangedMessage",
@@ -41,4 +42,5 @@ __all__ = [
     "TreeStructureChangedMessage",
     "TypedMessage",
     "property_value_changed_messages_for",
+    "when_property_changed",
 ]

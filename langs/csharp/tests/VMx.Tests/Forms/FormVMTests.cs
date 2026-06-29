@@ -14,6 +14,14 @@ public class FormVMTests
 {
     private sealed record Model(string Name, int Value);
 
+    // A model with a NESTED mutable object, for default-snapshot deep-clone tests.
+    private sealed record Address
+    {
+        public string City { get; set; } = "";
+    }
+
+    private sealed record Person(string Name, Address Home);
+
     // ── Construction ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -59,6 +67,52 @@ public class FormVMTests
         using var sut = new FormVM<Model>(initial, _ => Task.CompletedTask);
 
         sut.Snapshot.Should().Be(initial, "value-equal to initial");
+    }
+
+    [Fact]
+    public void Default_Snapshot_Is_Deep_So_Nested_Mutation_Makes_Dirty()
+    {
+        // The default snapshotter must DEEP-clone: the snapshot must not share
+        // the nested Address with the live model, otherwise an in-place
+        // mutation of the nested object is invisible to IsDirty (VMX-064).
+        using var sut = new FormVM<Person>(new Person("Alice", new Address { City = "NYC" }), _ => Task.CompletedTask);
+        sut.IsDirty.Should().BeFalse("pristine immediately after construction");
+
+        sut.Model.Home.City = "LA"; // mutate nested object in place
+
+        sut.IsDirty.Should().BeTrue("a nested mutation must dirty the form (VMX-064)");
+    }
+
+    [Fact]
+    public void Default_Snapshot_Deny_Restores_Nested_Mutation()
+    {
+        using var sut = new FormVM<Person>(new Person("Alice", new Address { City = "NYC" }), _ => Task.CompletedTask);
+        sut.Model.Home.City = "LA";
+
+        sut.DenyCommand.Execute(null);
+
+        sut.Model.Home.City.Should().Be("NYC", "deny must restore the nested object (VMX-064)");
+        sut.IsDirty.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Injected_Snapshotter_Overrides_Deep_Default()
+    {
+        // The injectable Snapshotter remains the documented escape hatch.
+        var calls = 0;
+        Func<Person, Person> snapshotter = m =>
+        {
+            calls++;
+            return new Person(m.Name, new Address { City = m.Home.City });
+        };
+
+        using var sut = new FormVM<Person>(
+            new Person("Alice", new Address { City = "NYC" }), _ => Task.CompletedTask, snapshotter: snapshotter);
+
+        calls.Should().Be(1, "injected snapshotter used at construction, not the JSON default");
+
+        sut.Model.Home.City = "LA";
+        sut.IsDirty.Should().BeTrue();
     }
 
     [Fact]
@@ -316,6 +370,42 @@ public class FormVMTests
         await sut.ApproveAsync();
 
         persisted.Should().BeEmpty();
+    }
+
+    // ── Approve error channel (VMX-008) ───────────────────────────────────────
+
+    [Fact]
+    public async Task ApproveCommand_Surfaces_Persister_Failure_On_ApproveErrors()
+    {
+        // ApproveCommand.Execute() is fire-and-forget (ICommand.Execute is void),
+        // so a persister failure cannot propagate to the caller. It must be
+        // surfaced on ApproveErrors rather than discarded with the faulted Task
+        // (VMX-008).
+        var boom = new InvalidOperationException("persist failed");
+        var observed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var sut = new FormVM<Model>(new Model("A", 1), _ => Task.FromException(boom));
+        using var sub = sut.ApproveErrors.Subscribe(e => observed.TrySetResult(e));
+        sut.SetModel(new Model("B", 2));
+
+        sut.ApproveCommand.Execute(null); // fire-and-forget
+
+        var completed = await Task.WhenAny(observed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(observed.Task, "the persister failure must be observed on ApproveErrors");
+        (await observed.Task).Should().BeSameAs(boom, "the original persister exception is surfaced");
+        sut.IsDirty.Should().BeTrue("a failed persist must not advance the snapshot");
+    }
+
+    [Fact]
+    public void ApproveErrors_Completes_On_Dispose()
+    {
+        var completed = false;
+        var sut = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask);
+        using var sub = sut.ApproveErrors.Subscribe(_ => { }, () => completed = true);
+
+        sut.Dispose();
+
+        completed.Should().BeTrue("ApproveErrors completes on Dispose");
     }
 
     // ── Test double helpers ───────────────────────────────────────────────────

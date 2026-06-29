@@ -5,10 +5,25 @@ See spec/13-tree-utilities.md (UTIL-001..003).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
+from typing import Protocol, runtime_checkable
 
 from vmx.capabilities.expansion import IExpandable
 from vmx.components.base import _ComponentVMBase
+from vmx.components.protocols import ComponentVMProto
+
+
+@runtime_checkable
+class _AggregateComponents(Protocol):
+    """The typed accessor an aggregate VM exposes for tree traversal — its
+    component slots in declaration order.
+
+    VMX-137: walking via this method (instead of probing ``component_{i}`` name
+    strings bounded at ``range(1, 7)``) keeps ``walk``/``walk_expanded``/``find``
+    correct for any arity, including a future AggregateVM7+.
+    """
+
+    def components(self) -> Sequence[ComponentVMProto]: ...
 
 
 def walk(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
@@ -59,7 +74,10 @@ def _children(node: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
             # below, same as nodes with no iterator at all.
             pass
 
-    for i in range(1, 7):
-        slot = getattr(node, f"component_{i}", None)
-        if isinstance(slot, _ComponentVMBase):
-            yield slot
+    # Aggregates expose a typed ``components()`` accessor (VMX-137) — no
+    # per-arity ``component_{i}`` slot-name reflection, so AggregateVM7+ would be
+    # traversed automatically.
+    if isinstance(node, _AggregateComponents):
+        for slot in node.components():
+            if isinstance(slot, _ComponentVMBase):
+                yield slot

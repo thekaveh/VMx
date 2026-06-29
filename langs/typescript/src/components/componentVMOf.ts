@@ -78,6 +78,60 @@ export class ComponentVMOf<M> extends ComponentVMBase {
   static builder<M>(): ComponentVMOfBuilder<M> {
     return new ComponentVMOfBuilder<M>();
   }
+
+  /**
+   * Constructs a {@link ComponentVMOf} from an options object in a single call —
+   * an additive alternative to the fluent {@link ComponentVMOfBuilder}.
+   * Delegates to that builder, so the required-field validation
+   * ({@link BuilderValidationError} on a missing name/services) and the
+   * resulting VM are identical to the fluent path.
+   */
+  static create<M>(options: ComponentVMOfOptions<M>): ComponentVMOf<M> {
+    // Widen to Partial so the required-field guards remain meaningful for JS
+    // callers / casts that bypass the type; validation is delegated to build().
+    const o = options as Partial<ComponentVMOfOptions<M>>;
+    let b = new ComponentVMOfBuilder<M>().model(options.model);
+    if (o.name !== undefined) b = b.name(o.name);
+    if (o.hint !== undefined) b = b.hint(o.hint);
+    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.modeledHinter !== undefined) b = b.modeledHinter(o.modeledHinter);
+    if (o.onModelChanged !== undefined) b = b.onModelChanged(o.onModelChanged);
+    if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
+    if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
+    if (o.background !== undefined) b = b.background(o.background);
+    if (o.vmType !== undefined) b = b.vmType(o.vmType);
+    return b.build();
+  }
+}
+
+/**
+ * Options for the additive {@link ComponentVMOf.create} construction form
+ * (ADR-0055 / VMX-020). A one-call alternative to the fluent
+ * {@link ComponentVMOfBuilder}.
+ */
+export interface ComponentVMOfOptions<M> {
+  /** Required VM name. */
+  name: string;
+  /** Required message hub. */
+  hub: IMessageHub;
+  /** Required dispatcher. */
+  dispatcher: IDispatcher;
+  /** Required model value. */
+  model: M;
+  /** Optional hint (default: ""). */
+  hint?: string;
+  /** Optional modeled-hint projection (default: () => ""). */
+  modeledHinter?: (m: M) => string;
+  /** Optional OnModelChanged callback. */
+  onModelChanged?: (m: M) => void;
+  /** Optional OnConstruct lifecycle callback. */
+  onConstruct?: () => void;
+  /** Optional OnDestruct lifecycle callback. */
+  onDestruct?: () => void;
+  /** Optional background-construction flag (default: false). */
+  background?: boolean;
+  /** Optional VM type (default: ViewModelType.Component). */
+  vmType?: ViewModelType;
 }
 
 // ---------------------------------------------------------------------------

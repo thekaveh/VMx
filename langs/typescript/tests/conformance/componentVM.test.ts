@@ -169,3 +169,33 @@ describe("CVM-006", () => {
     expect(vm.selectCommand.canExecute()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// VMX-006 — post-dispose isCurrent change is a silent no-op
+// ---------------------------------------------------------------------------
+
+describe("VMX-006", () => {
+  it("setting isCurrent after dispose leaks no PropertyChangedMessage", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vm = ComponentVMOf.builder<string>()
+      .name("v")
+      .model("m")
+      .services(hub, disp)
+      .build();
+    vm.construct();
+    vm.dispose();
+
+    const propNames: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage) propNames.push(m.propertyName);
+    });
+
+    // Internal selection hook the parent normally drives.
+    vm._setIsCurrent(true);
+
+    // spec/02 invariant 3 — Disposed is terminal: no PropertyChangedMessage leaks.
+    expect(propNames).not.toContain("isCurrent");
+    expect(vm.isCurrent).toBe(false);
+  });
+});

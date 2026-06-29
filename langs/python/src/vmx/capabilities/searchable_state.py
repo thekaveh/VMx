@@ -75,7 +75,11 @@ class SearchableState(ISearchable, Generic[T]):
 
     @property
     def filtered(self) -> Observable[list[T]]:
-        return self._filtered_subject
+        # Sealed behind ``as_observable`` so subscribers can only subscribe —
+        # never ``on_next``/``dispose`` the internal BehaviorSubject (VMX-013).
+        # Replay of the current filtered value is preserved (a fresh subscriber
+        # still receives the latest snapshot on subscribe).
+        return self._filtered_subject.pipe(ops.as_observable())
 
     def can_search(self) -> bool:
         # next(iter(...), sentinel) materialises just one element instead of

@@ -5,14 +5,16 @@ See spec/21-collections.md §4 and ADR-0025.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Generic, TypeVar
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
-from vmx.collections.observable_list import ObservableList
+from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.messages.collection_changed import CollectionChangedMessage
+from vmx.services.message_hub import MessageHubProto
 
 TKey1 = TypeVar("TKey1")
 TKey2 = TypeVar("TKey2")
@@ -43,17 +45,25 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     See spec/21-collections.md §4 and ADR-0025.
     """
 
-    def __init__(self, hub: object = None) -> None:
-        # Optional hub — any object with a .send(message) method.
+    def __init__(
+        self, hub: MessageHubProto[CollectionChangedMessage[object]] | None = None
+    ) -> None:
+        # Optional hub — a MessageHub-compatible pub/sub sink.
         self._hub = hub
+        self._disposed: bool = False
 
         # Insertion-ordered backing: list for order, dict for O(1) lookup.
         self._key_order: list[tuple[TKey1, TKey2]] = []
         self._data: dict[tuple[TKey1, TKey2], TValue] = {}
 
-        # Distinct-key observable views.
+        # Distinct-key observable views (mutated internally to stay in lockstep
+        # with the entries). The public ``keys1``/``keys2`` hand out read-only
+        # facades so a caller cannot mutate them and desync the key axis
+        # (VMX-014).
         self._keys1: ObservableList[TKey1] = ObservableList()
         self._keys2: ObservableList[TKey2] = ObservableList()
+        self._keys1_view: ReadOnlyObservableList[TKey1] = ReadOnlyObservableList(self._keys1)
+        self._keys2_view: ReadOnlyObservableList[TKey2] = ReadOnlyObservableList(self._keys2)
 
         # Event subjects
         self._added_subject: Subject[tuple[TKey1, TKey2, TValue]] = Subject()
@@ -62,40 +72,51 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._reset_subject: Subject[None] = Subject()
 
     # ── Observable properties ─────────────────────────────────────────────────
+    # Each Subject is sealed behind ``as_observable`` so external subscribers can
+    # only subscribe — never ``on_next``/``dispose`` the internal stream
+    # (VMX-013).
 
     @property
     def on_item_added(self) -> rx.Observable[tuple[TKey1, TKey2, TValue]]:
         """Hot observable: emits ``(key1, key2, value)`` on every insert."""
-        return self._added_subject
+        return self._added_subject.pipe(ops.as_observable())
 
     @property
     def on_item_removed(self) -> rx.Observable[tuple[TKey1, TKey2, TValue]]:
         """Hot observable: emits ``(key1, key2, value)`` on every remove."""
-        return self._removed_subject
+        return self._removed_subject.pipe(ops.as_observable())
 
     @property
     def on_item_replaced(
         self,
     ) -> rx.Observable[tuple[TKey1, TKey2, TValue, TValue]]:
         """Hot observable: emits ``(key1, key2, new_value, old_value)`` on replace."""
-        return self._replaced_subject
+        return self._replaced_subject.pipe(ops.as_observable())
 
     @property
     def on_reset(self) -> rx.Observable[None]:
         """Hot observable: emits ``None`` on :meth:`clear`."""
-        return self._reset_subject
+        return self._reset_subject.pipe(ops.as_observable())
 
     # ── Distinct-key views ────────────────────────────────────────────────────
 
     @property
-    def keys1(self) -> ObservableList[TKey1]:
-        """Live observable view of distinct Key1 values, in insertion order."""
-        return self._keys1
+    def keys1(self) -> ReadOnlyObservableList[TKey1]:
+        """Read-only observable view of distinct Key1 values, in insertion order.
+
+        The view reflects the live key axis but exposes no mutators, so a caller
+        cannot desync it from the entries (VMX-014).
+        """
+        return self._keys1_view
 
     @property
-    def keys2(self) -> ObservableList[TKey2]:
-        """Live observable view of distinct Key2 values, in insertion order."""
-        return self._keys2
+    def keys2(self) -> ReadOnlyObservableList[TKey2]:
+        """Read-only observable view of distinct Key2 values, in insertion order.
+
+        The view reflects the live key axis but exposes no mutators, so a caller
+        cannot desync it from the entries (VMX-014).
+        """
+        return self._keys2_view
 
     # ── Count / containment ───────────────────────────────────────────────────
 
@@ -230,6 +251,27 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         """Iterate entries as ``(key1, key2, value)`` triples in insertion order."""
         return iter(self)
 
+    # ── Disposal ──────────────────────────────────────────────────────────────
+
+    def dispose(self) -> None:
+        """Complete and dispose every backing Subject (and the key views).
+
+        Idempotent (VMX-096).
+        """
+        if self._disposed:
+            return
+        self._disposed = True
+        for subject in (
+            self._added_subject,
+            self._removed_subject,
+            self._replaced_subject,
+            self._reset_subject,
+        ):
+            subject.on_completed()
+            subject.dispose()
+        self._keys1.dispose()
+        self._keys2.dispose()
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _internal_add(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
@@ -254,8 +296,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def _publish_to_hub(self, msg: CollectionChangedMessage[object]) -> None:
         """Send *msg* to the hub if one is wired (no-op otherwise)."""
         if self._hub is not None:
-            hub_send: Callable[[CollectionChangedMessage[object]], None] = self._hub.send  # type: ignore[attr-defined]
-            hub_send(msg)
+            self._hub.send(msg)
 
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         # 1. Local granular event first.

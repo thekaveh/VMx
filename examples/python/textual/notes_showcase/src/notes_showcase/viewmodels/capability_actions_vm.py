@@ -30,6 +30,7 @@ from vmx import (
     ISelectable,
     ISelectionTogglable,
     MessageHub,
+    MessageHubProto,
     RelayCommand,
     RxDispatcher,
     from_sources,
@@ -49,7 +50,7 @@ class CapabilityActionsVM(ComponentVM):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         focused_getter: Callable[[], object | None],
         add_note_action: Callable[[], None] | None = None,
@@ -81,7 +82,7 @@ class CapabilityActionsVM(ComponentVM):
 
     # ── Public surface ─────────────────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         return self._hub
 
     @property
@@ -270,7 +271,7 @@ class CapabilityActionsVMBuilder:
 
     _name: str | None = None
     _hint: str = ""
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _focused_getter: Callable[[], object | None] | None = None
     _add_note_action: Callable[[], None] | None = None
@@ -283,7 +284,7 @@ class CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

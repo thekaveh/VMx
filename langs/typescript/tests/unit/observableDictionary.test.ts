@@ -391,7 +391,7 @@ describe("ObservableDictionary hub injection", () => {
 
     expect(received).toHaveLength(1);
     expect(received[0]?.action).toBe("add");
-    expect(received[0]?.senderObject).toBe(sut);
+    expect(received[0]?.sender).toBe(sut);
   });
 
   it("publishes replace message on set (existing key)", () => {

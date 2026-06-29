@@ -7,6 +7,30 @@
 //
 import Foundation
 
+/// Default `modelEquals` predicate for **non-`Equatable`** models.
+///
+/// HUB-005 requires that setting `model` to a value equal to the current one
+/// publishes nothing. `Equatable` models get structural `==` (via the
+/// constrained `init` / `build()` overloads). A non-`Equatable` model can't be
+/// compared structurally, but if it is a **reference type (class)** we can
+/// still suppress the redundant publish when the new model is the *same
+/// instance* — matching the reference-identity suppression the C# / Python / TS
+/// flavors apply. Non-`Equatable` **value** models (a `struct`/`enum` without
+/// an `Equatable` conformance) fall through to "changed" so every set still
+/// publishes — pass an explicit `.modelEquals(_:)` for structural suppression.
+///
+/// `@usableFromInline` so the public `ComponentVMOf.init` can name it as a
+/// default-argument value (default args are emitted into the caller's module).
+@usableFromInline
+func _defaultModelEquals<Model>(_ lhs: Model, _ rhs: Model) -> Bool {
+    // Only apply reference identity for actual class instances. A value type
+    // would bridge to a freshly-boxed `AnyObject` here (or, for `Int` & friends,
+    // to a tagged `NSNumber`), so gating on `is AnyClass` keeps value-model
+    // behaviour unchanged — they report "not equal" and publish as before.
+    guard type(of: lhs) is AnyClass else { return false }
+    return (lhs as AnyObject) === (rhs as AnyObject)
+}
+
 open class ComponentVMOf<Model>: ComponentVMBase {
     private var _model: Model
     private let modeledHinter: (Model) -> String
@@ -19,7 +43,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         hint: String = "",
         initialModel: Model,
         modeledHinter: @escaping (Model) -> String = { _ in "" },
-        modelEquals: @escaping (Model, Model) -> Bool = { _, _ in false },
+        modelEquals: @escaping (Model, Model) -> Bool = { _defaultModelEquals($0, $1) },
         onModelChanged: ((Model) -> Void)? = nil,
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
@@ -56,9 +80,12 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     /// gate writes while still using the same machinery.
     func _setModel(_ value: Model) {
         if modelEquals(_model, value) { return }
-        // spec/02 invariant 3: a disposed VM publishes nothing further.
-        guard status != .disposed else { return }
         _model = value
+        // spec/02 invariant 3: a disposed VM publishes nothing further. The
+        // model *field* is still updated above (so the getter reflects the
+        // latest value — parity with C#, whose field write is unconditional);
+        // only the hub send / property-changed raise / callback side is gated.
+        guard status != .disposed else { return }
 
         hub.send(PropertyChangedMessage(
             sender: self, senderName: name, propertyName: "model"

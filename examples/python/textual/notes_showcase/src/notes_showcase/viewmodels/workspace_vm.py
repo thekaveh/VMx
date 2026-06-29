@@ -27,9 +27,9 @@ from vmx import (
     AggregateVM6,
     ConstructionStatus,
     MessageHub,
-    PropertyChangedMessage,
     RelayCommand,
     RxDispatcher,
+    when_property_changed,
 )
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub, NotificationHub
@@ -47,6 +47,7 @@ from notes_showcase.viewmodels.notebooks_root_vm import NotebooksRootVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
 from notes_showcase.viewmodels.notifications_vm import NotificationsVM
 from notes_showcase.viewmodels.status_bar_vm import StatusBarVM
+from notes_showcase.viewmodels.theme_vm import ThemeVM
 
 
 class WorkspaceVM:
@@ -164,6 +165,16 @@ class WorkspaceVM:
             factory6=lambda: capability_actions,
         )
 
+        # VMX-129: the theme seam is a workspace-owned sibling of the six
+        # aggregate children. Composing it as a seventh aggregate child would
+        # require an AggregateVM7 in core (declined in ADR-0058); instead it is
+        # held directly and lifecycle-driven alongside the aggregate. It shares
+        # the workspace hub + dispatcher so its ThemeChangedMessage rides the
+        # same bus, and ``views.app`` binds the Textual ``theme_adapter`` to it.
+        self._theme: ThemeVM = (
+            ThemeVM.builder().name("theme").services(hub, dispatcher).build()
+        )
+
         # Round-3 Critical-2: rebind note_form whenever notes_view.current
         # changes (e.g. user clicks a different note in the list). Without
         # this the right-pane editor stays empty in the running app. Mirror
@@ -182,19 +193,10 @@ class WorkspaceVM:
         # thread so this is defensive, but matches the foreground-marshal
         # contract documented in the THR-001 conformance test.
         #
-        # Round-5 Important (Agent A): filter FIRST, then observe_on. The
-        # previous order (``observe_on`` then a predicate inside the
-        # subscribe closure) hopped EVERY hub message to the foreground
-        # scheduler before discarding most. Parity with C# WorkspaceVM
-        # (`.Where(...).ObserveOn(...)`) and TS workspaceVM
-        # (`pipe(filter(...), observeOn(...))`).
-        def _is_current_change(m: Message) -> bool:
-            return (
-                isinstance(m, PropertyChangedMessage)
-                and m.sender is notes_view
-                and m.property_name == "current"
-            )
-
+        # VMX-017: the typed ``when_property_changed`` hub helper replaces the
+        # hand-rolled ``filter(isinstance + sender is + property_name)`` filter
+        # (still filtering FIRST, then ``observe_on`` so only matching messages
+        # hop to the foreground scheduler).
         def _on_notes_view_msg(_m: Message) -> None:
             current = notes_view.current
             if current is not None:
@@ -202,22 +204,18 @@ class WorkspaceVM:
             else:
                 note_form.unbind()
 
-        self._current_note_subscription: DisposableBase = notes_view.hub.messages.pipe(
-            ops.filter(_is_current_change),
-            ops.observe_on(dispatcher.foreground),
-        ).subscribe(on_next=_on_notes_view_msg)
+        self._current_note_subscription: DisposableBase = (
+            when_property_changed(notes_view.hub, notes_view, "current")
+            .pipe(
+                ops.observe_on(dispatcher.foreground),
+            )
+            .subscribe(on_next=_on_notes_view_msg)
+        )
 
         # Pass-5 real-wiring audit: the tree view sets notebooks.current on
         # node selection, but nothing re-bound the notes view — the centre
         # pane stayed on the first notebook forever. Mirror the
         # construct_async wiring on every notebook-selection change.
-        def _is_notebook_change(m: Message) -> bool:
-            return (
-                isinstance(m, PropertyChangedMessage)
-                and m.sender is notebooks
-                and m.property_name == "current"
-            )
-
         def _on_notebook_msg(_m: Message) -> None:
             nb = notebooks.current
             if nb is None:
@@ -226,10 +224,13 @@ class WorkspaceVM:
             notes_view.current_notebook_is_readonly = nb.model.is_readonly
             self._fire_bind_notes(nb.model.id)
 
-        self._notebook_subscription: DisposableBase = notebooks.hub.messages.pipe(
-            ops.filter(_is_notebook_change),
-            ops.observe_on(dispatcher.foreground),
-        ).subscribe(on_next=_on_notebook_msg)
+        self._notebook_subscription: DisposableBase = (
+            when_property_changed(notebooks.hub, notebooks, "current")
+            .pipe(
+                ops.observe_on(dispatcher.foreground),
+            )
+            .subscribe(on_next=_on_notebook_msg)
+        )
 
         # Pass-5 real-wiring audit: refresh the saved note's list row (title /
         # star marker were construction-time snapshots and went stale after
@@ -307,6 +308,13 @@ class WorkspaceVM:
         return self._agg.component_6
 
     @property
+    def theme(self) -> ThemeVM:
+        """Theme seam (THEME-001..005). Workspace-owned, not an aggregate
+        child — ``views.app`` binds the Textual ``theme_adapter`` to it so the
+        scenario is exercised in the running app (VMX-129)."""
+        return self._theme
+
+    @property
     def dialog_service(self) -> IDialogService:
         """Currently-bound :class:`IDialogService` (may be late-swapped)."""
         return self._dialog_service
@@ -350,10 +358,12 @@ class WorkspaceVM:
     def construct(self) -> None:
         """Synchronous construct cascade (per ADR-0034)."""
         self._agg.construct()
+        self._theme.construct()
 
     async def construct_async(self) -> None:
         """Async construct: build aggregate, populate notebooks, bind notes view."""
         self._agg.construct()
+        self._theme.construct()
         await self.notebooks_root.populate()
         first = next(iter(self.notebooks_root.roots), None)
         if first is not None:
@@ -371,6 +381,7 @@ class WorkspaceVM:
             self.set_focus(first)
 
     def destruct(self) -> None:
+        self._theme.destruct()
         self._agg.destruct()
 
     def dispose(self) -> None:
@@ -380,6 +391,7 @@ class WorkspaceVM:
         self._new_notebook_command.dispose()
         self._new_note_command.dispose()
         self._export_command.dispose()
+        self._theme.dispose()
         self._agg.dispose()
 
     # ── Command fire-and-forget wrappers ───────────────────────────────────

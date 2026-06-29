@@ -40,10 +40,6 @@ export default [
       // Arrow shorthands like `.task(() => this.select())` are intentional void
       // returns, not accidental promise-returning confusion.
       "@typescript-eslint/no-confusing-void-expression": "off",
-      // The SENTINEL + copy-constructor builder pattern produces return sites
-      // the checker cannot flow-narrow through #private fields. Suppress rather
-      // than pepper the source with casts.
-      "@typescript-eslint/no-unsafe-return": "off",
     },
   },
   // ── Test files (relaxed) ─────────────────────────────────────────────────

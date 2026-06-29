@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM1..VMN' type parameter names per spec/08-aggregate-vm.md §2
 using VMx.Components;
 
 namespace VMx.Aggregates;
@@ -20,4 +19,3 @@ public interface IAggregateVM2<out VM1, out VM2> : IComponentVM
     /// <summary>The second component VM. Populated after construct(); null before.</summary>
     VM2? Component2 { get; }
 }
-#pragma warning restore CA1715

@@ -11,6 +11,7 @@ import pytest
 
 from vmx.hierarchical import HierarchicalVM
 from vmx.messages import TreeStructureChangedMessage
+from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
 
@@ -29,7 +30,8 @@ class _Node(HierarchicalVM[_Model, "_Node"]):
         super().__init__(
             model=_Model(),
             children_factory=children_factory if children_factory is not None else (lambda _: []),
-            hub=hub,
+            hub=hub if hub is not None else MessageHub(),
+            dispatcher=RxDispatcher.immediate(),
             name=name,
         )
 

@@ -38,8 +38,4 @@ export class TreeStructureChangedMessage<TSource, TAffected>
     this.affected = affected;
     this.index = index;
   }
-
-  get senderObject(): object {
-    return this.sender as object;
-  }
 }

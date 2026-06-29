@@ -12,12 +12,13 @@ spec/12-conformance.md.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Generic, TypeVar, cast
+from typing import Any, Generic, TypeVar, cast
 
 import reactivex as rx
 
 from vmx.commands.relay_command import RelayCommand
 from vmx.components.protocols import ViewModelType
+from vmx.composites.composite_vm import _CompositeVMBase
 from vmx.composites.protocols import CompositeVMProto
 from vmx.lifecycle.status import ConstructionStatus
 
@@ -37,7 +38,13 @@ class ForwardingCompositeVM(Generic[VM]):
     def __init__(self, wrapped: CompositeVMProto[VM]) -> None:
         if wrapped is None:
             raise ValueError("wrapped must not be None")
-        self._wrapped: CompositeVMProto[VM] = wrapped
+        # The public contract accepts any ``CompositeVMProto``, but forwarding
+        # the full MutableSequence surface (add/insert/remove_at/index/…) needs
+        # the concrete composite members. Every shipped composite is a
+        # ``_CompositeVMBase``; narrow once here (``Any`` element type — the
+        # wrapper's own ``VM`` is unbounded) so the per-call ``type: ignore``
+        # masks are unnecessary (VMX-074).
+        self._wrapped: _CompositeVMBase[Any] = cast("_CompositeVMBase[Any]", wrapped)
 
     # ── Identity ─────────────────────────────────────────────────────────────
 
@@ -167,23 +174,20 @@ class ForwardingCompositeVM(Generic[VM]):
         return self._wrapped.count
 
     # ── CompositeVM: collection query ─────────────────────────────────────────
-    # CompositeVMProto is a structural Protocol that intentionally omits the full
-    # MutableSequence surface (__iter__, __getitem__, __contains__, index_of, plus
-    # the mutation methods below) because concrete CompositeVM / GroupVM implement
-    # them but they are not part of the Protocol contract every wrapper must declare.
-    # The type: ignore tags below acknowledge the gap mypy reports on Protocol calls.
+    # ``_wrapped`` is narrowed to the concrete ``_CompositeVMBase`` in __init__,
+    # so the full MutableSequence surface is statically available here (VMX-074).
 
     def __iter__(self) -> Iterator[VM]:
-        return cast(Iterator[VM], iter(self._wrapped))  # type: ignore[call-overload]
+        return iter(self._wrapped)
 
     def __getitem__(self, index: int) -> VM:
-        return cast(VM, self._wrapped[index])  # type: ignore[index]
+        return cast(VM, self._wrapped[index])
 
     def __setitem__(self, index: int, value: VM) -> None:
-        self._wrapped[index] = value  # type: ignore[index]
+        self._wrapped[index] = value
 
     def __contains__(self, item: object) -> bool:
-        return bool(item in self._wrapped)  # type: ignore[operator]
+        return item in self._wrapped
 
     def index_of(self, item: VM) -> int:
         # CompositeVM exposes the standard MutableSequence `index()` which
@@ -191,24 +195,23 @@ class ForwardingCompositeVM(Generic[VM]):
         # IndexOf` semantics (and GroupVM's own `index_of`). The `index_of`
         # name on the wrapper matches the spec-canonical surface (chapter 06).
         try:
-            return int(self._wrapped.index(item))  # type: ignore[attr-defined]
+            return self._wrapped.index(item)
         except ValueError:
             return -1
 
     # ── CompositeVM: collection mutation ──────────────────────────────────────
-    # Same Protocol-gap reasoning as above for the mutation surface.
 
     def add(self, item: VM) -> None:
-        self._wrapped.add(item)  # type: ignore[attr-defined]
+        self._wrapped.add(item)
 
     def remove(self, item: VM) -> bool:
-        return bool(self._wrapped.remove(item))  # type: ignore[attr-defined]
+        return self._wrapped.remove(item)
 
     def insert(self, index: int, item: VM) -> None:
-        self._wrapped.insert(index, item)  # type: ignore[attr-defined]
+        self._wrapped.insert(index, item)
 
     def remove_at(self, index: int) -> None:
-        self._wrapped.remove_at(index)  # type: ignore[attr-defined]
+        self._wrapped.remove_at(index)
 
     def clear(self) -> None:
-        self._wrapped.clear()  # type: ignore[attr-defined]
+        self._wrapped.clear()

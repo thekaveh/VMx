@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Subject } from "rxjs";
-import { RelayCommand, RelayCommandOf } from "../../src/index.js";
+import {
+  AsyncRelayCommand,
+  RelayCommand,
+  RelayCommandOf,
+} from "../../src/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -130,5 +134,82 @@ describe("CMD-007", () => {
       expect(taskInvoked.count > 0, `${row.id} execute_invokes_task`).toBe(row.execute_invokes_task);
       expect(canExecuteChanged.count > 0, `${row.id} can_execute_changed_fires`).toBe(row.can_execute_changed_fires);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CMD-012 — async command cancellation (spec/04-commands.md §11, ADR-0056)
+// ---------------------------------------------------------------------------
+
+describe("CMD-012", () => {
+  it("cancel() cancels an in-flight async task; returns to non-executing; no throw by default", async () => {
+    let observedAbort = false;
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => {
+      startedResolve = r;
+    });
+
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener(
+              "abort",
+              () => {
+                observedAbort = true;
+                reject(signal.reason as Error);
+              },
+              { once: true },
+            );
+          }),
+      )
+      .build();
+
+    expect(cmd.canExecute()).toBe(true);
+
+    const run = cmd.executeAsync();
+    await started; // the task is now in flight
+
+    expect(cmd.isExecuting).toBe(true);
+    expect(cmd.canExecute()).toBe(false); // an in-flight async command is not re-executable
+
+    cmd.cancel();
+    await expect(run).resolves.toBeUndefined(); // MUST NOT reject by default
+
+    expect(observedAbort).toBe(true);
+    expect(cmd.isExecuting).toBe(false); // returns to a non-executing state
+    expect(cmd.canExecute()).toBe(true); // canExecute reflects the cleared in-flight state
+    cmd.dispose();
+  });
+
+  it("throwOnCancel() surfaces the cancellation to the awaiter", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => {
+      startedResolve = r;
+    });
+
+    const cmd = AsyncRelayCommand.builder()
+      .throwOnCancel()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener(
+              "abort",
+              () => reject(signal.reason as Error),
+              { once: true },
+            );
+          }),
+      )
+      .build();
+
+    const run = cmd.executeAsync();
+    await started;
+    cmd.cancel();
+
+    await expect(run).rejects.toBeDefined();
+    expect(cmd.isExecuting).toBe(false);
+    cmd.dispose();
   });
 });

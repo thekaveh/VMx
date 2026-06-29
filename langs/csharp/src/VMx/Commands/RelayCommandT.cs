@@ -10,7 +10,10 @@ namespace VMx.Commands;
 /// receive a typed parameter.
 ///
 /// Spec: spec/04-commands.md (same rules as <see cref="RelayCommand"/>, parameterized by T).
-/// - Predicate null → CanExecute returns true unconditionally.
+/// - Parameter not assignable to T (including a <see langword="null"/> for a value-type
+///   or non-nullable reference T) → CanExecute returns false and Execute is a no-op.
+///   The command never fabricates a <c>default(T)</c> to hand to the user's delegate.
+/// - Predicate null → CanExecute returns true for any T-typed parameter.
 /// - Task null → Execute is a no-op (no exception raised).
 /// - Execute is GATED on CanExecute: if CanExecute(parameter) returns false, Execute
 ///   returns immediately without invoking the task.
@@ -39,38 +42,36 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     public event EventHandler? CanExecuteChanged;
 
     /// <summary>
-    /// Returns true if no predicate is configured; otherwise evaluates the predicate with
-    /// the parameter. If the predicate throws, returns false (defensive).
-    /// Non-T parameters are coerced to default(T) rather than thrown away.
+    /// Returns false when <paramref name="parameter"/> is not a T (a non-T command
+    /// cannot act on a foreign parameter). Otherwise returns true when no predicate
+    /// is configured, or the predicate result for the typed parameter. A predicate
+    /// that throws is treated as false (defensive).
     /// </summary>
     public bool CanExecute(object? parameter)
     {
+        if (parameter is not T typed) return false;
         if (_predicate is null) return true;
-        T typed = parameter is T t ? t : default!;
         try { return _predicate(typed); }
         catch { return false; }
     }
 
     /// <summary>
     /// Invokes the configured task with the typed parameter if (and only if) CanExecute
-    /// returns true. If no task was configured, Execute is a no-op.
+    /// returns true. If <paramref name="parameter"/> is not a T, or no task was configured,
+    /// Execute is a no-op.
     /// </summary>
     public void Execute(object? parameter)
     {
+        if (parameter is not T typed) return;
         if (!CanExecute(parameter)) return;
-        if (_task is null) return;
-        T typed = parameter is T t ? t : default!;
-        _task(typed);
+        _task?.Invoke(typed);
     }
 
     /// <summary>Disposes all trigger subscriptions.</summary>
     public void Dispose() => _triggerSubscriptions.Dispose();
 
     /// <summary>Returns a new immutable builder for <see cref="RelayCommand{T}"/>.</summary>
-    // CA1000 suppressed: spec/04-commands.md requires RelayCommand<T>.Builder() as the public API entry point.
-#pragma warning disable CA1000
     public static ICommandBuilder<T> Builder() => new BuilderImpl();
-#pragma warning restore CA1000
 
     // -----------------------------------------------------------------------
     // Immutable nested record builder (BLD-001).

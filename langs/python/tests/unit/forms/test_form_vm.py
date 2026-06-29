@@ -29,6 +29,22 @@ async def _noop(m: Model) -> None:
     pass
 
 
+# A model with a NESTED mutable object, for default-snapshot deep-copy tests.
+@dataclasses.dataclass
+class Inner:
+    tag: str
+
+
+@dataclasses.dataclass
+class Nested:
+    label: str
+    inner: Inner
+
+
+async def _noop_nested(m: Nested) -> None:
+    pass
+
+
 def _make(initial: Model | None = None) -> FormVM[Model]:
     return FormVM(initial or Model("A", 1), _noop)
 
@@ -57,6 +73,47 @@ def test_snapshot_is_value_equal_to_initial() -> None:
     initial = Model("Alice", 1)
     sut = _make(initial)
     assert sut.snapshot == initial
+
+
+def test_default_snapshot_is_deep_so_nested_mutation_is_dirty() -> None:
+    """A mutation to a NESTED object must make the form dirty (VMX-010).
+
+    The default snapshotter must deep-copy so the snapshot does not share the
+    nested object with the live model; otherwise an in-place mutation of the
+    nested object is invisible to ``is_dirty`` (was falsely clean).
+    """
+    sut: FormVM[Nested] = FormVM(Nested("L", Inner("X")), _noop_nested)
+    assert sut.is_dirty is False
+
+    sut.model.inner.tag = "Y"  # mutate nested object in place
+
+    assert sut.is_dirty is True
+
+
+def test_default_snapshot_deny_restores_nested_mutation() -> None:
+    """``deny``/revert must restore a nested object to its snapshot value (VMX-010)."""
+    sut: FormVM[Nested] = FormVM(Nested("L", Inner("X")), _noop_nested)
+    sut.model.inner.tag = "Y"
+
+    sut.deny_command.execute()
+
+    assert sut.model.inner.tag == "X", "nested object restored on deny"
+    assert sut.is_dirty is False
+
+
+def test_injected_snapshotter_overrides_deep_default() -> None:
+    """The injectable snapshotter hook still overrides the deep default."""
+    calls: list[Nested] = []
+
+    def snapshotter(m: Nested) -> Nested:
+        calls.append(m)
+        return Nested(m.label, Inner(m.inner.tag))
+
+    sut: FormVM[Nested] = FormVM(Nested("L", Inner("X")), _noop_nested, snapshotter=snapshotter)
+    assert len(calls) == 1, "injected snapshotter used at construction, not deepcopy"
+
+    sut.model.inner.tag = "Y"
+    assert sut.is_dirty is True
 
 
 def test_custom_snapshotter_applied_at_construction() -> None:
@@ -309,3 +366,45 @@ async def test_dispose_during_inflight_approve_does_not_raise() -> None:
     sut.dispose()
     gate.set_result(None)
     await task  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Approve error channel (VMX-008)
+#
+# The approve COMMAND is fire-and-forget, so a persister failure cannot
+# propagate to the caller. Previously the task exception was retrieved and
+# discarded (swallowed). It must now be surfaced on ``approve_errors``.
+# ---------------------------------------------------------------------------
+
+
+async def test_approve_command_surfaces_persister_error_on_channel() -> None:
+    import asyncio
+
+    boom = RuntimeError("persist failed")
+
+    async def persister(m: Model) -> None:
+        raise boom
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    errors: list[BaseException] = []
+    sub = sut.approve_errors.subscribe(errors.append)
+    sut.set_model(Model("B", 2))
+
+    sut.approve_command.execute()  # fire-and-forget
+    for _ in range(5):
+        await asyncio.sleep(0)  # let the scheduled task + done-callback run
+        if errors:
+            break
+
+    assert errors == [boom], "persister error observed on approve_errors, not swallowed"
+    assert sut.is_dirty is True, "a failed persist must not advance the snapshot"
+    sub.dispose()
+
+
+def test_approve_errors_completes_on_dispose() -> None:
+    completed: list[bool] = []
+    sut = _make()
+    sut.approve_errors.subscribe(on_completed=lambda: completed.append(True))
+
+    sut.dispose()
+    assert len(completed) == 1, "approve_errors observable completes on dispose"

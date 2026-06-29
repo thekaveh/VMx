@@ -5,8 +5,14 @@
 // COMP-005, COMP-025 (`current(selector)` builder hook), COMP-026
 // (`onCurrentChanged(callback)` builder hook). COMP-001/002
 // (CollectionChanged), COMP-006/010 (foreground dispatch), COMP-007
-// (modeled composite), COMP-008, and COMP-009 (raises — a trap in
-// this flavor, ADR-0037) are NOT claimed.
+// (modeled composite), COMP-008 are NOT claimed. COMP-009 (non-child
+// `current` assignment raises) is now a *catchable throw* via
+// `setCurrent(_:)`/`canSetCurrent(_:)` (VMX-026 / ADR-0053); the
+// `current` property setter still traps because Swift setters cannot
+// throw.
+//
+// NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
+// module); this target is CI-verified only (`swift.yml` on macos-latest).
 //
 import XCTest
 @testable import VMx
@@ -39,49 +45,49 @@ final class CompositeVMTests: XCTestCase {
     }
 
     /// COMP-004 — construct cascades to (waits on) children.
-    func testComp004ConstructCascades() {
+    func testComp004ConstructCascades() throws {
         let a = leaf("a"); let b = leaf("b")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices()
             .children { [a, b] }
             .build()
-        c.construct()
+        try c.construct()
         XCTAssertEqual(a.status, .constructed)
         XCTAssertEqual(b.status, .constructed)
     }
 
     /// COMP-005 — destruct cascades to (waits on) children, clears `current`,
     /// and the composite itself reaches `.destructed`.
-    func testComp005DestructCascades() {
+    func testComp005DestructCascades() throws {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
-        c.construct()
+        try c.construct()
         c.current = a
         XCTAssertTrue(c.current === a)
-        c.destruct()
+        try c.destruct()
         XCTAssertEqual(a.status, .destructed)
         XCTAssertNil(c.current)                 // current cleared on destruct
         XCTAssertEqual(c.status, .destructed)   // composite itself destructed
     }
 
     /// Setting `current` to a child member updates the slot.
-    func testCurrentSet() {
+    func testCurrentSet() throws {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
-        c.construct()
+        try c.construct()
         c.current = a
         XCTAssertTrue(c.current === a)
         XCTAssertTrue(a.isCurrent)
     }
 
     /// Removing the current child drops the current slot.
-    func testRemoveCurrentDropsSlot() {
+    func testRemoveCurrentDropsSlot() throws {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
-        c.construct()
+        try c.construct()
         c.current = a
         XCTAssertTrue(c.remove(a))
         XCTAssertNil(c.current)
@@ -89,44 +95,44 @@ final class CompositeVMTests: XCTestCase {
 
     /// Clear-like behaviour via repeated remove drops all children.
     /// (Full `clear()` lands in a follow-up.)
-    func testRemoveAllChildren() {
+    func testRemoveAllChildren() throws {
         let a = leaf("a"); let b = leaf("b")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a, b] }.build()
-        c.construct()
+        try c.construct()
         _ = c.remove(a); _ = c.remove(b)
         XCTAssertEqual(c.count, 0)
     }
 
     /// Dispose cascades to children (canonical assertion is LIFE-013 in
     /// the lifecycle suite; this covers the composite path explicitly).
-    func testDisposeCascade() {
+    func testDisposeCascade() throws {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
-        c.construct()
+        try c.construct()
         c.dispose()
         XCTAssertEqual(a.status, .disposed)
         XCTAssertEqual(c.status, .disposed)
     }
 
     /// Child's `_parent` is wired on add — observed via `canSelect()`.
-    func testChildParentWiredOnAdd() {
+    func testChildParentWiredOnAdd() throws {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [] }.build()
         c.add(a)
-        a.construct()
+        try a.construct()
         XCTAssertTrue(a.canSelect())
     }
 
     /// COMP-003 — selecting through the child (`select()` delegates to the
     /// parent's select-child path) sets the parent's `current` slot.
-    func testComp003SelectThroughChildSetsCurrent() {
+    func testComp003SelectThroughChildSetsCurrent() throws {
         let a = leaf("a")
         let c = try! CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [a] }.build()
-        c.construct()
+        try c.construct()
         a.select()
         XCTAssertTrue(c.current === a)
         XCTAssertTrue(a.isCurrent)   // child's own isCurrent flag flips
@@ -142,7 +148,7 @@ final class CompositeVMTests: XCTestCase {
             .children { [a, b, cChild] }
             .current { children in Array(children)[1] }
             .build()
-        composite.construct()
+        try composite.construct()
 
         XCTAssertTrue(composite.current === b)
     }
@@ -155,7 +161,7 @@ final class CompositeVMTests: XCTestCase {
             .children { [a] }
             .current { _ in nil }
             .build()
-        composite.construct()
+        try composite.construct()
 
         XCTAssertNil(composite.current)
     }
@@ -172,7 +178,7 @@ final class CompositeVMTests: XCTestCase {
             .children { [a, b] }
             .onCurrentChanged { vm in observed.append(vm) }
             .build()
-        composite.construct()
+        try composite.construct()
         composite.selectChild(b)
         composite.deselectChild(b)
 
@@ -192,7 +198,7 @@ final class CompositeVMTests: XCTestCase {
             .current { children in Array(children).first }
             .onCurrentChanged { vm in observed.append(vm) }
             .build()
-        composite.construct()
+        try composite.construct()
 
         XCTAssertEqual(observed.count, 1)
         XCTAssertTrue(observed[0] === a)
@@ -210,7 +216,7 @@ final class CompositeVMTests: XCTestCase {
             .current { _ in nil }
             .onCurrentChanged { vm in observed.append(vm) }
             .build()
-        c1.construct()
+        try c1.construct()
         XCTAssertTrue(observed.isEmpty)
 
         // Case 2: selector returns out-of-set.
@@ -222,7 +228,7 @@ final class CompositeVMTests: XCTestCase {
             .current { _ in foreign }
             .onCurrentChanged { vm in observed.append(vm) }
             .build()
-        c2.construct()
+        try c2.construct()
         XCTAssertTrue(observed.isEmpty)
     }
 
@@ -238,7 +244,7 @@ final class CompositeVMTests: XCTestCase {
             .children { [a, b, cChild] }
             .current { children in Array(children)[1] }
             .build()
-        composite.construct()
+        try composite.construct()
 
         XCTAssertTrue(composite.current === b)
     }
@@ -263,12 +269,88 @@ final class CompositeVMTests: XCTestCase {
             .children { [a, b] }
             .onCurrentChanged { vm in observed.append(vm) }
             .build()
-        composite.construct()
+        try composite.construct()
         composite.selectChild(b)
         composite.deselectChild(b)
 
         XCTAssertEqual(observed.count, 2)
         XCTAssertTrue(observed[0] === b)
         XCTAssertNil(observed[1])
+    }
+
+    /// VMX-098 — `selectChild` gates on Constructed, mirroring C#
+    /// `CanSelectComponent` (`member && status == .constructed`). Selecting a
+    /// member that is not yet constructed is a no-op (Swift keeps the no-op
+    /// rather than the C# throw — trap-vs-throw is tracked separately,
+    /// ADR-0037); once constructed, the same call selects it.
+    func testSelectChildGatesOnConstructed() throws {
+        let a = leaf("a")
+        let c = try! CompositeVM<ComponentVM>.builder()
+            .name("c").withNullServices().children { [] }.build()
+        c.add(a)                       // member, but still .destructed
+
+        c.selectChild(a)
+        XCTAssertNil(c.current, "a non-constructed child must not be selectable")
+
+        try a.construct()
+        c.selectChild(a)
+        XCTAssertTrue(c.current === a, "a constructed member is selectable")
+        XCTAssertTrue(a.isCurrent)
+    }
+
+    // ── VMX-026 / ADR-0053 — throwing `setCurrent(_:)` + `canSetCurrent(_:)` ──
+
+    /// VMX-026 — `setCurrent(_:)` throws a catchable `CompositeMembershipError`
+    /// on a non-child (was a `preconditionFailure` trap with no predicate). This
+    /// is the Swift convergence to the C#/Python/TypeScript catchable throw on a
+    /// non-child `Current` assignment (spec/06 §3.1, COMP-009).
+    func testVMX026SetCurrentThrowsOnNonChild() throws {
+        let a = leaf("a")
+        let foreign = leaf("foreign")
+        let c = try CompositeVM<ComponentVM>.builder()
+            .name("c").withNullServices().children { [a] }.build()
+        try c.construct()
+
+        XCTAssertThrowsError(try c.setCurrent(foreign)) { error in
+            guard let e = error as? CompositeMembershipError else {
+                return XCTFail("expected CompositeMembershipError, got \(error)")
+            }
+            XCTAssertEqual(e.memberName, "foreign")
+            XCTAssertEqual(e.compositeName, "c")
+            XCTAssertTrue(e.description.contains("foreign"))
+        }
+        XCTAssertNil(c.current, "a failed setCurrent must not change the slot")
+    }
+
+    /// VMX-026 — `canSetCurrent(_:)` is the pre-flight predicate: true for a
+    /// member or `nil`, false for a non-child.
+    func testVMX026CanSetCurrentPredicate() throws {
+        let a = leaf("a")
+        let foreign = leaf("foreign")
+        let c = try CompositeVM<ComponentVM>.builder()
+            .name("c").withNullServices().children { [a] }.build()
+        try c.construct()
+
+        XCTAssertTrue(c.canSetCurrent(a))
+        XCTAssertTrue(c.canSetCurrent(nil))
+        XCTAssertFalse(c.canSetCurrent(foreign))
+    }
+
+    /// VMX-026 — `setCurrent(_:)` accepts a member (selecting it) and `nil`
+    /// (clearing it), behaving exactly like the property setter for the valid
+    /// cases.
+    func testVMX026SetCurrentAcceptsMemberAndNil() throws {
+        let a = leaf("a")
+        let c = try CompositeVM<ComponentVM>.builder()
+            .name("c").withNullServices().children { [a] }.build()
+        try c.construct()
+
+        try c.setCurrent(a)
+        XCTAssertTrue(c.current === a)
+        XCTAssertTrue(a.isCurrent)
+
+        try c.setCurrent(nil)
+        XCTAssertNil(c.current)
+        XCTAssertFalse(a.isCurrent)
     }
 }

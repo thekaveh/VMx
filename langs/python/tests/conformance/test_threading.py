@@ -104,11 +104,20 @@ def test_THR_002_background_construct_dispatches_on_background_scheduler() -> No
         "are scheduled on the background scheduler — only Constructing is emitted synchronously"
     )
 
-    # Advance the background scheduler so the scheduled work runs.
+    # Advance the background scheduler so _on_construct runs; the terminal
+    # Constructed emission is then marshalled onto the foreground scheduler
+    # (VMX-025), so the VM is still mid-transition here.
     dispatcher.background_scheduler.advance_by(1)
 
+    assert vm.status == ConstructionStatus.CONSTRUCTING, (
+        "the terminal Constructed emission is marshalled onto the foreground scheduler (VMX-025)"
+    )
+
+    # Advance the foreground scheduler so the marshalled terminal transition runs.
+    dispatcher.foreground_scheduler.advance_by(1)
+
     assert vm.status == ConstructionStatus.CONSTRUCTED, (
-        "after the background scheduler is advanced the transition must complete"
+        "after both schedulers are advanced the transition must complete"
     )
 
     vm.dispose()

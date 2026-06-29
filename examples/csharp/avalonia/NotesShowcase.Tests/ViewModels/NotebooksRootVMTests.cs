@@ -101,8 +101,8 @@ public sealed class NotebooksRootVMTests
         await vm.PopulateAsync();
         var before = vm.All.Count;
         vm.AddNotebookCommand.Execute(null);
-        // CreateNew uses fire-and-forget — drain the task queue.
-        await Task.Delay(50);
+        // CreateNew uses fire-and-forget — wait for the new notebook to appear.
+        await TestWait.WaitUntilAsync(() => vm.All.Count > before);
         Assert.True(vm.All.Count > before);
     }
 

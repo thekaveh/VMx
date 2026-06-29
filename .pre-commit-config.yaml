@@ -68,3 +68,14 @@ repos:
         language: system
         files: ^langs/typescript/(src|tests|scripts)/.*\.(ts|tsx|mjs|cjs|js)$
         pass_filenames: true
+
+      # Swift formatting: no pre-commit hook is wired here because `swift format`
+      # (part of swift-format, https://github.com/swiftlang/swift-format) is not
+      # reliably available in contributor environments — it requires a separate
+      # install that is NOT bundled with the Command Line Tools or Xcode. Adding
+      # a `language: system` hook that calls `swift format` would silently fail
+      # or hard-error for everyone who has not installed it. Swift style
+      # conformance is instead enforced in CI via `swift build` in swift.yml
+      # (compiler-level checks) and should be verified locally by running
+      # `swift format lint --recursive langs/swift/Sources/` when swift-format
+      # is available.

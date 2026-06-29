@@ -22,10 +22,6 @@ export class PropertyChangedMessage<TSender>
     this.propertyName = propertyName;
   }
 
-  get senderObject(): object {
-    return this.sender as object;
-  }
-
   static create<TSender>(
     sender: TSender,
     senderName: string,

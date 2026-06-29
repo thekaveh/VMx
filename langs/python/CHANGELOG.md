@@ -4,6 +4,69 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] — 2026-06-28
+
+The **v3 framework overhaul** — a breaking release that hardens the
+lifecycle/dispose concurrency path and reconciles the public surface across
+flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
+`docs/audit/2026-06-27-vmx-merged-critique.md`.
+
+### Added
+
+- Positional-options construction for the common VMs — a `create(...)` classmethod
+  taking keyword-only arguments alongside the unchanged fluent builders:
+  `ComponentVM.create(...)`, `ComponentVMOf.create(...)`, `CompositeVM.create(...)`,
+  `GroupVM.create(...)`. Delegates to the builder, so required-field validation
+  (`BuilderValidationError`) and the resulting VM are identical to the fluent path
+  (ADR-0055; VMX-020).
+- `AsyncRelayCommand` — an additive async command that flows asyncio task
+  cancellation into a long-running coroutine and adds a `cancel()` method, closing
+  the cancellation gap the synchronous `RelayCommand` had. Cancellation is
+  non-throwing to the caller by default with an opt-in throwing mode;
+  fire-and-forget task faults route to an `errors` observable. `RelayCommand` is
+  unchanged (ADR-0056; CMD-012; VMX-052).
+- `FormVM` surfaces approve-path persister failures on a new `approve_errors`
+  observable instead of swallowing them; `is_dirty` uses the model's own value
+  equality and the default snapshot is a deep value-copy (`copy.deepcopy`), both
+  injectable; `on_approved` is pinned to the persisted value (ADR-0048; FORM-015).
+
+### Removed
+
+- **BREAKING:** Removed the legacy v1.0.0 `RelayCommandOfT` /
+  `RelayCommandOfTBuilder` identity aliases (ADR-0052; VMX-095, deferral recorded
+  in ADR-0009). Use the canonical `RelayCommandOf` / `RelayCommandOfBuilder`.
+- **BREAKING:** Removed the legacy `AggregateVMBuilder1..6` identity aliases
+  (ADR-0052; VMX-081). The concrete builders are the canonical
+  `AggregateVM1Builder..6Builder`.
+- **BREAKING:** Removed `null_message_hub_of` from the top-level `vmx` export
+  (ADR-0052; VMX-081). It remains available as `from vmx.services import
+  null_message_hub_of` for the narrow-typing case; the package root now offers a
+  single null hub, `NULL_MESSAGE_HUB`.
+
+### Changed
+
+- **BREAKING:** `HierarchicalVM.__init__` now requires explicit `hub` and
+  `dispatcher` arguments (the silent `MessageHub()` / `RxDispatcher.immediate()`
+  defaults are removed) so a tree node can no longer acquire an isolated hub
+  (ADR-0052; VMX-080). The builder is unchanged — it already required
+  `services(hub, dispatcher)` and still offers `with_default_services()`.
+- **BREAKING:** `ConfirmationDecoratorCommand.execute()` (synchronous
+  fire-and-forget) now surfaces a rejecting `confirm` delegate or a throwing inner
+  command on a new `errors` observable instead of swallowing them; the awaitable
+  `execute_async()` keeps its raise behavior (ADR-0049; CMDD-010).
+  `ModeledCrudCommands` update/delete `can_execute` is now reactive to
+  current-selection change so bound buttons refresh (ADR-0049; VMX-011).
+- Relicensed from MIT to **Apache-2.0** (ADR-0043). Effective from this point
+  forward; the already-published 2.6.1 artifact remains MIT-licensed.
+
+### Fixed
+
+- **Lifecycle/dispose concurrency cluster (ADR-0047):** status transitions are
+  atomic and dispose-safe behind a per-VM guard; background lifecycle completions
+  marshal their terminal emission onto the foreground dispatcher; a post-dispose
+  `is_current` change is a silent no-op; and a throwing `on_construct`/`on_destruct`
+  hook rolls `status` back to the prior settled state (LIFE-008, the new LIFE-014).
+
 ## [2.6.1](https://github.com/thekaveh/VMx/compare/python-v2.6.0...python-v2.6.1) (2026-06-17)
 
 

@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'M' for model type parameter per ADR-0006
 namespace VMx.Components;
 
 /// <summary>
@@ -24,4 +23,3 @@ public interface IComponentVM<M> : IComponentVM
     /// </summary>
     string ModeledHint { get; }
 }
-#pragma warning restore CA1715

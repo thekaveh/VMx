@@ -1,10 +1,14 @@
-export type { ICommand, ICommandOf } from "./types.js";
+export type { ICommand, ICommandOf, IAsyncCommand } from "./types.js";
 export {
   RelayCommand,
   RelayCommandBuilder,
   RelayCommandOf,
   RelayCommandOfBuilder,
 } from "./relayCommand.js";
+export {
+  AsyncRelayCommand,
+  AsyncRelayCommandBuilder,
+} from "./asyncRelayCommand.js";
 export { CompositeCommand } from "./compositeCommand.js";
 export {
   DecoratorCommand,

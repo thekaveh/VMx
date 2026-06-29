@@ -1,4 +1,5 @@
-#pragma warning disable CA1715 // Spec uses M / VM for model / viewmodel per ADR-0006
+using System.Reactive;
+using System.Reactive.Disposables;
 using System.Windows.Input;
 
 namespace VMx.Commands;
@@ -20,8 +21,7 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     /// <summary>Command that invokes delete_current with the current VM. CanExecute requires current != null.</summary>
     public ICommand DeleteCurrentCommand { get; }
 
-    private readonly List<IDisposable> _disposables = new();
-    private bool _disposed;
+    private readonly CompositeDisposable _disposables = new();
 
     /// <summary>Creates a new CRUD command set.</summary>
     /// <param name="current">Provider returning the current VM (or null).</param>
@@ -30,23 +30,39 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     /// <param name="deleteCurrent">Action invoked by DeleteCurrentCommand with the current VM.</param>
     /// <param name="confirmUpdate">Optional async confirm gate for update.</param>
     /// <param name="confirmDelete">Optional async confirm gate for delete.</param>
+    /// <param name="currentChanged">
+    /// Optional trigger that fires whenever the value returned by
+    /// <paramref name="current"/> changes (typically the owning CompositeVM's
+    /// current-child-changed stream). When supplied, it is wired as a trigger on
+    /// the Update and Delete commands so a bound button's enabled state refreshes
+    /// the moment the selection changes — otherwise the predicate
+    /// (<c>current() is not null</c>) has no way to raise
+    /// <see cref="ICommand.CanExecuteChanged"/> and the button goes stale (VMX-011).
+    /// </param>
     public ModeledCrudCommands(
         Func<VM?> current,
         Action createNew,
         Action<VM> updateCurrent,
         Action<VM> deleteCurrent,
         Func<Task<bool>>? confirmUpdate = null,
-        Func<Task<bool>>? confirmDelete = null)
+        Func<Task<bool>>? confirmDelete = null,
+        IObservable<Unit>? currentChanged = null)
     {
         var create = RelayCommand.Builder().Task(createNew).Build();
-        var update = RelayCommand.Builder()
+        var updateBuilder = RelayCommand.Builder()
             .Task(() => { var c = current(); if (c is not null) updateCurrent(c); })
-            .Predicate(() => current() is not null)
-            .Build();
-        var delete = RelayCommand.Builder()
+            .Predicate(() => current() is not null);
+        var deleteBuilder = RelayCommand.Builder()
             .Task(() => { var c = current(); if (c is not null) deleteCurrent(c); })
-            .Predicate(() => current() is not null)
-            .Build();
+            .Predicate(() => current() is not null);
+        if (currentChanged is not null)
+        {
+            updateBuilder = updateBuilder.Triggers(currentChanged);
+            deleteBuilder = deleteBuilder.Triggers(currentChanged);
+        }
+
+        var update = updateBuilder.Build();
+        var delete = deleteBuilder.Build();
         _disposables.Add((IDisposable)create);
         _disposables.Add((IDisposable)update);
         _disposables.Add((IDisposable)delete);
@@ -75,10 +91,5 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     }
 
     /// <summary>Disposes the underlying commands. Idempotent.</summary>
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        foreach (var d in _disposables) d.Dispose();
-    }
+    public void Dispose() => _disposables.Dispose();
 }

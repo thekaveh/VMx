@@ -4,7 +4,7 @@
  * See spec/11-threading.md for the threading contract.
  */
 import type { SchedulerLike } from "rxjs";
-import { asapScheduler, queueScheduler } from "rxjs";
+import { asyncScheduler, queueScheduler } from "rxjs";
 
 export interface IDispatcher {
   readonly foreground: SchedulerLike;
@@ -32,10 +32,16 @@ export class RxDispatcher implements IDispatcher {
    * Default browser / Node dispatcher:
    *   foreground → queueScheduler (synchronous trampoline — runs inline,
    *                fair-queued against other queued work)
-   *   background → asapScheduler (Promise microtask — before the next
-   *                macrotask; use asyncScheduler for true macrotask hops)
+   *   background → asyncScheduler (macrotask — deferred past the current call
+   *                stack AND the microtask queue, so background work does not
+   *                starve pending I/O, timers, or paint).
+   *
+   * VMX-087: background previously used `asapScheduler` (a Promise microtask),
+   * which drains before the next macrotask and can starve the event loop —
+   * contradicting the "background" intent. `asyncScheduler` is the genuine
+   * macrotask deferral. `immediate()` remains fully synchronous for tests.
    */
   static default(): RxDispatcher {
-    return new RxDispatcher(queueScheduler, asapScheduler);
+    return new RxDispatcher(queueScheduler, asyncScheduler);
   }
 }

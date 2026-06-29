@@ -15,6 +15,8 @@
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
     <PackageVersion Include="System.Reactive" Version="6.0.1" />
     <PackageVersion Include="System.Collections.Immutable" Version="8.0.0" />
+    <!-- Pinned transitive (via System.Text.Json on netstandard2.0); no longer a
+         direct reference — see VMx.csproj / VMX-070. -->
     <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
     <PackageVersion Include="System.Text.Json" Version="8.0.5" />
 

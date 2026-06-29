@@ -117,8 +117,9 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
     def with_default_services(self) -> HierarchicalVMBuilder[TModel, TVM]:
         """Chainable Wither that explicitly opts in to default hub + dispatcher
         wiring (``MessageHub()`` + ``RxDispatcher.immediate()``). Per ADR-0035
-        §2 H2 — makes the implicit-default behavior of Python / TS
-        ``HierarchicalVM`` visible at the call site.
+        §2 H2. Since vmx v3.0.0 the ``HierarchicalVM`` constructor requires
+        explicit ``hub``/``dispatcher`` (ADR-0052; VMX-080), so this Wither is
+        the supported way to request the convenience defaults from the builder.
         """
         from vmx.services.dispatcher import RxDispatcher
 

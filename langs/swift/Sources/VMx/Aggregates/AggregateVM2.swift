@@ -24,8 +24,8 @@ open class AggregateVM2<C1: ComponentVMBase, C2: ComponentVMBase>: ComponentVMBa
 
     open override var type: ViewModelType { .aggregate }
 
-    open override func _onConstruct() {
-        super._onConstruct()
+    open override func _onConstruct() throws {
+        try super._onConstruct()
         component1?.dispose()
         component2?.dispose()
 
@@ -37,12 +37,12 @@ open class AggregateVM2<C1: ComponentVMBase, C2: ComponentVMBase>: ComponentVMBa
         hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component2"))
         _raisePropertyChanged("component2")
 
-        c1.construct(); c2.construct()
+        try c1.construct(); try c2.construct()
     }
 
-    open override func _onDestruct() {
-        component1?.destruct(); component2?.destruct()
-        super._onDestruct()
+    open override func _onDestruct() throws {
+        try component1?.destruct(); try component2?.destruct()
+        try super._onDestruct()
     }
 
     open override func dispose() {

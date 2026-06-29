@@ -24,13 +24,14 @@ namespace NotesShowcase.ViewModels;
 /// per effective change.
 ///
 /// <para>
-/// <b>Wire-up status.</b> This VM is the new theme seam for the C# flagship;
-/// composing it into <see cref="WorkspaceVM"/> would lift the workspace from
-/// aggregate arity 6 to arity 7 (ADR-0036 §2.C and §4 decision #3) — which
-/// requires a new <c>AggregateVM7</c> in the core library. That work is OUT
-/// OF SCOPE for this PR. Consumers exercising the seam construct a
-/// <see cref="ThemeVM"/> directly today; the AggregateVM7 wire-up lands in
-/// a follow-up.
+/// <b>Wire-up status (VMX-129).</b> This VM is the theme seam for the C#
+/// flagship. It is composed into <see cref="WorkspaceVM"/> as a workspace-owned
+/// sibling of the six aggregate children (not a seventh aggregate child —
+/// that would require an <c>AggregateVM7</c> in the core library, which ADR-0058
+/// declined). The workspace drives its lifecycle (Construct/Destruct/Dispose)
+/// and the Avalonia <c>ThemeAdapter</c> is bound to it at composition time
+/// (<see cref="App"/>), so the THEME-001..005 scenario is exercised in the
+/// running app.
 /// </para>
 ///
 /// <para>
@@ -39,8 +40,6 @@ namespace NotesShowcase.ViewModels;
 /// other flavors mirror this shape under their own idiomatic casing.
 /// </para>
 /// </summary>
-// TODO(workspaceVM-wireup): compose ThemeVM into WorkspaceVM once AggregateVM7
-// exists (proposal §8 / ADR-0036 §4 decision #3); see the wire-up status above.
 public sealed class ThemeVM : ComponentVMBase
 {
     private readonly BehaviorSubject<ThemeModel> _modelSubject;

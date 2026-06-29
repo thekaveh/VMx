@@ -49,19 +49,46 @@ struct TabContentView: View {
             Text(adapter.vm.model.title)
             Button("Save") { adapter.vm.selectCommand.execute() }
         }
+        // `construct()` is throwing as of ADR-0053 (see §4). A legal
+        // transition is the common path; `try?` discards the recoverable
+        // `StatusTransitionError` an illegal/in-flight transition would throw.
+        .onAppear { try? adapter.vm.construct() }
         .onDisappear { adapter.vm.dispose() }
     }
 }
 ```
 
-## 4. Fuller example
+## 4. Lifecycle is throwing (ADR-0053)
+
+As of the v3 convergence (ADR-0053, superseding ADR-0037 §2.5), the Swift
+lifecycle operations `construct()`, `destruct()`, and `reconstruct()` are
+`throws` — matching the catchable exceptions the C#/Python/TypeScript flavors
+already raise, instead of the earlier uncatchable `preconditionFailure` trap.
+An **illegal transition** (e.g. `construct()` on a disposed VM) or a concurrent
+re-invocation while a transition is in flight throws a catchable
+`StatusTransitionError`; the legal idempotent no-ops (`construct` from
+`Constructed`, `destruct` from `Destructed`) still return without throwing.
+
+```swift
+do {
+    try adapter.vm.construct()
+} catch let error as StatusTransitionError {
+    // Recover — the VM is left in its prior settled state, not crashed.
+    print("illegal lifecycle transition: \(error)")
+}
+```
+
+A non-child `current` assignment likewise has a throwing companion
+(`setCurrent(_:) throws`, throwing `CompositeMembershipError`); see ADR-0053 §2.2.
+
+## 5. Fuller example
 
 The Swift flavor's first release does not yet ship a Notes-Showcase
 SwiftUI app; the [`langs/swift/README.md`](../../langs/swift/README.md)
 covers the broader install + quick-start flow. A SwiftUI flagship is
 planned for the follow-up PR.
 
-## 5. Cross-flavor parity
+## 6. Cross-flavor parity
 
 This recipe parallels the React adapter ([react.md](react.md)) — both
 bridge a hub message stream into the framework's "re-render this view"

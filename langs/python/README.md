@@ -97,7 +97,8 @@ hub.dispose()
 >   `NULL_DISPATCHER` are safe no-op singletons. Annotate variables as
 >   `MessageHubProto[Message]` (the structural `Protocol`) to keep
 >   `mypy --strict` happy, or use the generic
->   `null_message_hub_of(MyMessage)` factory for a narrower message type.
+>   `null_message_hub_of(MyMessage)` factory (imported from `vmx.services`) for
+>   a narrower message type.
 
 The C# and TypeScript flavors mirror this shape: see
 [C# Quick start](https://github.com/thekaveh/VMx/blob/main/langs/csharp/README.md#3-quick-start) and

@@ -1,15 +1,16 @@
-"""Conformance tests: LIFE-001..013.
+"""Conformance tests: LIFE-001..012, LIFE-014.
 
-LIFE-005, LIFE-006, LIFE-011 are implemented directly here and drive real VM
-instances (a maintenance audit found the earlier validator-only versions
-could not fail if ``construct()`` stopped routing through ``require``).
+Every LIFE id in this file drives a real ``ComponentVM`` instance and asserts
+its own normative behavior directly — transition sequence, emitted
+``ConstructionStatusChangedMessage``s, idempotency, and the ``is_constructed``
+gating predicate. An earlier revision delegated most ids to one-line wrappers
+that imported and called the implementing test in ``test_component_vm.py``;
+those wrappers asserted nothing locally and double-counted each id (VMX-055),
+so they were replaced with the self-contained bodies below.
 
-LIFE-001..004, LIFE-007..010, LIFE-012, LIFE-013 require richer harnesses
-and are therefore delegated to test_component_vm.py / test_composite_vm.py.
-The delegated test bodies just import the implementing test function and call
-it — earlier scaffolding wrapped these in ``pytest.importorskip`` while the
-modules were being phased in, but as of v2.0 every dependent module ships in
-``vmx`` and the importorskip would silently mask a real packaging breakage.
+LIFE-013 (the composite disposal cascade) is exercised by
+``test_composite_vm.py::test_LIFE_013_dispose_cascades_depth_first`` — its
+natural home is the composite suite, so it is not duplicated here.
 """
 
 from __future__ import annotations
@@ -20,9 +21,13 @@ import pytest
 
 from tests.conformance.fixtures.loader import load
 from vmx.components.builders import ComponentVMBuilder
+from vmx.components.component_vm import ComponentVM
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.lifecycle.transition_validator import is_legal
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
+from vmx.services.dispatcher import RxDispatcher
+from vmx.services.message_hub import MessageHub
 
 
 def _build_vm(
@@ -78,6 +83,34 @@ def _drive_transition(
         vm.dispose()  # type: ignore[attr-defined]
     # DESTRUCTED is the freshly-built state.
     return _invoke(vm, op), vm.status  # type: ignore[attr-defined]
+
+
+def _hub() -> MessageHub[object]:
+    return MessageHub()
+
+
+def _dispatcher() -> RxDispatcher:
+    return RxDispatcher.immediate()
+
+
+def _build_hub_vm(name: str = "vm1") -> tuple[ComponentVM, MessageHub[object]]:
+    """Build a ComponentVM wired to a real hub + immediate dispatcher.
+
+    Unlike ``_build_vm`` (null services), this exposes the hub so a test can
+    subscribe and assert on the exact sequence of emitted lifecycle messages.
+    """
+    hub = _hub()
+    vm = ComponentVMBuilder().name(name).services(hub, _dispatcher()).build()
+    return vm, hub
+
+
+def _status_messages(hub: MessageHub[object]) -> list[ConstructionStatusChangedMessage]:
+    """Subscribe to *hub* and accumulate ConstructionStatusChangedMessages in order."""
+    collected: list[ConstructionStatusChangedMessage] = []
+    hub.messages.subscribe(
+        lambda m: collected.append(m) if isinstance(m, ConstructionStatusChangedMessage) else None
+    )
+    return collected
 
 
 # ---------------------------------------------------------------------------
@@ -141,107 +174,244 @@ def test_LIFE_011_vm_transitions_match_fixture_table() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Delegated tests — require VM instances. Each delegated test forwards
-# directly to its implementation in test_component_vm.py / test_composite_vm.py
-# so the conformance-id-to-test mapping is one entry per file.
+# LIFE-001 — construct() emits Constructing then Constructed
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-001")
-def test_LIFE_001_delegated() -> None:
-    """construct() emits ConstructionStatusChangedMessage for each state change."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_001_construct_emits_status_messages,
-    )
+def test_LIFE_001_construct_emits_status_messages() -> None:
+    """LIFE-001: construct() from Destructed emits exactly Constructing then Constructed."""
+    vm, hub = _build_hub_vm()
+    msgs = _status_messages(hub)
+    vm.construct()
 
-    test_LIFE_001_construct_emits_status_messages()
+    statuses = [m.status for m in msgs]
+    assert statuses == [
+        ConstructionStatus.CONSTRUCTING,
+        ConstructionStatus.CONSTRUCTED,
+    ], f"Expected exactly [Constructing, Constructed]; got {statuses}"
+    assert vm.is_constructed is True
+
+
+# ---------------------------------------------------------------------------
+# LIFE-002 — destruct() emits Destructing then Destructed
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-002")
-def test_LIFE_002_delegated() -> None:
-    """destruct() emits ConstructionStatusChangedMessage for each state change."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_002_destruct_emits_status_messages,
-    )
+def test_LIFE_002_destruct_emits_status_messages() -> None:
+    """LIFE-002: destruct() from Constructed emits exactly Destructing then Destructed."""
+    vm, hub = _build_hub_vm()
+    vm.construct()
+    msgs = _status_messages(hub)
+    vm.destruct()
 
-    test_LIFE_002_destruct_emits_status_messages()
+    statuses = [m.status for m in msgs]
+    assert statuses == [
+        ConstructionStatus.DESTRUCTING,
+        ConstructionStatus.DESTRUCTED,
+    ], f"Expected exactly [Destructing, Destructed]; got {statuses}"
+    assert vm.is_constructed is False
+
+
+# ---------------------------------------------------------------------------
+# LIFE-003 — reconstruct() emits the full Destruct-then-Construct sequence
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-003")
-def test_LIFE_003_delegated() -> None:
-    """reconstruct() emits four ConstructionStatusChangedMessages."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_003_reconstruct_emits_four_messages,
-    )
+def test_LIFE_003_reconstruct_emits_four_messages() -> None:
+    """LIFE-003: reconstruct() emits Destructing, Destructed, Constructing, Constructed."""
+    vm, hub = _build_hub_vm()
+    vm.construct()
+    msgs = _status_messages(hub)
+    vm.reconstruct()
 
-    test_LIFE_003_reconstruct_emits_four_messages()
+    statuses = [m.status for m in msgs]
+    assert statuses == [
+        ConstructionStatus.DESTRUCTING,
+        ConstructionStatus.DESTRUCTED,
+        ConstructionStatus.CONSTRUCTING,
+        ConstructionStatus.CONSTRUCTED,
+    ], f"Expected the full reconstruct sequence; got {statuses}"
+
+
+# ---------------------------------------------------------------------------
+# LIFE-004 — dispose() reaches Disposed from any state, emitting one message
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-004")
-def test_LIFE_004_delegated() -> None:
-    """dispose() transitions VM to Disposed."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_004_dispose_reaches_disposed,
-    )
+def test_LIFE_004_dispose_reaches_disposed() -> None:
+    """LIFE-004: dispose() reaches Disposed and emits one Disposed message."""
+    vm, hub = _build_hub_vm()
+    msgs = _status_messages(hub)
+    vm.dispose()
 
-    test_LIFE_004_dispose_reaches_disposed()
+    assert vm.status == ConstructionStatus.DISPOSED
+    disposed = [m for m in msgs if m.status == ConstructionStatus.DISPOSED]
+    assert len(disposed) == 1
+
+
+# ---------------------------------------------------------------------------
+# LIFE-007 — is_constructed == (status == Constructed) invariant
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-007")
-def test_LIFE_007_delegated() -> None:
-    """IsConstructed == (Status == Constructed) invariant."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_007_is_constructed_invariant,
-    )
+def test_LIFE_007_is_constructed_invariant() -> None:
+    """LIFE-007: is_constructed equals (status == Constructed) in every state."""
+    vm, _ = _build_hub_vm()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+    vm.construct()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+    assert vm.is_constructed is True
+    vm.destruct()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
+    assert vm.is_constructed is False
+    vm.dispose()
+    assert vm.is_constructed == (vm.status == ConstructionStatus.CONSTRUCTED)
 
-    test_LIFE_007_is_constructed_invariant()
+
+# ---------------------------------------------------------------------------
+# LIFE-008 — concurrent (re-entrant) operation while transitioning raises
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-008")
-def test_LIFE_008_delegated() -> None:
-    """Concurrent operation while transitioning raises StatusTransitionError."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_008_concurrent_operation_raises,
+def test_LIFE_008_concurrent_operation_raises() -> None:
+    """LIFE-008: re-invoking construct() while it is in-flight raises StatusTransitionError."""
+    caught: list[StatusTransitionError] = []
+    vm: ComponentVM | None = None
+
+    def on_construct_cb() -> None:
+        # This hook fires while the VM is still mid-construct (state Constructing,
+        # not yet Constructed). Re-entering construct() must raise.
+        assert vm is not None
+        try:
+            vm.construct()
+        except StatusTransitionError as exc:
+            caught.append(exc)
+
+    vm = (
+        ComponentVMBuilder()
+        .name("vm-reentrant")
+        .services(_hub(), _dispatcher())
+        .on_construct(on_construct_cb)
+        .build()
     )
 
-    test_LIFE_008_concurrent_operation_raises()
+    vm.construct()
+
+    assert len(caught) == 1, (
+        "Re-entrant construct() during the in-flight transition must raise StatusTransitionError"
+    )
+
+
+# ---------------------------------------------------------------------------
+# LIFE-009 — construct() from Constructed is idempotent (no message)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-009")
-def test_LIFE_009_delegated() -> None:
-    """construct() from Constructed is a no-op (idempotent, no message emitted)."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_009_construct_from_constructed_is_noop,
-    )
+def test_LIFE_009_construct_from_constructed_is_noop() -> None:
+    """LIFE-009: construct() from Constructed emits no message and stays Constructed."""
+    vm, hub = _build_hub_vm()
+    vm.construct()
+    msgs = _status_messages(hub)
+    vm.construct()  # no-op
 
-    test_LIFE_009_construct_from_constructed_is_noop()
+    assert msgs == []
+    assert vm.status == ConstructionStatus.CONSTRUCTED
+
+
+# ---------------------------------------------------------------------------
+# LIFE-010 — destruct() from Destructed is idempotent (no message)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-010")
-def test_LIFE_010_delegated() -> None:
-    """destruct() from Destructed is a no-op (idempotent, no message emitted)."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_010_destruct_from_destructed_is_noop,
-    )
+def test_LIFE_010_destruct_from_destructed_is_noop() -> None:
+    """LIFE-010: destruct() from Destructed emits no message and stays Destructed."""
+    vm, hub = _build_hub_vm()
+    msgs = _status_messages(hub)
+    vm.destruct()  # no-op from the freshly-built Destructed state
 
-    test_LIFE_010_destruct_from_destructed_is_noop()
+    assert msgs == []
+    assert vm.status == ConstructionStatus.DESTRUCTED
+
+
+# ---------------------------------------------------------------------------
+# LIFE-012 — dispose() from Disposed is idempotent (no message)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.conformance("LIFE-012")
-def test_LIFE_012_delegated() -> None:
-    """dispose() from Disposed is a no-op (idempotent, no message emitted)."""
-    from tests.conformance.test_component_vm import (  # type: ignore[import]
-        test_LIFE_012_dispose_from_disposed_is_noop,
+def test_LIFE_012_dispose_from_disposed_is_noop() -> None:
+    """LIFE-012: dispose() from Disposed emits no message and stays Disposed."""
+    vm, hub = _build_hub_vm()
+    vm.dispose()
+    msgs = _status_messages(hub)
+    vm.dispose()  # no-op
+
+    assert msgs == []
+    assert vm.status == ConstructionStatus.DISPOSED
+
+
+# ---------------------------------------------------------------------------
+# LIFE-014 — a throwing construct/destruct hook rolls Status back (transactional)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("LIFE-014")
+def test_LIFE_014_throwing_hook_rolls_status_back() -> None:
+    """LIFE-014: a throwing on_construct/on_destruct hook rolls Status back to the
+    prior settled state (not wedged in the transient state) and leaves the VM
+    recoverable (spec/02-lifecycle.md §2.4)."""
+    flags = {"construct": True, "destruct": True}
+
+    # ── construct: hook raises → rollback to Destructed, then recoverable ──
+    def on_construct() -> None:
+        if flags["construct"]:
+            raise RuntimeError("construct hook failed")
+
+    vm = (
+        ComponentVMBuilder()
+        .name("life-014")
+        .services(_hub(), _dispatcher())
+        .on_construct(on_construct)
+        .build()
     )
 
-    test_LIFE_012_dispose_from_disposed_is_noop()
+    with pytest.raises(RuntimeError, match="construct hook failed"):
+        vm.construct()
+    # Rolled back — not wedged in CONSTRUCTING.
+    assert vm.status == ConstructionStatus.DESTRUCTED
+    # Recoverable — a non-throwing retry reaches CONSTRUCTED.
+    flags["construct"] = False
+    vm.construct()
+    assert vm.status == ConstructionStatus.CONSTRUCTED
 
+    # ── destruct: hook raises → rollback to Constructed, then recoverable ──
+    def on_destruct() -> None:
+        if flags["destruct"]:
+            raise RuntimeError("destruct hook failed")
 
-@pytest.mark.conformance("LIFE-013")
-def test_LIFE_013_delegated() -> None:
-    """dispose() on parent disposes every child (disposal cascade)."""
-    from tests.conformance.test_composite_vm import (  # type: ignore[import]
-        test_LIFE_013_dispose_cascade,
+    vm2 = (
+        ComponentVMBuilder()
+        .name("life-014b")
+        .services(_hub(), _dispatcher())
+        .on_destruct(on_destruct)
+        .build()
     )
+    vm2.construct()
+    assert vm2.status == ConstructionStatus.CONSTRUCTED
 
-    test_LIFE_013_dispose_cascade()
+    with pytest.raises(RuntimeError, match="destruct hook failed"):
+        vm2.destruct()
+    # Rolled back — not wedged in DESTRUCTING.
+    assert vm2.status == ConstructionStatus.CONSTRUCTED
+    # Recoverable — a non-throwing retry reaches DESTRUCTED.
+    flags["destruct"] = False
+    vm2.destruct()
+    assert vm2.status == ConstructionStatus.DESTRUCTED

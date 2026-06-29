@@ -126,10 +126,6 @@ def test_scrape_csharp_tests_finds_traits(tmp_path: Path) -> None:
                 [Trait("Category", "Fast")]
                 public void Combined_With_Other_Traits() { }
 
-                // Commented-out: should not be matched in v1.0 (best-effort)
-                // Note: this is a known limitation — the regex matches // [Trait(...)] forms
-                // because eliminating commented attributes requires a real C# parser.
-
                 public void UnrelatedHelper() { }
 
                 // This must NOT match — Trait outside brackets is not an attribute
@@ -277,3 +273,219 @@ def test_render_report_flags_orphan_ids() -> None:
     report = ccc.render_report(catalog, coverage, gaps={})
     assert "ORPHAN (1): LIFE-999" in report
     assert "1/1 covered" in report
+
+
+# ─── VMX-029: comment-filtering hardening ─────────────────────────────────────
+
+
+def test_scrape_python_ignores_commented_out_marker(tmp_path: Path) -> None:
+    """A Python marker preceded by # on the same line must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "test_lifecycle.py"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            import pytest
+
+            # @pytest.mark.conformance("XXX-001")
+            # def test_placeholder(): pass
+
+            @pytest.mark.conformance("XXX-002")
+            def test_real(): pass
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_python_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "commented-out Python marker must be ignored"
+    assert "XXX-002" in found, "genuine Python marker must still be counted"
+
+
+def test_scrape_typescript_ignores_line_commented_marker(tmp_path: Path) -> None:
+    """A TS describe() preceded by // on the same line must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "lifecycle.test.ts"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            import { describe, it } from "vitest";
+
+            // describe("XXX-001", () => { it("placeholder", () => {}); });
+
+            describe("XXX-002", () => {
+              it("real", () => {});
+            });
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_typescript_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "line-commented TS describe must be ignored"
+    assert "XXX-002" in found, "genuine TS describe must still be counted"
+
+
+def test_scrape_csharp_ignores_block_commented_marker(tmp_path: Path) -> None:
+    """A C# Trait inside /* ... */ must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "LifecycleTests.cs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            using Xunit;
+
+            public class LifecycleTests
+            {
+                /*
+                [Fact, Trait("Conformance", "XXX-001")]
+                public void Placeholder() { }
+                */
+
+                [Fact, Trait("Conformance", "XXX-002")]
+                public void RealTest() { }
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_csharp_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "block-commented C# trait must be ignored"
+    assert "XXX-002" in found, "genuine C# trait must still be counted"
+
+
+def test_scrape_csharp_ignores_line_commented_marker(tmp_path: Path) -> None:
+    """A C# Trait on a line starting with // must not count as coverage (VMX-029)."""
+    test_file = tmp_path / "LifecycleTests.cs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            using Xunit;
+
+            public class LifecycleTests
+            {
+                // [Fact, Trait("Conformance", "XXX-001")]
+                // public void Placeholder() { }
+
+                [Fact, Trait("Conformance", "XXX-002")]
+                public void RealTest() { }
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_csharp_conformance_ids(tmp_path)
+
+    assert "XXX-001" not in found, "line-commented C# trait must be ignored"
+    assert "XXX-002" in found, "genuine C# trait must still be counted"
+
+
+# ─── VMX-031: Swift conformance scraper + subset manifest ─────────────────────
+
+# Minimal catalog for the Swift subset tests.
+_SWIFT_CATALOG_TEXT = "### LIFE-001 — sample\n### LIFE-002 — sample\n"
+
+# A Swift test file whose markers exactly match the manifest below.
+_SWIFT_GOOD_TEST = (
+    "/// LIFE-001 — construct transitions\n"
+    "func testLife001() {}\n"
+    "/// LIFE-002 — destruct transitions\n"
+    "func testLife002() {}\n"
+)
+
+_SWIFT_GOOD_MANIFEST = "# header\nLIFE-001\nLIFE-002\n"
+
+
+def _make_swift_fixture(
+    tmp_path: Path,
+    catalog_text: str,
+    test_content: str,
+    manifest_content: str,
+) -> None:
+    """Helper: write catalog, swift test, and manifest into tmp_path."""
+    catalog = tmp_path / "spec" / "12-conformance.md"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text(catalog_text, encoding="utf-8")
+
+    swift_dir = tmp_path / "langs" / "swift" / "Tests" / "VMxTests"
+    swift_dir.mkdir(parents=True)
+    (swift_dir / "LifecycleTests.swift").write_text(test_content, encoding="utf-8")
+
+    manifest = tmp_path / "langs" / "swift" / "conformance-subset.txt"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(manifest_content, encoding="utf-8")
+
+
+def test_swift_matching_manifest_passes(tmp_path: Path) -> None:
+    """(a) Swift tests exactly matching the manifest with valid catalog IDs passes (VMX-031)."""
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, _SWIFT_GOOD_TEST, _SWIFT_GOOD_MANIFEST)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 0
+
+
+def test_swift_ignores_vmx_finding_reference(tmp_path: Path) -> None:
+    """A `/// VMX-002 — ...` audit finding-id reference must NOT be scraped as a
+    conformance marker (it is not a catalog id and would otherwise fail as BOGUS)."""
+    test_with_finding_ref = (
+        "/// VMX-002 regression — background construct vs dispose race\n"
+        "func testVmx002Regression() {}\n"
+        "/// LIFE-001 — construct transitions\n"
+        "func testLife001() {}\n"
+        "/// LIFE-002 — destruct transitions\n"
+        "func testLife002() {}\n"
+    )
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_finding_ref, _SWIFT_GOOD_MANIFEST)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 0, "VMX-NNN finding references must be ignored, not flagged BOGUS"
+
+
+def test_swift_bogus_id_fails(tmp_path: Path) -> None:
+    """(b) A Swift test marker whose ID is not in the catalog (typo/bogus) must fail (VMX-031)."""
+    test_with_bogus = (
+        "/// LIFE-001 — construct transitions\n"
+        "func testLife001() {}\n"
+        "/// TYPO-999 — bogus id not in catalog\n"
+        "func testTypo999() {}\n"
+    )
+    # Manifest only declares the valid ID; the bogus one in tests causes BOGUS failure.
+    manifest = "LIFE-001\n"
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_bogus, manifest)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1
+
+
+def test_swift_manifest_id_without_test_fails(tmp_path: Path) -> None:
+    """(c) A manifest ID with no corresponding test marker must fail (VMX-031)."""
+    test_only_life001 = "/// LIFE-001 — construct transitions\nfunc testLife001() {}\n"
+    # Manifest declares LIFE-002 but no test covers it.
+    manifest = "LIFE-001\nLIFE-002\n"
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_only_life001, manifest)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1
+
+
+def test_swift_test_id_not_in_manifest_fails(tmp_path: Path) -> None:
+    """(d) A Swift test ID absent from the manifest (unlisted) must fail (VMX-031)."""
+    test_with_both = (
+        "/// LIFE-001 — construct transitions\n"
+        "func testLife001() {}\n"
+        "/// LIFE-002 — destruct transitions\n"
+        "func testLife002() {}\n"
+    )
+    # Manifest only declares LIFE-001; LIFE-002 in tests is "unlisted".
+    manifest = "LIFE-001\n"
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_both, manifest)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1

@@ -26,7 +26,11 @@ export class RelayCommand implements ICommand {
   readonly #task: (() => void) | null;
   readonly #predicate: (() => boolean) | null;
   readonly #canExecuteChangedSubject = new Subject<void>();
-  readonly #subscriptions: Subscription[];
+  // Single root Subscription (VMX-094): aggregating the trigger subscriptions
+  // makes teardown exception-safe — a throwing child unsubscribe no longer
+  // aborts the loop and strands the remaining subscriptions, and the root
+  // tears every child down even when one throws.
+  readonly #subscriptions = new Subscription();
   #disposed = false;
 
   constructor(
@@ -36,9 +40,11 @@ export class RelayCommand implements ICommand {
   ) {
     this.#task = task;
     this.#predicate = predicate;
-    this.#subscriptions = triggers.map((t) =>
-      t.subscribe(() => this.#canExecuteChangedSubject.next()),
-    );
+    for (const t of triggers) {
+      this.#subscriptions.add(
+        t.subscribe(() => this.#canExecuteChangedSubject.next()),
+      );
+    }
   }
 
   canExecute(): boolean {
@@ -63,8 +69,10 @@ export class RelayCommand implements ICommand {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    for (const sub of this.#subscriptions) sub.unsubscribe();
+    // Complete the subject first so subscribers always observe completion, then
+    // tear down every trigger subscription via the root (VMX-094).
     this.#canExecuteChangedSubject.complete();
+    this.#subscriptions.unsubscribe();
   }
 
   static builder(): RelayCommandBuilder {
@@ -119,7 +127,8 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
   readonly #task: ((p: T) => void) | null;
   readonly #predicate: ((p: T) => boolean) | null;
   readonly #canExecuteChangedSubject = new Subject<void>();
-  readonly #subscriptions: Subscription[];
+  // Single root Subscription (VMX-094) — see RelayCommand for rationale.
+  readonly #subscriptions = new Subscription();
   #disposed = false;
 
   constructor(
@@ -129,9 +138,11 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
   ) {
     this.#task = task;
     this.#predicate = predicate;
-    this.#subscriptions = triggers.map((t) =>
-      t.subscribe(() => this.#canExecuteChangedSubject.next()),
-    );
+    for (const t of triggers) {
+      this.#subscriptions.add(
+        t.subscribe(() => this.#canExecuteChangedSubject.next()),
+      );
+    }
   }
 
   canExecute(parameter: T): boolean {
@@ -156,8 +167,8 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    for (const sub of this.#subscriptions) sub.unsubscribe();
     this.#canExecuteChangedSubject.complete();
+    this.#subscriptions.unsubscribe();
   }
 
   static builder<T>(): RelayCommandOfBuilder<T> {

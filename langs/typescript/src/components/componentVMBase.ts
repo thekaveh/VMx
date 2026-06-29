@@ -92,12 +92,21 @@ export abstract class ComponentVMBase {
     // canExecute report false for any orphan leaf, mirroring GRP-002's
     // "predicates always return false when there's no navigation slot"
     // pattern (spec/12-conformance.md §9 GRP-002).
+    //
+    // VMX-104: the status trigger is wired here too (matching select/deselect
+    // and the C#/Python/Swift flavors) so canExecuteChanged fires on lifecycle
+    // transitions. The predicate still returns false, but a bound view's
+    // "next/previous" affordance now refreshes on status changes instead of
+    // going stale — the prior TS-only omission left these commands without any
+    // canExecuteChanged signal.
     this.#selectNextCommand = RelayCommand.builder()
       .predicate(() => false)
+      .triggers(trigger)
       .build();
 
     this.#selectPreviousCommand = RelayCommand.builder()
       .predicate(() => false)
+      .triggers(trigger)
       .build();
 
     this.#reconstructCommand = RelayCommand.builder()
@@ -144,6 +153,11 @@ export abstract class ComponentVMBase {
   }
 
   _setIsCurrent(value: boolean): void {
+    // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
+    // selection change on an already-disposed VM is a silent no-op (no
+    // propertyChanged emit, no hub PropertyChangedMessage), mirroring Swift
+    // (VMX-006).
+    if (this.#status === ConstructionStatus.Disposed) return;
     if (this.#isCurrent === value) return;
     this.#isCurrent = value;
     this._raisePropertyChanged("isCurrent");
@@ -219,21 +233,58 @@ export abstract class ComponentVMBase {
     if (this.#background) {
       this._setStatus(ConstructionStatus.Constructing);
       this.#dispatcher.background.schedule(() => {
-        try {
-          // dispose() may have run between scheduling and execution;
-          // Disposed is terminal (spec/02 invariant 3), so skip the work.
-          if (this.#status !== ConstructionStatus.Disposed) {
-            this._onConstruct();
-            this._setStatus(ConstructionStatus.Constructed);
-          }
-        } finally {
+        // dispose() may have run between scheduling and execution; Disposed is
+        // terminal (spec/02 invariant 3), so skip the work and the marshalled
+        // emission.
+        if (this.#status === ConstructionStatus.Disposed) {
           this.#inFlight = false;
+          return;
         }
+        try {
+          this._onConstruct();
+        } catch (e) {
+          // VMX-007: roll _status back to Destructed (marshalled onto the
+          // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
+          // in-flight guard so a throwing background hook leaves the VM
+          // recoverable, then re-throw. Under the synchronous immediate
+          // dispatcher the rollback runs inline and the throw surfaces to the
+          // caller; on asapScheduler it is an unobserved async throw (delivering
+          // it to an awaiter is tracked by VMX-049).
+          this._scheduleForeground(() => {
+            try {
+              this._setStatus(ConstructionStatus.Destructed);
+            } finally {
+              this.#inFlight = false;
+            }
+          });
+          throw e;
+        }
+        // VMX-025: marshal the terminal Constructed emission onto the foreground
+        // scheduler so subscribers observe the status change on the foreground
+        // (UI) thread, not the background (pool) thread. _setStatus re-checks
+        // Disposed, so a dispose() landing before this runs still aborts the
+        // transition — no resurrection, no post-dispose publish.
+        this._scheduleForeground(() => {
+          try {
+            this._setStatus(ConstructionStatus.Constructed);
+          } finally {
+            this.#inFlight = false;
+          }
+        });
       });
     } else {
       try {
         this._setStatus(ConstructionStatus.Constructing);
-        this._onConstruct();
+        try {
+          this._onConstruct();
+        } catch (e) {
+          // VMX-007: a throwing construct hook must not wedge the VM in the
+          // transient Constructing state. Roll _status back to the prior settled
+          // state (Destructed), then re-throw so the caller sees the original
+          // failure. The VM is left recoverable instead of wedged.
+          this._setStatus(ConstructionStatus.Destructed);
+          throw e;
+        }
         this._setStatus(ConstructionStatus.Constructed);
       } finally {
         this.#inFlight = false;
@@ -254,21 +305,55 @@ export abstract class ComponentVMBase {
     if (this.#background) {
       this._setStatus(ConstructionStatus.Destructing);
       this.#dispatcher.background.schedule(() => {
-        try {
-          // dispose() may have run between scheduling and execution;
-          // Disposed is terminal (spec/02 invariant 3), so skip the work.
-          if (this.#status !== ConstructionStatus.Disposed) {
-            this._onDestruct();
-            this._setStatus(ConstructionStatus.Destructed);
-          }
-        } finally {
+        // dispose() may have run between scheduling and execution; Disposed is
+        // terminal (spec/02 invariant 3), so skip the work and the marshalled
+        // emission.
+        if (this.#status === ConstructionStatus.Disposed) {
           this.#inFlight = false;
+          return;
         }
+        try {
+          this._onDestruct();
+        } catch (e) {
+          // VMX-007: roll _status back to Constructed (marshalled onto the
+          // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
+          // in-flight guard so a throwing background hook leaves the VM
+          // recoverable, then re-throw (unobserved async throw on asapScheduler;
+          // VMX-049 tracks delivering it to an awaiter).
+          this._scheduleForeground(() => {
+            try {
+              this._setStatus(ConstructionStatus.Constructed);
+            } finally {
+              this.#inFlight = false;
+            }
+          });
+          throw e;
+        }
+        // VMX-025: marshal the terminal Destructed emission onto the foreground
+        // scheduler so subscribers observe the status change on the foreground
+        // (UI) thread, not the background (pool) thread. _setStatus re-checks
+        // Disposed, so a dispose() landing before this runs still aborts the
+        // transition — no resurrection, no post-dispose publish.
+        this._scheduleForeground(() => {
+          try {
+            this._setStatus(ConstructionStatus.Destructed);
+          } finally {
+            this.#inFlight = false;
+          }
+        });
       });
     } else {
       try {
         this._setStatus(ConstructionStatus.Destructing);
-        this._onDestruct();
+        try {
+          this._onDestruct();
+        } catch (e) {
+          // VMX-007: a throwing destruct hook must not wedge the VM in the
+          // transient Destructing state. Roll _status back to the prior settled
+          // state (Constructed), then re-throw. The VM is left recoverable.
+          this._setStatus(ConstructionStatus.Constructed);
+          throw e;
+        }
         this._setStatus(ConstructionStatus.Destructed);
       } finally {
         this.#inFlight = false;
@@ -286,11 +371,25 @@ export abstract class ComponentVMBase {
 
     try {
       this._setStatus(ConstructionStatus.Destructing);
-      this._onDestruct();
+      try {
+        this._onDestruct();
+      } catch (e) {
+        // VMX-007: a failed destruct phase rolls back to Constructed (the state
+        // reconstruct started from) so the VM stays recoverable.
+        this._setStatus(ConstructionStatus.Constructed);
+        throw e;
+      }
       this._setStatus(ConstructionStatus.Destructed);
 
       this._setStatus(ConstructionStatus.Constructing);
-      this._onConstruct();
+      try {
+        this._onConstruct();
+      } catch (e) {
+        // VMX-007: a failed construct phase rolls back to Destructed (the
+        // destruct phase already completed) so the VM stays recoverable.
+        this._setStatus(ConstructionStatus.Destructed);
+        throw e;
+      }
       this._setStatus(ConstructionStatus.Constructed);
     } finally {
       this.#inFlight = false;

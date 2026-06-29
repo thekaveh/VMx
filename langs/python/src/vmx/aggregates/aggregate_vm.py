@@ -65,6 +65,17 @@ class AggregateVM1(Generic[V1], _ComponentVMBase):
         """The first (and only) component slot; None until construct() is called."""
         return self._component1
 
+    def components(self) -> list[ComponentVMProto]:
+        """Component slots in declaration order; ``None`` slots omitted (VMX-137).
+
+        Tree traversal (``walk``/``walk_expanded``/``find``) uses this typed
+        accessor instead of probing ``component_{i}`` name strings bounded at a
+        fixed arity, so traversal stays correct for any arity — including a
+        future AggregateVM7+.
+        """
+        slots: tuple[ComponentVMProto | None, ...] = (self._component1,)
+        return [c for c in slots if c is not None]
+
     def _on_construct(self) -> None:
         # On Reconstruct, the previous slot instance is in Destructed state but
         # still holds hub subscriptions and command Subjects. Dispose it before
@@ -130,6 +141,17 @@ class AggregateVM2(Generic[V1, V2], _ComponentVMBase):
     @property
     def component_2(self) -> V2 | None:
         return self._component2
+
+    def components(self) -> list[ComponentVMProto]:
+        """Component slots in declaration order; ``None`` slots omitted (VMX-137).
+
+        See ``AggregateVM1.components`` for the arity-independence rationale.
+        """
+        slots: tuple[ComponentVMProto | None, ...] = (
+            self._component1,
+            self._component2,
+        )
+        return [c for c in slots if c is not None]
 
     def _on_construct(self) -> None:
         # On Reconstruct, dispose previous slot instances before overwriting
@@ -213,6 +235,18 @@ class AggregateVM3(Generic[V1, V2, V3], _ComponentVMBase):
     @property
     def component_3(self) -> V3 | None:
         return self._component3
+
+    def components(self) -> list[ComponentVMProto]:
+        """Component slots in declaration order; ``None`` slots omitted (VMX-137).
+
+        See ``AggregateVM1.components`` for the arity-independence rationale.
+        """
+        slots: tuple[ComponentVMProto | None, ...] = (
+            self._component1,
+            self._component2,
+            self._component3,
+        )
+        return [c for c in slots if c is not None]
 
     def _on_construct(self) -> None:
         # On Reconstruct, dispose previous slot instances before overwriting
@@ -314,6 +348,19 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _ComponentVMBase):
     @property
     def component_4(self) -> V4 | None:
         return self._component4
+
+    def components(self) -> list[ComponentVMProto]:
+        """Component slots in declaration order; ``None`` slots omitted (VMX-137).
+
+        See ``AggregateVM1.components`` for the arity-independence rationale.
+        """
+        slots: tuple[ComponentVMProto | None, ...] = (
+            self._component1,
+            self._component2,
+            self._component3,
+            self._component4,
+        )
+        return [c for c in slots if c is not None]
 
     def _on_construct(self) -> None:
         # On Reconstruct, dispose previous slot instances before overwriting
@@ -433,6 +480,20 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _ComponentVMBase):
     @property
     def component_5(self) -> V5 | None:
         return self._component5
+
+    def components(self) -> list[ComponentVMProto]:
+        """Component slots in declaration order; ``None`` slots omitted (VMX-137).
+
+        See ``AggregateVM1.components`` for the arity-independence rationale.
+        """
+        slots: tuple[ComponentVMProto | None, ...] = (
+            self._component1,
+            self._component2,
+            self._component3,
+            self._component4,
+            self._component5,
+        )
+        return [c for c in slots if c is not None]
 
     def _on_construct(self) -> None:
         # On Reconstruct, dispose previous slot instances before overwriting
@@ -573,6 +634,21 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _ComponentVMBase):
     @property
     def component_6(self) -> V6 | None:
         return self._component6
+
+    def components(self) -> list[ComponentVMProto]:
+        """Component slots in declaration order; ``None`` slots omitted (VMX-137).
+
+        See ``AggregateVM1.components`` for the arity-independence rationale.
+        """
+        slots: tuple[ComponentVMProto | None, ...] = (
+            self._component1,
+            self._component2,
+            self._component3,
+            self._component4,
+            self._component5,
+            self._component6,
+        )
+        return [c for c in slots if c is not None]
 
     def _on_construct(self) -> None:
         # On Reconstruct, dispose previous slot instances before overwriting

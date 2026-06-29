@@ -18,6 +18,7 @@ from reactivex.scheduler import TimeoutScheduler
 from vmx import (
     ComponentVM,
     MessageHub,
+    MessageHubProto,
     ObservableList,
     PropertyChangedMessage,
     RxDispatcher,
@@ -39,7 +40,7 @@ class NotificationsVM(ComponentVM):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         notification_hub: INotificationHub,
         scheduler: SchedulerBase | None = None,
@@ -57,7 +58,7 @@ class NotificationsVM(ComponentVM):
 
     # ── Public surface ─────────────────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         return self._hub
 
     @property
@@ -141,7 +142,7 @@ class NotificationsVMBuilder:
 
     _name: str | None = None
     _hint: str = ""
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _notification_hub: INotificationHub | None = None
     _scheduler: SchedulerBase | None = None
@@ -155,7 +156,7 @@ class NotificationsVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> NotificationsVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

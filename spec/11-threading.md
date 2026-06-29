@@ -21,11 +21,17 @@ shares one across all trees).
 
 Each language flavor ships an `RxDispatcher` whose defaults are:
 
-| Language   | Foreground                                                                               | Background                  |
-| ---------- | ---------------------------------------------------------------------------------------- | --------------------------- |
-| C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default` |
-| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`     |
-| TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asapScheduler`             |
+| Language   | Foreground                                                                               | Background                                    |
+| ---------- | ---------------------------------------------------------------------------------------- | --------------------------------------------- |
+| C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default`                   |
+| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                       |
+| TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asapScheduler`                               |
+| Swift      | host-provided Combine `Scheduler` (e.g. `DispatchQueue.main`) — see note                 | host-provided (e.g. `DispatchQueue.global()`) |
+
+> **Swift:** the Swift flavor ships no `RxDispatcher.default()` equivalent yet —
+> the host supplies the Combine foreground/background schedulers explicitly. The
+> shipped presets / `default()` factory are a tracked follow-up (ADR-0036 §2.E,
+> ADR-0037; VMX-118).
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.
@@ -38,14 +44,27 @@ VMs MUST dispatch the following emissions via `IDispatcher.Foreground`:
 - Every `INotifyCollectionChanged.CollectionChanged` event (composites and groups).
 - The `IsCurrent` property change on every child of a composite whose `Current`
   changed.
+- The **terminal** `ConstructionStatusChangedMessage` of a *background*
+  construct/destruct — i.e. the `Constructed` / `Destructed` emission, and the
+  `02-lifecycle.md §2.4` transactional-rollback emission — which the reference
+  implementations marshal onto `IDispatcher.Foreground` rather than publish on the
+  background (pool) thread (VMX-025; see §4).
 
 Implementations MAY achieve this either by:
 
-- Calling `Send` on the hub from the foreground thread (synchronous dispatch); or
-- Calling `Send` on any thread and having the hub's `Messages` observable
-  `.ObserveOn(dispatcher.Foreground)` so subscribers get a foreground-dispatched
-  delivery. The spec does not prescribe which; only that subscribers can opt in
-  via `ObserveOn` and see foreground delivery.
+- **(a)** marshalling the `Send` onto `IDispatcher.Foreground` so the publish
+  itself runs on the foreground thread; or
+- **(b)** calling `Send` on any thread and exposing the hub's `Messages`
+  observable so subscribers can apply `.ObserveOn(dispatcher.Foreground)` and get
+  a foreground-dispatched delivery.
+
+These two options are **not** observationally equivalent: under (b) a subscriber
+that does not apply `ObserveOn` has no thread guarantee. The normative rule is
+therefore: a subscriber is guaranteed foreground delivery only when the
+implementation marshals via (a) **or** the subscriber opts in via `ObserveOn`;
+absent both, no thread guarantee is made (VMX-048). The reference implementations
+marshal background lifecycle completions via (a) (§4), so those terminal-status
+emissions reach subscribers on the foreground thread regardless of `ObserveOn`.
 
 ## 4. Background work
 
@@ -58,6 +77,40 @@ via the hub. Subscribers that need to await completion should subscribe to
 
 With background disabled (the default), `construct()` and `destruct()` run on the
 calling thread and complete before returning.
+
+The background form proceeds in three steps:
+
+1. The **intermediate** transition (`Constructing` / `Destructing`) is emitted
+   synchronously on the calling thread, so subscribers see the transition start
+   immediately.
+1. The `OnConstruct` / `OnDestruct` hook runs on `IDispatcher.Background`.
+1. The **terminal** transition (`Constructed` / `Destructed`) is marshalled onto
+   `IDispatcher.Foreground` (§3, VMX-025) — subscribers observe the completion on
+   the foreground thread, not the pool thread.
+
+Three normative guarantees apply to the background completion:
+
+- **Atomicity / no resurrection.** Each transition runs under the per-VM guard of
+  `02-lifecycle.md §2.3`. If `dispose()` runs while the background work is queued
+  or in flight, the completion observes the terminal `Disposed` state under the
+  guard and aborts — it does not run the hook (when disposed before the hook),
+  does not resurrect the VM, and does not publish a post-dispose status message
+  (VMX-001 / VMX-004; invariant 6).
+- **Concurrent re-invocation.** A second `construct()` / `destruct()` /
+  `reconstruct()` entered while a background transition is in flight is rejected
+  by the in-flight guard and the per-VM primitive (`LIFE-008`; `02-lifecycle.md §2.3`).
+- **Transactional rollback.** If the background hook raises, `Status` is rolled
+  back to the prior settled state (`02-lifecycle.md §2.4`) with the rollback
+  emission marshalled onto `IDispatcher.Foreground`; the in-flight guard is
+  cleared so the VM stays recoverable. The exception is re-thrown on the
+  scheduler but, because the caller has already returned, cannot be redelivered
+  to it.
+
+The await primitive for the background form is the terminal-status subscription
+above; the hub does not replay the last status to a late subscriber. A first-class
+completion/error future (and composite "await all children" orchestration over
+background-enabled children) is C#-only today (`ConstructAsync` /
+`DestructAsync`) and a tracked follow-up for the other flavors (VMX-049).
 
 ## 5. Null variant — `NullDispatcher` (spec v2.0)
 

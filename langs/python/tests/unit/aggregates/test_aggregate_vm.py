@@ -19,12 +19,12 @@ import pytest
 
 from vmx.aggregates.aggregate_vm import AggregateVM3
 from vmx.aggregates.builders import (
-    AggregateVMBuilder1,
-    AggregateVMBuilder2,
-    AggregateVMBuilder3,
-    AggregateVMBuilder4,
-    AggregateVMBuilder5,
-    AggregateVMBuilder6,
+    AggregateVM1Builder,
+    AggregateVM2Builder,
+    AggregateVM3Builder,
+    AggregateVM4Builder,
+    AggregateVM5Builder,
+    AggregateVM6Builder,
 )
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.builders import ComponentVMBuilder
@@ -61,7 +61,7 @@ class TestAggregateVM1Identity:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg-1")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -73,7 +73,7 @@ class TestAggregateVM1Identity:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -85,7 +85,7 @@ class TestAggregateVM1Identity:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .hint("my hint")
             .services(hub, dispatcher)
@@ -98,7 +98,7 @@ class TestAggregateVM1Identity:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -110,7 +110,7 @@ class TestAggregateVM1Identity:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -122,7 +122,7 @@ class TestAggregateVM1Identity:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -141,7 +141,7 @@ class TestAggregateVM1Lifecycle:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -155,7 +155,7 @@ class TestAggregateVM1Lifecycle:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -169,7 +169,7 @@ class TestAggregateVM1Lifecycle:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -183,7 +183,7 @@ class TestAggregateVM1Lifecycle:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -204,7 +204,7 @@ class TestAggregateVM1Lifecycle:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -220,7 +220,7 @@ class TestAggregateVM1Lifecycle:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder1()
+            AggregateVM1Builder()
             .name("agg")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher))
@@ -239,9 +239,9 @@ class TestAggregateVM1Lifecycle:
 # ---------------------------------------------------------------------------
 
 
-class TestAggregateVMBuilder1Validation:
+class TestAggregateVM1BuilderValidation:
     def test_setter_returns_new_instance(self) -> None:
-        b1 = AggregateVMBuilder1()
+        b1 = AggregateVM1Builder()
         b2 = b1.name("agg")
         assert b1 is not b2
         assert b1._name is None
@@ -251,19 +251,19 @@ class TestAggregateVMBuilder1Validation:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         with pytest.raises(BuilderValidationError) as exc_info:
-            AggregateVMBuilder1().services(hub, dispatcher).component_1(lambda: None).build()  # type: ignore[arg-type,return-value]
+            AggregateVM1Builder().services(hub, dispatcher).component_1(lambda: None).build()  # type: ignore[arg-type,return-value]
         assert exc_info.value.missing_field == "name"
 
     def test_missing_hub_raises(self) -> None:
         with pytest.raises(BuilderValidationError) as exc_info:
-            AggregateVMBuilder1().name("agg").component_1(lambda: None).build()  # type: ignore[arg-type,return-value]
+            AggregateVM1Builder().name("agg").component_1(lambda: None).build()  # type: ignore[arg-type,return-value]
         assert exc_info.value.missing_field == "hub"
 
     def test_missing_component_1_raises(self) -> None:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         with pytest.raises(BuilderValidationError) as exc_info:
-            AggregateVMBuilder1().name("agg").services(hub, dispatcher).build()
+            AggregateVM1Builder().name("agg").services(hub, dispatcher).build()
         assert exc_info.value.missing_field == "component_1"
 
 
@@ -277,7 +277,7 @@ class TestAggregateVM2:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder2()
+            AggregateVM2Builder()
             .name("agg2")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -294,7 +294,7 @@ class TestAggregateVM2:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder2()
+            AggregateVM2Builder()
             .name("agg2")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -310,7 +310,7 @@ class TestAggregateVM2:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder2()
+            AggregateVM2Builder()
             .name("agg2")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -326,7 +326,7 @@ class TestAggregateVM2:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder2()
+            AggregateVM2Builder()
             .name("agg2")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -352,7 +352,7 @@ class TestAggregateVM2:
         dispatcher = _make_dispatcher()
         with pytest.raises(BuilderValidationError) as exc_info:
             (
-                AggregateVMBuilder2()
+                AggregateVM2Builder()
                 .name("agg2")
                 .services(hub, dispatcher)
                 .component_1(lambda: _make_child(hub, dispatcher))
@@ -371,7 +371,7 @@ class TestAggregateVM3:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder3()
+            AggregateVM3Builder()
             .name("agg3")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -423,7 +423,7 @@ class TestAggregateVM4:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder4()
+            AggregateVM4Builder()
             .name("agg4")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -445,7 +445,7 @@ class TestAggregateVM5:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder5()
+            AggregateVM5Builder()
             .name("agg5")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -467,7 +467,7 @@ class TestAggregateVM5:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder5()
+            AggregateVM5Builder()
             .name("agg5")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -489,7 +489,7 @@ class TestAggregateVM5:
         hub = _make_hub()
         dispatcher = _make_dispatcher()
         agg = (
-            AggregateVMBuilder5()
+            AggregateVM5Builder()
             .name("agg5")
             .services(hub, dispatcher)
             .component_1(lambda: _make_child(hub, dispatcher, "c1"))
@@ -524,7 +524,7 @@ def test_aggregate_reconstruct_disposes_previous_slot() -> None:
     dispatcher = _make_dispatcher()
 
     agg = (
-        AggregateVMBuilder1()
+        AggregateVM1Builder()
         .name("agg1")
         .services(hub, dispatcher)
         .component_1(lambda: _make_child(hub, dispatcher, "slot1"))
@@ -567,12 +567,12 @@ def test_aggregate_reconstruct_disposes_previous_slot() -> None:
 
 
 _BUILDERS = {
-    1: AggregateVMBuilder1,
-    2: AggregateVMBuilder2,
-    3: AggregateVMBuilder3,
-    4: AggregateVMBuilder4,
-    5: AggregateVMBuilder5,
-    6: AggregateVMBuilder6,
+    1: AggregateVM1Builder,
+    2: AggregateVM2Builder,
+    3: AggregateVM3Builder,
+    4: AggregateVM4Builder,
+    5: AggregateVM5Builder,
+    6: AggregateVM6Builder,
 }
 
 

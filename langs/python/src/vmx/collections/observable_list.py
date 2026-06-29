@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from typing import Generic, TypeVar, overload
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 T = TypeVar("T")
@@ -41,6 +42,7 @@ class ObservableList(Generic[T]):
         self._batch_depth: int = 0
         self._mutated_in_batch: bool = False
         self._count_at_batch_start: int = 0
+        self._disposed: bool = False
 
         # Granular event subjects
         self._added_subject: Subject[tuple[T, int]] = Subject()
@@ -51,31 +53,34 @@ class ObservableList(Generic[T]):
         self._prop_changed_subject: Subject[str] = Subject()
 
     # ── Observable properties ─────────────────────────────────────────────────
+    # Each Subject is sealed behind ``as_observable`` so external subscribers
+    # can only subscribe — never ``on_next``/``dispose`` the internal stream and
+    # corrupt other subscribers (VMX-013).
 
     @property
     def on_item_added(self) -> rx.Observable[tuple[T, int]]:
         """Hot observable: emits ``(item, index)`` on every add/insert."""
-        return self._added_subject
+        return self._added_subject.pipe(ops.as_observable())
 
     @property
     def on_item_removed(self) -> rx.Observable[tuple[T, int]]:
         """Hot observable: emits ``(item, index)`` (index before removal) on remove."""
-        return self._removed_subject
+        return self._removed_subject.pipe(ops.as_observable())
 
     @property
     def on_item_replaced(self) -> rx.Observable[tuple[T, T, int]]:
         """Hot observable: emits ``(new_item, old_item, index)`` on replace."""
-        return self._replaced_subject
+        return self._replaced_subject.pipe(ops.as_observable())
 
     @property
     def on_reset(self) -> rx.Observable[None]:
         """Hot observable: emits ``None`` on clear or batch completion."""
-        return self._reset_subject
+        return self._reset_subject.pipe(ops.as_observable())
 
     @property
     def on_property_changed(self) -> rx.Observable[str]:
         """Hot observable: emits the property name on every property change."""
-        return self._prop_changed_subject
+        return self._prop_changed_subject.pipe(ops.as_observable())
 
     # ── Count / indexing ──────────────────────────────────────────────────────
 
@@ -195,6 +200,27 @@ class ObservableList(Generic[T]):
                 if final_count != self._count_at_batch_start:
                     self._prop_changed_subject.on_next("Count")
 
+    # ── Disposal ──────────────────────────────────────────────────────────────
+
+    def dispose(self) -> None:
+        """Complete and dispose every backing Subject. Idempotent (VMX-096).
+
+        After disposal the list no longer emits; subscribing to the (now
+        completed) streams behaves like any disposed reactivex Subject.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
+        for subject in (
+            self._added_subject,
+            self._removed_subject,
+            self._replaced_subject,
+            self._reset_subject,
+            self._prop_changed_subject,
+        ):
+            subject.on_completed()
+            subject.dispose()
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _on_added(self, item: T, index: int) -> None:
@@ -223,3 +249,72 @@ class ObservableList(Generic[T]):
             self._mutated_in_batch = True
             return
         self._reset_subject.on_next(None)
+
+
+class ReadOnlyObservableList(Generic[T]):
+    """Read-only facade over an :class:`ObservableList`.
+
+    Exposes the query surface (``count``, length, iteration, indexing,
+    containment) and the granular observable streams, but **none** of the
+    mutation methods. A consumer handed this view can observe the list but
+    cannot mutate it — so it cannot desync state the owner maintains in lockstep
+    (VMX-014). The view reads through to the live source, so it always reflects
+    the current contents.
+    """
+
+    __slots__ = ("_source",)
+
+    def __init__(self, source: ObservableList[T]) -> None:
+        self._source = source
+
+    # ── Query surface ─────────────────────────────────────────────────────────
+
+    @property
+    def count(self) -> int:
+        """Number of items currently in the underlying list."""
+        return self._source.count
+
+    def __len__(self) -> int:
+        return len(self._source)
+
+    def __iter__(self) -> Iterator[T]:
+        return iter(self._source)
+
+    @overload
+    def __getitem__(self, index: int) -> T: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[T]: ...
+
+    def __getitem__(self, index: int | slice) -> T | list[T]:
+        return self._source[index]
+
+    def __contains__(self, item: object) -> bool:
+        return any(item == existing for existing in self._source)
+
+    # ── Observable surface (delegated; already sealed by the source) ───────────
+
+    @property
+    def on_item_added(self) -> rx.Observable[tuple[T, int]]:
+        """Hot observable: emits ``(item, index)`` on every add/insert."""
+        return self._source.on_item_added
+
+    @property
+    def on_item_removed(self) -> rx.Observable[tuple[T, int]]:
+        """Hot observable: emits ``(item, index)`` on every remove."""
+        return self._source.on_item_removed
+
+    @property
+    def on_item_replaced(self) -> rx.Observable[tuple[T, T, int]]:
+        """Hot observable: emits ``(new_item, old_item, index)`` on replace."""
+        return self._source.on_item_replaced
+
+    @property
+    def on_reset(self) -> rx.Observable[None]:
+        """Hot observable: emits ``None`` on clear or batch completion."""
+        return self._source.on_reset
+
+    @property
+    def on_property_changed(self) -> rx.Observable[str]:
+        """Hot observable: emits the property name on every property change."""
+        return self._source.on_property_changed

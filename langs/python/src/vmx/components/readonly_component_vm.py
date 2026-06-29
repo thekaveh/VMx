@@ -14,7 +14,7 @@ from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 M = TypeVar("M")
 
@@ -35,7 +35,7 @@ class ReadonlyComponentVMOf(Generic[M], _ComponentVMBase):
         hint: str,
         model: M,
         modeled_hinter: Callable[[M], str],
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,

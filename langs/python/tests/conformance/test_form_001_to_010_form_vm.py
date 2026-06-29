@@ -5,6 +5,7 @@ Per spec/20-form-vm.md and ADR-0030.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from typing import Any
 
@@ -323,3 +324,43 @@ async def test_FORM_014_disposed_form_is_inert() -> None:
 
     assert persisted == [], "persister must not run on a disposed form"
     assert sut.model == _Model("Bob", 2), "deny must not revert a disposed form"
+
+
+# ---------------------------------------------------------------------------
+# FORM-015 — ApproveCommand surfaces persister failure on approve_errors
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("FORM-015")
+async def test_form_015_approve_command_surfaces_persister_error() -> None:
+    """FORM-015: a persister failure on the fire-and-forget command path is
+    surfaced on ``approve_errors`` (not swallowed); no state is mutated and
+    ``on_approved`` does not fire (spec/20 §2/§7, ADR-0048)."""
+    boom = RuntimeError("persist failed")
+    initial = _Model("Alice", 1)
+
+    async def failing_persister(m: _Model) -> None:
+        raise boom
+
+    sut: FormVM[_Model] = FormVM(initial, failing_persister)
+    errors: list[BaseException] = []
+    approved: list[_Model] = []
+    err_sub = sut.approve_errors.subscribe(errors.append)
+    appr_sub = sut.on_approved.subscribe(approved.append)
+
+    sut.set_model(_Model("Bob", 2))
+
+    sut.approve_command.execute()  # fire-and-forget command path
+    # Let the scheduled task + its done-callback run.
+    for _ in range(5):
+        await asyncio.sleep(0)
+        if errors:
+            break
+
+    assert errors == [boom], "persister error surfaced on approve_errors, not swallowed"
+    assert sut.is_dirty is True, "a failed persist must not advance the snapshot"
+    assert sut.snapshot == initial, "snapshot unchanged after a failed persist"
+    assert approved == [], "on_approved must not fire on a failed persist"
+
+    err_sub.dispose()
+    appr_sub.dispose()

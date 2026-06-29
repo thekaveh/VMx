@@ -18,7 +18,7 @@ from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 M = TypeVar("M")
 
@@ -39,7 +39,7 @@ class ComponentVMBuilder:
 
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
@@ -55,7 +55,7 @@ class ComponentVMBuilder:
         """Set the optional ``hint`` field (default: empty string)."""
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> ComponentVMBuilder:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> ComponentVMBuilder:
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
@@ -83,14 +83,10 @@ class ComponentVMBuilder:
         from vmx.services.null_dispatcher import NULL_DISPATCHER
         from vmx.services.null_message_hub import NULL_MESSAGE_HUB
 
-        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017). It is
-        # typed as ``MessageHubProto[Message]`` (the structural protocol) while
-        # the ``services`` setter is typed against the concrete
-        # ``MessageHub[Message]`` for ergonomic reasons; the protocol fully
-        # satisfies the surface so the cast is sound. C# erases generics so
-        # the equivalent there compiles without explicit casting.
-        hub: MessageHub[Message] = NULL_MESSAGE_HUB  # type: ignore[assignment]
-        return self.services(hub, NULL_DISPATCHER)
+        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017), typed as
+        # ``MessageHubProto[Message]`` — the same structural protocol the
+        # ``services`` setter now accepts (VMX-015), so no cast is required.
+        return self.services(NULL_MESSAGE_HUB, NULL_DISPATCHER)
 
     # ── Build ────────────────────────────────────────────────────────────────
 
@@ -132,7 +128,7 @@ class ComponentVMOfBuilder(Generic[M]):
     _hint: str = dataclasses.field(default="")
     _model: object = dataclasses.field(default=_SENTINEL)
     _model_set: bool = dataclasses.field(default=False)
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _modeled_hinter: Callable[[M], str] | None = dataclasses.field(default=None)
     _on_model_changed: Callable[[M], None] | None = dataclasses.field(default=None)
@@ -152,7 +148,9 @@ class ComponentVMOfBuilder(Generic[M]):
     def model(self, value: M) -> ComponentVMOfBuilder[M]:
         return dataclasses.replace(self, _model=value, _model_set=True)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> ComponentVMOfBuilder[M]:
+    def services(
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
+    ) -> ComponentVMOfBuilder[M]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def modeled_hinter(self, hinter: Callable[[M], str]) -> ComponentVMOfBuilder[M]:
@@ -185,14 +183,10 @@ class ComponentVMOfBuilder(Generic[M]):
         from vmx.services.null_dispatcher import NULL_DISPATCHER
         from vmx.services.null_message_hub import NULL_MESSAGE_HUB
 
-        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017). It is
-        # typed as ``MessageHubProto[Message]`` (the structural protocol) while
-        # the ``services`` setter is typed against the concrete
-        # ``MessageHub[Message]`` for ergonomic reasons; the protocol fully
-        # satisfies the surface so the cast is sound. C# erases generics so
-        # the equivalent there compiles without explicit casting.
-        hub: MessageHub[Message] = NULL_MESSAGE_HUB  # type: ignore[assignment]
-        return self.services(hub, NULL_DISPATCHER)
+        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017), typed as
+        # ``MessageHubProto[Message]`` — the same structural protocol the
+        # ``services`` setter now accepts (VMX-015), so no cast is required.
+        return self.services(NULL_MESSAGE_HUB, NULL_DISPATCHER)
 
     # ── Build ────────────────────────────────────────────────────────────────
 
@@ -248,7 +242,7 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
     _hint: str = dataclasses.field(default="")
     _model: object = dataclasses.field(default=_SENTINEL)
     _model_set: bool = dataclasses.field(default=False)
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _modeled_hinter: Callable[[M], str] | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
@@ -267,7 +261,7 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
         return dataclasses.replace(self, _model=value, _model_set=True)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> ReadonlyComponentVMOfBuilder[M]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
@@ -292,14 +286,10 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
         from vmx.services.null_dispatcher import NULL_DISPATCHER
         from vmx.services.null_message_hub import NULL_MESSAGE_HUB
 
-        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017). It is
-        # typed as ``MessageHubProto[Message]`` (the structural protocol) while
-        # the ``services`` setter is typed against the concrete
-        # ``MessageHub[Message]`` for ergonomic reasons; the protocol fully
-        # satisfies the surface so the cast is sound. C# erases generics so
-        # the equivalent there compiles without explicit casting.
-        hub: MessageHub[Message] = NULL_MESSAGE_HUB  # type: ignore[assignment]
-        return self.services(hub, NULL_DISPATCHER)
+        # NULL_MESSAGE_HUB is the spec-mandated singleton (ADR-0017), typed as
+        # ``MessageHubProto[Message]`` — the same structural protocol the
+        # ``services`` setter now accepts (VMX-015), so no cast is required.
+        return self.services(NULL_MESSAGE_HUB, NULL_DISPATCHER)
 
     # ── Build ────────────────────────────────────────────────────────────────
 

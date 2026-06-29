@@ -528,4 +528,41 @@ public class CompositeVMConformanceTests
 
         observed2.Should().Equal(a2);
     }
+
+    // ── COMP-027 — Add sets child Parent; Remove clears it ───────────────────
+
+    /// <summary>
+    /// COMP-027: Adding a child to a Constructed composite sets the child's internal
+    /// Parent back-reference (the child becomes selectable and Select() delegates
+    /// through it); removing the child clears Parent (no longer selectable, Select()
+    /// is a no-op). Parent is not observable, so the wiring is asserted through the
+    /// public selection surface. See spec/05 §6.1, spec/01 §1.3, and ADR-0050.
+    /// </summary>
+    [Fact, Trait("Conformance", "COMP-027")]
+    public void COMP_027_Add_Sets_Parent_Remove_Clears_It()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        composite.Construct();
+
+        var child = BuildChild(hub, dispatcher, "c");
+        child.Construct();
+
+        // No parent yet → not selectable.
+        child.CanSelect().Should().BeFalse("a VM with no Parent is not selectable");
+
+        // Add wires Parent → selectable, and Select() delegates through it.
+        composite.Add(child);
+        child.CanSelect().Should().BeTrue("Add set the child's Parent to the composite");
+        child.Select();
+        composite.Current.Should().BeSameAs(child);
+        child.IsCurrent.Should().BeTrue();
+
+        // Deselect, then remove: Remove clears Parent → not selectable, Select() no-op.
+        child.Deselect();
+        composite.Current.Should().BeNull();
+        composite.Remove(child).Should().BeTrue();
+        child.CanSelect().Should().BeFalse("Remove cleared the child's Parent");
+        child.Select(); // no-op: Parent is null
+        composite.Current.Should().BeNull("a parentless child's Select() is a no-op");
+    }
 }

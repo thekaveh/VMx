@@ -68,6 +68,14 @@ export function finalState(
   if (row === undefined || !row.legal || row.to_final === null) {
     throw new StatusTransitionError(current, operation);
   }
-  const key = row.to_final as keyof typeof ConstructionStatus;
-  return ConstructionStatus[key];
+  // VMX-091: validate that the fixture's `to_final` names a real
+  // ConstructionStatus member before indexing. Without this guard a fixture
+  // typo (e.g. "Constructd") would index to `undefined` typed — unsoundly — as
+  // ConstructionStatus and flow on into `_setStatus`. `in` checks membership at
+  // runtime so the cast below is sound for a verified forward enum name.
+  const key = row.to_final;
+  if (!(key in ConstructionStatus)) {
+    throw new StatusTransitionError(current, operation);
+  }
+  return ConstructionStatus[key as keyof typeof ConstructionStatus];
 }

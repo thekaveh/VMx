@@ -171,6 +171,22 @@ each child itself a container with grand-children all `Constructed`
 **Then** when it returns, every child and every grand-child has `Status == Disposed`
 **And** the disposal order is depth-first (grand-children before children before parent)
 
+### LIFE-014 — A throwing construct/destruct hook rolls Status back (transactional)
+
+**Given** a VM whose `OnConstruct` (`_on_construct` / `_onConstruct`) hook raises
+**When** `construct()` is called
+**Then** the call propagates the hook's exception
+**And** `vm.Status` is `Destructed` (rolled back from the transient `Constructing`),
+not `Constructing`
+**And** the VM is recoverable: a subsequent `construct()` with a non-throwing hook
+reaches `Constructed`
+**And** symmetrically, for a VM in `Constructed` whose `OnDestruct` hook raises,
+`destruct()` propagates the exception, `vm.Status` rolls back to `Constructed`
+(not `Destructing`), and a subsequent `destruct()` with a non-throwing hook reaches
+`Destructed`
+
+> Normatively defined in `02-lifecycle.md §2.4`.
+
 ______________________________________________________________________
 
 ## 4. Message hub (`HUB-NNN`)
@@ -348,6 +364,21 @@ i.e., `cmd.Execute()` is invoked before `other.Execute()` when both are executab
 constructor takes `(inner, preExecute, postExecute, extraPredicate)`) —
 including the case where all three arguments are null/absent, which yields a
 transparent decorator
+
+### CMD-012 — `AsyncRelayCommand.Cancel()` cancels an in-flight async task, non-throwing by default
+
+**Given** an `AsyncRelayCommand` built with a long-running cancellable async task
+**And** the task has started (an execution is in flight)
+**When** `command.Cancel()` is called and the awaited `ExecuteAsync` completes
+**Then** the awaited execution completes **without** surfacing a cancellation
+exception (non-throwing default, aligned with `DIA-007`)
+**And** the command returns to a non-executing state — `IsExecuting` is `false`
+and `CanExecute` returns `true`
+**And** while the task was in flight `CanExecute` returned `false` (the command
+cannot double-run)
+
+> Spec: `04-commands.md §10`, ADR-0056. Full-parity (C#/Python/TypeScript) only —
+> Swift does not ship `AsyncRelayCommand` (ADR-0037 subset).
 
 ______________________________________________________________________
 
@@ -1087,7 +1118,7 @@ ______________________________________________________________________
 ## 18. Command decorators (`CMDD-NNN`) — spec v2.0
 
 Each CMDD-NNN test verifies behaviour of the three decorators added in
-spec/04-commands.md §Decorators.
+spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -1157,6 +1188,20 @@ delegate that resolves `true`
 no extra predicate)
 **When** `dec.Execute()` is called and awaited
 **Then** `relay` records exactly one invocation
+
+### CMDD-010 — ConfirmationDecoratorCommand surfaces fire-and-forget errors on `errors`
+
+Per spec/04-commands.md §8.3.1 and ADR-0049. Full-parity in every flavor that
+ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript); Swift does not
+ship the command decorators.
+
+**Given** a `ConfirmationDecoratorCommand` wrapping `inner`, and a subscriber to its
+`errors` observable
+**When** the fire-and-forget `Execute()` runs with a `confirm` delegate that
+rejects/raises
+**Then** the subscriber observes that exception on `errors` (it is NOT swallowed)
+**And** when instead `confirm` resolves `true` and `inner.Execute()` throws, the
+subscriber observes the inner exception on `errors`
 
 ______________________________________________________________________
 
@@ -1418,6 +1463,21 @@ after `construct()` returns `composite.Current` is `null` and no
 `.Current(xs => xs.First())` and `.OnCurrentChanged(vm => observed.Add(vm))`,
 after `construct()` returns `observed` equals `[a]` (exactly one invocation
 from the initial-selector assignment)
+
+### COMP-027 — Adding a child sets its `Parent`; removing clears it
+
+**Given** a `Constructed` `CompositeVM<VM>` `composite` and a separately-built,
+`Constructed` child `c` that has not yet been added to any container
+**Then** `c.can_select()` is `false` (a VM with no `Parent` is not selectable)
+**When** `composite.Add(c)` is called
+**Then** `c.can_select()` is `true` (the container set `c`'s `Parent` to itself on add,
+and `c` is `Constructed` and not yet `Current`)
+**And** `c.select()` makes `composite.Current` equal `c` and `c.IsCurrent` `true`
+(the predicate and `select()` delegate through the newly-wired `Parent`)
+**When** `c.deselect()` then `composite.Remove(c)` are called
+**Then** `c.can_select()` is `false` again (removal cleared `c`'s `Parent` to `null`)
+**And** a subsequent `c.select()` is a no-op — `composite.Current` stays `null` —
+because `c` no longer has a `Parent` to delegate to
 
 ______________________________________________________________________
 
@@ -2029,11 +2089,15 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
 **Then** `IsDirty == true`
 
-**Note** (v2.5.0, ADR-0037): structural equality is evaluated by each
-flavor's chapter 20 §4 mechanism. TypeScript's `JSON.stringify` comparison
-is key-order sensitive, so in TypeScript the equal-values guarantee is
-scoped to same-key-order objects (see chapter 20 §4 for the caveat and the
-custom-snapshotter escape hatch).
+**Note** (v3, ADR-0048; supersedes the ADR-0037 caveat): structural equality is
+evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals` (C#),
+`__eq__` (Python), and an injectable structural deep-equal (TypeScript, default).
+The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
+crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
+and handles `Date`/`Map`/`Set`/`BigInt`/circular references, so the equal-values
+guarantee now holds unconditionally in all three flavors. Consumers needing
+field-subset or reference semantics inject a custom `equals` (TypeScript) or define
+their model's own equality (C#/Python).
 
 ### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
 
@@ -2058,7 +2122,10 @@ custom-snapshotter escape hatch).
 **Given** a `FormVM<TM>` with a subscriber to `OnApproved`
 **And** `Model` has been updated to `m1`
 **When** `ApproveAsync()` is awaited and the persister succeeds
-**Then** `OnApproved` fires exactly once with a value equal to `m1`
+**Then** `OnApproved` fires exactly once with the persisted value — the model
+captured before the persister await (`m1`), uniform across flavors (chapter 20 §7;
+a `SetModel` racing the in-flight persist does not change the emitted value —
+ADR-0048)
 
 **Given** a persister that throws an exception
 **When** `ApproveAsync()` is awaited
@@ -2137,7 +2204,7 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
 **When** `.Build()` is called
 **Then** `form.Hub == NullMessageHub` (singleton equivalent for the flavor)
-**And** `form.Snapshot == m0` (the default snapshotter shallow-copies)
+**And** `form.Snapshot == m0` (the default snapshotter deep-copies — chapter 20 §3)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
 
@@ -2153,6 +2220,21 @@ approve entry point) and `DenyCommand` are executed
 
 *(Added in v2.5.0 via ADR-0038 — the guards shipped as v2.5.0 maintenance;
 this ID pins them normatively.)*
+
+### FORM-015 — `ApproveCommand` surfaces persister failure on `ApproveErrors`
+
+**Given** a `FormVM<TM>` whose persister rejects/throws an error `e`
+**And** a subscriber to `ApproveErrors`
+**And** `Model` has been updated to `m1` (so `IsDirty == true`)
+**When** `ApproveCommand.Execute()` is invoked (the fire-and-forget command path)
+**Then** the error `e` is emitted on `ApproveErrors` (it is not swallowed with the
+discarded faulted task)
+**And** no state is mutated: `Snapshot` is unchanged and `IsDirty` is still `true`
+**And** `OnApproved` does not fire
+
+*(Added in v3 via ADR-0048. The awaitable `ApproveAsync()` path keeps its
+throw-to-the-awaiter behavior — FORM-007 — and emits nothing on `ApproveErrors`;
+this ID pins the command-path error channel, chapter 20 §2/§7.)*
 
 ## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 

@@ -177,7 +177,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#requireKeys(key1, key2);
     const token = serializeKey(key1, key2);
     if (this.#data.has(token)) {
-      const oldValue = this.#data.get(token) as TValue;
+      const oldValue = this.#valueAt(token);
       this.#data.set(token, value);
       // 1. Local granular event first.
       this.#itemReplaced.next({ key1, key2, newValue: value, oldValue });
@@ -221,7 +221,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     const token = serializeKey(key1, key2);
     if (!this.#data.has(token)) return false;
 
-    const value = this.#data.get(token) as TValue;
+    const value = this.#valueAt(token);
     this.#data.delete(token);
     this.#keyPairs.delete(token);
     this.#keyOrder.splice(this.#keyOrder.indexOf(token), 1);
@@ -317,8 +317,29 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     return {
       next(): IteratorResult<[TKey1, TKey2, TValue]> {
         if (index >= keyOrder.length) return { done: true, value: undefined };
-        const token = keyOrder[index++] as string;
-        const pair = keyPairs.get(token) as [TKey1, TKey2];
+        const token = keyOrder[index++];
+        // VMX-090: #keyOrder, #data and #keyPairs are kept in sync. Surface any
+        // desync loudly rather than letting an `as` cast pass `undefined` off
+        // as a valid token / pair / value.
+        if (token === undefined) {
+          throw new Error(
+            "ObservableDictionary invariant violated: missing key token",
+          );
+        }
+        const pair = keyPairs.get(token);
+        if (pair === undefined) {
+          throw new Error(
+            `ObservableDictionary invariant violated: no key pair for token`,
+          );
+        }
+        if (!data.has(token)) {
+          throw new Error(
+            `ObservableDictionary invariant violated: no value for token`,
+          );
+        }
+        // The cast is now the single localized narrowing — TValue may itself
+        // legitimately include `undefined`, so `has()` (not `!== undefined`) is
+        // the membership oracle.
         const v = data.get(token) as TValue;
         return { done: false, value: [pair[0], pair[1], v] };
       },
@@ -329,6 +350,23 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────────
+
+  /**
+   * VMX-090: localized value accessor for a token the caller has already
+   * confirmed present. The backing maps are kept in sync, so a token in #data
+   * has a value; this re-asserts that invariant loudly instead of silently
+   * casting a `Map.get` miss to TValue. The single `as TValue` here is
+   * unavoidable because TValue may itself include `undefined` — `has()` is the
+   * membership oracle, not `!== undefined`.
+   */
+  #valueAt(token: string): TValue {
+    if (!this.#data.has(token)) {
+      throw new Error(
+        "ObservableDictionary invariant violated: no value for token",
+      );
+    }
+    return this.#data.get(token) as TValue;
+  }
 
   #internalAdd(
     token: string,

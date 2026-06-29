@@ -38,8 +38,8 @@ open class AggregateVM5<
 
     open override var type: ViewModelType { .aggregate }
 
-    open override func _onConstruct() {
-        super._onConstruct()
+    open override func _onConstruct() throws {
+        try super._onConstruct()
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
         component5?.dispose()
@@ -58,14 +58,14 @@ open class AggregateVM5<
         let c5 = factory5(); component5 = c5
         hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component5"))
         _raisePropertyChanged("component5")
-        c1.construct(); c2.construct(); c3.construct(); c4.construct(); c5.construct()
+        try c1.construct(); try c2.construct(); try c3.construct(); try c4.construct(); try c5.construct()
     }
 
-    open override func _onDestruct() {
-        component1?.destruct(); component2?.destruct()
-        component3?.destruct(); component4?.destruct()
-        component5?.destruct()
-        super._onDestruct()
+    open override func _onDestruct() throws {
+        try component1?.destruct(); try component2?.destruct()
+        try component3?.destruct(); try component4?.destruct()
+        try component5?.destruct()
+        try super._onDestruct()
     }
 
     open override func dispose() {

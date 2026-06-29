@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterable
 from typing import Generic, TypeVar
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.capabilities.pageable import Pageable
@@ -177,8 +178,13 @@ class PagedComposition(Pageable, Generic[TVM]):
 
     @property
     def on_property_changed(self) -> rx.Observable[str]:
-        """Observable that emits property names when they change."""
-        return self._prop_changed
+        """Observable that emits property names when they change.
+
+        The backing Subject is sealed behind ``as_observable`` so external
+        subscribers can only subscribe — never ``on_next``/``dispose`` the
+        internal stream (VMX-013).
+        """
+        return self._prop_changed.pipe(ops.as_observable())
 
     # ── Disposal ──────────────────────────────────────────────────────────────
 

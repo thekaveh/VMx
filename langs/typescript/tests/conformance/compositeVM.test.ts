@@ -703,3 +703,41 @@ describe("COMP-026", () => {
     expect(observed2).toEqual([children2[0]]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// COMP-027 — Add sets a child's Parent; Remove clears it
+// ---------------------------------------------------------------------------
+
+describe("COMP-027", () => {
+  it("Add sets a child's parent (selectable + select() delegates); Remove clears it", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => [] as ComponentVM[])
+      .build();
+    composite.construct();
+
+    const child = makeChild(hub, "c");
+    child.construct();
+
+    // No parent yet → not selectable.
+    expect(child.canSelect()).toBe(false);
+
+    // Add wires parent → selectable, and select() delegates through it.
+    composite.add(child);
+    expect(child.canSelect()).toBe(true);
+    child.select();
+    expect(composite.current).toBe(child);
+    expect(child.isCurrent).toBe(true);
+
+    // Deselect, then remove: Remove clears parent → not selectable, select() no-op.
+    child.deselect();
+    expect(composite.current).toBeNull();
+    expect(composite.remove(child)).toBe(true);
+    expect(child.canSelect()).toBe(false);
+    child.select(); // no-op: parent is null
+    expect(composite.current).toBeNull();
+  });
+});

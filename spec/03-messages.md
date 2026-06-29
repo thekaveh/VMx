@@ -11,18 +11,29 @@ Every message implements `IMessage` (rendered per language as `Message`):
 ```
 IMessage:
     SenderName : string
-    SenderObject : object
+    Sender : object
 ```
 
-Strongly-typed senders are exposed via `IMessage<TSender>`:
+Strongly-typed senders narrow `Sender` via `IMessage<TSender>`:
 
 ```
 IMessage<TSender> : IMessage:
     Sender : TSender
 ```
 
-`SenderName` typically equals `Sender.Name`. `SenderObject` is the runtime sender
-without compile-time type information (used by polymorphic subscribers).
+`SenderName` typically equals `Sender.Name`. `Sender` is the runtime sender
+instance — the **single canonical sender field** in every flavor (ADR-0006).
+On the untyped base it carries no compile-time type information (`object` /
+`unknown`, for polymorphic subscribers); `IMessage<TSender>` narrows it to the
+concrete `TSender`.
+
+TypeScript exposes `Sender` as its sole sender field as of v3.0.0, having
+removed an earlier redundant untyped alias (ADR-0054). C#, Python, and Swift
+additionally retain a deprecated untyped alias on the base message
+(`IMessage.SenderObject`, `Message.sender_object`, `Message.senderObject`)
+for source compatibility; that alias returns the same instance as `Sender`
+and is slated for removal at each of those flavors' next major. The canonical
+accessor across all four flavors is `Sender`.
 
 ## 2. Concrete message types
 
@@ -146,18 +157,24 @@ tests; a stand-in when the hub injection chain is being torn down.
 
 The null variant is conformance-tested by `NULL-001`.
 
-## 7. Convenience helpers (spec v2.1, informative)
+## 7. Convenience helpers (informative)
 
-Each flavor ships a small `PropertyValueChangedMessagesFor` (or per-flavor analog)
-helper over the hub. Instead of filtering the full message stream and projecting the
-property value manually, the helper returns `IObservable<TProperty>` (or equivalent)
-directly by:
+Each flavor ships two small helpers over the hub for the single most common cross-VM
+subscription pattern — observing one property of one *specific* sender. Both are
+**informative**: neither carries a conformance ID, because the underlying `Messages`
+stream (§3) is the conformance-tested contract (ADR-0032). They differ only in what
+they emit — the property *value* versus the matching *message*.
+
+### 7.1 `PropertyValueChangedMessagesFor` — project the value (spec v2.1)
+
+Instead of filtering the full message stream and projecting the property value
+manually, this helper returns `IObservable<TProperty>` (or equivalent) directly by:
 
 1. Filtering `Messages` to `PropertyChangedMessage` instances whose sender is
    reference-equal to the given object and whose `PropertyName` matches.
 1. Snapshotting the current property value from the sender at delivery time.
 
-Per-flavor names and shapes (all informative — no conformance IDs):
+Per-flavor names and shapes:
 
 | Flavor     | Name                                  | Entry point                             |
 | ---------- | ------------------------------------- | --------------------------------------- |
@@ -166,6 +183,40 @@ Per-flavor names and shapes (all informative — no conformance IDs):
 | TypeScript | `propertyValueChangedMessagesFor`     | Named export from `src/messages`        |
 
 See ADR-0032 for the rationale and full per-flavor signature table.
+
+### 7.2 `whenPropertyChanged` — observe the message (spec v3)
+
+`whenPropertyChanged(hub, sender, propertyName)` is the **canonical typed primitive
+for a cross-VM subscription**. It returns the stream of `PropertyChangedMessage`
+events published to `hub` by a *specific* `sender` for a *specific* property,
+replacing the hand-wired filter —
+`Messages.OfType<PropertyChangedMessage<…>>().Where(m => ReferenceEquals(m.SenderObject, sender) && m.PropertyName == p)`
+— that flagship apps otherwise copy-paste into every binding (VMX-017). The helper:
+
+1. Filters `Messages` to `PropertyChangedMessage` instances whose runtime sender is
+   reference-equal (identity) to `sender` and whose `PropertyName` equals
+   `propertyName` by exact string match (idiomatic-cased per ADR-0006 — the
+   subscriber passes the property name in its own flavor's idiom).
+1. Emits the matching **message** itself (not the projected value), so the subscriber
+   may read whatever state it needs from the sender at delivery time. Prefer §7.1
+   when only the property value is wanted.
+
+The C# helper matches across the covariant `IPropertyChangedMessage<TSender>`, so a
+message published under any concrete sender generic argument is captured; sender
+identity is always compared by reference, never by value. Null arguments raise.
+
+Per-flavor names and shapes:
+
+| Flavor     | Name                    | Entry point                             |
+| ---------- | ----------------------- | --------------------------------------- |
+| C#         | `WhenPropertyChanged`   | Extension method on `IMessageHub`       |
+| Python     | `when_property_changed` | Module-level function in `vmx.messages` |
+| TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        |
+
+Like §7.1 the helper is informative (no conformance ID); each full-parity flavor
+covers it with a unit test (`WhenPropertyChangedTests` /
+`test_when_property_changed` / `whenPropertyChanged.test.ts`). See ADR-0050 for the
+rationale.
 
 ## 8. Conformance
 

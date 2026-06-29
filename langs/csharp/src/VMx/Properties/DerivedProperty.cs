@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 
@@ -13,7 +14,13 @@ public sealed class DerivedProperty<TValue> : IDisposable
     private readonly IDisposable _subscription;
     private readonly Func<TValue, bool>? _canSet;
     private readonly Action<TValue>? _setAction;
-    private TValue _value = default!;
+
+    // No initial value until a source emits. [MaybeNull] is the honest annotation
+    // for an unconstrained generic field that is legitimately default/null before
+    // first emission — reads are gated by _hasValue (see the Value getter), so the
+    // single `!` there is a guarded assertion, not a blanket `default!` suppression.
+    [MaybeNull]
+    private TValue _value;
     private bool _hasValue;
     private bool _disposed;
 
@@ -35,7 +42,8 @@ public sealed class DerivedProperty<TValue> : IDisposable
             _hasValue = true;
             return;
         }
-        if (EqualityComparer<TValue>.Default.Equals(v, _value)) return;
+        // _value is non-null here: _hasValue is true so OnNext has stored a prior emission.
+        if (EqualityComparer<TValue>.Default.Equals(v, _value!)) return;
         _value = v;
         _changes.OnNext(v);
     }
@@ -47,7 +55,7 @@ public sealed class DerivedProperty<TValue> : IDisposable
         {
             if (!_hasValue)
                 throw new InvalidOperationException("Derived property has no value yet — no source has emitted.");
-            return _value;
+            return _value!;
         }
     }
 

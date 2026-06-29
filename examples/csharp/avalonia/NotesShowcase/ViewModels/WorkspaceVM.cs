@@ -39,6 +39,14 @@ public sealed class WorkspaceVM : IDisposable
         NotebooksRootVM, NotesViewVM, NoteFormVM,
         StatusBarVM, NotificationsVM, CapabilityActionsVM> _agg;
 
+    // VMX-129: the theme seam is a workspace-owned sibling of the six aggregate
+    // children. Composing it as a seventh aggregate child would require an
+    // AggregateVM7 in the core library (out of scope per ADR-0058); instead it
+    // is held directly and lifecycle-driven alongside the inner aggregate. It
+    // shares the workspace hub + dispatcher so its ThemeChangedMessage rides
+    // the same bus, and the view binds the Avalonia ThemeAdapter to it.
+    private readonly ThemeVM _theme;
+
     // Round-3 Critical-2: subscription that rebinds NoteForm whenever
     // NotesView.Current changes (e.g. user clicks a different note in the
     // list). Without this the right-pane editor stays empty in the running
@@ -71,6 +79,12 @@ public sealed class WorkspaceVM : IDisposable
     public NotificationsVM Notifications => _agg.Component5!;
     /// <summary>Capability actions (Component6).</summary>
     public CapabilityActionsVM CapabilityActions => _agg.Component6!;
+    /// <summary>
+    /// Theme seam (THEME-001..005). Workspace-owned, not an aggregate child —
+    /// the view binds <c>ThemeAdapter</c> to it at composition time so the
+    /// scenario is exercised in the running app (VMX-129).
+    /// </summary>
+    public ThemeVM Theme => _theme;
 
     /// <summary>Public hub accessor.</summary>
     public IMessageHub Hub => _hub;
@@ -162,6 +176,11 @@ public sealed class WorkspaceVM : IDisposable
             .Component6(() => capabilities)
             .Build();
 
+        // VMX-129: build the workspace-owned theme seam on the shared services.
+        _theme = ThemeVM.Builder()
+            .Name("theme").Services(hub, dispatcher)
+            .Build();
+
         // Round-3 Critical-2: when the user selects a note in the centre
         // pane, rebind the right-pane editor so it shows the selected note's
         // fields. NotesListView two-way binds SelectedItem={Binding Current}
@@ -180,10 +199,10 @@ public sealed class WorkspaceVM : IDisposable
         // is set from XAML TwoWay binding (already UI-thread) so this is
         // defensive, but it brings parity with the foreground-marshalling
         // pattern the spec requires for PropertyChanged delivery (THR-001).
-        _currentNoteSubscription = notesView.Hub.Messages
-            .OfType<PropertyChangedMessage<IComponentVM>>()
-            .Where(m => ReferenceEquals(m.Sender, notesView)
-                && string.Equals(m.PropertyName, nameof(NotesViewVM.Current), StringComparison.Ordinal))
+        // VMX-017: the typed `WhenPropertyChanged` hub helper replaces the
+        // hand-rolled OfType/Where(ReferenceEquals + PropertyName) filter.
+        _currentNoteSubscription = notesView.Hub
+            .WhenPropertyChanged(notesView, nameof(NotesViewVM.Current))
             .ObserveOn(_dispatcher.Foreground)
             .Subscribe(_ =>
             {
@@ -202,10 +221,8 @@ public sealed class WorkspaceVM : IDisposable
         // pattern for notebook selection — the tree's TwoWay SelectedItem
         // binding sets NotebooksRoot.Current, and everything downstream
         // (focus, capability projection, notes rebind) flows from here.
-        _notebookSubscription = notebooks.Hub.Messages
-            .OfType<PropertyChangedMessage<IComponentVM>>()
-            .Where(m => ReferenceEquals(m.Sender, notebooks)
-                && string.Equals(m.PropertyName, nameof(NotebooksRootVM.Current), StringComparison.Ordinal))
+        _notebookSubscription = notebooks.Hub
+            .WhenPropertyChanged(notebooks, nameof(NotebooksRootVM.Current))
             .ObserveOn(_dispatcher.Foreground)
             .Subscribe(msg =>
             {
@@ -290,7 +307,11 @@ public sealed class WorkspaceVM : IDisposable
     }
 
     /// <summary>Synchronous construct — synchronous OnConstruct cascade.</summary>
-    public void Construct() => _agg.Construct();
+    public void Construct()
+    {
+        _agg.Construct();
+        _theme.Construct();
+    }
 
     /// <summary>
     /// Async construct: build the aggregate, populate notebooks, set the first
@@ -299,6 +320,7 @@ public sealed class WorkspaceVM : IDisposable
     public async Task ConstructAsync()
     {
         _agg.Construct();
+        _theme.Construct();
         await NotebooksRoot.PopulateAsync().ConfigureAwait(false);
         var first = NotebooksRoot.Roots.FirstOrDefault();
         if (first is not null)
@@ -331,8 +353,12 @@ public sealed class WorkspaceVM : IDisposable
     /// <summary>Set the currently-focused VM (for capability-action projection).</summary>
     public void SetFocus(object focused) => TrackFocus(focused);
 
-    /// <summary>Destructs the workspace and all six children (cascade per ADR-0034).</summary>
-    public void Destruct() => _agg.Destruct();
+    /// <summary>Destructs the workspace, the theme seam, and all six children (cascade per ADR-0034).</summary>
+    public void Destruct()
+    {
+        _theme.Destruct();
+        _agg.Destruct();
+    }
 
     /// <inheritdoc/>
     public void Dispose()
@@ -346,6 +372,7 @@ public sealed class WorkspaceVM : IDisposable
         (NewNotebookCommand as IDisposable)?.Dispose();
         (NewNoteCommand as IDisposable)?.Dispose();
         (ExportCommand as IDisposable)?.Dispose();
+        _theme.Dispose();
         _agg.Dispose();
     }
 

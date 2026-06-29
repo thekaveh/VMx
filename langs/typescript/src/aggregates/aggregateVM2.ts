@@ -37,6 +37,18 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
   get component1(): VM1 | null { return this.#component1; }
   get component2(): VM2 | null { return this.#component2; }
 
+  /**
+   * VMX-023: component slots in declaration order (null slots omitted). Tree
+   * traversal uses this typed accessor instead of `component${i}` reflection.
+   */
+  components(): readonly ComponentVMBase[] {
+    const slots: readonly (ComponentVMBase | null)[] = [
+      this.#component1,
+      this.#component2,
+    ];
+    return slots.filter((c): c is ComponentVMBase => c !== null);
+  }
+
   protected override _onConstruct(): void {
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.

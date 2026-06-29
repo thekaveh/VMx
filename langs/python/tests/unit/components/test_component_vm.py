@@ -517,3 +517,28 @@ def test_dispose_during_inflight_background_construct_does_not_resurrect() -> No
     # The scheduled work itself must be skipped, not merely silenced by the
     # _set_status terminal guard (pins the background-skip guard in isolation).
     assert hook_calls == []
+
+
+def test_set_is_current_after_dispose_is_silent_noop() -> None:
+    """VMX-006: setting is_current on a disposed VM leaks no PropertyChangedMessage.
+
+    spec/02 invariant 3 — Disposed is terminal: a property change on a disposed
+    VM is a silent no-op (no hub PropertyChangedMessage, no property_changed emit),
+    mirroring Swift.
+    """
+    hub = make_hub()
+    dispatcher = make_dispatcher()
+    vm = ComponentVMBuilder().name("v").services(hub, dispatcher).build()
+    vm.construct()
+    vm.dispose()
+
+    messages: list[PropertyChangedMessage] = []
+    hub.messages.subscribe(
+        lambda m: messages.append(m) if isinstance(m, PropertyChangedMessage) else None
+    )
+
+    vm._set_is_current(True)  # internal selection hook (parent normally drives it)
+
+    is_current_msgs = [m for m in messages if m.property_name == "is_current"]
+    assert is_current_msgs == []
+    assert vm.is_current is False

@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'VM' / 'M' type parameters per ADR-0006
 using VMx.Builders;
 using VMx.Components;
 using VMx.Services;
@@ -69,6 +68,17 @@ public sealed class CompositeVMBuilder<VM>
     /// <summary>Sets the required Services (hub + dispatcher).</summary>
     public CompositeVMBuilder<VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
+
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public CompositeVMBuilder<VM> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
 
     /// <summary>
     /// Sets the required children factory. The factory is invoked lazily on
@@ -227,6 +237,17 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     public CompositeVMOfMBuilder<M, VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
+    /// <summary>
+    /// Sets the required Services by resolving <see cref="IMessageHub"/> and
+    /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
+    /// Use with <c>services.AddVMx()</c>.
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> Services(IServiceProvider serviceProvider)
+    {
+        var (hub, dispatcher) = BuilderServices.Resolve(serviceProvider);
+        return With(hub: hub, dispatcher: dispatcher);
+    }
+
     /// <summary>Sets the required model factory.</summary>
     public CompositeVMOfMBuilder<M, VM> ChildrenModels(Func<IEnumerable<M>> factory)
         => With(childrenModels: factory);
@@ -320,4 +341,3 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             currentSelector ?? _currentSelector,
             onCurrentChanged ?? _onCurrentChanged);
 }
-#pragma warning restore CA1715

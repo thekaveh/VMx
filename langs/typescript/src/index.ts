@@ -23,6 +23,7 @@ export {
 export type { IMessage, ITypedMessage } from "./messages/types.js";
 export { PropertyChangedMessage } from "./messages/propertyChanged.js";
 export { propertyValueChangedMessagesFor } from "./messages/propertyValueChanged.js";
+export { whenPropertyChanged } from "./messages/whenPropertyChanged.js";
 export { ConstructionStatusChangedMessage } from "./messages/constructionStatusChanged.js";
 export { TreeStructureChangedMessage } from "./messages/treeStructureChanged.js";
 export type { TreeStructureChange } from "./messages/treeStructureChanged.js";
@@ -66,13 +67,17 @@ export { NullMessageHub } from "./services/nullMessageHub.js";
 export { NullDispatcher } from "./services/nullDispatcher.js";
 
 // Commands
-export type { ICommand, ICommandOf } from "./commands/types.js";
+export type { ICommand, ICommandOf, IAsyncCommand } from "./commands/types.js";
 export {
   RelayCommand,
   RelayCommandBuilder,
   RelayCommandOf,
   RelayCommandOfBuilder,
 } from "./commands/relayCommand.js";
+export {
+  AsyncRelayCommand,
+  AsyncRelayCommandBuilder,
+} from "./commands/asyncRelayCommand.js";
 export { CompositeCommand } from "./commands/compositeCommand.js";
 export {
   DecoratorCommand,
@@ -99,10 +104,12 @@ export { ViewModelType } from "./components/types.js";
 export type { IComponentVM, IComponentVMOf } from "./components/types.js";
 export { ComponentVMBase, type IParentVM } from "./components/componentVMBase.js";
 export { ComponentVM, ComponentVMBuilder } from "./components/componentVM.js";
+export type { ComponentVMOptions } from "./components/componentVM.js";
 export {
   ComponentVMOf,
   ComponentVMOfBuilder,
 } from "./components/componentVMOf.js";
+export type { ComponentVMOfOptions } from "./components/componentVMOf.js";
 export {
   ReadonlyComponentVMOf,
   ReadonlyComponentVMOfBuilder,
@@ -111,6 +118,7 @@ export {
 // Composites
 export { CompositeVMBase } from "./composites/compositeVMBase.js";
 export { CompositeVM, CompositeVMBuilder } from "./composites/compositeVM.js";
+export type { CompositeVMOptions } from "./composites/compositeVM.js";
 export {
   CompositeVMOf,
   CompositeVMOfBuilder,
@@ -118,6 +126,7 @@ export {
 
 // Groups
 export { GroupVM, GroupVMBuilder } from "./groups/groupVM.js";
+export type { GroupVMOptions } from "./groups/groupVM.js";
 
 // Aggregates
 export {

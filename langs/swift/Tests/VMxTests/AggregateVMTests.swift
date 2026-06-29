@@ -21,7 +21,7 @@ final class AggregateVMTests: XCTestCase {
             .withNullServices()
             .component1 { self.leaf("c1") }
             .build()
-        a.construct()
+        try a.construct()
         XCTAssertNotNil(a.component1)
         XCTAssertEqual(a.component1?.status, .constructed)
         XCTAssertEqual(a.type, .aggregate)
@@ -34,7 +34,7 @@ final class AggregateVMTests: XCTestCase {
             .component1 { self.leaf("c1") }
             .component2 { self.leaf("c2") }
             .build()
-        a.construct()
+        try a.construct()
         XCTAssertEqual(a.component1?.status, .constructed)
         XCTAssertEqual(a.component2?.status, .constructed)
     }
@@ -53,7 +53,7 @@ final class AggregateVMTests: XCTestCase {
             .compactMap { ($0 as? PropertyChangedMessage)?.propertyName }
             .sink { seen.append($0) }
 
-        a.construct()
+        try a.construct()
 
         XCTAssertTrue(seen.contains("component1"))
         cancel.cancel()
@@ -67,7 +67,7 @@ final class AggregateVMTests: XCTestCase {
             .component2 { self.leaf("c2") }
             .component3 { self.leaf("c3") }
             .build()
-        a.construct()
+        try a.construct()
         XCTAssertEqual(a.component1?.status, .constructed)
         XCTAssertEqual(a.component2?.status, .constructed)
         XCTAssertEqual(a.component3?.status, .constructed)
@@ -82,7 +82,7 @@ final class AggregateVMTests: XCTestCase {
             .component3 { self.leaf("c3") }
             .component4 { self.leaf("c4") }
             .build()
-        a.construct()
+        try a.construct()
         XCTAssertEqual(a.component4?.status, .constructed)
     }
 
@@ -97,14 +97,14 @@ final class AggregateVMTests: XCTestCase {
             .component4 { self.leaf("c4") }
             .component5 { self.leaf("c5") }
             .build()
-        a.construct()
+        try a.construct()
         XCTAssertEqual(a.component1?.status, .constructed)
         XCTAssertEqual(a.component2?.status, .constructed)
         XCTAssertEqual(a.component3?.status, .constructed)
         XCTAssertEqual(a.component4?.status, .constructed)
         XCTAssertEqual(a.component5?.status, .constructed)
 
-        a.destruct()
+        try a.destruct()
         XCTAssertEqual(a.component1?.status, .destructed)
         XCTAssertEqual(a.component5?.status, .destructed)
     }
@@ -124,9 +124,9 @@ final class AggregateVMTests: XCTestCase {
             .component5 { self.leaf("c5") }
             .component6 { self.leaf("c6") }
             .build()
-        a.construct()
+        try a.construct()
         XCTAssertEqual(a.component6?.status, .constructed)
-        a.destruct()
+        try a.destruct()
         XCTAssertEqual(a.component1?.status, .destructed)
         XCTAssertEqual(a.component6?.status, .destructed)
     }

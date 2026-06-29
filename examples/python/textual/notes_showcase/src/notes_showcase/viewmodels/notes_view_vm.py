@@ -29,6 +29,7 @@ from vmx import (
     IReconstructable,
     ISearchable,
     MessageHub,
+    MessageHubProto,
     ObservableList,
     Pageable,
     PagedComposition,
@@ -64,7 +65,7 @@ class NotesViewVM(
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         repository: INoteRepository,
         page_size: int = _DEFAULT_PAGE_SIZE,
@@ -144,7 +145,7 @@ class NotesViewVM(
 
     # ── Convenience hub accessor ───────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         return self._hub
 
     @property
@@ -512,7 +513,7 @@ class NotesViewVMBuilder:
 
     _name: str | None = None
     _hint: str = ""
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _repo: INoteRepository | None = None
     _page_size: int = _DEFAULT_PAGE_SIZE
@@ -528,7 +529,7 @@ class NotesViewVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Windows.Input;
 using VMx.Commands;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -23,6 +24,7 @@ public sealed class FormVM<TM> : IDisposable
     private readonly bool _strict;
     private readonly IMessageHub _hub;
     private readonly Subject<TM> _onApproved = new();
+    private readonly Subject<Exception> _approveErrors = new();
     private readonly Subject<Unit> _canExecuteChangedTrigger = new();
 
     private TM _model;
@@ -35,9 +37,7 @@ public sealed class FormVM<TM> : IDisposable
     /// Returns an empty <see cref="FormVMBuilder{TM}"/> for fluent construction.
     /// See ADR-0035 §2 FV1 / FV2.
     /// </summary>
-#pragma warning disable CA1000 // Generic static member on generic type: intentional per spec
     public static FormVMBuilder<TM> Builder() => FormVMBuilder<TM>.Empty;
-#pragma warning restore CA1000
 
     // ── Constructors ──────────────────────────────────────────────────────────
 
@@ -52,8 +52,10 @@ public sealed class FormVM<TM> : IDisposable
     /// <see cref="IsDirty"/> is <c>false</c>. Defaults to <c>false</c>.
     /// </param>
     /// <param name="snapshotter">
-    /// Custom snapshot function. Defaults to a shallow copy via <c>MemberwiseClone</c>.
-    /// For record types this is equivalent to <c>with {}</c>.
+    /// Custom snapshot function. Defaults to a deep clone via a
+    /// <see cref="System.Text.Json"/> round-trip (so a nested-object mutation is
+    /// tracked by <see cref="IsDirty"/> and reverted by <see cref="DenyCommand"/>).
+    /// Inject this as the escape hatch for models JSON cannot round-trip.
     /// </param>
     public FormVM(
         TM initial,
@@ -62,10 +64,8 @@ public sealed class FormVM<TM> : IDisposable
         bool strict = false,
         Func<TM, TM>? snapshotter = null)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (initial is null) throw new ArgumentNullException(nameof(initial));
-        if (persister is null) throw new ArgumentNullException(nameof(persister));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(initial, nameof(initial));
+        ThrowHelper.ThrowIfNull(persister, nameof(persister));
 
         _persister = persister;
         _hub = hub ?? NullMessageHub.Instance;
@@ -82,10 +82,28 @@ public sealed class FormVM<TM> : IDisposable
             .Build();
 
         ApproveCommand = RelayCommand.Builder()
-            .Task(() => _ = ApproveInternalAsync())
+            .Task(ApproveCommandExecute)
             .Predicate(() => !_strict || IsDirty)
             .Triggers(canExecuteTrigger)
             .Build();
+    }
+
+    // Fire-and-forget command entry-point. ApproveCommand.Execute() is void, so a
+    // persister failure cannot propagate to the caller; route the faulted Task to
+    // the ApproveErrors channel instead of discarding it (a discarded faulted Task
+    // would otherwise surface only as an UnobservedTaskException at GC) (VMX-008).
+    // Await ApproveAsync() to observe the failure inline.
+    private void ApproveCommandExecute()
+    {
+        _ = ApproveInternalAsync().ContinueWith(
+            t =>
+            {
+                if (_disposed) return;
+                _approveErrors.OnNext(t.Exception!.GetBaseException());
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -141,6 +159,17 @@ public sealed class FormVM<TM> : IDisposable
     public IObservable<TM> OnApproved => _onApproved.AsObservable();
 
     /// <summary>
+    /// Observable that surfaces the persister exception when the approve
+    /// <em>command</em> (<c>ApproveCommand.Execute()</c>) fails. That path is
+    /// fire-and-forget (<see cref="ICommand.Execute"/> is <c>void</c>), so the
+    /// failure cannot propagate to the caller; it is emitted here instead of
+    /// being discarded with the faulted <see cref="Task"/> (VMX-008). The
+    /// awaitable <see cref="ApproveAsync"/> path keeps its throw behavior — await
+    /// it directly to handle the error inline. Completes on <see cref="Dispose"/>.
+    /// </summary>
+    public IObservable<Exception> ApproveErrors => _approveErrors.AsObservable();
+
+    /// <summary>
     /// Awaitable entry-point to the approve flow. Invokes the persister, advances
     /// <see cref="Snapshot"/> on success, and fires <see cref="OnApproved"/>.
     /// Throws when the persister throws (no state mutation occurs on failure).
@@ -156,9 +185,7 @@ public sealed class FormVM<TM> : IDisposable
     /// </summary>
     public void SetModel(TM model)
     {
-#pragma warning disable CA1510 // ThrowIfNull not available on netstandard2.0 target
-        if (model is null) throw new ArgumentNullException(nameof(model));
-#pragma warning restore CA1510
+        ThrowHelper.ThrowIfNull(model, nameof(model));
         var wasDirty = IsDirty;
         _model = model;
         if (_strict && IsDirty != wasDirty)
@@ -174,6 +201,8 @@ public sealed class FormVM<TM> : IDisposable
         _disposed = true;
         _onApproved.OnCompleted();
         _onApproved.Dispose();
+        _approveErrors.OnCompleted();
+        _approveErrors.Dispose();
         _canExecuteChangedTrigger.OnCompleted();
         _canExecuteChangedTrigger.Dispose();
         if (DenyCommand is IDisposable d1) d1.Dispose();
@@ -222,14 +251,29 @@ public sealed class FormVM<TM> : IDisposable
         _onApproved.OnNext(current);
     }
 
+    // Cached per closed generic (one instance per TM): System.Text.Json caches
+    // serialization metadata against the options instance, so reusing a single
+    // instance avoids a per-call metadata rebuild (and CA1869).
+    private static readonly System.Text.Json.JsonSerializerOptions DefaultSnapshotJsonOptions =
+        new() { IncludeFields = true };
+
+    /// <summary>
+    /// Default deep-clone snapshotter: a <see cref="System.Text.Json"/> serialize→deserialize
+    /// round-trip. A deep clone is required so the snapshot does not share nested
+    /// mutable state with the live model — otherwise an in-place mutation of a
+    /// nested object would be invisible to <see cref="IsDirty"/> and could not be
+    /// reverted by <see cref="DenyCommand"/> (VMX-064). <c>System.Text.Json</c> is
+    /// in the BCL, so no extra package is taken.
+    /// <para>
+    /// For models JSON cannot round-trip (delegates, cyclic graphs, non-public or
+    /// non-default-constructible members, live handles, …) inject a custom
+    /// <c>snapshotter</c> via the constructor or builder — that hook is the
+    /// documented escape hatch and always overrides this default.
+    /// </para>
+    /// </summary>
     private static TM DefaultSnapshotter(TM model)
     {
-        // MemberwiseClone is inherited from System.Object, so it resolves for
-        // every TM. For record types it yields a shallow copy equivalent to
-        // `with {}`; non-record consumers should supply a custom snapshotter
-        // when they need deep-copy semantics.
-        var method = typeof(TM).GetMethod("MemberwiseClone",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        return (TM)method.Invoke(model, null)!;
+        var json = System.Text.Json.JsonSerializer.Serialize(model, DefaultSnapshotJsonOptions);
+        return System.Text.Json.JsonSerializer.Deserialize<TM>(json, DefaultSnapshotJsonOptions)!;
     }
 }

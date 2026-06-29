@@ -1,5 +1,6 @@
 using System.Reactive.Concurrency;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using VMx.Services;
 
 namespace VMx.Extensions.DependencyInjection;
@@ -36,10 +37,15 @@ public static class ServiceCollectionExtensions
         var options = new VMxOptions();
         configure?.Invoke(options);
 
-        services.AddSingleton<IMessageHub, MessageHub>();
+        // TryAdd* so AddVMx is idempotent: a library and the host app can both
+        // call it without double-registering (which would construct — and leak —
+        // two MessageHub / RxDispatcher singletons). The first registration wins;
+        // a host that wants to override IMessageHub/IDispatcher registers its own
+        // before calling AddVMx (VMX-136).
+        services.TryAddSingleton<IMessageHub, MessageHub>();
         if (options.DispatcherFactory is not null)
         {
-            services.AddSingleton(options.DispatcherFactory);
+            services.TryAddSingleton(options.DispatcherFactory);
         }
         else
         {
@@ -47,7 +53,7 @@ public static class ServiceCollectionExtensions
             // startup) rather than later, when the singleton's first resolution
             // could happen on any thread.
             var capturedContext = SynchronizationContext.Current;
-            services.AddSingleton<IDispatcher>(_ =>
+            services.TryAddSingleton<IDispatcher>(_ =>
             {
                 if (capturedContext is not null)
                 {

@@ -12,10 +12,10 @@ logging.
 
 The generic `IComponentVM<M>` extends `IComponentVM` with a `Model : M` property (settable
 on the modeled component, read-only on the readonly component — see `05-component-vm.md`).
-The generic `ICompositeVM<VM>` extends `IComponentVM` with the `IList<VM>` surface, the
-`Current : VM?` slot, and the `select_component`/`deselect_component`/`can_select_component`
-methods (see `06-composite-vm.md`). The forwarding decorators delegate every member of
-these generic interfaces.
+The generic `ICompositeVM<VM>` is declared canonically in `06-composite-vm.md` §2.1: it
+extends `IComponentVM` with the `IList<VM>` surface, the `Current : VM?` slot, and the
+`select_component`/`deselect_component`/`can_select_component` methods. The forwarding
+decorators delegate every member of these generic interfaces.
 
 ## 1. `ForwardingComponentVM<M>`
 

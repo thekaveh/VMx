@@ -4,11 +4,11 @@ Exports AggregateVM1 through AggregateVM6 and their corresponding builders.
 
 Builder naming
 --------------
-The canonical builder names from v1.2.0 are ``AggregateVM1Builder`` through
-``AggregateVM6Builder`` (matching the TypeScript flavor). The historical
-``AggregateVMBuilder1`` through ``AggregateVMBuilder6`` names remain as identity
-aliases for backward compatibility; the originally planned v2.0.0 removal slipped
-and is deferred to vmx v3.0.0 per ADR-0009.
+The builder names are ``AggregateVM1Builder`` through ``AggregateVM6Builder``
+(matching the TypeScript flavor and the C# nested
+``AggregateVM2.AggregateVM2Builder`` shape). The legacy v1.0.0
+``AggregateVMBuilder1`` through ``AggregateVMBuilder6`` identity aliases were
+removed in vmx v3.0.0 (ADR-0052; deferral originally recorded in ADR-0009).
 
 See spec/08-aggregate-vm.md and ADR-0007 (arity 6 added per ADR-0034).
 """
@@ -30,12 +30,6 @@ from vmx.aggregates.builders import (
     AggregateVM4Builder,
     AggregateVM5Builder,
     AggregateVM6Builder,
-    AggregateVMBuilder1,
-    AggregateVMBuilder2,
-    AggregateVMBuilder3,
-    AggregateVMBuilder4,
-    AggregateVMBuilder5,
-    AggregateVMBuilder6,
 )
 
 __all__ = [
@@ -51,10 +45,4 @@ __all__ = [
     "AggregateVM5Builder",
     "AggregateVM6",
     "AggregateVM6Builder",
-    "AggregateVMBuilder1",
-    "AggregateVMBuilder2",
-    "AggregateVMBuilder3",
-    "AggregateVMBuilder4",
-    "AggregateVMBuilder5",
-    "AggregateVMBuilder6",
 ]

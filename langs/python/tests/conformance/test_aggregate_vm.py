@@ -15,12 +15,12 @@ from __future__ import annotations
 import pytest
 
 from vmx.aggregates.builders import (
-    AggregateVMBuilder1,
-    AggregateVMBuilder2,
-    AggregateVMBuilder3,
-    AggregateVMBuilder4,
-    AggregateVMBuilder5,
-    AggregateVMBuilder6,
+    AggregateVM1Builder,
+    AggregateVM2Builder,
+    AggregateVM3Builder,
+    AggregateVM4Builder,
+    AggregateVM5Builder,
+    AggregateVM6Builder,
 )
 from vmx.components.builders import ComponentVMBuilder
 from vmx.lifecycle.status import ConstructionStatus
@@ -67,7 +67,7 @@ def test_AGG_001_arity1_factory_invoked_on_construct() -> None:
         factory_call_count += 1
         return _child(hub, dispatcher, "vm1")
 
-    agg = AggregateVMBuilder1().name("agg1").services(hub, dispatcher).component_1(make_vm1).build()
+    agg = AggregateVM1Builder().name("agg1").services(hub, dispatcher).component_1(make_vm1).build()
 
     # Pre-construct: factory must NOT have been called yet (lazy semantics).
     assert agg.component_1 is None, "component_1 must be None before construct()"
@@ -96,7 +96,7 @@ def test_AGG_002_arity2_both_reach_constructed() -> None:
     dispatcher = _dispatcher()
 
     agg = (
-        AggregateVMBuilder2()
+        AggregateVM2Builder()
         .name("agg2")
         .services(hub, dispatcher)
         .component_1(lambda: _child(hub, dispatcher, "vm1"))
@@ -135,7 +135,7 @@ def test_AGG_003_arity5_components_constructed_before_parent() -> None:
 
     # Build agg first so we can reference it in the subscription
     agg = (
-        AggregateVMBuilder5()
+        AggregateVM5Builder()
         .name("agg5")
         .services(hub, dispatcher)
         .component_1(lambda: _child(hub, dispatcher, "c1"))
@@ -197,7 +197,7 @@ def test_AGG_004_component_property_changed_on_construct() -> None:
     dispatcher = _dispatcher()
 
     agg = (
-        AggregateVMBuilder3()
+        AggregateVM3Builder()
         .name("agg3")
         .services(hub, dispatcher)
         .component_1(lambda: _child(hub, dispatcher, "c1"))
@@ -242,7 +242,7 @@ def test_AGG_005_arity2_destruct_waits_for_all_children() -> None:
     dispatcher = _dispatcher()
 
     agg = (
-        AggregateVMBuilder2()
+        AggregateVM2Builder()
         .name("agg2")
         .services(hub, dispatcher)
         .component_1(lambda: _child(hub, dispatcher, "vm1"))
@@ -281,7 +281,7 @@ def test_AGG_006_arity6_construct_and_destruct_all_six() -> None:
     dispatcher = _dispatcher()
 
     agg = (
-        AggregateVMBuilder6()
+        AggregateVM6Builder()
         .name("agg6")
         .services(hub, dispatcher)
         .component_1(lambda: _child(hub, dispatcher, "c1"))
@@ -327,12 +327,12 @@ def test_AGG_006_arity6_construct_and_destruct_all_six() -> None:
 
 
 _BUILDERS = {
-    1: AggregateVMBuilder1,
-    2: AggregateVMBuilder2,
-    3: AggregateVMBuilder3,
-    4: AggregateVMBuilder4,
-    5: AggregateVMBuilder5,
-    6: AggregateVMBuilder6,
+    1: AggregateVM1Builder,
+    2: AggregateVM2Builder,
+    3: AggregateVM3Builder,
+    4: AggregateVM4Builder,
+    5: AggregateVM5Builder,
+    6: AggregateVM6Builder,
 }
 
 

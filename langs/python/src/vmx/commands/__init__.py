@@ -1,11 +1,15 @@
 """VMx Commands — RelayCommand, RelayCommandOf, and Protocol interfaces.
 
-``RelayCommandOf`` is the canonical name from v1.2.0; ``RelayCommandOfT`` and
-``RelayCommandOfTBuilder`` are kept as identity aliases for backward compatibility.
-The originally planned v2.0.0 removal slipped and is deferred to vmx v3.0.0 per
-ADR-0009.
+``RelayCommandOf`` / ``RelayCommandOfBuilder`` are the canonical names (parity
+with the C# ``RelayCommand<T>`` and TypeScript ``RelayCommandOf`` surfaces). The
+legacy v1.0.0 ``RelayCommandOfT`` / ``RelayCommandOfTBuilder`` aliases were
+removed in vmx v3.0.0 (ADR-0052; deferral originally recorded in ADR-0009).
 """
 
+from vmx.commands.async_relay_command import (
+    AsyncRelayCommand,
+    AsyncRelayCommandBuilder,
+)
 from vmx.commands.composite_command import CompositeCommand
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.decorator_command import DecoratorCommand
@@ -23,11 +27,11 @@ from vmx.commands.relay_command import (
     RelayCommandBuilder,
     RelayCommandOf,
     RelayCommandOfBuilder,
-    RelayCommandOfT,
-    RelayCommandOfTBuilder,
 )
 
 __all__ = [
+    "AsyncRelayCommand",
+    "AsyncRelayCommandBuilder",
     "Command",
     "CompositeCommand",
     "ConfirmationDecoratorCommand",
@@ -38,8 +42,6 @@ __all__ = [
     "RelayCommandBuilder",
     "RelayCommandOf",
     "RelayCommandOfBuilder",
-    "RelayCommandOfT",
-    "RelayCommandOfTBuilder",
     "confirm",
     "confirm_with_dialog_service",
     "precede_with",

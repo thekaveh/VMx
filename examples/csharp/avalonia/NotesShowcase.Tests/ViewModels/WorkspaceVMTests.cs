@@ -88,8 +88,8 @@ public sealed class WorkspaceVMTests
             var nbId = ws.NotebooksRoot.Current!.Model.Id;
             var before = ws.NotesView.FilteredItems.Count;
             ws.NewNoteCommand.Execute(null);
-            // NewNote is fire-and-forget; let it complete.
-            await Task.Delay(50);
+            // NewNote is fire-and-forget; wait for the added note to appear.
+            await TestWait.WaitUntilAsync(() => ws.NotesView.FilteredItems.Count > before);
             Assert.True(ws.NotesView.FilteredItems.Count >= before);
             // After rebind, all visible notes belong to the current notebook.
             Assert.All(ws.NotesView.FilteredItems, n => Assert.Equal(nbId, n.Model.NotebookId));
@@ -132,7 +132,7 @@ public sealed class WorkspaceVMTests
         {
             var before = ws.NotebooksRoot.All.Count;
             ws.NewNotebookCommand.Execute(null);
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => ws.NotebooksRoot.All.Count > before);
             Assert.True(ws.NotebooksRoot.All.Count > before);
         }
         finally
@@ -176,7 +176,7 @@ public sealed class WorkspaceVMTests
             // dialog the ConfirmationDecorator forwards to the inner Task,
             // and NotesViewVM.DeleteNoteAsyncInternal clears Current.
             note.DeleteCommand.Execute(null);
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => ws.NotesView.Current is null);
 
             Assert.Null(ws.NotesView.Current);
             // The form must have been unbound — no ghost data left over.
@@ -205,7 +205,7 @@ public sealed class WorkspaceVMTests
             var other = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id != firstId);
 
             ws.NotebooksRoot.Current = other;
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => ws.NotesView.BoundNotebookId == other.Model.Id);
 
             Assert.Equal(other.Model.Id, ws.NotesView.BoundNotebookId);
             Assert.All(ws.NotesView.FilteredItems,
@@ -282,7 +282,8 @@ public sealed class WorkspaceVMTests
             ws.NotesView.Current = note;
             ws.NoteForm.Title = "Retitled by test";
             await ws.NoteForm.ApproveAsync();
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(
+                () => ws.NotesView.FilteredItems.Any(n => n.Title == "Retitled by test"));
 
             Assert.Equal("Retitled by test", note.Title);
             Assert.Contains(ws.NotesView.FilteredItems,
@@ -335,7 +336,7 @@ public sealed class WorkspaceVMTests
             ws.NotesView.Current = note;
 
             note.SaveCommand.Execute(null);
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => spy.SaveCalls > 0);
             Assert.True(spy.SaveCalls > 0, "capability Save must reach the repository");
 
             note.CloseCommand.Execute(null);
@@ -390,16 +391,16 @@ public sealed class WorkspaceVMTests
         {
             var personal = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id == "nb-personal");
             ws.NotebooksRoot.Current = personal;
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => repo.FailedLoads >= 1);
             Assert.Equal(1, repo.FailedLoads);
             Assert.NotEqual("nb-personal", ws.NotesView.BoundNotebookId);
 
             // Re-selecting after a failure must retry (the requested id was
             // cleared). Bounce through another notebook so Current changes.
             ws.NotebooksRoot.Current = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id == "nb-work");
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => ws.NotesView.BoundNotebookId == "nb-work");
             ws.NotebooksRoot.Current = personal;
-            await Task.Delay(50);
+            await TestWait.WaitUntilAsync(() => ws.NotesView.BoundNotebookId == "nb-personal");
             Assert.Equal("nb-personal", ws.NotesView.BoundNotebookId);
         }
         finally
@@ -448,7 +449,7 @@ public sealed class WorkspaceVMTests
         try
         {
             ws.ExportCommand.Execute(null);
-            await Task.Delay(100);
+            await TestWait.WaitUntilAsync(() => File.Exists(path));
             Assert.True(File.Exists(path), "export must write through the picked path");
         }
         finally

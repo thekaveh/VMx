@@ -25,16 +25,13 @@ prior and the freshly-adopted :class:`ThemeModel`. The base
 ``PropertyChangedMessage("model")`` so generic adapters (the property bridge,
 the status bar) keep working without ThemeVM-specific code.
 
-TODO(workspaceVM-wireup):
-    Wire-up into :class:`WorkspaceVM` is intentionally out of scope here.
-    Composing a seventh child into ``WorkspaceVM`` requires ``AggregateVM7``
-    (currently only ``AggregateVM6`` exists in core) plus a matching
-    cross-flavor builder. Track that under
-    ``spec/proposals/2026-06-02-theme-vm-scenario.md`` §8 (Migration) and
-    ADR-0036 §2.C / §4 decision #3.
-    Until then, hosts construct ``ThemeVM`` standalone and bind the
-    :class:`~notes_showcase.views.adapter.theme_adapter.ThemeAdapter`
-    explicitly at app boot.
+Wire-up (VMX-129):
+    :class:`WorkspaceVM` owns a ``ThemeVM`` as a sibling of the six aggregate
+    children (not a seventh aggregate child — that would require an
+    ``AggregateVM7`` in core, which ADR-0058 declined). The workspace drives its
+    lifecycle (construct/destruct/dispose) and ``views.app`` binds the Textual
+    :func:`~notes_showcase.views.adapter.theme_adapter.bind_theme` adapter to
+    ``workspace.theme`` so the THEME-001..005 scenario is exercised in the app.
 """
 
 from __future__ import annotations
@@ -49,6 +46,7 @@ from vmx import (
     ComponentVMOf,
     DerivedProperty,
     MessageHub,
+    MessageHubProto,
     RelayCommand,
     RelayCommandOf,
     RxDispatcher,
@@ -93,7 +91,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         name: str,
         hint: str,
         initial: ThemeModel,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         host_theme_provider: Callable[[], ThemeModel] | None = None,
     ) -> None:
@@ -188,7 +186,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
 
     # ── Public surface ──────────────────────────────────────────────────────
     @property
-    def hub(self) -> MessageHub[Message]:
+    def hub(self) -> MessageHubProto[Message]:
         """Hub accessor — exposed so views/tests can subscribe."""
         return self._hub
 
@@ -330,7 +328,7 @@ class ThemeVMBuilder:
     _name: str | None = None
     _hint: str = ""
     _initial: ThemeModel = DARK_PRESET
-    _hub: MessageHub[Message] | None = None
+    _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _host_theme_provider: Callable[[], ThemeModel] | None = None
 
@@ -345,7 +343,7 @@ class ThemeVMBuilder:
         return dataclasses.replace(self, _initial=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> ThemeVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

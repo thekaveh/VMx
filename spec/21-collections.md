@@ -184,7 +184,16 @@ active on the list:
 
 - Granular events (`ItemAdded`, `ItemRemoved`, `ItemReplaced`) are suppressed
   during the batch.
-- A single `Reset` is emitted when the batch completes.
+- A single `Reset` is emitted when the batch completes **and at least one
+  mutation occurred** during the batch. A batch in which no mutation occurred
+  emits **no** `Reset` (and no `Count` notification), mirroring the
+  empty-batch-no-event rule for `CompositeVM.BatchUpdate()` (06 §4.1) and
+  `GroupVM.BatchUpdate()` (07 §5).
+- Nested batch scopes are **ref-counted**: opening a second scope while one is
+  already live does not start a new batch, and only the completion of the
+  **outermost** scope emits the single `Reset`. Inner-scope completions emit
+  nothing. This matches the ref-counted nesting `CompositeVM` / `GroupVM` use
+  for their own `BatchUpdate()` (06 §4.1 / 07 §5).
 - In C#, the platform `CollectionChanged` event follows the same suppression
   rule.
 - When a batch completes, if `Count` changed during the batch, the
@@ -306,7 +315,7 @@ PagedComposition<TVM>:
     implements IPageable                     # per 14-capabilities.md §2.10
 
     PageSize         : int     # mutable; 0 = all items on one page
-    CurrentPageIndex : int     # mutable; clamped to [0, PageCount-1]
+    CurrentPageIndex : int     # mutable; clamped to [0, max(0, PageCount-1)] (§5.4)
     PageCount        : int     # derived: ceil(source.Count / PageSize), or 1 when PageSize == 0
     IsPagingEnabled  : bool    # derived: PageSize > 0
 
@@ -326,8 +335,9 @@ not hold the items itself; it computes a slice of the source on demand. The
 source is never mutated.
 
 When the source changes (items added or removed), `PageCount` is recomputed and
-`CurrentPageIndex` is clamped to `[0, PageCount-1]` if the prior index is now
-out of range.
+`CurrentPageIndex` is clamped to `[0, max(0, PageCount-1)]` if the prior index is
+now out of range. The `max(0, …)` term covers the empty-source case
+(`PageCount == 0`), where the index clamps to `0` rather than to `-1` (§5.4).
 
 ### 5.3 `PageSize = 0` semantics
 

@@ -70,12 +70,23 @@ walk_expanded(root) =
     yield root
     if root is IExpandable AND root.IsExpanded == false:
         return                  # do not descend
-    if root has children:
-        for child in root.children: walk_expanded(child)
+    if root is CompositeVM:     for child in root.children: walk_expanded(child)
+    if root is GroupVM:         for child in root.children: walk_expanded(child)
+    if root is AggregateVMN:    for slot in root.components: if slot != null: walk_expanded(slot)
 ```
 
 Properties:
 
+- `walk_expanded` descends into the **same container set** as `walk` — the
+  children of a `CompositeVM` / `GroupVM` **and** the non-null slots of an
+  `AggregateVMN` (in `Component1, Component2, …` order) — gated only by the
+  `IExpandable` check. The reference implementations share one descent helper
+  between `walk` and `walk_expanded`, so an aggregate-rooted (or
+  aggregate-containing) tree is traversed identically except for the expansion
+  gate. An earlier revision of this pseudocode wrote "`if root has children`",
+  which read as composites/groups only; the aggregate-slot descent the
+  implementations have always performed is now explicit (clarified in v3 via
+  ADR-0051).
 - A node that does NOT implement `IExpandable` is treated as always-expanded
   (i.e., the traversal descends as `walk` would).
 - A node that DOES implement `IExpandable` gates descent on `IsExpanded`:

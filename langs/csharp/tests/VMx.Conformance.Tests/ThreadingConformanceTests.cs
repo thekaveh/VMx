@@ -91,12 +91,19 @@ public class ThreadingConformanceTests
             "Background(true) means OnConstruct() and the final Constructed transition " +
             "are scheduled on the background scheduler — only Constructing is emitted synchronously");
 
-        // Advance the background scheduler — the scheduled work runs and the
-        // VM reaches the terminal Constructed state.
+        // Advance the background scheduler — OnConstruct() runs on the background
+        // scheduler, then the terminal Constructed emission is marshalled onto the
+        // foreground scheduler (VMX-025), so the VM is still mid-transition here.
         dispatcher.BackgroundScheduler.AdvanceBy(1);
 
+        vm.Status.Should().Be(ConstructionStatus.Constructing,
+            "the terminal Constructed emission is marshalled onto the foreground scheduler (VMX-025)");
+
+        // Advance the foreground scheduler — the marshalled terminal transition runs.
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+
         vm.Status.Should().Be(ConstructionStatus.Constructed,
-            "after the background scheduler is advanced, the transition must complete");
+            "after both schedulers advance, the transition must complete");
     }
 
     // ── THR-003 — CollectionChanged observed on foreground scheduler ─────────

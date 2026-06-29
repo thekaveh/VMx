@@ -5,7 +5,7 @@
 // exercised transitively through e2e flows.
 
 import { describe, expect, it } from "vitest";
-import { asapScheduler, queueScheduler } from "rxjs";
+import { asapScheduler, asyncScheduler, queueScheduler } from "rxjs";
 
 import { RxDispatcher } from "../../src/services/dispatcher.js";
 
@@ -16,10 +16,13 @@ describe("RxDispatcher factories", () => {
     expect(dispatcher.background).toBe(queueScheduler);
   });
 
-  it("default() pairs queueScheduler (fg) with asapScheduler (bg)", () => {
+  it("default() pairs queueScheduler (fg) with asyncScheduler (bg)", () => {
+    // VMX-087: background is a true macrotask (asyncScheduler), not an
+    // asapScheduler microtask that would drain before timers / paint / I-O.
     const dispatcher = RxDispatcher.default();
     expect(dispatcher.foreground).toBe(queueScheduler);
-    expect(dispatcher.background).toBe(asapScheduler);
+    expect(dispatcher.background).toBe(asyncScheduler);
+    expect(dispatcher.background).not.toBe(asapScheduler);
   });
 
   it("constructor accepts custom scheduler pairs", () => {

@@ -101,6 +101,18 @@ Every viewmodel exposes:
 - `IsConstructed : bool` — equals `Status == Constructed`. Raised when `Status`
   changes.
 - `Status : ConstructionStatus` — the lifecycle state. See `02-lifecycle.md`.
+- `Parent` — an internal back-reference to the container (`CompositeVM` or `GroupVM`)
+  that currently holds this VM as a child, or `null` when the VM is not a member of
+  any container. It is **not** part of the public, consumer-settable surface and is
+  **not** observable (a change to `Parent` does NOT publish a `PropertyChangedMessage`);
+  it exists solely to back the selection predicates (`can_select` / `can_deselect` /
+  `select` / `deselect`) and `IsCurrent`. The container sets it when the VM is added
+  (`Add` / `Insert`, or wired as a child at build time) and clears it to `null` when
+  the VM is removed (`Remove` / `RemoveAt` / `Clear`) or re-parented — see `05` §6.1
+  for the precise contract and `06`/`07` for the container side. Reference
+  implementations type it as a minimal internal parent interface
+  (`IParentCompositeVM` / `_ParentCompositeVM` / `IParentVM`) exposing only the
+  members the child needs for selection delegation, not the full container VM.
 - The lifecycle commands: `SelectCommand`, `DeselectCommand`, `SelectNextCommand`,
   `SelectPreviousCommand`, `ReconstructCommand`. Each is an `ICommand`-equivalent
   with appropriate predicates.

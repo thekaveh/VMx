@@ -68,6 +68,12 @@ public class App : Application
         // Fire-and-forget — the UI binds to live properties as Construct
         // populates them; the ~300/150 ms repo delays don't block startup.
         _ = workspace.ConstructAsync();
+
+        // VMX-129: drive the application theme from the workspace-owned ThemeVM
+        // (THEME-001..005). The adapter applies the current model immediately
+        // and re-applies on every effective change.
+        ThemeAdapter.Apply(workspace.Theme, this);
+
         window.DataContext = workspace;
         return window;
     }

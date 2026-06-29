@@ -43,6 +43,32 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
     can_select_component(vm: VM) : bool
 ```
 
+### 2.1 The `ICompositeVM<VM>` contract
+
+`ICompositeVM<VM>` is the **canonical interface** that every `CompositeVM<VM>`
+realizes. It extends `IComponentVM` (chapter 01 / 05) with the container surface
+the members above describe:
+
+```
+ICompositeVM<VM> : IComponentVM, IList<VM>:
+    Current : VM?                         # selection slot (§3)
+    select_component(vm: VM) : void       # guarded selection (§3.1)
+    deselect_component(vm: VM) : void
+    can_select_component(vm: VM) : bool
+```
+
+The `IList<VM>` surface contributes `Add` / `Remove` / `Insert` / `RemoveAt` /
+`Clear` / `Count` / the indexer / iteration; `Current` and the three
+`*_component` methods are the composite-specific additions over the base
+`IComponentVM`. This is the interface `ForwardingCompositeVM<VM>`
+(`09-forwarding.md`) wraps and delegates; chapter 09 references this declaration
+as canonical rather than re-declaring it inline. `ICompositeVM<VM>` is the
+language-neutral contract name; each flavor realizes it per the ADR-0006 idiom:
+C# ships the literal `ICompositeVM<VM>` interface, Python the structural
+`CompositeVMProto` (the `…Proto` convention catalogued in ADR-0009), and
+TypeScript the structural `CompositeVMBase<VM>` shape the forwarding decorator
+wraps.
+
 ## 3. `Current` contract
 
 - `Current` MAY be `null` (no child selected).
@@ -69,7 +95,7 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
-- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value via the existing `SelectComponent` path. If the selector returns `null` or a value not contained in the composite, `Current` stays at its prior value (initially `null`) and no notification fires.
+- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
 - `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`).
 
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
@@ -100,6 +126,11 @@ context manager. While at least one batch handle is live, mutations (`Add`,
 Nested batches are ref-counted: only the outermost completion fires the `Reset`.
 
 ## 5. Children construction orchestration
+
+The non-modeled `CompositeVM<VM>` may be built with the fluent builder or the
+additive positional-options form (`Create`/`create` — see `10-builders.md §7`);
+both validate the same required fields (`name`, services, `children`) and produce
+an identical VM.
 
 `CompositeVM` overrides the base `construct()` and `destruct()` to coordinate
 children:
@@ -165,6 +196,9 @@ The helper takes:
 - A `delete_current` action (a callable taking the current VM).
 - Optional `confirm_update` / `confirm_delete` async delegates that gate
   execution via `ConfirmationDecoratorCommand` (see chapter 04 §Decorators).
+- An optional `current_changed` trigger (`Observable<Unit>`) — typically the
+  owning composite's current-child-changed stream — that re-evaluates the
+  Update/Delete `CanExecute` when the selection changes (spec v3, ADR-0049).
 
 Behavior:
 
@@ -174,6 +208,19 @@ Behavior:
 - When a confirm delegate is supplied, the command is wrapped in a
   `ConfirmationDecoratorCommand` and `Execute` resolves the confirm gate
   before invoking the action.
+- The `CanExecute` predicate **values** above (`true` iff `current != null`) are
+  verified by `COMP-021` / `COMP-023`. Their **reactivity** is separate: because
+  the predicates read the mutable `current` provider, `CanExecuteChanged` cannot
+  fire on its own (chapter 04 §4), so a bound button's enabled state would go
+  stale on every selection change. When a `current_changed` trigger is supplied,
+  the helper wires it as a `Triggers` source on the Update and Delete commands so
+  each `CanExecute` is re-evaluated and `CanExecuteChanged` fires the moment the
+  selection changes (chapter 04 §4.2, ADR-0049). Supplying the trigger is
+  RECOMMENDED whenever the commands are bound to UI; omitting it leaves
+  `CanExecute` correct on demand but non-reactive. Exposing the optional
+  `current_changed` parameter is, per ADR-0049, a clarification first realized in
+  C# (VMX-011); the other flavors compose the same reactivity through the base
+  `Triggers` mechanism (chapter 04 §4.2).
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 
@@ -237,3 +284,10 @@ The builder hooks introduced in §3.2 are covered by:
 
 - `COMP-025` — `Current(selector)` builder hook drives initial selection during construct.
 - `COMP-026` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
+
+The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
+`05-component-vm.md` §6.1) is covered by:
+
+- `COMP-027` — `Add` sets a child's `Parent` (the child becomes selectable and
+  `select()` delegates through it); `Remove` clears it (the child is no longer
+  selectable and `select()` becomes a no-op).

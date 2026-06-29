@@ -322,6 +322,44 @@ describe("FormVM – fire-and-forget approve", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Approve error channel (VMX-008)
+//
+// The approve COMMAND is fire-and-forget (RelayCommand.execute is void), so a
+// rejecting persister cannot propagate to its caller. Previously the rejection
+// was swallowed (`.catch(() => undefined)`) — a silent data-loss-class failure
+// for any UI bound to the command. The error must now be OBSERVABLE on the
+// approveErrors channel. The awaitable approveAsync() path keeps its throw.
+// ---------------------------------------------------------------------------
+
+describe("FormVM – approve error channel (VMX-008)", () => {
+  it("surfaces a persister rejection on approveErrors when the COMMAND is invoked", async () => {
+    const boom = new Error("persist failed");
+    const errors: unknown[] = [];
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: () => Promise.reject(boom),
+    });
+    form.approveErrors.subscribe((e) => errors.push(e));
+    form.setModel(m("B", 2));
+
+    form.approveCommand.execute(); // fire-and-forget
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(errors).toEqual([boom]); // observed, not swallowed
+    expect(form.isDirty).toBe(true); // failed persist did not advance the snapshot
+    form.dispose();
+  });
+
+  it("approveErrors completes on dispose", () => {
+    const completed = vi.fn();
+    const form = make();
+    form.approveErrors.subscribe({ complete: completed });
+    form.dispose();
+    expect(completed).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Builder snapshotter (was ctor-only tested)
 // ---------------------------------------------------------------------------
 
@@ -339,6 +377,159 @@ describe("FormVM – builder snapshotter", () => {
 
     expect(snaps.length).toBeGreaterThan(0);
     expect(form.snapshot).not.toBe(form.model);
+    form.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isDirty — structural deep equality (VMX-003)
+//
+// The previous implementation compared `JSON.stringify(model)` vs
+// `JSON.stringify(snapshot)`. That HARD-CRASHES on BigInt/circular models and
+// is SILENTLY WRONG for Map/Set (→ `{}`), Date (string-coerced), and
+// undefined-vs-missing keys — while the default `structuredClone` snapshotter
+// faithfully clones exactly those types. These tests pin the corrected
+// behavior: an injectable structural deep-equal that is internally consistent
+// with the snapshotter.
+// ---------------------------------------------------------------------------
+
+describe("FormVM isDirty – structural deep equality (VMX-003)", () => {
+  // Models in this block deliberately carry types JSON.stringify mishandles, so
+  // a loose record type is the right shape here.
+  type AnyModel = Record<string, unknown>;
+
+  function makeAny(initial: AnyModel) {
+    return new FormVM<AnyModel>({ initial, persister: noop });
+  }
+
+  // (a) Date — was silently clean under JSON.stringify (string-coercion).
+  it("(a) detects a Date replaced by its equivalent ISO string (JSON coerced them equal)", () => {
+    const iso = "2020-01-01T00:00:00.000Z";
+    const sut = makeAny({ when: new Date(iso) });
+    expect(sut.isDirty).toBe(false);
+
+    // A Date and the string holding its ISO value stringify identically, so the
+    // old comparison reported this real type change as clean.
+    sut.setModel({ when: iso });
+    expect(sut.isDirty).toBe(true);
+  });
+
+  it("(a') detects a Date changed to a different instant", () => {
+    const sut = makeAny({ when: new Date("2020-01-01T00:00:00.000Z") });
+    sut.setModel({ when: new Date("2021-06-15T00:00:00.000Z") });
+    expect(sut.isDirty).toBe(true);
+  });
+
+  it("(a'') treats an equal-instant Date (different object) as clean", () => {
+    const sut = makeAny({ when: new Date("2020-01-01T00:00:00.000Z") });
+    sut.setModel({ when: new Date("2020-01-01T00:00:00.000Z") });
+    expect(sut.isDirty).toBe(false);
+  });
+
+  // (b) Map / Set — JSON.stringify renders both as `{}`, hiding every change.
+  it("(b) detects a Set change (JSON.stringify renders every Set as {})", () => {
+    const sut = makeAny({ tags: new Set(["a"]) });
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel({ tags: new Set(["a", "b"]) });
+    expect(sut.isDirty).toBe(true);
+  });
+
+  it("(b') detects a Map value change (JSON.stringify renders every Map as {})", () => {
+    const sut = makeAny({ m: new Map([["k", 1]]) });
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel({ m: new Map([["k", 2]]) });
+    expect(sut.isDirty).toBe(true);
+  });
+
+  it("(b'') treats an equal Map (different object) as clean", () => {
+    const sut = makeAny({ m: new Map([["k", 1]]) });
+    sut.setModel({ m: new Map([["k", 1]]) });
+    expect(sut.isDirty).toBe(false);
+  });
+
+  // (c) BigInt — JSON.stringify throws a TypeError; structuredClone clones fine.
+  it("(c) does not throw on a BigInt model and detects a BigInt change", () => {
+    const sut = makeAny({ id: 1n });
+    expect(() => sut.isDirty).not.toThrow();
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel({ id: 2n });
+    expect(() => sut.isDirty).not.toThrow();
+    expect(sut.isDirty).toBe(true);
+  });
+
+  // (d) Circular references — JSON.stringify throws "circular structure".
+  it("(d) does not throw on a circular model", () => {
+    const a: AnyModel = { name: "A" };
+    a.self = a; // structuredClone preserves the cycle.
+    const sut = makeAny(a);
+
+    expect(() => sut.isDirty).not.toThrow();
+    expect(sut.isDirty).toBe(false);
+
+    const b: AnyModel = { name: "B" };
+    b.self = b;
+    expect(() => {
+      sut.setModel(b);
+    }).not.toThrow();
+    expect(sut.isDirty).toBe(true);
+  });
+
+  // (e) undefined vs missing — JSON.stringify drops undefined-valued keys.
+  it("(e) detects adding an undefined-valued key (JSON.stringify silently dropped it)", () => {
+    // structuredClone preserves `note: undefined`; the comparison must too.
+    const sut = makeAny({ name: "A" });
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel({ name: "A", note: undefined });
+    expect(sut.isDirty).toBe(true);
+  });
+
+  // (f) Plain-object happy path is unchanged.
+  it("(f) plain-object change reads dirty and a value-equal revert reads clean", () => {
+    const sut = make(m("A", 1));
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel(m("B", 2));
+    expect(sut.isDirty).toBe(true);
+
+    // A different object instance with the same field values is clean again.
+    sut.setModel(m("A", 1));
+    expect(sut.isDirty).toBe(false);
+  });
+
+  // Injectable override — mirrors the snapshotter injection point.
+  it("honors a custom equals predicate", () => {
+    const calls: Array<[IModel, IModel]> = [];
+    const sut = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: noop,
+      // Compare on `name` only — `value` changes are considered clean.
+      equals: (x, y) => {
+        calls.push([x, y]);
+        return x.name === y.name;
+      },
+    });
+
+    sut.setModel(m("A", 999));
+    expect(sut.isDirty).toBe(false); // value differs but name matches → clean
+    expect(calls.length).toBeGreaterThan(0);
+
+    sut.setModel(m("Z", 1));
+    expect(sut.isDirty).toBe(true); // name differs → dirty
+  });
+
+  it("the builder's equals setter reaches the FormVM", () => {
+    const form = FormVM.builder<IModel>()
+      .initial(m("A", 1))
+      .persister(noop)
+      .equals((x, y) => x.name === y.name)
+      .build();
+
+    form.setModel(m("A", 42));
+    expect(form.isDirty).toBe(false);
     form.dispose();
   });
 });

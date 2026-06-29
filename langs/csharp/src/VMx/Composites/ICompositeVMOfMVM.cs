@@ -1,4 +1,3 @@
-#pragma warning disable CA1715 // Spec uses 'M'/'VM' type parameters per ADR-0006
 using VMx.Components;
 
 namespace VMx.Composites;
@@ -15,4 +14,3 @@ public interface ICompositeVM<M, VM> : ICompositeVM<VM>
     where VM : class, IComponentVM
 {
 }
-#pragma warning restore CA1715

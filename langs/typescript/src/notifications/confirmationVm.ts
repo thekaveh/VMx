@@ -31,8 +31,15 @@ export class ConfirmationVM extends NotificationVM {
     hub: INotificationHub,
     scheduler: SchedulerLike,
     lifespanMs?: number,
+    tickIntervalMs?: number,
   ) {
-    super(notification, hub, scheduler, lifespanMs ?? DEFAULT_LIFESPAN_MS);
+    super(
+      notification,
+      hub,
+      scheduler,
+      lifespanMs ?? DEFAULT_LIFESPAN_MS,
+      tickIntervalMs,
+    );
 
     this.approveCommand = RelayCommand.builder()
       .task(() => this.resolveWith(NotificationReaction.Approve))
@@ -44,8 +51,19 @@ export class ConfirmationVM extends NotificationVM {
   }
 
   /**
+   * VMX-092: ConfirmationVM never auto-resolves, so it declines to arm the
+   * lifespan expiry timer at all — there is no work for it to do on fire.
+   * (Observable behavior is unchanged: timeout still means "user did not
+   * decide" and the notification remains pending.)
+   */
+  protected override armsExpiryTimer(): boolean {
+    return false;
+  }
+
+  /**
    * ConfirmationVM does NOT auto-resolve on lifespan expiry.
    * Timeout means "user did not decide"; the notification remains pending.
+   * Retained as a defensive no-op in case a subclass re-arms the timer.
    */
   protected override onExpire(): void {
     // Intentional no-op. ConfirmationVM requires an explicit user action.

@@ -24,12 +24,6 @@ from vmx.aggregates import (
     AggregateVM5Builder,
     AggregateVM6,
     AggregateVM6Builder,
-    AggregateVMBuilder1,
-    AggregateVMBuilder2,
-    AggregateVMBuilder3,
-    AggregateVMBuilder4,
-    AggregateVMBuilder5,
-    AggregateVMBuilder6,
 )
 from vmx.builders import BuilderValidationError
 from vmx.capabilities import (
@@ -67,6 +61,8 @@ from vmx.collections import (
     ServicedObservableCollection,
 )
 from vmx.commands import (
+    AsyncRelayCommand,
+    AsyncRelayCommandBuilder,
     Command,
     CompositeCommand,
     ConfirmationDecoratorCommand,
@@ -77,8 +73,6 @@ from vmx.commands import (
     RelayCommandBuilder,
     RelayCommandOf,
     RelayCommandOfBuilder,
-    RelayCommandOfT,
-    RelayCommandOfTBuilder,
     confirm,
     confirm_with_dialog_service,
     precede_with,
@@ -123,6 +117,7 @@ from vmx.messages import (
     TreeStructureChangedMessage,
     TypedMessage,
     property_value_changed_messages_for,
+    when_property_changed,
 )
 from vmx.properties import (
     DerivedProperty,
@@ -143,7 +138,6 @@ from vmx.services import (
     NullDispatcher,
     NullMessageHub,
     RxDispatcher,
-    null_message_hub_of,
 )
 from vmx.tree import find, walk, walk_expanded
 
@@ -164,12 +158,8 @@ __all__ = [
     "AggregateVM5Builder",
     "AggregateVM6",
     "AggregateVM6Builder",
-    "AggregateVMBuilder1",
-    "AggregateVMBuilder2",
-    "AggregateVMBuilder3",
-    "AggregateVMBuilder4",
-    "AggregateVMBuilder5",
-    "AggregateVMBuilder6",
+    "AsyncRelayCommand",
+    "AsyncRelayCommandBuilder",
     "BatchUpdateHandle",
     "BuilderValidationError",
     "CollectionChangedEvent",
@@ -245,8 +235,6 @@ __all__ = [
     "RelayCommandBuilder",
     "RelayCommandOf",
     "RelayCommandOfBuilder",
-    "RelayCommandOfT",
-    "RelayCommandOfTBuilder",
     "RxDispatcher",
     "SearchableState",
     "ServicedObservableCollection",
@@ -267,12 +255,12 @@ __all__ = [
     "from_sources",
     "from_three",
     "from_two",
-    "null_message_hub_of",
     "precede_with",
     "property_value_changed_messages_for",
     "succeed_with",
     "walk",
     "walk_expanded",
+    "when_property_changed",
     "wrap_with",
 ]
 

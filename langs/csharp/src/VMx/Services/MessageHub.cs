@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using VMx.Messages;
@@ -11,7 +12,9 @@ namespace VMx.Services;
 public sealed class MessageHub : IMessageHub, IDisposable
 {
     private readonly Subject<IMessage> _subject = new();
-    private bool _disposed;
+    // volatile: the unlocked _disposed pre-check in Send must observe the write
+    // made by Dispose() on another thread (the two are intentionally not atomic).
+    private volatile bool _disposed;
 
     /// <inheritdoc/>
     public IObservable<IMessage> Messages =>
@@ -42,7 +45,10 @@ public sealed class MessageHub : IMessageHub, IDisposable
             // Send racing Dispose on another thread: the _disposed pre-check is
             // not atomic with OnNext, so the subject may be disposed in between.
             // Shutdown-time messages are dropped, same as the pre-check path
-            // (sibling of the NotificationHub Post-after-Dispose fix).
+            // (sibling of the NotificationHub Post-after-Dispose fix). The only
+            // legitimate source of this ODE is that race, so assert it surfaces a
+            // genuine shutdown — never a live-subject bug — in Debug/test builds.
+            Debug.Assert(_disposed, "ObjectDisposedException from a non-disposed MessageHub subject.");
         }
     }
 

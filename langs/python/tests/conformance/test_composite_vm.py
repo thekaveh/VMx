@@ -544,10 +544,6 @@ def test_LIFE_013_dispose_cascades_depth_first() -> None:
     )
 
 
-# Alias imported by tests/conformance/test_lifecycle.py delegation.
-test_LIFE_013_dispose_cascade = test_LIFE_013_dispose_cascades_depth_first  # noqa: N816
-
-
 # ===========================================================================
 # COMP-012 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
 # ===========================================================================
@@ -720,3 +716,43 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
     composite2.construct()
 
     assert observed2 == [children2[0]]
+
+
+# ===========================================================================
+# COMP-027 — add sets a child's parent; remove clears it
+# ===========================================================================
+
+
+@pytest.mark.conformance("COMP-027")
+def test_COMP_027_add_sets_parent_remove_clears_it() -> None:
+    """COMP-027: adding a child to a Constructed composite sets the child's internal
+    parent back-reference (the child becomes selectable and select() delegates
+    through it); removing the child clears it (no longer selectable, select() is a
+    no-op). parent is not observable, so the wiring is asserted through the public
+    selection surface. See spec/05 §6.1, spec/01 §1.3, and ADR-0050.
+    """
+    hub = _hub()
+    disp = _dispatcher()
+    composite, _ = _build_composite(hub=hub, dispatcher=disp)
+    composite.construct()
+
+    child = _build_child("c", hub=hub, dispatcher=disp)
+    child.construct()
+
+    # No parent yet → not selectable.
+    assert not child.can_select()
+
+    # add wires parent → selectable, and select() delegates through it.
+    composite.add(child)
+    assert child.can_select()
+    child.select()
+    assert composite.current is child
+    assert child.is_current
+
+    # deselect, then remove: remove clears parent → not selectable, select() no-op.
+    child.deselect()
+    assert composite.current is None
+    assert composite.remove(child)
+    assert not child.can_select()
+    child.select()  # no-op: parent is None
+    assert composite.current is None

@@ -35,6 +35,17 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     return this.#component1;
   }
 
+  /**
+   * VMX-023: the component slots in declaration order (null slots — before
+   * construct() or after a slot is cleared — are omitted). Tree traversal uses
+   * this typed accessor instead of reflecting over `component${i}` name
+   * strings, so traversal is never silently bounded to a fixed arity.
+   */
+  components(): readonly ComponentVMBase[] {
+    const slots: readonly (ComponentVMBase | null)[] = [this.#component1];
+    return slots.filter((c): c is ComponentVMBase => c !== null);
+  }
+
   protected override _onConstruct(): void {
     // On Reconstruct, the previous slot instance is in Destructed state but
     // still holds hub subscriptions and command Subjects. Dispose it before
