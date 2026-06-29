@@ -36,6 +36,13 @@
 import Foundation
 import Combine
 
+/// Thrown by `HierarchicalVM.reparentChild(_:)` when the requested reparent
+/// would create a cycle (HIER-018): the child is `self` or one of `self`'s
+/// ancestors.
+public enum HierarchyError: Error {
+    case invalidReparent
+}
+
 /// Abstract recursive tree ViewModel. Concrete subclasses follow the CRTP
 /// shape, e.g. `final class MyNode: HierarchicalVM<MyModel, MyNode>`.
 ///
@@ -203,6 +210,70 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         }
     }
 
+    // ── Structural mutation ─────────────────────────────────────────────
+
+    /// Appends `child` to this node's children list, wires its parent backpointer,
+    /// invalidates path caches in the subtree, and publishes two messages on the hub:
+    ///
+    /// 1. `PropertyChangedMessage("parent")` with `sender == child` (HIER-010).
+    /// 2. `TreeStructureChangedMessage(.added, …)` (HIER-011).
+    public func addChild(_ child: TVM) {
+        if _children == nil { _ = children } // materialize
+        let index = _children!.count
+        _children!.append(child)
+        setHierarchicalParent(of: child, to: selfNode) // → PropertyChangedMessage
+        hub.send(TreeStructureChangedMessage(
+            sender: selfNode,
+            senderName: name,
+            change: .added,
+            affected: node(child),
+            index: index
+        ))
+    }
+
+    /// Removes `child` from this node's children list, clears its parent, invalidates
+    /// path caches, and publishes `TreeStructureChangedMessage(.removed, …)` (HIER-011).
+    public func removeChild(_ child: TVM) {
+        guard let idx = _children?.firstIndex(where: { $0 === child }) else { return }
+        _children!.remove(at: idx)
+        setHierarchicalParent(of: child, to: nil) // → PropertyChangedMessage
+        hub.send(TreeStructureChangedMessage(
+            sender: selfNode,
+            senderName: name,
+            change: .removed,
+            affected: node(child),
+            index: idx
+        ))
+    }
+
+    /// Moves `child` from its current parent to this node and publishes
+    /// `TreeStructureChangedMessage(.reparented, index: -1, …)` (HIER-011).
+    ///
+    /// - Throws: `HierarchyError.invalidReparent` when `child` is `self` or one of
+    ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018). On
+    ///   rejection the tree is completely unchanged and no message is published.
+    public func reparentChild(_ child: TVM) throws {
+        // HIER-018: child is self or one of self's ancestors → cycle.
+        if path.contains(where: { $0 === child }) {
+            throw HierarchyError.invalidReparent
+        }
+        // Detach from old parent silently (no PropertyChangedMessage yet).
+        if let oldParent = node(child).parent {
+            node(oldParent)._children?.removeAll(where: { $0 === child })
+        }
+        // Attach to this node.
+        if _children == nil { _ = children } // materialize
+        _children!.append(child)
+        setHierarchicalParent(of: child, to: selfNode) // → PropertyChangedMessage
+        hub.send(TreeStructureChangedMessage(
+            sender: selfNode,
+            senderName: name,
+            change: .reparented,
+            affected: node(child),
+            index: -1
+        ))
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     /// Runs the factory and seeds each produced child's `parent` to this node
@@ -226,5 +297,39 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         }
         chain.reverse()
         return chain
+    }
+
+    /// Sets `child`'s parent backpointer to `newParent`, invalidates path caches
+    /// for the child's subtree, and publishes `PropertyChangedMessage("parent")`
+    /// with `sender == child` on the hub. No-op when the parent is unchanged.
+    private func setHierarchicalParent(of child: TVM, to newParent: TVM?) {
+        let childNode = node(child)
+        // Skip when parent is already newParent (compare by reference identity).
+        let alreadySame: Bool = {
+            switch (childNode.parent, newParent) {
+            case (.none, .none): return true
+            case let (.some(a), .some(b)): return a === b
+            default: return false
+            }
+        }()
+        if alreadySame { return }
+
+        childNode.parent = newParent
+        childNode._pathCache = nil
+        invalidatePathCacheDescendants(of: child)
+        childNode.hub.send(PropertyChangedMessage(
+            sender: child,
+            senderName: childNode.name,
+            propertyName: "parent"
+        ))
+    }
+
+    /// Recursively clears `_pathCache` for all materialized descendants of `vm`.
+    private func invalidatePathCacheDescendants(of vm: TVM) {
+        guard let kids = node(vm)._children else { return }
+        for kid in kids {
+            node(kid)._pathCache = nil
+            invalidatePathCacheDescendants(of: kid)
+        }
     }
 }

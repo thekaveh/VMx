@@ -134,8 +134,9 @@ Key exports:
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The **124 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
-Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060) are:
+catalog. The **141 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
+Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
+Inc-3: +9 HIER tree-identity + expand/collapse EXP + HIER mutation IDs) are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -158,7 +159,7 @@ PROP-001..004   hub property-change accessors
 NULL-001..003   NullMessageHub + NullDispatcher null-object contracts
 LOC-001..003    Localizer protocol + NullLocalizer null-object (no I-prefix — ADR-0006)
 UTIL-001..003   walk (DFS, nil-slot skip) + find (short-circuit) tree utilities
-                (materialized arrays; walkExpanded deferred to Inc 3 with EXP-*)
+                (materialized arrays)
 FWD-001..003    ForwardingComponentVM + ForwardingCompositeVM decorators
                 (name/hint copied at super.init — non-overridable let — ADR-0059;
                 composite surface mirrors real CompositeVM)
@@ -175,6 +176,16 @@ COL-001..023    ObservableList, ObservableDictionary, ServicedObservableCollecti
                 PagedComposition uses setSource(_:) (value-semantics);
                 CollectionChangedEvent/Message are value-type structs with
                 CollectionChangedAction enum + named-struct per-mutation payloads
+EXP-001..005    ExpandableState machine (isExpanded / toggle / expand / collapse)
+                + walkExpanded DFS expansion-gated traversal (Inc-3)
+HIER-001..009   HierarchicalVM tree identity — recursive CRTP constraint,
+                parent/depth/path/isLeaf/isRoot/isFirst/isLast, lazy + eager
+                child construction, depth-first ordering (Inc-3)
+HIER-010/011    addChild/removeChild/reparentChild hub notifications —
+                PropertyChangedMessage("parent") + TreeStructureChangedMessage
+                (added/removed/reparented shapes) (Inc-3)
+HIER-018        reparentChild self/ancestor guard — throws HierarchyError,
+                tree unchanged, no message published on rejection (Inc-3)
 ```
 
 Not yet claimed: `CMD-005` (parameterized variant) and `CMD-007`
@@ -188,15 +199,14 @@ Not yet claimed: `CMD-005` (parameterized variant) and `CMD-007`
 - `CMDD-*` — `CompositeCommand`, `DecoratorCommand`,
   `ConfirmationDecoratorCommand`, `ModeledCrudCommands`
 - `NOTIF-*` — opt-in notification sub-package (`INotificationHub`)
-- `EXP-*` — expand/collapse state machine, expansion-gated traversal
-  (`walkExpanded`), and the `COMP-009` current-guard (deferred to Increment 3)
 - `COMP-006/010` — foreground-dispatch / async selection (Increment 3,
   threading)
 - `COMP-007` — modeled composite
 - `COMP-008/011` — selection-membership validation
 - `COMP-014..024`, `GRP-007..010` — SearchableState / CRUD context IDs
   (land with forms/hub in Increment 4)
-- `HIER-*` — `HierarchicalVM` recursive tree VM
+- `HIER-012..017`, `HIER-019..` — remaining HierarchicalVM IDs (walkExpanded,
+  name defaulting, builder, expand-capability composition, etc.)
 - `DIA-*` — `IDialogService` host modal interactions
 - `FORM-*` — `FormVM` snapshot/revert lifecycle
 
