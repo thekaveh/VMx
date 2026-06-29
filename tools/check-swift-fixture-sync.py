@@ -5,10 +5,14 @@ SwiftPM resources must live inside the target directory, so Swift keeps copies o
 spec/fixtures/*.json under the relevant target's resources:
 
   - lifecycle-transitions.json → Sources/VMx/Resources/ (library target, LIFE-011)
-  - derived-properties.json    → Tests/VMxTests/Resources/ (test target, DPROP-012)
+  - derived-properties.json    → Sources/VMx/Resources/ (library target, DPROP-012)
+
+Both live in the library bundle: the tests load them via `Bundle.module`, which
+resolves to the library's bundle (the test target declares no resources, so no
+shadowing VMxTests bundle is generated).
 
 This guards against any copy drifting from its `spec/fixtures/` original. Exit 1
-on the first mismatch (or a missing copy).
+if any copy mismatches (or is missing).
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ _FIXTURE_PAIRS: list[tuple[str, str]] = [
     ),
     (
         "spec/fixtures/derived-properties.json",
-        "langs/swift/Tests/VMxTests/Resources/derived-properties.json",
+        "langs/swift/Sources/VMx/Resources/derived-properties.json",
     ),
 ]
 
