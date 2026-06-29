@@ -16,20 +16,47 @@ private final class GroupParent: ParentVM {
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
 }
 
-open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
+open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable {
     private var children: [Child] = []
     private let childrenFactory: (() -> [Child])?
     private var populated = false
     private let groupParent = GroupParent()
     private let _autoConstructOnAdd: Bool
 
+    // ── Batch-update state ──────────────────────────────────────────────
+
+    private var _batchLevel = 0
+    private var _batchDirty = false
+
     // ── CollectionChanged publisher ─────────────────────────────────────
 
     private let collectionChangedSubject = PassthroughSubject<CollectionChangedEvent, Never>()
 
     /// Emits a `CollectionChangedEvent` after each `add` or `remove` mutation.
+    /// During a batch, granular events are suppressed; `dispose()` on the
+    /// returned `BatchUpdateHandle` emits a single `.reset` (if dirty).
     public var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
         collectionChangedSubject.eraseToAnyPublisher()
+    }
+
+    /// Begin a batch update. Per-mutation `CollectionChanged` events are
+    /// suppressed until `dispose()` is called on the returned handle, at which
+    /// point a single `.reset` event is emitted (only if a mutation occurred).
+    /// Nested `batchUpdate()` calls are supported via a reference counter; the
+    /// reset fires only when the outermost batch ends.
+    public func batchUpdate() -> BatchUpdateHandle {
+        _batchLevel += 1
+        return BatchUpdateHandle(owner: self)
+    }
+
+    /// Called by `BatchUpdateHandle.dispose()` — do not call directly.
+    func _exitBatch() {
+        guard _batchLevel > 0 else { return }
+        _batchLevel -= 1
+        if _batchLevel == 0 && _batchDirty {
+            _batchDirty = false
+            collectionChangedSubject.send(.reset())
+        }
     }
 
     public init(
@@ -73,7 +100,11 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
         // Emit AFTER the child is appended, parent is wired, and (if
         // autoConstructOnAdd) the child has been constructed.
         let index = children.count - 1
-        collectionChangedSubject.send(.added(child, at: index))
+        if _batchLevel > 0 {
+            _batchDirty = true
+        } else {
+            collectionChangedSubject.send(.added(child, at: index))
+        }
     }
 
     public func remove(_ child: Child) -> Bool {
@@ -83,7 +114,11 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase {
         children[idx]._parent = nil
         children.remove(at: idx)
         // Emit AFTER the child has been removed and parent cleared.
-        collectionChangedSubject.send(.removed(child, at: idx))
+        if _batchLevel > 0 {
+            _batchDirty = true
+        } else {
+            collectionChangedSubject.send(.removed(child, at: idx))
+        }
         return true
     }
 
