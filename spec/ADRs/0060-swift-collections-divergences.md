@@ -124,7 +124,7 @@ constructable child with `autoConstructOnAdd: true` results in the child being
 **a) Null-key enforcement is structural, not a runtime check.**
 TypeScript, Python, and C# guard against `null`/`None` keys at runtime with
 an explicit precondition. In Swift, dictionary keys must be `Hashable` and are
-non-optional in the generic signature (`ObservableDictionary<Key: Hashable, Value>`). A `nil` key is unrepresentable at the type level; the Swift compiler
+non-optional in the generic signature (`ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue>` — a two-key dictionary). A `nil` key is unrepresentable at the type level; the Swift compiler
 rejects code that tries to pass `nil` as a key. No runtime guard is needed,
 and no runtime guard is added. This is a stricter (compile-time) enforcement
 of the same invariant.
@@ -150,14 +150,17 @@ changes. Swift arrays are value types; there is no reactive handle to a
 **Resolution:** `PagedComposition` exposes an explicit `setSource(_:)` method.
 Callers call `setSource(_:)` whenever the underlying array changes (e.g.,
 after a filter or sort operation). The paged view recomputes the window
-synchronously on each `setSource(_:)` call, emitting a `collectionChanged`
-event for the affected range.
+synchronously on each `setSource(_:)` call and emits `propertyChanged` events
+(`"pageCount"` / `"currentPageIndex"` / `"items"`) for whatever changed —
+`PagedComposition` has no `collectionChanged` publisher of its own.
 
 **Clamping and pageCount rules** are shared with the `Pageable` capability
-(`CAP-022`): `pageIndex` is clamped to `[0, max(0, pageCount - 1)]` and
-`pageCount` is `ceil(source.count / pageSize)` (min 1 when source is
-non-empty, 0 when empty). These rules are conformance-tested by `COL-019`
-(boundary clamping) and `COL-020` (pageCount formula).
+(`CAP-022`): `currentPageIndex` is clamped to `[0, max(0, pageCount - 1)]` and
+`pageCount` is `ceil(source.count / pageSize)` (0 when the source is empty and
+paging is enabled; 1 when paging is disabled). These rules are conformance-
+tested across `COL-016` (clamp-on-shrink), `COL-017` (pageCount formula),
+`COL-018` (navigation no-ops at bounds), `COL-019` (`pageSize == 0` disables
+paging), and `COL-020` (empty source ⇒ `pageCount == 0`, `items == []`).
 
 ### 2.6 Collection event value types and named-struct payloads — `COL-001..009`, `COL-016..023`
 
@@ -173,26 +176,33 @@ hierarchies; Python uses dataclasses.
 - `CollectionChangedEvent` and `CollectionChangedMessage` are `struct` value
   types (not classes), consistent with Swift's preference for value semantics
   in event/message carriers.
-- Per-mutation payloads (`ItemAddedPayload`, `ItemRemovedPayload`,
-  `ItemReplacedPayload`) are separate named `struct` types rather than named
-  tuples. Swift has no named-tuple syntax equivalent to TypeScript's
-  `{ item: T; index: number }` inline type; named structs are the idiomatic
-  substitute, are equally type-safe, and remain `Equatable`/`Hashable` when
-  their fields are.
+- The granular per-mutation payloads on `ObservableList` /
+  `ObservableDictionary` (`ItemAddedEvent`, `ItemRemovedEvent`,
+  `ItemReplacedEvent`, `DictionaryItemAddedEvent`, …) are separate named
+  `struct` types rather than named tuples. Swift has no named-tuple syntax
+  equivalent to TypeScript's `{ item: T; index: number }` inline type; named
+  structs are the idiomatic substitute, are equally type-safe, and remain
+  `Equatable`/`Hashable` when their fields are.
 
-**Consequence:** Consumers pattern-match on the enum case:
+**Consequence:** `CollectionChangedAction` is a *plain* enum (no associated
+values); the payload lives in the `CollectionChangedEvent` struct's fields
+(`newItems` / `oldItems` / `newIndex` / `oldIndex`). Consumers switch on the
+discriminator and read the fields:
 
 ```swift
-observable.collectionChanged
+composite.collectionChanged
     .sink { event in
         switch event.action {
-        case .add(let payload):   print("added \(payload.item) at \(payload.index)")
-        case .remove(let payload): print("removed at \(payload.index)")
-        case .replace(let payload): print("replaced at \(payload.index)")
-        case .reset:               print("reset")
+        case .add:     print("added \(event.newItems) at \(event.newIndex)")
+        case .remove:  print("removed \(event.oldItems) at \(event.oldIndex)")
+        case .replace: print("replaced at \(event.newIndex)")
+        case .reset:   print("reset")
         }
     }
 ```
+
+The granular `ObservableList` publishers instead carry their own payload
+struct directly, e.g. `list.itemAdded.sink { e in /* e.item, e.index */ }`.
 
 This is functionally identical to the TypeScript discriminated-union pattern.
 
