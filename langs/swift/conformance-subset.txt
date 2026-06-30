@@ -2,8 +2,8 @@
 #
 # This is the declared subset of spec/12-conformance.md IDs that Swift currently
 # covers. The Phase-3 parity effort is growing it toward the full 237-ID library
-# catalog; as of Increment 6 it covers 221 of 237 — the remaining 16 are the
-# COMP/GRP leftovers (SearchableState/CRUD).
+# catalog; as of Increment 6 it covers 230 of 237 — the remaining 7 are the
+# COMP/GRP CRUD IDs (COMP-019..024, GRP-011..013).
 #
 # When Swift reaches full parity, add the remaining IDs here and the corresponding
 # test markers (`/// XXX-NNN — description`) in langs/swift/Tests/VMxTests/.
@@ -77,6 +77,11 @@ COMP-010
 COMP-011
 COMP-012
 COMP-013
+COMP-014
+COMP-015
+COMP-016
+COMP-017
+COMP-018
 COMP-025
 COMP-026
 CVM-001
@@ -111,6 +116,10 @@ GRP-003
 GRP-004
 GRP-005
 GRP-006
+GRP-007
+GRP-008
+GRP-009
+GRP-010
 LIFE-001
 LIFE-002
 LIFE-003
