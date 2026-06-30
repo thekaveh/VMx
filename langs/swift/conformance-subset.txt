@@ -1,12 +1,9 @@
 # Swift conformance subset — enforced by tools/check-conformance-coverage.py.
 #
 # This is the declared subset of spec/12-conformance.md IDs that Swift currently
-# covers. The Phase-3 parity effort is growing it toward the full 237-ID library
-# catalog; as of Increment 6 it covers 230 of 237 — the remaining 7 are the
-# COMP/GRP CRUD IDs (COMP-019..024, GRP-011..013).
+# covers. As of Phase-3 Increment 6 (COMP-019..024 + COMP-027) this list covers
+# all 237 library IDs — full parity with the C#/Python/TypeScript flavors.
 #
-# When Swift reaches full parity, add the remaining IDs here and the corresponding
-# test markers (`/// XXX-NNN — description`) in langs/swift/Tests/VMxTests/.
 # The tool enforces a two-way match: every ID here must have a test marker and
 # every test marker must appear here — drift in either direction is a CI failure.
 AGG-001
@@ -82,8 +79,15 @@ COMP-015
 COMP-016
 COMP-017
 COMP-018
+COMP-019
+COMP-020
+COMP-021
+COMP-022
+COMP-023
+COMP-024
 COMP-025
 COMP-026
+COMP-027
 CVM-001
 CVM-002
 CVM-003
