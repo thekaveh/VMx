@@ -251,14 +251,22 @@ public final class NoteFormVM: ComponentVMBase {
     public func approveAsync() async throws {
         guard let form = _form else { return }
         try await form.approveAsync()
-        emitDraftChanges()
-        if let notificationHub = _notificationHub {
-            let savedTitle = snapshot.title
-            Task {
-                _ = await notificationHub.post(VMx.Notification(
-                    type: .notification,
-                    message: "Saved \u{201C}\(savedTitle)\u{201D}"
-                ))
+        // Marshal the INPC emit (+ notification) back onto the foreground
+        // dispatcher: the thread that resumes after the await is not guaranteed
+        // to be the UI execution target. Mirrors C# `_dispatcher.Foreground
+        // .Schedule(...)`. Under `ImmediateDispatcher` (tests) this runs
+        // synchronously, so callers observe the emit before `approveAsync` returns.
+        let savedTitle = snapshot.title
+        dispatcher.scheduleForeground { [weak self] in
+            guard let self else { return }
+            self.emitDraftChanges()
+            if let notificationHub = self._notificationHub {
+                Task {
+                    _ = await notificationHub.post(VMx.Notification(
+                        type: .notification,
+                        message: "Saved \u{201C}\(savedTitle)\u{201D}"
+                    ))
+                }
             }
         }
     }
