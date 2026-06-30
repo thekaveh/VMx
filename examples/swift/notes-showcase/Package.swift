@@ -30,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "NotesShowcaseTests",
-            dependencies: ["NotesShowcaseCore"],
+            dependencies: [
+                "NotesShowcaseCore",
+                .product(name: "VMx", package: "swift"),
+            ],
             path: "Tests/NotesShowcaseTests"
         ),
     ]
