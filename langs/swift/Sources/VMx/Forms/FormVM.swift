@@ -179,8 +179,8 @@ public final class FormVM<Model> {
 
     // ── Wire commands post-init ───────────────────────────────────────────────
 
-    /// Called once by the factory helpers below to attach the real command
-    /// closures after `self` is fully constructed.
+    /// Called once from `init` (after every stored property is set) to replace
+    /// the placeholder commands with the real closures that capture `self`.
     fileprivate func wireCommands() {
         denyCommand = RelayCommand(
             task: { [weak self] in self?.performDeny() },

@@ -9,12 +9,8 @@
 // The raw `messages` publisher path (non-throwing Combine sinks) does NOT
 // provide this isolation for *trapping* handlers (force-unwrap nil,
 // precondition, array-OOB): traps are uncatchable in Swift, equivalent to a
-// segfault in the other flavors, and remain a documented divergence. This
-// divergence will be recorded in the Task-12 ADR.
-//
-// A subscriber that *traps* rather than throws is an uncatchable process kill
-// in Swift (parity with a segfault in the other flavors) and is a documented
-// divergence (ADR-0037, langs/swift/README §5).
+// segfault in the other flavors, and remain a documented divergence
+// (ADR-0062 §2.4, ADR-0037, langs/swift/README §5).
 //
 import XCTest
 import Combine
@@ -31,8 +27,8 @@ final class MessageHubTests: XCTestCase {
     /// neither stops the hub nor blocks delivery to the other subscribers.
     /// This is the Swift expression of HUB-007 via the opt-in `subscribe(_:)`
     /// path (the catchable-error half). The raw `messages` path for trapping
-    /// handlers remains a documented divergence — see the file header and the
-    /// Task-12 ADR.
+    /// handlers remains a documented divergence — see the file header and
+    /// ADR-0062 §2.4.
     func testThrowingSubscriberIsIsolated() {
         struct SubError: Error {}
         let hub = MessageHub()

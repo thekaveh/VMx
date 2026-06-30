@@ -168,9 +168,13 @@ approve leaves the form in its pre-approve state.
 ```swift
 approveCommand = RelayCommand.builder()
     .task { [weak self] in
-        guard let self else { return }
-        do { try await self.approveAsync() }
-        catch { self._approveErrors.send(error) }
+        // RelayCommand's task is synchronous, so the await is bridged into a
+        // detached Task (the fire-and-forget boundary).
+        Task {
+            guard let self else { return }
+            do { try await self.approveAsync() }
+            catch { self._approveErrors.send(error) }
+        }
     }
     ...
     .build()
