@@ -2,8 +2,8 @@
 #
 # This is the declared subset of spec/12-conformance.md IDs that Swift currently
 # covers. The Phase-3 parity effort is growing it toward the full 237-ID library
-# catalog; as of Increment 6 it covers 219 of 237 — the remaining 18 are the
-# COMP/GRP leftovers (selection-validation, SearchableState/CRUD).
+# catalog; as of Increment 6 it covers 221 of 237 — the remaining 16 are the
+# COMP/GRP leftovers (SearchableState/CRUD).
 #
 # When Swift reaches full parity, add the remaining IDs here and the corresponding
 # test markers (`/// XXX-NNN — description`) in langs/swift/Tests/VMxTests/.
@@ -71,8 +71,10 @@ COMP-004
 COMP-005
 COMP-006
 COMP-007
+COMP-008
 COMP-009
 COMP-010
+COMP-011
 COMP-012
 COMP-013
 COMP-025

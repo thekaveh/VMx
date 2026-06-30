@@ -150,6 +150,43 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         _setCurrent(value)
     }
 
+    /// Pre-flight predicate for `selectComponent(_:)`: returns `true` iff `vm`
+    /// is a member of this composite **and** `vm.status == .constructed`.
+    ///
+    /// This is distinct from `canSetCurrent(_:)`, which checks membership only
+    /// without the Constructed gate (spec/06 §3.1). Swift throws catchably
+    /// (ADR-0053) where C# surfaces `InvalidOperationException`.
+    public func canSelectComponent(_ vm: Child) -> Bool {
+        children.contains(where: { $0 === vm }) && vm.status == .constructed
+    }
+
+    /// Selects `vm` as the current child, throwing `CompositeMembershipError`
+    /// if `canSelectComponent(vm)` returns `false` (non-member or not yet
+    /// constructed — spec/06 §3.1 / COMP-008).
+    ///
+    /// Swift convergence of the C#/TypeScript `selectComponent` throwing path
+    /// (ADR-0053): catchable throw rather than a trap, unlike the `current`
+    /// property setter which cannot be `throws` in Swift.
+    public func selectComponent(_ vm: Child) throws {
+        guard canSelectComponent(vm) else {
+            throw CompositeMembershipError(memberName: vm.name, compositeName: name)
+        }
+        _setCurrent(vm)
+    }
+
+    /// Deselects `vm`, clearing the current slot, throwing
+    /// `CompositeMembershipError` if `vm` is not the current selection
+    /// (spec/06 §3.1 / COMP-011).
+    ///
+    /// Swift convergence of the C#/TypeScript `deselectComponent` throwing path
+    /// (ADR-0053): catchable throw rather than a trap.
+    public func deselectComponent(_ vm: Child) throws {
+        guard _current === vm else {
+            throw CompositeMembershipError(memberName: vm.name, compositeName: name)
+        }
+        _setCurrent(nil)
+    }
+
     public func add(_ child: Child) {
         children.append(child)
         child._parent = self
