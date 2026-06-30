@@ -5,29 +5,36 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.0.0 (subset).** Covers **218 of 237**
-conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 — ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25 notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063): the lifecycle state machine, the modeled
-and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`, `CompositeCommand`,
-`DecoratorCommand`, `ConfirmationDecoratorCommand`, `ModeledCrudCommands`, fluent
-command helpers, the immutable fluent builders, `DerivedProperty<T>`, the
-22 capability micro-interfaces, null objects (`NullMessageHub`, `NullDispatcher`,
-`NullLocalizer`), localization hook (`Localizer` / `NullLocalizer`), tree
-utilities (`walk`, `find`, `walkExpanded`), hub property accessors,
-forwarding decorators (`ForwardingComponentVM`, `ForwardingCompositeVM`),
-observable collections (`ObservableList`, `ObservableDictionary`,
-`ServicedObservableCollection`, `PagedComposition`, collection-changed events,
-batch updates, auto-construct), `ExpandableState` + expand/collapse traversal,
-`HierarchicalVM` (tree identity, lazy/eager construction, structural mutation,
-builder, capability composition), threading contracts (`ManualScheduler`,
-`VirtualTimeScheduler`, foreground dispatch, async selection), message hub
-semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog service
-(`DialogService` / `NullDialogService`), and the notifications sub-package
-(`NotificationHub`, `NotificationVM`, `ConfirmationVM`, `makeConfirm` bridge).
-The remaining 19 IDs (a subset of composite/group SearchableState context IDs)
-are deferred to follow-up Swift releases — see §5 for the in / deferred
-breakdown. Requires Swift 5.9+, Combine, iOS 16 / macOS 13 / tvOS 16 /
-watchOS 9.
+**v3.0.0 — full library parity.** Covers **all 237 of 237** library conformance
+IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added
+per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50
+leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3
+Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3
+Inc-3 — ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25
+notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063; +19 composite/group
+IDs via Phase-3 Inc-6 — ADR-0064): the lifecycle state machine, the modeled
+and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
+`AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
+`CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`,
+`ModeledCrudCommands`, fluent command helpers, the immutable fluent builders,
+`DerivedProperty<T>`, the 22 capability micro-interfaces, null objects
+(`NullMessageHub`, `NullDispatcher`, `NullLocalizer`), localization hook
+(`Localizer` / `NullLocalizer`), tree utilities (`walk`, `find`,
+`walkExpanded`), hub property accessors, forwarding decorators
+(`ForwardingComponentVM`, `ForwardingCompositeVM`), observable collections
+(`ObservableList`, `ObservableDictionary`, `ServicedObservableCollection`,
+`PagedComposition`, collection-changed events, batch updates, auto-construct),
+`ExpandableState` + expand/collapse traversal, `HierarchicalVM` (tree identity,
+lazy/eager construction, structural mutation, builder, capability composition),
+threading contracts (`ManualScheduler`, `VirtualTimeScheduler`, foreground
+dispatch, async selection), `SearchableState` (composite and group contexts),
+message hub semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
+service (`DialogService` / `NullDialogService`), and the notifications
+sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
+`makeConfirm` bridge). The five `THEME-00x` flagship scenario IDs (which live
+in example apps, not the library conformance suite) are the only remaining gap
+before total parity — see §5. Requires Swift 5.9+, Combine, iOS 16 / macOS 13
+/ tvOS 16 / watchOS 9.
 
 ## 2. Install
 
@@ -140,12 +147,13 @@ Key exports:
 
 ## 5. Conformance — subset for this release
 
-This flavor implements **a subset** of the cross-language conformance
-catalog. The **218 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
+This flavor implements **all 237 library conformance IDs** from the
+cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 Inc-4: +40 forms/commands/hub IDs per ADR-0062;
-Inc-5: +25 notifications/dialogs IDs per ADR-0063) are:
+Inc-5: +25 notifications/dialogs IDs per ADR-0063;
+Inc-6: +19 composite/group IDs per ADR-0064). The covered IDs are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -298,17 +306,42 @@ NOTIF-017       NotificationHub dispose — in-flight post waiters resume .pendi
                 idempotent; dispose() on concrete class only (not on protocol —
                 matches TS shape; NullNotificationHub unaffected) (Inc-5 —
                 ADR-0063 §2.5)
+COMP-007        CompositeVMOf<Model, VM: ComponentVMBase> — modeled composite;
+                non-recursive generic (VM: ComponentVMBase, no CRTP relaxation
+                needed — unlike HierarchicalVM in ADR-0061); childrenFactory route
+                to super.init; CompositeVMOfBuilder with copy-on-write validation
+                (name → services → childrenModels → childModelToChildViewModel);
+                children are typically ComponentVMOf<Model> exposing .model (Inc-6
+                — ADR-0064 §2.1)
+COMP-008        selectComponent(_:) throws CompositeMembershipError when vm is not
+                a member or status != .constructed; canSelectComponent(_:) = member
+                AND status == .constructed (distinct from canSetCurrent — membership
+                only) (Inc-6 — ADR-0064 §2.2)
+COMP-011        deselectComponent(_:) throws CompositeMembershipError when vm is not
+                the current selection; current unchanged on throw; calls _setCurrent(nil)
+                on success (Inc-6 — ADR-0064 §2.2)
+COMP-014..018   SearchableState<T> composite context — filtered items by search term;
+                CurrentValueSubject backing + PassthroughSubject force-immediate
+                merge; synchronous search() bypass; lazy items closure re-reads on
+                recompute (Inc-6 — ADR-0064 §2.3)
+COMP-019..024   ModeledCrudCommands<VM> — createNewCommand, updateCurrentCommand,
+                deleteCurrentCommand (canExecute false when current nil);
+                ConfirmationDecoratorCommand wrapping for COMP-024; no phantom M
+                parameter (ADR-0006) (Inc-6 — ADR-0064 §2.4)
+COMP-027        add/remove parent-link wiring — add(child) sets child.parent;
+                remove(child) clears it; canSelect/select composition enabled by
+                parent reference (Inc-6 — ADR-0064 §2.4)
+GRP-007..010    SearchableState<T> group context — same Combine-native implementation
+                as COMP-014..018; GRP-010 uses Int(t) ?? 0 numeric-term predicate
+                (Swift equivalent of TS Number(t) || 0) (Inc-6 — ADR-0064 §2.3)
 ```
 
-**Deferred to follow-up PRs:**
+**Deferred:**
 
-- `COMP-007` — modeled composite
-- `COMP-008/011` — selection-membership validation
-- `COMP-014..024/027`, `GRP-007..010` — SearchableState / CRUD context IDs
-- `THEME-00x` — flagship scenario IDs (live in example apps, not library
-  conformance)
+- `THEME-00x` — flagship scenario IDs (live in example apps, not in the library
+  conformance suite; deferred to Increment 7)
 
-**This release is NOT yet at full parity with the 237-ID catalog.**
+**All 237 library conformance IDs are covered. This flavor is at full library parity with C#, Python, and TypeScript.**
 
 Run the suite:
 
