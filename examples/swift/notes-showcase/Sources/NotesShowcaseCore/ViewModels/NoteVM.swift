@@ -130,6 +130,9 @@ public final class NoteVM: ComponentVMBase,
     // ── Internal delete implementation ─────────────────────────────────────
 
     private func _performDelete(_ item: NoteVM) {
+        // Defensive re-guard (mirrors the C# reference) so this stays correct if
+        // ever invoked from a new call site beyond the already-gated commands.
+        guard canDelete(item) else { return }
         _onDelete?(item)
         if let notificationHub = _notificationHub {
             Task {

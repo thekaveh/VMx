@@ -74,8 +74,11 @@ final class NoteVMTests: XCTestCase {
         XCTAssertTrue(vm is Selectable)
         XCTAssertTrue(vm is Deselectable)
         XCTAssertTrue(vm is Closable)
-        XCTAssertTrue(vm is Deletable)   // existential without associated type
-        XCTAssertTrue(vm is Savable)     // existential without associated type
+        // `Deletable`/`Savable` DO have an `associatedtype Item`; because `vm`'s
+        // static type is the concrete `NoteVM`, the compiler resolves these as
+        // compile-time conformance checks (not runtime existential casts).
+        XCTAssertTrue(vm is Deletable)
+        XCTAssertTrue(vm is Savable)
         XCTAssertTrue(vm is Reconstructable)
         // Capabilities NOT applicable to a note:
         XCTAssertFalse(vm is Expandable)

@@ -69,7 +69,8 @@ public final class NotebookVM: ComponentVMBase,
 
     /// Re-emits a `"children"` change notification (called by `NotebooksRootVM`
     /// whenever the flat collection mutates so already-bound parents refresh).
-    public func notifyChildrenChanged() {
+    /// `internal` (matches C#) — same-module bookkeeping, not consumer API.
+    func notifyChildrenChanged() {
         hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "children"))
         _raisePropertyChanged("children")
     }
