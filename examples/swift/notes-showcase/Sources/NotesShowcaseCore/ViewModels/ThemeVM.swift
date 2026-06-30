@@ -228,13 +228,16 @@ public final class ThemeVM: ComponentVMBase {
         let previous = _model
         _model = newModel
         _modelSubject.send(newModel)
+        // Standard INPC channel (matches the C# SetModel order: model subject →
+        // PropertyChangedMessage → propertyChanged → ThemeChangedMessage).
+        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "model"))
+        _raisePropertyChanged("model")
         hub.send(ThemeChangedMessage(
             sender: self,
             senderName: name,
             previous: previous,
             current: newModel
         ))
-        _raisePropertyChanged("model")
     }
 
     // ── Dispose ────────────────────────────────────────────────────────────
