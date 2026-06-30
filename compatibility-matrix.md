@@ -33,12 +33,16 @@ the 22 capability micro-interfaces, observable collections
 auto-construct), `ExpandableState` + expand/collapse traversal,
 `HierarchicalVM` (tree identity, lazy/eager construction, structural
 mutation, builder, capability composition), threading contracts
-(`ManualScheduler`, foreground dispatch, async selection), message hub
-semantics, and `FormVM` (snapshot/dirty/approve/deny lifecycle) —
-**193 conformance IDs as of Phase-3 Inc-4**
+(`ManualScheduler`, `VirtualTimeScheduler`, foreground dispatch, async
+selection), message hub semantics, `FormVM` (snapshot/dirty/approve/deny
+lifecycle), dialog service (`DialogService` / `NullDialogService`), and
+the notifications sub-package (`NotificationHub`, `NotificationVM`,
+`ConfirmationVM`, `makeConfirm` bridge) —
+**218 conformance IDs as of Phase-3 Inc-5**
 (base 44 per ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059;
 +30 collections IDs per ADR-0060; +29 hierarchical/threading/expand-collapse
-IDs per ADR-0061; +40 forms/commands/hub IDs per ADR-0062). Full
+IDs per ADR-0061; +40 forms/commands/hub IDs per ADR-0062;
++25 notifications/dialogs IDs per ADR-0063). Full
 conformance parity with the other flavors lands in a follow-up Swift
 release; see `langs/swift/README.md` §5 for the in / deferred matrix.
 
