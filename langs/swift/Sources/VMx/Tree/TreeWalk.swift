@@ -35,6 +35,20 @@ extension GroupVM: _TreeContainer {
     }
 }
 
+// MARK: - HierarchicalVM conformance (HIER-012: walkExpanded descent)
+
+/// Makes every `HierarchicalVM<TModel, TVM>` node descend-able by `walk` /
+/// `walkExpanded` / `find`. `TVM: AnyObject` so `children` returns `[TVM]`;
+/// `compactMap { $0 as? ComponentVMBase }` recovers the base type. The cast
+/// always succeeds at runtime because every `TVM` IS-A
+/// `HierarchicalVM<TModel, TVM>` IS-A `ComponentVMBase` (CRTP invariant — see
+/// `HierarchicalVM.swift` header).
+extension HierarchicalVM: _TreeContainer {
+    var childComponents: [ComponentVMBase] {
+        children.compactMap { $0 as? ComponentVMBase }
+    }
+}
+
 // MARK: - AggregateVM1..6 conformances (nil slots skipped — UTIL-002)
 
 extension AggregateVM1: _TreeContainer {

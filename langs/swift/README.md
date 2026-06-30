@@ -134,9 +134,10 @@ Key exports:
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The **141 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
+catalog. The **143 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
-Inc-3: +9 HIER tree-identity + expand/collapse EXP + HIER mutation IDs) are:
+Inc-3: +11 HIER tree-identity + expand/collapse EXP + HIER mutation + HIER capability
+composition IDs) are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -184,6 +185,11 @@ HIER-001..009   HierarchicalVM tree identity — recursive CRTP constraint,
 HIER-010/011    addChild/removeChild/reparentChild hub notifications —
                 PropertyChangedMessage("parent") + TreeStructureChangedMessage
                 (added/removed/reparented shapes) (Inc-3)
+HIER-012        walkExpanded honors ExpandableState gate: collapsed node pruned,
+                expanded node descends; HierarchicalVM conforms to _TreeContainer
+                (Inc-3 capability composition)
+HIER-013        SearchableState composed over materialized children filters by
+                search term (Inc-3 capability composition)
 HIER-018        reparentChild self/ancestor guard — throws HierarchyError,
                 tree unchanged, no message published on rejection (Inc-3)
 ```
@@ -205,8 +211,9 @@ Not yet claimed: `CMD-005` (parameterized variant) and `CMD-007`
 - `COMP-008/011` — selection-membership validation
 - `COMP-014..024`, `GRP-007..010` — SearchableState / CRUD context IDs
   (land with forms/hub in Increment 4)
-- `HIER-012..017`, `HIER-019..` — remaining HierarchicalVM IDs (walkExpanded,
-  name defaulting, builder, expand-capability composition, etc.)
+- `HIER-014..017`, `HIER-019..` — remaining HierarchicalVM IDs (HIER-014
+  ModeledCrudCommands composition deferred to Inc 4 — ModeledCrudCommands lands
+  with CMDD area; HIER-015..017 name defaulting, builder, etc.)
 - `DIA-*` — `IDialogService` host modal interactions
 - `FORM-*` — `FormVM` snapshot/revert lifecycle
 
