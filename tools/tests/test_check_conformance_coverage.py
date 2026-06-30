@@ -192,6 +192,42 @@ def test_report_gaps_lists_missing_ids_per_language() -> None:
     assert gaps == {"python": {"LIFE-002", "CMD-001"}}
 
 
+# ─── dormant subset plumbing (retained per ADR-0065 as an extension point) ─────
+# No flavor currently sets a manifest, so these unit tests give the subset
+# branch of compute_gaps + load_subset_manifest direct regression coverage.
+
+
+def test_load_subset_manifest_parses_ids(tmp_path: Path) -> None:
+    manifest = tmp_path / "subset.txt"
+    manifest.write_text(
+        "# a comment\nLIFE-001\n\n  LIFE-002  \n# another\nCMD-001\n",
+        encoding="utf-8",
+    )
+
+    assert ccc.load_subset_manifest(manifest) == {"LIFE-001", "LIFE-002", "CMD-001"}
+
+
+def test_compute_gaps_subset_branch_passes_on_exact_match() -> None:
+    catalog = {"LIFE-001", "LIFE-002"}
+    coverage = {"demo": {"LIFE-001", "LIFE-002"}}
+    subsets = {"demo": {"LIFE-001", "LIFE-002"}}
+
+    assert ccc.compute_gaps(catalog, coverage, subsets) == {}
+
+
+def test_compute_gaps_subset_branch_flags_bogus_unlisted_untested() -> None:
+    catalog = {"LIFE-001", "LIFE-002", "CMD-001"}
+    # found has: LIFE-001 (listed, ok), CMD-001 (in catalog but NOT in manifest →
+    # unlisted), TYPO-999 (not in catalog → bogus). Manifest also lists LIFE-002
+    # which has no marker → untested.
+    coverage = {"demo": {"LIFE-001", "CMD-001", "TYPO-999"}}
+    subsets = {"demo": {"LIFE-001", "LIFE-002"}}
+
+    gaps = ccc.compute_gaps(catalog, coverage, subsets)
+
+    assert gaps == {"demo": {"TYPO-999", "CMD-001", "LIFE-002"}}
+
+
 def test_main_returns_zero_when_active_dirs_are_empty_and_no_require(
     tmp_path: Path,
 ) -> None:
