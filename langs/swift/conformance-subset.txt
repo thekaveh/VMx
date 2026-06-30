@@ -1,11 +1,11 @@
 # Swift conformance subset — enforced by tools/check-conformance-coverage.py.
 #
 # This is the declared subset of spec/12-conformance.md IDs that Swift currently
-# covers (Phase 1 of 3). The set is intentionally smaller than the 232-ID full
-# catalog: Swift implements Lifecycle, ComponentVM, CompositeVM, GroupVM,
-# AggregateVM, Builders, Commands — not Collections, Forms, Dialogs, etc.
+# covers. The Phase-3 parity effort is growing it toward the full 237-ID library
+# catalog; as of Increment 5 it covers 218 of 237 — the remaining 19 are the
+# COMP/GRP leftovers (modeled composite, selection-validation, SearchableState/CRUD).
 #
-# When Swift gains full parity (Phase 3), add IDs here and add the corresponding
+# When Swift reaches full parity, add the remaining IDs here and the corresponding
 # test markers (`/// XXX-NNN — description`) in langs/swift/Tests/VMxTests/.
 # The tool enforces a two-way match: every ID here must have a test marker and
 # every test marker must appear here — drift in either direction is a CI failure.

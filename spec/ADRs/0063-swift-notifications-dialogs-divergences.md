@@ -186,13 +186,21 @@ time-property divergence (Swift follows the Combine/Foundation convention of
 `TimeInterval` in seconds; TypeScript convention is milliseconds for DOM-
 adjacent APIs).
 
-**Single-resolution guard:** `NotificationVM` uses a boolean `isResolved` flag
-protected by the same lock. All resolution entry points (`dismiss()`,
+**Single-resolution guard:** `NotificationVM` uses a plain boolean `resolved`
+flag (no lock — see below). All resolution entry points (`dismiss()`,
 `approveCommand`/`rejectCommand`, the expiry-timer callback, and the
-external-resolve sink on `hub.pending`) call a single `markResolved(reaction:notifyHub:)`
-method. The `isResolved` guard makes every entry point idempotent — the first
-one wins; subsequent calls are no-ops. This prevents double-resolve even when
-both the timer fires and an external `hub.resolve` arrive concurrently.
+external-resolve sink on `hub.pending`) funnel through a single
+`markResolved(...)` method that sets `resolved = true` **before** it calls
+`hub.resolve`. The guard makes every entry point idempotent — the first one
+wins; subsequent calls are no-ops. Because `markResolved` flips the flag before
+notifying the hub, the synchronous self-echo of the VM's own `hub.resolve`
+(re-entering through the `pending` sink) also hits the guard and no-ops.
+
+No lock is needed here: the conformance contract is single-threaded
+run-to-completion — the `VirtualTimeScheduler` runs scheduled work synchronously
+on the caller, and Combine sinks fire on the same thread — so the four entry
+points cannot interleave. (The `NSLock` mentioned elsewhere in this ADR belongs
+to `NotificationHub`, not `NotificationVM`.)
 
 **`ConfirmationVM` never arms the expiry timer:** `NotificationVM.armsExpiryTimer()`
 is an `open` method (default `true`). `ConfirmationVM` overrides it to return
