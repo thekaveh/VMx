@@ -11,6 +11,7 @@ on:
       - "docs/**"
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
+      - "langs/swift/Tests/VMxTests/**"
       - "langs/python/pyproject.toml"
       - "tools/**"
       - ".pre-commit-config.yaml"
@@ -21,6 +22,7 @@ on:
       - "docs/**"
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
+      - "langs/swift/Tests/VMxTests/**"
       - "langs/python/pyproject.toml"
       - "tools/**"
       - ".pre-commit-config.yaml"
@@ -91,14 +93,13 @@ jobs:
                 mdformat --check
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift)
-        # The csharp / python / typescript flavors ship at the current spec
-        # version; CI enforces 100% conformance coverage for the full catalog
-        # across all three. The swift flavor (added v2.4.0) is a documented
-        # subset — see compatibility-matrix.md — so it is required against its
-        # declared manifest (langs/swift/conformance-subset.txt) via the tool's
-        # registered swift scraper, which only reads *.swift doc-comment markers
-        # (no Swift toolchain needed). The tool exits non-zero if any required
-        # language falls below full coverage of its catalog/subset.
+        # All four flavors ship at the current spec version and are enforced at
+        # 100% coverage of the full 237-ID library catalog. The swift flavor
+        # reached full library parity in Phase 3 (ADR-0065 retired its subset
+        # manifest), so it is now required against the full catalog exactly like
+        # the others, via the tool's registered swift scraper, which only reads
+        # *.swift doc-comment markers (no Swift toolchain needed). The tool exits
+        # non-zero if any required language falls below full catalog coverage.
         run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift
 
       - name: Check Swift fixture sync

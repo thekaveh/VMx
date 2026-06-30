@@ -23,7 +23,8 @@ Examples:
     # Require python and csharp to have full coverage (CI mode)
     python3 tools/check-conformance-coverage.py --require python --require csharp
 
-    # Include Swift subset enforcement
+    # Include Swift full-catalog enforcement (Swift reached full library parity
+    # in Phase 3 Inc 6; the subset manifest was retired in Inc 7)
     python3 tools/check-conformance-coverage.py --require python --require csharp --require swift
 """
 
@@ -260,7 +261,7 @@ _SCRAPERS: dict[str, tuple[str, Callable[[Path], set[str]], str | None]] = {
     "swift": (
         "langs/swift/Tests/VMxTests",
         scrape_swift_conformance_ids,
-        "langs/swift/conformance-subset.txt",
+        None,
     ),
 }
 
