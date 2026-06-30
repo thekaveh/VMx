@@ -45,6 +45,22 @@ public func succeedWith(_ command: Command, _ other: Command) -> CompositeComman
     return CompositeCommand(command, other)
 }
 
+// MARK: - DIA-008 (confirmWithDialogService)
+
+/// Returns a `ConfirmationDecoratorCommand` that gates execution of `command`
+/// on a confirmation dialog presented by `dialog` with the given `prompt`.
+///
+/// Equivalent to `ConfirmationDecoratorCommand(command, confirm: { await dialog.confirm(prompt, title: nil) })`.
+///
+/// DIA-008 — `confirmWithDialogService(_:_:_:)` is equivalent to wiring `dialog.confirm` directly.
+public func confirmWithDialogService(
+    _ command: Command,
+    _ dialog: any DialogService,
+    _ prompt: String
+) -> Command {
+    return ConfirmationDecoratorCommand(command, confirm: { await dialog.confirm(prompt, title: nil) })
+}
+
 // MARK: - CMD-011
 
 /// Returns a `DecoratorCommand` wrapping `command` with optional extra

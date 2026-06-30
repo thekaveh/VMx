@@ -5,8 +5,8 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.0.0 (subset).** Covers **193 of 237**
-conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 — ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062): the lifecycle state machine, the modeled
+**v3.0.0 (subset).** Covers **218 of 237**
+conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 — ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25 notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
 `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`, `CompositeCommand`,
 `DecoratorCommand`, `ConfirmationDecoratorCommand`, `ModeledCrudCommands`, fluent
@@ -20,12 +20,14 @@ observable collections (`ObservableList`, `ObservableDictionary`,
 batch updates, auto-construct), `ExpandableState` + expand/collapse traversal,
 `HierarchicalVM` (tree identity, lazy/eager construction, structural mutation,
 builder, capability composition), threading contracts (`ManualScheduler`,
-foreground dispatch, async selection), message hub semantics, and `FormVM`
-(snapshot/dirty/approve/deny lifecycle). The
-remaining 44 IDs (notifications sub-package, dialog service, and a subset of
-composite/group SearchableState context IDs) are deferred to follow-up
-Swift releases — see §5 for the in / deferred breakdown. Requires Swift 5.9+,
-Combine, iOS 16 / macOS 13 / tvOS 16 / watchOS 9.
+`VirtualTimeScheduler`, foreground dispatch, async selection), message hub
+semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog service
+(`DialogService` / `NullDialogService`), and the notifications sub-package
+(`NotificationHub`, `NotificationVM`, `ConfirmationVM`, `makeConfirm` bridge).
+The remaining 19 IDs (a subset of composite/group SearchableState context IDs)
+are deferred to follow-up Swift releases — see §5 for the in / deferred
+breakdown. Requires Swift 5.9+, Combine, iOS 16 / macOS 13 / tvOS 16 /
+watchOS 9.
 
 ## 2. Install
 
@@ -139,10 +141,11 @@ Key exports:
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The **193 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
+catalog. The **218 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
-Inc-4: +40 forms/commands/hub IDs per ADR-0062) are:
+Inc-4: +40 forms/commands/hub IDs per ADR-0062;
+Inc-5: +25 notifications/dialogs IDs per ADR-0063) are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -258,15 +261,50 @@ FORM-001..015   FormVM<Model> standalone final class (NOT ComponentVMOf subclass
                 (FORM-015); strict canExecute gating via isDirty transition triggers;
                 FormVMBuilder with validation, hub / strict / snapshotter / equals
                 overrides (Inc-4 — ADR-0062 §2.3)
+DIA-001..008    DialogService protocol — methods are async, NOT throws (DIA-007
+                non-throwing safe-default alignment — ADR-0063 §2.1); file-picker
+                methods return String? (cross-flavor fixture parity, not URL?);
+                NullDialogService returns nil/false/no-op with INSTANCE singleton;
+                confirmWithDialogService fluent overload wraps ConfirmationDecoratorCommand
+                with a dialog-confirm gate (DIA-008); no Combine publishers on the
+                dialog surface (request/response async — deliberate counterpart to
+                the stream-based notification hub) (Inc-5 — ADR-0063)
+NOTIF-001..008  Notification final class (identity-distinct, ObjectIdentifier-keyed
+                waiters — struct rejected, ADR-0063 §2.3); post suspends via
+                withCheckedContinuation, store-then-emit ordering guarantees
+                waiter registered before pending snapshot emitted; pending via
+                Combine CurrentValueSubject (replay-latest); snapshots and
+                continuation resumes emitted outside NSLock (re-entrancy safety
+                — ADR-0063 §2.3); NotificationHubProtocol + NotificationHub
+                (Inc-5 — ADR-0063)
+NOTIF-009       NullNotificationHub — INSTANCE singleton; pending via
+                Just([]).eraseToAnyPublisher() (synchronous, always-empty);
+                post returns .approve immediately (no suspension) (Inc-5)
+NOTIF-010       makeConfirm bridge — free function wrapping hub.post/resolve into
+                an async Bool gate (Inc-5)
+NOTIF-011..016  NotificationVM (open class) + ConfirmationVM (final class :
+                NotificationVM) — opacity/remaining decay driven by hand-rolled
+                VirtualTimeScheduler (Combine has no framework virtual-time
+                scheduler — ADR-0063 §2.4); time in TimeInterval seconds (ADR-0009
+                time divergence vs TS lifespanMs); single-resolution guard
+                (isResolved flag) across dismiss/command/timer/external-resolve
+                paths; ConfirmationVM.armsExpiryTimer() overridden false (no
+                auto-dismiss); propertyChanged emits Swift-idiomatic names
+                ("isResolved" / "remaining" / "opacity") (Inc-5 — ADR-0063 §2.4)
+NOTIF-017       NotificationHub dispose — in-flight post waiters resume .pending;
+                pending completes via subject.send(completion: .finished);
+                post-after-dispose returns .pending without enqueuing (double-check
+                inside withCheckedContinuation closes the dispose-races-post race);
+                idempotent; dispose() on concrete class only (not on protocol —
+                matches TS shape; NullNotificationHub unaffected) (Inc-5 —
+                ADR-0063 §2.5)
 ```
 
 **Deferred to follow-up PRs:**
 
-- `NOTIF-*` — opt-in notification sub-package (`INotificationHub`) (Inc 5)
-- `DIA-*` — `IDialogService` host modal interactions (Inc 5)
 - `COMP-007` — modeled composite
 - `COMP-008/011` — selection-membership validation
-- `COMP-014..024`, `GRP-007..010` — SearchableState / CRUD context IDs
+- `COMP-014..024/027`, `GRP-007..010` — SearchableState / CRUD context IDs
 - `THEME-00x` — flagship scenario IDs (live in example apps, not library
   conformance)
 
