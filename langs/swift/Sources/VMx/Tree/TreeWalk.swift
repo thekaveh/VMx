@@ -35,6 +35,20 @@ extension GroupVM: _TreeContainer {
     }
 }
 
+// MARK: - HierarchicalVM conformance (HIER-012: walkExpanded descent)
+
+/// Makes every `HierarchicalVM<TModel, TVM>` node descend-able by `walk` /
+/// `walkExpanded` / `find`. `TVM: AnyObject` so `children` returns `[TVM]`;
+/// `compactMap { $0 as? ComponentVMBase }` recovers the base type. The cast
+/// always succeeds at runtime because every `TVM` IS-A
+/// `HierarchicalVM<TModel, TVM>` IS-A `ComponentVMBase` (CRTP invariant — see
+/// `HierarchicalVM.swift` header).
+extension HierarchicalVM: _TreeContainer {
+    var childComponents: [ComponentVMBase] {
+        children.compactMap { $0 as? ComponentVMBase }
+    }
+}
+
 // MARK: - AggregateVM1..6 conformances (nil slots skipped — UTIL-002)
 
 extension AggregateVM1: _TreeContainer {
@@ -111,6 +125,19 @@ public func walk(_ root: ComponentVMBase) -> [ComponentVMBase] {
         for child in container.childComponents {
             out.append(contentsOf: walk(child))
         }
+    }
+    return out
+}
+
+/// DFS pre-order like `walk`, but does NOT descend into the children of a node
+/// that is `Expandable` and currently collapsed (`isExpanded == false`). A node
+/// that is not `Expandable` is always descended (EXP-005). Materialized array,
+/// consistent with `walk`/`find` (ADR-0060).
+public func walkExpanded(_ root: ComponentVMBase) -> [ComponentVMBase] {
+    var out: [ComponentVMBase] = [root]
+    let collapsed = (root as? Expandable).map { !$0.isExpanded } ?? false
+    if !collapsed, let container = root as? _TreeContainer {
+        for child in container.childComponents { out.append(contentsOf: walkExpanded(child)) }
     }
     return out
 }

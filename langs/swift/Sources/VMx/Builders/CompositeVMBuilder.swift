@@ -17,6 +17,7 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     private var _currentSelector: (([Child]) -> Child?)?
     private var _onCurrentChanged: ((Child?) -> Void)?
     private var _autoConstructOnAdd: Bool = false
+    private var _asyncSelection: Bool = false
 
     public init() {}
 
@@ -62,6 +63,13 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     public func autoConstructOnAdd(_ enabled: Bool = true) -> CompositeVMBuilder<Child> {
         var c = self; c._autoConstructOnAdd = enabled; return c
     }
+    /// When `true`, `selectChild(_:)` / `current =` defer the Current assignment
+    /// via the foreground dispatcher rather than applying it synchronously
+    /// (COMP-010). A TOCTOU re-check at dispatch time drops the selection if the
+    /// child was removed before the foreground scheduler advances.
+    public func asyncSelection(_ enabled: Bool = true) -> CompositeVMBuilder<Child> {
+        var c = self; c._asyncSelection = enabled; return c
+    }
     public func withNullServices() -> CompositeVMBuilder<Child> {
         services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
     }
@@ -83,7 +91,8 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
             onConstruct: _onConstruct, onDestruct: _onDestruct,
             currentSelector: _currentSelector,
             onCurrentChanged: _onCurrentChanged,
-            autoConstructOnAdd: _autoConstructOnAdd
+            autoConstructOnAdd: _autoConstructOnAdd,
+            asyncSelection: _asyncSelection
         )
     }
 }

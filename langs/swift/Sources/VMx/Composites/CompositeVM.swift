@@ -18,6 +18,7 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
     private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
     private let _autoConstructOnAdd: Bool
+    private let _asyncSelection: Bool
 
     // ── Batch-update state ──────────────────────────────────────────────
 
@@ -65,12 +66,14 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         onDestruct: (() -> Void)? = nil,
         currentSelector: (([Child]) -> Child?)? = nil,
         onCurrentChanged: ((Child?) -> Void)? = nil,
-        autoConstructOnAdd: Bool = false
+        autoConstructOnAdd: Bool = false,
+        asyncSelection: Bool = false
     ) {
         self.childrenFactory = childrenFactory
         self.currentSelector = currentSelector
         self.onCurrentChanged = onCurrentChanged
         self._autoConstructOnAdd = autoConstructOnAdd
+        self._asyncSelection = asyncSelection
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -217,7 +220,9 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
     }
 
     open override func _onDestruct() throws {
-        if _current != nil { _setCurrent(nil) }
+        // Bypass asyncSelection for teardown: destruct is synchronous and must
+        // clear the current slot before children are destructed.
+        if _current != nil { _applyCurrentChange(nil) }
         for child in children { try child.destruct() }
         try super._onDestruct()
     }
@@ -248,12 +253,41 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
                 + "Use setCurrent(_:)/canSetCurrent(_:) for a catchable check."
             )
         }
+        if _asyncSelection {
+            // COMP-010: defer the full current-change to the foreground dispatcher.
+            // A TOCTOU re-check in `_applyCurrentChange` drops the deferred selection
+            // if the child was removed between schedule and flush, upholding the
+            // spec/06 §3 invariant that a non-null current is always a member.
+            let captured = value
+            dispatcher.scheduleForeground { [weak self] in
+                self?._applyCurrentChange(captured)
+            }
+        } else {
+            _applyCurrentChange(value)
+        }
+    }
+
+    private func _applyCurrentChange(_ value: Child?) {
+        // TOCTOU guard (COMP-010): re-validate membership after a foreground-
+        // dispatched selection — the child may have been removed before the
+        // deferred closure ran.
+        if let value, !children.contains(where: { $0 === value }) { return }
         if _current === value { return }
 
         let previous = _current
         _current = value
 
-        previous?._setIsCurrent(false)
+        // COMP-006: marshal the previously-current child's isCurrent flip via
+        // the foreground dispatcher so subscribers observe on the foreground
+        // execution target. With ImmediateDispatcher / NullDispatcher this runs
+        // synchronously (no behavioral change for the synchronous path); with
+        // ManualDispatcher a test can prove the emission is buffered until
+        // flushForeground() is called.
+        if let prev = previous {
+            dispatcher.scheduleForeground { [weak prev] in
+                prev?._setIsCurrent(false)
+            }
+        }
         value?._setIsCurrent(true)
 
         hub.send(PropertyChangedMessage(
