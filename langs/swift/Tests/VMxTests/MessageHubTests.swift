@@ -2,10 +2,19 @@
 // MessageHub tests — HUB-007 per-subscriber exception isolation.
 //
 // Claimed IDs: HUB-007 (the *catchable* half — a subscriber that throws a
-// Swift `Error` via `subscribe(_:)` is isolated). A subscriber that *traps*
-// rather than throws is an uncatchable process kill in Swift (parity with a
-// segfault in the other flavors) and is a documented divergence (ADR-0037,
-// langs/swift/README §5).
+// Swift `Error` via the opt-in `subscribe(_:)` helper is isolated). The
+// `subscribe(_:)` path wraps each delivery in do/catch so a thrown error is
+// swallowed locally and does not affect other subscribers or stop the hub.
+//
+// The raw `messages` publisher path (non-throwing Combine sinks) does NOT
+// provide this isolation for *trapping* handlers (force-unwrap nil,
+// precondition, array-OOB): traps are uncatchable in Swift, equivalent to a
+// segfault in the other flavors, and remain a documented divergence. This
+// divergence will be recorded in the Task-12 ADR.
+//
+// A subscriber that *traps* rather than throws is an uncatchable process kill
+// in Swift (parity with a segfault in the other flavors) and is a documented
+// divergence (ADR-0037, langs/swift/README §5).
 //
 import XCTest
 import Combine
@@ -17,12 +26,13 @@ final class MessageHubTests: XCTestCase {
         PropertyChangedMessage(sender: NSObject(), senderName: "h", propertyName: name)
     }
 
-    /// VMX-027 — HUB-007-style isolation (opt-in, via the `subscribe(_:)` helper;
-    /// the raw `messages` path remains a documented divergence, so this is NOT
-    /// claimed as full HUB-007 conformance in the subset manifest). A throwing
-    /// subscriber registered via `subscribe(_:)` is isolated: its thrown error is
-    /// swallowed inside its own sink, so it neither stops the hub nor blocks
-    /// delivery to the other subscribers.
+    /// HUB-007 — A throwing subscriber registered via `subscribe(_:)` is
+    /// isolated: its thrown error is swallowed inside its own sink, so it
+    /// neither stops the hub nor blocks delivery to the other subscribers.
+    /// This is the Swift expression of HUB-007 via the opt-in `subscribe(_:)`
+    /// path (the catchable-error half). The raw `messages` path for trapping
+    /// handlers remains a documented divergence — see the file header and the
+    /// Task-12 ADR.
     func testThrowingSubscriberIsIsolated() {
         struct SubError: Error {}
         let hub = MessageHub()
