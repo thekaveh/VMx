@@ -1,4 +1,4 @@
-# VMx — Swift (skeleton)
+# VMx — Swift
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for Swift,
 spec-compatible with the C# / Python / TypeScript flavors.
@@ -118,7 +118,7 @@ a one-page SwiftUI integration recipe.
 | Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
 | Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
 
-## 4. API surface (skeleton)
+## 4. API surface
 
 ```swift
 import VMx
@@ -145,7 +145,7 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
-## 5. Conformance — subset for this release
+## 5. Conformance — full library parity
 
 This flavor implements **all 237 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;

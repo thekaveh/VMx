@@ -3,8 +3,6 @@
 //
 // Claimed IDs: COMP-007 (modeled composite maps model factory to children).
 //
-// Subset: 219
-//
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
 //

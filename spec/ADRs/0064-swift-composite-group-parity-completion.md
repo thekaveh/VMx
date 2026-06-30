@@ -59,7 +59,8 @@ are typically `ComponentVMOf<Model>` instances and expose `.model` directly.
 **Builder** (`CompositeVMOfBuilder<Model, VM>`): immutable copy-on-write; validates
 fields in order `name → services → childrenModels → childModelToChildViewModel`;
 provides a `withNullServices()` convenience that fills the services field with
-`NullServices.INSTANCE`. All validation errors throw `BuilderValidationError`.
+`NullMessageHub.INSTANCE` + `NullDispatcher.INSTANCE`. All validation errors
+throw `BuilderValidationError`.
 
 **Consequence:** Future maintenance passes that see `CompositeVMOf` with a
 `VM: ComponentVMBase` (not `VM: AnyObject`) bound must not widen it — the
