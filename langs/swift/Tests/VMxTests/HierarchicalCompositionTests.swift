@@ -1,14 +1,13 @@
 //
-// HierarchicalVM capability composition conformance tests — HIER-012, HIER-013.
+// HierarchicalVM capability composition conformance tests — HIER-012, HIER-013, HIER-014.
 //
 // HIER-012: a collapsed HierarchicalVM node composes ExpandableState and
 //           gates walkExpanded descent — collapsed root yields only itself;
 //           after expand(), root + child are yielded.
 // HIER-013: SearchableState composed over a node's materialized children
 //           filters them by search term.
-//
-// HIER-014 (ModeledCrudCommands composition) is DEFERRED to Increment 4
-// because ModeledCrudCommands (CMDD area) is not yet in the Swift flavor.
+// HIER-014: ModeledCrudCommands composed over a HierarchicalVM tree —
+//           createNewCommand adds a child node; deleteCurrentCommand removes it.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
@@ -54,6 +53,18 @@ private final class ExpandableHierNode: HierarchicalVM<HierModel, ExpandableHier
 // ── HIER-013 helper ──────────────────────────────────────────────────────────
 
 private final class SearchHierNode: HierarchicalVM<HierModel, SearchHierNode> {}
+
+// ── HIER-014 helpers ─────────────────────────────────────────────────────────
+
+private final class CrudHierNode: HierarchicalVM<HierModel, CrudHierNode> {}
+
+/// Reference holder for mutable state that must be captured by @escaping closures.
+/// A `final class` avoids the "@escaping capture of 'var'" restriction while keeping
+/// mutation visible across closures (HIER-014).
+private final class Ref<T: AnyObject> {
+    var value: T?
+    init(_ value: T? = nil) { self.value = value }
+}
 
 // MARK: - Tests
 
@@ -119,5 +130,56 @@ final class HierarchicalCompositionTests: XCTestCase {
         XCTAssertEqual(result.first?.model.value, "banana")
 
         search.dispose()
+    }
+
+    /// HIER-014 — ModeledCrudCommands composition mutates the HierarchicalVM tree:
+    /// createNewCommand appends a child node; deleteCurrentCommand removes it.
+    func testHier014ModeledCrudCommandsMutatesTree() {
+        let hub = MessageHub()
+        let root = CrudHierNode(
+            model: HierModel(value: "root"),
+            childrenFactory: { _ in [] },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+
+        // Reference holder so @escaping closures can mutate the selected node
+        // without capturing a 'var' inout (reference-safe pattern).
+        let currentHolder = Ref<CrudHierNode>()
+
+        let crud = ModeledCrudCommands<CrudHierNode>(
+            current: { currentHolder.value },
+            createNew: {
+                let child = CrudHierNode(
+                    model: HierModel(value: "created"),
+                    childrenFactory: { _ in [] },
+                    hub: hub,
+                    dispatcher: ImmediateDispatcher.INSTANCE
+                )
+                root.addChild(child)
+                currentHolder.value = child
+            },
+            updateCurrent: { _ in /* no-op for this test */ },
+            deleteCurrent: { vm in
+                root.removeChild(vm)
+                currentHolder.value = nil
+            }
+        )
+
+        // Create: createNewCommand adds a child and sets current.
+        crud.createNewCommand.execute()
+        XCTAssertEqual(root.children.count, 1,
+            "createNewCommand must append a child to root")
+        XCTAssertNotNil(currentHolder.value,
+            "current must be set after createNewCommand")
+
+        // Delete: deleteCurrentCommand removes current child and clears selection.
+        crud.deleteCurrentCommand.execute()
+        XCTAssertEqual(root.children.count, 0,
+            "deleteCurrentCommand must remove the child from root")
+        XCTAssertNil(currentHolder.value,
+            "current must be cleared after deleteCurrentCommand")
+
+        crud.dispose()
     }
 }

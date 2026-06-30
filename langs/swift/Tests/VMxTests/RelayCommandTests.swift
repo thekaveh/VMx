@@ -2,8 +2,9 @@
 // RelayCommand conformance tests.
 //
 // Claimed IDs: CMD-001..004, CMD-006, plus BLD-005 (additive triggers on
-// the command builder). CMD-005 (parameterized variant) and CMD-007
-// (truth-table fixture) are NOT implemented by this flavor (ADR-0037).
+// the command builder). CMD-005 (parameterized RelayCommandOf) and CMD-007
+// (truth-table fixture) are covered by RelayCommandOfTests /
+// RelayCommandTruthTableTests (Phase 3 Inc 4).
 //
 import XCTest
 import Combine

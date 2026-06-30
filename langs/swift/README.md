@@ -5,10 +5,12 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.0.0 (subset).** Covers **153 of 237**
-conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 — ADR-0061): the lifecycle state machine, the modeled
+**v3.0.0 (subset).** Covers **193 of 237**
+conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 — ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
-`RelayCommand`, the immutable fluent builders, `DerivedProperty<T>`, the
+`RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`, `CompositeCommand`,
+`DecoratorCommand`, `ConfirmationDecoratorCommand`, `ModeledCrudCommands`, fluent
+command helpers, the immutable fluent builders, `DerivedProperty<T>`, the
 22 capability micro-interfaces, null objects (`NullMessageHub`, `NullDispatcher`,
 `NullLocalizer`), localization hook (`Localizer` / `NullLocalizer`), tree
 utilities (`walk`, `find`, `walkExpanded`), hub property accessors,
@@ -17,11 +19,11 @@ observable collections (`ObservableList`, `ObservableDictionary`,
 `ServicedObservableCollection`, `PagedComposition`, collection-changed events,
 batch updates, auto-construct), `ExpandableState` + expand/collapse traversal,
 `HierarchicalVM` (tree identity, lazy/eager construction, structural mutation,
-builder, capability composition), and threading contracts (`ManualScheduler`,
-foreground dispatch, async selection). The
-remaining 84 IDs (`HierarchicalVM` HIER-014, `FormVM`, the
-notifications sub-package, command decorators, dialog service,
-hub semantics) are deferred to follow-up
+builder, capability composition), threading contracts (`ManualScheduler`,
+foreground dispatch, async selection), message hub semantics, and `FormVM`
+(snapshot/dirty/approve/deny lifecycle). The
+remaining 44 IDs (notifications sub-package, dialog service, and a subset of
+composite/group SearchableState context IDs) are deferred to follow-up
 Swift releases — see §5 for the in / deferred breakdown. Requires Swift 5.9+,
 Combine, iOS 16 / macOS 13 / tvOS 16 / watchOS 9.
 
@@ -137,9 +139,10 @@ Key exports:
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The **153 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
+catalog. The **193 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
-Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061) are:
+Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
+Inc-4: +40 forms/commands/hub IDs per ADR-0062) are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -156,7 +159,7 @@ COMP-012/013    autoConstructOnAdd + BatchUpdateHandle (Inc-2 — ADR-0060;
 GRP-001..004    group surface contract + lifecycle cascades + CollectionChanged (Inc-2)
 GRP-005/006     autoConstructOnAdd + BatchUpdateHandle on GroupVM (Inc-2 — ADR-0060)
 AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
-CMD-001..004, 006   RelayCommand task + predicate + triggers
+CMD-001..004, 006   RelayCommand task + predicate + triggers (Inc-0)
 BLD-001..005    builders immutable + validation + defaults
 PROP-001..004   hub property-change accessors
 NULL-001..003   NullMessageHub + NullDispatcher null-object contracts
@@ -214,26 +217,58 @@ COMP-009        setCurrent(_:) throws CompositeMembershipError on a non-child;
 COMP-010        asyncSelection opt-in builder flag — defers the full current-change
                 through foreground target; TOCTOU guard drops stale selection if
                 child removed before flush (Inc-3 — ADR-0061 §2.8)
+CMD-005         RelayCommandOf<T> — parameterized relay command; canExecute/execute
+                take a T parameter; does NOT conform to Command (mirrors TS's distinct
+                ICommandOf<T> surface); canonical name RelayCommandOf<T> — no OfT
+                alias (ADR-0052) (Inc-4 — ADR-0062 §2.5)
+CMD-007         truth-table fixture verification — loads command-truthtable.json
+                from Bundle.module (Inc-4 — ADR-0062 §2.5)
+CMD-008..011    fluent command helpers — confirm, precedeWith, succeedWith, wrapWith
+                (Inc-4)
+CMD-012         AsyncRelayCommand — Task-based cancellable body + Combine channels
+                (canExecuteChanged, errors); cooperative Task.isCancelled /
+                checkCancellation; default cancel completes normally; throwOnCancel()
+                opt-in rethrows; fire-and-forget execute() routes CancellationError
+                to errors when throwOnCancel (Inc-4 — ADR-0062 §2.1)
+CMDD-001..003   CompositeCommand — canExecute OR-gate, execute skips disabled
+                inners, canExecuteChanged merges inners (Publishers.MergeMany)
+                (Inc-4)
+CMDD-004..006   DecoratorCommand — canExecute AND-gate, pre→defer(post)→inner
+                execution order, no-op when disabled; postExecute guaranteed via
+                defer (ADR-0062 §2.5) (Inc-4)
+CMDD-007..010   ConfirmationDecoratorCommand — confirm typed () async throws -> Bool;
+                execute() fire-and-forget via Task; failures route to Combine errors
+                channel (CMDD-010 — ADR-0062 §2.2); CMDD-009 composition with
+                DecoratorCommand (Inc-4)
+HIER-014        ModeledCrudCommands compose onto HierarchicalVM and mutate the tree
+                (Inc-4)
+HUB-001..006    MessageHub synchronous delivery, hot (no replay), FIFO ordering,
+                cancel-in-handler safe, multiple-subscriber fan-out,
+                message-ordering fixture (HUB-006 from Bundle.module) (Inc-4)
+HUB-007         subscribe(_:) opt-in isolation — catchable errors path; raw messages
+                Combine-sink divergence documented (non-throwing sinks / trapping
+                handlers uncatchable on the raw path — ADR-0062 §2.4) (Inc-4)
+FORM-001..015   FormVM<Model> standalone final class (NOT ComponentVMOf subclass —
+                ADR-0030; FormVM has no lifecycle); isDirty via injectable equals
+                closure (Equatable-default convenience init); snapshotter identity-
+                default for value types, injectable for reference members;
+                approveAsync captures model snapshot before await, mutates only on
+                success; onApproved / approveErrors sealed Combine channels;
+                approveCommand fire-and-forget surfaces failures on approveErrors
+                (FORM-015); strict canExecute gating via isDirty transition triggers;
+                FormVMBuilder with validation, hub / strict / snapshotter / equals
+                overrides (Inc-4 — ADR-0062 §2.3)
 ```
-
-Not yet claimed: `CMD-005` (parameterized variant) and `CMD-007`
-(truth-table fixture).
 
 **Deferred to follow-up PRs:**
 
-- `HUB-*` — full hub semantics, identity / ordering fixtures,
-  late-subscriber and exception isolation rules
-- `HIER-014` — composition with `ModeledCrudCommands` (Inc-4;
-  `ModeledCrudCommands` lands with the CMDD area)
-- `CMDD-*` — `CompositeCommand`, `DecoratorCommand`,
-  `ConfirmationDecoratorCommand`, `ModeledCrudCommands`
-- `NOTIF-*` — opt-in notification sub-package (`INotificationHub`)
+- `NOTIF-*` — opt-in notification sub-package (`INotificationHub`) (Inc 5)
+- `DIA-*` — `IDialogService` host modal interactions (Inc 5)
 - `COMP-007` — modeled composite
 - `COMP-008/011` — selection-membership validation
 - `COMP-014..024`, `GRP-007..010` — SearchableState / CRUD context IDs
-  (land with forms/hub in Increment 4)
-- `DIA-*` — `IDialogService` host modal interactions
-- `FORM-*` — `FormVM` snapshot/revert lifecycle
+- `THEME-00x` — flagship scenario IDs (live in example apps, not library
+  conformance)
 
 **This release is NOT yet at full parity with the 237-ID catalog.**
 

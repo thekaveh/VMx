@@ -41,6 +41,14 @@ _FIXTURE_PAIRS: list[tuple[str, str]] = [
         "spec/fixtures/derived-properties.json",
         "langs/swift/Sources/VMx/Resources/derived-properties.json",
     ),
+    (
+        "spec/fixtures/command-truthtable.json",
+        "langs/swift/Sources/VMx/Resources/command-truthtable.json",
+    ),
+    (
+        "spec/fixtures/message-ordering.json",
+        "langs/swift/Sources/VMx/Resources/message-ordering.json",
+    ),
 ]
 
 
