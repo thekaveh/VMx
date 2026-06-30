@@ -4,6 +4,20 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.1.0] — 2026-06-30
+
+### Added
+
+- **Cross-module subclassing support for `ComponentVMBase`** (ADR-0066). The
+  subclass-facing messaging surface — `hub`, `dispatcher`, and
+  `_raisePropertyChanged(_:)` — is now `public` (read-only for the two
+  properties) instead of `internal`, so consumers in another module can
+  subclass `ComponentVMBase` and publish hub messages / fire the
+  `propertyChanged` side-channel. Swift has no `protected`; `internal` did not
+  cross the module boundary, so the base was previously only subclassable
+  in-module. Purely additive — no behavior or conformance change (still
+  237/237). Surfaced while building the Swift notes-showcase flagship.
+
 ## [3.0.0] — 2026-06-28
 
 The **v3 framework overhaul** (subset). Implements the `spec-v3.0.0` subset.

@@ -44,10 +44,13 @@ open class ComponentVMBase {
 
     // ── Services ────────────────────────────────────────────────────────
 
-    /// Injected hub. `internal` so subclasses in the module can publish.
-    let hub: MessageHubProtocol
-    /// Injected dispatcher.
-    let dispatcher: Dispatcher
+    /// Injected hub. `public` (read-only) so subclasses — including consumer
+    /// subclasses in another module — can publish messages on it. Swift has no
+    /// `protected`; `internal` would not cross the module boundary, so the
+    /// cross-module-subclassing surface (hub / dispatcher / raise) is `public`.
+    public let hub: MessageHubProtocol
+    /// Injected dispatcher (read-only `public` for the same cross-module reason).
+    public let dispatcher: Dispatcher
 
     private let onConstructCb: (() throws -> Void)?
     private let onDestructCb: (() throws -> Void)?
@@ -197,7 +200,10 @@ open class ComponentVMBase {
     /// Subclasses call this to publish a property-changed event on the
     /// in-process publisher. Hub publishing is the caller's choice
     /// (most call sites also do a `hub.send(PropertyChangedMessage(...))`).
-    func _raisePropertyChanged(_ propertyName: String) {
+    /// `public` so consumer subclasses in another module can fire it (Swift has
+    /// no `protected`; this is the cross-module analogue of C#'s
+    /// `protected RaisePropertyChanged`).
+    public func _raisePropertyChanged(_ propertyName: String) {
         // `triggersDisposed` is flipped by `dispose()` under `lifecycleLock`;
         // read it (and emit) under the same lock so a background transition
         // never sends on a finished subject. Reentrant: `_setStatus` already
