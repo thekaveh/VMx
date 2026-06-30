@@ -8,11 +8,13 @@ on:
     branches: [main]
     paths:
       - "langs/swift/**"
+      - "examples/swift/**"
       - "spec/**"
       - ".github/workflows/swift.yml"
   pull_request:
     paths:
       - "langs/swift/**"
+      - "examples/swift/**"
       - "spec/**"
       - ".github/workflows/swift.yml"
   workflow_dispatch:
@@ -44,3 +46,20 @@ jobs:
       - name: Test
         working-directory: langs/swift
         run: swift test --parallel
+
+  examples:
+    name: examples (notes-showcase)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift version
+        run: swift --version
+      # The flagship example is a separate SwiftPM package depending on the
+      # in-repo VMx library via `.package(path:)`. SwiftUI/Combine require macOS,
+      # so the example (build + the conformance/scenario XCTests) runs here only.
+      - name: Build NotesShowcase flagship
+        working-directory: examples/swift/notes-showcase
+        run: swift build
+      - name: Test NotesShowcase flagship
+        working-directory: examples/swift/notes-showcase
+        run: swift test
