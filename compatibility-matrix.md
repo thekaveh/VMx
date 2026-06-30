@@ -25,12 +25,17 @@ The Swift flavor's `(subset)` entries cover the lifecycle, leaf
 ComponentVM, Composite, Group, Aggregate (arity 1–6), RelayCommand,
 builders, hub property accessors, null objects, localization, tree
 utilities, forwarding decorators, `DerivedProperty<T>`, the 22
-capability micro-interfaces, and observable collections
+capability micro-interfaces, observable collections
 (`ObservableList`, `ObservableDictionary`, `ServicedObservableCollection`,
 `PagedComposition`, collection-changed events, batch updates,
-auto-construct) — 124 conformance IDs as of Phase-3 Inc-2
+auto-construct), `ExpandableState` + expand/collapse traversal,
+`HierarchicalVM` (tree identity, lazy/eager construction, structural
+mutation, builder, capability composition), and threading contracts
+(`ManualScheduler`, foreground dispatch, async selection) —
+**153 conformance IDs as of Phase-3 Inc-3**
 (base 44 per ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059;
-+30 collections IDs per ADR-0060). Full conformance parity with the
++30 collections IDs per ADR-0060; +29 hierarchical/threading/expand-collapse
+IDs per ADR-0061). Full conformance parity with the
 other flavors lands in a follow-up Swift release; see
 `langs/swift/README.md` §5 for the in / deferred matrix.
 

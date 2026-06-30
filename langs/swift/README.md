@@ -5,20 +5,23 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.0.0 (subset).** Covers **124 of 237**
-conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060): the lifecycle state machine, the modeled
+**v3.0.0 (subset).** Covers **153 of 237**
+conformance IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 — ADR-0061): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM1..6`,
 `RelayCommand`, the immutable fluent builders, `DerivedProperty<T>`, the
 22 capability micro-interfaces, null objects (`NullMessageHub`, `NullDispatcher`,
 `NullLocalizer`), localization hook (`Localizer` / `NullLocalizer`), tree
-utilities (`walk`, `find`), hub property accessors,
-forwarding decorators (`ForwardingComponentVM`, `ForwardingCompositeVM`), and
+utilities (`walk`, `find`, `walkExpanded`), hub property accessors,
+forwarding decorators (`ForwardingComponentVM`, `ForwardingCompositeVM`),
 observable collections (`ObservableList`, `ObservableDictionary`,
 `ServicedObservableCollection`, `PagedComposition`, collection-changed events,
-batch updates, auto-construct). The
-remaining 113 IDs (`HierarchicalVM`, `FormVM`, the
-notifications sub-package, threading specifics, dialog service,
-expand/collapse state, composite-current commands) are deferred to follow-up
+batch updates, auto-construct), `ExpandableState` + expand/collapse traversal,
+`HierarchicalVM` (tree identity, lazy/eager construction, structural mutation,
+builder, capability composition), and threading contracts (`ManualScheduler`,
+foreground dispatch, async selection). The
+remaining 84 IDs (`HierarchicalVM` HIER-014, `FormVM`, the
+notifications sub-package, command decorators, dialog service,
+hub semantics) are deferred to follow-up
 Swift releases — see §5 for the in / deferred breakdown. Requires Swift 5.9+,
 Combine, iOS 16 / macOS 13 / tvOS 16 / watchOS 9.
 
@@ -134,10 +137,9 @@ Key exports:
 ## 5. Conformance — subset for this release
 
 This flavor implements **a subset** of the cross-language conformance
-catalog. The **143 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
+catalog. The **153 covered IDs** (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
-Inc-3: +11 HIER tree-identity + expand/collapse EXP + HIER mutation + HIER capability
-composition IDs) are:
+Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061) are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -190,8 +192,28 @@ HIER-012        walkExpanded honors ExpandableState gate: collapsed node pruned,
                 (Inc-3 capability composition)
 HIER-013        SearchableState composed over materialized children filters by
                 search term (Inc-3 capability composition)
+HIER-015        HierarchicalVMBuilder<M, VM>.build() validates required fields —
+                model / childrenFactory / services / vmFactory (vmFactory required
+                because TVM: AnyObject has no init surface — ADR-0061 §2.2) (Inc-3)
+HIER-016        HierarchicalVMBuilder repeated identical build() calls each return
+                a fresh TVM instance (Inc-3)
+HIER-017        HierarchicalVMBuilder field defaults — name defaults to
+                String(describing: TVM.self); eagerChildren defaults to false (Inc-3)
 HIER-018        reparentChild self/ancestor guard — throws HierarchyError,
                 tree unchanged, no message published on rejection (Inc-3)
+THR-001..004    Threading contracts — PropertyChanged foreground scheduling,
+                background construct deferral, CollectionChanged foreground
+                scheduling, ObserveOn subscriber scheduling; tested via
+                hand-rolled ManualScheduler + ManualDispatcher (no Combine
+                TestScheduler — ADR-0061 §2.7) (Inc-3)
+COMP-006        Previous child's isCurrent flip dispatched through foreground
+                target (dispatcher.scheduleForeground) — ManualDispatcher test
+                confirms 0 emissions before flush, 1 after (Inc-3)
+COMP-009        setCurrent(_:) throws CompositeMembershipError on a non-child;
+                canSetCurrent(_:) pre-flight predicate (ADR-0053) (Inc-3)
+COMP-010        asyncSelection opt-in builder flag — defers the full current-change
+                through foreground target; TOCTOU guard drops stale selection if
+                child removed before flush (Inc-3 — ADR-0061 §2.8)
 ```
 
 Not yet claimed: `CMD-005` (parameterized variant) and `CMD-007`
@@ -201,19 +223,15 @@ Not yet claimed: `CMD-005` (parameterized variant) and `CMD-007`
 
 - `HUB-*` — full hub semantics, identity / ordering fixtures,
   late-subscriber and exception isolation rules
-- `THR-*` — threading & schedulers, async selection / async construct
+- `HIER-014` — composition with `ModeledCrudCommands` (Inc-4;
+  `ModeledCrudCommands` lands with the CMDD area)
 - `CMDD-*` — `CompositeCommand`, `DecoratorCommand`,
   `ConfirmationDecoratorCommand`, `ModeledCrudCommands`
 - `NOTIF-*` — opt-in notification sub-package (`INotificationHub`)
-- `COMP-006/010` — foreground-dispatch / async selection (Increment 3,
-  threading)
 - `COMP-007` — modeled composite
 - `COMP-008/011` — selection-membership validation
 - `COMP-014..024`, `GRP-007..010` — SearchableState / CRUD context IDs
   (land with forms/hub in Increment 4)
-- `HIER-014..017`, `HIER-019..` — remaining HierarchicalVM IDs (HIER-014
-  ModeledCrudCommands composition deferred to Inc 4 — ModeledCrudCommands lands
-  with CMDD area; HIER-015..017 name defaulting, builder, etc.)
 - `DIA-*` — `IDialogService` host modal interactions
 - `FORM-*` — `FormVM` snapshot/revert lifecycle
 
