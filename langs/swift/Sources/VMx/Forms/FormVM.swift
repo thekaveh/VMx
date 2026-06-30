@@ -37,6 +37,9 @@ public final class FormVM<Model> {
 
     private let _onApproved = PassthroughSubject<Model, Never>()
     private let _approveErrors = PassthroughSubject<Error, Never>()
+    /// Fires when `isDirty` transitions in strict mode; wired as a trigger on
+    /// `approveCommand` so that subscribers to `canExecuteChanged` are notified.
+    private let _approveCanExecSubject = PassthroughSubject<Void, Never>()
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -122,8 +125,14 @@ public final class FormVM<Model> {
     // ── Mutation ──────────────────────────────────────────────────────────────
 
     /// Replaces the current model. The snapshot is unaffected.
+    /// In strict mode fires `approveCommand.canExecuteChanged` when `isDirty`
+    /// transitions so that UI bindings can re-evaluate the approve button state.
     public func setModel(_ newModel: Model) {
+        let wasDirty = isDirty
         _model = newModel
+        if strict && isDirty != wasDirty {
+            _approveCanExecSubject.send(())
+        }
     }
 
     // ── Async core ────────────────────────────────────────────────────────────
@@ -147,7 +156,11 @@ public final class FormVM<Model> {
         guard !_disposed else { return }
 
         // Success: advance snapshot then notify.
+        let wasDirty = isDirty
         _snapshot = snapshotter(current)
+        if strict && isDirty != wasDirty {
+            _approveCanExecSubject.send(())
+        }
         _onApproved.send(current)
     }
 
@@ -159,6 +172,7 @@ public final class FormVM<Model> {
         _disposed = true
         _onApproved.send(completion: .finished)
         _approveErrors.send(completion: .finished)
+        _approveCanExecSubject.send(completion: .finished)
         denyCommand.dispose()
         approveCommand.dispose()
     }
@@ -189,7 +203,7 @@ public final class FormVM<Model> {
                 if self.strict { return self.isDirty }
                 return true
             },
-            triggers: []
+            triggers: [_approveCanExecSubject.eraseToAnyPublisher()]
         )
     }
 
@@ -197,9 +211,24 @@ public final class FormVM<Model> {
 
     private func performDeny() {
         guard !_disposed else { return }
+        let wasDirty = isDirty
         _model = snapshotter(_snapshot)
         hub.send(FormRevertedMessage(senderObject: self, senderName: "FormVM"))
         hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
+        if strict && isDirty != wasDirty {
+            _approveCanExecSubject.send(())
+        }
+    }
+}
+
+// ─── Builder entry point ─────────────────────────────────────────────────────
+
+extension FormVM {
+    /// Entry point for the immutable fluent builder. Mirrors the `.builder()`
+    /// convention used by other VM family members. See spec/10-builders.md §3
+    /// and ADR-0035 §2 FV1/FV2.
+    public static func builder() -> FormVMBuilder<Model> {
+        FormVMBuilder<Model>()
     }
 }
 
