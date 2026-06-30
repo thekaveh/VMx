@@ -5,14 +5,9 @@
 // THEME-001..005 conformance IDs — see spec/12-conformance.md §28.
 //
 // Architecture notes:
-// - Extends `ComponentVMBase` from the VMx Swift library.
-// - Stores a private `_hub` reference because the library's `hub` property is
-//   `internal` to the VMx module; cross-module subclasses cannot access it.
-//   The same `MessageHubProtocol` reference is passed to both `_hub` and to
-//   `super.init` so lifecycle publications continue to work.
-// - `_raisePropertyChanged` is also `internal` to VMx; the THEME scenario
-//   tests do not assert on the `propertyChanged` publisher, so the INPC
-//   side-channel is intentionally omitted (library limitation, not a bug).
+// - Extends `ComponentVMBase` from the VMx Swift library, publishing on the
+//   base's now-`public` `hub` and firing the `propertyChanged` side-channel via
+//   `_raisePropertyChanged` (cross-module subclassing enabled by ADR-0066).
 //
 import Foundation
 import Combine
@@ -41,9 +36,6 @@ public enum ThemeError: Error, Equatable {
 public final class ThemeVM: ComponentVMBase {
 
     // ── Private state ──────────────────────────────────────────────────────
-
-    /// Private hub reference — see architecture note above.
-    private let _hub: MessageHubProtocol
 
     /// The current model. Updated only through `setModel(_:)`.
     private var _model: ThemeModel
@@ -100,7 +92,6 @@ public final class ThemeVM: ComponentVMBase {
     ) {
         // ── Phase 1: initialize all stored properties before super.init ────
 
-        _hub = hub
         _model = initialModel
         _modelSubject = CurrentValueSubject(initialModel)
         _systemThemeProvider = systemThemeProvider
@@ -237,12 +228,13 @@ public final class ThemeVM: ComponentVMBase {
         let previous = _model
         _model = newModel
         _modelSubject.send(newModel)
-        _hub.send(ThemeChangedMessage(
+        hub.send(ThemeChangedMessage(
             sender: self,
             senderName: name,
             previous: previous,
             current: newModel
         ))
+        _raisePropertyChanged("model")
     }
 
     // ── Dispose ────────────────────────────────────────────────────────────
