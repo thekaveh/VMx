@@ -11,9 +11,10 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
-specification, four idiomatic language flavors (C# / Python / TypeScript at full
-parity; Swift as a subset), 237 library conformance IDs verified on every commit
-(plus 5 THEME scenario IDs exercised by the example-app suites).
+specification, four idiomatic language flavors (C# / Python / TypeScript / Swift
+at full library parity), 237 library conformance IDs verified on every commit
+(plus 5 THEME scenario IDs exercised by the example-app suites — pending for
+Swift, which has no flagship example app yet).
 
 ## Contents
 
@@ -134,13 +135,12 @@ Each flavor implements the same conceptual stack:
 | C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v3.0.0            | System.Reactive    |
 | Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v3.0.0            | reactivex          |
 | TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v3.0.0            | rxjs               |
-| Swift      | `VMx` Swift Package (skeleton, not yet published)                    | v3.0.0 *(subset)* | Combine            |
+| Swift      | `VMx` Swift Package (not yet published)                              | v3.0.0            | Combine            |
 
-The **Swift flavor is a skeleton subset** (42 of 242 conformance IDs as
-of v3.0.0), covering the lifecycle + leaf / composite / group / aggregate
-viewmodel families plus builders and commands. Full
-cross-flavor conformance parity
-lands in a follow-up release. See
+The **Swift flavor is at full library parity** — all 237 library conformance
+IDs as of v3.0.0 (Combine-backed, brought up incrementally through the
+Phase-3 parity effort). The only gap before total parity is the 5 THEME-00x
+scenario IDs, which live in a flagship example app Swift does not yet ship. See
 [`langs/swift/README.md`](langs/swift/README.md) §5 for the
 in / deferred matrix. The C# flavor multi-targets `netstandard2.0` and
 `net8.0` and ships two companion assemblies:
@@ -158,7 +158,7 @@ as a sub-path export.
 
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
-| 3.0.x | 3.0.0          | 3.0.0          | 3.0.0          | 3.0.0 (subset) |
+| 3.0.x | 3.0.0          | 3.0.0          | 3.0.0          | 3.0.0          |
 | 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
 | 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
 | 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
@@ -198,8 +198,8 @@ npm install @thekaveh/vmx rxjs
 - [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md) —
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
-  camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor
-  ships as a v3.0.0 subset; see `langs/swift/README.md` §5).
+  camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
+  at full library parity as of v3.0.0; see `langs/swift/README.md` §5).
 
 ### 4.3 Examples
 
@@ -252,7 +252,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (skeleton, v3.0.0)
+│   └── swift/             VMx Swift Package (v3.0.0, full library parity)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -281,7 +281,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (subset, v3.0.0).
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.0.0, full library parity).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
@@ -334,8 +334,9 @@ compatible and ships in flavors as a minor bump.
 full parity (C# / Python / TypeScript) re-implements the 237 library IDs under
 `langs/<flavor>/tests/conformance/`, and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. The
-Swift flavor implements a documented 42-ID subset as of v3.0.0
-(see [`langs/swift/README.md`](langs/swift/README.md) §5).
+Swift flavor implements all 237 library conformance IDs as of v3.0.0
+(full library parity; THEME-00x scenarios pending — see
+[`langs/swift/README.md`](langs/swift/README.md) §5).
 
 ```bash
 # Verify all three flavors are at full coverage

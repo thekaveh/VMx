@@ -1,0 +1,108 @@
+//
+// CompositeVMOfBuilder<Model, VM> — immutable fluent builder for
+// `CompositeVMOf<Model, VM>`.
+//
+// See spec/10-builders.md. Validates `name`, `services`, `childrenModels`,
+// `childModelToChildViewModel` at `build()` per BLD-002.
+//
+import Foundation
+
+public struct CompositeVMOfBuilder<Model, VM: ComponentVMBase> {
+    private var _name: String?
+    private var _hint: String = ""
+    private var _hub: MessageHubProtocol?
+    private var _dispatcher: Dispatcher?
+    private var _childrenModels: (() -> [Model])?
+    private var _childModelToChildViewModel: ((Model) -> VM)?
+    private var _onConstruct: (() -> Void)?
+    private var _onDestruct: (() -> Void)?
+    private var _currentSelector: (([VM]) -> VM?)?
+    private var _onCurrentChanged: ((VM?) -> Void)?
+    private var _autoConstructOnAdd: Bool = false
+    private var _asyncSelection: Bool = false
+
+    public init() {}
+
+    public func name(_ value: String) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._name = value; return c
+    }
+    public func hint(_ value: String) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._hint = value; return c
+    }
+    public func services(
+        hub: MessageHubProtocol, dispatcher: Dispatcher
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._hub = hub; c._dispatcher = dispatcher; return c
+    }
+    public func childrenModels(
+        _ factory: @escaping () -> [Model]
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._childrenModels = factory; return c
+    }
+    public func childModelToChildViewModel(
+        _ mapper: @escaping (Model) -> VM
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._childModelToChildViewModel = mapper; return c
+    }
+    public func current(
+        _ selector: @escaping ([VM]) -> VM?
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._currentSelector = selector; return c
+    }
+    public func onCurrentChanged(
+        _ cb: @escaping (VM?) -> Void
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._onCurrentChanged = cb; return c
+    }
+    public func onConstruct(
+        _ cb: @escaping () -> Void
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._onConstruct = cb; return c
+    }
+    public func onDestruct(
+        _ cb: @escaping () -> Void
+    ) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._onDestruct = cb; return c
+    }
+    /// When `true`, any child passed to `add(_:)` on an already-Constructed
+    /// composite is constructed immediately before the `CollectionChanged(.add)`
+    /// event fires (COMP-012).
+    public func autoConstructOnAdd(_ enabled: Bool = true) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._autoConstructOnAdd = enabled; return c
+    }
+    /// When `true`, `selectChild(_:)` / `current =` defer the Current assignment
+    /// via the foreground dispatcher rather than applying it synchronously
+    /// (COMP-010).
+    public func asyncSelection(_ enabled: Bool = true) -> CompositeVMOfBuilder<Model, VM> {
+        var c = self; c._asyncSelection = enabled; return c
+    }
+    public func withNullServices() -> CompositeVMOfBuilder<Model, VM> {
+        services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
+    }
+
+    public func build() throws -> CompositeVMOf<Model, VM> {
+        guard let name = _name else {
+            throw BuilderValidationError(missingField: "name")
+        }
+        guard let hub = _hub, let dispatcher = _dispatcher else {
+            throw BuilderValidationError(missingField: "services")
+        }
+        guard let childrenModels = _childrenModels else {
+            throw BuilderValidationError(missingField: "childrenModels")
+        }
+        guard let childModelToChildViewModel = _childModelToChildViewModel else {
+            throw BuilderValidationError(missingField: "childModelToChildViewModel")
+        }
+        return CompositeVMOf<Model, VM>(
+            name: name, hint: _hint,
+            hub: hub, dispatcher: dispatcher,
+            childrenModels: childrenModels,
+            childModelToChildViewModel: childModelToChildViewModel,
+            onConstruct: _onConstruct, onDestruct: _onDestruct,
+            currentSelector: _currentSelector,
+            onCurrentChanged: _onCurrentChanged,
+            autoConstructOnAdd: _autoConstructOnAdd,
+            asyncSelection: _asyncSelection
+        )
+    }
+}
