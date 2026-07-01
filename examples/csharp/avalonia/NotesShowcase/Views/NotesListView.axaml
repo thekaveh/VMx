@@ -55,7 +55,7 @@
             <TextBlock VerticalAlignment="Center"
                        MinWidth="80"
                        TextAlignment="Center"
-                       Text="{Binding PageLabel}" />
+                       Text="{Binding PageLabelBindable.Value}" />
             <Button Content="▶"
                     AutomationProperties.Name="Next page"
                     Command="{Binding MoveToNextPageCommand}" />

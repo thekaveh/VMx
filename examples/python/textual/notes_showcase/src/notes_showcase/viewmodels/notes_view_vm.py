@@ -131,16 +131,32 @@ class NotesViewVM(
 
         # Paging commands (wrap PagedComposition's methods for view binding).
         self._move_to_first_page_command = (
-            RelayCommand.builder().task(self.move_to_first_page).build()
+            RelayCommand.builder()
+            .predicate(lambda: self.current_page_index > 0)
+            .task(self.move_to_first_page)
+            .triggers(self._self_subject)
+            .build()
         )
         self._move_to_previous_page_command = (
-            RelayCommand.builder().task(self.move_to_previous_page).build()
+            RelayCommand.builder()
+            .predicate(lambda: self.current_page_index > 0)
+            .task(self.move_to_previous_page)
+            .triggers(self._self_subject)
+            .build()
         )
         self._move_to_next_page_command = (
-            RelayCommand.builder().task(self.move_to_next_page).build()
+            RelayCommand.builder()
+            .predicate(lambda: self.current_page_index < self.page_count - 1)
+            .task(self.move_to_next_page)
+            .triggers(self._self_subject)
+            .build()
         )
         self._move_to_last_page_command = (
-            RelayCommand.builder().task(self.move_to_last_page).build()
+            RelayCommand.builder()
+            .predicate(lambda: self.current_page_index < self.page_count - 1)
+            .task(self.move_to_last_page)
+            .triggers(self._self_subject)
+            .build()
         )
 
     # ── Convenience hub accessor ───────────────────────────────────────────

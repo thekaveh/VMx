@@ -21,6 +21,8 @@ struct NotesListView: View {
     @StateObject private var prevPageCmd: BindableCommand
     @StateObject private var nextPageCmd: BindableCommand
     @StateObject private var lastPageCmd: BindableCommand
+    @StateObject private var isEmpty: BindableDerived<Bool>
+    @StateObject private var pageLabel: BindableDerived<String>
     @EnvironmentObject private var theme: ThemeAdapter
 
     init(vm: NotesViewVM) {
@@ -29,6 +31,8 @@ struct NotesListView: View {
         _prevPageCmd  = StateObject(wrappedValue: BindableCommand(vm.moveToPreviousPageCommand))
         _nextPageCmd  = StateObject(wrappedValue: BindableCommand(vm.moveToNextPageCommand))
         _lastPageCmd  = StateObject(wrappedValue: BindableCommand(vm.moveToLastPageCommand))
+        _isEmpty      = StateObject(wrappedValue: BindableDerived(vm.isEmptyDerived))
+        _pageLabel    = StateObject(wrappedValue: BindableDerived(vm.pageLabelDerived))
     }
 
     var body: some View {
@@ -51,7 +55,7 @@ struct NotesListView: View {
             Divider()
 
             // ── Notes list ────────────────────────────────────────────────
-            if bound.vm.isEmpty {
+            if isEmpty.value ?? bound.vm.isEmpty {
                 Spacer()
                 Text("No notes")
                     .foregroundColor(theme.textDim)
@@ -88,7 +92,7 @@ struct NotesListView: View {
                 Button("◀") { prevPageCmd.execute() }
                     .disabled(!prevPageCmd.canExecute)
                     .accessibilityLabel("Previous page")
-                Text(bound.vm.pageLabel)
+                Text(pageLabel.value ?? bound.vm.pageLabel)
                     .font(.caption)
                     .foregroundColor(theme.textDim)
                     .frame(minWidth: 80, alignment: .center)

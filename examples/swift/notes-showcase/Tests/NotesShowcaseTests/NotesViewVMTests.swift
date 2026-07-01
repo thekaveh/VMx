@@ -87,11 +87,19 @@ final class NotesViewVMTests: XCTestCase {
     func testPagination_no_op_at_boundaries() async throws {
         let (vm, _) = try await buildAndBind(notebookId: "nb-reviews")
         let first = vm.currentPageIndex
+        XCTAssertFalse(vm.moveToFirstPageCommand.canExecute())
+        XCTAssertFalse(vm.moveToPreviousPageCommand.canExecute())
+        XCTAssertTrue(vm.moveToNextPageCommand.canExecute())
+        XCTAssertTrue(vm.moveToLastPageCommand.canExecute())
         vm.moveToFirstPageCommand.execute()  // already at page 0
         XCTAssertEqual(first, vm.currentPageIndex)
 
         vm.moveToLastPageCommand.execute()
         let last = vm.currentPageIndex
+        XCTAssertTrue(vm.moveToFirstPageCommand.canExecute())
+        XCTAssertTrue(vm.moveToPreviousPageCommand.canExecute())
+        XCTAssertFalse(vm.moveToNextPageCommand.canExecute())
+        XCTAssertFalse(vm.moveToLastPageCommand.canExecute())
         vm.moveToNextPageCommand.execute()   // already at last page
         XCTAssertEqual(last, vm.currentPageIndex)
     }
@@ -108,8 +116,10 @@ final class NotesViewVMTests: XCTestCase {
     func testPageLabel_reflects_current_page_and_count() async throws {
         let (vm, _) = try await buildAndBind(notebookId: "nb-reviews", pageSize: 5)
         XCTAssertEqual("Page 1 of 2", vm.pageLabel)
+        XCTAssertEqual("Page 1 of 2", try vm.pageLabelDerived.value)
         vm.moveToNextPageCommand.execute()
         XCTAssertEqual("Page 2 of 2", vm.pageLabel)
+        XCTAssertEqual("Page 2 of 2", try vm.pageLabelDerived.value)
     }
 
     // MARK: - Starred filter
@@ -149,8 +159,10 @@ final class NotesViewVMTests: XCTestCase {
 
     func testIsEmpty_true_when_filter_excludes_everything() async throws {
         let (vm, _) = try await buildAndBind(notebookId: "nb-reviews")
+        XCTAssertFalse(try vm.isEmptyDerived.value)
         vm.filter = { _ in false }
         XCTAssertTrue(vm.isEmpty)
+        XCTAssertTrue(try vm.isEmptyDerived.value)
         XCTAssertTrue(vm.visibleItems.isEmpty)
     }
 

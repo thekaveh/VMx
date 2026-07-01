@@ -66,10 +66,18 @@ public sealed class NotesViewVMTests
     {
         var (vm, _) = await BuildAndBindAsync("nb-reviews");
         var first = vm.CurrentPageIndex;
+        Assert.False(vm.MoveToFirstPageCommand.CanExecute(null));
+        Assert.False(vm.MoveToPreviousPageCommand.CanExecute(null));
+        Assert.True(vm.MoveToNextPageCommand.CanExecute(null));
+        Assert.True(vm.MoveToLastPageCommand.CanExecute(null));
         vm.MoveToFirstPageCommand.Execute(null);
         Assert.Equal(first, vm.CurrentPageIndex);
         vm.MoveToLastPageCommand.Execute(null);
         var last = vm.CurrentPageIndex;
+        Assert.True(vm.MoveToFirstPageCommand.CanExecute(null));
+        Assert.True(vm.MoveToPreviousPageCommand.CanExecute(null));
+        Assert.False(vm.MoveToNextPageCommand.CanExecute(null));
+        Assert.False(vm.MoveToLastPageCommand.CanExecute(null));
         vm.MoveToNextPageCommand.Execute(null);
         Assert.Equal(last, vm.CurrentPageIndex);
     }
@@ -119,8 +127,10 @@ public sealed class NotesViewVMTests
     public async Task IsEmpty_true_when_filter_excludes_everything()
     {
         var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        Assert.False(vm.IsEmptyDerived.Value);
         vm.Filter = _ => false;
         Assert.True(vm.IsEmpty);
+        Assert.True(vm.IsEmptyDerived.Value);
         Assert.Empty(vm.VisibleItems);
     }
 
@@ -129,8 +139,10 @@ public sealed class NotesViewVMTests
     {
         var (vm, _) = await BuildAndBindAsync("nb-reviews");
         Assert.Equal("Page 1 of 2", vm.PageLabel);
+        Assert.Equal("Page 1 of 2", vm.PageLabelDerived.Value);
         vm.MoveToNextPageCommand.Execute(null);
         Assert.Equal("Page 2 of 2", vm.PageLabel);
+        Assert.Equal("Page 2 of 2", vm.PageLabelDerived.Value);
     }
 
     [Fact]

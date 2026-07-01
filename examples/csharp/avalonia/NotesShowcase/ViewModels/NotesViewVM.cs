@@ -13,8 +13,10 @@ using VMx.Composites;
 using VMx.Dialogs;
 using VMx.Messages;
 using VMx.Notifications;
+using VMx.Properties;
 using VMx.Services;
 using NotesShowcase.Models;
+using NotesShowcase.Views.Adapter;
 
 namespace NotesShowcase.ViewModels;
 
@@ -52,6 +54,7 @@ public sealed class NotesViewVM
     private readonly PagedComposition<NoteVM> _paged;
 
     private readonly BehaviorSubject<bool> _showStarredOnly = new(false);
+    private readonly BehaviorSubject<Unit> _stateSubject = new(Unit.Default);
     private readonly SearchableState<NoteVM> _search;
 
     private CancellationTokenSource? _activeFetchCts;
@@ -90,14 +93,23 @@ public sealed class NotesViewVM
     /// <inheritdoc/>
     public void Search() => _search.Search();
 
-    /// <summary>
-    /// True when current filters / search produce no visible items.
-    /// Plan §3.a.8 marks this as a DerivedProperty.
-    /// </summary>
+    /// <summary>True when current filters / search produce no visible items.</summary>
     public bool IsEmpty => _filtered.Count == 0;
 
     /// <summary>"Page X of Y" label (plan §3.a.8).</summary>
     public string PageLabel => $"Page {CurrentPageIndex + 1} of {Math.Max(1, PageCount)}";
+
+    /// <summary>Derived empty-state projection for framework-component parity.</summary>
+    public DerivedProperty<bool> IsEmptyDerived { get; }
+
+    /// <summary>Derived page-label projection for framework-component parity.</summary>
+    public DerivedProperty<string> PageLabelDerived { get; }
+
+    /// <summary>INPC-aware sidecar for <see cref="IsEmptyDerived"/>.</summary>
+    public BindableDerived<bool> IsEmptyBindable { get; }
+
+    /// <summary>INPC-aware sidecar for <see cref="PageLabelDerived"/>.</summary>
+    public BindableDerived<string> PageLabelBindable { get; }
 
     // ── IFilterable ─────────────────────────────────────────────────────────
 
@@ -363,6 +375,7 @@ public sealed class NotesViewVM
         RaisePropertyChanged(nameof(IsEmpty));
         RaisePropertyChanged(nameof(VisibleItems));
         RaisePropertyChanged(nameof(PageLabel));
+        _stateSubject.OnNext(Unit.Default);
     }
 
     private NotesViewVM(
@@ -406,14 +419,35 @@ public sealed class NotesViewVM
         // run our combined filter pipeline.
         _search.Filtered.Subscribe(_ => RecomputeFiltered());
 
+        IsEmptyDerived = DerivedProperty.From(
+            _stateSubject,
+            _ => _filtered.Count == 0);
+        PageLabelDerived = DerivedProperty.From(
+            _stateSubject,
+            _ => PageLabel);
+        IsEmptyBindable = new BindableDerived<bool>(IsEmptyDerived);
+        PageLabelBindable = new BindableDerived<string>(PageLabelDerived);
+
         MoveToFirstPageCommand = RelayCommand.Builder()
-            .Task(MoveToFirstPage).Build();
+            .Predicate(() => CurrentPageIndex > 0)
+            .Task(MoveToFirstPage)
+            .Triggers(_stateSubject)
+            .Build();
         MoveToPreviousPageCommand = RelayCommand.Builder()
-            .Task(MoveToPreviousPage).Build();
+            .Predicate(() => CurrentPageIndex > 0)
+            .Task(MoveToPreviousPage)
+            .Triggers(_stateSubject)
+            .Build();
         MoveToNextPageCommand = RelayCommand.Builder()
-            .Task(MoveToNextPage).Build();
+            .Predicate(() => CurrentPageIndex < PageCount - 1)
+            .Task(MoveToNextPage)
+            .Triggers(_stateSubject)
+            .Build();
         MoveToLastPageCommand = RelayCommand.Builder()
-            .Task(MoveToLastPage).Build();
+            .Predicate(() => CurrentPageIndex < PageCount - 1)
+            .Task(MoveToLastPage)
+            .Triggers(_stateSubject)
+            .Build();
     }
 
     private void OnPagedPropertyChanged(object? _, PropertyChangedEventArgs e)
@@ -433,6 +467,7 @@ public sealed class NotesViewVM
             RaisePropertyChanged(nameof(VisibleItems));
             Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(PageLabel)));
             Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(VisibleItems)));
+            _stateSubject.OnNext(Unit.Default);
         }
     }
 
@@ -458,8 +493,14 @@ public sealed class NotesViewVM
         _paged.PropertyChanged -= OnPagedPropertyChanged;
         _paged.Dispose();
         _search.Dispose();
+        IsEmptyBindable.Dispose();
+        PageLabelBindable.Dispose();
+        IsEmptyDerived.Dispose();
+        PageLabelDerived.Dispose();
         _showStarredOnly.OnCompleted();
         _showStarredOnly.Dispose();
+        _stateSubject.OnCompleted();
+        _stateSubject.Dispose();
         _inner.Dispose();
         (MoveToFirstPageCommand as IDisposable)?.Dispose();
         (MoveToPreviousPageCommand as IDisposable)?.Dispose();

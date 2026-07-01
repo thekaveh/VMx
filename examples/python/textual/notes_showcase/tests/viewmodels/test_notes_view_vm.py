@@ -95,10 +95,18 @@ async def test_pagination_boundaries_are_no_ops_at_edges() -> None:
     await vm.bind_to_async("nb-reviews")  # 7 notes → 3 pages (3/3/1)
     assert vm.page_count == 3
     assert vm.current_page_index == 0
+    assert vm.move_to_first_page_command.can_execute() is False
+    assert vm.move_to_previous_page_command.can_execute() is False
+    assert vm.move_to_next_page_command.can_execute() is True
+    assert vm.move_to_last_page_command.can_execute() is True
     vm.move_to_previous_page()
     assert vm.current_page_index == 0  # no-op at first page
     vm.move_to_last_page()
     assert vm.current_page_index == 2
+    assert vm.move_to_first_page_command.can_execute() is True
+    assert vm.move_to_previous_page_command.can_execute() is True
+    assert vm.move_to_next_page_command.can_execute() is False
+    assert vm.move_to_last_page_command.can_execute() is False
     vm.move_to_next_page()
     assert vm.current_page_index == 2  # no-op at last page
     vm.move_to_first_page()
