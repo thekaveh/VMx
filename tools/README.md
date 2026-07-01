@@ -23,9 +23,18 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   ```
 
   Unit tests live in `tools/tests/`. Run with:
+
   ```bash
   uv --project langs/python run pytest tools/tests/
   ```
+
+- `check-python-fixture-sync.py` — verifies the Python package's tracked runtime
+  copy of `lifecycle-transitions.json` is byte-identical to the spec fixture.
+  This keeps the package buildable from both the live checkout and the published
+  sdist.
+
+- `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
+  are byte-identical to `spec/fixtures/*.json`.
 
 ## 2. Pure-VM contract checks (notes-showcase, Phase 6)
 
@@ -46,11 +55,11 @@ exits 0 on success / non-zero with a per-line violation report on failure.
 - `check-layer-imports.py` — enforces the layered import direction for
   the C#, Python, and TypeScript flagship examples:
 
-    Models → Models only
-    ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,
-    which is treated as a peer because frameworks like Avalonia need
-    INPC-aware sidecars co-located with the VM).
-    Views → anywhere.
+  Models → Models only
+  ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,
+  which is treated as a peer because frameworks like Avalonia need
+  INPC-aware sidecars co-located with the VM).
+  Views → anywhere.
 
   The Swift flagship is intentionally outside this script: its core/view split
   is enforced by SwiftPM target boundaries (`NotesShowcaseCore` vs

@@ -201,16 +201,8 @@ jobs:
           fi
           echo "Tag $tag_version matches package version $pkg_version."
 
-      # NOTE: build wheel and sdist as separate `uv build` invocations.
-      # A single `uv build` defaults to "sdist first, then wheel-from-sdist"
-      # which fails because pyproject.toml's `force-include` points outside
-      # the project tree (../../spec/fixtures/lifecycle-transitions.json),
-      # and the sdist (correctly) omits files outside its root. Building
-      # each artifact from the live source tree sidesteps that.
-      - name: Build wheel
-        run: uv build --project langs/python --wheel --out-dir dist
-      - name: Build sdist
-        run: uv build --project langs/python --sdist --out-dir dist
+      - name: Build wheel and sdist
+        run: uv build --project langs/python --out-dir dist
 
       - name: Twine check
         # Catches common metadata issues (missing long_description, invalid

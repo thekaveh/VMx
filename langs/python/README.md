@@ -28,8 +28,7 @@ uv add vmx
 
 ## 3. Quick start
 
-The minimum-viable shape is `imports → services → builder
-(name + model + services + optional modeled_hinter) → construct() → read status`:
+The minimum-viable shape is `imports → services → builder (name + model + services + optional modeled_hinter) → construct() → read status`:
 
 ```python
 from dataclasses import dataclass
@@ -92,10 +91,10 @@ hub.dispose()
 
 > **Tips:**
 >
-> * `.modeled_hinter(...)` is optional on every modeled builder; the default
+> - `.modeled_hinter(...)` is optional on every modeled builder; the default
 >   is `lambda _m: ""`. Pass a callable when you want to derive a display
 >   hint from the model.
-> * For tests, samples, and headless code, `NULL_MESSAGE_HUB` and
+> - For tests, samples, and headless code, `NULL_MESSAGE_HUB` and
 >   `NULL_DISPATCHER` are safe no-op singletons. Annotate variables as
 >   `MessageHubProto[Message]` (the structural `Protocol`) to keep
 >   `mypy --strict` happy, or use the generic
@@ -115,13 +114,13 @@ for the full walkthrough.
 The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
 
-| Concept             | C#                  | Python             | TypeScript         | Swift              |
-| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept            | C#                        | Python             | TypeScript                | Swift                     |
+| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- |
+| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             |
+| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        |
+| Status property    | `Status`                  | `status`           | `status`                  | `status`                  |
+| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
 
 C# uses PascalCase, Python uses snake_case, TypeScript and Swift use
 camelCase. The single substantive divergence is that C# names the modeled
@@ -137,56 +136,56 @@ The public API is re-exported from a single entry point:
 from vmx import ...  # see vmx/__init__.py for the full list
 ```
 
-| Export                          | Description                                       |
-| ------------------------------- | ------------------------------------------------- |
-| `ComponentVM`                   | Leaf viewmodel (no model)                         |
-| `ComponentVMOf[M]`              | Leaf viewmodel with a typed model                 |
-| `ReadonlyComponentVMOf[M]`      | Leaf VM with read-only model                      |
-| `CompositeVM[VM]` / `CompositeVMOf[M,VM]` | Ordered collection + current slot     |
-| `GroupVM[VM]`                   | Collection without current selection              |
-| `AggregateVM1..6[…]`            | Fixed-arity named component slots (arity 6 added in spec v2.2.0 — see ADR-0034) |
-| `ForwardingComponentVM`         | Decorator for `ComponentVMOfProto`                |
-| `ForwardingCompositeVM`         | Decorator for composites                          |
-| `RelayCommand` / `RelayCommandOf[T]` | Executable command with `can_execute` predicate |
-| `CompositeCommand`              | Aggregate N inner commands (spec v2.0)            |
-| `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate   |
-| `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm coroutine    |
-| `ModeledCrudCommands[M,VM]`     | Create / UpdateCurrent / DeleteCurrent helper     |
-| `MessageHub`                    | Pub/sub hub backed by `reactivex` `Subject`       |
-| `NullMessageHub` / `NULL_MESSAGE_HUB` | Null-object variant per ADR-0017            |
-| `RxDispatcher`                  | Foreground/background scheduler pair              |
-| `NullDispatcher` / `NULL_DISPATCHER` | Null-object variant per ADR-0017             |
-| `ConstructionStatus`            | 5-state lifecycle enum                            |
-| `StatusTransitionError`         | Raised on illegal lifecycle operations            |
-| `BuilderValidationError`        | Raised when a builder is missing required fields  |
-| `walk(root)`                    | DFS pre-order tree traversal generator            |
-| `walk_expanded(root)`           | DFS walk gated on `IExpandable.is_expanded` (v2.0) |
-| `find(root, predicate)`         | Short-circuit tree search                         |
-| `DerivedProperty[TValue]` / `from_sources(...)` | N-source computed value (spec v2.0) |
-| `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)   |
-| `SearchableState[T]`            | Debounced filter helper (spec v2.0)               |
-| `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default (v2.0) |
-| 22× capability ABCs             | `vmx.capabilities.*` — opt-in (spec v2.0+)        |
-| `HierarchicalVM[TModel, TVM]`   | Recursive tree-structured VM (spec v2.1)          |
-| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
-| `FormVM[TM]`                    | Snapshot/revert form lifecycle (spec v2.1)        |
-| `DialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection[T]` | Hub-aware observable collection (spec v2.1)     |
-| `ObservableList[T]`             | Granular per-mutation events (spec v2.1)          |
-| `ObservableDictionary[K1, K2, V]` | Multi-key observable dictionary (spec v2.1)     |
-| `PagedComposition[TVM]`         | Pageable iterable decorator (spec v2.1)           |
-| Fluent command helpers          | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
-| `property_value_changed_messages_for` | Hub helper yielding an observable of property-value snapshots (spec v2.1) |
+| Export                                            | Description                                                                         |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ComponentVM`                                     | Leaf viewmodel (no model)                                                           |
+| `ComponentVMOf[M]`                                | Leaf viewmodel with a typed model                                                   |
+| `ReadonlyComponentVMOf[M]`                        | Leaf VM with read-only model                                                        |
+| `CompositeVM[VM]` / `CompositeVMOf[M,VM]`         | Ordered collection + current slot                                                   |
+| `GroupVM[VM]`                                     | Collection without current selection                                                |
+| `AggregateVM1..6[…]`                              | Fixed-arity named component slots (arity 6 added in spec v2.2.0 — see ADR-0034)     |
+| `ForwardingComponentVM`                           | Decorator for `ComponentVMOfProto`                                                  |
+| `ForwardingCompositeVM`                           | Decorator for composites                                                            |
+| `RelayCommand` / `RelayCommandOf[T]`              | Executable command with `can_execute` predicate                                     |
+| `CompositeCommand`                                | Aggregate N inner commands (spec v2.0)                                              |
+| `DecoratorCommand`                                | Wrap a command with pre/post + can-execute gate                                     |
+| `ConfirmationDecoratorCommand`                    | Wrap a command with an async confirm coroutine                                      |
+| `ModeledCrudCommands[M,VM]`                       | Create / UpdateCurrent / DeleteCurrent helper                                       |
+| `MessageHub`                                      | Pub/sub hub backed by `reactivex` `Subject`                                         |
+| `NullMessageHub` / `NULL_MESSAGE_HUB`             | Null-object variant per ADR-0017                                                    |
+| `RxDispatcher`                                    | Foreground/background scheduler pair                                                |
+| `NullDispatcher` / `NULL_DISPATCHER`              | Null-object variant per ADR-0017                                                    |
+| `ConstructionStatus`                              | 5-state lifecycle enum                                                              |
+| `StatusTransitionError`                           | Raised on illegal lifecycle operations                                              |
+| `BuilderValidationError`                          | Raised when a builder is missing required fields                                    |
+| `walk(root)`                                      | DFS pre-order tree traversal generator                                              |
+| `walk_expanded(root)`                             | DFS walk gated on `IExpandable.is_expanded` (v2.0)                                  |
+| `find(root, predicate)`                           | Short-circuit tree search                                                           |
+| `DerivedProperty[TValue]` / `from_sources(...)`   | N-source computed value (spec v2.0)                                                 |
+| `ExpandableState`                                 | `IExpandable`+`ICollapsible` helper (spec v2.0)                                     |
+| `SearchableState[T]`                              | Debounced filter helper (spec v2.0)                                                 |
+| `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default (v2.0)                                                     |
+| 22× capability ABCs                               | `vmx.capabilities.*` — opt-in (spec v2.0+)                                          |
+| `HierarchicalVM[TModel, TVM]`                     | Recursive tree-structured VM (spec v2.1)                                            |
+| `TreeStructureChangedMessage`                     | Tree-structural-change notification (spec v2.1)                                     |
+| `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
+| `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
+| `ServicedObservableCollection[T]`                 | Hub-aware observable collection (spec v2.1)                                         |
+| `ObservableList[T]`                               | Granular per-mutation events (spec v2.1)                                            |
+| `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
+| `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
+| Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
+| `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots (spec v2.1)           |
 
 The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
-| Export                                                            | Description                            |
-| ----------------------------------------------------------------- | -------------------------------------- |
-| `Notification` / `NotificationType` / `NotificationReaction`      | Notification primitives                |
-| `INotificationHub` / `NotificationHub` / `NullNotificationHub` / `NULL_NOTIFICATION_HUB` | Async notification hub + null variant |
-| `make_confirm(hub, prompt)`                                       | Bridge to `ConfirmationDecoratorCommand` |
-| `NotificationVM`                                                  | Render-side VM for `Notification` (spec v2.1) |
-| `ConfirmationVM`                                                  | Render-side VM with Approve/Reject (spec v2.1) |
+| Export                                                                                   | Description                                    |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `Notification` / `NotificationType` / `NotificationReaction`                             | Notification primitives                        |
+| `INotificationHub` / `NotificationHub` / `NullNotificationHub` / `NULL_NOTIFICATION_HUB` | Async notification hub + null variant          |
+| `make_confirm(hub, prompt)`                                                              | Bridge to `ConfirmationDecoratorCommand`       |
+| `NotificationVM`                                                                         | Render-side VM for `Notification` (spec v2.1)  |
+| `ConfirmationVM`                                                                         | Render-side VM with Approve/Reject (spec v2.1) |
 
 ## 5. Conformance
 
@@ -228,10 +227,11 @@ uv run ruff format --check
 uv run mypy --strict src/vmx
 ```
 
-The `lifecycle-transitions.json` fixture from `spec/fixtures/` is shipped
-inside the wheel via hatchling's `force-include` mapping in
-[`pyproject.toml`](pyproject.toml) and consumed at runtime by
-`vmx.lifecycle.transition_validator`.
+The `lifecycle-transitions.json` fixture from `spec/fixtures/` is tracked under
+`src/vmx/lifecycle/_data/` and shipped inside the wheel. The
+`vmx.lifecycle.transition_validator` module loads it via `importlib.resources`
+with a repo-relative fallback for diagnostics. `tools/check-python-fixture-sync.py`
+keeps the package copy byte-identical to the spec fixture.
 
 ## 7. Releasing
 

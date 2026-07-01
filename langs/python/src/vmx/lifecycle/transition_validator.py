@@ -21,11 +21,10 @@ from vmx.lifecycle.status import ConstructionStatus
 # ---------------------------------------------------------------------------
 # JSON loading — two-pronged strategy
 # ---------------------------------------------------------------------------
-# 1. importlib.resources (works in installed wheels where the JSON is bundled
-#    into vmx/lifecycle/_data/ via pyproject.toml force-include).
-# 2. Repo-relative fallback (works in editable / source installs where the
-#    bundle hasn't been copied yet, so we find the file by walking up from
-#    this module's __file__ to the repo root).
+# 1. importlib.resources (works in installed wheels and editable checkouts
+#    because the JSON is tracked under vmx/lifecycle/_data/).
+# 2. Repo-relative fallback (kept as a diagnostic escape hatch if package data
+#    is accidentally omitted from a source checkout).
 # ---------------------------------------------------------------------------
 
 _FIXTURE_NAME = "lifecycle-transitions.json"
@@ -48,8 +47,8 @@ def _load_from_repo() -> str:
             return candidate.read_text(encoding="utf-8")
     raise FileNotFoundError(
         f"Cannot locate {_FIXTURE_NAME} via importlib.resources or repo walk. "
-        "Ensure the package is installed with 'uv sync --all-extras' or that "
-        "you are running from within the VMx repository."
+        "Ensure vmx/lifecycle/_data/lifecycle-transitions.json is present in "
+        "the package or that you are running from within the VMx repository."
     )
 
 

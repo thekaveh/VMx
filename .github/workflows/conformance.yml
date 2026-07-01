@@ -77,6 +77,9 @@ jobs:
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
         run: uv --project langs/python run python tools/check-version-consistency.py
 
+      - name: Check Python fixture sync
+        run: uv --project langs/python run python tools/check-python-fixture-sync.py
+
       - name: mdformat check (spec/ + docs/)
         # CI backstop for the pre-commit mdformat hook — contributors without
         # hooks installed could otherwise land mis-formatted markdown. Pinned
