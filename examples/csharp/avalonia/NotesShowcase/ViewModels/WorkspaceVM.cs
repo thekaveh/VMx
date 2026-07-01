@@ -110,7 +110,7 @@ public sealed class WorkspaceVM : IDisposable
     private object? _focused;
     private bool _disposed;
 
-    private void TrackFocus(object focused)
+    private void TrackFocus(object? focused)
     {
         if (ReferenceEquals(_focused, focused)) return;
         _focused = focused;
@@ -210,10 +210,12 @@ public sealed class WorkspaceVM : IDisposable
                 if (current is not null)
                 {
                     noteForm.BindTo(current.Model);
+                    TrackFocus(current);
                 }
                 else
                 {
                     noteForm.Unbind();
+                    TrackFocus(notebooks.Current);
                 }
             });
 

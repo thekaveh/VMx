@@ -201,8 +201,10 @@ class WorkspaceVM:
             current = notes_view.current
             if current is not None:
                 note_form.bind_to(current.model)
+                self.set_focus(current)
             else:
                 note_form.unbind()
+                self.set_focus(notebooks.current)
 
         self._current_note_subscription: DisposableBase = (
             when_property_changed(notes_view.hub, notes_view, "current")

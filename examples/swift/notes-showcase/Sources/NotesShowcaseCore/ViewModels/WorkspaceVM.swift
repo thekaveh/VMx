@@ -156,7 +156,7 @@ public final class WorkspaceVM {
     /// pushes the command trigger so command predicates re-evaluate.
     ///
     /// Reference-equality guarded: setting the same object is a no-op.
-    private func trackFocus(_ focused: AnyObject) {
+    private func trackFocus(_ focused: AnyObject?) {
         guard _focusCell.focused !== focused else { return }
         _focusCell.focused = focused
         _capabilities.recomputeActions()
@@ -332,8 +332,10 @@ public final class WorkspaceVM {
                     guard let self else { return }
                     if let current = self._notesView.current {
                         self._noteForm.bindTo(current.model)
+                        self.trackFocus(current)
                     } else {
                         self._noteForm.unbind()
+                        self.trackFocus(self._notebooks.current)
                     }
                 }
             }

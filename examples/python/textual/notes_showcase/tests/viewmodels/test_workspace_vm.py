@@ -97,6 +97,23 @@ def test_set_focus_updates_focused_vm_and_triggers_recompute() -> None:
     assert "New" in labels
 
 
+async def test_selecting_note_updates_capability_focus() -> None:
+    ws = _build()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+
+    ws.notes_view.current = note
+
+    labels = {a.label for a in ws.capability_actions.actions.value}
+    assert {"Close", "Save"}.issubset(labels)
+    assert "Expand" not in labels
+
+    ws.notes_view.current = None
+    fallback = {a.label for a in ws.capability_actions.actions.value}
+    assert "Expand" in fallback
+    assert "Save" not in fallback
+
+
 async def test_dispose_propagates_through_aggregate() -> None:
     ws = _build()
     await ws.construct_async()

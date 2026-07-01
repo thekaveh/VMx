@@ -110,6 +110,7 @@ struct NoteFormView: View {
                         ))
                         .font(.body)
                         .frame(minHeight: 160)
+                        .accessibilityLabel("Body")
                         .overlay(
                             RoundedRectangle(cornerRadius: 4)
                                 .stroke(Color.secondary.opacity(0.3), lineWidth: 1)

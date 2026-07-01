@@ -214,8 +214,10 @@ export class WorkspaceVM {
         const current = notesViewRef.current;
         if (current !== null) {
           noteFormRef.bindTo(current.model);
+          this.setFocus(current);
         } else {
           noteFormRef.unbind();
+          this.setFocus(this.#notebooks.current);
         }
       });
 

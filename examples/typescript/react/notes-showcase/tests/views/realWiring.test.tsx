@@ -177,8 +177,6 @@ describe("real wiring", () => {
     const current = workspace.notesView.current;
     expect(current).not.toBeNull();
 
-    // Focus the note VM the way the list does, then drive the bar.
-    workspace.setFocus(current);
     const bar = await screen.findByRole("toolbar", { name: /actions/i });
     fireEvent.click(within(bar).getByRole("button", { name: "Save" }));
     await waitFor(() => {

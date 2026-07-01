@@ -287,6 +287,29 @@ final class WorkspaceVMTests: XCTestCase {
         XCTAssertFalse(labels.contains("Expand"))
     }
 
+    func testSelectingNote_updatesCapabilityFocus() async throws {
+        let ws = try buildWorkspace()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+
+        guard let noteVM = ws.notesView.filteredItems.first else {
+            XCTFail("Expected seeded note")
+            return
+        }
+
+        ws.notesView.current = noteVM
+
+        var labels = try ws.capabilityActions.actions.value.map(\.label)
+        XCTAssertTrue(labels.contains("Close"))
+        XCTAssertTrue(labels.contains("Save"))
+        XCTAssertFalse(labels.contains("Expand"))
+
+        ws.notesView.current = nil
+        labels = try ws.capabilityActions.actions.value.map(\.label)
+        XCTAssertTrue(labels.contains("Expand"))
+        XCTAssertFalse(labels.contains("Save"))
+    }
+
     // MARK: - Deny / revert
 
     func testDenyCommand_revertsAndRepublishesDraftSurface() async throws {

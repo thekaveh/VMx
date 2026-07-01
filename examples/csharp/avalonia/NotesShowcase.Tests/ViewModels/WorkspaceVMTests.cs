@@ -124,6 +124,32 @@ public sealed class WorkspaceVMTests
     }
 
     [Fact]
+    public async Task Selecting_a_note_updates_capability_focus()
+    {
+        var ws = BuildWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.FilteredItems[0];
+            ws.NotesView.Current = note;
+
+            var labels = ws.CapabilityActions.Actions.Value.Select(a => a.Label).ToList();
+            Assert.Contains("Close", labels);
+            Assert.Contains("Save", labels);
+            Assert.DoesNotContain("Expand", labels);
+
+            ws.NotesView.Current = null;
+            var fallback = ws.CapabilityActions.Actions.Value.Select(a => a.Label).ToList();
+            Assert.Contains("Expand", fallback);
+            Assert.DoesNotContain("Save", fallback);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task NewNotebookCommand_appends_a_notebook()
     {
         var ws = BuildWorkspace();
