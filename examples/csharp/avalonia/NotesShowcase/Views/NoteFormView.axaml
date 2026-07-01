@@ -65,6 +65,11 @@
                         AutomationProperties.Name="Add tag"
                         Command="{Binding AddTagCommand}" />
             </StackPanel>
+            <TextBlock Text="{Binding TagSuggestionsText, StringFormat='Suggestions: {0}'}"
+                       Foreground="{StaticResource SubtleTextBrush}"
+                       FontSize="11"
+                       Margin="0,2,0,0"
+                       IsVisible="{Binding HasTagSuggestions}" />
         </StackPanel>
 
         <!-- Starred (row 3) -->

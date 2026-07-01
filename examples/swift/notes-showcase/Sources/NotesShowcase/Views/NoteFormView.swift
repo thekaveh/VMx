@@ -101,6 +101,11 @@ struct NoteFormView: View {
                                     .disabled(!addTagCmd.canExecute)
                                     .accessibilityLabel("Add tag")
                             }
+                            if !bound.vm.tagSuggestionsText.isEmpty {
+                                Text("Suggestions: \(bound.vm.tagSuggestionsText)")
+                                    .font(.caption)
+                                    .foregroundColor(theme.textDim)
+                            }
                         }
 
                         // Starred toggle

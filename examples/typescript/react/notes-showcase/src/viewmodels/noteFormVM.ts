@@ -20,6 +20,7 @@ import {
   PropertyChangedMessage,
   RelayCommand,
   RelayCommandOf,
+  SearchableState,
   ViewModelType,
   type ICommand,
   type ICommandOf,
@@ -62,9 +63,13 @@ export class NoteFormVM extends ComponentVMBase {
   readonly #onSaved = new Subject<NoteModel>();
   readonly #editorMode = new DiscriminatorVM<EditorMode>("edit");
   readonly #editorModeSub: Subscription;
+  readonly #tagSearch: SearchableState<string>;
+  readonly #tagSearchSub: Subscription;
   #form: FormVM<NoteModel> | null = null;
   #bound: NoteModel | null = null;
   #tagDraft = "";
+  #tagCatalog: readonly string[] = [];
+  #tagSuggestions: readonly string[] = [];
 
   constructor(opts: {
     name: string;
@@ -83,6 +88,19 @@ export class NoteFormVM extends ComponentVMBase {
     this.#repo = opts.repository;
     this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(this, "IReconstructable");
+    this.#tagSearch = new SearchableState<string>({
+      items: () => this.#tagCatalog,
+      predicate: (tag, term) => {
+        const normalized = term.trim().toLowerCase();
+        if (normalized.length === 0) return false;
+        if (!tag.toLowerCase().includes(normalized)) return false;
+        return !this.draft.tags.some((existing) =>
+          existing.toLowerCase() === tag.toLowerCase(),
+        );
+      },
+      debounceMs: 0,
+      scheduler: opts.dispatcher.foreground,
+    });
 
     // Stable deny delegate (real-wiring audit, pass 6): the inner FormVM's
     // denyCommand publishes with sender = FormVM, which useVm's sender
@@ -132,6 +150,10 @@ export class NoteFormVM extends ComponentVMBase {
       this._raisePropertyChanged("showEditModeCommand");
       this._hub.send(PropertyChangedMessage.create(this, this._name, "showPreviewModeCommand"));
       this._raisePropertyChanged("showPreviewModeCommand");
+    });
+    this.#tagSearchSub = this.#tagSearch.filtered.subscribe((suggestions) => {
+      this.#tagSuggestions = suggestions;
+      this.#emitTagSuggestionChanges();
     });
   }
 
@@ -228,6 +250,8 @@ export class NoteFormVM extends ComponentVMBase {
       PropertyChangedMessage.create(this, this._name, "tagDraft"),
     );
     this._raisePropertyChanged("tagDraft");
+    this.#tagSearch.searchTerm = value;
+    this.#tagSearch.search();
   }
 
   get addTagCommand(): ICommand {
@@ -236,6 +260,14 @@ export class NoteFormVM extends ComponentVMBase {
 
   get removeTagCommand(): ICommandOf<string> {
     return this.#removeTagCommand;
+  }
+
+  get tagSuggestions(): readonly string[] {
+    return this.#tagSuggestions;
+  }
+
+  get tagSuggestionsText(): string {
+    return this.#tagSuggestions.join(", ");
   }
 
   /** Binds the form to `note` (creates / replaces the inner FormVM). */
@@ -253,6 +285,7 @@ export class NoteFormVM extends ComponentVMBase {
     });
     this.#form.onApproved.subscribe((m) => this.#onSaved.next(m));
     this.#emitDraftChanges();
+    void this.refreshTagSuggestionsAsync();
   }
 
   /**
@@ -304,6 +337,25 @@ export class NoteFormVM extends ComponentVMBase {
         ),
       );
     }
+    await this.refreshTagSuggestionsAsync();
+  }
+
+  async refreshTagSuggestionsAsync(): Promise<void> {
+    try {
+      const snapshot = await this.#repo.loadAll();
+      this.#tagCatalog = Array.from(
+        new Set(
+          snapshot.notes
+            .flatMap((note) => note.tags)
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      ).sort((left, right) => left.localeCompare(right));
+      this.#tagSearch.search();
+    } catch {
+      this.#tagCatalog = [];
+      this.#tagSearch.search();
+    }
   }
 
   async #persistAsync(note: NoteModel): Promise<void> {
@@ -317,6 +369,7 @@ export class NoteFormVM extends ComponentVMBase {
       return;
     this.draft = { ...this.draft, tags: [...this.draft.tags, trimmed] };
     this.tagDraft = "";
+    this.#tagSearch.search();
   }
 
   #removeTag(tag: string): void {
@@ -327,6 +380,7 @@ export class NoteFormVM extends ComponentVMBase {
         (t) => t.toLowerCase() !== tag.toLowerCase(),
       ),
     };
+    this.#tagSearch.search();
   }
 
   #emitDraftChanges(): void {
@@ -348,12 +402,21 @@ export class NoteFormVM extends ComponentVMBase {
       "isValid",
       "titleError",
       "tagsText",
+      "tagSuggestions",
+      "tagSuggestionsText",
       "approveCommand",
       "denyCommand",
     ]) {
       this._hub.send(
         PropertyChangedMessage.create(this, this._name, name),
       );
+      this._raisePropertyChanged(name);
+    }
+  }
+
+  #emitTagSuggestionChanges(): void {
+    for (const name of ["tagSuggestions", "tagSuggestionsText"]) {
+      this._hub.send(PropertyChangedMessage.create(this, this._name, name));
       this._raisePropertyChanged(name);
     }
   }
@@ -368,6 +431,8 @@ export class NoteFormVM extends ComponentVMBase {
     this.#showPreviewModeCommand.dispose();
     this.#editorModeSub.unsubscribe();
     this.#editorMode.dispose();
+    this.#tagSearchSub.unsubscribe();
+    this.#tagSearch.dispose();
     this.#onSaved.complete();
     super._onDispose();
   }

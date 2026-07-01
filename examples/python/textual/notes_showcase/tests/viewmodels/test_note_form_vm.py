@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 
 import pytest
@@ -177,6 +178,30 @@ def test_remove_tag_drops_tag_case_insensitively() -> None:
     assert "alpha" in vm.draft.tags
     vm.remove_tag("ALPHA")
     assert "alpha" not in vm.draft.tags
+
+
+async def test_tag_suggestions_filter_workspace_tag_catalog_through_searchable_state() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    vm.draft = dataclasses.replace(vm.draft, tags=())
+    await vm.refresh_tag_suggestions_async()
+
+    vm.tag_draft = "sec"
+
+    assert vm.tag_suggestions == ("security",)
+    assert vm.tag_suggestions_text == "security"
+
+
+async def test_tag_suggestions_omit_tags_already_on_draft() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    vm.draft = dataclasses.replace(vm.draft, tags=("security",))
+    await vm.refresh_tag_suggestions_async()
+
+    vm.tag_draft = "sec"
+
+    assert vm.tag_suggestions == ()
+    assert vm.tag_suggestions_text == ""
 
 
 def test_tag_draft_setter_is_no_op_on_equal_value() -> None:

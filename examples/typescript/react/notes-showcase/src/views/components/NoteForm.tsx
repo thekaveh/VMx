@@ -109,6 +109,13 @@ export const NoteForm: React.FC<NoteFormProps> = ({ ws }) => {
             style={{ flex: "0 0 100px" }}
           />
         </div>
+        {form.tagSuggestions.length > 0 ? (
+          <div className="note-form-suggestions" aria-label="Tag suggestions">
+            {form.tagSuggestions.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="note-form-row">
         <div className="note-form-mode-row">

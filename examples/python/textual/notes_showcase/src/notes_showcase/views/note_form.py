@@ -74,6 +74,13 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
             "body",
             transform=lambda value: str(value) if str(value) else "No body.",
         ),
+        bind_property(
+            view.query_one("#form_tag_suggestions", Static),
+            "renderable",
+            vm,
+            "tag_suggestions_text",
+            transform=lambda value: f"Suggestions: {value}" if str(value) else "",
+        ),
         # Tag chip strip — one-way bound to the ``tags_text``
         # DerivedProperty[str] so the rendered string is "alpha, beta"
         # (Round-3 Important C-I1; bound through bind_derived_property so it
@@ -108,6 +115,7 @@ class NoteFormView(Vertical):
             Button("Add tag", id="form_add_tag"),
             id="tag_chip_row",
         )
+        yield Static("", id="form_tag_suggestions")
         yield Static("", id="form_tag_chips")
         yield Horizontal(
             Button("Edit", id="form_mode_edit"),

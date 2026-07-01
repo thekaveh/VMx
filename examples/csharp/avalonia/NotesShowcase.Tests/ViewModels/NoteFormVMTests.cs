@@ -154,6 +154,32 @@ public sealed class NoteFormVMTests
         Assert.Contains("b", form.Draft.Tags);
     }
 
+    [Fact]
+    public async Task TagSuggestions_filter_workspace_tag_catalog_through_SearchableState()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote() with { Tags = Array.Empty<string>() });
+        await form.RefreshTagSuggestionsAsync();
+
+        form.TagDraft = "sec";
+
+        Assert.Equal(new[] { "security" }, form.TagSuggestions);
+        Assert.Equal("security", form.TagSuggestionsText);
+    }
+
+    [Fact]
+    public async Task TagSuggestions_omit_tags_already_on_draft()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote() with { Tags = new[] { "security" } });
+        await form.RefreshTagSuggestionsAsync();
+
+        form.TagDraft = "sec";
+
+        Assert.Empty(form.TagSuggestions);
+        Assert.Equal(string.Empty, form.TagSuggestionsText);
+    }
+
     // ── Phase 5.a binding gap #1: two-way scalar setters ──────────────────
 
     [Fact]

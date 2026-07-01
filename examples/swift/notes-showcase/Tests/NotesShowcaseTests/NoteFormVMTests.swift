@@ -165,6 +165,28 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertTrue(form.draft.tags.contains("b"))
     }
 
+    func testTagSuggestions_filterWorkspaceTagCatalogThroughSearchableState() async throws {
+        let (form, _) = try build()
+        form.bindTo(sampleNote().with(tags: []))
+        await form.refreshTagSuggestions()
+
+        form.tagDraft = "sec"
+
+        XCTAssertEqual(["security"], form.tagSuggestions)
+        XCTAssertEqual("security", form.tagSuggestionsText)
+    }
+
+    func testTagSuggestions_omitTagsAlreadyOnDraft() async throws {
+        let (form, _) = try build()
+        form.bindTo(sampleNote().with(tags: ["security"]))
+        await form.refreshTagSuggestions()
+
+        form.tagDraft = "sec"
+
+        XCTAssertEqual([], form.tagSuggestions)
+        XCTAssertEqual("", form.tagSuggestionsText)
+    }
+
     // MARK: - Editor Mode
 
     func testEditorMode_defaultsToEditAndSwitchesThroughDiscriminatorVM() throws {
