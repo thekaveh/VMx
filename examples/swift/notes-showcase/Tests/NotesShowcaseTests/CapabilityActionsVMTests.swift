@@ -270,7 +270,7 @@ final class CapabilityActionsVMTests: XCTestCase {
                 landed = true
                 break
             }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTAssertTrue(landed,
                       "Expected 'Note deleted' notification; got \(recorder.messages)")

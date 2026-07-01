@@ -320,7 +320,7 @@ final class NoteFormVMTests: XCTestCase {
                 landed = true
                 break
             }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
 
         XCTAssertTrue(

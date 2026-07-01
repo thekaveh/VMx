@@ -5,7 +5,7 @@
 // No conformance-ID markers (scenario IDs live in THEME-00x only).
 //
 // Async fire-and-forget pattern:
-//   `Task { _ = await notifHub.post(n) }` + `await Task.yield()` gives the
+//   `Task { _ = await notifHub.post(n) }` + `try? await Task.sleep(nanoseconds: 1_000_000)` gives the
 //   cooperative pool a chance to run the task's synchronous setup (which fires
 //   the pending subject) before our assertion. `notifHub.dispose()` at teardown
 //   resumes any pending continuations so Tasks complete cleanly.
@@ -52,7 +52,7 @@ final class NotificationsVMTests: XCTestCase {
     private func waitUntil(_ condition: @escaping () -> Bool, attempts: Int = 50) async {
         for _ in 0..<attempts {
             if condition() { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
     }
 
@@ -141,7 +141,7 @@ final class NotificationsVMTests: XCTestCase {
 
         let n1 = n("x")
         Task { _ = await f.notifHub.post(n1) }
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 1_000_000)
         XCTAssertEqual(1, f.vm.visible.count)
 
         f.vm.dispose()
@@ -149,7 +149,7 @@ final class NotificationsVMTests: XCTestCase {
 
         // After dispose, new posts must not produce updates.
         Task { _ = await f.notifHub.post(self.n("y")) }
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 1_000_000)
         XCTAssertTrue(f.vm.visible.isEmpty,
                       "Expected visible to stay empty for new post after dispose")
     }

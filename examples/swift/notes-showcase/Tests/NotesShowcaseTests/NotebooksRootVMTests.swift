@@ -44,7 +44,7 @@ final class NotebooksRootVMTests: XCTestCase {
     ) async {
         for _ in 0..<attempts {
             if condition() { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
     }
 

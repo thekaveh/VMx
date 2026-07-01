@@ -282,7 +282,7 @@ final class NoteVMTests: XCTestCase {
         try await dc.executeAsync()
 
         // The Task inside _performDelete is fire-and-forget; yield so it lands.
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 1_000_000)
 
         XCTAssertTrue(
             recorder.anyMessage { $0.contains("Note deleted") && $0.contains("Important") },
@@ -311,7 +311,7 @@ final class NoteVMTests: XCTestCase {
 
         let dc = try XCTUnwrap(vm.deleteCommand as? ConfirmationDecoratorCommand)
         try await dc.executeAsync()
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 1_000_000)
 
         XCTAssertFalse(
             recorder.anyMessage { $0.contains("Note deleted") },
