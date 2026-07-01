@@ -21,6 +21,14 @@ conformance IDs covered.
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
 
+### Fixed
+
+- `AsyncRelayCommand` is now inert after disposal and no longer emits
+  `can_execute_changed` into a disposed Rx subject when an in-flight task
+  completes after disposal.
+- `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
+  if it is disposed before the fetch completes.
+
 ## [3.0.0] — 2026-06-28
 
 The **v3 framework overhaul** — a breaking release that hardens the

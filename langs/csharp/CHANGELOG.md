@@ -21,6 +21,15 @@ conformance IDs covered.
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
 
+### Fixed
+
+- `ConstructAsync()` / `DestructAsync()` now complete when a background hook
+  failure rolls back to the prior settled lifecycle state instead of waiting
+  only for the happy-path terminal state.
+- Concurrent `Dispose()` calls invoke `OnDispose()` at most once.
+- `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
+  if it is disposed before the fetch completes.
+
 ## [3.0.0] — 2026-06-28
 
 The **v3 framework overhaul** — a breaking release that hardens the

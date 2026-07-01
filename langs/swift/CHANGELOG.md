@@ -21,6 +21,17 @@ conformance IDs covered.
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
 
+### Fixed
+
+- `reconstruct()` now rolls back to the prior settled lifecycle state when its
+  destruct or construct hook throws.
+- Concurrent `dispose()` calls invoke `_onDispose()` at most once.
+- `AsyncRelayCommand` is now inert after disposal, synchronizes its in-flight
+  state, and fire-and-forget cancellation no longer emits on `errors` when
+  `throwOnCancel()` is set.
+- `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
+  if it is disposed before the fetch completes.
+
 ## [3.0.0] — 2026-06-28
 
 The **v3 framework overhaul**. Implements `spec-v3.0.0`; the Swift-specific

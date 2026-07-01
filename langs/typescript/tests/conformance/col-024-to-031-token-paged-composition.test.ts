@@ -44,6 +44,29 @@ describe("COL-025", () => {
     expect(sut.hasMore).toBe(false);
     expect(calls).toEqual([null, "two"]);
   });
+
+  it("loadMore does not mutate or notify after disposal during fetch", async () => {
+    let resolvePage!: (page: { items: number[]; nextToken: string | null }) => void;
+    const pending = new Promise<{ items: number[]; nextToken: string | null }>((resolve) => {
+      resolvePage = resolve;
+    });
+    const sut = new TokenPagedComposition<number, string>(() => pending);
+    const collectionEvents: unknown[] = [];
+    const propertyEvents: string[] = [];
+    sut.collectionChanged.subscribe((event) => collectionEvents.push(event));
+    sut.propertyChanged.subscribe((name) => propertyEvents.push(name));
+
+    const load = sut.loadMoreCommand.executeAsync();
+    sut.dispose();
+    resolvePage({ items: [1, 2], nextToken: "next" });
+    await load;
+
+    expect(sut.items).toEqual([]);
+    expect(sut.currentToken).toBeNull();
+    expect(sut.hasMore).toBe(true);
+    expect(collectionEvents).toEqual([]);
+    expect(propertyEvents).toEqual([]);
+  });
 });
 
 describe("COL-026", () => {
@@ -77,6 +100,29 @@ describe("COL-027", () => {
     expect(sut.items).toEqual([9]);
     expect(sut.currentToken).toBeNull();
     expect(sut.hasMore).toBe(false);
+  });
+
+  it("refresh does not mutate or notify after disposal during fetch", async () => {
+    let resolvePage!: (page: { items: number[]; nextToken: string | null }) => void;
+    const pending = new Promise<{ items: number[]; nextToken: string | null }>((resolve) => {
+      resolvePage = resolve;
+    });
+    const sut = new TokenPagedComposition<number, string>(() => pending);
+    const collectionEvents: unknown[] = [];
+    const propertyEvents: string[] = [];
+    sut.collectionChanged.subscribe((event) => collectionEvents.push(event));
+    sut.propertyChanged.subscribe((name) => propertyEvents.push(name));
+
+    const refresh = sut.refreshCommand.executeAsync();
+    sut.dispose();
+    resolvePage({ items: [9], nextToken: null });
+    await refresh;
+
+    expect(sut.items).toEqual([]);
+    expect(sut.currentToken).toBeNull();
+    expect(sut.hasMore).toBe(true);
+    expect(collectionEvents).toEqual([]);
+    expect(propertyEvents).toEqual([]);
   });
 });
 

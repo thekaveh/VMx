@@ -85,6 +85,8 @@ class TokenPagedComposition(Generic[TVM, TToken]):
 
     async def _load_more(self) -> None:
         page, next_token = await self._fetch_next(self._current_token)
+        if self._disposed:
+            return
         additions = list(page)
         self._items.extend(additions)
         self._construct_if_needed(additions)
@@ -94,6 +96,8 @@ class TokenPagedComposition(Generic[TVM, TToken]):
 
     async def _refresh(self) -> None:
         page, next_token = await self._fetch_next(None)
+        if self._disposed:
+            return
         fresh = list(page)
         if self._pages_equal(fresh, self._items[: len(fresh)]):
             self._current_token = next_token

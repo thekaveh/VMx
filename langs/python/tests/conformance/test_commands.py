@@ -179,6 +179,23 @@ def test_CMD_013_disposed_parameterized_relay_command_is_inert() -> None:
     assert called == []
 
 
+@pytest.mark.conformance("CMD-013")
+async def test_CMD_013_disposed_async_relay_command_is_inert() -> None:
+    called: list[int] = []
+
+    async def _task() -> None:
+        called.append(1)
+
+    cmd = AsyncRelayCommand.builder().task(_task).build()
+
+    cmd.dispose()
+    cmd.execute()
+    await cmd.execute_async()
+
+    assert cmd.can_execute() is False
+    assert called == []
+
+
 # ---------------------------------------------------------------------------
 # CMD-012 — async command cancellation (spec/04-commands.md §11, ADR-0056)
 # ---------------------------------------------------------------------------

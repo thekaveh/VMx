@@ -153,6 +153,26 @@ public class CommandConformanceTests
         invoked.Should().BeFalse("disposed parameterized commands must not invoke their task");
     }
 
+    [Fact, Trait("Conformance", "CMD-013")]
+    public async Task CMD_013_Disposed_AsyncRelayCommand_Is_Inert()
+    {
+        var invoked = false;
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(_ =>
+            {
+                invoked = true;
+                return Task.CompletedTask;
+            })
+            .Build();
+
+        cmd.Dispose();
+        cmd.Execute(null);
+        await cmd.ExecuteAsync();
+
+        cmd.CanExecute(null).Should().BeFalse("disposed async commands are no longer executable");
+        invoked.Should().BeFalse("disposed async commands must not invoke their task");
+    }
+
     // CMD-012 — cancel() cancels an in-flight async command task; the command returns
     // to a non-executing state; no exception surfaces by default (spec §11, ADR-0056).
     [Fact, Trait("Conformance", "CMD-012")]
@@ -215,6 +235,31 @@ public class CommandConformanceTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
         cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state when throwing");
+    }
+
+    [Fact, Trait("Conformance", "CMD-012")]
+    public async Task CMD_012_FireAndForget_Cancel_Does_Not_Emit_Error_When_ThrowOnCancel_Is_Set()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errors = new List<Exception>();
+
+        using var cmd = AsyncRelayCommand.Builder()
+            .ThrowOnCancel()
+            .Task(async ct =>
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+            })
+            .Build();
+        using var sub = cmd.Errors.Subscribe(errors.Add);
+
+        cmd.Execute(null);
+        await started.Task;
+        cmd.Cancel();
+        await Task.Delay(50);
+
+        errors.Should().BeEmpty("fire-and-forget command cancellation is not a fault");
+        cmd.IsExecuting.Should().BeFalse();
     }
 
     [Fact, Trait("Conformance", "CMD-012")]

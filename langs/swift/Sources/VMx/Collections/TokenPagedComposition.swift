@@ -57,6 +57,7 @@ public final class TokenPagedComposition<TVM, TToken> {
 
     private func loadMore() async throws {
         let page = try await fetchNext(_currentToken)
+        guard !disposed else { return }
         _items.append(contentsOf: page.0)
         try constructIfNeeded(page.0)
         _currentToken = page.1
@@ -66,6 +67,7 @@ public final class TokenPagedComposition<TVM, TToken> {
 
     private func refresh() async throws {
         let page = try await fetchNext(nil)
+        guard !disposed else { return }
         let head = Array(_items.prefix(page.0.count))
         if pagesEqual(page.0, head) {
             _currentToken = page.1

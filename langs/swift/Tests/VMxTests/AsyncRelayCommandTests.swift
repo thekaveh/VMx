@@ -111,4 +111,49 @@ final class AsyncRelayCommandTests: XCTestCase {
                        "isExecuting must be false after cancel, even in throwOnCancel mode")
         cmd.dispose()
     }
+
+    /// CMD-012 — fire-and-forget command cancellation is not routed to `errors`,
+    /// even when `throwOnCancel()` is enabled for the awaitable path.
+    func testCmd012ExecuteDoesNotRouteCancellationToErrorsWhenThrowOnCancelIsSet() async {
+        let startedExp = expectation(description: "CMD-012 execute: body is running")
+        let noErrorExp = expectation(description: "CMD-012 execute: no cancellation error")
+        noErrorExp.isInverted = true
+
+        let cmd = AsyncRelayCommand.builder()
+            .throwOnCancel()
+            .task {
+                startedExp.fulfill()
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000)
+                }
+                try Task.checkCancellation()
+            }
+            .build()
+
+        let cancel = cmd.errors.sink { _ in noErrorExp.fulfill() }
+
+        cmd.execute()
+        await fulfillment(of: [startedExp], timeout: 2.0)
+        cmd.cancel()
+        await fulfillment(of: [noErrorExp], timeout: 0.2)
+
+        XCTAssertFalse(cmd.isExecuting)
+        cancel.cancel()
+        cmd.dispose()
+    }
+
+    /// CMD-013 — disposed AsyncRelayCommand instances are inert.
+    func testCmd013DisposedAsyncRelayCommandIsInert() async {
+        var invoked = false
+        let cmd = AsyncRelayCommand.builder()
+            .task { invoked = true }
+            .build()
+
+        cmd.dispose()
+        cmd.execute()
+        try? await cmd.executeAsync()
+
+        XCTAssertFalse(cmd.canExecute())
+        XCTAssertFalse(invoked)
+    }
 }

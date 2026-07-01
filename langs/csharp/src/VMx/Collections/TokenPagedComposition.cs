@@ -19,6 +19,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     private readonly Func<TToken?, Task<TokenPage<TVM, TToken>>> _fetchNext;
     private readonly bool _autoConstructOnAdd;
     private readonly Func<IReadOnlyList<TVM>, IReadOnlyList<TVM>, bool> _pagesEqual;
+    private readonly object _gate = new();
     private readonly List<TVM> _items = [];
     private TToken? _currentToken;
     private bool _loadedOnce;
@@ -69,31 +70,39 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     private async Task LoadMoreAsync()
     {
         var page = await _fetchNext(_currentToken).ConfigureAwait(false);
-        _items.AddRange(page.Items);
-        ConstructIfNeeded(page.Items);
-        _currentToken = page.NextToken;
-        _loadedOnce = true;
-        NotifyReset();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _items.AddRange(page.Items);
+            ConstructIfNeeded(page.Items);
+            _currentToken = page.NextToken;
+            _loadedOnce = true;
+            NotifyReset();
+        }
     }
 
     private async Task RefreshAsync()
     {
         var page = await _fetchNext(default).ConfigureAwait(false);
-        var head = _items.Take(page.Items.Count).ToArray();
-        if (_pagesEqual(page.Items, head))
+        lock (_gate)
         {
+            if (_disposed) return;
+            var head = _items.Take(page.Items.Count).ToArray();
+            if (_pagesEqual(page.Items, head))
+            {
+                _currentToken = page.NextToken;
+                _loadedOnce = true;
+                NotifyProperties();
+                return;
+            }
+
+            _items.Clear();
+            _items.AddRange(page.Items);
+            ConstructIfNeeded(page.Items);
             _currentToken = page.NextToken;
             _loadedOnce = true;
-            NotifyProperties();
-            return;
+            NotifyReset();
         }
-
-        _items.Clear();
-        _items.AddRange(page.Items);
-        ConstructIfNeeded(page.Items);
-        _currentToken = page.NextToken;
-        _loadedOnce = true;
-        NotifyReset();
     }
 
     private void ConstructIfNeeded(IReadOnlyList<TVM> items)
@@ -130,8 +139,11 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
         LoadMoreCommand.Dispose();
         RefreshCommand.Dispose();
     }

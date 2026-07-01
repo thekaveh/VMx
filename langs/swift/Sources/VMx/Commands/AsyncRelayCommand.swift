@@ -57,6 +57,7 @@ public final class AsyncRelayCommand: AsyncCommand {
     private let canExecuteChangedSubject = PassthroughSubject<Void, Never>()
     private let errorsSubject = PassthroughSubject<Error, Never>()
     private var triggerCancellables: Set<AnyCancellable> = []
+    private let stateQueue = DispatchQueue(label: "VMx.AsyncRelayCommand.state")
 
     /// Closure that cancels the in-flight task; set on each `executeAsync()` run.
     private var cancelHandle: (() -> Void)?
@@ -90,7 +91,11 @@ public final class AsyncRelayCommand: AsyncCommand {
     // MARK: - AsyncCommand
 
     /// True while an execution is in flight.
-    public private(set) var isExecuting: Bool = false
+    private var _isExecuting: Bool = false
+
+    public var isExecuting: Bool {
+        stateQueue.sync { _isExecuting }
+    }
 
     /// Awaitable entry-point.
     ///
@@ -100,8 +105,15 @@ public final class AsyncRelayCommand: AsyncCommand {
     public func executeAsync() async throws {
         guard canExecute() else { return }
 
-        cancelRequested = false
-        isExecuting = true
+        let began = stateQueue.sync { () -> Bool in
+            guard !disposed && !_isExecuting else { return false }
+            cancelRequested = false
+            _isExecuting = true
+            return true
+        }
+        guard began else {
+            return
+        }
         canExecuteChangedSubject.send()
 
         // Wrap the body in a Task so `cancel()` can cancel it independently of
@@ -109,12 +121,19 @@ public final class AsyncRelayCommand: AsyncCommand {
         let bodyTask = Task { [body] in
             try await body?()
         }
-        cancelHandle = { bodyTask.cancel() }
+        stateQueue.sync {
+            cancelHandle = { bodyTask.cancel() }
+        }
 
         defer {
-            cancelHandle = nil
-            isExecuting = false
-            canExecuteChangedSubject.send()
+            let shouldNotify = stateQueue.sync { () -> Bool in
+                cancelHandle = nil
+                _isExecuting = false
+                return !disposed
+            }
+            if shouldNotify {
+                canExecuteChangedSubject.send()
+            }
         }
 
         do {
@@ -126,7 +145,8 @@ public final class AsyncRelayCommand: AsyncCommand {
             // always re-raised so Swift's structured concurrency semantics are
             // preserved (spec §10.3).
             // throwOnCancelFlag re-raises for command-initiated cancel too.
-            if throwOnCancelFlag || !cancelRequested {
+            let requested = stateQueue.sync { cancelRequested }
+            if throwOnCancelFlag || !requested {
                 throw CancellationError()
             }
             // else: complete normally — no throw
@@ -142,8 +162,11 @@ public final class AsyncRelayCommand: AsyncCommand {
         Task {
             do {
                 try await self.executeAsync()
+            } catch is CancellationError {
+                return
             } catch {
-                guard !self.disposed else { return }
+                let isDisposed = self.stateQueue.sync { self.disposed }
+                guard !isDisposed else { return }
                 self.errorsSubject.send(error)
             }
         }
@@ -151,8 +174,11 @@ public final class AsyncRelayCommand: AsyncCommand {
 
     /// Requests cancellation of the in-flight task. No-op when idle.
     public func cancel() {
-        cancelRequested = true
-        cancelHandle?()
+        let handle = stateQueue.sync { () -> (() -> Void)? in
+            cancelRequested = true
+            return cancelHandle
+        }
+        handle?()
     }
 
     // MARK: - Command
@@ -162,7 +188,7 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// The stored predicate is non-throwing (`() -> Bool`), matching the
     /// cross-flavor contract that predicates must not raise (spec §2).
     public func canExecute() -> Bool {
-        guard !isExecuting else { return false }
+        if stateQueue.sync(execute: { disposed || _isExecuting }) { return false }
         guard let predicate else { return true }
         return predicate()
     }
@@ -184,10 +210,15 @@ public final class AsyncRelayCommand: AsyncCommand {
 
     /// Idempotent. Cancels any in-flight task and completes Combine subjects.
     public func dispose() {
-        guard !disposed else { return }
-        disposed = true
-        cancelHandle?()
-        cancelHandle = nil
+        let result = stateQueue.sync { () -> (Bool, (() -> Void)?) in
+            guard !disposed else { return (false, nil) }
+            disposed = true
+            let handle = cancelHandle
+            cancelHandle = nil
+            return (true, handle)
+        }
+        guard result.0 else { return }
+        result.1?()
         triggerCancellables.removeAll()
         canExecuteChangedSubject.send(completion: .finished)
         errorsSubject.send(completion: .finished)

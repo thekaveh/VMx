@@ -381,6 +381,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 .OfType<IConstructionStatusChangedMessage>()
                 .Where(m => ReferenceEquals(m.SenderObject, this) &&
                             (m.Status == ConstructionStatus.Constructed ||
+                             m.Status == ConstructionStatus.Destructed ||
                              m.Status == ConstructionStatus.Disposed))
                 .Take(1)
                 .Subscribe(_ => tcs.TrySetResult(true));
@@ -526,6 +527,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 .OfType<IConstructionStatusChangedMessage>()
                 .Where(m => ReferenceEquals(m.SenderObject, this) &&
                             (m.Status == ConstructionStatus.Destructed ||
+                             m.Status == ConstructionStatus.Constructed ||
                              m.Status == ConstructionStatus.Disposed))
                 .Take(1)
                 .Subscribe(_ => tcs.TrySetResult(true));
@@ -609,9 +611,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public virtual void Dispose()
     {
-        if (_status == ConstructionStatus.Disposed) return;
-
-        SetStatus(ConstructionStatus.Disposed);
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed) return;
+            SetStatus(ConstructionStatus.Disposed);
+        }
 
         // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
         // TS `_onDispose` (componentVMBase.ts). Runs immediately after the

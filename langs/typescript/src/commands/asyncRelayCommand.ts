@@ -70,6 +70,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
   }
 
   canExecute(): boolean {
+    if (this.#disposed) return false;
     if (this.#isExecuting) return false;
     if (this.#predicate === null) return true;
     try {
@@ -82,6 +83,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
   execute(): void {
     void this.executeAsync().catch((err: unknown) => {
       if (this.#disposed) return;
+      if (isCancellationError(err)) return;
       this.#errorsSubject.next(err);
     });
   }
@@ -201,4 +203,11 @@ export class AsyncRelayCommandBuilder {
       this.#throwOnCancel,
     );
   }
+}
+
+function isCancellationError(err: unknown): boolean {
+  return typeof err === "object"
+    && err !== null
+    && "name" in err
+    && (err as { readonly name?: unknown }).name === "AbortError";
 }

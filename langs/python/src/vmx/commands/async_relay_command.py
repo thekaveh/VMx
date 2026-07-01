@@ -72,6 +72,8 @@ class AsyncRelayCommand:
 
         A predicate that raises is treated as False (defensive).
         """
+        if self._disposed:
+            return False
         if self._is_executing:
             return False
         if self._predicate is None:
@@ -95,7 +97,7 @@ class AsyncRelayCommand:
             return
         self._cancel_requested = False
         self._is_executing = True
-        self._can_execute_changed_subject.on_next(None)
+        self._emit_can_execute_changed()
         inner: asyncio.Task[None] = asyncio.ensure_future(self._task())
         self._current_task = inner
         try:
@@ -109,7 +111,7 @@ class AsyncRelayCommand:
         finally:
             self._is_executing = False
             self._current_task = None
-            self._can_execute_changed_subject.on_next(None)
+            self._emit_can_execute_changed()
 
     def execute(self, parameter: object = None) -> None:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop.
@@ -170,6 +172,11 @@ class AsyncRelayCommand:
         if self._disposed:
             return
         self._errors.on_next(exc)
+
+    def _emit_can_execute_changed(self) -> None:
+        if self._disposed:
+            return
+        self._can_execute_changed_subject.on_next(None)
 
     def dispose(self) -> None:
         """Cancel any in-flight task, release subscriptions, complete the subjects.
