@@ -3,6 +3,8 @@
 
 Verifies that each notes-showcase flavor ships the same canonical set of
 VM-level test files, so the README parity matrix is backed by actual code.
+It also verifies that every flagship example suite carries the five normative
+THEME scenario IDs.
 
 Expected slugs (each must have a matching test file in each flavor):
 
@@ -52,6 +54,8 @@ ROOTS = {
     "typescript": Path("examples/typescript/react/notes-showcase/tests"),
     "swift": Path("examples/swift/notes-showcase/Tests"),
 }
+
+THEME_IDS = [f"THEME-{i:03d}" for i in range(1, 6)]
 
 
 def _pascal(snake: str) -> str:
@@ -134,6 +138,16 @@ def check(roots: dict[str, Path]) -> int:
                     f"{flavor}: missing test for '{slug}' (expected stem matching one of {keys})",
                     file=sys.stderr,
                 )
+                failed = True
+
+        text = "\n".join(
+            p.read_text(encoding="utf-8", errors="ignore")
+            for p in root.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".cs", ".py", ".ts", ".tsx", ".swift"}
+        )
+        for theme_id in THEME_IDS:
+            if theme_id not in text:
+                print(f"{flavor}: missing scenario marker '{theme_id}'", file=sys.stderr)
                 failed = True
 
     if failed:

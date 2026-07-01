@@ -85,3 +85,22 @@ def test_check_flags_disallowed_statement(tmp_path: Path) -> None:
     violations = cab.check(f)
     assert len(violations) == 1
     assert "int x = 42" in violations[0]
+
+
+def test_check_flags_class_level_code_with_valid_constructor(tmp_path: Path) -> None:
+    f = tmp_path / "BadView.axaml.cs"
+    _write(
+        f,
+        """\
+        using Avalonia.Controls;
+        public partial class BadView {
+            private readonly int _x = 42;
+            public BadView() {
+                InitializeComponent();
+            }
+        }
+        """,
+    )
+    violations = cab.check(f)
+    assert len(violations) == 1
+    assert "_x = 42" in violations[0]

@@ -131,6 +131,8 @@ jobs:
           # Stub patterns must match what tools/check-conformance-coverage.py recognizes:
           # - Python: @pytest.mark.conformance("XXX-NNN") (multiline / kwargs allowed)
           # - C#:     [Trait("Conformance", "XXX-NNN")] (inside attribute brackets)
+          # - TypeScript: describe("XXX-NNN", ...)
+          # - Swift:  /// XXX-NNN — ... / // XXX-NNN — ...
           missing_in=()
           for id in $new_ids; do
             # Python stub presence
@@ -151,10 +153,16 @@ jobs:
                 missing_in+=("langs/typescript/tests/conformance:${id}")
               fi
             fi
+            # Swift stub presence
+            if [ -d langs/swift/Tests/VMxTests ]; then
+              if ! grep -rE -q "^[[:space:]]*///?[[:space:]]+${id}([[:space:](]|$).*(—|-)" langs/swift/Tests/VMxTests; then
+                missing_in+=("langs/swift/Tests/VMxTests:${id}")
+              fi
+            fi
           done
 
           if [ ${#missing_in[@]} -gt 0 ]; then
-            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\"), [Trait(\"Conformance\", \"…\")], or describe(\"…\")):"
+            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\"), [Trait(\"Conformance\", \"…\")], describe(\"…\"), or Swift /// XXX-NNN — markers):"
             for item in "${missing_in[@]}"; do
               echo "  - $item"
             done

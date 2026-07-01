@@ -49,7 +49,7 @@ ADR-0068..ADR-0075; THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, and TypeScript. See `langs/swift/README.md` §5.
 
-[^current]: 3.1.0 — current branch (`vmx-upstream-vnext-asks`); the matching
+[^current]: 3.1.0 — current development line; the matching
     `spec-v3.1.0` / `v3.1.0` / `<flavor>-v3.1.0` tags are created at release.
 
 ## 3. C# companion packages

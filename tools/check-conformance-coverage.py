@@ -179,18 +179,35 @@ def scrape_swift_conformance_ids(directory: Path) -> set[str]:
         func testLife001...() { ... }
 
     Because the doc-comment IS the marker in Swift (unlike other flavors where
-    a real code annotation is used), comment-form markers are intentionally valid
-    and no comment-suppression filtering is applied.
+    a real code annotation is used), comment-form markers are intentionally valid.
+    To avoid counting file-summary comments as coverage, the marker must attach
+    to a Swift test function: only comment/attribute lines may appear between the
+    marker and a following ``func test...`` declaration.
     """
     ids: set[str] = set()
     for path in directory.rglob("*.swift"):
-        text = path.read_text(encoding="utf-8")
-        for match in _SWIFT_COMMENT_MARKER_PATTERN.finditer(text):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            match = _SWIFT_COMMENT_MARKER_PATTERN.match(line)
+            if match is None or not _swift_marker_attaches_to_test(lines, index):
+                continue
             ident = match.group(1)
             if ident.split("-", 1)[0] in _NON_CONFORMANCE_PREFIXES:
                 continue  # audit finding-id reference (e.g. VMX-002), not a conformance marker
             ids.add(ident)
     return ids
+
+
+def _swift_marker_attaches_to_test(lines: list[str], marker_index: int) -> bool:
+    """Return True when a Swift marker is part of a test function doc block."""
+    for line in lines[marker_index + 1 :]:
+        stripped = line.strip()
+        if stripped.startswith("func test"):
+            return True
+        if stripped.startswith("//") or stripped.startswith("@"):
+            continue
+        return False
+    return False
 
 
 def load_subset_manifest(manifest_path: Path) -> set[str]:

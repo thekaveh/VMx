@@ -492,6 +492,22 @@ def test_swift_missing_catalog_id_fails(tmp_path: Path) -> None:
     assert rc == 1
 
 
+def test_swift_header_summary_does_not_count_as_marker(tmp_path: Path) -> None:
+    """A file-summary comment mentioning an ID must not satisfy coverage."""
+    test_with_header_only = (
+        "// LIFE-001 — covered by the lifecycle suite below\n"
+        "// More header text before imports.\n"
+        "import XCTest\n"
+        "/// LIFE-002 — destruct transitions\n"
+        "func testLife002() {}\n"
+    )
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_header_only)
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
+
+    assert rc == 1
+
+
 def test_swift_orphan_id_is_informational(tmp_path: Path) -> None:
     """A Swift marker not in the catalog is an informational ORPHAN, NOT a hard
     failure — matching the full-parity flavors (compute_gaps only flags

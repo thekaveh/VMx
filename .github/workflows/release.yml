@@ -358,6 +358,16 @@ jobs:
         # Combine is macOS-only so ubuntu-latest cannot run these tests.
         working-directory: langs/swift
         run: swift build && swift test --parallel
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/swift-v}"
+          declared_version="$(sed -nE 's/^[[:space:]]*public static let current = "([^"]+)".*/\1/p' langs/swift/Sources/VMx/Version.swift)"
+          if [ "$declared_version" != "$tag_version" ]; then
+            echo "::error::swift-v${tag_version} does not match VMxVersion.current ${declared_version}." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches VMxVersion.current."
       - name: Create GitHub Release for SwiftPM consumers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

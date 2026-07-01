@@ -46,7 +46,7 @@ Check each URL is reachable before pushing the tag.
 
 1. Land all intended changes on `main`.
 2. Update the version in `langs/typescript/package.json` (e.g. `"version": "2.6.1"`).
-3. Update `__minSpecVersion__` in `langs/typescript/src/index.ts` if the
+3. Update `__minSpecVersion__` in `langs/typescript/src/version.ts` if the
    spec version also bumped (the release pipeline does not auto-bump it).
 4. Add a `## [X.Y.Z] — YYYY-MM-DD` section to `langs/typescript/CHANGELOG.md`.
 5. Commit and push directly to `main` (or via a PR).
@@ -146,7 +146,7 @@ tag never affects the Python, C#, or Swift jobs. See `langs/python/RELEASING.md`
 
 ## 6. Spec compatibility
 
-`__minSpecVersion__` in `langs/typescript/src/index.ts` declares the minimum
+`__minSpecVersion__` in `langs/typescript/src/version.ts` declares the minimum
 `spec/VERSION` this package implements. Bump it manually when a new spec
 version introduces breaking changes that the package now implements. A spec
 major bump requires a corresponding flavor major bump per `README.md` §6.1.

@@ -28,11 +28,11 @@ a browsable HTML version with summary cards is at
 - **TypeScript / React 18 + Vite** — `examples/typescript/react/notes-showcase/`
 - **Swift / SwiftUI + Combine (macOS)** — `examples/swift/notes-showcase/` (ADR-0067)
 
-Each column reports whether the indicated flavor exercises the indicated VMx
-spec feature inside its `viewmodels/` layer and surfaces it through its
-`views/` layer (including the bridge adapter under `views/adapter/`). A `✓`
-means the feature is wired end-to-end — VM emits, adapter forwards, view
-renders, headless smoke covers it.
+Each column reports whether the indicated flavor implements the VM/spec surface
+and wires it into the flagship host. A `✓` means the feature is represented in
+the flavor's VM/model tests and host integration; view-purity enforcement is
+covered by the dedicated C#, Python, and React tooling, while Swift's core/view
+split is enforced by SwiftPM target boundaries.
 
 | #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React | Swift / SwiftUI |
 | --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ | --------------- |

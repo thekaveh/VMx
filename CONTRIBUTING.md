@@ -70,7 +70,8 @@ checks locally before pushing:
 uv run --project langs/python python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift
 
-# Pure-VM contract + flagship example-app parity (Avalonia / Textual / React).
+# Pure-VM contract + flagship example-app parity
+# (Avalonia / Textual / React / SwiftUI).
 # Mirrors .github/workflows/examples-contract-checks.yml.
 python3 tools/check-axaml-codebehind.py
 python3 tools/check-textual-views.py

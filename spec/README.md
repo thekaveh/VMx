@@ -4,9 +4,12 @@ The language-neutral specification of VMx. Source of truth for every language fl
 
 This directory is the contract. Every published package declares the spec
 version it implements; see [`compatibility-matrix.md`](../compatibility-matrix.md)
-for current per-flavor versions. Conformance tests under
-`langs/<lang>/tests/conformance/` re-implement the catalog at
-`12-conformance.md` and must pass before any flavor releases a stable
+for current per-flavor versions. Each flavor's registered conformance suite
+re-implements the catalog at `12-conformance.md`: C# under
+`langs/csharp/tests/VMx.Conformance.Tests`, Python under
+`langs/python/tests/conformance`, TypeScript under
+`langs/typescript/tests/conformance`, and Swift under
+`langs/swift/Tests/VMxTests`. These must pass before any flavor releases a stable
 version.
 
 ## 1. Contents
@@ -305,12 +308,14 @@ from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
   (`DISC-001..006`) and new chapter `22-discriminator-vm.md`.
 - **ADR-0076** — Swift `AsyncRelayCommand` parity documentation correction.
 - **ADR-0077** — Swift `FormVM` snapshot default documentation correction.
+- **ADR-0078** — `TokenPagedComposition` post-dispose load/refresh completion
+  clarification.
 
 ### 1.11 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0077); see
+- `ADRs/` — Architecture Decision Records (0001-0078); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

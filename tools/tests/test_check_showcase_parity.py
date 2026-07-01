@@ -18,6 +18,14 @@ def _build_valid_tree(root: Path) -> None:
         (py / f"test_{slug}.py").write_text("# stub\n")
         (ts / f"{csp._camel(slug)}.test.ts").write_text("// stub\n")
         (sw / f"{csp._pascal(slug)}Tests.swift").write_text("// stub\n")
+    theme_text = "\n".join(csp.THEME_IDS)
+    for d, name in (
+        (cs, "ThemeVMTests.cs"),
+        (py, "test_theme_vm.py"),
+        (ts, "themeVm.test.ts"),
+        (sw, "ThemeVMTests.swift"),
+    ):
+        (d / name).write_text(theme_text, encoding="utf-8")
 
 
 def test_expected_keys_pascal_case_for_csharp() -> None:
@@ -76,3 +84,14 @@ def test_main_returns_one_when_test_roots_absent(tmp_path, monkeypatch, capsys) 
     monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
     assert csp.main() == 1
     assert "test root not found" in capsys.readouterr().err
+
+
+def test_main_returns_one_when_theme_marker_is_missing(tmp_path, monkeypatch, capsys) -> None:
+    """The THEME scenario IDs are checked, not just the ThemeVM test filename."""
+    _build_valid_tree(tmp_path)
+    theme_test = tmp_path / "examples" / "swift" / "notes-showcase" / "Tests" / "ThemeVMTests.swift"
+    theme_test.write_text("THEME-001\nTHEME-002\nTHEME-003\nTHEME-004\n", encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "THEME-005" in capsys.readouterr().err

@@ -62,7 +62,7 @@ when it has changes to ship.
    ```bash
    git checkout main
    git pull --ff-only origin main
-   grep '<PackageVersion>' langs/csharp/src/VMx/VMx.csproj   # confirm version
+   grep '<Version>' langs/csharp/src/VMx/VMx.csproj   # confirm version
    git tag csharp-v2.6.1
    git push origin csharp-v2.6.1
    ```
@@ -95,7 +95,7 @@ add them alongside adoption of release-please.
 
 Use NuGet pre-release SemVer segments in the `.csproj`:
 
-- `<PackageVersion>2.7.0-alpha.1</PackageVersion>` → `dotnet nuget push`
+- `<Version>2.7.0-alpha.1</Version>` → `dotnet nuget push`
   will push a pre-release package. `dotnet add package VMx` (no version pin)
   will NOT pick it up by default; users must pin or pass `--prerelease`.
 

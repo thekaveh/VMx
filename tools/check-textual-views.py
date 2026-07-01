@@ -11,7 +11,7 @@ business logic of their own.
 
 Allow-list (per-method):
 
-* ``__init__``, ``compose``, ``on_mount``, ``render``,
+* ``__init__``, ``compose``, ``on_mount``, ``on_unmount``, ``render``,
   ``get_default_screen`` — framework lifecycle.
 * ``action_<name>`` — Textual key-binding actions. Body must be ≤ 1
   non-``pass`` statement so the heavy lifting lives in the bound command.
@@ -41,7 +41,14 @@ from pathlib import Path
 # decides when they run), but the hub rule still applies. get_default_screen
 # is the App-level screen-installation hook (screens are installed, never
 # composed — see NotesShowcaseApp).
-LIFECYCLE_METHODS = {"__init__", "compose", "on_mount", "render", "get_default_screen"}
+LIFECYCLE_METHODS = {
+    "__init__",
+    "compose",
+    "on_mount",
+    "on_unmount",
+    "render",
+    "get_default_screen",
+}
 
 
 def _is_hub_name(name: str) -> bool:
@@ -90,7 +97,12 @@ def _is_hub_subscription(node: ast.stmt) -> bool:
 
 
 def _count_real_statements(body: list[ast.stmt]) -> int:
-    """Return the number of statements that aren't ``pass`` or a bare docstring."""
+    """Return the effective thin-handler statement count.
+
+    A guarded one-call handler such as ``if event.button.id: cmd.execute()`` counts
+    as one statement, but multiple statements hidden inside the guard count as
+    multiple statements.
+    """
     count = 0
     for i, stmt in enumerate(body):
         if isinstance(stmt, ast.Pass):
@@ -103,7 +115,11 @@ def _count_real_statements(body: list[ast.stmt]) -> int:
             and isinstance(stmt.value.value, str)
         ):
             continue
-        count += 1
+        if isinstance(stmt, ast.If):
+            nested = _count_real_statements(stmt.body) + _count_real_statements(stmt.orelse)
+            count += max(1, nested)
+        else:
+            count += 1
     return count
 
 
@@ -154,10 +170,10 @@ def check_module(path: Path) -> list[str]:
                         f"{path}:{item.lineno}: '{name}' has {real_stmts} statements "
                         f"(max 1 for on_* event handlers)"
                     )
-                for stmt in item.body:
-                    if _is_hub_subscription(stmt):
+                for stmt in ast.walk(item):
+                    if isinstance(stmt, ast.stmt) and _is_hub_subscription(stmt):
                         violations.append(
-                            f"{path}:{item.lineno}: '{name}' subscribes to the hub "
+                            f"{path}:{stmt.lineno}: '{name}' subscribes to the hub "
                             f"directly (forbidden in views — use the adapter)"
                         )
                 continue

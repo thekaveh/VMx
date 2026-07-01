@@ -28,6 +28,36 @@ def test_check_accepts_allowed_methods(tmp_path: Path) -> None:
     assert ctv.check_module(f) == []
 
 
+def test_check_accepts_single_guarded_event_statement(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _write(
+        f,
+        """\
+        from textual.widget import Widget
+        class MyView(Widget):
+            def on_button_pressed(self, event) -> None:
+                if event.button.id == "save":
+                    self.save_command.execute()
+        """,
+    )
+    assert ctv.check_module(f) == []
+
+
+def test_check_treats_on_unmount_as_lifecycle(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _write(
+        f,
+        """\
+        from textual.widget import Widget
+        class MyView(Widget):
+            def on_unmount(self) -> None:
+                self._disposables.dispose()
+                self._closed = True
+        """,
+    )
+    assert ctv.check_module(f) == []
+
+
 def test_main_exits_zero_on_empty_repo(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.setattr("sys.argv", ["check-textual-views.py", "--root", str(tmp_path)])
     assert ctv.main() == 0
@@ -113,3 +143,38 @@ def test_hub_rule_is_word_anchored_not_substring(tmp_path: Path) -> None:
     )
     violations = ctv.check_module(g)
     assert len(violations) == 1
+
+
+def test_nested_on_handler_body_counts_real_statements(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _write(
+        f,
+        """\
+        from textual.widget import Widget
+        class MyView(Widget):
+            def on_button_pressed(self, event) -> None:
+                if event.button.id == "save":
+                    self.save_command.execute()
+                    self.status = "saved"
+        """,
+    )
+    violations = ctv.check_module(f)
+    assert len(violations) == 1
+    assert "max 1" in violations[0]
+
+
+def test_nested_on_handler_hub_subscription_is_flagged(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _write(
+        f,
+        """\
+        from textual.widget import Widget
+        class MyView(Widget):
+            def on_button_pressed(self, event) -> None:
+                if event.button.id == "save":
+                    self._sub = self._vm.hub.messages.subscribe(print)
+        """,
+    )
+    violations = ctv.check_module(f)
+    assert len(violations) == 1
+    assert "subscribes to the hub" in violations[0]

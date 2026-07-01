@@ -104,7 +104,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 77 ADRs,
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 78 ADRs,
   4 JSON fixtures, 284 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -246,7 +246,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0077)
+│   ├── ADRs/              architecture decision records (0001..0078)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
@@ -277,7 +277,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 77 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 78 ADRs,
   4 fixtures, and the 284-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
@@ -328,9 +328,10 @@ This README is the entry point; the documents below add focused detail.
 Each language flavor versions independently in SemVer. The spec also versions
 independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
-`__minSpecVersion__` in TypeScript). A spec major bump triggers a major bump
-in every active flavor; a spec minor bump (like v2.1.0) is fully backwards
-compatible and ships in flavors as a minor bump.
+`__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift). A
+spec major bump triggers a major bump in every active flavor; a spec minor bump
+(like v2.1.0) is fully backwards compatible and ships in flavors as a minor
+bump.
 
 ### 6.2 Conformance catalog
 
@@ -339,7 +340,9 @@ compatible and ships in flavors as a minor bump.
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
 `THEME-001`, …) — 279 library IDs plus 5 `THEME` scenario IDs. All four
 flavors (C# / Python / TypeScript / Swift) implement the 279 library IDs under
-`langs/<flavor>/tests/conformance/`, and
+their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
+`langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
+`langs/swift/Tests/VMxTests`), and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. All four
 flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
 example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
