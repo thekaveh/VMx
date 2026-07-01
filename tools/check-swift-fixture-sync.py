@@ -4,10 +4,12 @@
 SwiftPM resources must live inside the target directory, so Swift keeps copies of
 spec/fixtures/*.json under the relevant target's resources:
 
-  - lifecycle-transitions.json → Sources/VMx/Resources/ (library target, LIFE-011)
-  - derived-properties.json    → Sources/VMx/Resources/ (library target, DPROP-012)
+  - lifecycle-transitions.json → Sources/VMx/Resources/ (LIFE-011)
+  - derived-properties.json    → Sources/VMx/Resources/ (DPROP-012)
+  - command-truthtable.json    → Sources/VMx/Resources/ (CMD-007)
+  - message-ordering.json      → Sources/VMx/Resources/ (HUB-006)
 
-Both live in the library bundle: the tests load them via `Bundle.module`, which
+All live in the library bundle: the tests load them via `Bundle.module`, which
 resolves to the library's bundle (the test target declares no resources, so no
 shadowing VMxTests bundle is generated).
 
