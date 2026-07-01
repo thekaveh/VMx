@@ -42,6 +42,7 @@ struct ThemeControlsView: View {
                 themeVM.toggleHighContrast.execute()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Toggle high contrast")
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(
@@ -60,6 +61,7 @@ struct ThemeControlsView: View {
             }
             .buttonStyle(.plain)
             .font(.caption.bold())
+            .accessibilityLabel("Decrease font size")
 
             Button("A+") {
                 if let current = try? themeVM.currentTheme.value {
@@ -68,6 +70,7 @@ struct ThemeControlsView: View {
             }
             .buttonStyle(.plain)
             .font(.caption.bold())
+            .accessibilityLabel("Increase font size")
         }
     }
 }

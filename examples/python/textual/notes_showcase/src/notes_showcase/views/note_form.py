@@ -80,7 +80,7 @@ class NoteFormView(Vertical):
         yield Checkbox("Starred", id="form_starred")
         yield Horizontal(
             Input(placeholder="add tag", id="form_tag_draft"),
-            Button("+", id="form_add_tag"),
+            Button("Add tag", id="form_add_tag"),
             id="tag_chip_row",
         )
         yield Static("", id="form_tag_chips")

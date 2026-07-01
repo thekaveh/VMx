@@ -42,6 +42,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock Text="{Binding}" />
                                 <Button Content="×"
+                                        AutomationProperties.Name="Remove tag"
                                         Padding="2,-2"
                                         Background="Transparent"
                                         Command="{Binding $parent[UserControl].((vm:NoteFormVM)DataContext).RemoveTagCommand}"
@@ -53,9 +54,12 @@
             </ItemsControl>
             <StackPanel Orientation="Horizontal" Spacing="4">
                 <TextBox Watermark="add tag"
+                         AutomationProperties.Name="Tag"
                          Text="{Binding TagDraft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                          Width="160" />
-                <Button Content="+" Command="{Binding AddTagCommand}" />
+                <Button Content="+"
+                        AutomationProperties.Name="Add tag"
+                        Command="{Binding AddTagCommand}" />
             </StackPanel>
         </StackPanel>
 

@@ -61,15 +61,18 @@ struct NotesListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(bound.vm.visibleItems, id: \.noteId) { noteVM in
-                            NoteRowView(
-                                noteVM: noteVM,
-                                isSelected: noteVM === bound.vm.current,
-                                theme: theme
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
+                            Button {
                                 bound.vm.current = noteVM
+                            } label: {
+                                NoteRowView(
+                                    noteVM: noteVM,
+                                    isSelected: noteVM === bound.vm.current,
+                                    theme: theme
+                                )
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(noteVM.title)
+                            .accessibilityAddTraits(noteVM === bound.vm.current ? [.isSelected] : [])
                         }
                     }
                 }
@@ -81,16 +84,20 @@ struct NotesListView: View {
             HStack(spacing: 6) {
                 Button("⏮") { firstPageCmd.execute() }
                     .disabled(!firstPageCmd.canExecute)
+                    .accessibilityLabel("First page")
                 Button("◀") { prevPageCmd.execute() }
                     .disabled(!prevPageCmd.canExecute)
+                    .accessibilityLabel("Previous page")
                 Text(bound.vm.pageLabel)
                     .font(.caption)
                     .foregroundColor(theme.textDim)
                     .frame(minWidth: 80, alignment: .center)
                 Button("▶") { nextPageCmd.execute() }
                     .disabled(!nextPageCmd.canExecute)
+                    .accessibilityLabel("Next page")
                 Button("⏭") { lastPageCmd.execute() }
                     .disabled(!lastPageCmd.canExecute)
+                    .accessibilityLabel("Last page")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

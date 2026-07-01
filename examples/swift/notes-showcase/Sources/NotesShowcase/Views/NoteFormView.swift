@@ -90,6 +90,7 @@ struct NoteFormView: View {
                                 .frame(maxWidth: 160)
                                 Button("+") { addTagCmd.execute() }
                                     .disabled(!addTagCmd.canExecute)
+                                    .accessibilityLabel("Add tag")
                             }
                         }
 
@@ -146,6 +147,7 @@ private struct TagChipView: View {
             Button("×", action: onRemove)
                 .buttonStyle(.plain)
                 .font(.caption)
+                .accessibilityLabel("Remove tag \(tag)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)

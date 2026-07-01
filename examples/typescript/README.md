@@ -34,15 +34,9 @@ npx tsx console/hello-vmx/index.ts
 **Run against the local source build (from a clone of this repo):**
 
 ```bash
-# From the repo root: build the library first
-cd langs/typescript
-npm ci
-npm run build
-# Then run the example — its package.json already pins
-# "@thekaveh/vmx": "file:../../../../langs/typescript"
-cd ../../examples/typescript/console/hello-vmx
+cd examples/typescript/console/hello-vmx
 npm install
-npm start
+npm start          # runs the local VMx build first
 ```
 
 ---
@@ -63,14 +57,14 @@ Pure-VM contract enforced via ESLint's
 ```bash
 cd react/notes-showcase
 npm install
-npm run dev         # http://localhost:5173
+npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 
 **Production build:**
 
 ```bash
 cd react/notes-showcase
-npm run build       # static bundle in dist/
+npm run build       # builds local VMx, then writes static bundle to dist/
 ```
 
 See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for

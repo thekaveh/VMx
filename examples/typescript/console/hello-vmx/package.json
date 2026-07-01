@@ -5,7 +5,10 @@
   "description": "Minimal Node script demonstrating the VMx TypeScript library.",
   "type": "module",
   "scripts": {
+    "build:vmx": "npm --prefix ../../../../langs/typescript ci && npm --prefix ../../../../langs/typescript run build",
+    "prestart": "npm run build:vmx",
     "start": "tsx index.ts",
+    "pretypecheck": "npm run build:vmx",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -21,20 +21,20 @@ ESLint's `no-restricted-imports` rule enforces that under
 ```bash
 cd examples/typescript/react/notes-showcase
 npm install
-npm run dev         # http://localhost:5173
+npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 
 Production build:
 
 ```bash
-npm run build       # static bundle in dist/
+npm run build       # builds local VMx, then writes static bundle to dist/
 ```
 
 Tests (vitest + jsdom + @testing-library/react):
 
 ```bash
-npm test
-npm run typecheck
+npm test            # builds local VMx first
+npm run typecheck   # builds local VMx first
 ```
 
 ## 2. Project layout

@@ -141,7 +141,7 @@ describe("real wiring", () => {
 
     // Seeded "Work" notebook fits on one page (pageSize 5) — every move
     // command must render disabled (the mirror was previously vacuous).
-    for (const name of ["⏮", "◀", "▶", "⏭"]) {
+    for (const name of ["First page", "Previous page", "Next page", "Last page"]) {
       const btn = screen.getByRole("button", { name });
       expect((btn as HTMLButtonElement).disabled).toBe(true);
     }
