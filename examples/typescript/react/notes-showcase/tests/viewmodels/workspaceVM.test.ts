@@ -80,6 +80,9 @@ describe("WorkspaceVM", () => {
     await ws.constructAsync();
     const note = ws.notesView.inner[0];
     expect(note).toBeDefined();
+    if (note === undefined) {
+      throw new Error("expected seeded workspace to load at least one note");
+    }
 
     ws.notesView.current = note;
 
