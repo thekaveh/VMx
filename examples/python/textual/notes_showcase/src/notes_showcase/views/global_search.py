@@ -18,7 +18,9 @@ from notes_showcase.views.adapter import (
 def _results_text(vm: GlobalSearchVM) -> str:
     if not vm.results:
         return ""
-    return "  |  ".join(f"{note.title} ({note.model.notebook_id})" for note in vm.results)
+    return "  |  ".join(
+        f"{note.title} ({note.model.notebook_id})" for note in vm.results
+    )
 
 
 def _wire_bindings(view: "GlobalSearchView") -> CompositeDisposable:
@@ -32,8 +34,12 @@ def _wire_bindings(view: "GlobalSearchView") -> CompositeDisposable:
             vm,
             "search_term",
         ),
-        bind_command(view.query_one("#global_search_refresh", Button), vm.refresh_command),
-        bind_command(view.query_one("#global_search_more", Button), vm.load_more_command),
+        bind_command(
+            view.query_one("#global_search_refresh", Button), vm.refresh_command
+        ),
+        bind_command(
+            view.query_one("#global_search_more", Button), vm.load_more_command
+        ),
         on_vm_property_change(
             vm,
             {"results", "has_more"},

@@ -180,7 +180,9 @@ def test_remove_tag_drops_tag_case_insensitively() -> None:
     assert "alpha" not in vm.draft.tags
 
 
-async def test_tag_suggestions_filter_workspace_tag_catalog_through_searchable_state() -> None:
+async def test_tag_suggestions_filter_workspace_tag_catalog_through_searchable_state() -> (
+    None
+):
     vm, _ = _build_vm()
     vm.bind_to(_sample_note())
     vm.draft = dataclasses.replace(vm.draft, tags=())

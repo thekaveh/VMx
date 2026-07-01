@@ -54,8 +54,9 @@ class GlobalSearchVM(ComponentVM):
         self._paged: TokenPagedComposition[NoteVM, str] = TokenPagedComposition(
             self._fetch_next,
             auto_construct_on_add=True,
-            pages_equal=lambda left, right: [n.model.id for n in left]
-            == [n.model.id for n in right],
+            pages_equal=lambda left, right: (
+                [n.model.id for n in left] == [n.model.id for n in right]
+            ),
         )
         self._collection_sub = self._paged.on_collection_changed.subscribe(
             lambda _event: self._notify_results()

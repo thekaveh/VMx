@@ -52,7 +52,9 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
             view.query_one("#form_tag_draft", Input), "value", vm, "tag_draft"
         ),
         bind_command(view.query_one("#form_add_tag", Button), vm.add_tag_command),
-        bind_command(view.query_one("#form_mode_edit", Button), vm.show_edit_mode_command),
+        bind_command(
+            view.query_one("#form_mode_edit", Button), vm.show_edit_mode_command
+        ),
         bind_command(
             view.query_one("#form_mode_preview", Button), vm.show_preview_mode_command
         ),

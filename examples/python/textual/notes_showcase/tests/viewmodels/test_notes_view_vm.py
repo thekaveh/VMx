@@ -291,8 +291,7 @@ async def test_repository_search_notes_returns_token_pages_over_all_notes() -> N
     assert len(first[0]) == 2
     assert first[1] == "2"
     assert all(
-        "review" in f"{n.title} {n.body} {' '.join(n.tags)}".lower()
-        for n in first[0]
+        "review" in f"{n.title} {n.body} {' '.join(n.tags)}".lower() for n in first[0]
     )
 
     second = await repo.search_notes("review", token=first[1], page_size=2)

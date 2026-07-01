@@ -117,7 +117,9 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
             lambda: [
                 lab_node("form-vm", "FormVM strict validation"),
                 lab_node("discriminator-vm", "DiscriminatorVM edit/preview active key"),
-                lab_node("token-paged-composition", "TokenPagedComposition forward paging"),
+                lab_node(
+                    "token-paged-composition", "TokenPagedComposition forward paging"
+                ),
             ]
         )
         .build(),
