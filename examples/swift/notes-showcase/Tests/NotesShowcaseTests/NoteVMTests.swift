@@ -24,6 +24,36 @@ private final class NoteVMCallbackRecorder {
     var closedCount: Int = 0
 }
 
+/// Thread-safe recorder for notifications observed on a hub's `pending` stream.
+///
+/// The `pending` sink fires (via `CurrentValueSubject.send`) on the posting
+/// Task's executor, while test assertions read on the test executor. A lock
+/// serialises both sides so the read never races the snapshot write — the same
+/// cross-executor Swift-array hazard behind the NotesView delete crash.
+private final class NotificationMessageRecorder {
+    private let lock = NSLock()
+    private var _messages: [String] = []
+    var cancellables = Set<AnyCancellable>()
+
+    /// Replace the recorded messages with the latest `pending` snapshot.
+    func record(_ snapshot: [VMx.Notification]) {
+        lock.lock(); defer { lock.unlock() }
+        _messages = snapshot.map(\.message)
+    }
+
+    /// True iff any recorded message satisfies `predicate`.
+    func anyMessage(_ predicate: (String) -> Bool) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _messages.contains(where: predicate)
+    }
+
+    /// Snapshot copy of the recorded messages (for failure diagnostics).
+    var messages: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return _messages
+    }
+}
+
 // MARK: - NoteVMTests
 
 final class NoteVMTests: XCTestCase {
@@ -233,11 +263,10 @@ final class NoteVMTests: XCTestCase {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE
         let notificationHub = NotificationHub()
-        var observed: [VMx.Notification] = []
-        var cancellables = Set<AnyCancellable>()
+        let recorder = NotificationMessageRecorder()
         notificationHub.pending
-            .sink { snapshot in observed = snapshot }
-            .store(in: &cancellables)
+            .sink { [weak recorder] snapshot in recorder?.record(snapshot) }
+            .store(in: &recorder.cancellables)
 
         let vm = try NoteVM.builder()
             .name("note")
@@ -256,8 +285,8 @@ final class NoteVMTests: XCTestCase {
         await Task.yield()
 
         XCTAssertTrue(
-            observed.contains(where: { $0.message.contains("Note deleted") && $0.message.contains("Important") }),
-            "Expected 'Note deleted … Important' notification; got \(observed.map { $0.message })"
+            recorder.anyMessage { $0.contains("Note deleted") && $0.contains("Important") },
+            "Expected 'Note deleted … Important' notification; got \(recorder.messages)"
         )
     }
 
@@ -265,11 +294,10 @@ final class NoteVMTests: XCTestCase {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE
         let notificationHub = NotificationHub()
-        var observed: [VMx.Notification] = []
-        var cancellables = Set<AnyCancellable>()
+        let recorder = NotificationMessageRecorder()
         notificationHub.pending
-            .sink { snapshot in observed = snapshot }
-            .store(in: &cancellables)
+            .sink { [weak recorder] snapshot in recorder?.record(snapshot) }
+            .store(in: &recorder.cancellables)
 
         let vm = try NoteVM.builder()
             .name("note")
@@ -286,7 +314,7 @@ final class NoteVMTests: XCTestCase {
         await Task.yield()
 
         XCTAssertFalse(
-            observed.contains(where: { $0.message.contains("Note deleted") }),
+            recorder.anyMessage { $0.contains("Note deleted") },
             "Expected no notification when confirm returns false"
         )
     }

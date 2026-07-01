@@ -57,6 +57,16 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     /// Cancelled by a superseding `bindTo` call or by `_onDispose`.
     private var _activeFetchTask: Task<Void, Never>?
 
+    /// Handle for the most recent in-flight fire-and-forget delete (`deleteNote`).
+    ///
+    /// Retained so a caller can `await` the delete to completion — persistence
+    /// plus the inline `_inner` removal — rather than polling `inner` while that
+    /// removal mutates the backing array in place on another executor (a Swift
+    /// `Array` concurrent read/mutate is undefined behaviour). The production UI
+    /// keeps using the fire-and-forget `deleteCommand.execute()` path and simply
+    /// ignores this handle; deterministic tests await it. Cancelled by `_onDispose`.
+    internal private(set) var pendingDeleteTask: Task<Void, Never>?
+
     private var _pagedChangedCancellable: AnyCancellable?
     private var _searchCancellable: AnyCancellable?
 
@@ -372,7 +382,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     /// Fire-and-forget: persists deletion via the repo, then on success removes
     /// the note from `inner` on the foreground dispatcher.
     private func deleteNote(_ vm: NoteVM) {
-        Task { [weak self, weak vm] in
+        pendingDeleteTask = Task { [weak self, weak vm] in
             guard let self, let vm else { return }
             do {
                 try await self._repo.deleteNote(id: vm.noteId)
@@ -445,6 +455,8 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     public override func _onDispose() {
         _activeFetchTask?.cancel()
         _activeFetchTask = nil
+        pendingDeleteTask?.cancel()
+        pendingDeleteTask = nil
         _pagedChangedCancellable?.cancel()
         _pagedChangedCancellable = nil
         _searchCancellable?.cancel()

@@ -57,15 +57,6 @@ private func buildAndBind(
     return (vm, repo)
 }
 
-/// Polls until `condition` is true or a retry limit is reached.
-/// Used for the fire-and-forget async delete pathway.
-private func waitUntil(_ condition: @escaping () -> Bool, attempts: Int = 50) async {
-    for _ in 0..<attempts {
-        if condition() { return }
-        await Task.yield()
-    }
-}
-
 // MARK: - NotesViewVMTests
 
 final class NotesViewVMTests: XCTestCase {
@@ -250,8 +241,17 @@ final class NotesViewVMTests: XCTestCase {
         // Fire deletion through NoteVM's deleteCommand — the same path the UI uses.
         target.deleteCommand.execute()
 
-        // The delete is fire-and-forget inside a Task; poll until the inner count drops.
-        await waitUntil { vm.inner.count == before - 1 }
+        // `deleteCommand.execute()` runs synchronously through `onDelete` →
+        // `NotesViewVM.deleteNote`, which spawns (and retains) the fire-and-forget
+        // delete Task before returning. With `ImmediateDispatcher` that Task removes
+        // the note from `inner` *inline on its own executor*. Awaiting the retained
+        // handle drains persistence + removal to completion and establishes a
+        // happens-before, so the reads below never race the in-place `inner` array
+        // mutation on another executor — the previous `waitUntil { vm.inner.count …}`
+        // poll read `children.count` while `removeAt` shifted the same buffer,
+        // which is undefined behaviour and crashed CI with a ContiguousArray
+        // "Index out of range".
+        await vm.pendingDeleteTask?.value
 
         XCTAssertEqual(before - 1, vm.inner.count,
                        "Inner count should decrement by 1 after delete")

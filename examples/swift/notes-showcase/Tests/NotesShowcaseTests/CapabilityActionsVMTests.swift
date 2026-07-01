@@ -14,6 +14,39 @@ import Combine
 import VMx
 @testable import NotesShowcaseCore
 
+// MARK: - Recorders
+
+/// Thread-safe recorder for notifications observed on a hub's `pending` stream.
+///
+/// The `pending` sink fires (via `CurrentValueSubject.send`) on the posting
+/// Task's executor, while the test's drain loop reads on the test executor. A
+/// lock serialises both sides so the poll never races the in-place snapshot
+/// write — the same cross-executor Swift-array hazard behind the NotesView
+/// delete crash.
+private final class NotificationMessageRecorder {
+    private let lock = NSLock()
+    private var _messages: [String] = []
+    var cancellables = Set<AnyCancellable>()
+
+    /// Replace the recorded messages with the latest `pending` snapshot.
+    func record(_ snapshot: [VMx.Notification]) {
+        lock.lock(); defer { lock.unlock() }
+        _messages = snapshot.map(\.message)
+    }
+
+    /// True iff any recorded message satisfies `predicate`.
+    func anyMessage(_ predicate: (String) -> Bool) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _messages.contains(where: predicate)
+    }
+
+    /// Snapshot copy of the recorded messages (for failure diagnostics).
+    var messages: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return _messages
+    }
+}
+
 // MARK: - CapabilityActionsVMTests
 
 final class CapabilityActionsVMTests: XCTestCase {
@@ -205,15 +238,10 @@ final class CapabilityActionsVMTests: XCTestCase {
         let notifHub = NotificationHub()
         defer { notifHub.dispose() }
 
-        var observed: [VMx.Notification] = []
-        var cancellables = Set<AnyCancellable>()
+        let recorder = NotificationMessageRecorder()
         notifHub.pending
-            .sink { snapshot in
-                for n in snapshot where !observed.contains(where: { $0 === n }) {
-                    observed.append(n)
-                }
-            }
-            .store(in: &cancellables)
+            .sink { [weak recorder] snapshot in recorder?.record(snapshot) }
+            .store(in: &recorder.cancellables)
 
         var deleted: [Bool] = []
         let note = try noteWithConfirm(
@@ -233,16 +261,18 @@ final class CapabilityActionsVMTests: XCTestCase {
         XCTAssertEqual(1, deleted.count, "Expected onDelete called exactly once")
 
         // The notification is posted fire-and-forget (`Task { await hub.post(...) }`);
-        // a single yield cannot drain that chain, so poll until it lands.
+        // a single yield cannot drain that chain, so poll until it lands. The
+        // recorder is lock-guarded, so this poll is race-free against the
+        // snapshot write on the post Task's executor.
         var landed = false
         for _ in 0..<500 {
-            if observed.contains(where: { $0.message.contains("Note deleted") }) {
+            if recorder.anyMessage({ $0.contains("Note deleted") }) {
                 landed = true
                 break
             }
             await Task.yield()
         }
         XCTAssertTrue(landed,
-                      "Expected 'Note deleted' notification; got \(observed.map(\.message))")
+                      "Expected 'Note deleted' notification; got \(recorder.messages)")
     }
 }
