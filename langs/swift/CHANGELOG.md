@@ -4,7 +4,13 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [3.1.0] — 2026-06-30
+## [3.0.0] — 2026-06-28
+
+The **v3 framework overhaul**. Implements `spec-v3.0.0`; the Swift-specific
+convergence is ADR-0053. (This in-development version was grown to full library
+parity + the notes-showcase flagship across ADRs 0059–0067; it is unpublished
+and untagged, so those additive changes land here rather than in a bumped
+version — see ADR-0066.)
 
 ### Added
 
@@ -17,11 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   cross the module boundary, so the base was previously only subclassable
   in-module. Purely additive — no behavior or conformance change (still
   237/237). Surfaced while building the Swift notes-showcase flagship.
-
-## [3.0.0] — 2026-06-28
-
-The **v3 framework overhaul** (subset). Implements the `spec-v3.0.0` subset.
-See ADRs 0047–0058; the Swift-specific convergence is ADR-0053.
 
 ### Changed
 

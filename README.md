@@ -135,7 +135,7 @@ Each flavor implements the same conceptual stack:
 | C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v3.0.0            | System.Reactive    |
 | Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v3.0.0            | reactivex          |
 | TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v3.0.0            | rxjs               |
-| Swift      | `VMx` Swift Package (not yet published)                              | v3.1.0            | Combine            |
+| Swift      | `VMx` Swift Package (not yet published)                              | v3.0.0            | Combine            |
 
 The **Swift flavor is at total parity** — all 237 library conformance IDs as
 of v3.0.0 plus the 5 `THEME-00x` scenario IDs covered by the
@@ -198,7 +198,7 @@ npm install @thekaveh/vmx rxjs
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity as of v3.1.0; see `langs/swift/README.md` §5).
+  at total parity as of v3.0.0; see `langs/swift/README.md` §5).
 
 ### 4.3 Examples
 
@@ -254,7 +254,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (v3.1.0, total parity — 237 library + 5 THEME)
+│   └── swift/             VMx Swift Package (v3.0.0, total parity — 237 library + 5 THEME)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -283,7 +283,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.1.0, total parity — 237 library + 5 THEME).
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.0.0, total parity — 237 library + 5 THEME).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),

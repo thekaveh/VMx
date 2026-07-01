@@ -27,7 +27,7 @@ This is a **purely additive** access widening: it adds to the public API surface
 ## Consequences
 
 - External consumers — and the Swift flagship example — can now subclass `ComponentVMBase` and build idiomatic application viewmodels that publish hub messages and drive view bindings, matching the C#/Python/TypeScript subclassing model (ADR-0006 idiomatic parity).
-- **Swift package version → 3.1.0** (SemVer minor: additive public API), `minSpecVersion` unchanged at 3.0.0 (no spec dependency change). The Swift `CHANGELOG.md` records it; `compatibility-matrix.md` updates the Swift cell. The Swift flavor is unpublished, so this is an in-repo version marker only.
+- **No version bump.** Although widening `internal → public` is nominally a SemVer-minor addition, the Swift flavor's current version (3.0.0, `== spec/VERSION`) is still *in development* — it is unpublished and has no `swift-v3.0.0` git tag yet (flavor tags are cut at release; `tools/check-version-consistency.py` treats the version equal to `spec/VERSION` as in-dev). So the change is folded into the not-yet-released 3.0.0 rather than bumped to 3.1.0 (a 3.1.0 claim would demand a `swift-v3.1.0` tag that cannot exist pre-release). It is recorded under `[3.0.0]` in the Swift `CHANGELOG.md`. `minSpecVersion` stays 3.0.0.
 - The flagship example's `ThemeVM` (and the other showcase viewmodels) use the now-`public` `hub`/`_raisePropertyChanged` directly instead of a private hub workaround.
 - The other flavors are unaffected (their bases were already consumer-subclassable).
 

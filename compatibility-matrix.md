@@ -6,7 +6,7 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
-| 3.0.x | 3.0.0[^current] | 3.0.0[^current] | 3.0.0[^current] | 3.1.0[^current] |
+| 3.0.x | 3.0.0[^current] | 3.0.0[^current] | 3.0.0[^current] | 3.0.0[^current] |
 | 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
 | 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
 | 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |

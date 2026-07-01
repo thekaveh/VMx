@@ -5,7 +5,7 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.1.0 — total parity.** Covers **all 237 of 237** library conformance IDs
+**v3.0.0 — total parity.** Covers **all 237 of 237** library conformance IDs
 from `spec-v3.0.0` plus the 5 `THEME-00x` scenario IDs exercised by the
 `examples/swift/notes-showcase/` flagship app (ADR-0067) = **242 total**, at
 full parity with C#, Python, and TypeScript. Library IDs accumulated
