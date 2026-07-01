@@ -413,7 +413,6 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
         self._bind_subscription = self._hub.messages.subscribe(on_next=_on_msg)
         self._emit_draft_changes()
-        self._refresh_tag_suggestions_fire_and_forget()
 
     def unbind(self) -> None:
         """Clear the form back to its initial empty state.
@@ -493,14 +492,6 @@ class NoteFormVM(ComponentVM, IReconstructable):
             task.add_done_callback(lambda t: t.exception())
         except RuntimeError:
             asyncio.run(self.approve_async())
-
-    def _refresh_tag_suggestions_fire_and_forget(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self.refresh_tag_suggestions_async())
-            task.add_done_callback(lambda t: t.exception())
-        except RuntimeError:
-            asyncio.run(self.refresh_tag_suggestions_async())
 
     def _tag_matches(self, tag: str, term: str) -> bool:
         normalized = term.strip().lower()

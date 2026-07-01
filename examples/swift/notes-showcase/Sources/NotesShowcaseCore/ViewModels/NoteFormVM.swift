@@ -298,7 +298,6 @@ public final class NoteFormVM: ComponentVMBase {
         _approvedCancellable = form.onApproved
             .sink { [weak self] model in self?._onSaved.send(model) }
         emitDraftChanges()
-        Task { [weak self] in await self?.refreshTagSuggestions() }
     }
 
     /// Disposes the inner form and clears `tagDraft`. All derived properties

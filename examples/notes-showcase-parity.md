@@ -39,10 +39,10 @@ split is enforced by SwiftPM target boundaries.
 | 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  | ✓               |
 | 2   | `CompositeVM.Current` (ch. 6) — notes selection       | ✓             | ✓                | ✓                  | ✓               |
 | 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  | ✓               |
-| 4   | `FormVM` snapshot/revert (ch. 20) — note editor       | ✓             | ✓                | ✓                  | ✓               |
+| 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | ✓ | ✓ | ✓ | ✓ |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  | ✓               |
 | 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | ✓ | ✓         | ✓                  | ✓               |
-| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5–14.6) — title search + starred filter | ✓ | ✓ | ✓               | ✓               |
+| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5-14.6) — title search + starred filter | ✓ | ✓ | ✓ | ✓ |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  | ✓               |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  | ✓               |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save | ✓ | ✓ | ✓        | ✓               |
@@ -52,6 +52,9 @@ split is enforced by SwiftPM target boundaries.
 | 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | ✓     | ✓                | ✓                  | ✓               |
 | 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  | ✓               |
 | 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ | ✓ |
+| 17  | `TokenPagedComposition` (ch. 21) — global all-notes search with forward tokens | ✓ | ✓ | ✓ | ✓ |
+| 18  | `DiscriminatorVM` (ch. 22) — edit/preview note editor mode | ✓ | ✓ | ✓ | ✓ |
+| 19  | `SearchableState<string>` — workspace tag autocomplete in `NoteFormVM` | ✓ | ✓ | ✓ | ✓ |
 
 [^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
     `ThemeAdapter` in `views/adapter/`. `WorkspaceVM` owns the `ThemeVM` as a
@@ -65,18 +68,10 @@ split is enforced by SwiftPM target boundaries.
     set in `tools/check-conformance-coverage.py`.
 
 [^readonly]: The core capability action bar (CRUD capability dispatch +
-    `DerivedProperty`-driven enablement) ships in all four flavors. The Python
-    and TypeScript `CapabilityActionsVM` additionally expose a host-gated
-    **add-note command** (`add_note_command` / `addNoteCommand`, fed by
-    `can_add_note`/`add_note_action` builder hooks) backed by a
-    `NotebookModel.is_readonly` / `isReadonly` flag, with dedicated unit tests.
-    The C#/Avalonia and Swift/SwiftUI flavors do **not** ship this sub-feature
-    yet. It is dormant in every flavor — no seed notebook is marked read-only
-    and no host UI renders the add-note command — so there is no user-visible
-    behavioral difference today; the gap is a VM-surface/test asymmetry only.
-    Bringing C# and Swift to parity (model flag + gated command + `WorkspaceVM`
-    wiring + tests) is **deferred to a follow-up PR** rather than handled in the
-    maintenance loop, since it is feature work on the example app.
+    `DerivedProperty`-driven enablement) ships in all four flavors. Each
+    `CapabilityActionsVM` also exposes the host-gated add-note command backed by
+    the notebook read-only flag, with seed coverage and VM tests so the command
+    disables consistently when the focused notebook is read-only.
 
 ## 3. Reading the matrix
 

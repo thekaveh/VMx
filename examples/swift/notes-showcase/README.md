@@ -29,3 +29,13 @@ This app implements the same language-neutral Notes Workspace contract as the
 C# Avalonia, Python Textual, and TypeScript React flagships. See
 [`../../notes-showcase-parity.md`](../../notes-showcase-parity.md) for the
 cross-flavor matrix.
+
+## 4. Feature Traceability
+
+The Swift port mirrors the 19-row flagship surface: strict `FormVM` editing
+with title validation, `DerivedProperty` status/readiness labels, paged notes,
+token-paged global search, notification/dialog flows, capability actions,
+theme state, edit/preview mode through `DiscriminatorVM`, and tag suggestions
+through `SearchableState<String>`. Core VM code lives under
+`Sources/NotesShowcaseCore/ViewModels/`; SwiftUI projections live under
+`Sources/NotesShowcase/Views/`.

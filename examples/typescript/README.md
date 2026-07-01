@@ -33,9 +33,10 @@ npm start          # runs the local VMx build first
 ## 3. Example 2 — `react/notes-showcase/` (React 18 + Vite, flagship)
 
 The Notes Workspace flagship app — a single-page web app on React 18 + Vite
-that exercises **16 distinct VMx features** in one cohesive scenario
+that exercises **19 distinct VMx features** in one cohesive scenario
 (notebooks tree, paged + filterable notes list, FormVM editor,
 capability-aware action bar, notifications, async lifecycle, dialogs,
+token-paged global search, edit/preview state, tag autocomplete,
 `AggregateVM6` root, and the v2.4.0 `ThemeVM` scenario contract).
 Pure-VM contract enforced via ESLint's
 `no-restricted-imports` rule — view components never call `useState` /

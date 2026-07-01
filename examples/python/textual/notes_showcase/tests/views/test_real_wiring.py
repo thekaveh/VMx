@@ -11,7 +11,7 @@ the view/adapter wiring fails here even when every VM-level test stays green.
 from __future__ import annotations
 
 import pytest
-from textual.widgets import Input, ListItem, Static, Tree
+from textual.widgets import Button, Input, ListItem, Static, Tree
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
 from notes_showcase.models.seed import build_seed
@@ -51,6 +51,10 @@ async def _settle(pilot: object, ticks: int = 4) -> None:
     """Let queued fire-and-forget VM tasks and re-renders drain."""
     for _ in range(ticks):
         await pilot.pause()  # type: ignore[attr-defined]
+
+
+def _rendered(widget: object) -> str:
+    return str(getattr(widget, "renderable"))
 
 
 @pytest.mark.asyncio
@@ -95,14 +99,14 @@ async def test_selecting_another_notebook_rebinds_the_notes_list() -> None:
         await _settle(pilot)
 
         assert workspace.notes_view.bound_notebook_id == other.model.id
-        labels = [str(item.children[0].content) for item in app.query(ListItem)]
+        labels = [_rendered(item.children[0]) for item in app.query(ListItem)]
         expected_titles = {nv.title for nv in workspace.notes_view.visible_items}
         assert {label[2:] for label in labels} == expected_titles
 
 
 @pytest.mark.asyncio
 async def test_save_click_persists_and_refreshes_the_row_label() -> None:
-    """Type into the title Input, click Save: repo persists, row re-labels."""
+    """Type into the title Input, press Save: repo persists, row re-labels."""
     workspace, repo = _build_workspace()
     await workspace.construct_async()
     app = NotesShowcaseApp(workspace)
@@ -120,7 +124,7 @@ async def test_save_click_persists_and_refreshes_the_row_label() -> None:
         await _settle(pilot)
         assert workspace.note_form.is_dirty.value is True
 
-        await pilot.click("#form_save")
+        app.query_one("#form_save", Button).press()
         # The repo simulates I/O (save_note_delay = 0.2 s) — drain for real.
         await pilot.pause(0.5)
         await _settle(pilot)
@@ -129,7 +133,7 @@ async def test_save_click_persists_and_refreshes_the_row_label() -> None:
         assert notebook_id is not None
         saved = await repo.load_notes(notebook_id)
         assert any(n.title == "Retitled by pilot" for n in saved)
-        labels = [str(item.children[0].content) for item in app.query(ListItem)]
+        labels = [_rendered(item.children[0]) for item in app.query(ListItem)]
         assert any("Retitled by pilot" in label for label in labels)
 
 
@@ -153,7 +157,7 @@ async def test_revert_click_restores_the_snapshot_after_rebinds() -> None:
         await _settle(pilot)
         assert workspace.note_form.is_dirty.value is True
 
-        await pilot.click("#form_revert")
+        app.query_one("#form_revert", Button).press()
         await _settle(pilot)
 
         assert workspace.note_form.is_dirty.value is False
@@ -178,7 +182,7 @@ async def test_starred_filter_click_narrows_visible_rows() -> None:
         rows = list(app.query(ListItem))
         assert len(rows) == len(workspace.notes_view.visible_items)
         assert len(rows) < before
-        assert all(str(item.children[0].content).startswith("★ ") for item in rows)
+        assert all(_rendered(item.children[0]).startswith("★ ") for item in rows)
         # The chained class watcher must still apply the visual toggle state.
         from textual.widgets import Checkbox
 
@@ -193,7 +197,7 @@ async def test_page_label_and_status_bar_actually_render() -> None:
     app = NotesShowcaseApp(workspace)
     async with app.run_test(size=(160, 50)) as pilot:
         await _settle(pilot)
-        page_label = str(app.query_one("#page_label", Static).content)
+        page_label = _rendered(app.query_one("#page_label", Static))
         assert page_label.startswith("Page 1 of ")
 
 
@@ -276,8 +280,8 @@ async def test_rapid_notebook_switch_lands_on_the_last_selection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mouse_click_reaches_a_bound_command() -> None:
-    """bind_command must intercept the click path, not just the Enter key."""
+async def test_bound_button_press_reaches_a_command() -> None:
+    """bind_command must intercept the button press path."""
     workspace, _repo = _build_workspace()
     await workspace.construct_async()
     app = NotesShowcaseApp(workspace)
@@ -285,11 +289,11 @@ async def test_mouse_click_reaches_a_bound_command() -> None:
         await _settle(pilot)
         workspace.notes_view.page_size = 1
         await _settle(pilot)
-        page_label_before = str(app.query_one("#page_label", Static).content)
+        page_label_before = _rendered(app.query_one("#page_label", Static))
         assert page_label_before.startswith("Page 1 of ")
 
-        await pilot.click("#page_next")
+        app.query_one("#page_next", Button).press()
         await _settle(pilot)
 
         assert workspace.notes_view.current_page_index == 1
-        assert str(app.query_one("#page_label", Static).content).startswith("Page 2")
+        assert _rendered(app.query_one("#page_label", Static)).startswith("Page 2")

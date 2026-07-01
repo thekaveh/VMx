@@ -95,14 +95,14 @@
   <text x="890" y="256" fill="#94a3b8" font-size="9" text-anchor="middle">snapshot / revert editor · re-binds when NotesView.Current changes</text>
   <line x1="720" y1="270" x2="1060" y2="270" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
   <text x="890" y="292" fill="#94a3b8" font-size="9" text-anchor="middle">surface (form state):</text>
-  <text x="890" y="306" fill="#e2e8f0" font-size="9" text-anchor="middle">Title : string (validated)</text>
-  <text x="890" y="320" fill="#e2e8f0" font-size="9" text-anchor="middle">Body : string</text>
-  <text x="890" y="334" fill="#e2e8f0" font-size="9" text-anchor="middle">Tags : ObservableList&lt;string&gt;</text>
-  <text x="890" y="348" fill="#e2e8f0" font-size="9" text-anchor="middle">TagDraft : SearchableState&lt;string&gt;</text>
-  <text x="890" y="362" fill="#e2e8f0" font-size="9" text-anchor="middle">IsDirty : DerivedProperty&lt;bool&gt;</text>
+  <text x="890" y="306" fill="#e2e8f0" font-size="9" text-anchor="middle">Title : string · TitleError : field validation</text>
+  <text x="890" y="320" fill="#e2e8f0" font-size="9" text-anchor="middle">Body : string · Tags : list&lt;string&gt;</text>
+  <text x="890" y="334" fill="#e2e8f0" font-size="9" text-anchor="middle">TagDraft → TagSuggestions : SearchableState&lt;string&gt;</text>
+  <text x="890" y="348" fill="#e2e8f0" font-size="9" text-anchor="middle">EditorMode : DiscriminatorVM&lt;edit|preview&gt;</text>
+  <text x="890" y="362" fill="#e2e8f0" font-size="9" text-anchor="middle">IsDirty / IsValid : DerivedProperty&lt;bool&gt;</text>
   <text x="890" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">commands:</text>
   <text x="890" y="408" fill="#e2e8f0" font-size="9" text-anchor="middle">SaveCommand · RevertCommand</text>
-  <text x="890" y="422" fill="#e2e8f0" font-size="9" text-anchor="middle">AddTagCommand · RemoveTagCommand</text>
+  <text x="890" y="422" fill="#e2e8f0" font-size="9" text-anchor="middle">Add/RemoveTag · ShowEdit/ShowPreview</text>
   <text x="890" y="436" fill="#fb7185" font-size="8" text-anchor="middle">↘ posts Saved/Reverted notifications</text>
   <line x1="730" y1="450" x2="1060" y2="450" stroke="#22d3ee" stroke-width="0.4" stroke-dasharray="2,2"/>
   <text x="890" y="468" fill="#94a3b8" font-size="9" text-anchor="middle">lifecycle wiring (R3-Crit2):</text>
@@ -110,7 +110,7 @@
   <text x="890" y="496" fill="#94a3b8" font-size="8" text-anchor="middle">- subscribes Workspace observes</text>
   <text x="890" y="508" fill="#94a3b8" font-size="8" text-anchor="middle">  NotesView.Current → BindTo(current)</text>
   <text x="890" y="522" fill="#94a3b8" font-size="8" text-anchor="middle">- handles null Current (R4-Imp1)</text>
-  <text x="890" y="536" fill="#94a3b8" font-size="8" text-anchor="middle">- resets TagDraft on unbind (R5-Min)</text>
+  <text x="890" y="536" fill="#94a3b8" font-size="8" text-anchor="middle">- resets TagDraft; refreshes tag suggestions</text>
   <text x="890" y="568" fill="#94a3b8" font-size="9" text-anchor="middle">data source:</text>
   <text x="890" y="582" fill="#e2e8f0" font-size="9" text-anchor="middle">InMemoryRepository.update(noteModel)</text>
   <text x="890" y="618" fill="#22d3ee" font-size="8" text-anchor="middle">snapshot/revert per spec/20 · FORM-001..010</text>

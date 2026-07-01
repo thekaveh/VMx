@@ -219,7 +219,6 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             });
         _approvedSub = _form.OnApproved.Subscribe(m => _onSaved.OnNext(m));
         EmitDraftChanges();
-        _ = RefreshTagSuggestionsAsync();
     }
 
     /// <summary>

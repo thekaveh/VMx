@@ -350,6 +350,7 @@ public sealed class WorkspaceVM : IDisposable
             // TreeView binding (real-wiring audit, pass 6).
             _requestedNotebookId = first.Model.Id;
             await NotesView.BindToAsync(first.Model.Id).ConfigureAwait(false);
+            await NoteForm.RefreshTagSuggestionsAsync().ConfigureAwait(false);
             _dispatcher.Foreground.Schedule(() =>
             {
                 if (_disposed) return; // queued tail may outlive the workspace

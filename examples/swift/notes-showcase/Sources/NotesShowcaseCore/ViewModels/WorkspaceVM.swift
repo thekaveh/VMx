@@ -487,6 +487,7 @@ public final class WorkspaceVM {
             // (which fires on Current assignment below) sees it and skips.
             _requestedNotebookId = first.model.id
             await _notesView.bindTo(notebookId: first.model.id)
+            await _noteForm.refreshTagSuggestions()
             _dispatcher.scheduleForeground { [weak self, first] in
                 guard let self, !self._disposed else { return }
                 self._notebooks.current = first

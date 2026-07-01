@@ -377,6 +377,7 @@ export class WorkspaceVM {
       this.#notesView.currentNotebookIsReadonly =
         first.model.isReadonly ?? false;
       await this.#notesView.bindToAsync(first.model.id);
+      await this.#noteForm.refreshTagSuggestionsAsync();
     }
     this.#commandTrigger.next();
   }

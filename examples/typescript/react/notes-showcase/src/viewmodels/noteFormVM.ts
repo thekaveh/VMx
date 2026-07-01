@@ -285,7 +285,6 @@ export class NoteFormVM extends ComponentVMBase {
     });
     this.#form.onApproved.subscribe((m) => this.#onSaved.next(m));
     this.#emitDraftChanges();
-    void this.refreshTagSuggestionsAsync();
   }
 
   /**

@@ -80,6 +80,10 @@ export class GlobalSearchVM extends ComponentVMBase {
     return ViewModelType.Component;
   }
 
+  get hub(): IMessageHub {
+    return this._hub;
+  }
+
   get searchTerm(): string {
     return this.#search.searchTerm;
   }

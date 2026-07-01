@@ -2,7 +2,7 @@
 
 VMx flagship example — Notes Workspace, the C# / Avalonia flavor. A
 cross-platform XAML app on Avalonia 11 + .NET 8 that drives a single
-`WorkspaceVM` exercising 16 distinct VMx features (see the
+`WorkspaceVM` exercising 19 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full feature
 table, and the
 [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
@@ -67,10 +67,10 @@ examples/csharp/avalonia/NotesShowcase/
 | 1   | `HierarchicalVM`                 | `ViewModels/NotebooksRootVM.cs` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.Current`            | `ViewModels/NotesViewVM.cs` (`Current` two-way binding to the inner composite)            |
 | 3   | `ComponentVM<M>` modeled         | `ViewModels/NoteVM.cs`, `ViewModels/NotebookVM.cs`                                        |
-| 4   | `FormVM` snapshot / revert       | `ViewModels/NoteFormVM.cs` (owns a strict `FormVM<NoteModel>`)                            |
+| 4   | `FormVM` snapshot / revert / validation       | `ViewModels/NoteFormVM.cs` (owns a strict `FormVM<NoteModel>`)                            |
 | 5   | `DerivedProperty`                | `ViewModels/StatusBarVM.cs`, `NoteFormVM.IsDirty`, `CapabilityActionsVM.Actions`           |
 | 6   | `RelayCommand` reactive          | `NoteFormVM.ApproveCommand` / `DenyCommand`, `NoteVM.DeleteCommand`                       |
-| 7   | `SearchableState` + `IFilterable<TItem>`| `ViewModels/NotesViewVM.cs` (debounced 150 ms search + `ShowStarredOnly`)                 |
+| 7   | `SearchableState` + `IFilterable<TItem>`| `ViewModels/NotesViewVM.cs` (debounced 150 ms search + `ShowStarredOnly`); `NoteFormVM` tag suggestions                 |
 | 8   | `IPageable` + `PagedComposition` | `ViewModels/NotesViewVM.cs` (page size 5, paging commands delegate to inner `PagedComposition`) |
 | 9   | `INotificationHub` + `NotificationVM` | `ViewModels/NotificationsVM.cs`, `Views/NotificationsView.axaml`                      |
 | 10  | Async `construct()` + dispatcher | `ViewModels/WorkspaceVM.cs` (`ConstructAsync`), `Views/Adapter/AvaloniaDispatcher.cs`     |
@@ -80,6 +80,9 @@ examples/csharp/avalonia/NotesShowcase/
 | 14  | Capability-aware UI              | `ViewModels/CapabilityActionsVM.cs` + `Views/CapabilityActionsView.axaml`                 |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `ViewModels/WorkspaceVM.cs` (wraps a sealed `AggregateVM6<…>` of the six children)         |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs` (workspace-owned `ThemeVM` sibling bound through the Avalonia adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
+| 17  | `TokenPagedComposition`          | `ViewModels/GlobalSearchVM.cs` + repository token-paged `SearchNotesAsync`                |
+| 18  | `DiscriminatorVM`                | `ViewModels/NoteFormVM.cs` edit/preview editor mode                                      |
+| 19  | Tag autocomplete                 | `ViewModels/NoteFormVM.cs` composes `SearchableState<string>` over workspace tags         |
 
 ## 4. Keyboard shortcuts
 

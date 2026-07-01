@@ -396,6 +396,7 @@ class WorkspaceVM:
             # awaited one; with the notes view already bound the queued task
             # dedupes on bound_notebook_id and exits.
             await self.notes_view.bind_to_async(first.model.id)
+            await self.note_form.refresh_tag_suggestions_async()
             self.notebooks_root.current = first
             self.set_focus(first)
 

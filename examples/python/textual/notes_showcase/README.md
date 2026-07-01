@@ -2,7 +2,7 @@
 
 VMx flagship example — Notes Workspace, the Python / Textual flavor. A
 TUI built on Textual ≥ 0.80 that drives a single `WorkspaceVM` exercising
-16 distinct VMx features (see the
+19 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full table, and
 the
 [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
@@ -75,10 +75,10 @@ examples/python/textual/notes_showcase/
 | 1   | `HierarchicalVM`                 | `viewmodels/notebooks_root_vm.py` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.current`            | `viewmodels/notes_view_vm.py` (`current` two-way binding)                                      |
 | 3   | `ComponentVMOf[M]` modeled       | `viewmodels/note_vm.py`, `viewmodels/notebook_vm.py`                                            |
-| 4   | `FormVM` snapshot / revert       | `viewmodels/note_form_vm.py` (owns a strict `FormVM[NoteModel]`)                                |
+| 4   | `FormVM` snapshot / revert / validation       | `viewmodels/note_form_vm.py` (owns a strict `FormVM[NoteModel]`)                                |
 | 5   | `DerivedProperty`                | `viewmodels/status_bar_vm.py`, `note_form_vm.is_dirty`, `capability_actions_vm.actions`         |
 | 6   | `RelayCommand` reactive          | `note_form_vm.approve_command` / `deny_command`, `note_vm.delete_command`                       |
-| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`)                   |
+| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`); `note_form_vm` tag suggestions                   |
 | 8   | `IPageable` + `PagedComposition` | `viewmodels/notes_view_vm.py` (page size 5, paging commands delegate to inner `PagedComposition`) |
 | 9   | `INotificationHub` + `NotificationVM` | `viewmodels/notifications_vm.py`, `views/notifications.py`                                 |
 | 10  | Async `construct()` + dispatcher | `viewmodels/workspace_vm.py` (`async construct()`), `views/adapter/dispatcher.py`               |
@@ -88,6 +88,9 @@ examples/python/textual/notes_showcase/
 | 14  | Capability-aware UI              | `viewmodels/capability_actions_vm.py` + `views/capability_actions.py`                           |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                   |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (workspace-owned `ThemeVM` sibling bound through the Textual adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
+| 17  | `TokenPagedComposition`          | `viewmodels/global_search_vm.py` + repository token-paged `search_notes`                        |
+| 18  | `DiscriminatorVM`                | `viewmodels/note_form_vm.py` edit/preview editor mode                                          |
+| 19  | Tag autocomplete                 | `viewmodels/note_form_vm.py` composes `SearchableState[str]` over workspace tags                |
 
 ## 4. Keyboard shortcuts
 
