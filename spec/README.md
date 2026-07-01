@@ -170,13 +170,14 @@ consumers continue to work unchanged.
 
 ### 1.9 v2.6.x → v3.0.0 changes
 
-v3.0.0 is a **breaking** major bump: the framework overhaul hardens the
-lifecycle/dispose concurrency path and reconciles the spec with it (see ADR-0047
-and `docs/audit/2026-06-27-vmx-merged-critique.md`). `spec/VERSION` is `3.0.0`
-and every active flavor bumps to `3.0.0` in lockstep (per the README §6.1 SemVer
-policy: a spec major triggers a major in every flavor). The entries below
-describe the spec-level changes; the per-flavor public-surface breaks are
-catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
+v3.0.0 was a **breaking** major bump: the framework overhaul hardened the
+lifecycle/dispose concurrency path and reconciled the spec with it (see ADR-0047
+and `docs/audit/2026-06-27-vmx-merged-critique.md`). For that release,
+`spec/VERSION` was `3.0.0` and every active flavor bumped to `3.0.0` in lockstep
+(per the README §6.1 SemVer policy: a spec major triggers a major in every
+flavor). The entries below describe the spec-level changes; the per-flavor
+public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
+`CHANGELOG.md`.
 
 - **ADR-0047** — v3 lifecycle/threading semantics: status transitions are atomic
   and dispose-safe behind a per-VM guard (`02 §2.3`); background lifecycle
