@@ -110,9 +110,14 @@ export class AsyncRelayCommand implements IAsyncCommand {
     try {
       await this.#task(controller.signal);
     } catch (err) {
-      // Non-throwing default (DIA-007 alignment): a rejection arriving after
-      // cancellation was requested resolves quietly unless throwing is opted in.
-      if (!controller.signal.aborted || this.#throwOnCancel) {
+      // Non-throwing default (DIA-007 alignment): command-originated
+      // cancellation resolves quietly unless throwing is opted in. Arbitrary
+      // task faults after abort still propagate.
+      if (controller.signal.aborted && isCancellationError(err)) {
+        if (this.#throwOnCancel) {
+          throw err;
+        }
+      } else {
         throw err;
       }
     } finally {

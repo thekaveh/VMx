@@ -23,6 +23,9 @@ conformance IDs covered.
 
 ### Fixed
 
+- Lifecycle operation entry now serializes the status read, in-flight claim, and
+  first transient status write under the per-VM lock, preventing a racing
+  `dispose()` from winning before `construct()`/`destruct()` enters its hook.
 - `AsyncRelayCommand` is now inert after disposal and no longer emits
   `can_execute_changed` into a disposed Rx subject when an in-flight task
   completes after disposal.

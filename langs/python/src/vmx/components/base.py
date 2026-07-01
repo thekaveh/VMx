@@ -293,29 +293,30 @@ class _ComponentVMBase(ABC):
 
         Idempotent from Constructed (no-op, no message emitted).
         """
-        # Idempotent: already Constructed → no-op (no message).
-        if self._status == ConstructionStatus.CONSTRUCTED:
-            return
+        with self._lifecycle_lock:
+            # Idempotent: already Constructed → no-op (no message).
+            if self._status == ConstructionStatus.CONSTRUCTED:
+                return
 
-        # Validate transition (raises StatusTransitionError for illegal states).
-        require(self._status, "construct")
+            # Validate transition (raises StatusTransitionError for illegal states).
+            require(self._status, "construct")
 
-        # Concurrency guard.
-        if self._in_flight:
-            raise StatusTransitionError(self._status, "construct")
-        self._in_flight = True
+            # Concurrency guard.
+            if self._in_flight:
+                raise StatusTransitionError(self._status, "construct")
+            self._in_flight = True
+
+            self._set_status(ConstructionStatus.CONSTRUCTING)
 
         if self._background:
             # Emit Constructing synchronously so subscribers immediately see
             # the transition starting, then schedule work on background.
-            self._set_status(ConstructionStatus.CONSTRUCTING)
-
             def _bg_construct(scheduler: SchedulerBase, state: object | None) -> None:
                 # dispose() may have run between scheduling and execution.
                 # Re-check the terminal state under the lock and abort if disposed
                 # (spec/02 invariant 3): no _on_construct(), no marshalled emission.
                 if self._is_disposed():
-                    self._in_flight = False
+                    self._clear_in_flight()
                     return
 
                 try:
@@ -334,7 +335,7 @@ class _ComponentVMBase(ABC):
                         try:
                             self._set_status(ConstructionStatus.DESTRUCTED)
                         finally:
-                            self._in_flight = False
+                            self._clear_in_flight()
 
                     self._dispatcher.foreground.schedule(_fg_rollback)
                     raise
@@ -350,14 +351,13 @@ class _ComponentVMBase(ABC):
                     try:
                         self._set_status(ConstructionStatus.CONSTRUCTED)
                     finally:
-                        self._in_flight = False
+                        self._clear_in_flight()
 
                 self._dispatcher.foreground.schedule(_fg_construct)
 
             self._dispatcher.background.schedule(_bg_construct)
         else:
             try:
-                self._set_status(ConstructionStatus.CONSTRUCTING)
                 try:
                     self._on_construct()
                 except Exception:
@@ -369,7 +369,7 @@ class _ComponentVMBase(ABC):
                     raise
                 self._set_status(ConstructionStatus.CONSTRUCTED)
             finally:
-                self._in_flight = False
+                self._clear_in_flight()
 
     # ── Lifecycle: destruct ──────────────────────────────────────────────────
     def destruct(self) -> None:
@@ -377,24 +377,26 @@ class _ComponentVMBase(ABC):
 
         Idempotent from Destructed (no-op, no message emitted).
         """
-        if self._status == ConstructionStatus.DESTRUCTED:
-            return
+        with self._lifecycle_lock:
+            if self._status == ConstructionStatus.DESTRUCTED:
+                return
 
-        require(self._status, "destruct")
+            require(self._status, "destruct")
 
-        if self._in_flight:
-            raise StatusTransitionError(self._status, "destruct")
-        self._in_flight = True
+            if self._in_flight:
+                raise StatusTransitionError(self._status, "destruct")
+            self._in_flight = True
+
+            self._set_status(ConstructionStatus.DESTRUCTING)
 
         if self._background:
-            self._set_status(ConstructionStatus.DESTRUCTING)
 
             def _bg_destruct(scheduler: SchedulerBase, state: object | None) -> None:
                 # dispose() may have run between scheduling and execution.
                 # Re-check the terminal state under the lock and abort if disposed
                 # (spec/02 invariant 3): no _on_destruct(), no marshalled emission.
                 if self._is_disposed():
-                    self._in_flight = False
+                    self._clear_in_flight()
                     return
 
                 try:
@@ -411,7 +413,7 @@ class _ComponentVMBase(ABC):
                         try:
                             self._set_status(ConstructionStatus.CONSTRUCTED)
                         finally:
-                            self._in_flight = False
+                            self._clear_in_flight()
 
                     self._dispatcher.foreground.schedule(_fg_rollback)
                     raise
@@ -427,14 +429,13 @@ class _ComponentVMBase(ABC):
                     try:
                         self._set_status(ConstructionStatus.DESTRUCTED)
                     finally:
-                        self._in_flight = False
+                        self._clear_in_flight()
 
                 self._dispatcher.foreground.schedule(_fg_destruct)
 
             self._dispatcher.background.schedule(_bg_destruct)
         else:
             try:
-                self._set_status(ConstructionStatus.DESTRUCTING)
                 try:
                     self._on_destruct()
                 except Exception:
@@ -445,7 +446,7 @@ class _ComponentVMBase(ABC):
                     raise
                 self._set_status(ConstructionStatus.DESTRUCTED)
             finally:
-                self._in_flight = False
+                self._clear_in_flight()
 
     # ── Lifecycle: reconstruct ───────────────────────────────────────────────
     def reconstruct(self) -> None:
@@ -453,15 +454,17 @@ class _ComponentVMBase(ABC):
 
         Emits four messages: Destructing, Destructed, Constructing, Constructed.
         """
-        require(self._status, "reconstruct")
+        with self._lifecycle_lock:
+            require(self._status, "reconstruct")
 
-        if self._in_flight:
-            raise StatusTransitionError(self._status, "reconstruct")
-        self._in_flight = True
+            if self._in_flight:
+                raise StatusTransitionError(self._status, "reconstruct")
+            self._in_flight = True
 
-        try:
             # Destruct phase
             self._set_status(ConstructionStatus.DESTRUCTING)
+
+        try:
             try:
                 self._on_destruct()
             except Exception:
@@ -482,7 +485,7 @@ class _ComponentVMBase(ABC):
                 raise
             self._set_status(ConstructionStatus.CONSTRUCTED)
         finally:
-            self._in_flight = False
+            self._clear_in_flight()
 
     # ── Lifecycle: dispose ───────────────────────────────────────────────────
     def dispose(self) -> None:
@@ -491,11 +494,12 @@ class _ComponentVMBase(ABC):
         Disposes commands and completes the status trigger / property_changed
         subjects.
         """
-        if self._status == ConstructionStatus.DISPOSED:
-            return
+        with self._lifecycle_lock:
+            if self._status == ConstructionStatus.DISPOSED:
+                return
 
-        # _set_status flips _status to Disposed atomically under _lifecycle_lock.
-        self._set_status(ConstructionStatus.DISPOSED)
+            # _set_status flips _status to Disposed atomically under _lifecycle_lock.
+            self._set_status(ConstructionStatus.DISPOSED)
         self._on_dispose()
 
         # Tear down the status trigger / property_changed subjects under the lock
@@ -600,6 +604,11 @@ class _ComponentVMBase(ABC):
         """
         with self._lifecycle_lock:
             return self._status is ConstructionStatus.DISPOSED
+
+    def _clear_in_flight(self) -> None:
+        """Clear the lifecycle in-flight guard under the lifecycle lock."""
+        with self._lifecycle_lock:
+            self._in_flight = False
 
     def _set_status(self, new_status: ConstructionStatus) -> None:
         """Update status, emit hub message, and fire command trigger."""

@@ -1,6 +1,7 @@
 //
 // TokenPagedComposition.swift — accumulated, forward-only token pagination.
 //
+import Foundation
 import Combine
 
 public final class TokenPagedComposition<TVM, TToken> {
@@ -11,6 +12,7 @@ public final class TokenPagedComposition<TVM, TToken> {
     private let fetchNext: FetchNext
     private let autoConstructOnAdd: Bool
     private let pagesEqual: PagesEqual
+    private let stateQueue = DispatchQueue(label: "VMx.TokenPagedComposition.state")
     private var _items: [TVM] = []
     private var _currentToken: TToken?
     private var loadedOnce = false
@@ -20,13 +22,13 @@ public final class TokenPagedComposition<TVM, TToken> {
     private let commandChangedSubject = PassthroughSubject<Void, Never>()
 
     public lazy var loadMoreCommand: AsyncRelayCommand = AsyncRelayCommand.builder()
-        .predicate { [weak self] in self?.hasMore == true && self?.disposed == false }
+        .predicate { [weak self] in self?.hasMore == true && self?.isDisposed == false }
         .triggers(commandChangedSubject.eraseToAnyPublisher())
         .task { [weak self] in try await self?.loadMore() }
         .build()
 
     public lazy var refreshCommand: AsyncRelayCommand = AsyncRelayCommand.builder()
-        .predicate { [weak self] in self?.disposed == false }
+        .predicate { [weak self] in self?.isDisposed == false }
         .triggers(commandChangedSubject.eraseToAnyPublisher())
         .task { [weak self] in try await self?.refresh() }
         .build()
@@ -41,11 +43,15 @@ public final class TokenPagedComposition<TVM, TToken> {
         self.pagesEqual = pagesEqual
     }
 
-    public var items: [TVM] { _items }
+    public var items: [TVM] { stateQueue.sync { _items } }
 
-    public var currentToken: TToken? { _currentToken }
+    public var currentToken: TToken? { stateQueue.sync { _currentToken } }
 
-    public var hasMore: Bool { !loadedOnce || _currentToken != nil }
+    public var hasMore: Bool {
+        stateQueue.sync { !loadedOnce || _currentToken != nil }
+    }
+
+    private var isDisposed: Bool { stateQueue.sync { disposed } }
 
     public var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
         collectionChangedSubject.eraseToAnyPublisher()
@@ -56,30 +62,44 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     private func loadMore() async throws {
-        let page = try await fetchNext(_currentToken)
-        guard !disposed else { return }
-        _items.append(contentsOf: page.0)
-        try constructIfNeeded(page.0)
-        _currentToken = page.1
-        loadedOnce = true
-        notifyReset()
+        let start = stateQueue.sync { (disposed: disposed, token: _currentToken) }
+        guard !start.disposed else { return }
+
+        let page = try await fetchNext(start.token)
+        let itemsToConstruct = stateQueue.sync { () -> [TVM]? in
+            guard !disposed else { return nil }
+            _items.append(contentsOf: page.0)
+            _currentToken = page.1
+            loadedOnce = true
+            return page.0
+        }
+        guard let itemsToConstruct else { return }
+        try constructIfNeeded(itemsToConstruct)
+        notifyResetIfLive()
     }
 
     private func refresh() async throws {
         let page = try await fetchNext(nil)
-        guard !disposed else { return }
-        let head = Array(_items.prefix(page.0.count))
-        if pagesEqual(page.0, head) {
+        let outcome = stateQueue.sync { () -> (resetItems: [TVM]?, notifyProperties: Bool) in
+            guard !disposed else { return (nil, false) }
+            let head = Array(_items.prefix(page.0.count))
+            if pagesEqual(page.0, head) {
+                _currentToken = page.1
+                loadedOnce = true
+                return (nil, true)
+            }
+            _items = page.0
             _currentToken = page.1
             loadedOnce = true
-            notifyProperties()
-            return
+            return (page.0, true)
         }
-        _items = page.0
-        try constructIfNeeded(page.0)
-        _currentToken = page.1
-        loadedOnce = true
-        notifyReset()
+        guard outcome.notifyProperties else { return }
+        if let resetItems = outcome.resetItems {
+            try constructIfNeeded(resetItems)
+            notifyResetIfLive()
+        } else {
+            notifyPropertiesIfLive()
+        }
     }
 
     private func constructIfNeeded(_ items: [TVM]) throws {
@@ -91,12 +111,14 @@ public final class TokenPagedComposition<TVM, TToken> {
         }
     }
 
-    private func notifyReset() {
+    private func notifyResetIfLive() {
+        guard !isDisposed else { return }
         collectionChangedSubject.send(.reset())
-        notifyProperties()
+        notifyPropertiesIfLive()
     }
 
-    private func notifyProperties() {
+    private func notifyPropertiesIfLive() {
+        guard !isDisposed else { return }
         propertyChangedSubject.send("items")
         propertyChangedSubject.send("currentToken")
         propertyChangedSubject.send("hasMore")
@@ -104,8 +126,12 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     public func dispose() {
-        guard !disposed else { return }
-        disposed = true
+        let shouldDispose = stateQueue.sync { () -> Bool in
+            guard !disposed else { return false }
+            disposed = true
+            return true
+        }
+        guard shouldDispose else { return }
         loadMoreCommand.dispose()
         refreshCommand.dispose()
         collectionChangedSubject.send(completion: .finished)

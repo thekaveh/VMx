@@ -388,7 +388,7 @@ them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
 
 ## 6. Token paging: `TokenPagedComposition<TVM, TToken>`
 
-Per ADR-0069.
+Per ADR-0069 and ADR-0078.
 
 ### 6.1 Shape
 
@@ -427,6 +427,11 @@ event is emitted.
 When `auto_construct_on_add` / `autoConstructOnAdd` / `AutoConstructOnAdd` is
 enabled and returned items are VMx component VMs, they are constructed before
 the reset event is emitted.
+
+Disposal is terminal for suspended load/refresh completions. If `dispose()` wins
+the race while a fetch is in flight, the resumed operation MUST return without
+mutating `Items`, advancing `CurrentToken`, changing `HasMore`, or publishing
+collection/property notifications.
 
 ### 6.3 Conformance
 

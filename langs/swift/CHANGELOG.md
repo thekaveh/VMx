@@ -30,7 +30,8 @@ conformance IDs covered.
   state, and fire-and-forget cancellation no longer emits on `errors` when
   `throwOnCancel()` is set.
 - `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
-  if it is disposed before the fetch completes.
+  if it is disposed before the fetch completes, and serializes token/items state
+  against concurrent disposal.
 
 ## [3.0.0] — 2026-06-28
 

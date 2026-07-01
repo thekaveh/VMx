@@ -294,4 +294,33 @@ describe("CMD-012", () => {
     expect(cmd.isExecuting).toBe(false);
     cmd.dispose();
   });
+
+  it("execute() still routes non-cancellation faults after cancel() to errors", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => {
+      startedResolve = r;
+    });
+    const failure = new Error("late fault");
+    const errors: unknown[] = [];
+
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener("abort", () => reject(failure), { once: true });
+          }),
+      )
+      .build();
+    cmd.errors.subscribe((err) => errors.push(err));
+
+    cmd.execute();
+    await started;
+    cmd.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([failure]);
+    expect(cmd.isExecuting).toBe(false);
+    cmd.dispose();
+  });
 });

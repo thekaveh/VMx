@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import sys
 import threading
+import types
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
@@ -210,3 +211,46 @@ def test_background_construct_racing_dispose_is_atomic() -> None:
         "the background transition and foreground dispose() must be atomic; "
         f"first violation at iteration {first_violation}"
     )
+
+
+def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() -> None:
+    """If dispose wins before construct enters Constructing, construct must abort.
+
+    This pins the entry-side lifecycle lock: the status read, in-flight claim, and
+    first transient status write are one critical section. Without that, a racing
+    dispose can complete after ``construct()`` sets ``_in_flight`` but before it
+    publishes ``Constructing``; the old implementation then still ran
+    ``_on_construct`` after the VM was already Disposed.
+    """
+    hook_called = threading.Event()
+    dispose_done = threading.Event()
+    release_constructing = threading.Event()
+    dispose_won_before_constructing = False
+
+    vm = (
+        ComponentVMOfBuilder()
+        .name("vm")
+        .with_null_services()
+        .model("m")
+        .on_construct(hook_called.set)
+        .build()
+    )
+    original_set_status = vm._set_status
+
+    def instrumented_set_status(self: object, status: ConstructionStatus) -> None:
+        nonlocal dispose_won_before_constructing
+        if status is ConstructionStatus.CONSTRUCTING:
+            disposer = threading.Thread(target=lambda: (vm.dispose(), dispose_done.set()))
+            disposer.start()
+            dispose_won_before_constructing = dispose_done.wait(timeout=0.2)
+            release_constructing.set()
+            disposer.join(timeout=1)
+        original_set_status(status)
+
+    vm._set_status = types.MethodType(instrumented_set_status, vm)  # type: ignore[method-assign]
+
+    vm.construct()
+    release_constructing.wait(timeout=1)
+
+    assert dispose_won_before_constructing is False or not hook_called.is_set()
+    assert vm.status is ConstructionStatus.DISPOSED

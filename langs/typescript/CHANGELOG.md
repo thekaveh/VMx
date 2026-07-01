@@ -25,6 +25,8 @@ conformance IDs covered.
 
 - `AsyncRelayCommand` is now inert after disposal, and fire-and-forget
   cancellation no longer emits on `errors` when `throwOnCancel()` is set.
+- `AsyncRelayCommand` no longer suppresses non-cancellation task faults merely
+  because `cancel()` was requested.
 - `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
   if it is disposed before the fetch completes.
 
