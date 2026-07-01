@@ -8,6 +8,7 @@
         <!-- Search input (row 0) -->
         <TextBox Grid.Row="0"
                  x:Name="SearchInput"
+                 AutomationProperties.Name="Search notes"
                  Watermark="Search…"
                  Text="{Binding SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                  Margin="0,0,0,8" />
@@ -15,12 +16,14 @@
         <!-- Starred-only toggle (row 1) -->
         <CheckBox Grid.Row="1"
                   Content="Starred only"
+                  AutomationProperties.Name="Show starred notes only"
                   IsChecked="{Binding ShowStarredOnly, Mode=TwoWay}"
                   Margin="0,0,0,8" />
 
         <!-- Notes list (row 2) -->
         <ListBox Grid.Row="2"
                  x:Name="NotesList"
+                 AutomationProperties.Name="Notes"
                  ItemsSource="{Binding VisibleItems}"
                  SelectedItem="{Binding Current, Mode=TwoWay}"
                  Background="Transparent"
@@ -43,14 +46,22 @@
                     HorizontalAlignment="Center"
                     Spacing="6"
                     Margin="0,8,0,0">
-            <Button Content="⏮" Command="{Binding MoveToFirstPageCommand}" />
-            <Button Content="◀" Command="{Binding MoveToPreviousPageCommand}" />
+            <Button Content="⏮"
+                    AutomationProperties.Name="First page"
+                    Command="{Binding MoveToFirstPageCommand}" />
+            <Button Content="◀"
+                    AutomationProperties.Name="Previous page"
+                    Command="{Binding MoveToPreviousPageCommand}" />
             <TextBlock VerticalAlignment="Center"
                        MinWidth="80"
                        TextAlignment="Center"
                        Text="{Binding PageLabel}" />
-            <Button Content="▶" Command="{Binding MoveToNextPageCommand}" />
-            <Button Content="⏭" Command="{Binding MoveToLastPageCommand}" />
+            <Button Content="▶"
+                    AutomationProperties.Name="Next page"
+                    Command="{Binding MoveToNextPageCommand}" />
+            <Button Content="⏭"
+                    AutomationProperties.Name="Last page"
+                    Command="{Binding MoveToLastPageCommand}" />
         </StackPanel>
     </Grid>
 </UserControl>

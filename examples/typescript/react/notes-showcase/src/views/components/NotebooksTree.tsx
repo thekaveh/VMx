@@ -60,16 +60,41 @@ const NotebookTreeNode: React.FC<NotebookTreeNodeProps> = ({ ws, nb, level }) =>
     e.stopPropagation();
     nb.toggleExpansion();
   };
+  const onNodeKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect();
+    } else if (e.key === "ArrowRight" && hasChildren && !liveNb.isExpanded) {
+      e.preventDefault();
+      nb.toggleExpansion();
+    } else if (e.key === "ArrowLeft" && hasChildren && liveNb.isExpanded) {
+      e.preventDefault();
+      nb.toggleExpansion();
+    }
+  };
 
   return (
-    <li role="treeitem" aria-level={level} aria-expanded={liveNb.isExpanded}>
+    <li
+      role="treeitem"
+      aria-level={level}
+      aria-expanded={hasChildren ? liveNb.isExpanded : undefined}
+      aria-selected={isCurrent}
+    >
       <div
         className={`notebooks-tree-node${isCurrent ? " is-current" : ""}`}
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={onNodeKeyDown}
       >
-        <span className="notebooks-tree-toggle" onClick={hasChildren ? onToggle : undefined}>
+        <button
+          type="button"
+          className="notebooks-tree-toggle"
+          aria-label={liveNb.isExpanded ? `Collapse ${liveNb.notebookName}` : `Expand ${liveNb.notebookName}`}
+          disabled={!hasChildren}
+          onClick={hasChildren ? onToggle : undefined}
+        >
           {hasChildren ? (liveNb.isExpanded ? "▼" : "▶") : ""}
-        </span>
+        </button>
         <span>{liveNb.notebookName}</span>
       </div>
       {hasChildren && liveNb.isExpanded && (

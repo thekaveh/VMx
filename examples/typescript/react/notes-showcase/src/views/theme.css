@@ -159,10 +159,20 @@ textarea:focus {
 
 .notebooks-tree-toggle {
   width: 14px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   display: inline-flex;
+  align-items: center;
   justify-content: center;
   color: var(--text-dim);
   font-size: 10px;
+  cursor: pointer;
+}
+
+.notebooks-tree-toggle:disabled {
+  cursor: default;
 }
 
 .notebooks-tree-children {
