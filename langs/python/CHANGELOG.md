@@ -4,23 +4,6 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0](https://github.com/thekaveh/VMx/compare/python-v2.6.1...python-v3.0.0) (2026-07-01)
-
-
-### ⚠ BREAKING CHANGES
-
-* **v3:** VMx v3.0.0 framework overhaul — verified-merged critique remediation ([#37](https://github.com/thekaveh/VMx/issues/37))
-
-### Features
-
-* implement v3.1 upstream consumer asks ([edefcef](https://github.com/thekaveh/VMx/commit/edefcefd8170ce94716774eb9d9db125c11cfeda))
-* **v3:** VMx v3.0.0 framework overhaul — verified-merged critique remediation ([#37](https://github.com/thekaveh/VMx/issues/37)) ([e979ed6](https://github.com/thekaveh/VMx/commit/e979ed61d6dc7d69b18729a13b6185ef01d02197))
-
-
-### Bug Fixes
-
-* **maint:** audit-report verification follow-ups (code, spec/ADR, examples) ([#32](https://github.com/thekaveh/VMx/issues/32)) ([63b9c51](https://github.com/thekaveh/VMx/commit/63b9c51ef0c3014f68cb11de21f3b9e5a17076a8))
-
 ## [3.1.0] — 2026-07-01
 
 Implements `spec-v3.1.0` and keeps Python at full library parity: 279/279
