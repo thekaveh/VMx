@@ -17,6 +17,7 @@ Behavior contract:
 - Predicate that raises → treated as False (exception does NOT propagate).
 - Task that raises → exception propagates to the caller of execute.
 - Trigger emissions fire can_execute_changed.
+- Disposed commands are inert: can_execute returns False and execute is a no-op.
 - Builder is IMMUTABLE (BLD-001): every setter returns a NEW builder instance.
 - Triggers are additive: multiple .triggers(obs) calls combine into the trigger set.
 """
@@ -69,6 +70,8 @@ class RelayCommand:
         If the predicate raises, returns False (defensive — exception does not
         propagate).
         """
+        if self._disposed:
+            return False
         if self._predicate is None:
             return True
         try:
@@ -106,6 +109,7 @@ class RelayCommand:
         if self._disposed:
             return
         self._disposed = True
+        self._can_execute_changed_subject.on_next(None)
         for sub in self._subscriptions:
             sub.dispose()
         self._can_execute_changed_subject.on_completed()
@@ -187,6 +191,8 @@ class RelayCommandOf(Generic[T]):
 
         If the predicate raises, returns False (defensive).
         """
+        if self._disposed:
+            return False
         if self._predicate is None:
             return True
         try:
@@ -224,6 +230,7 @@ class RelayCommandOf(Generic[T]):
         if self._disposed:
             return
         self._disposed = True
+        self._can_execute_changed_subject.on_next(None)
         for sub in self._subscriptions:
             sub.dispose()
         self._can_execute_changed_subject.on_completed()

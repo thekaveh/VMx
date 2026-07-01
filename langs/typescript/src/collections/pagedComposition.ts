@@ -5,8 +5,8 @@
  * paged-view semantics.  Implements IPageable (CAP-022, ADR-0023).
  *
  * The source is never mutated; this class computes a read-only slice on
- * demand.  If the source is an ObservableList, mutations are observed
- * automatically so pageCount and items stay in sync.
+ * demand.  If the source is an ObservableList or composite-style collection,
+ * mutations are observed automatically so pageCount and items stay in sync.
  *
  * pageSize = 0 disables paging: all source items appear on a single page
  * (pageCount = 1, isPagingEnabled = false).
@@ -69,6 +69,13 @@ export class PagedComposition<TVM> implements IPageable {
           }),
         );
       }
+    }
+    if (src.collectionChanged instanceof Observable) {
+      this.#subscriptions.push(
+        (src.collectionChanged as Observable<unknown>).subscribe({
+          next: () => this.#onSourceMutated(),
+        }),
+      );
     }
   }
 

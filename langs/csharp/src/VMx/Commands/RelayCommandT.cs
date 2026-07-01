@@ -20,6 +20,7 @@ namespace VMx.Commands;
 /// - Predicate that throws → treated as false (exception does NOT propagate).
 /// - Task that throws → exception propagates to the caller of Execute.
 /// - Trigger emissions fire CanExecuteChanged.
+/// - Disposed commands are inert: CanExecute returns false and Execute is a no-op.
 /// - Builder is IMMUTABLE (BLD-001): every setter returns a NEW builder instance via `with`.
 /// - Triggers are additive: multiple .Triggers(...) calls combine into the trigger set.
 /// </summary>
@@ -29,6 +30,7 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     private readonly Action<T>? _task;
     private readonly Func<T, bool>? _predicate;
     private readonly CompositeDisposable _triggerSubscriptions = new();
+    private bool _disposed;
 
     private RelayCommand(Action<T>? task, Func<T, bool>? predicate, IReadOnlyList<IObservable<Unit>> triggers)
     {
@@ -49,6 +51,7 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     /// </summary>
     public bool CanExecute(object? parameter)
     {
+        if (_disposed) return false;
         if (parameter is not T typed) return false;
         if (_predicate is null) return true;
         try { return _predicate(typed); }
@@ -62,13 +65,20 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     /// </summary>
     public void Execute(object? parameter)
     {
+        if (_disposed) return;
         if (parameter is not T typed) return;
         if (!CanExecute(parameter)) return;
         _task?.Invoke(typed);
     }
 
     /// <summary>Disposes all trigger subscriptions.</summary>
-    public void Dispose() => _triggerSubscriptions.Dispose();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        _triggerSubscriptions.Dispose();
+    }
 
     /// <summary>Returns a new immutable builder for <see cref="RelayCommand{T}"/>.</summary>
     public static ICommandBuilder<T> Builder() => new BuilderImpl();

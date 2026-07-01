@@ -3,6 +3,7 @@
  *
  * See spec/19-dialogs.md and ADR-0029.
  */
+import type { ModalVM } from "./modalVM.js";
 
 /** Severity level for a notification presented via {@link IDialogService.notify}. */
 export type NotificationSeverity = "info" | "warning" | "error";
@@ -54,4 +55,14 @@ export interface IDialogService {
     title?: string | null,
     severity?: NotificationSeverity,
   ): Promise<void>;
+}
+
+/**
+ * Optional modal-capable dialog service. Existing IDialogService implementations
+ * remain source-compatible; hosts that can present arbitrary VM-backed modals
+ * implement this extension.
+ */
+export interface IModalDialogService extends IDialogService {
+  /** Presents a VM-backed modal and resolves with its result. */
+  present<T>(modalVm: ModalVM<T>): Promise<T>;
 }

@@ -259,11 +259,46 @@ Consumers wire `SearchableState` to a composite by passing
 `composite as Iterable<TItem>` as `Items`. The helper is opt-in; the base
 `CompositeVM<VM>` retains its current shape unchanged.
 
-## 9. Conformance
+## 9. Filtered composite views (spec v3.1)
+
+`FilteredCompositeVM<VM>` provides a cursor-owning visible projection over a
+source `CompositeVM<VM>`.
+
+```
+FilteredCompositeVM<VM>:
+    source       : CompositeVM<VM>
+    predicate    : (VM) -> bool
+    Visible      : IReadOnlyList<VM>
+    VisibleCount : int
+    Current      : VM?
+    Changed      : Observable/Event
+
+    SetPredicate(predicate)
+    SetCurrent(vm?)
+    MoveToNextVisible()
+    MoveToPreviousVisible()
+    Dispose()
+```
+
+The source composite remains the owner of child membership and lifecycle. The
+filtered view owns the visible projection and its own current slot in the visible
+domain. When the source mutates or the predicate changes, the projection is
+recomputed and current is reconciled according to a cursor policy:
+
+- `SnapToFirst`: if current is filtered out, select the first visible item.
+- `Clear`: if current is filtered out, clear current.
+- `PreserveIfVisible`: keep current only if it remains visible, otherwise clear.
+
+`ScoredFilteredCompositeVM<VM>` filters out null/absent scores and orders visible
+items by descending score with source-order stable tie breaks. `RefreshScores()`
+forces a recompute when external score state changes.
+
+## 10. Conformance
 
 `COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, (the
 modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
-the builder hooks `COMP-025` and `COMP-026` (see below), in
+the builder hooks `COMP-025` and `COMP-026` (see below), plus filtered/scored
+view IDs `COMP-028` through `COMP-037`, in
 `12-conformance.md` cover:
 
 - collection-change events on add/remove
@@ -279,6 +314,8 @@ the builder hooks `COMP-025` and `COMP-026` (see below), in
 - `deselect_component` raises when the argument is not `Current`
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the composite is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
+- filtered visible projections and visible-domain current
+- scored filtering with stable score ordering
 
 The builder hooks introduced in §3.2 are covered by:
 

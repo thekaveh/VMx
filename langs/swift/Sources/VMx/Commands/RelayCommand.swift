@@ -12,6 +12,7 @@
 //   (Swift closures must declare `throws`; this flavor uses non-throwing
 //   closures for parity with TS/Python — host code should catch internally.)
 // - Trigger emissions fire `canExecuteChanged`.
+// - Disposed commands are inert: `canExecute()` returns false and `execute()` is a no-op.
 // - Builder is immutable: every setter returns a new builder instance.
 // - Triggers are additive across `.triggers(...)` calls.
 //
@@ -42,6 +43,7 @@ public final class RelayCommand: Command {
     }
 
     public func canExecute() -> Bool {
+        guard !disposed else { return false }
         guard let predicate else { return true }
         // Swift closures can't "throw and be treated as false" without an
         // explicit `throws` signature; this matches the other flavors'
@@ -62,6 +64,7 @@ public final class RelayCommand: Command {
     public func dispose() {
         guard !disposed else { return }
         disposed = true
+        canExecuteChangedSubject.send(())
         cancellables.removeAll()
         canExecuteChangedSubject.send(completion: .finished)
     }

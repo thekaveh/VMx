@@ -11,6 +11,7 @@
  * - Predicate that raises → treated as false (exception does NOT propagate).
  * - Task that raises → exception propagates to the caller of execute.
  * - Trigger emissions fire canExecuteChanged.
+ * - Disposed commands are inert: canExecute returns false and execute is a no-op.
  * - Builder is immutable (BLD-001): every setter returns a NEW builder instance.
  * - Triggers are additive: multiple .triggers(obs) calls combine into trigger set.
  */
@@ -48,6 +49,7 @@ export class RelayCommand implements ICommand {
   }
 
   canExecute(): boolean {
+    if (this.#disposed) return false;
     if (this.#predicate === null) return true;
     try {
       return this.#predicate();
@@ -71,6 +73,7 @@ export class RelayCommand implements ICommand {
     this.#disposed = true;
     // Complete the subject first so subscribers always observe completion, then
     // tear down every trigger subscription via the root (VMX-094).
+    this.#canExecuteChangedSubject.next();
     this.#canExecuteChangedSubject.complete();
     this.#subscriptions.unsubscribe();
   }
@@ -146,6 +149,7 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
   }
 
   canExecute(parameter: T): boolean {
+    if (this.#disposed) return false;
     if (this.#predicate === null) return true;
     try {
       return this.#predicate(parameter);
@@ -167,6 +171,7 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#canExecuteChangedSubject.next();
     this.#canExecuteChangedSubject.complete();
     this.#subscriptions.unsubscribe();
   }

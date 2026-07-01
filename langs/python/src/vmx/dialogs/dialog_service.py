@@ -12,6 +12,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from typing import TypeVar
+
+from vmx.dialogs.modal_vm import ModalVM
+
+T = TypeVar("T")
 
 
 class NotificationSeverity(Enum):
@@ -94,3 +99,13 @@ class DialogService(ABC):
         :attr:`~NotificationSeverity.INFO` when not supplied.
         """
         ...
+
+    async def present(self, modal_vm: ModalVM[T]) -> T:
+        """Present a VM-backed modal and return its result.
+
+        The base implementation preserves null-object safety: it dismisses the
+        modal with its cancellation result. Host services override this method
+        to bridge a modal VM to native UI.
+        """
+        modal_vm.dismiss(modal_vm.cancellation_result)
+        return modal_vm.cancellation_result

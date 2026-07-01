@@ -266,6 +266,32 @@ export abstract class HierarchicalVM<
     );
   }
 
+  /**
+   * Drops this node's materialized child cache. The next `children` access
+   * invokes `childrenFactory` again. Invalidating an unmaterialized node is a
+   * no-op.
+   */
+  invalidateChildren(): void {
+    if (this.#children === null) return;
+    this.#children = null;
+    this._hub.send(
+      PropertyChangedMessage.create(
+        this.#self,
+        this._name,
+        "children",
+      ),
+    );
+  }
+
+  /** Drops cached children for this node and all materialized descendants. */
+  invalidateSubtree(): void {
+    if (this.#children === null) return;
+    for (const child of [...this.#children]) {
+      child.invalidateSubtree();
+    }
+    this.invalidateChildren();
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────
 
   #materializeChildren(): TVM[] {

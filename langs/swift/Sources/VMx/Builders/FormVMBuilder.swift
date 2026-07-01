@@ -21,6 +21,8 @@ public struct FormVMBuilder<Model> {
     private var _strict: Bool = false
     private var _snapshotter: ((Model) -> Model)?
     private var _equals: ((Model, Model) -> Bool)?
+    private var _validators: [String: (Model) -> String?] = [:]
+    private var _modelValidator: ((Model) -> [String: String?])?
 
     /// One-shot box to distinguish "initial was assigned (possibly a nil-able
     /// generic)" from "initial was never set", without requiring Hashable.
@@ -75,6 +77,25 @@ public struct FormVMBuilder<Model> {
         var copy = self; copy._equals = fn; return copy
     }
 
+    /// Register a field validator. The returned builder is a new instance.
+    public func validator(
+        _ field: String,
+        _ fn: @escaping (Model) -> String?
+    ) -> FormVMBuilder<Model> {
+        var copy = self
+        copy._validators[field] = fn
+        return copy
+    }
+
+    /// Register a model-level validator returning field-name errors.
+    public func modelValidator(
+        _ fn: @escaping (Model) -> [String: String?]
+    ) -> FormVMBuilder<Model> {
+        var copy = self
+        copy._modelValidator = fn
+        return copy
+    }
+
     /// Pre-wire the hub to `NullMessageHub.INSTANCE`.
     /// Equivalent to `.hub(NullMessageHub.INSTANCE)`.
     public func withDefaultServices() -> FormVMBuilder<Model> {
@@ -111,6 +132,8 @@ public struct FormVMBuilder<Model> {
             hub: hub,
             strict: _strict,
             snapshotter: snapshotter,
+            validators: _validators,
+            modelValidator: _modelValidator,
             equals: equals
         )
     }

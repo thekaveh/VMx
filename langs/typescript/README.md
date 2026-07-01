@@ -1,11 +1,11 @@
 # @thekaveh/vmx — TypeScript
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for TypeScript and
-JavaScript, spec-compatible with the C#, Python, and Swift (subset) flavors.
+JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v2.6.0** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
+**v3.1.0** — implements `spec-v3.1.0` end-to-end. 279/279 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -194,7 +194,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 232 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 279 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -210,6 +210,9 @@ v2.3   BLD-005        FORM-011..013 HIER-015..017
 v2.4   THEME-001..005
 v2.5   HIER-018       NOTIF-017     FORM-014
 v2.6   COMP-025..026
+v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
+v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
+       DIA-009..013   HIER-019..022 DISC-001..006
 ```
 
 Run the suite:

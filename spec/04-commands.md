@@ -126,6 +126,16 @@ RelayCommand.Builder()
 
 `RelayCommand<T>` follows the same pattern with parameterized predicate/task.
 
+Disposing a relay command makes it inert. After disposal:
+
+- `CanExecute` returns `false`, even when no predicate was configured.
+- `Execute` is a no-op and MUST NOT invoke the task.
+- disposal remains idempotent.
+
+This applies equally to parameterized relay commands. A flavor MAY notify
+`CanExecuteChanged` during disposal so bound controls can refresh disabled state;
+the normative state is the post-disposal `CanExecute == false` result.
+
 ## 6. Builder semantics
 
 - Setters return a NEW builder instance (immutability).
@@ -367,7 +377,7 @@ scope for `CMD-012` — consistent with its documented subset (ADR-0037).
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-012` and `CMDD-001` through `CMDD-010` in
+`CMD-001` through `CMD-013` and `CMDD-001` through `CMDD-010` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -381,6 +391,8 @@ scope for `CMD-012` — consistent with its documented subset (ADR-0037).
 - `CMD-012` — `AsyncRelayCommand.Cancel()` cancels an in-flight async task; the
   command returns to a non-executing state (`IsExecuting == false`,
   `CanExecute == true`); no exception surfaces by default (§10, ADR-0056)
+- `CMD-013` — disposed relay commands become inert (`CanExecute == false`;
+  `Execute` is a no-op) (§5, ADR-0068)
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)

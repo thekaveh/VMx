@@ -6,7 +6,7 @@ namespace VMx.Dialogs;
 /// <see cref="Confirm"/> returns <c>false</c>, <see cref="Notify"/> is a no-op.
 /// Stateless and safe to share. See spec/19-dialogs.md §3.
 /// </summary>
-public sealed class NullDialogService : IDialogService
+public sealed class NullDialogService : IModalDialogService
 {
     /// <summary>Shared singleton instance (the service holds no state).</summary>
     public static NullDialogService Instance { get; } = new();
@@ -34,4 +34,11 @@ public sealed class NullDialogService : IDialogService
         string? title = null,
         NotificationSeverity severity = NotificationSeverity.Info)
         => Task.CompletedTask;
+
+    /// <inheritdoc/>
+    public Task<T> Present<T>(IModalVM<T> modal, CancellationToken cancellationToken = default)
+    {
+        modal.Dismiss(modal.CancellationResult);
+        return Task.FromResult(modal.CancellationResult);
+    }
 }

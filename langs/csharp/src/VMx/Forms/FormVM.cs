@@ -21,14 +21,18 @@ public sealed class FormVM<TM> : IDisposable
 {
     private readonly Func<TM, Task> _persister;
     private readonly Func<TM, TM> _snapshotter;
+    private readonly Dictionary<string, Func<TM, string?>> _validators;
+    private readonly Func<TM, IReadOnlyDictionary<string, string?>>? _modelValidator;
     private readonly bool _strict;
     private readonly IMessageHub _hub;
     private readonly Subject<TM> _onApproved = new();
     private readonly Subject<Exception> _approveErrors = new();
+    private readonly Subject<IReadOnlyDictionary<string, string>> _errorsChanged = new();
     private readonly Subject<Unit> _canExecuteChangedTrigger = new();
 
     private TM _model;
     private TM _snapshot;
+    private Dictionary<string, string> _errors;
     private bool _disposed;
 
     // ── Builder factory ───────────────────────────────────────────────────────
@@ -57,12 +61,16 @@ public sealed class FormVM<TM> : IDisposable
     /// tracked by <see cref="IsDirty"/> and reverted by <see cref="DenyCommand"/>).
     /// Inject this as the escape hatch for models JSON cannot round-trip.
     /// </param>
+    /// <param name="validators">Optional field validators keyed by field/property name.</param>
+    /// <param name="modelValidator">Optional model-level validator returning field-name errors.</param>
     public FormVM(
         TM initial,
         Func<TM, Task> persister,
         IMessageHub? hub = null,
         bool strict = false,
-        Func<TM, TM>? snapshotter = null)
+        Func<TM, TM>? snapshotter = null,
+        IReadOnlyDictionary<string, Func<TM, string?>>? validators = null,
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null)
     {
         ThrowHelper.ThrowIfNull(initial, nameof(initial));
         ThrowHelper.ThrowIfNull(persister, nameof(persister));
@@ -71,9 +79,12 @@ public sealed class FormVM<TM> : IDisposable
         _hub = hub ?? NullMessageHub.Instance;
         _strict = strict;
         _snapshotter = snapshotter ?? DefaultSnapshotter;
+        _validators = CopyValidators(validators);
+        _modelValidator = modelValidator;
 
         _model = initial;
         _snapshot = _snapshotter(initial);
+        _errors = Validate(initial);
 
         IObservable<Unit> canExecuteTrigger = _canExecuteChangedTrigger;
 
@@ -83,7 +94,7 @@ public sealed class FormVM<TM> : IDisposable
 
         ApproveCommand = RelayCommand.Builder()
             .Task(ApproveCommandExecute)
-            .Predicate(() => !_strict || IsDirty)
+            .Predicate(() => IsValid && (!_strict || IsDirty))
             .Triggers(canExecuteTrigger)
             .Build();
     }
@@ -114,13 +125,17 @@ public sealed class FormVM<TM> : IDisposable
         IFormPersister<TM> persister,
         IMessageHub? hub = null,
         bool strict = false,
-        Func<TM, TM>? snapshotter = null)
+        Func<TM, TM>? snapshotter = null,
+        IReadOnlyDictionary<string, Func<TM, string?>>? validators = null,
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null)
         : this(
             initial,
             persister is null ? throw new ArgumentNullException(nameof(persister)) : (Func<TM, Task>)(model => persister.PersistAsync(model)),
             hub,
             strict,
-            snapshotter)
+            snapshotter,
+            validators,
+            modelValidator)
     {
     }
 
@@ -137,6 +152,12 @@ public sealed class FormVM<TM> : IDisposable
     /// Uses <see cref="object.Equals(object?, object?)"/>; record types provide structural equality.
     /// </summary>
     public bool IsDirty => !Equals(_model, _snapshot);
+
+    /// <summary>Current validation errors keyed by field/property name.</summary>
+    public IReadOnlyDictionary<string, string> Errors => new Dictionary<string, string>(_errors);
+
+    /// <summary><c>true</c> when the current model has no validation errors.</summary>
+    public bool IsValid => _errors.Count == 0;
 
     /// <summary>
     /// Reverts <see cref="Model"/> to <see cref="Snapshot"/> and publishes
@@ -169,6 +190,12 @@ public sealed class FormVM<TM> : IDisposable
     /// </summary>
     public IObservable<Exception> ApproveErrors => _approveErrors.AsObservable();
 
+    /// <summary>Observable that emits when the effective validation error map changes.</summary>
+    public IObservable<IReadOnlyDictionary<string, string>> ErrorsChanged => _errorsChanged.AsObservable();
+
+    /// <summary>Returns the current validation error for a field, if any.</summary>
+    public string? FieldError(string field) => _errors.TryGetValue(field, out var error) ? error : null;
+
     /// <summary>
     /// Awaitable entry-point to the approve flow. Invokes the persister, advances
     /// <see cref="Snapshot"/> on success, and fires <see cref="OnApproved"/>.
@@ -187,8 +214,10 @@ public sealed class FormVM<TM> : IDisposable
     {
         ThrowHelper.ThrowIfNull(model, nameof(model));
         var wasDirty = IsDirty;
+        var wasValid = IsValid;
         _model = model;
-        if (_strict && IsDirty != wasDirty)
+        Revalidate();
+        if ((_strict && IsDirty != wasDirty) || IsValid != wasValid)
             _canExecuteChangedTrigger.OnNext(Unit.Default);
     }
 
@@ -203,6 +232,8 @@ public sealed class FormVM<TM> : IDisposable
         _onApproved.Dispose();
         _approveErrors.OnCompleted();
         _approveErrors.Dispose();
+        _errorsChanged.OnCompleted();
+        _errorsChanged.Dispose();
         _canExecuteChangedTrigger.OnCompleted();
         _canExecuteChangedTrigger.Dispose();
         if (DenyCommand is IDisposable d1) d1.Dispose();
@@ -215,12 +246,14 @@ public sealed class FormVM<TM> : IDisposable
     {
         if (_disposed) return;
         var wasDirty = IsDirty;
+        var wasValid = IsValid;
         _model = _snapshotter(_snapshot);
+        Revalidate();
 
         _hub.Send(new FormRevertedMessage(this, nameof(FormVM<TM>)));
         _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(this, nameof(FormVM<TM>), nameof(Model)));
 
-        if (_strict && wasDirty != IsDirty)
+        if ((_strict && wasDirty != IsDirty) || IsValid != wasValid)
             _canExecuteChangedTrigger.OnNext(Unit.Default);
     }
 
@@ -229,6 +262,7 @@ public sealed class FormVM<TM> : IDisposable
         // A disposed form is a full no-op — the persister must not be
         // invoked (symmetric with the Deny guard).
         if (_disposed) return;
+        if (!IsValid) return;
 
         // Capture model to avoid TOCTOU if SetModel is called concurrently.
         var current = _model;
@@ -275,5 +309,61 @@ public sealed class FormVM<TM> : IDisposable
     {
         var json = System.Text.Json.JsonSerializer.Serialize(model, DefaultSnapshotJsonOptions);
         return System.Text.Json.JsonSerializer.Deserialize<TM>(json, DefaultSnapshotJsonOptions)!;
+    }
+
+    private Dictionary<string, string> Validate(TM model)
+    {
+        var errors = new Dictionary<string, string>();
+        foreach (var kvp in _validators)
+        {
+            var error = kvp.Value(model);
+            if (error is not null)
+                errors[kvp.Key] = error;
+        }
+
+        if (_modelValidator is not null)
+        {
+            foreach (var kvp in _modelValidator(model))
+            {
+                if (kvp.Value is null)
+                    errors.Remove(kvp.Key);
+                else
+                    errors[kvp.Key] = kvp.Value;
+            }
+        }
+
+        return errors;
+    }
+
+    private void Revalidate()
+    {
+        var errors = Validate(_model);
+        if (SameErrors(errors, _errors)) return;
+        _errors = errors;
+        _errorsChanged.OnNext(new Dictionary<string, string>(errors));
+    }
+
+    private static bool SameErrors(
+        Dictionary<string, string> left,
+        Dictionary<string, string> right)
+    {
+        if (left.Count != right.Count) return false;
+        foreach (var kvp in left)
+        {
+            if (!right.TryGetValue(kvp.Key, out var other) || other != kvp.Value)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static Dictionary<string, Func<TM, string?>> CopyValidators(
+        IReadOnlyDictionary<string, Func<TM, string?>>? validators)
+    {
+        var copy = new Dictionary<string, Func<TM, string?>>();
+        if (validators is null) return copy;
+        foreach (var kvp in validators)
+            copy[kvp.Key] = kvp.Value;
+        return copy;
     }
 }

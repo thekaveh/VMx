@@ -25,11 +25,16 @@ public sealed class FormVMBuilder<TM>
     private readonly IMessageHub? _hub;
     private readonly bool _strict;
     private readonly Func<TM, TM>? _snapshotter;
+    private readonly Dictionary<string, Func<TM, string?>> _validators;
+    private readonly Func<TM, IReadOnlyDictionary<string, string?>>? _modelValidator;
 
     /// <summary>Empty starting builder.</summary>
     public static readonly FormVMBuilder<TM> Empty = new();
 
-    private FormVMBuilder() { }
+    private FormVMBuilder()
+    {
+        _validators = new Dictionary<string, Func<TM, string?>>();
+    }
 
     private FormVMBuilder(
         TM? initial,
@@ -37,7 +42,9 @@ public sealed class FormVMBuilder<TM>
         Func<TM, Task>? persister,
         IMessageHub? hub,
         bool strict,
-        Func<TM, TM>? snapshotter)
+        Func<TM, TM>? snapshotter,
+        Dictionary<string, Func<TM, string?>> validators,
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator)
     {
         _initial = initial;
         _initialSet = initialSet;
@@ -45,6 +52,8 @@ public sealed class FormVMBuilder<TM>
         _hub = hub;
         _strict = strict;
         _snapshotter = snapshotter;
+        _validators = validators;
+        _modelValidator = modelValidator;
     }
 
     // ── Fluent setters ───────────────────────────────────────────────────────
@@ -83,6 +92,21 @@ public sealed class FormVMBuilder<TM>
     /// </summary>
     public FormVMBuilder<TM> Snapshotter(Func<TM, TM> snapshotter) => With(snapshotter: snapshotter);
 
+    /// <summary>Registers a field validator. The returned builder is a new instance.</summary>
+    public FormVMBuilder<TM> Validator(string field, Func<TM, string?> validator)
+    {
+        var validators = new Dictionary<string, Func<TM, string?>>(_validators)
+        {
+            [field] = validator,
+        };
+        return With(validators: validators);
+    }
+
+    /// <summary>Registers a model-level validator returning field-name errors.</summary>
+    public FormVMBuilder<TM> ModelValidator(
+        Func<TM, IReadOnlyDictionary<string, string?>> modelValidator)
+        => With(modelValidator: modelValidator);
+
     // ── Build ────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -101,7 +125,9 @@ public sealed class FormVMBuilder<TM>
             _persister,
             _hub,
             _strict,
-            _snapshotter);
+            _snapshotter,
+            _validators,
+            _modelValidator);
     }
 
     // ── Wither ───────────────────────────────────────────────────────────────
@@ -112,12 +138,16 @@ public sealed class FormVMBuilder<TM>
         Func<TM, Task>? persister = null,
         IMessageHub? hub = null,
         bool? strict = null,
-        Func<TM, TM>? snapshotter = null)
+        Func<TM, TM>? snapshotter = null,
+        Dictionary<string, Func<TM, string?>>? validators = null,
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null)
         => new(
             initialSet == true ? initial : _initial,
             initialSet ?? _initialSet,
             persister ?? _persister,
             hub ?? _hub,
             strict ?? _strict,
-            snapshotter ?? _snapshotter);
+            snapshotter ?? _snapshotter,
+            validators ?? _validators,
+            modelValidator ?? _modelValidator);
 }

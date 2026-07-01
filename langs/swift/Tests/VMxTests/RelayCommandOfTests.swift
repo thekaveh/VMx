@@ -34,4 +34,18 @@ final class RelayCommandOfTests: XCTestCase {
 
         XCTAssertEqual(recorder, [10])
     }
+
+    /// CMD-013 — disposed RelayCommandOf instances are inert.
+    func testCmd013DisposedRelayCommandOfIsInert() {
+        var recorder: [Int] = []
+        let cmd = RelayCommandOf<Int>.builder()
+            .task { p in recorder.append(p) }
+            .build()
+
+        cmd.dispose()
+        cmd.execute(42)
+
+        XCTAssertFalse(cmd.canExecute(42))
+        XCTAssertEqual(recorder, [])
+    }
 }

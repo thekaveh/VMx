@@ -26,6 +26,9 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
     ``on_collection_changed`` subscribers are notified on every mutation, but nothing
     is published to a hub.
 
+    Ownership stays with the caller: removing, replacing, or clearing an item does
+    not call ``dispose``/``destruct`` on that item.
+
     Parameters
     ----------
     hub:

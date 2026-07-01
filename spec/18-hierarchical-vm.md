@@ -39,6 +39,9 @@ HierarchicalVM<TModel, TVM>:
     IsLeaf   : bool                    # Children.Count == 0
     IsFirst  : bool                    # Parent.Children[0] == self (false when IsRoot)
     IsLast   : bool                    # Parent.Children[^1] == self (false when IsRoot)
+
+    InvalidateChildren() -> void       # drop this node's materialized child cache
+    InvalidateSubtree() -> void        # drop this node + materialized descendants
 ```
 
 `Model` is the per-node domain model; the recursive-children factory function is
@@ -96,13 +99,35 @@ flips to **eager**: the entire tree is materialized at construct time using
 depth-first traversal. Eager mode is required if the consumer wants
 depth-first construction to apply to the whole tree at startup.
 
-## 5. Hub messages
+## 5. Child-cache invalidation
+
+Lazy `Children` are cached after first materialization. Consumers that need to
+refresh a node's children explicitly call:
+
+- `InvalidateChildren` / `invalidate_children` / `invalidateChildren` — drops
+  this node's materialized child cache. The next `Children` access invokes the
+  children factory again. Calling it before materialization is a no-op.
+- `InvalidateSubtree` / `invalidate_subtree` / `invalidateSubtree` — applies the
+  same invalidation recursively to this node and all currently materialized
+  descendants.
+
+Invalidation is a cache refresh operation, not a structural remove. It does not
+publish `TreeStructureChangedMessage`; instead it publishes
+`PropertyChangedMessage("Children")` (or the flavor-idiomatic property name) for
+the node whose cache was dropped so subscribers can re-read.
+
+Time-to-live refresh is intentionally deferred. A TTL contract needs a
+cross-flavor clock/test-scheduler abstraction to be deterministic; explicit
+invalidation is the v3.1 cache contract.
+
+## 6. Hub messages
 
 Two messages flow on `IMessageHub`:
 
-- **`PropertyChangedMessage`** — emitted on `Parent` change (and any other
-  `IReadable<T>` properties on the node), per chapter 03 rules.
-- **`TreeStructureChangedMessage`** (defined in §6) — emitted on structural
+- **`PropertyChangedMessage`** — emitted on `Parent` change, child-cache
+  invalidation, and any other `IReadable<T>` properties on the node, per chapter
+  03 rules.
+- **`TreeStructureChangedMessage`** (defined in §7) — emitted on structural
   mutations: add, remove, or reparent of descendants.
 
 Structural mutators MUST reject operations that would corrupt the tree:
@@ -112,7 +137,7 @@ ancestor cycle) raises the flavor's standard invalid-operation error
 unchanged, and publishes no message (HIER-018; added in v2.5.0 via
 ADR-0037 — previously the cycle silently corrupted `Depth`/`Path`/`walk`).
 
-## 6. `TreeStructureChangedMessage`
+## 7. `TreeStructureChangedMessage`
 
 ```
 TreeStructureChangedMessage:
@@ -122,7 +147,7 @@ TreeStructureChangedMessage:
     Index    : int                     # index in Children list (-1 for Reparented if N/A)
 ```
 
-## 7. Integration
+## 8. Integration
 
 - **`walk` / `walk_expanded`** (chapter 13): `HierarchicalVM` is a natural input.
   `walk` yields depth-first descendants including the root. Order is
@@ -138,7 +163,7 @@ TreeStructureChangedMessage:
   Update / Delete on a node's children) compose with the existing
   `CreateNewCommand`, `UpdateCurrentCommand`, `DeleteCurrentCommand` helpers.
 
-## 8. Conformance
+## 9. Conformance
 
 - `HIER-001` — Recursive generic constraint compiles per flavor with the bound
   type parameter.
@@ -178,3 +203,11 @@ TreeStructureChangedMessage:
   materialize lazily on first access).
 - `HIER-018` — `ReparentChild` rejects self- and ancestor-reparenting
   (added in v2.5.0 via ADR-0037).
+- `HIER-019` — `InvalidateChildren` drops the cached child list; the next
+  `Children` access invokes the factory again.
+- `HIER-020` — `InvalidateChildren` on an unmaterialized node is a no-op and
+  does not invoke the factory.
+- `HIER-021` — `InvalidateSubtree` invalidates this node and all materialized
+  descendants.
+- `HIER-022` — Child-cache invalidation publishes a `PropertyChangedMessage`
+  for the children property.

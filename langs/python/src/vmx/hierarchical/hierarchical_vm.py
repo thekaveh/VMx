@@ -316,6 +316,32 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             )
         )
 
+    def invalidate_children(self) -> None:
+        """Drop this node's materialized child cache.
+
+        The next :attr:`children` access invokes ``children_factory`` again.
+        Invalidating an unmaterialized node is a no-op.
+        """
+        if self._children_list is None:
+            return
+        self._children_list = None
+        self._children_view = None
+        self._hub.send(
+            PropertyChangedMessage.create(
+                sender=self,
+                sender_name=self._name,
+                property_name="children",
+            )
+        )
+
+    def invalidate_subtree(self) -> None:
+        """Drop cached children for this node and all materialized descendants."""
+        if self._children_list is None:
+            return
+        for child in list(self._children_list):
+            child.invalidate_subtree()
+        self.invalidate_children()
+
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _materialize_children(self) -> list[TVM]:

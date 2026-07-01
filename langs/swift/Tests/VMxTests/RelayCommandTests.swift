@@ -91,4 +91,18 @@ final class RelayCommandTests: XCTestCase {
         cmd.dispose()
         cmd.dispose() // must not crash
     }
+
+    /// CMD-013 — disposed RelayCommand instances are inert.
+    func testCmd013DisposedRelayCommandIsInert() {
+        var calls = 0
+        let cmd = RelayCommand.builder()
+            .task { calls += 1 }
+            .build()
+
+        cmd.dispose()
+        cmd.execute()
+
+        XCTAssertFalse(cmd.canExecute())
+        XCTAssertEqual(calls, 0)
+    }
 }

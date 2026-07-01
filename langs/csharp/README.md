@@ -1,20 +1,19 @@
 # vmx — C#
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
-spec-compatible with the Python, TypeScript, and Swift (subset) flavors.
+spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v2.6.0** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
+**v3.1.0** — implements `spec-v3.1.0` end-to-end. 279/279 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
 `INotificationHub`) at `1.2.0` (min spec 2.6.0). Each is independently
 versioned per ADR-0009 / ADR-0013 and stays on its own release line
-(the DI companion does not pull the 2.6.0 core bump); see
-`../../compatibility-matrix.md`. A Swift flavor sibling lands as a
-skeleton at `langs/swift/` (41-ID subset of `spec-v2.6.0`); see
-`../swift/README.md` §5 for the in / deferred matrix.
+(the DI companion does not pull the core bump); see
+`../../compatibility-matrix.md`. The Swift flavor is at total parity; see
+`../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
@@ -209,7 +208,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 232 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 279 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -225,6 +224,9 @@ v2.3   BLD-005        FORM-011..013 HIER-015..017
 v2.4   THEME-001..005
 v2.5   HIER-018       NOTIF-017     FORM-014
 v2.6   COMP-025..026
+v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
+v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
+       DIA-009..013   HIER-019..022 DISC-001..006
 ```
 
 Run the suite:

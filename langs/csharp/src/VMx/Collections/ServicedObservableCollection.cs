@@ -12,6 +12,8 @@ namespace VMx.Collections;
 ///
 /// When no hub is injected the class behaves exactly like a plain
 /// <see cref="ObservableCollection{T}"/> — no errors, no overhead.
+/// Ownership stays with the caller: removing, replacing, or clearing an item
+/// does not call <c>Dispose</c> or any VM lifecycle method on that item.
 ///
 /// See spec/21-collections.md §2 and ADR-0024.
 /// </summary>

@@ -241,3 +241,8 @@ class PagedComposition(Pageable, Generic[TVM]):
             if observable is not None:
                 sub = observable.subscribe(on_next=lambda _: self._on_source_mutated())
                 self._subscriptions.append(sub)
+        # CompositeVM and GroupVM expose one typed collection-changed stream.
+        observable = getattr(source, "on_collection_changed", None)
+        if observable is not None:
+            sub = observable.subscribe(on_next=lambda _: self._on_source_mutated())
+            self._subscriptions.append(sub)

@@ -5,16 +5,15 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/thekaveh/VMx/blob/main/LICENSE)
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for Python,
-spec-compatible with the C#, TypeScript, and Swift (subset) flavors.
+spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v2.6.1** — implements `spec-v2.6.0` end-to-end. 232/232 library conformance IDs
+**v3.1.0** — implements `spec-v3.1.0` end-to-end. 279/279 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
-`INotificationHub` for async confirmations. A Swift flavor sibling lands
-as a skeleton at `langs/swift/` (subset of `spec-v2.6.0`); see
-`../swift/README.md` §5 for the in / deferred matrix.
+`INotificationHub` for async confirmations. The Swift flavor is at total
+parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
@@ -188,7 +187,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 232 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 279 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -204,6 +203,9 @@ v2.3   BLD-005        FORM-011..013 HIER-015..017
 v2.4   THEME-001..005
 v2.5   HIER-018       NOTIF-017     FORM-014
 v2.6   COMP-025..026
+v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
+v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
+       DIA-009..013   HIER-019..022 DISC-001..006
 ```
 
 Run the suite:

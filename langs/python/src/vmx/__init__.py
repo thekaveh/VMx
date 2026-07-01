@@ -59,6 +59,7 @@ from vmx.collections import (
     ObservableList,
     PagedComposition,
     ServicedObservableCollection,
+    TokenPagedComposition,
 )
 from vmx.commands import (
     AsyncRelayCommand,
@@ -93,11 +94,15 @@ from vmx.composites import (
     CompositeVMBuilder,
     CompositeVMOf,
     CompositeVMOfBuilder,
+    FilteredCompositeVM,
+    FilteredCursorPolicy,
+    ScoredFilteredCompositeVM,
 )
 from vmx.dialogs import (
     NULL_DIALOG_SERVICE,
     DialogService,
     FileFilter,
+    ModalVM,
     NotificationSeverity,
     NullDialogService,
 )
@@ -139,6 +144,7 @@ from vmx.services import (
     NullMessageHub,
     RxDispatcher,
 )
+from vmx.state import DiscriminatorVM
 from vmx.tree import find, walk, walk_expanded
 
 __all__ = [
@@ -180,10 +186,13 @@ __all__ = [
     "DecoratorCommand",
     "DerivedProperty",
     "DialogService",
+    "DiscriminatorVM",
     "Dispatcher",
     "ExpandableState",
     "FileFilter",
     "Filterable",
+    "FilteredCompositeVM",
+    "FilteredCursorPolicy",
     "FormRevertedMessage",
     "FormVM",
     "FormVMBuilder",
@@ -217,6 +226,7 @@ __all__ = [
     "Message",
     "MessageHub",
     "MessageHubProto",
+    "ModalVM",
     "ModeledCrudCommands",
     "NotificationSeverity",
     "NullDialogService",
@@ -236,9 +246,11 @@ __all__ = [
     "RelayCommandOf",
     "RelayCommandOfBuilder",
     "RxDispatcher",
+    "ScoredFilteredCompositeVM",
     "SearchableState",
     "ServicedObservableCollection",
     "StatusTransitionError",
+    "TokenPagedComposition",
     "TreeStructureChange",
     "TreeStructureChangedMessage",
     "TypedMessage",

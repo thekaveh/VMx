@@ -23,6 +23,7 @@ from vmx.collections.observable_dictionary import ObservableDictionary
 from vmx.collections.observable_list import ObservableList
 from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.serviced_observable_collection import ServicedObservableCollection
+from vmx.collections.token_paged_composition import TokenPagedComposition
 
 __all__ = [
     "BatchUpdateHandle",
@@ -31,4 +32,5 @@ __all__ = [
     "ObservableList",
     "PagedComposition",
     "ServicedObservableCollection",
+    "TokenPagedComposition",
 ]

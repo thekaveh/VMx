@@ -9,9 +9,10 @@
  * Stateless — safe to share via {@link NullDialogService.INSTANCE}.
  * See spec/19-dialogs.md §3 and ADR-0017.
  */
-import type { FileFilter, IDialogService, NotificationSeverity } from "./dialogService.js";
+import type { FileFilter, IModalDialogService, NotificationSeverity } from "./dialogService.js";
+import type { ModalVM } from "./modalVM.js";
 
-export class NullDialogService implements IDialogService {
+export class NullDialogService implements IModalDialogService {
   /** Shared singleton instance (the service holds no state). */
   static readonly INSTANCE: NullDialogService = new NullDialogService();
 
@@ -43,5 +44,10 @@ export class NullDialogService implements IDialogService {
     _severity?: NotificationSeverity,
   ): Promise<void> {
     return Promise.resolve();
+  }
+
+  present<T>(modalVm: ModalVM<T>): Promise<T> {
+    modalVm.dismiss(modalVm.cancellationResult);
+    return Promise.resolve(modalVm.cancellationResult);
   }
 }
