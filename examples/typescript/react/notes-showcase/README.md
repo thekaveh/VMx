@@ -20,7 +20,7 @@ ESLint's `no-restricted-imports` rule enforces that under
 
 ```bash
 cd examples/typescript/react/notes-showcase
-npm install
+npm ci
 npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 

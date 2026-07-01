@@ -12,9 +12,9 @@
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
 specification, four idiomatic language flavors (C# / Python / TypeScript / Swift
-at total parity), 279 library conformance IDs + 5 THEME scenario IDs = **284
-total** verified on every commit (all four flavors, including the Swift
-notes-showcase flagship).
+at total parity), 281 library conformance IDs + 5 THEME scenario IDs = **286
+total** verified by path-filtered CI on relevant changes (all four flavors,
+including the Swift notes-showcase flagship).
 
 ## 0. Contents
 
@@ -104,8 +104,8 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 78 ADRs,
-  4 JSON fixtures, 284 conformance IDs, version pinned in `spec/VERSION`.
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 79 ADRs,
+  4 JSON fixtures, 286 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
@@ -130,16 +130,20 @@ Each flavor implements the same conceptual stack:
 
 ### 3.1 Versions and packages
 
-| Flavor     | Package                                                              | Status            | Reactive primitive |
-| ---------- | -------------------------------------------------------------------- | ----------------- | ------------------ |
-| C#         | [`VMx`](https://www.nuget.org/packages/VMx/) on NuGet                | v3.1.0            | System.Reactive    |
-| Python     | [`vmx`](https://pypi.org/project/vmx/) on PyPI                       | v3.1.0            | reactivex          |
-| TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v3.1.0            | rxjs               |
-| Swift      | `VMx` Swift Package (not yet published)                              | v3.1.0            | Combine            |
+| Flavor     | Source status               | Public package status                                      | Reactive primitive |
+| ---------- | --------------------------- | ---------------------------------------------------------- | ------------------ |
+| C#         | v3.1.0 in source            | NuGet package not published yet                            | System.Reactive    |
+| Python     | v3.1.0 in source            | [`vmx`](https://pypi.org/project/vmx/) latest published: 2.6.1 | reactivex       |
+| TypeScript | v3.1.0 in source            | npm package not published yet                              | rxjs               |
+| Swift      | v3.1.0 in source            | SwiftPM consumes git tags; no central registry             | Combine            |
 
-The **Swift flavor is at total parity** — all 279 library conformance IDs as
+`main` may contain an in-development source version before that version is
+published to package registries. Use the compatibility matrix for source-level
+spec parity; use each registry for installable package availability.
+
+The **Swift flavor is at total parity** — all 281 library conformance IDs as
 of v3.1.0 plus the 5 `THEME-00x` scenario IDs covered by the
-`examples/swift/notes-showcase/` flagship (ADR-0067) = **284 total**, matching
+`examples/swift/notes-showcase/` flagship (ADR-0067) = **286 total**, matching
 C#, Python, and TypeScript. See [`langs/swift/README.md`](langs/swift/README.md)
 §5 for the full ID matrix. The C# flavor multi-targets `netstandard2.0` and
 `net8.0` and ships two companion assemblies:
@@ -175,15 +179,15 @@ Every published package declares its `MinSpecVersion` /
 ### 4.1 Install
 
 ```bash
-# C#
+# C# (after the NuGet package is published)
 dotnet add package VMx
 
-# Python
+# Python (latest public package may lag this source tree)
 pip install vmx
 # or
 uv add vmx
 
-# TypeScript — note the scoped package name (renamed from `vmx` in v2.4.0)
+# TypeScript (after the npm package is published)
 npm install @thekaveh/vmx rxjs
 ```
 
@@ -220,7 +224,7 @@ for the canonical scenario contract.
   — Notes Workspace flagship on Textual ≥ 0.80 (TUI). Run:
   `uv run --project examples/python/textual/notes_showcase python -m notes_showcase`.
 - [`examples/typescript/react/notes-showcase/`](examples/typescript/react/notes-showcase/)
-  — Notes Workspace flagship on React 18 + Vite. Run: `npm install && npm run dev`
+  — Notes Workspace flagship on React 18 + Vite. Run: `npm ci && npm run dev`
   from the example dir; production bundle via `npm run build`.
 - [`examples/swift/notes-showcase/`](examples/swift/notes-showcase/)
   — Notes Workspace flagship on SwiftUI + Combine (macOS). Build and test via
@@ -246,7 +250,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0078)
+│   ├── ADRs/              architecture decision records (0001..0079)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
@@ -254,7 +258,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (v3.1.0, total parity — 279 library + 5 THEME)
+│   └── swift/             VMx Swift Package (v3.1.0, total parity — 281 library + 5 THEME)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -277,27 +281,32 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 78 ADRs,
-  4 fixtures, and the 284-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 79 ADRs,
+  4 fixtures, and the 286-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.1.0, total parity — 279 library + 5 THEME).
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.1.0, total parity — 281 library + 5 THEME).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
   [`langs/typescript/CHANGELOG.md`](langs/typescript/CHANGELOG.md),
   [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md).
 - Per-flavor release runbooks:
+  [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md) — NuGet release
+  pipeline for `VMx` plus companion packages,
   [`langs/python/RELEASING.md`](langs/python/RELEASING.md) — PyPI release
   pipeline (`python-test` matrix gate → `pypi-python` environment approval →
   Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740) attestations →
   `python-verify-published` fresh-venv smoke test → `python-release-notes`
-  CHANGELOG-extracted GitHub Release). release-please automates routine
-  version bumps + CHANGELOG entries via Conventional Commits. Other-flavor
-  runbooks land as their pipelines are uplifted.
+  CHANGELOG-extracted GitHub Release),
+  [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md) — npm
+  publish with provenance, and
+  [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md) — SwiftPM tag +
+  GitHub Release flow. release-please currently automates Python routine
+  version bumps + CHANGELOG entries via Conventional Commits.
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
   [`docs/getting-started/python.md`](docs/getting-started/python.md),
@@ -335,18 +344,18 @@ bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 284 normative test scenarios keyed by ID
+`spec/12-conformance.md` enumerates 286 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`THEME-001`, …) — 279 library IDs plus 5 `THEME` scenario IDs. All four
-flavors (C# / Python / TypeScript / Swift) implement the 279 library IDs under
+`THEME-001`, …) — 281 library IDs plus 5 `THEME` scenario IDs. All four
+flavors (C# / Python / TypeScript / Swift) implement the 281 library IDs under
 their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
 `langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
 `langs/swift/Tests/VMxTests`), and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. All four
 flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
 example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
-flavor is at **total parity: 279 library + 5 THEME = 284**.
+flavor is at **total parity: 281 library + 5 THEME = 286**.
 
 ```bash
 # Verify all four flavors are at full catalog coverage

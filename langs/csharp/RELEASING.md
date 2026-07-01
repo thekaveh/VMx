@@ -69,24 +69,25 @@ when it has changes to ship.
 
 7. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> —
    the publish pipeline fires on the tag.
-8. If `NUGET_API_KEY` is set, the `Push to NuGet` step runs automatically (no
-   manual approval gate — unlike Python's pypi-python environment gate). If it
-   is not set, the step is skipped silently; check the Actions log.
-
+8. The workflow verifies the tag commit is reachable from `origin/main` before
+   it builds. If `NUGET_API_KEY` is missing, the job fails before publish rather
+   than green-skipping the release.
 ### 2.2 What the pipeline does
 
 The `csharp` job in `release.yml` runs only when the tag starts with
 `csharp-v`. It:
 
-1. Checks out the repository.
+1. Checks out the repository and verifies the tag commit is reachable from
+   `origin/main`.
 2. Sets up .NET 8.0.x and 9.0.x, restoring from the packages lockfile.
 3. Runs `dotnet restore VMx.sln --locked-mode`.
 4. Runs `dotnet build VMx.sln -c Release`.
 5. Runs `dotnet test VMx.sln -c Release` (full test suite incl. conformance).
 6. Finds package projects under `langs/csharp/src/*/*.csproj` whose `<Version>`
    matches the tag and runs `dotnet pack` for those projects only.
-7. Runs `dotnet nuget push /tmp/nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json`
-   with `--skip-duplicate` (only if `NUGET_API_KEY` is present).
+7. Fails if `NUGET_API_KEY` is absent.
+8. Runs `dotnet nuget push /tmp/nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json`
+   with `--skip-duplicate`.
 
 There is no separate verify-published or release-notes job for C# yet;
 add them alongside adoption of release-please.
@@ -123,9 +124,9 @@ cut a new tag with a bumped patch version.
 
 ### 4.2 `NUGET_API_KEY` not set / expired
 
-The push step is guarded by `if: env.NUGET_API_KEY != ''` and silently skips
-when the secret is absent. Regenerate the API key on NuGet, update the
-`NUGET_API_KEY` Actions secret, and re-push the tag:
+The job fails before publish when the secret is absent or expired. Regenerate
+the API key on NuGet, update the `NUGET_API_KEY` Actions secret, and re-run the
+failed workflow. If the tag itself was wrong, delete and recreate it on `main`:
 
 ```bash
 git push origin --delete csharp-v2.6.1

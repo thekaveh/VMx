@@ -105,17 +105,17 @@ For routine pre-releases via release-please, mark commits with `feat!:` / `fix!:
 ```bash
 # PyPI page renders:
 curl -sS https://pypi.org/pypi/vmx/json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['info']['name'], d['info']['version'])"
-# → vmx 2.6.0
+# → vmx 2.6.1
 
 # Install in a fresh venv:
 python3 -m venv /tmp/vmx-verify
 /tmp/vmx-verify/bin/pip install --upgrade pip
-/tmp/vmx-verify/bin/pip install vmx==2.6.0
-/tmp/vmx-verify/bin/python langs/python/scripts/smoke_test.py 2.6.0
+/tmp/vmx-verify/bin/pip install vmx==2.6.1
+/tmp/vmx-verify/bin/python langs/python/scripts/smoke_test.py 2.6.1
 # → OK
 
 # GitHub Release:
-gh release view python-v2.6.0
+gh release view python-v2.6.1
 ```
 
 ## 4. Failure modes

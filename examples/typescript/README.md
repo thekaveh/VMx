@@ -4,12 +4,8 @@ Self-contained demos of the [VMx TypeScript package](../../langs/typescript/).
 
 ## 1. Setup
 
-Examples here use [tsx](https://github.com/privatenumber/tsx) to run
-TypeScript directly without a separate compile step. Install once:
-
-```bash
-npm install -g tsx
-```
+Examples here use each example's checked-in `package-lock.json` and local npm
+scripts. Run `npm ci` in the example directory before starting it.
 
 ---
 
@@ -24,18 +20,11 @@ Minimal console demo. Demonstrates:
 4. The equality guard: setting the same model value emits **no** hub
    message.
 
-**Run against the published package:**
-
-```bash
-npm install @thekaveh/vmx
-npx tsx console/hello-vmx/index.ts
-```
-
 **Run against the local source build (from a clone of this repo):**
 
 ```bash
 cd examples/typescript/console/hello-vmx
-npm install
+npm ci
 npm start          # runs the local VMx build first
 ```
 
@@ -56,7 +45,7 @@ Pure-VM contract enforced via ESLint's
 
 ```bash
 cd react/notes-showcase
-npm install
+npm ci
 npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 

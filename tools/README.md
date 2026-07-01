@@ -76,7 +76,7 @@ python3 tools/check-axaml-codebehind.py
 python3 tools/check-textual-views.py
 python3 tools/check-layer-imports.py
 python3 tools/check-showcase-parity.py
-( cd examples/typescript/react/notes-showcase && npx eslint src/views/components )
+( cd examples/typescript/react/notes-showcase && npm exec --no -- eslint src/views/components )
 ```
 
 <!-- Future tooling ideas (matrix generator, spec-to-docs renderer) are tracked as

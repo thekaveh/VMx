@@ -149,4 +149,4 @@ jobs:
         # ESLint config under examples/typescript/react/notes-showcase/
         # encodes the rules; running it as a dedicated step surfaces
         # violations distinctly from generic test failures.
-        run: cd examples/typescript/react/notes-showcase && npx eslint src/views/components
+        run: cd examples/typescript/react/notes-showcase && npm exec --no -- eslint src/views/components

@@ -45,8 +45,11 @@ def test_parse_csharp_versions(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     info = cvc.parse_csharp_versions(csproj)
+    assert info["package_id"] == "VMx"
     assert info["version"] == "2.6.0"
     assert info["min_spec_version"] == "2.6.0"
+    assert info["tag_prefix"] == "csharp"
+    assert info["require_current_spec"] == "true"
 
 
 def test_parse_csharp_versions_different_patch(tmp_path: Path) -> None:
@@ -58,6 +61,65 @@ def test_parse_csharp_versions_different_patch(tmp_path: Path) -> None:
     info = cvc.parse_csharp_versions(csproj)
     assert info["version"] == "2.7.1"
     assert info["min_spec_version"] == "2.7.0"
+
+
+def test_collect_manifests_includes_csharp_companion_packages(tmp_path: Path) -> None:
+    csharp_src = tmp_path / "langs" / "csharp" / "src"
+    core = csharp_src / "VMx"
+    notifications = csharp_src / "VMx.Notifications"
+    di = csharp_src / "VMx.Extensions.DependencyInjection"
+    core.mkdir(parents=True)
+    notifications.mkdir()
+    di.mkdir()
+
+    (core / "VMx.csproj").write_text(
+        "<Project><PropertyGroup><PackageId>VMx</PackageId><Version>3.1.0</Version>"
+        "<MinSpecVersion>3.1.0</MinSpecVersion></PropertyGroup></Project>",
+        encoding="utf-8",
+    )
+    (notifications / "VMx.Notifications.csproj").write_text(
+        "<Project><PropertyGroup><PackageId>VMx.Notifications</PackageId>"
+        "<Version>1.2.0</Version><MinSpecVersion>2.6.0</MinSpecVersion>"
+        "</PropertyGroup></Project>",
+        encoding="utf-8",
+    )
+    (di / "VMx.Extensions.DependencyInjection.csproj").write_text(
+        "<Project><PropertyGroup><PackageId>VMx.Extensions.DependencyInjection</PackageId>"
+        "<Version>2.1.0</Version><MinSpecVersion>2.1.0</MinSpecVersion>"
+        "</PropertyGroup></Project>",
+        encoding="utf-8",
+    )
+
+    manifests = cvc.collect_manifests(tmp_path)
+
+    assert manifests["csharp"]["version"] == "3.1.0"
+    assert manifests["csharp"]["require_current_spec"] == "true"
+    assert manifests["csharp/VMx.Notifications"]["version"] == "1.2.0"
+    assert manifests["csharp/VMx.Notifications"]["tag_prefix"] == "csharp"
+    assert manifests["csharp/VMx.Notifications"]["require_current_spec"] == "false"
+    assert manifests["csharp/VMx.Extensions.DependencyInjection"]["version"] == "2.1.0"
+
+
+def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -> None:
+    manifests = {
+        "csharp": {
+            "version": "3.1.0",
+            "min_spec_version": "3.1.0",
+            "tag_prefix": "csharp",
+            "require_current_spec": "true",
+        },
+        "csharp/VMx.Extensions.DependencyInjection": {
+            "version": "2.1.0",
+            "min_spec_version": "2.1.0",
+            "tag_prefix": "csharp",
+            "require_current_spec": "false",
+        },
+    }
+
+    assert cvc.check_min_spec_versions("3.1.0", manifests) == []
+
+    missing = cvc.find_missing_tags("3.1.0", manifests, [], {"csharp-v3.1.0"})
+    assert "csharp-v2.1.0" in missing
 
 
 # ── parse_python_versions ─────────────────────────────────────────────

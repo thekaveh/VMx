@@ -18,14 +18,25 @@ def _build_valid_tree(root: Path) -> None:
         (py / f"test_{slug}.py").write_text("# stub\n")
         (ts / f"{csp._camel(slug)}.test.ts").write_text("// stub\n")
         (sw / f"{csp._pascal(slug)}Tests.swift").write_text("// stub\n")
-    theme_text = "\n".join(csp.THEME_IDS)
-    for d, name in (
-        (cs, "ThemeVMTests.cs"),
-        (py, "test_theme_vm.py"),
-        (ts, "themeVm.test.ts"),
-        (sw, "ThemeVMTests.swift"),
-    ):
-        (d / name).write_text(theme_text, encoding="utf-8")
+    (cs / "ThemeVMTests.cs").write_text(
+        "\n".join(f"[Fact]\npublic void THEME_{i:03d}_Scenario() {{ }}" for i in range(1, 6)),
+        encoding="utf-8",
+    )
+    (py / "test_theme_vm.py").write_text(
+        "\n".join(
+            f'@pytest.mark.conformance("THEME-{i:03d}")\ndef test_THEME_{i:03d}_scenario(): pass'
+            for i in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+    (ts / "themeVm.test.ts").write_text(
+        "\n".join(f'describe("THEME-{i:03d} scenario", () => {{}});' for i in range(1, 6)),
+        encoding="utf-8",
+    )
+    (sw / "ThemeVMTests.swift").write_text(
+        "\n".join(f"func testTHEME{i:03d}_Scenario() {{ }}" for i in range(1, 6)),
+        encoding="utf-8",
+    )
 
 
 def test_expected_keys_pascal_case_for_csharp() -> None:
@@ -95,3 +106,25 @@ def test_main_returns_one_when_theme_marker_is_missing(tmp_path, monkeypatch, ca
     monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
     assert csp.main() == 1
     assert "THEME-005" in capsys.readouterr().err
+
+
+def test_main_returns_one_when_theme_id_is_comment_only(tmp_path, monkeypatch, capsys) -> None:
+    """THEME IDs in prose/comments must not satisfy executable test coverage."""
+    _build_valid_tree(tmp_path)
+    theme_test = (
+        tmp_path
+        / "examples"
+        / "typescript"
+        / "react"
+        / "notes-showcase"
+        / "tests"
+        / "themeVm.test.ts"
+    )
+    theme_test.write_text(
+        "// THEME-001 THEME-002 THEME-003 THEME-004 THEME-005\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "executable scenario marker" in capsys.readouterr().err

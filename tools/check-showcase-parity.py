@@ -31,6 +31,7 @@ a file whose basename matches the slug under any of the accepted conventions.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -114,6 +115,33 @@ def _stem_contains(stem: str, key: str) -> bool:
     return key in stem
 
 
+def _theme_marker_present(flavor: str, theme_id: str, text: str) -> bool:
+    """Return true when ``theme_id`` appears on an executable test declaration."""
+    number = theme_id.split("-", 1)[1]
+    compact = f"THEME{number}"
+    underscored = f"THEME_{number}"
+    suffix = r"(?:\b|_)"
+    escaped = re.escape(theme_id)
+
+    if flavor == "python":
+        return (
+            re.search(rf"@pytest\.mark\.conformance\(\s*['\"]{escaped}['\"]\s*\)", text) is not None
+            or re.search(rf"def\s+test_{underscored}{suffix}", text) is not None
+        )
+    if flavor == "csharp":
+        return (
+            re.search(rf"\[Fact[^\]]*\]\s*public\s+void\s+{underscored}{suffix}", text) is not None
+        )
+    if flavor == "typescript":
+        return (
+            re.search(rf"\bdescribe\(\s*['\"]{escaped}\b", text) is not None
+            or re.search(rf"\bit\(\s*['\"]{escaped}\b", text) is not None
+        )
+    if flavor == "swift":
+        return re.search(rf"\bfunc\s+test{compact}{suffix}", text) is not None
+    return False
+
+
 def check(roots: dict[str, Path]) -> int:
     failed = False
     for flavor, root in roots.items():
@@ -146,8 +174,11 @@ def check(roots: dict[str, Path]) -> int:
             if p.is_file() and p.suffix.lower() in {".cs", ".py", ".ts", ".tsx", ".swift"}
         )
         for theme_id in THEME_IDS:
-            if theme_id not in text:
-                print(f"{flavor}: missing scenario marker '{theme_id}'", file=sys.stderr)
+            if not _theme_marker_present(flavor, theme_id, text):
+                print(
+                    f"{flavor}: missing executable scenario marker '{theme_id}'",
+                    file=sys.stderr,
+                )
                 failed = True
 
     if failed:

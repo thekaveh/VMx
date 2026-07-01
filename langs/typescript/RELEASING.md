@@ -62,24 +62,25 @@ Check each URL is reachable before pushing the tag.
 
 7. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> —
    the publish pipeline fires on the tag.
-8. If `NPM_TOKEN` is set, the `Publish to npm` step runs automatically (no
-   manual approval gate). If it is not set, the step is skipped silently —
-   check the Actions log.
+8. The workflow verifies the tag commit is reachable from `origin/main` before
+   it builds. If `NPM_TOKEN` is missing, the job fails before publish rather
+   than green-skipping the release.
 
 ### 2.2 What the pipeline does
 
 The `typescript` job in `release.yml` runs only when the tag starts with
 `typescript-v`. It:
 
-1. Checks out the repository.
+1. Checks out the repository and verifies the tag commit is reachable from
+   `origin/main`.
 2. Sets up Node 20 and restores `npm ci` from the lockfile.
 3. Runs `npm run build` (compiles TypeScript, emits dual ESM + CJS via tsup;
    also runs `npm run sync-fixtures` via the `prebuild` hook to copy
    `spec/fixtures/*.json` into `src/fixtures/`).
 4. Runs `npm test` (vitest).
 5. Runs `npm audit --package-lock-only --audit-level=low`.
-6. Runs `npm publish --access public --provenance` (only if `NPM_TOKEN` is present in
-   the job environment).
+6. Fails if `NPM_TOKEN` is absent.
+7. Runs `npm publish --access public --provenance`.
 
 There is no separate verify-published or release-notes job for TypeScript
 yet; add them alongside adoption of release-please.
@@ -116,9 +117,9 @@ version.
 
 ### 4.2 `NPM_TOKEN` not set / expired
 
-The publish step is guarded by `if: env.NPM_TOKEN != ''` and silently skips
-when the secret is absent. Regenerate the token on npm, update the `NPM_TOKEN`
-Actions secret, and re-push the tag (delete and re-create it):
+The job fails before publish when the secret is absent or expired. Regenerate
+the token on npm, update the `NPM_TOKEN` Actions secret, and re-run the failed
+workflow. If the tag itself was wrong, delete and recreate it on `main`:
 
 ```bash
 git push origin --delete typescript-v2.6.1
