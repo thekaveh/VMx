@@ -81,7 +81,7 @@ final class HierarchicalInvalidationTests: XCTestCase {
         _ = root.children
 
         root.invalidateChildren()
-        token.dispose()
+        token.cancel()
 
         XCTAssertTrue(seen.contains { $0.senderObject === root && $0.propertyName == "children" })
     }
