@@ -148,8 +148,10 @@ describe("NoteFormVM", () => {
     const { vm } = makeForm();
     vm.bindTo(aNote({ title: "" }));
     expect(vm.isValid).toBe(false);
+    expect(vm.titleError).toBe("Title is required.");
     vm.draft = { ...vm.draft, title: "Now valid" };
     expect(vm.isValid).toBe(true);
+    expect(vm.titleError).toBeNull();
   });
 
   it("builder validates required fields", () => {

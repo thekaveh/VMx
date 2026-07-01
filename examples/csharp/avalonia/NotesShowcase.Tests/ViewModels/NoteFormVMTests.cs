@@ -106,6 +106,10 @@ public sealed class NoteFormVMTests
         var (form, _) = Build();
         form.BindTo(SampleNote(""));
         Assert.False(form.IsValid);
+        Assert.Equal("Title is required.", form.TitleError);
+        form.Title = "Now valid";
+        Assert.True(form.IsValid);
+        Assert.Null(form.TitleError);
     }
 
     [Fact]

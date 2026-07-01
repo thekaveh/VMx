@@ -35,6 +35,7 @@ import type { NoteModel } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
 
 const SENTINEL = Symbol("not-set");
+const TITLE_REQUIRED = "Title is required.";
 
 const EMPTY: NoteModel = {
   id: "",
@@ -138,9 +139,12 @@ export class NoteFormVM extends ComponentVMBase {
     return this.#form?.isDirty ?? false;
   }
 
-  /** Validation: non-empty title. */
   get isValid(): boolean {
-    return this.draft.title.trim().length > 0;
+    return this.#form?.isValid ?? false;
+  }
+
+  get titleError(): string | null {
+    return this.#form?.fieldError("title") ?? null;
   }
 
   /** Comma-joined tag list — bind UI text labels to this so the rendered
@@ -195,6 +199,9 @@ export class NoteFormVM extends ComponentVMBase {
       persister: (m) => this.#persistAsync(m),
       hub: this._hub,
       strict: true,
+      validators: {
+        title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
+      },
     });
     this.#form.onApproved.subscribe((m) => this.#onSaved.next(m));
     this.#emitDraftChanges();
@@ -291,6 +298,7 @@ export class NoteFormVM extends ComponentVMBase {
       "snapshot",
       "isDirty",
       "isValid",
+      "titleError",
       "tagsText",
       "approveCommand",
       "denyCommand",

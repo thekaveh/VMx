@@ -26,6 +26,7 @@ from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.views.adapter import (
     bind_command,
     bind_derived_property,
+    bind_property,
     bind_property_two_way,
 )
 
@@ -36,6 +37,9 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
         # Two-way scalar bindings (binding-gap #1 fix).
         bind_property_two_way(
             view.query_one("#form_title", Input), "value", vm, "title"
+        ),
+        bind_property(
+            view.query_one("#form_title_error", Static), "renderable", vm, "title_error"
         ),
         bind_property_two_way(
             view.query_one("#form_starred", Checkbox), "value", vm, "starred"
@@ -77,6 +81,7 @@ class NoteFormView(Vertical):
     def compose(self) -> ComposeResult:
         yield Static("Note", classes="pane_title")
         yield Input(placeholder="Title", id="form_title")
+        yield Static("", id="form_title_error")
         yield Checkbox("Starred", id="form_starred")
         yield Horizontal(
             Input(placeholder="add tag", id="form_tag_draft"),

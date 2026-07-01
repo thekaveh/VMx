@@ -48,6 +48,7 @@ _EMPTY_NOTE = NoteModel(
     created_at=datetime.fromtimestamp(0),
     updated_at=datetime.fromtimestamp(0),
 )
+_TITLE_REQUIRED = "Title is required."
 
 
 class NoteFormVM(ComponentVM, IReconstructable):
@@ -226,7 +227,11 @@ class NoteFormVM(ComponentVM, IReconstructable):
         return self._form.is_dirty if self._form is not None else False
 
     def _compute_is_valid(self) -> bool:
-        return bool(self.draft.title.strip())
+        return self._form.is_valid if self._form is not None else False
+
+    @property
+    def title_error(self) -> str | None:
+        return self._form.field_error("title") if self._form is not None else None
 
     # ── Tag draft + commands ───────────────────────────────────────────────
     @property
@@ -328,6 +333,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
             persister=self._persist,
             hub=self._hub,
             strict=True,
+            validators={
+                "title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None
+            },
         )
         form.on_approved.subscribe(on_next=self._handle_approved)
         self._form = form
@@ -421,6 +429,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             "snapshot",
             "is_dirty",
             "is_valid",
+            "title_error",
             "title",
             "body",
             "starred",

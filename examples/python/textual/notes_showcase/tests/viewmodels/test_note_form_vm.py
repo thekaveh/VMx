@@ -89,6 +89,10 @@ def test_empty_title_is_not_valid() -> None:
     vm, _ = _build_vm()
     vm.bind_to(_sample_note(title="   "))
     assert vm.is_valid.value is False
+    assert vm.title_error == "Title is required."
+    vm.title = "Now valid"
+    assert vm.is_valid.value is True
+    assert vm.title_error is None
 
 
 def test_approve_command_can_execute_requires_is_dirty_and_is_valid() -> None:

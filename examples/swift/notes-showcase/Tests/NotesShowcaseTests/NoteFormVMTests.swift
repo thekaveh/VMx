@@ -136,6 +136,10 @@ final class NoteFormVMTests: XCTestCase {
         let (form, _) = try build()
         form.bindTo(sampleNote(title: ""))
         XCTAssertFalse(form.isValid)
+        XCTAssertEqual("Title is required.", form.titleError)
+        form.title = "Now valid"
+        XCTAssertTrue(form.isValid)
+        XCTAssertNil(form.titleError)
     }
 
     // MARK: - Tags

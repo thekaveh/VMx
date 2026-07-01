@@ -27,6 +27,7 @@ namespace NotesShowcase.ViewModels;
 /// </summary>
 public sealed class NoteFormVM : ComponentVMBase, IReconstructable
 {
+    private const string TitleRequired = "Title is required.";
     private readonly INoteRepository _repo;
     private readonly INotificationHub? _notificationHub;
     private FormVM<NoteModel>? _form;
@@ -118,8 +119,11 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <summary>True when the draft differs from the snapshot.</summary>
     public bool IsDirty => _form?.IsDirty ?? false;
 
-    /// <summary>True when the draft passes validation (non-empty title).</summary>
-    public bool IsValid => !string.IsNullOrWhiteSpace(Draft.Title);
+    /// <summary>True when the draft passes FormVM validation.</summary>
+    public bool IsValid => _form?.IsValid ?? false;
+
+    /// <summary>Field-level validation error for <see cref="Title"/>, if any.</summary>
+    public string? TitleError => _form?.FieldError(nameof(Title));
 
     /// <summary>Approve = persist via repo + publish "Saved" notification.</summary>
     public ICommand ApproveCommand { get; }
@@ -175,7 +179,11 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             initial: note,
             persister: PersistAsync,
             hub: Hub,
-            strict: true);
+            strict: true,
+            validators: new Dictionary<string, Func<NoteModel, string?>>
+            {
+                [nameof(Title)] = note => string.IsNullOrWhiteSpace(note.Title) ? TitleRequired : null
+            });
         _approvedSub = _form.OnApproved.Subscribe(m => _onSaved.OnNext(m));
         EmitDraftChanges();
     }
@@ -265,6 +273,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Snapshot)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsDirty)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsValid)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TitleError)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Title)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Body)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
@@ -279,6 +288,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         RaisePropertyChanged(nameof(Snapshot));
         RaisePropertyChanged(nameof(IsDirty));
         RaisePropertyChanged(nameof(IsValid));
+        RaisePropertyChanged(nameof(TitleError));
         RaisePropertyChanged(nameof(Title));
         RaisePropertyChanged(nameof(Body));
         RaisePropertyChanged(nameof(Starred));

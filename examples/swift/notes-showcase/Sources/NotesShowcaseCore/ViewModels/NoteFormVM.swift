@@ -18,6 +18,7 @@ import VMx
 /// `form.setModel` then fires property-changed signals for every derived
 /// property so two-way UI bindings stay in sync.
 public final class NoteFormVM: ComponentVMBase {
+    private static let titleRequired = "Title is required."
 
     // ── Private state ──────────────────────────────────────────────────────
 
@@ -123,10 +124,11 @@ public final class NoteFormVM: ComponentVMBase {
     /// `true` when the draft differs from the snapshot.
     public var isDirty: Bool { _form?.isDirty ?? false }
 
-    /// `true` when the draft has a non-empty (non-whitespace) title.
-    public var isValid: Bool {
-        !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    /// `true` when the draft passes FormVM validation.
+    public var isValid: Bool { _form?.isValid ?? false }
+
+    /// Field-level validation error for `title`, if any.
+    public var titleError: String? { _form?.fieldError("title") }
 
     /// Emits the persisted note after each successful approve.
     public var onSaved: AnyPublisher<NoteModel, Never> {
@@ -220,7 +222,14 @@ public final class NoteFormVM: ComponentVMBase {
                 try await self._repo.saveNote(n)
             },
             hub: hub,
-            strict: true
+            strict: true,
+            validators: [
+                "title": { model in
+                    model.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? Self.titleRequired
+                        : nil
+                }
+            ]
         )
         _form = form
         _approvedCancellable = form.onApproved
@@ -300,6 +309,7 @@ public final class NoteFormVM: ComponentVMBase {
     private func emitDraftChanges() {
         let props: [String] = [
             "draft", "snapshot", "isDirty", "isValid",
+            "titleError",
             "title", "body", "starred", "tags", "tagsText",
             "approveCommand", "denyCommand"
         ]

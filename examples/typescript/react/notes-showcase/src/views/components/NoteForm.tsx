@@ -73,7 +73,14 @@ export const NoteForm: React.FC<NoteFormProps> = ({ ws }) => {
           type="text"
           value={draft.title}
           onChange={onTitleChange}
+          aria-invalid={form.titleError !== null}
+          aria-describedby={form.titleError === null ? undefined : "note-form-title-error"}
         />
+        {form.titleError !== null ? (
+          <span id="note-form-title-error" className="note-form-error">
+            {form.titleError}
+          </span>
+        ) : null}
       </div>
       <div className="note-form-row">
         <label htmlFor="note-form-tags">Tags</label>
@@ -116,7 +123,7 @@ export const NoteForm: React.FC<NoteFormProps> = ({ ws }) => {
       </label>
       <p className="note-form-status">
         {form.isDirty ? "Modified" : "Saved"}
-        {form.isValid ? "" : " · title required"}
+        {form.isValid ? "" : ` · ${form.titleError ?? "invalid"}`}
       </p>
       <div className="note-form-buttons">
         <button type="submit" disabled={!save.canExecute}>Save</button>

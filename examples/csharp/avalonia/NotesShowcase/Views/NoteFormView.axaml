@@ -20,11 +20,14 @@
                    Text="Note" Margin="0,0,0,8" />
 
         <!-- Title (row 1) -->
-        <TextBox Grid.Row="1"
-                 Watermark="Title"
-                 AutomationProperties.Name="Note title"
-                 Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                 Margin="0,0,0,8" />
+        <StackPanel Grid.Row="1" Spacing="2" Margin="0,0,0,8">
+            <TextBox Watermark="Title"
+                     AutomationProperties.Name="Note title"
+                     Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Foreground="#fb7185"
+                       FontSize="12"
+                       Text="{Binding TitleError}" />
+        </StackPanel>
 
         <!-- Tags (row 2): chips + input -->
         <StackPanel Grid.Row="2" Orientation="Vertical" Spacing="4" Margin="0,0,0,8">

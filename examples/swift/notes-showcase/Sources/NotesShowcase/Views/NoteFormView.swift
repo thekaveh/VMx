@@ -61,6 +61,11 @@ struct NoteFormView: View {
                             set: { bound.vm.title = $0 }
                         ))
                         .textFieldStyle(.roundedBorder)
+                        if let titleError = bound.vm.titleError {
+                            Text(titleError)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
 
                         // Tags row
                         VStack(alignment: .leading, spacing: 4) {
