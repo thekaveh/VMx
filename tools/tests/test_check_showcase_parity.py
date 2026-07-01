@@ -6,21 +6,29 @@ import check_showcase_parity as csp
 
 
 def _build_valid_tree(root: Path) -> None:
-    """Materialise a synthetic tree that satisfies parity for all three flavors."""
+    """Materialise a synthetic tree that satisfies parity for all four flavors."""
     cs = root / "examples/csharp/avalonia/NotesShowcase.Tests"
     py = root / "examples/python/textual/notes_showcase/tests"
     ts = root / "examples/typescript/react/notes-showcase/tests"
-    for d in (cs, py, ts):
+    sw = root / "examples/swift/notes-showcase/Tests"
+    for d in (cs, py, ts, sw):
         d.mkdir(parents=True, exist_ok=True)
     for slug in csp.EXPECTED:
         (cs / f"{csp._pascal(slug)}Tests.cs").write_text("// stub\n")
         (py / f"test_{slug}.py").write_text("# stub\n")
         (ts / f"{csp._camel(slug)}.test.ts").write_text("// stub\n")
+        (sw / f"{csp._pascal(slug)}Tests.swift").write_text("// stub\n")
 
 
 def test_expected_keys_pascal_case_for_csharp() -> None:
     keys = csp._expected_keys("csharp", "workspace_vm")
     # Keys are lowercase per the script's case-insensitive matching.
+    assert "workspacevmtests" in keys
+
+
+def test_expected_keys_pascal_case_for_swift() -> None:
+    keys = csp._expected_keys("swift", "workspace_vm")
+    # Swift uses the same `<Pascal>Tests` stem as C# (`…Tests.swift`).
     assert "workspacevmtests" in keys
 
 

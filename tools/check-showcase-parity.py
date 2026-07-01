@@ -19,6 +19,8 @@ Per-flavor naming conventions:
   (and ``tests/models/test_in_memory_repository.py``).
 * TypeScript — ``notes-showcase/tests/viewmodels/<camelSlug>.test.ts(x)``
   (and ``tests/models/inMemoryRepository.test.ts``).
+* Swift — ``notes-showcase/Tests/NotesShowcaseTests/<PascalSlug>Tests.swift``
+  (and ``InMemoryNoteRepositoryTests.swift`` for the repo slug).
 
 The matcher is name-only: it searches each flavor's test root recursively for
 a file whose basename matches the slug under any of the accepted conventions.
@@ -48,6 +50,7 @@ ROOTS = {
     "csharp": Path("examples/csharp/avalonia/NotesShowcase.Tests"),
     "python": Path("examples/python/textual/notes_showcase/tests"),
     "typescript": Path("examples/typescript/react/notes-showcase/tests"),
+    "swift": Path("examples/swift/notes-showcase/Tests"),
 }
 
 
@@ -92,7 +95,8 @@ def _expected_keys(flavor: str, slug: str) -> list[str]:
     for s in candidates:
         pascal = _pascal(s)
         camel = _camel(s)
-        if flavor == "csharp":
+        if flavor in ("csharp", "swift"):
+            # Both use `<Pascal>Tests` file stems (`…Tests.cs` / `…Tests.swift`).
             keys.append(f"{pascal}Tests".lower())
         elif flavor == "python":
             keys.append(f"test_{s}".lower())
@@ -111,6 +115,8 @@ def check(roots: dict[str, Path]) -> int:
     for flavor, root in roots.items():
         if flavor == "csharp":
             stems = _file_stems(root, ["*Tests.cs"])
+        elif flavor == "swift":
+            stems = _file_stems(root, ["*Tests.swift"])
         elif flavor == "python":
             stems = _file_stems(root, ["test_*.py"])
         else:  # typescript
@@ -133,7 +139,7 @@ def check(roots: dict[str, Path]) -> int:
     if failed:
         print("\n[FAIL] parity violations — see above", file=sys.stderr)
         return 1
-    print(f"[OK] cross-flavor parity: {len(EXPECTED)} slugs x 3 flavors")
+    print(f"[OK] cross-flavor parity: {len(EXPECTED)} slugs x 4 flavors")
     return 0
 
 
