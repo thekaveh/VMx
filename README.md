@@ -63,10 +63,13 @@ makes no assumption about the UI layer. Every flavor exposes:
   `IClosable`, `IFilterable`, `IPageable`, …) and helper state classes
   (`ExpandableState`, `SearchableState`) for layering behaviour onto VMs
   additively.
-- `DerivedProperty<T>` for N-source computed values, an opt-in notification
-  sub-package (`INotificationHub`), null-object service variants
-  (`NullMessageHub`, `NullDispatcher`, `NullNotificationHub`,
-  `NullLocalizer`), and an `ILocalizer` hook for i18n.
+- `DerivedProperty<T>` for N-source computed values, `FormVM<T>` for
+  snapshot/revert/validation flows, `DiscriminatorVM` for single-active-key
+  coordination, `PagedComposition` / `TokenPagedComposition` for finite and
+  cursor paging, an opt-in notification sub-package (`INotificationHub`),
+  `IDialogService`, null-object service variants (`NullMessageHub`,
+  `NullDispatcher`, `NullNotificationHub`, `NullLocalizer`,
+  `NullDialogService`), and an `ILocalizer` hook for i18n.
 
 The shape is identical across flavors; only the surface idiom changes
 (PascalCase in C#, snake_case in Python, camelCase in TypeScript and Swift —
@@ -80,7 +83,8 @@ codified in ADR-0006).
 
 The diagram source is at [`assets/architecture.svg`](assets/architecture.svg);
 a browsable HTML version with summary cards is at
-[`assets/architecture.html`](assets/architecture.html).
+[`assets/architecture.html`](assets/architecture.html), and a high-resolution
+PNG export is at [`assets/architecture.png`](assets/architecture.png).
 
 ### 2.2 Class diagram
 
@@ -90,12 +94,13 @@ A cluster-level class map of the entire library — what every class family is, 
 
 The diagram source is at [`assets/class-diagram.svg`](assets/class-diagram.svg);
 a browsable HTML version with summary cards is at
-[`assets/class-diagram.html`](assets/class-diagram.html). Five bands:
+[`assets/class-diagram.html`](assets/class-diagram.html), and a high-resolution
+PNG export is at [`assets/class-diagram.png`](assets/class-diagram.png). Five bands:
 
 1. **Lifecycle base** — `ComponentVMBase` + `ConstructionStatus`; every VM derives from here.
-2. **VM family** — five idioms: leaf, composite (homogeneous + selectable), group (homogeneous peers), aggregate (heterogeneous, fixed arity 1..6), and specialized (`FormVM`, `NotificationVM`, `ConfirmationVM`, forwarding decorators).
+2. **VM family** — five idioms: leaf, composite (homogeneous + selectable), group (homogeneous peers), aggregate (heterogeneous, fixed arity 1..6), and specialized (`FormVM`, `DiscriminatorVM`, `NotificationVM`, `ConfirmationVM`, forwarding decorators).
 3. **Commands & capabilities** — `RelayCommand` family + `DecoratorCommand` chain + `ModeledCrudCommands`, alongside the 22 capability micro-interfaces (Selection / Expansion / Lifecycle / Query / Dialog / CRUD).
-4. **Services · Messages · State · Collections** — the constructor-injected runtime (`MessageHub`, `Dispatcher`, `ILocalizer`, `IDialogService` — each with its `Null*` sibling per ADR-0017), hub envelope types, v2.0+v2.1 state helpers (`SearchableState`, `ExpandableState`, `DerivedProperty`), v2.1 observable collections, fluent immutable builders, and tree utilities.
+4. **Services · Messages · State · Collections** — the constructor-injected runtime (`MessageHub`, `Dispatcher`, `ILocalizer`, `IDialogService` — each with its `Null*` sibling per ADR-0017), hub envelope types, state helpers (`SearchableState`, `ExpandableState`, `DerivedProperty`), observable collections, `PagedComposition`, `TokenPagedComposition`, filtered/scored composite views, fluent immutable builders, and tree utilities.
 5. **Notifications sub-package (opt-in)** — `INotificationHub`, `ConfirmHelper`, bridged to `ConfirmationDecoratorCommand` in band 3 and to `NotificationVM` / `ConfirmationVM` in band 2.
 
 Boxes are cluster-level (one box per related set of classes); the exhaustive member list lives in the linked spec chapters + ADRs.
@@ -208,14 +213,19 @@ npm install @thekaveh/vmx rxjs
 
 The four **flagship Notes Workspace** apps — one per language flavor, one
 per UI framework — implement the same scenario from a single language-neutral
-VM API surface, exercising **16 distinct VMx features** (notebooks tree,
-paged + filterable notes list, FormVM editor, capability-aware action bar,
-notifications, async lifecycle, dialogs, `AggregateVM6` root, and the
-v2.4.0 `ThemeVM` scenario contract). See
+VM API surface, exercising **19 distinct VMx features** (notebooks tree,
+paged + filterable notes list, strict `FormVM` editor with validation,
+capability-aware action bar, notifications, async lifecycle, dialogs,
+`AggregateVM6` root, the `ThemeVM` scenario contract, token-paged global
+search, edit/preview `DiscriminatorVM`, and tag autocomplete via
+`SearchableState`). See
 [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) for
 the cross-flavor feature matrix and
 [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](spec/proposals/2026-05-29-notes-showcase-scenario.md)
-for the canonical scenario contract.
+for the canonical scenario contract. The VM hierarchy is diagrammed at
+[`examples/assets/notes-showcase-vm-hierarchy.svg`](examples/assets/notes-showcase-vm-hierarchy.svg);
+the companion VMx component map is at
+[`examples/assets/notes-showcase-vmx-components.svg`](examples/assets/notes-showcase-vmx-components.svg).
 
 - [`examples/csharp/avalonia/NotesShowcase/`](examples/csharp/avalonia/NotesShowcase/)
   — Notes Workspace flagship on Avalonia 11 + .NET 8 (cross-platform XAML).
@@ -319,7 +329,8 @@ This README is the entry point; the documents below add focused detail.
   [`examples/swift/notes-showcase/README.md`](examples/swift/notes-showcase/README.md).
 - [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
   cross-flavor parity matrix for all four flagship Notes-Showcase apps
-  (Avalonia / Textual / React / SwiftUI); 16 spec features × 4 flavors.
+  (Avalonia / Textual / React / SwiftUI); 19 spec features × 4 flavors, plus
+  hierarchy and VMx-component diagrams.
 - [`docs/integration/README.md`](docs/integration/README.md) — one-page
   integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
   NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe

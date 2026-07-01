@@ -28,7 +28,11 @@ library and example on `macos-latest`.
 This app implements the same language-neutral Notes Workspace contract as the
 C# Avalonia, Python Textual, and TypeScript React flagships. See
 [`../../notes-showcase-parity.md`](../../notes-showcase-parity.md) for the
-cross-flavor matrix.
+cross-flavor matrix, the
+[`../../assets/notes-showcase-vm-hierarchy.svg`](../../assets/notes-showcase-vm-hierarchy.svg)
+hierarchy diagram, and the
+[`../../assets/notes-showcase-vmx-components.svg`](../../assets/notes-showcase-vmx-components.svg)
+VMx component map.
 
 ## 4. Feature Traceability
 

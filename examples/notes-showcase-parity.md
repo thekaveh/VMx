@@ -19,7 +19,14 @@ README.
 The diagram source is at
 [`assets/notes-showcase-vm-hierarchy.svg`](assets/notes-showcase-vm-hierarchy.svg);
 a browsable HTML version with summary cards is at
-[`assets/notes-showcase-vm-hierarchy.html`](assets/notes-showcase-vm-hierarchy.html).
+[`assets/notes-showcase-vm-hierarchy.html`](assets/notes-showcase-vm-hierarchy.html),
+and a high-resolution PNG export is at
+[`assets/notes-showcase-vm-hierarchy.png`](assets/notes-showcase-vm-hierarchy.png).
+
+The companion VMx component map shows which framework primitive each example
+VM composes: [`assets/notes-showcase-vmx-components.svg`](assets/notes-showcase-vmx-components.svg),
+[`assets/notes-showcase-vmx-components.html`](assets/notes-showcase-vmx-components.html),
+and [`assets/notes-showcase-vmx-components.png`](assets/notes-showcase-vmx-components.png).
 
 ## 2. Flavors
 
