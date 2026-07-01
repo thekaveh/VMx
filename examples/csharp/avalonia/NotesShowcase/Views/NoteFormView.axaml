@@ -13,7 +13,7 @@
       re-emits ``IsDirty`` / ``IsValid`` / approve-command CanExecute so the
       Save button enables reactively. See Phase 5.a binding gap #1.
     -->
-    <Grid Margin="12" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
+    <Grid Margin="12" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
         <TextBlock Grid.Row="0"
                    FontWeight="SemiBold"
                    Foreground="{StaticResource SubtleTextBrush}"
@@ -73,24 +73,45 @@
                   IsChecked="{Binding Starred, Mode=TwoWay}"
                   Margin="0,0,0,8" />
 
-        <!-- Body (row 4) -->
-        <TextBox Grid.Row="4"
+        <!-- Editor mode (row 4) -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
+            <TextBlock Text="Body"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource SubtleTextBrush}" />
+            <Button Content="Edit"
+                    Command="{Binding ShowEditModeCommand}" />
+            <Button Content="Preview"
+                    Command="{Binding ShowPreviewModeCommand}" />
+        </StackPanel>
+
+        <!-- Body (row 5) -->
+        <TextBox Grid.Row="5"
                  Watermark="Body"
                  AutomationProperties.Name="Note body"
                  Text="{Binding Body, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                  AcceptsReturn="True"
                  TextWrapping="Wrap"
-                 VerticalContentAlignment="Top" />
+                 VerticalContentAlignment="Top"
+                 IsVisible="{Binding IsEditMode}" />
+        <Border Grid.Row="5"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="8"
+                IsVisible="{Binding IsPreviewMode}">
+            <TextBlock Text="{Binding Body}"
+                       TextWrapping="Wrap" />
+        </Border>
 
-        <!-- Dirty indicator (row 5) -->
-        <TextBlock Grid.Row="5"
+        <!-- Dirty indicator (row 6) -->
+        <TextBlock Grid.Row="6"
                    Foreground="{StaticResource SubtleTextBrush}"
                    Text="●"
                    IsVisible="{Binding IsDirty}"
                    Margin="0,8,0,0" />
 
-        <!-- Action buttons (row 6) -->
-        <StackPanel Grid.Row="6" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+        <!-- Action buttons (row 7) -->
+        <StackPanel Grid.Row="7" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
             <Button Content="Save"    Command="{Binding ApproveCommand}" />
             <Button Content="Revert"  Command="{Binding DenyCommand}" />
         </StackPanel>

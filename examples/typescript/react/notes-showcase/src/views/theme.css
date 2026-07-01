@@ -301,6 +301,24 @@ textarea:focus {
   resize: vertical;
 }
 
+.note-form-mode-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.note-form-mode-row span {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.note-form-preview {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
 .note-form-tags {
   display: flex;
   gap: 4px;

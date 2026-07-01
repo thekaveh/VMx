@@ -165,6 +165,25 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertTrue(form.draft.tags.contains("b"))
     }
 
+    // MARK: - Editor Mode
+
+    func testEditorMode_defaultsToEditAndSwitchesThroughDiscriminatorVM() throws {
+        let (form, _) = try build()
+        XCTAssertEqual("edit", form.editorMode)
+        XCTAssertTrue(form.isEditMode)
+        XCTAssertFalse(form.isPreviewMode)
+        XCTAssertFalse(form.showEditModeCommand.canExecute())
+        XCTAssertTrue(form.showPreviewModeCommand.canExecute())
+
+        form.showPreviewModeCommand.execute()
+
+        XCTAssertEqual("preview", form.editorMode)
+        XCTAssertFalse(form.isEditMode)
+        XCTAssertTrue(form.isPreviewMode)
+        XCTAssertTrue(form.showEditModeCommand.canExecute())
+        XCTAssertFalse(form.showPreviewModeCommand.canExecute())
+    }
+
     // MARK: - Two-way scalar setters (Phase 5.a parity)
 
     func testSettingTitleScalar_flipsDirtyTrueAndEnablesApproveCommand() throws {

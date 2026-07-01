@@ -9,6 +9,7 @@ using VMx.Components;
 using VMx.Forms;
 using VMx.Messages;
 using VMx.Services;
+using VMx.State;
 using VMx.Notifications;
 using NotesShowcase.Models;
 
@@ -37,6 +38,8 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private readonly Subject<System.Reactive.Unit> _canExecuteTrigger = new();
     private readonly Subject<NoteModel> _onSaved = new();
     private readonly IDispatcher _dispatcher;
+    private readonly DiscriminatorVM<string> _editorMode = new("edit");
+    private readonly IDisposable _editorModeSub;
     private IDisposable? _approvedSub;
 
     /// <inheritdoc/>
@@ -165,6 +168,21 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
 
     /// <summary>Remove a tag from the draft's tag list.</summary>
     public ICommand RemoveTagCommand { get; }
+
+    /// <summary>Current editor mode: <c>edit</c> or <c>preview</c>.</summary>
+    public string EditorMode => _editorMode.ActiveKey;
+
+    /// <summary>True when body preview is active.</summary>
+    public bool IsPreviewMode => _editorMode.IsActive("preview");
+
+    /// <summary>True when editable body mode is active.</summary>
+    public bool IsEditMode => _editorMode.IsActive("edit");
+
+    /// <summary>Switches to body edit mode.</summary>
+    public ICommand ShowEditModeCommand { get; }
+
+    /// <summary>Switches to body preview mode.</summary>
+    public ICommand ShowPreviewModeCommand { get; }
 
     /// <summary>
     /// Binds the form to <paramref name="note"/> (creates / replaces the inner
@@ -336,6 +354,26 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             .Predicate(t => HasBoundNote && !string.IsNullOrEmpty(t))
             .Task(RemoveTag)
             .Build();
+        ShowEditModeCommand = RelayCommand.Builder()
+            .Predicate(() => !IsEditMode)
+            .Task(() => _editorMode.SetActiveKey("edit"))
+            .Triggers(_canExecuteTrigger)
+            .Build();
+        ShowPreviewModeCommand = RelayCommand.Builder()
+            .Predicate(() => !IsPreviewMode)
+            .Task(() => _editorMode.SetActiveKey("preview"))
+            .Triggers(_canExecuteTrigger)
+            .Build();
+        _editorModeSub = _editorMode.ActiveChanged.Subscribe(_ =>
+        {
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(EditorMode)));
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsPreviewMode)));
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsEditMode)));
+            RaisePropertyChanged(nameof(EditorMode));
+            RaisePropertyChanged(nameof(IsPreviewMode));
+            RaisePropertyChanged(nameof(IsEditMode));
+            _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
+        });
     }
 
     private static readonly NoteModel Empty = new(
@@ -359,6 +397,10 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         (DenyCommand as IDisposable)?.Dispose();
         (AddTagCommand as IDisposable)?.Dispose();
         (RemoveTagCommand as IDisposable)?.Dispose();
+        (ShowEditModeCommand as IDisposable)?.Dispose();
+        (ShowPreviewModeCommand as IDisposable)?.Dispose();
+        _editorModeSub.Dispose();
+        _editorMode.Dispose();
         _canExecuteTrigger.OnCompleted();
         _canExecuteTrigger.Dispose();
         _onSaved.OnCompleted();

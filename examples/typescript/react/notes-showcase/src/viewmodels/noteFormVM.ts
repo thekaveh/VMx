@@ -10,11 +10,12 @@
  * `onApproved` persists via the repository (delegated through the FormVM's
  * `persister`) and then publishes a "Saved" notification.
  */
-import { Subject, type Observable } from "rxjs";
+import { Subject, Subscription, type Observable } from "rxjs";
 
 import {
   ComponentVMBase,
   declareCapabilities,
+  DiscriminatorVM,
   FormVM,
   PropertyChangedMessage,
   RelayCommand,
@@ -36,6 +37,7 @@ import type { INoteRepository } from "../models/noteRepository.js";
 
 const SENTINEL = Symbol("not-set");
 const TITLE_REQUIRED = "Title is required.";
+export type EditorMode = "edit" | "preview";
 
 const EMPTY: NoteModel = {
   id: "",
@@ -55,7 +57,11 @@ export class NoteFormVM extends ComponentVMBase {
   readonly #addTagCommand: RelayCommand;
   readonly #removeTagCommand: RelayCommandOf<string>;
   readonly #denyCommand: RelayCommand;
+  readonly #showEditModeCommand: RelayCommand;
+  readonly #showPreviewModeCommand: RelayCommand;
   readonly #onSaved = new Subject<NoteModel>();
+  readonly #editorMode = new DiscriminatorVM<EditorMode>("edit");
+  readonly #editorModeSub: Subscription;
   #form: FormVM<NoteModel> | null = null;
   #bound: NoteModel | null = null;
   #tagDraft = "";
@@ -105,6 +111,28 @@ export class NoteFormVM extends ComponentVMBase {
       .predicate((tag) => this.hasBoundNote && tag.length > 0)
       .task((tag) => this.#removeTag(tag))
       .build();
+    this.#showEditModeCommand = RelayCommand.builder()
+      .predicate(() => this.isPreviewMode)
+      .task(() => this.#editorMode.setActiveKey("edit"))
+      .triggers(this.#editorMode.activeChanged)
+      .build();
+    this.#showPreviewModeCommand = RelayCommand.builder()
+      .predicate(() => this.isEditMode)
+      .task(() => this.#editorMode.setActiveKey("preview"))
+      .triggers(this.#editorMode.activeChanged)
+      .build();
+    this.#editorModeSub = this.#editorMode.activeChanged.subscribe(() => {
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "editorMode"));
+      this._raisePropertyChanged("editorMode");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "isPreviewMode"));
+      this._raisePropertyChanged("isPreviewMode");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "isEditMode"));
+      this._raisePropertyChanged("isEditMode");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "showEditModeCommand"));
+      this._raisePropertyChanged("showEditModeCommand");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "showPreviewModeCommand"));
+      this._raisePropertyChanged("showPreviewModeCommand");
+    });
   }
 
   get type(): ViewModelType {
@@ -117,6 +145,26 @@ export class NoteFormVM extends ComponentVMBase {
 
   get hasBoundNote(): boolean {
     return this.#form !== null;
+  }
+
+  get editorMode(): EditorMode {
+    return this.#editorMode.activeKey;
+  }
+
+  get isPreviewMode(): boolean {
+    return this.#editorMode.isActive("preview");
+  }
+
+  get isEditMode(): boolean {
+    return this.#editorMode.isActive("edit");
+  }
+
+  get showEditModeCommand(): ICommand {
+    return this.#showEditModeCommand;
+  }
+
+  get showPreviewModeCommand(): ICommand {
+    return this.#showPreviewModeCommand;
   }
 
   /** Live editable draft. Returns EMPTY before `bindTo`. */
@@ -316,6 +364,10 @@ export class NoteFormVM extends ComponentVMBase {
     this.#addTagCommand.dispose();
     this.#removeTagCommand.dispose();
     this.#denyCommand.dispose();
+    this.#showEditModeCommand.dispose();
+    this.#showPreviewModeCommand.dispose();
+    this.#editorModeSub.unsubscribe();
+    this.#editorMode.dispose();
     this.#onSaved.complete();
     super._onDispose();
   }

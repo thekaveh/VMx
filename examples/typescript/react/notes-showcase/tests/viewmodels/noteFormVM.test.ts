@@ -154,6 +154,28 @@ describe("NoteFormVM", () => {
     expect(vm.titleError).toBeNull();
   });
 
+  it("editor mode defaults to edit and switches through DiscriminatorVM", () => {
+    const { vm } = makeForm();
+    expect(vm.editorMode).toBe("edit");
+    expect(vm.isEditMode).toBe(true);
+    expect(vm.isPreviewMode).toBe(false);
+    expect(vm.showEditModeCommand.canExecute()).toBe(false);
+    expect(vm.showPreviewModeCommand.canExecute()).toBe(true);
+
+    vm.showPreviewModeCommand.execute();
+
+    expect(vm.editorMode).toBe("preview");
+    expect(vm.isEditMode).toBe(false);
+    expect(vm.isPreviewMode).toBe(true);
+    expect(vm.showEditModeCommand.canExecute()).toBe(true);
+    expect(vm.showPreviewModeCommand.canExecute()).toBe(false);
+
+    vm.showEditModeCommand.execute();
+
+    expect(vm.editorMode).toBe("edit");
+    expect(vm.isEditMode).toBe(true);
+  });
+
   it("builder validates required fields", () => {
     expect(() => NoteFormVM.builder().build()).toThrow();
   });

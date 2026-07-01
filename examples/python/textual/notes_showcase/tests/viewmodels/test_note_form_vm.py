@@ -95,6 +95,18 @@ def test_empty_title_is_not_valid() -> None:
     assert vm.title_error is None
 
 
+def test_editor_mode_defaults_to_edit_and_switches_to_preview() -> None:
+    vm, _ = _build_vm()
+    assert vm.editor_mode == "edit"
+    assert vm.is_edit_mode is True
+    assert vm.is_preview_mode is False
+    vm.show_preview_mode_command.execute()
+    assert vm.editor_mode == "preview"
+    assert vm.is_preview_mode is True
+    vm.show_edit_mode_command.execute()
+    assert vm.editor_mode == "edit"
+
+
 def test_approve_command_can_execute_requires_is_dirty_and_is_valid() -> None:
     vm, _ = _build_vm()
     vm.bind_to(_sample_note())

@@ -113,6 +113,23 @@ public sealed class NoteFormVMTests
     }
 
     [Fact]
+    public void EditorMode_defaults_to_edit_and_switches_to_preview()
+    {
+        var (form, _) = Build();
+
+        Assert.Equal("edit", form.EditorMode);
+        Assert.True(form.IsEditMode);
+        Assert.False(form.IsPreviewMode);
+
+        form.ShowPreviewModeCommand.Execute(null);
+        Assert.Equal("preview", form.EditorMode);
+        Assert.True(form.IsPreviewMode);
+
+        form.ShowEditModeCommand.Execute(null);
+        Assert.Equal("edit", form.EditorMode);
+    }
+
+    [Fact]
     public void AddTagCommand_appends_unique_tag_and_clears_TagDraft()
     {
         var (form, _) = Build();

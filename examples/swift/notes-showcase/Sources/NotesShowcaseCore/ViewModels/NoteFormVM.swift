@@ -27,6 +27,8 @@ public final class NoteFormVM: ComponentVMBase {
     private var _form: FormVM<NoteModel>?
     private var _tagDraft: String = ""
     private var _approvedCancellable: AnyCancellable?
+    private let _editorMode = DiscriminatorVM<String>(initial: "edit")
+    private var _editorModeCancellable: AnyCancellable?
 
     // ── Reactive channels ──────────────────────────────────────────────────
 
@@ -51,6 +53,12 @@ public final class NoteFormVM: ComponentVMBase {
 
     /// Remove the given tag from the draft tag list.
     public private(set) var removeTagCommand: RelayCommandOf<String>
+
+    /// Switches the editor body to the editable text area.
+    public private(set) var showEditModeCommand: RelayCommand
+
+    /// Switches the editor body to the read-only preview pane.
+    public private(set) var showPreviewModeCommand: RelayCommand
 
     // ── Empty sentinel ─────────────────────────────────────────────────────
 
@@ -130,6 +138,15 @@ public final class NoteFormVM: ComponentVMBase {
     /// Field-level validation error for `title`, if any.
     public var titleError: String? { _form?.fieldError("title") }
 
+    /// Active editor panel, backed by `DiscriminatorVM`.
+    public var editorMode: String { _editorMode.activeKey }
+
+    /// `true` when the body preview pane is active.
+    public var isPreviewMode: Bool { _editorMode.isActive("preview") }
+
+    /// `true` when the editable body pane is active.
+    public var isEditMode: Bool { _editorMode.isActive("edit") }
+
     /// Emits the persisted note after each successful approve.
     public var onSaved: AnyPublisher<NoteModel, Never> {
         _onSaved.eraseToAnyPublisher()
@@ -153,6 +170,8 @@ public final class NoteFormVM: ComponentVMBase {
         approveCommand = placeholder
         denyCommand = placeholder
         addTagCommand = placeholder
+        showEditModeCommand = placeholder
+        showPreviewModeCommand = placeholder
         removeTagCommand = RelayCommandOf<String>(task: nil, predicate: nil, triggers: [])
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
@@ -203,6 +222,27 @@ public final class NoteFormVM: ComponentVMBase {
             })
             .task({ [weak self] tag in self?.removeTag(tag) })
             .build()
+
+        showEditModeCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return !self.isEditMode
+            })
+            .task({ [weak self] in self?._editorMode.setActiveKey("edit") })
+            .triggers(trigger)
+            .build()
+
+        showPreviewModeCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return !self.isPreviewMode
+            })
+            .task({ [weak self] in self?._editorMode.setActiveKey("preview") })
+            .triggers(trigger)
+            .build()
+
+        _editorModeCancellable = _editorMode.activeChanged
+            .sink { [weak self] _ in self?.emitEditorModeChanges() }
     }
 
     // ── Binding lifecycle ──────────────────────────────────────────────────
@@ -320,6 +360,19 @@ public final class NoteFormVM: ComponentVMBase {
         _canExecuteTrigger.send(())
     }
 
+    /// Broadcasts the active body editor mode and refreshes mode commands.
+    private func emitEditorModeChanges() {
+        let props: [String] = [
+            "editorMode", "isPreviewMode", "isEditMode",
+            "showEditModeCommand", "showPreviewModeCommand"
+        ]
+        for prop in props {
+            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
+            _raisePropertyChanged(prop)
+        }
+        _canExecuteTrigger.send(())
+    }
+
     // ── Dispose ────────────────────────────────────────────────────────────
 
     override public func _onDispose() {
@@ -331,6 +384,11 @@ public final class NoteFormVM: ComponentVMBase {
         denyCommand.dispose()
         addTagCommand.dispose()
         removeTagCommand.dispose()
+        showEditModeCommand.dispose()
+        showPreviewModeCommand.dispose()
+        _editorModeCancellable?.cancel()
+        _editorModeCancellable = nil
+        _editorMode.dispose()
         _canExecuteTrigger.send(completion: .finished)
         _onSaved.send(completion: .finished)
         super._onDispose()
