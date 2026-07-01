@@ -60,10 +60,18 @@ final class WorkspaceVMTests: XCTestCase {
     }
 
     /// Polls until `condition` returns `true` or the retry cap is reached.
+    ///
+    /// Uses `Task.sleep(nanoseconds: 1_000_000)` (1 ms) rather than
+    /// `Task.yield()` between checks so the cooperative-pool threads have
+    /// real wall-clock time to drain nested async chains (outer spawn →
+    /// bindNotesObserved → bindTo inner Task → actor hop).  Pure
+    /// `Task.yield()` from the main actor only reschedules other
+    /// *main-actor* work; cooperative-pool tasks may not advance within
+    /// the allowed attempt window on loaded CI runners.
     private func waitUntil(_ condition: @escaping () -> Bool, attempts: Int = 100) async {
         for _ in 0..<attempts {
             if condition() { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)   // 1 ms per iteration
         }
     }
 
