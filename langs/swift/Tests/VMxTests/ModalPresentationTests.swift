@@ -51,9 +51,13 @@ final class ModalPresentationTests: XCTestCase {
     func testDIA013ExistingDialogMethodsRemainSourceCompatible() async {
         let sut: any DialogService = NullDialogService.INSTANCE
 
-        XCTAssertNil(await sut.pickFileToOpen())
-        XCTAssertNil(await sut.pickFileToSave())
-        XCTAssertFalse(await sut.confirm("Proceed?"))
+        let openPath = await sut.pickFileToOpen()
+        let savePath = await sut.pickFileToSave()
+        let confirmed = await sut.confirm("Proceed?")
+
+        XCTAssertNil(openPath)
+        XCTAssertNil(savePath)
+        XCTAssertFalse(confirmed)
         await sut.notify("Done")
     }
 }
