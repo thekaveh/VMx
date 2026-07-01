@@ -33,7 +33,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # check-version-consistency.py reconciles the compatibility matrix
           # against git tags; the default shallow checkout fetches no tags, so
@@ -94,7 +94,7 @@ jobs:
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift)
         # All four flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 237-ID library catalog. The swift flavor
+        # 100% coverage of the full 279-ID library catalog. The swift flavor
         # reached full library parity in Phase 3 (ADR-0065 retired its subset
         # manifest), so it is now required against the full catalog exactly like
         # the others, via the tool's registered swift scraper, which only reads

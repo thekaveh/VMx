@@ -36,8 +36,8 @@ jobs:
       # is to project secret into job env.
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: |
             8.0.x
@@ -54,14 +54,29 @@ jobs:
         run: |
           set -euo pipefail
           tag_version="${GITHUB_REF#refs/tags/csharp-v}"
-          pkg_version=$(python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("langs/csharp/src/VMx/VMx.csproj").getroot().findtext("PropertyGroup/Version"))')
-          if [ "$tag_version" != "$pkg_version" ]; then
-            echo "::error::Tag version ($tag_version) does not match VMx package version ($pkg_version)." >&2
+          python3 - "$tag_version" <<'PY' > /tmp/csharp-release-projects.txt
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+
+          tag_version = sys.argv[1]
+          for path in sorted(pathlib.Path("langs/csharp/src").glob("*/*.csproj")):
+              version = ET.parse(path).getroot().findtext("PropertyGroup/Version")
+              if version == tag_version:
+                  print(path)
+          PY
+          if [ ! -s /tmp/csharp-release-projects.txt ]; then
+            echo "::error::No C# package project has Version $tag_version." >&2
             exit 1
           fi
-          echo "Tag $tag_version matches VMx package version $pkg_version."
+          echo "Tag $tag_version matches these C# package project(s):"
+          cat /tmp/csharp-release-projects.txt
       - name: Pack
-        run: dotnet pack langs/csharp/VMx.sln -c Release --nologo --no-build -o /tmp/nupkgs
+        run: |
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet pack "$project" -c Release --nologo --no-build -o /tmp/nupkgs
+          done < /tmp/csharp-release-projects.txt
       - name: Push to NuGet
         if: env.NUGET_API_KEY != ''
         run: |
@@ -90,7 +105,7 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: "0.11.19"
@@ -134,7 +149,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: "0.11.19"
@@ -205,8 +220,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Wait for PyPI CDN + install in fresh venv
@@ -244,7 +259,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Extract CHANGELOG section
         run: |
           set -euo pipefail
@@ -290,8 +305,8 @@ jobs:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
@@ -306,6 +321,9 @@ jobs:
       - name: Test
         working-directory: langs/typescript
         run: npm test
+      - name: Audit
+        working-directory: langs/typescript
+        run: npm audit --package-lock-only --audit-level=low
       - name: Verify tag matches package version
         working-directory: langs/typescript
         run: |
@@ -334,7 +352,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build & test
         # swift test requires full Xcode (XCTest); macos-latest provides it.
         # Combine is macOS-only so ubuntu-latest cannot run these tests.

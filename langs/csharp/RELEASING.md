@@ -36,23 +36,23 @@ tagging, verify:
 grep -r "PackageProjectUrl\|RepositoryUrl" langs/csharp/src/**/*.csproj
 ```
 
-Check each URL is reachable. Also confirm `<PackageVersion>` matches the
-intended tag version.
+Check each URL is reachable. Also confirm `<Version>` matches the intended tag
+version in every package project you plan to release.
 
 ### 1.3 Companion package versioning
 
 `VMx.Notifications` and `VMx.Extensions.DependencyInjection` version
-independently from `VMx` (per ADR-0009 / ADR-0013). The `csharp-v*` tag and
-the NuGet push cover all packages in `VMx.sln` — update each companion
-package's `<PackageVersion>` in its own `.csproj` only when it has changes to
-ship.
+independently from `VMx` (per ADR-0009 / ADR-0013). The release workflow finds
+all C# package projects whose `<Version>` equals the `csharp-v*` tag version
+and packs only those projects. Update a companion package's `<Version>` only
+when it has changes to ship.
 
 ## 2. Cutting a release
 
 ### 2.1 Routine release (manual)
 
 1. Land all intended changes on `main`.
-2. Update `<PackageVersion>` in the relevant `.csproj` file(s) under
+2. Update `<Version>` in the relevant `.csproj` file(s) under
    `langs/csharp/src/`.
 3. Update `MinSpecVersion` in the same area if the spec version also bumped.
 4. Add a `## [X.Y.Z] — YYYY-MM-DD` section to `langs/csharp/CHANGELOG.md`.
@@ -83,8 +83,8 @@ The `csharp` job in `release.yml` runs only when the tag starts with
 3. Runs `dotnet restore VMx.sln --locked-mode`.
 4. Runs `dotnet build VMx.sln -c Release`.
 5. Runs `dotnet test VMx.sln -c Release` (full test suite incl. conformance).
-6. Runs `dotnet pack VMx.sln -c Release -o /tmp/nupkgs` (produces `.nupkg`
-   and `.snupkg` symbol packages for all projects in the solution).
+6. Finds package projects under `langs/csharp/src/*/*.csproj` whose `<Version>`
+   matches the tag and runs `dotnet pack` for those projects only.
 7. Runs `dotnet nuget push /tmp/nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json`
    with `--skip-duplicate` (only if `NUGET_API_KEY` is present).
 
@@ -151,11 +151,10 @@ the Python, TypeScript, or Swift jobs. See `langs/python/RELEASING.md` §5
 for the multi-flavor scheme overview.
 
 The companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`)
-are packed and pushed alongside `VMx` in the same job because they are part of
-`VMx.sln`. If a companion package needs a hotfix without bumping the core
-package, push a `csharp-v*` tag for the companion's version only — but note
-that the push pushes ALL nupkgs, and `--skip-duplicate` will skip the already-
-published ones.
+share the `csharp-v<X.Y.Z>` tag prefix but version independently. If a companion
+package needs a hotfix without bumping the core package, update only that
+project's `<Version>` and push `csharp-v<X.Y.Z>` for the companion version; the
+workflow packs the matching project and does not repack unrelated C# packages.
 
 ## 6. Spec compatibility
 

@@ -18,10 +18,11 @@ TypeScript component — a follow-up when adopting it, see
 - In the repo's Settings → Secrets and variables → Actions, add the secret
   as `NPM_TOKEN`.
 
-> **Why token-based instead of OIDC?** npm provenance via OIDC would require
-> `id-token: write` in the job permissions. The current pipeline defers that
-> uplift; restore `id-token: write` and add `--provenance` to `npm publish`
-> when adopting it (see the comment in `release.yml:typescript`).
+> **Token plus provenance.** The workflow authenticates with `NPM_TOKEN` and
+> publishes with `npm publish --provenance`; the job has `id-token: write` so npm
+> can attach provenance attestations. This is not npm Trusted Publishing yet:
+> keep the token secret configured until the workflow is migrated to fully
+> tokenless trusted publishing.
 
 ### 1.2 Pre-publish metadata validation
 
@@ -76,7 +77,8 @@ The `typescript` job in `release.yml` runs only when the tag starts with
    also runs `npm run sync-fixtures` via the `prebuild` hook to copy
    `spec/fixtures/*.json` into `src/fixtures/`).
 4. Runs `npm test` (vitest).
-5. Runs `npm publish --access public` (only if `NPM_TOKEN` is present in
+5. Runs `npm audit --package-lock-only --audit-level=low`.
+6. Runs `npm publish --access public --provenance` (only if `NPM_TOKEN` is present in
    the job environment).
 
 There is no separate verify-published or release-notes job for TypeScript
