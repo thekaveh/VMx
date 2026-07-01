@@ -391,6 +391,8 @@ public sealed class WorkspaceVMTests
             => _inner.LoadAllAsync(ct);
         public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
             => _inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
         public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
         {
             Interlocked.Increment(ref SaveCalls);
@@ -452,6 +454,8 @@ public sealed class WorkspaceVMTests
             }
             return _inner.LoadNotesAsync(notebookId, ct);
         }
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
         public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default) => _inner.SaveNoteAsync(note, ct);
         public Task DeleteNoteAsync(string id, CancellationToken ct = default) => _inner.DeleteNoteAsync(id, ct);
         public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default) => _inner.AddNotebookAsync(notebook, ct);

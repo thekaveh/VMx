@@ -1,5 +1,8 @@
 namespace NotesShowcase.Models;
 
+/// <summary>One token-paged all-notes search result.</summary>
+public sealed record NoteSearchPage(IReadOnlyList<NoteModel> Items, string? NextToken);
+
 /// <summary>
 /// Async persistence port for notebooks and notes.
 ///
@@ -14,6 +17,13 @@ public interface INoteRepository
 
     /// <summary>Loads only the notes belonging to <paramref name="notebookId"/>.</summary>
     Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default);
+
+    /// <summary>Searches all notes with opaque forward-only token paging.</summary>
+    Task<NoteSearchPage> SearchNotesAsync(
+        string term,
+        string? token,
+        int pageSize,
+        CancellationToken ct = default);
 
     /// <summary>Persists <paramref name="note"/> (insert-or-update by Id).</summary>
     Task SaveNoteAsync(NoteModel note, CancellationToken ct = default);

@@ -281,3 +281,52 @@ async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -
 
     assert vm.inner.count == before - 1
     assert any("Note deleted" in n.message for n in observed)
+
+
+async def test_repository_search_notes_returns_token_pages_over_all_notes() -> None:
+    repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
+
+    first = await repo.search_notes("review", token=None, page_size=2)
+
+    assert len(first[0]) == 2
+    assert first[1] == "2"
+    assert all(
+        "review" in f"{n.title} {n.body} {' '.join(n.tags)}".lower()
+        for n in first[0]
+    )
+
+    second = await repo.search_notes("review", token=first[1], page_size=2)
+    assert len(second[0]) > 0
+    assert second[0][0].id != first[0][0].id
+
+
+async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
+    from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
+
+    repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(
+        foreground=ImmediateScheduler(), background=ImmediateScheduler()
+    )
+    vm = (
+        GlobalSearchVM.builder()
+        .name("global-search")
+        .services(hub, dispatcher)
+        .repository(repo)
+        .page_size(2)
+        .search_debounce_seconds(0.0)
+        .build()
+    )
+
+    vm.search_term = "review"
+    await vm.refresh_command.execute_async()
+    assert len(vm.results) == 2
+    assert vm.has_more is True
+
+    await vm.load_more_command.execute_async()
+    assert len(vm.results) > 2
+
+    vm.search_term = "travel"
+    await vm.refresh_command.execute_async()
+    assert all(n.model.notebook_id == "nb-personal" for n in vm.results)
+    vm.dispose()

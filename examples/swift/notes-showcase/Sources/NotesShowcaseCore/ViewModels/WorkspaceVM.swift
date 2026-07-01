@@ -78,6 +78,7 @@ public final class WorkspaceVM {
         StatusBarVM, NotificationsVM, CapabilityActionsVM
     >
     private let _theme: ThemeVM
+    private let _globalSearch: GlobalSearchVM
 
     /// Indirect focus cell — allows CapabilityActionsVM's getter to be wired
     /// before `self` is fully initialised.
@@ -132,6 +133,9 @@ public final class WorkspaceVM {
 
     /// Capability-action projection (Component6).
     public var capabilityActions: CapabilityActionsVM { _capabilities }
+
+    /// Token-paged all-notes search.
+    public var globalSearch: GlobalSearchVM { _globalSearch }
 
     /// Theme seam — workspace-owned, not an aggregate child (VMX-129).
     public var theme: ThemeVM { _theme }
@@ -286,6 +290,13 @@ public final class WorkspaceVM {
         _theme = try! ThemeVM.builder()
             .name("theme")
             .services(hub: hub, dispatcher: dispatcher)
+            .build()
+        _globalSearch = try! GlobalSearchVM.builder()
+            .name("global-search")
+            .services(hub: hub, dispatcher: dispatcher)
+            .repository(repo)
+            .pageSize(5)
+            .searchDebounce(.milliseconds(150))
             .build()
 
         // Command trigger (used below in phase 2 and later in trackFocus /
@@ -457,6 +468,7 @@ public final class WorkspaceVM {
     public func construct() throws {
         try _agg.construct()
         try _theme.construct()
+        try _globalSearch.construct()
     }
 
     /// Async construct: builds the aggregate + theme, populates notebooks,
@@ -467,6 +479,7 @@ public final class WorkspaceVM {
     public func constructAsync() async throws {
         try _agg.construct()
         try _theme.construct()
+        try _globalSearch.construct()
         try await _notebooks.populate()
         let first = _notebooks.roots.first
         if let first = first {
@@ -499,6 +512,7 @@ public final class WorkspaceVM {
     /// Destructs the theme seam and the aggregate (cascades to all six children).
     public func destruct() throws {
         try _theme.destruct()
+        try _globalSearch.destruct()
         try _agg.destruct()
     }
 
@@ -517,6 +531,7 @@ public final class WorkspaceVM {
         newNoteCommand.dispose()
         exportCommand.dispose()
         _theme.dispose()
+        _globalSearch.dispose()
         _agg.dispose()
     }
 

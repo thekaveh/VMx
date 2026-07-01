@@ -24,6 +24,7 @@ from textual.widgets import Footer, Header
 
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
 from notes_showcase.views.capability_actions import CapabilityActionsView
+from notes_showcase.views.global_search import GlobalSearchView
 from notes_showcase.views.note_form import NoteFormView
 from notes_showcase.views.notebooks_tree import NotebooksTreeView
 from notes_showcase.views.notes_list import NotesListView
@@ -46,6 +47,7 @@ class MainScreen(Screen[None]):
             NoteFormView(self._workspace.note_form),
             id="main_layout",
         )
+        yield GlobalSearchView(self._workspace.global_search)
         yield StatusBarView(self._workspace.status_bar)
         yield CapabilityActionsView(self._workspace.capability_actions)
         yield NotificationsView(self._workspace.notifications)

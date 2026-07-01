@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NotesShowcase.Views.GlobalSearchView">
+    <StackPanel Spacing="6">
+        <DockPanel LastChildFill="True">
+            <Button DockPanel.Dock="Right"
+                    Margin="8,0,0,0"
+                    Content="Search"
+                    Command="{Binding RefreshCommand}" />
+            <TextBox Watermark="Search all notes..."
+                     Text="{Binding SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        </DockPanel>
+        <ItemsControl ItemsSource="{Binding Results}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8,5"
+                            MinWidth="150">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Title}" />
+                            <TextBlock Text="{Binding Model.NotebookId}"
+                                       Foreground="{StaticResource SubtleTextBrush}"
+                                       FontSize="11" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="Load more"
+                HorizontalAlignment="Left"
+                Command="{Binding LoadMoreCommand}" />
+    </StackPanel>
+</UserControl>

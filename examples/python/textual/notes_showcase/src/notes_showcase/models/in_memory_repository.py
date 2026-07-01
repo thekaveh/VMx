@@ -75,6 +75,30 @@ class InMemoryNoteRepository:
         async with self._gate:
             return [n for n in self._notes if n.notebook_id == notebook_id]
 
+    async def search_notes(
+        self, term: str, token: str | None, page_size: int
+    ) -> tuple[list[NoteModel], str | None]:
+        """Search all notes with opaque forward-only token paging."""
+        await asyncio.sleep(self._load_notes_delay)
+        self._consume_failure()
+        normalized = term.strip().lower()
+        try:
+            parsed = int(token) if token is not None else 0
+        except ValueError:
+            parsed = 0
+        start = parsed if parsed > 0 else 0
+        safe_page_size = max(1, page_size)
+        async with self._gate:
+            matches = [
+                n
+                for n in self._notes
+                if not normalized
+                or normalized in f"{n.title} {n.body} {' '.join(n.tags)}".lower()
+            ]
+            items = matches[start : start + safe_page_size]
+            next_index = start + len(items)
+            return items, str(next_index) if next_index < len(matches) else None
+
     async def save_note(self, note: NoteModel) -> None:
         """Insert or update *note* (stamps ``updated_at`` with UTC now)."""
         await asyncio.sleep(self._save_note_delay)

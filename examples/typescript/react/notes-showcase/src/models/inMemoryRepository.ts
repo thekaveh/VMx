@@ -9,7 +9,7 @@
  */
 import type { NotebookModel } from "./notebookModel.js";
 import type { NoteModel } from "./noteModel.js";
-import type { INoteRepository, RepositorySnapshot } from "./noteRepository.js";
+import type { INoteRepository, NoteSearchPage, RepositorySnapshot } from "./noteRepository.js";
 
 /** Optional per-method delay overrides — useful in tests for zero latency. */
 export interface InMemoryRepositoryOptions {
@@ -124,6 +124,32 @@ export class InMemoryNoteRepository implements INoteRepository {
     return this.#gate.run(() =>
       this.#notes.filter((n) => n.notebookId === notebookId),
     );
+  }
+
+  async searchNotes(
+    term: string,
+    token: string | null,
+    pageSize: number,
+  ): Promise<NoteSearchPage> {
+    await delay(this.#loadNotesMs);
+    this.#consumeFailure();
+    const normalized = term.trim().toLowerCase();
+    const start = token === null ? 0 : Number.parseInt(token, 10);
+    const safeStart = Number.isFinite(start) && start > 0 ? start : 0;
+    const safePageSize = Math.max(1, pageSize);
+    return this.#gate.run(() => {
+      const matches = this.#notes.filter((n) => {
+        if (normalized.length === 0) return true;
+        const haystack = `${n.title} ${n.body} ${n.tags.join(" ")}`.toLowerCase();
+        return haystack.includes(normalized);
+      });
+      const items = matches.slice(safeStart, safeStart + safePageSize);
+      const nextIndex = safeStart + items.length;
+      return {
+        items,
+        nextToken: nextIndex < matches.length ? String(nextIndex) : null,
+      };
+    });
   }
 
   async saveNote(note: NoteModel): Promise<void> {

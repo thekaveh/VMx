@@ -14,6 +14,13 @@ public protocol NoteRepository: Sendable {
     /// Loads only the notes belonging to `notebookId`.
     func loadNotes(notebookId: String) async throws -> [NoteModel]
 
+    /// Searches all notes with opaque forward-only token paging.
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?)
+
     /// Persists `note` (insert-or-update by id), stamping `updatedAt`.
     func saveNote(_ note: NoteModel) async throws
 

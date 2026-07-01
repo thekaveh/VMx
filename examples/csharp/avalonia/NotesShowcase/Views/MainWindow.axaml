@@ -16,7 +16,7 @@
         <KeyBinding Gesture="Ctrl+E"      Command="{Binding ExportCommand}" />
     </Window.KeyBindings>
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto">
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
         <!-- Top toolbar (row 0) -->
         <Border Grid.Row="0"
                 Background="{StaticResource PaneBrush}"
@@ -53,8 +53,17 @@
             </Border>
         </Grid>
 
-        <!-- Status bar (row 2) -->
+        <!-- Global search (row 2) -->
         <Border Grid.Row="2"
+                Background="{StaticResource PaneBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="12,8">
+            <views:GlobalSearchView DataContext="{Binding GlobalSearch}" />
+        </Border>
+
+        <!-- Status bar (row 3) -->
+        <Border Grid.Row="3"
                 Background="{StaticResource PaneBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,1"
@@ -62,15 +71,15 @@
             <views:StatusBarView DataContext="{Binding StatusBar}" />
         </Border>
 
-        <!-- Capability actions (row 3) -->
-        <Border Grid.Row="3"
+        <!-- Capability actions (row 4) -->
+        <Border Grid.Row="4"
                 Background="{StaticResource PaneBrush}"
                 Padding="12,6">
             <views:CapabilityActionsView DataContext="{Binding CapabilityActions}" />
         </Border>
 
         <!-- Toast overlay (overlay across all rows) -->
-        <views:NotificationsView Grid.Row="0" Grid.RowSpan="4"
+        <views:NotificationsView Grid.Row="0" Grid.RowSpan="5"
                                   HorizontalAlignment="Right"
                                   VerticalAlignment="Bottom"
                                   Margin="0,0,16,40"

@@ -24,6 +24,12 @@ class INoteRepository(Protocol):
         """Return notes belonging to *notebook_id* (simulated ~150 ms latency)."""
         ...
 
+    async def search_notes(
+        self, term: str, token: str | None, page_size: int
+    ) -> tuple[list[NoteModel], str | None]:
+        """Search all notes with opaque forward-only token paging."""
+        ...
+
     async def save_note(self, note: NoteModel) -> None:
         """Insert or update *note* (simulated ~200 ms latency)."""
         ...

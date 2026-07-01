@@ -328,3 +328,50 @@ describe("NotesViewVM", () => {
     expect(reload.some((n) => n.id === target.noteId)).toBe(false);
   });
 });
+
+describe("Global search token paging", () => {
+  it("repository returns deterministic token pages over all notes", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadNotesDelayMs: 0,
+    });
+
+    const first = await repo.searchNotes("review", null, 2);
+    expect(first.items).toHaveLength(2);
+    expect(first.nextToken).toBe("2");
+    expect(first.items.every((n) =>
+      `${n.title} ${n.body} ${n.tags.join(" ")}`.toLowerCase().includes("review"),
+    )).toBe(true);
+
+    const second = await repo.searchNotes("review", first.nextToken, 2);
+    expect(second.items.length).toBeGreaterThan(0);
+    expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
+  });
+
+  it("GlobalSearchVM refreshes, resets for a new term, and appends load-more results", async () => {
+    const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
+    const hub = new MessageHub();
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadNotesDelayMs: 0,
+    });
+    const vm = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(hub, RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(2)
+      .searchDebounceMs(0)
+      .build();
+
+    vm.searchTerm = "review";
+    await vm.refreshCommand.executeAsync();
+    expect(vm.results).toHaveLength(2);
+    expect(vm.hasMore).toBe(true);
+
+    await vm.loadMoreCommand.executeAsync();
+    expect(vm.results.length).toBeGreaterThan(2);
+
+    vm.searchTerm = "travel";
+    await vm.refreshCommand.executeAsync();
+    expect(vm.results.every((n) => n.model.notebookId === "nb-personal")).toBe(true);
+    vm.dispose();
+  });
+});

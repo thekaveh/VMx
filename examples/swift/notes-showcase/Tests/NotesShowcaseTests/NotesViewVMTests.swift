@@ -281,4 +281,52 @@ final class NotesViewVMTests: XCTestCase {
         XCTAssertEqual(before, vm.filteredItems.count,
                        "Rebind after reconstruct should restore the same item count")
     }
+
+    // MARK: - Global search token paging
+
+    func testRepositorySearchNotes_returnsTokenPagesOverAllNotes() async throws {
+        let repo = makeRepo(loadNotesDelay: 0)
+
+        let first = try await repo.searchNotes(term: "review", token: nil, pageSize: 2)
+
+        XCTAssertEqual(2, first.items.count)
+        XCTAssertEqual("2", first.nextToken)
+        XCTAssertTrue(first.items.allSatisfy {
+            "\($0.title) \($0.body) \($0.tags.joined(separator: " "))"
+                .lowercased()
+                .contains("review")
+        })
+
+        let second = try await repo.searchNotes(
+            term: "review",
+            token: first.nextToken,
+            pageSize: 2
+        )
+        XCTAssertFalse(second.items.isEmpty)
+        XCTAssertNotEqual(first.items[0].id, second.items[0].id)
+    }
+
+    func testGlobalSearchVM_refreshes_resetsTerms_andLoadsMore() async throws {
+        let repo = makeRepo(loadNotesDelay: 0)
+        let vm = try GlobalSearchVM.builder()
+            .name("global-search")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .repository(repo)
+            .pageSize(2)
+            .searchDebounce(.milliseconds(0))
+            .build()
+
+        vm.searchTerm = "review"
+        try await vm.refreshCommand.executeAsync()
+        XCTAssertEqual(2, vm.results.count)
+        XCTAssertTrue(vm.hasMore)
+
+        try await vm.loadMoreCommand.executeAsync()
+        XCTAssertGreaterThan(vm.results.count, 2)
+
+        vm.searchTerm = "travel"
+        try await vm.refreshCommand.executeAsync()
+        XCTAssertTrue(vm.results.allSatisfy { $0.model.notebookId == "nb-personal" })
+        vm.dispose()
+    }
 }

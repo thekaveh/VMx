@@ -54,6 +54,12 @@ struct RootView: View {
 
                 Divider()
 
+                // ── Global search ────────────────────────────────────────
+                GlobalSearchView(vm: workspace.globalSearch)
+                    .background(theme.pane)
+
+                Divider()
+
                 // ── Status bar ───────────────────────────────────────────
                 StatusBarView(vm: workspace.statusBar)
                     .background(theme.pane)

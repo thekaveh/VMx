@@ -237,6 +237,46 @@ textarea:focus {
   color: var(--text-dim);
 }
 
+.global-search {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+}
+
+.global-search-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.global-search-controls input[type="search"] {
+  flex: 1;
+}
+
+.global-search-results {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  margin: 8px 0;
+  overflow-x: auto;
+  padding: 0;
+}
+
+.global-search-results li {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 6px 8px;
+}
+
+.global-search-results small {
+  color: var(--text-dim);
+}
+
+.global-search-more {
+  min-width: 96px;
+}
+
 .note-form {
   display: flex;
   flex-direction: column;
