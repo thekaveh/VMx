@@ -53,14 +53,13 @@ renders, headless smoke covers it.
 | 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  | ✓               |
 | 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ | ✓ |
 
-[^theme]: ThemeVM ships in v2.4.0 as a standalone scenario VM in each flavor's
-    `viewmodels/` (plus a per-framework `ThemeAdapter` in `views/adapter/`).
-    Composition into `WorkspaceVM` as a 7th aggregate child is **deferred to a
-    follow-up release** pending the `AggregateVM7` core-library extension — see
+[^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
+    `ThemeAdapter` in `views/adapter/`. `WorkspaceVM` owns the `ThemeVM` as a
+    sibling of its six aggregate children, and the host binds the adapter to that
+    workspace-owned instance. Composition as a 7th aggregate child remains
+    **deferred** pending an `AggregateVM7` core-library extension — see
     `spec/proposals/2026-06-02-theme-vm-scenario.md` §8 and ADR-0036 §2.C / §4
-    decision #3. No host page is wired to the theme seam yet — consumers
-    exercising it construct a `ThemeVM` (+ per-framework `ThemeAdapter`)
-    directly, as the THEME tests do. The `THEME-001..005` scenario IDs are tested in
+    decision #3. The `THEME-001..005` scenario IDs are tested in
     `examples/<lang>/.../tests/` (not in `langs/<flavor>/tests/conformance/`)
     and are exempt from the library-coverage gate via the `_SCENARIO_PREFIXES`
     set in `tools/check-conformance-coverage.py`.

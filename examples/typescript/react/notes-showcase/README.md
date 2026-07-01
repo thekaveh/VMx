@@ -91,7 +91,7 @@ examples/typescript/react/notes-showcase/
 | 13  | `IDialogService`                 | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/` |
 | 14  | Capability-aware UI              | `viewmodels/capabilityActionsVM.ts` + `views/components/CapabilityActions.tsx`               |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                 |
-| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
+| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (workspace-owned `ThemeVM` sibling bound through the React adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
 
 ## 4. Keyboard shortcuts
 

@@ -6,7 +6,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 VMx is **one language-neutral specification with four idiomatic flavors**. The shape is identical across flavors; only the surface idiom changes (PascalCase C#, snake_case Python, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
 
-- **`spec/` is the source of truth.** 23 numbered markdown chapters (`00-overview.md` … `22-discriminator-vm.md`), 76 ADRs, four JSON fixtures, current version in `spec/VERSION` (3.1.0). Behavior changes start here.
+- **`spec/` is the source of truth.** 23 numbered markdown chapters (`00-overview.md` … `22-discriminator-vm.md`), 77 ADRs, four JSON fixtures, current version in `spec/VERSION` (3.1.0). Behavior changes start here.
 - **`spec/fixtures/*.json` are consumed by all flavors** for lifecycle, message-ordering, command-truthtable, and derived-property validation. Python wires `lifecycle-transitions.json` via hatchling `force-include` for runtime loading; the other fixtures are conformance-test inputs. TypeScript copies all fixtures via `npm run sync-fixtures` (auto-run by `prebuild`, `pretest`, and `prepack`). C# embeds `lifecycle-transitions.json` for runtime and copies all fixtures into conformance test output. Swift ships all four JSON resources under `langs/swift/Sources/VMx/Resources`, including `LifecycleTransitionTable.swift` loading `lifecycle-transitions.json` from `Bundle.module`. When editing a fixture, ensure every flavor still loads the relevant runtime/test resource.
 - **`spec/12-conformance.md` enumerates 284 normative test IDs** — 279 library IDs (`LIFE-001`, `HUB-007`, `HIER-018`, `NOTIF-017`, `COMP-025`, `COMP-026`, `DISC-006`, …) plus 5 `THEME-00x` scenario IDs that live in the flagship example apps. C#, Python, TypeScript, and Swift each implement all 279 library IDs under their conformance test trees. `tools/check-conformance-coverage.py` enforces 100% coverage for all four full-parity flavors in CI.
 - **Each flavor versions independently** but a spec major bump triggers a major bump in every active flavor. Each package declares the spec version it implements: `MinSpecVersion` (C#), `__min_spec_version__` (Python), `__minSpecVersion__` (TypeScript), `VMxVersion.minSpecVersion` (Swift). Compatibility is tracked by hand in `compatibility-matrix.md`.
@@ -24,6 +24,11 @@ Two rules in `.github/workflows/spec-discipline.yml` block PRs:
    - C#: `[Trait("Conformance", "XXX-NNN")]`
    - TypeScript: `describe("XXX-NNN", ...)`
    - Swift: doc or line comments where the ID is the first token after the marker, e.g. `/// XXX-NNN — ...`, in `langs/swift/Tests/VMxTests`
+
+Numbered documentation headings are expected in current-facing docs, with one
+intentional exception: `spec/12-conformance.md` keeps conformance IDs as heading
+text (`### LIFE-001`, `### FORM-013`, …) because those IDs are the stable catalog
+keys consumed by tools, tests, and review checklists.
 
 ## 3. Build / test / lint commands
 

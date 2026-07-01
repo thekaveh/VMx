@@ -15,9 +15,11 @@ Key properties:
 
 - **ORM-agnostic** — the persist step is a consumer-supplied delegate or
   `IFormPersister<TM>` collaborator.
-- **Snapshot at construct** — `Snapshot` is captured once (by a **deep** value
-  copy, by default) and is immutable after that (until a successful
-  `ApproveCommand` updates it). The snapshot mechanism is injectable.
+- **Snapshot at construct** — `Snapshot` is captured once and is immutable after
+  that (until a successful `ApproveCommand` updates it). C#, Python, and
+  TypeScript use deep-copy defaults; Swift uses identity copy for unconstrained
+  generic models and relies on value semantics for struct/enum models
+  (ADR-0077). The snapshot mechanism is injectable in every flavor.
 - **`IsDirty`** is derived automatically from structural inequality of `Model` vs
   `Snapshot`, using an **injectable equality function** (default: a structural
   deep-equal — §4).
@@ -107,7 +109,7 @@ FormVM(
     persister   : Func<TM, Task>,   # or IFormPersister<TM>
     hub?        : IMessageHub,      # optional hub; default is the null hub
     strict?     : bool = false,
-    snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in; default is a deep copy — §3)
+    snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in; defaults vary — §3)
     validators?: map<string, Func<TM, string?>>,
     model_validator?: Func<TM, map<string, string?>>
 )
@@ -121,28 +123,30 @@ own concern there rather than a separate constructor parameter.
 
 ## 3. Snapshot policy
 
-The default snapshot is a **per-flavor idiomatic deep value-copy**, so that the
-snapshot does not share nested mutable state with the live `Model`. This is a
-correctness requirement, not a convenience: with a shallow copy, an in-place
-mutation of a *nested* object would be invisible to `IsDirty` (both `Model` and
-`Snapshot` observe the same nested reference) and could not be reverted by
-`DenyCommand`. The deep default makes nested mutation both **tracked** and
-**revertible** without the consumer having to replace the whole model.
+The default snapshot is flavor-idiomatic. C#, Python, and TypeScript provide a
+deep value-copy by default, so the snapshot does not share nested mutable state
+with the live `Model`. Swift's unconstrained generic `Model` cannot be deep-copied
+universally without adding a breaking protocol constraint, so Swift's default
+snapshotter is identity copy and relies on Swift value semantics for struct/enum
+models (ADR-0077). Swift reference models that need nested-state isolation must
+inject an explicit snapshotter.
 
 | Flavor     | Default mechanism                                                            |
 | ---------- | ---------------------------------------------------------------------------- |
 | C#         | `System.Text.Json` serialize → deserialize round-trip (BCL-only; deep clone) |
 | Python     | `copy.deepcopy` — deep clone                                                 |
 | TypeScript | `structuredClone` — structured deep clone (Date/Map/Set/typed-array aware)   |
+| Swift      | Identity copy; value models copy by assignment, reference models inject copy |
 
 The **snapshotter remains injectable**: a consumer whose model type the default
 deep-copy cannot handle — JSON-unrepresentable members (delegates, cyclic graphs,
 non-default-constructible types) in C#, unpicklable/live-handle objects under
-`deepcopy` in Python, or values `structuredClone` cannot clone in TypeScript —
-supplies a custom `snapshotter: Func<TM, TM>` at construction (or via the builder).
-An injected snapshotter always overrides the default. The snapshotter is also
-applied when `DenyCommand` restores from `Snapshot`, ensuring consistent copy
-semantics in both directions.
+`deepcopy` in Python, values `structuredClone` cannot clone in TypeScript, or
+Swift reference models needing deep isolation — supplies a custom
+`snapshotter: Func<TM, TM>` at construction (or via the builder). An injected
+snapshotter always overrides the default. The snapshotter is also applied when
+`DenyCommand` restores from `Snapshot`, ensuring consistent copy semantics in both
+directions.
 
 ## 4. Dirty detection
 
@@ -163,6 +167,9 @@ Each flavor uses its idiomatic value-equality, which is overridable:
   (not `JSON.stringify`) supplied by the framework, and a custom `equals(a, b)`
   predicate may be injected at construction (or via the builder) to compare on a
   subset of fields or with reference semantics.
+- Swift: `==` for `Equatable` models through the constrained initializer/build
+  path. Non-`Equatable` class models default to reference identity; non-`Equatable`
+  value models default to "changed" unless the consumer injects `equals`.
 
 The TypeScript default deep-equal is the dirty-tracking counterpart of the
 default `structuredClone` snapshotter — it compares to the same depth the
@@ -352,7 +359,7 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   / optional fields, each starting at `IsDirty == false`.
 - `FORM-013` — `FormVMBuilder<TM>` field defaults applied when not set:
   `Hub` defaults to the flavor's `NullMessageHub` singleton, `Snapshot` to
-  the default deep-copy of `Initial` (§3), and `Strict` to `false` (so
+  the flavor's default snapshotter output (§3), and `Strict` to `false` (so
   `ApproveCommand.CanExecute()` returns `true` regardless of `IsDirty`).
 - `FORM-014` — A disposed form is inert: approve does not invoke the
   persister; deny does not revert the model (§10).

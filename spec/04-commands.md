@@ -225,8 +225,8 @@ dedicated error observable rather than discarding it.
 
 > **Cross-flavor parity (ADR-0006/ADR-0049).** The `errors` channel is normative
 > in every flavor that ships `ConfirmationDecoratorCommand` (C#, Python,
-> TypeScript). Swift does not ship the command decorators and is therefore out of
-> scope. The decorator's `errors` channel is exercised by `CMDD-010`.
+> TypeScript, Swift). The decorator's `errors` channel is exercised by
+> `CMDD-010`.
 
 ## 9. Fluent composition (spec v2.1)
 

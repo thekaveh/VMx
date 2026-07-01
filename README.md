@@ -25,7 +25,7 @@ notes-showcase flagship).
    - 2.3 [Layers](#23-layers)
 3. [Flavors](#3-flavors)
    - 3.1 [Versions and packages](#31-versions-and-packages)
-   - 3.2 [Spec ↔ flavor compatibility](#32-spec--flavor-compatibility)
+   - 3.2 [Spec and flavor compatibility](#32-spec-and-flavor-compatibility)
 4. [Getting started](#4-getting-started)
    - 4.1 [Install](#41-install)
    - 4.2 [Quickstart guides](#42-quickstart-guides)
@@ -69,8 +69,8 @@ makes no assumption about the UI layer. Every flavor exposes:
   `NullLocalizer`), and an `ILocalizer` hook for i18n.
 
 The shape is identical across flavors; only the surface idiom changes
-(PascalCase in C#, snake_case in Python, camelCase in TypeScript — codified in
-ADR-0006).
+(PascalCase in C#, snake_case in Python, camelCase in TypeScript and Swift —
+codified in ADR-0006).
 
 ## 2. Architecture
 
@@ -104,7 +104,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 76 ADRs,
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 77 ADRs,
   4 JSON fixtures, 284 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -153,7 +153,7 @@ in v2.4.0 because the unscoped `vmx` name was unavailable) targets Node
 ≥20, emits dual ESM + CJS bundles, and exposes `@thekaveh/vmx/notifications`
 as a sub-path export.
 
-### 3.2 Spec ↔ flavor compatibility
+### 3.2 Spec and flavor compatibility
 
 | spec  | csharp         | python         | typescript     | swift          |
 | ----- | -------------- | -------------- | -------------- | -------------- |
@@ -246,9 +246,9 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0076)
+│   ├── ADRs/              architecture decision records (0001..0077)
 │   ├── fixtures/          JSON test inputs shared across flavors
-│   ├── proposals/         historical planning artifacts (not part of published docs)
+│   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
 ├── langs/
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
@@ -277,7 +277,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 76 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 77 ADRs,
   4 fixtures, and the 284-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):

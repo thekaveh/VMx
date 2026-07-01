@@ -84,10 +84,10 @@ examples/python/textual/notes_showcase/
 | 10  | Async `construct()` + dispatcher | `viewmodels/workspace_vm.py` (`async construct()`), `views/adapter/dispatcher.py`               |
 | 11  | `TreeStructureChangedMessage`    | `viewmodels/notebooks_root_vm.py` (`add_notebook` / `populate`)                                 |
 | 12  | `ConfirmationDecoratorCommand`   | `viewmodels/note_vm.py` (`delete_command` wraps inner delete)                                   |
-| 13  | `IDialogService`                 | `viewmodels/dialog_service.py`; implemented by `views/adapter/dialog.py` + `views/modals/`      |
+| 13  | `IDialogService`                 | `viewmodels/dialog_service.py`; `views/adapter/dialog.py` implements confirm / notify / save-file modals used by the scenario (`pick_file_to_open` is deliberately unwired and tested as such) |
 | 14  | Capability-aware UI              | `viewmodels/capability_actions_vm.py` + `views/capability_actions.py`                           |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                   |
-| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
+| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (workspace-owned `ThemeVM` sibling bound through the Textual adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
 
 ## 4. Keyboard shortcuts
 

@@ -44,13 +44,17 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   direct hub subscriptions). Excludes `views/adapter/**`.
 
 - `check-layer-imports.py` — enforces the layered import direction for
-  all four flagship example flavors:
+  the C#, Python, and TypeScript flagship examples:
 
     Models → Models only
     ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,
     which is treated as a peer because frameworks like Avalonia need
     INPC-aware sidecars co-located with the VM).
     Views → anywhere.
+
+  The Swift flagship is intentionally outside this script: its core/view split
+  is enforced by SwiftPM target boundaries (`NotesShowcaseCore` vs
+  `NotesShowcase`) plus Swift compile checks.
 
 - `check-showcase-parity.py` — verifies each flavor ships the eleven
   canonical VM test files (`workspace_vm`, `notebooks_root_vm`,

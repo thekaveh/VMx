@@ -65,7 +65,7 @@
         <div class="pulse-dot"></div>
         <h1>Notes-Showcase VM Hierarchy</h1>
       </div>
-      <p class="subtitle">scenario contract from <code>spec/proposals/2026-05-29-notes-showcase-scenario.md</code> — applies identically across C# Avalonia, Python Textual, TypeScript React (names shown in their canonical scenario form per ADR-0006)</p>
+      <p class="subtitle">scenario contract from <code>spec/proposals/2026-05-29-notes-showcase-scenario.md</code> — applies identically across C# Avalonia, Python Textual, TypeScript React, and SwiftUI (names shown in their canonical scenario form per ADR-0006)</p>
     </div>
 
     <div class="diagram-container">
@@ -353,7 +353,7 @@
         </div>
         <ul>
           <li>• All cross-pane subscriptions go through <code>Dispatcher.foreground</code> via <code>observe_on</code> (R4-Imp2)</li>
-          <li>• Filter <em>before</em> marshal — preserved across all 3 flavors (R5-Imp)</li>
+          <li>• Filter <em>before</em> marshal — preserved across all 4 flavors (R5-Imp)</li>
           <li>• <code>NoteForm</code> resets <code>TagDraft</code> on unbind so the next note's editor starts clean (R5-Min)</li>
           <li>• <code>BindTo</code> subscription disposes the old binding when <code>NotesView.Current</code> moves (R3-Imp)</li>
         </ul>
@@ -365,9 +365,9 @@
           <h3>Pure-VM contract</h3>
         </div>
         <ul>
-          <li>• View layers across all 3 flavors are declarative-only — no <code>useState</code>, no <code>_compute_*</code>, no axaml code-behind beyond <code>InitializeComponent()</code></li>
+          <li>• View layers across all 4 flavors are declarative-only — no <code>useState</code>, no <code>_compute_*</code>, no axaml code-behind beyond <code>InitializeComponent()</code></li>
           <li>• CI gates: <code>check-axaml-codebehind.py</code> (C#) · <code>check-textual-views.py</code> (Py) · <code>check-layer-imports.py</code> (all)</li>
-          <li>• Parity gate: <code>check-showcase-parity.py</code> — every WorkspaceVM child has a test file in all 3 flavors</li>
+          <li>• Parity gate: <code>check-showcase-parity.py</code> — every WorkspaceVM child has a test file in all 4 flavors</li>
         </ul>
       </div>
     </div>

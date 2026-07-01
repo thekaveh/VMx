@@ -79,7 +79,7 @@ examples/csharp/avalonia/NotesShowcase/
 | 13  | `IDialogService`                 | Interface from VMx library (`langs/csharp/src/VMx/Dialogs/IDialogService.cs`); implemented here by `Views/Adapter/AvaloniaDialogService.cs` + `Views/Modals/ConfirmDialog.axaml` |
 | 14  | Capability-aware UI              | `ViewModels/CapabilityActionsVM.cs` + `Views/CapabilityActionsView.axaml`                 |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `ViewModels/WorkspaceVM.cs` (wraps a sealed `AggregateVM6<…>` of the six children)         |
-| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
+| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs` (workspace-owned `ThemeVM` sibling bound through the Avalonia adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
 
 ## 4. Keyboard shortcuts
 
