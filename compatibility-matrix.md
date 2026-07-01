@@ -39,13 +39,14 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**237 of 237 library conformance IDs (full library parity) as of Phase-3 Inc-6**
-(base 44 per ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059;
-+30 collections IDs per ADR-0060; +29 hierarchical/threading/expand-collapse
-IDs per ADR-0061; +40 forms/commands/hub IDs per ADR-0062;
-+25 notifications/dialogs IDs per ADR-0063; +19 composite/group IDs per
-ADR-0064). The five `THEME-00x` flagship scenario IDs are pending (Inc-7);
-see `langs/swift/README.md` §5.
+**237 of 237 library conformance IDs + 5 `THEME-00x` scenario IDs = 242 total
+(total parity) as of ADR-0066/ADR-0067** (library IDs: base 44 per
+ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
+ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
++40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
+ADR-0063; +19 composite/group IDs per ADR-0064; THEME-001..005 covered by the
+`examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
+with C#, Python, and TypeScript. See `langs/swift/README.md` §5.
 
 [^current]: 3.0.0 — current branch (`v3-framework-overhaul`); the matching
     `spec-v3.0.0` / `v3.0.0` / `<flavor>-v3.0.0` tags are created at release.

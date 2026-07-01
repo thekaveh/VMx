@@ -1,0 +1,156 @@
+//
+// NotificationsVMTests — scenario tests for NotificationsVM.
+//
+// Ports NotesShowcase.Tests/ViewModels/NotificationsVMTests.cs (C# Avalonia flavor).
+// No conformance-ID markers (scenario IDs live in THEME-00x only).
+//
+// Async fire-and-forget pattern:
+//   `Task { _ = await notifHub.post(n) }` + `try? await Task.sleep(nanoseconds: 1_000_000)` gives the
+//   cooperative pool a chance to run the task's synchronous setup (which fires
+//   the pending subject) before our assertion. `notifHub.dispose()` at teardown
+//   resumes any pending continuations so Tasks complete cleanly.
+//
+import XCTest
+import Combine
+import VMx
+@testable import NotesShowcaseCore
+
+// MARK: - NotificationsVMTests
+
+final class NotificationsVMTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    private struct Fixture {
+        let vm: NotificationsVM
+        let notifHub: NotificationHub
+        let scheduler: VirtualTimeScheduler
+    }
+
+    private func build(cap: Int = 5, lifespan: TimeInterval = 5) throws -> Fixture {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let notifHub = NotificationHub()
+        let scheduler = VirtualTimeScheduler()
+        let vm = try NotificationsVM.builder()
+            .name("notifications")
+            .services(hub: hub, dispatcher: dispatcher)
+            .notificationHub(notifHub)
+            .scheduler(scheduler)
+            .lifespan(lifespan)
+            .cap(cap)
+            .build()
+        try vm.construct()
+        return Fixture(vm: vm, notifHub: notifHub, scheduler: scheduler)
+    }
+
+    private func n(_ msg: String) -> VMx.Notification {
+        VMx.Notification(type: .notification, message: msg)
+    }
+
+    /// Polls until `condition()` returns `true` or the attempt limit is exhausted.
+    private func waitUntil(_ condition: @escaping () -> Bool, attempts: Int = 50) async {
+        for _ in 0..<attempts {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+
+    // MARK: - Post adds to visible
+
+    func testPostingANotificationAddsAVMToVisible() async throws {
+        let f = try build()
+        defer { f.notifHub.dispose() }
+
+        Task { _ = await f.notifHub.post(n("Saved")) }
+        await waitUntil { f.vm.visible.count == 1 }
+
+        XCTAssertEqual(1, f.vm.visible.count)
+        XCTAssertEqual("Saved", f.vm.visible[0].notification.message)
+    }
+
+    // MARK: - Cap drops oldest
+
+    func testCapDropsOldestWhenExceeded() async throws {
+        let f = try build(cap: 5)
+        defer { f.notifHub.dispose() }
+
+        // Post all 7 sequentially: wait for each notification to appear in
+        // `visible` before issuing the next one, so they land in insertion order
+        // (fire-and-forget Tasks would race and produce a non-deterministic order).
+        for i in 0..<7 {
+            let msg = "n\(i)"
+            Task { _ = await f.notifHub.post(self.n("n\(i)")) }
+            await waitUntil { f.vm.visible.contains { $0.notification.message == msg } }
+        }
+
+        XCTAssertEqual(5, f.vm.visible.count, "Expected cap of 5 after 7 posts")
+        // Two oldest dropped; survivors start at n2.
+        XCTAssertEqual("n2", f.vm.visible.first?.notification.message,
+                       "Expected oldest surviving notification to be 'n2'")
+        XCTAssertEqual("n6", f.vm.visible.last?.notification.message,
+                       "Expected newest notification to be 'n6'")
+    }
+
+    // MARK: - Resolved notifications removed
+
+    func testResolvedNotificationsAreRemovedFromVisible() async throws {
+        let f = try build()
+        defer { f.notifHub.dispose() }
+
+        let notification = n("x")
+        Task { _ = await f.notifHub.post(notification) }
+        await waitUntil { f.vm.visible.count == 1 }
+        XCTAssertEqual(1, f.vm.visible.count)
+
+        f.notifHub.resolve(notification, .approve)
+
+        XCTAssertTrue(f.vm.visible.isEmpty,
+                      "Expected visible to be empty after resolve")
+    }
+
+    // MARK: - Auto-dismiss on lifespan expiry
+
+    func testAutoDismissWhenLifespanExpiresOnTestScheduler() async throws {
+        let f = try build(lifespan: 5)
+        defer { f.notifHub.dispose() }
+
+        let notification = n("x")
+        Task { _ = await f.notifHub.post(notification) }
+        await waitUntil { f.vm.visible.count == 1 }
+        XCTAssertEqual(1, f.vm.visible.count)
+
+        // Advance past the 5-second lifespan.
+        // VirtualTimeScheduler.advance fires the timer, which calls
+        // NotificationVM.onExpire() → hub.resolve → pending sink →
+        // ImmediateDispatcher.scheduleForeground → syncFromPending([]).
+        // The resolution chain is synchronous, but poll for robustness in case
+        // any Combine delivery is deferred on the CI runner.
+        f.scheduler.advance(by: .seconds(6))
+        await waitUntil { f.vm.visible.isEmpty }
+
+        XCTAssertTrue(f.vm.visible.isEmpty,
+                      "Expected empty visible after lifespan expiry")
+    }
+
+    // MARK: - Dispose
+
+    func testDisposeClearsVisibleAndUnsubscribes() async throws {
+        let f = try build()
+        defer { f.notifHub.dispose() }
+
+        let n1 = n("x")
+        Task { _ = await f.notifHub.post(n1) }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        XCTAssertEqual(1, f.vm.visible.count)
+
+        f.vm.dispose()
+        XCTAssertTrue(f.vm.visible.isEmpty, "Expected empty visible after dispose")
+
+        // After dispose, new posts must not produce updates.
+        Task { _ = await f.notifHub.post(self.n("y")) }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        XCTAssertTrue(f.vm.visible.isEmpty,
+                      "Expected visible to stay empty for new post after dispose")
+    }
+}

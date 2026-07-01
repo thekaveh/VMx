@@ -12,9 +12,9 @@
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
 specification, four idiomatic language flavors (C# / Python / TypeScript / Swift
-at full library parity), 237 library conformance IDs verified on every commit
-(plus 5 THEME scenario IDs exercised by the example-app suites — pending for
-Swift, which has no flagship example app yet).
+at total parity), 237 library conformance IDs + 5 THEME scenario IDs = **242
+total** verified on every commit (all four flavors, including the Swift
+notes-showcase flagship).
 
 ## Contents
 
@@ -137,12 +137,11 @@ Each flavor implements the same conceptual stack:
 | TypeScript | [`@thekaveh/vmx`](https://www.npmjs.com/package/@thekaveh/vmx) on npm | v3.0.0            | rxjs               |
 | Swift      | `VMx` Swift Package (not yet published)                              | v3.0.0            | Combine            |
 
-The **Swift flavor is at full library parity** — all 237 library conformance
-IDs as of v3.0.0 (Combine-backed, brought up incrementally through the
-Phase-3 parity effort). The only gap before total parity is the 5 THEME-00x
-scenario IDs, which live in a flagship example app Swift does not yet ship. See
-[`langs/swift/README.md`](langs/swift/README.md) §5 for the
-in / deferred matrix. The C# flavor multi-targets `netstandard2.0` and
+The **Swift flavor is at total parity** — all 237 library conformance IDs as
+of v3.0.0 plus the 5 `THEME-00x` scenario IDs covered by the
+`examples/swift/notes-showcase/` flagship (ADR-0067) = **242 total**, matching
+C#, Python, and TypeScript. See [`langs/swift/README.md`](langs/swift/README.md)
+§5 for the full ID matrix. The C# flavor multi-targets `netstandard2.0` and
 `net8.0` and ships two companion assemblies:
 [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
 (`services.AddVMx(...)`) and
@@ -199,11 +198,11 @@ npm install @thekaveh/vmx rxjs
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at full library parity as of v3.0.0; see `langs/swift/README.md` §5).
+  at total parity as of v3.0.0; see `langs/swift/README.md` §5).
 
 ### 4.3 Examples
 
-The three **flagship Notes Workspace** apps — one per language flavor, one
+The four **flagship Notes Workspace** apps — one per language flavor, one
 per UI framework — implement the same scenario from a single language-neutral
 VM API surface, exercising **16 distinct VMx features** (notebooks tree,
 paged + filterable notes list, FormVM editor, capability-aware action bar,
@@ -223,6 +222,9 @@ for the canonical scenario contract.
 - [`examples/typescript/react/notes-showcase/`](examples/typescript/react/notes-showcase/)
   — Notes Workspace flagship on React 18 + Vite. Run: `npm install && npm run dev`
   from the example dir; production bundle via `npm run build`.
+- [`examples/swift/notes-showcase/`](examples/swift/notes-showcase/)
+  — Notes Workspace flagship on SwiftUI + Combine (macOS). Build and test via
+  `swift build` / `swift test` from the example dir (requires macOS + Xcode).
 
 Smaller per-flavor demos:
 
@@ -252,7 +254,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (v3.0.0, full library parity)
+│   └── swift/             VMx Swift Package (v3.0.0, total parity — 237 library + 5 THEME)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -281,7 +283,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.0.0, full library parity).
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.0.0, total parity — 237 library + 5 THEME).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
@@ -305,8 +307,8 @@ This README is the entry point; the documents below add focused detail.
   [`examples/python/README.md`](examples/python/README.md),
   [`examples/typescript/README.md`](examples/typescript/README.md).
 - [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
-  cross-flavor parity matrix for the three flagship Notes-Showcase apps
-  (Avalonia / Textual / React); 16 spec features × 3 flavors.
+  cross-flavor parity matrix for all four flagship Notes-Showcase apps
+  (Avalonia / Textual / React / SwiftUI); 16 spec features × 4 flavors.
 - [`docs/integration/README.md`](docs/integration/README.md) — one-page
   integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
   NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe
@@ -330,18 +332,18 @@ compatible and ships in flavors as a minor bump.
 `spec/12-conformance.md` enumerates 242 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`THEME-001`, …) — 237 library IDs plus 5 `THEME` scenario IDs. Every flavor at
-full parity (C# / Python / TypeScript) re-implements the 237 library IDs under
+`THEME-001`, …) — 237 library IDs plus 5 `THEME` scenario IDs. All four
+flavors (C# / Python / TypeScript / Swift) implement the 237 library IDs under
 `langs/<flavor>/tests/conformance/`, and
-`tools/check-conformance-coverage.py` enforces 100% coverage in CI. The
-Swift flavor implements all 237 library conformance IDs as of v3.0.0
-(full library parity; THEME-00x scenarios pending — see
-[`langs/swift/README.md`](langs/swift/README.md) §5).
+`tools/check-conformance-coverage.py` enforces 100% coverage in CI. All four
+flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
+example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
+flavor is at **total parity: 237 library + 5 THEME = 242**.
 
 ```bash
-# Verify all three flavors are at full coverage
+# Verify all four flavors are at full catalog coverage
 uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript
+    --require csharp --require python --require typescript --require swift
 ```
 
 ## 7. Contributing

@@ -6,8 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [3.0.0] — 2026-06-28
 
-The **v3 framework overhaul** (subset). Implements the `spec-v3.0.0` subset.
-See ADRs 0047–0058; the Swift-specific convergence is ADR-0053.
+The **v3 framework overhaul**. Implements `spec-v3.0.0`; the Swift-specific
+convergence is ADR-0053. (This in-development version was grown to full library
+parity + the notes-showcase flagship across ADRs 0059–0067; it is unpublished
+and untagged, so those additive changes land here rather than in a bumped
+version — see ADR-0066.)
+
+### Added
+
+- **Cross-module subclassing support for `ComponentVMBase`** (ADR-0066). The
+  subclass-facing messaging surface — `hub`, `dispatcher`, and
+  `_raisePropertyChanged(_:)` — is now `public` (read-only for the two
+  properties) instead of `internal`, so consumers in another module can
+  subclass `ComponentVMBase` and publish hub messages / fire the
+  `propertyChanged` side-channel. Swift has no `protected`; `internal` did not
+  cross the module boundary, so the base was previously only subclassable
+  in-module. Purely additive — no behavior or conformance change (still
+  237/237). Surfaced while building the Swift notes-showcase flagship.
 
 ### Changed
 
