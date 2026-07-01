@@ -267,14 +267,14 @@ final class WorkspaceVMTests: XCTestCase {
         XCTAssertNotNil(nb)
         ws.setFocus(nb!)
         XCTAssertTrue(
-            ws.capabilityActions.actions.value.contains { $0.label == "Expand" }
+            try ws.capabilityActions.actions.value.contains { $0.label == "Expand" }
         )
 
         // Focus on a note: actions switch to note-specific actions.
         let noteVM = ws.notesView.filteredItems.first
         XCTAssertNotNil(noteVM)
         ws.setFocus(noteVM!)
-        let labels = ws.capabilityActions.actions.value.map(\.label)
+        let labels = try ws.capabilityActions.actions.value.map(\.label)
         XCTAssertTrue(labels.contains("Close"))
         XCTAssertFalse(labels.contains("Expand"))
     }
