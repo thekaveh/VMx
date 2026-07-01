@@ -341,9 +341,9 @@ example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
 flavor is at **total parity: 237 library + 5 THEME = 242**.
 
 ```bash
-# Verify all three flavors are at full coverage
+# Verify all four flavors are at full catalog coverage
 uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript
+    --require csharp --require python --require typescript --require swift
 ```
 
 ## 7. Contributing

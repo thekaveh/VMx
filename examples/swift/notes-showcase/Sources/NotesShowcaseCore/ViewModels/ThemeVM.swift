@@ -31,7 +31,7 @@ public enum ThemeError: Error, Equatable {
 /// every user gesture through a small command surface that publishes a single
 /// `ThemeChangedMessage` per effective change (equality-guarded).
 ///
-/// Mirror of `ThemeVM` in the C# Avalonia flavor; follows Swift snake_case
+/// Mirror of `ThemeVM` in the C# Avalonia flavor; follows Swift camelCase
 /// idiom per ADR-0006.
 public final class ThemeVM: ComponentVMBase {
 
