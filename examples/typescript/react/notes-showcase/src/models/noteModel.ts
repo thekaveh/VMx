@@ -3,7 +3,7 @@
  *
  * Immutable. `tags` is a readonly tuple-like array. `createdAt` / `updatedAt`
  * are ISO-8601 strings (mirrors the C# DateTimeOffset round-trip format and
- * the Python isoformat representation — same shape across all three flavors).
+ * the Python isoformat representation — same shape across all four flavors).
  */
 export interface NoteModel {
   readonly id: string;

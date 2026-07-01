@@ -17,10 +17,14 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
     private var cancellables: Set<AnyCancellable> = []
     private var disposed = false
     private let changedSubject = PassthroughSubject<Void, Never>()
+    private var currentStorage: Child?
 
     public var visible: [Child] { visibleStorage }
     public var visibleCount: Int { visibleStorage.count }
-    public var current: Child?
+    public var current: Child? {
+        get { currentStorage }
+        set { setCurrent(newValue) }
+    }
 
     public var changed: AnyPublisher<Void, Never> {
         changedSubject.eraseToAnyPublisher()
@@ -64,8 +68,8 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
         if let item, !visibleStorage.contains(where: { $0 === item }) {
             preconditionFailure("current must be nil or a visible item")
         }
-        if current === item { return }
-        current = item
+        if currentStorage === item { return }
+        currentStorage = item
         changedSubject.send(())
     }
 
@@ -74,7 +78,7 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
             setCurrent(nil)
             return
         }
-        guard let current, let index = visibleStorage.firstIndex(where: { $0 === current }) else {
+        guard let currentStorage, let index = visibleStorage.firstIndex(where: { $0 === currentStorage }) else {
             setCurrent(visibleStorage[0])
             return
         }
@@ -86,7 +90,7 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
             setCurrent(nil)
             return
         }
-        guard let current, let index = visibleStorage.firstIndex(where: { $0 === current }) else {
+        guard let currentStorage, let index = visibleStorage.firstIndex(where: { $0 === currentStorage }) else {
             setCurrent(visibleStorage[0])
             return
         }
@@ -99,10 +103,10 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
 
     func recompute() {
         visibleStorage = orderedVisible()
-        if let current, !visibleStorage.contains(where: { $0 === current }) {
-            self.current = cursorPolicy == .snapToFirst ? visibleStorage.first : nil
-        } else if current == nil && cursorPolicy == .snapToFirst {
-            current = visibleStorage.first
+        if let currentStorage, !visibleStorage.contains(where: { $0 === currentStorage }) {
+            self.currentStorage = cursorPolicy == .snapToFirst ? visibleStorage.first : nil
+        } else if currentStorage == nil && cursorPolicy == .snapToFirst {
+            currentStorage = visibleStorage.first
         }
         changedSubject.send(())
     }

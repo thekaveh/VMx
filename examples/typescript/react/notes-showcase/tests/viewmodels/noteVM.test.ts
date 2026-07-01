@@ -110,7 +110,8 @@ describe("NoteVM", () => {
     hub.messages.subscribe((m) => {
       if (m instanceof PropertyChangedMessage) messages.push(m);
     });
-    vm.model = vm.model;
+    const sameModel = vm.model;
+    vm.model = sameModel;
     expect(messages.length).toBe(0);
   });
 

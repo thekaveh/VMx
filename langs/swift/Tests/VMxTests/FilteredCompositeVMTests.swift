@@ -39,6 +39,15 @@ final class FilteredCompositeVMTests: XCTestCase {
         XCTAssertTrue(sut.current === src.at(0))
     }
 
+    func testCurrentSetterRejectsNonVisibleChild() throws {
+        let src = try source("alpha", "bee")
+        let sut = FilteredCompositeVM(src) { $0.name == "alpha" }
+        XCTAssertEqual(sut.visible.map(\.name), ["alpha"])
+        expectPreconditionFailure {
+            sut.current = src.at(1)
+        }
+    }
+
     /// COMP-031 — predicate change recomputes projection.
     func testCOMP031PredicateChangeRecomputesProjection() throws {
         let sut = try FilteredCompositeVM(source("alpha", "bee")) { $0.name.contains("a") }

@@ -103,6 +103,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         (AddCommand as IDisposable)?.Dispose();
         _newItemTitleChanged.Dispose();
-        _hub.Dispose();
+        (_hub as IDisposable)?.Dispose();
     }
 }

@@ -103,8 +103,13 @@ public sealed class TodoItemVM : INotifyPropertyChanged, IDisposable
         // frozen at its first-queried value.
         public event EventHandler? CanExecuteChanged
         {
+#if NET8_0_WINDOWS
             add => CommandManager.RequerySuggested += value;
             remove => CommandManager.RequerySuggested -= value;
+#else
+            add { }
+            remove { }
+#endif
         }
 
         public bool CanExecute(object? _) => _canExecute();

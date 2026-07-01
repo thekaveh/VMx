@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType Condition="'$(OS)' == 'Windows_NT'">WinExe</OutputType>
+    <OutputType Condition="'$(OS)' != 'Windows_NT'">Library</OutputType>
     <!-- WPF only runs on Windows; fall back to a no-op net8.0 target on other OSes so
          CI on macOS/Linux can at least restore/parse the project without errors.
          Matches the library's lowest supported TFM (netstandard2.0; net8.0). -->
@@ -15,5 +16,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+    <Compile Remove="App.xaml.cs;MainWindow.xaml.cs" />
+    <None Remove="App.xaml;MainWindow.xaml" />
   </ItemGroup>
 </Project>

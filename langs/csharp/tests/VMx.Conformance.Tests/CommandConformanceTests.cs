@@ -217,6 +217,33 @@ public class CommandConformanceTests
         cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state when throwing");
     }
 
+    [Fact, Trait("Conformance", "CMD-012")]
+    public async Task CMD_012_Concurrent_ExecuteAsync_Does_Not_Double_Run()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var invocations = 0;
+
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async _ =>
+            {
+                Interlocked.Increment(ref invocations);
+                started.TrySetResult();
+                await release.Task;
+            })
+            .Build();
+
+        var runs = Enumerable.Range(0, 64)
+            .Select(_ => Task.Run(() => cmd.ExecuteAsync()))
+            .ToArray();
+
+        await started.Task;
+        release.SetResult();
+        await Task.WhenAll(runs);
+
+        invocations.Should().Be(1, "an in-flight async command must gate out concurrent executions");
+    }
+
     // -----------------------------------------------------------------------
     // Fixture DTOs
     // -----------------------------------------------------------------------

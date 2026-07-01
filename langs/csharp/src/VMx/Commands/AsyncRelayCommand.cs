@@ -32,6 +32,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     private readonly bool _throwOnCancel;
     private readonly CompositeDisposable _triggerSubscriptions = new();
     private readonly Subject<Exception> _errors = new();
+    private readonly object _gate = new();
     private CancellationTokenSource? _cts;
     private bool _isExecuting;
     private bool _disposed;
@@ -53,7 +54,16 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     public event EventHandler? CanExecuteChanged;
 
     /// <inheritdoc/>
-    public bool IsExecuting => _isExecuting;
+    public bool IsExecuting
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _isExecuting;
+            }
+        }
+    }
 
     /// <summary>
     /// Surfaces a fault from the fire-and-forget <see cref="Execute"/> path (a throwing
@@ -69,7 +79,10 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// </summary>
     public bool CanExecute(object? parameter)
     {
-        if (_isExecuting) return false;
+        lock (_gate)
+        {
+            if (_disposed || _isExecuting) return false;
+        }
         if (_predicate is null) return true;
         try { return _predicate(); }
         catch { return false; }
@@ -94,11 +107,9 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// <inheritdoc/>
     public async Task ExecuteAsync(object? parameter = null, CancellationToken cancellationToken = default)
     {
-        if (!CanExecute(parameter)) return;
+        var cts = TryBeginExecution(cancellationToken);
+        if (cts is null) return;
 
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _cts = cts;
-        _isExecuting = true;
         RaiseCanExecuteChanged();
         try
         {
@@ -111,15 +122,27 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         }
         finally
         {
-            _isExecuting = false;
-            _cts = null;
+            lock (_gate)
+            {
+                if (ReferenceEquals(_cts, cts))
+                    _cts = null;
+                _isExecuting = false;
+            }
             cts.Dispose();
             RaiseCanExecuteChanged();
         }
     }
 
     /// <inheritdoc/>
-    public void Cancel() => _cts?.Cancel();
+    public void Cancel()
+    {
+        CancellationTokenSource? cts;
+        lock (_gate)
+        {
+            cts = _cts;
+        }
+        cts?.Cancel();
+    }
 
     /// <summary>
     /// Cancels any in-flight execution, disposes trigger subscriptions, and completes
@@ -127,12 +150,37 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _cts?.Cancel();
+        CancellationTokenSource? cts;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            cts = _cts;
+        }
+        cts?.Cancel();
         _triggerSubscriptions.Dispose();
         _errors.OnCompleted();
         _errors.Dispose();
+    }
+
+    private CancellationTokenSource? TryBeginExecution(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _isExecuting) return null;
+            if (_predicate is not null)
+            {
+                bool allowed;
+                try { allowed = _predicate(); }
+                catch { return null; }
+                if (!allowed) return null;
+            }
+
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _cts = cts;
+            _isExecuting = true;
+            return cts;
+        }
     }
 
     private void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);

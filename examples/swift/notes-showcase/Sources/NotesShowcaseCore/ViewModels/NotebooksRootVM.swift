@@ -30,6 +30,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     private let _notificationHub: NotificationHubProtocol?
     private var _all: [NotebookVM] = []
     private var _current: NotebookVM?
+    private var _createTasks: [Task<Void, Never>] = []
 
     // ── Commands ───────────────────────────────────────────────────────────
 
@@ -76,7 +77,11 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     /// Synchronous capability entry point — fire-and-forgets a default
     /// "New Notebook" add.
     public func createNew() {
-        Task { [weak self] in await self?.addNotebook(parentId: nil, name: "New Notebook") }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.addNotebook(parentId: nil, name: "New Notebook")
+        }
+        _createTasks.append(task)
     }
 
     // ── Async operations ───────────────────────────────────────────────────
@@ -89,10 +94,12 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     /// Async emit of structural changes is foreground-marshalled via the
     /// injected dispatcher (mirrors C# `_dispatcher.Foreground.Schedule`).
     public func addNotebook(parentId: String?, name notebookName: String) async {
+        guard status != .disposed, !Task.isCancelled else { return }
         let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         let id = "nb-\(uuid.prefix(5))"
         let model = NotebookModel(id: id, name: notebookName, parentId: parentId)
         try? await _repo.addNotebook(model)
+        guard status != .disposed, !Task.isCancelled else { return }
 
         let vm = try! NotebookVM.builder()
             .name("nb:\(id)")
@@ -107,11 +114,14 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         // this continuation runs off the UI thread after the repo await.
         if let pid = parentId {
             if let parent = _all.first(where: { $0.model.id == pid }) {
-                dispatcher.scheduleForeground { parent.notifyChildrenChanged() }
+                dispatcher.scheduleForeground { [weak self, weak parent] in
+                    guard let self, self.status != .disposed else { return }
+                    parent?.notifyChildrenChanged()
+                }
             }
         } else {
             dispatcher.scheduleForeground { [weak self] in
-                guard let self else { return }
+                guard let self, self.status != .disposed else { return }
                 self.hub.send(PropertyChangedMessage(
                     sender: self, senderName: self.name, propertyName: "roots"
                 ))
@@ -119,6 +129,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
             }
         }
 
+        guard status != .disposed, !Task.isCancelled else { return }
         hub.send(TreeStructureChangedMessage(
             sender: self,
             senderName: self.name,
@@ -128,7 +139,8 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         ))
 
         if let notificationHub = _notificationHub {
-            Task {
+            Task { [weak self] in
+                guard let self, self.status != .disposed else { return }
                 _ = await notificationHub.post(VMx.Notification(
                     type: .notification,
                     message: "Notebook added: \u{201C}\(notebookName)\u{201D}"
@@ -144,7 +156,9 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     /// Foreground-marshals the `current` + `roots` raises because this
     /// continuation runs off the UI thread after `loadAll()`.
     public func populate() async throws {
+        guard status != .disposed, !Task.isCancelled else { return }
         let (notebooks, _) = try await _repo.loadAll()
+        guard status != .disposed, !Task.isCancelled else { return }
 
         // Dispose existing children before replacing.
         for nb in _all { nb.dispose() }
@@ -153,7 +167,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
 
         // Marshal the Current reset to the foreground (continuation is off-thread).
         dispatcher.scheduleForeground { [weak self] in
-            guard let self else { return }
+            guard let self, self.status != .disposed else { return }
             self.hub.send(PropertyChangedMessage(
                 sender: self, senderName: self.name, propertyName: "current"
             ))
@@ -171,6 +185,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
             _all.append(vm)
         }
 
+        guard status != .disposed, !Task.isCancelled else { return }
         // Structural reset notification — subscribers refresh their tree projections.
         hub.send(TreeStructureChangedMessage(
             sender: self,
@@ -183,7 +198,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         // Roots is a computed snapshot: an already-bound tree view only
         // re-reads it on an explicit raise. Marshal to the foreground.
         dispatcher.scheduleForeground { [weak self] in
-            guard let self else { return }
+            guard let self, self.status != .disposed else { return }
             self.hub.send(PropertyChangedMessage(
                 sender: self, senderName: self.name, propertyName: "roots"
             ))
@@ -224,6 +239,8 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     }
 
     public override func _onDispose() {
+        for task in _createTasks { task.cancel() }
+        _createTasks.removeAll()
         for nb in _all { nb.dispose() }
         addNotebookCommand.dispose()
         super._onDispose()

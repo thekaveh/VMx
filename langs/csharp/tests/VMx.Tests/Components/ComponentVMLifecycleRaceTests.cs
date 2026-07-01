@@ -100,6 +100,75 @@ public class ComponentVMLifecycleRaceTests
         vm.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
+    [Fact]
+    public async Task Concurrent_Construct_Is_Rejected_While_First_Construct_Is_In_Flight()
+    {
+        var started = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var constructCalls = 0;
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() =>
+            {
+                Interlocked.Increment(ref constructCalls);
+                started.Set();
+                release.Wait();
+            })
+            .Build();
+
+        var first = Task.Run(vm.Construct);
+        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first construct entered its hook");
+
+        Action second = vm.Construct;
+        second.Should().Throw<StatusTransitionException>(
+            "the per-VM lifecycle guard must reject concurrent construct re-entry");
+
+        release.Set();
+        await first;
+
+        constructCalls.Should().Be(1);
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task Concurrent_Destruct_Is_Rejected_While_First_Destruct_Is_In_Flight()
+    {
+        var started = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var destructCalls = 0;
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnDestruct(() =>
+            {
+                Interlocked.Increment(ref destructCalls);
+                started.Set();
+                release.Wait();
+            })
+            .Build();
+        vm.Construct();
+
+        var first = Task.Run(vm.Destruct);
+        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first destruct entered its hook");
+
+        Action second = vm.Destruct;
+        second.Should().Throw<StatusTransitionException>(
+            "the per-VM lifecycle guard must reject concurrent destruct re-entry");
+
+        release.Set();
+        await first;
+
+        destructCalls.Should().Be(1);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
     /// <summary>
     /// VMX-001/054 regression: a background <c>Construct()</c> whose
     /// <c>SetStatus(Constructed)</c> runs on a real pool thread must never race a

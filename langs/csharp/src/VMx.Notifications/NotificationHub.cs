@@ -32,6 +32,8 @@ public sealed class NotificationHub : INotificationHub, IDisposable
                 tcs.TrySetResult(NotificationReaction.Pending);
                 return tcs.Task;
             }
+            if (_waiters.TryGetValue(notification, out var existing))
+                return existing.Task;
             _pending.Add(notification);
             _waiters[notification] = tcs;
             // Emit while holding the lock: emitting outside raced Dispose()'s
