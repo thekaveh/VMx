@@ -111,7 +111,11 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
             }
         } else {
             dispatcher.scheduleForeground { [weak self] in
-                self?._raisePropertyChanged("roots")
+                guard let self else { return }
+                self.hub.send(PropertyChangedMessage(
+                    sender: self, senderName: self.name, propertyName: "roots"
+                ))
+                self._raisePropertyChanged("roots")
             }
         }
 
@@ -179,7 +183,11 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         // Roots is a computed snapshot: an already-bound tree view only
         // re-reads it on an explicit raise. Marshal to the foreground.
         dispatcher.scheduleForeground { [weak self] in
-            self?._raisePropertyChanged("roots")
+            guard let self else { return }
+            self.hub.send(PropertyChangedMessage(
+                sender: self, senderName: self.name, propertyName: "roots"
+            ))
+            self._raisePropertyChanged("roots")
         }
     }
 

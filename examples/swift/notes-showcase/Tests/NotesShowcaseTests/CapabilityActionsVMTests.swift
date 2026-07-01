@@ -231,9 +231,18 @@ final class CapabilityActionsVMTests: XCTestCase {
         }
 
         XCTAssertEqual(1, deleted.count, "Expected onDelete called exactly once")
-        XCTAssertTrue(
-            observed.contains(where: { $0.message.contains("Note deleted") }),
-            "Expected 'Note deleted' notification; got \(observed.map(\.message))"
-        )
+
+        // The notification is posted fire-and-forget (`Task { await hub.post(...) }`);
+        // a single yield cannot drain that chain, so poll until it lands.
+        var landed = false
+        for _ in 0..<500 {
+            if observed.contains(where: { $0.message.contains("Note deleted") }) {
+                landed = true
+                break
+            }
+            await Task.yield()
+        }
+        XCTAssertTrue(landed,
+                      "Expected 'Note deleted' notification; got \(observed.map(\.message))")
     }
 }

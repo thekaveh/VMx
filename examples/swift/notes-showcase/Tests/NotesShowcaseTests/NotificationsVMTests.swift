@@ -75,10 +75,14 @@ final class NotificationsVMTests: XCTestCase {
         let f = try build(cap: 5)
         defer { f.notifHub.dispose() }
 
+        // Post all 7 sequentially: wait for each notification to appear in
+        // `visible` before issuing the next one, so they land in insertion order
+        // (fire-and-forget Tasks would race and produce a non-deterministic order).
         for i in 0..<7 {
+            let msg = "n\(i)"
             Task { _ = await f.notifHub.post(self.n("n\(i)")) }
+            await waitUntil { f.vm.visible.contains { $0.notification.message == msg } }
         }
-        await waitUntil { f.vm.visible.count == 5 }
 
         XCTAssertEqual(5, f.vm.visible.count, "Expected cap of 5 after 7 posts")
         // Two oldest dropped; survivors start at n2.
@@ -117,10 +121,13 @@ final class NotificationsVMTests: XCTestCase {
         XCTAssertEqual(1, f.vm.visible.count)
 
         // Advance past the 5-second lifespan.
-        // VirtualTimeScheduler.advance(by:) fires scheduled work synchronously,
-        // which calls NotificationVM.onExpire() → hub.resolve → pending sink →
-        // ImmediateDispatcher.scheduleForeground → syncFromPending([]) inline.
+        // VirtualTimeScheduler.advance fires the timer, which calls
+        // NotificationVM.onExpire() → hub.resolve → pending sink →
+        // ImmediateDispatcher.scheduleForeground → syncFromPending([]).
+        // The resolution chain is synchronous, but poll for robustness in case
+        // any Combine delivery is deferred on the CI runner.
         f.scheduler.advance(by: .seconds(6))
+        await waitUntil { f.vm.visible.isEmpty }
 
         XCTAssertTrue(f.vm.visible.isEmpty,
                       "Expected empty visible after lifespan expiry")
