@@ -263,6 +263,30 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             Index: -1));
     }
 
+    /// <summary>
+    /// Drops this node's materialized child cache. The next <see cref="Children"/>
+    /// access invokes the children factory again. Invalidating an unmaterialized
+    /// node is a no-op.
+    /// </summary>
+    public void InvalidateChildren()
+    {
+        if (_children is null) return;
+        _children = null;
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(
+            this, Name, nameof(Children)));
+    }
+
+    /// <summary>
+    /// Drops cached children for this node and all materialized descendants.
+    /// </summary>
+    public void InvalidateSubtree()
+    {
+        if (_children is null) return;
+        foreach (var child in _children.ToArray())
+            child.InvalidateSubtree();
+        InvalidateChildren();
+    }
+
     // ── Internal helpers ─────────────────────────────────────────────────────
 
     private List<TVM> MaterializeChildren()

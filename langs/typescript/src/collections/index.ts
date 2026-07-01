@@ -22,3 +22,8 @@ export {
   PagedComposition,
   type PagedCompositionSource,
 } from "./pagedComposition.js";
+export {
+  TokenPagedComposition,
+  type TokenPage,
+  type TokenPagedCompositionOptions,
+} from "./tokenPagedComposition.js";

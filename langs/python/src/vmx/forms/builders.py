@@ -11,7 +11,7 @@ spec/20-form-vm.md.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 from vmx.builders.exceptions import BuilderValidationError
@@ -46,6 +46,10 @@ class FormVMBuilder(Generic[TM]):
     _hub: MessageHubProto[Any] | None = dataclasses.field(default=None)
     _strict: bool = dataclasses.field(default=False)
     _snapshotter: Callable[[Any], Any] | None = dataclasses.field(default=None)
+    _validators: Mapping[str, Callable[[Any], str | None]] = dataclasses.field(default_factory=dict)
+    _model_validator: Callable[[Any], Mapping[str, str | None]] | None = dataclasses.field(
+        default=None
+    )
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -71,6 +75,23 @@ class FormVMBuilder(Generic[TM]):
     def snapshotter(self, value: Callable[[TM], TM]) -> FormVMBuilder[TM]:
         """Set a custom snapshot function (default: ``copy.deepcopy``)."""
         return dataclasses.replace(self, _snapshotter=value)
+
+    def validator(
+        self,
+        field: str,
+        value: Callable[[TM], str | None],
+    ) -> FormVMBuilder[TM]:
+        """Register a field validator. The returned builder is a new instance."""
+        validators = dict(self._validators)
+        validators[field] = value
+        return dataclasses.replace(self, _validators=validators)
+
+    def model_validator(
+        self,
+        value: Callable[[TM], Mapping[str, str | None]],
+    ) -> FormVMBuilder[TM]:
+        """Register a model-level validator returning field-name errors."""
+        return dataclasses.replace(self, _model_validator=value)
 
     # ── Build ────────────────────────────────────────────────────────────────
 
@@ -98,6 +119,8 @@ class FormVMBuilder(Generic[TM]):
             hub=self._hub,
             strict=self._strict,
             snapshotter=self._snapshotter,
+            validators=self._validators,
+            model_validator=self._model_validator,
         )
 
 

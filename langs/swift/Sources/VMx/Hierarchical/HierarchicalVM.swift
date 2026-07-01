@@ -274,6 +274,28 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         ))
     }
 
+    /// Drops this node's materialized child cache. The next `children` access
+    /// invokes the children factory again. Invalidating an unmaterialized node
+    /// is a no-op.
+    public func invalidateChildren() {
+        guard _children != nil else { return }
+        _children = nil
+        hub.send(PropertyChangedMessage(
+            sender: selfNode,
+            senderName: name,
+            propertyName: "children"
+        ))
+    }
+
+    /// Drops cached children for this node and all materialized descendants.
+    public func invalidateSubtree() {
+        guard let cached = _children else { return }
+        for child in cached {
+            node(child).invalidateSubtree()
+        }
+        invalidateChildren()
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     /// Runs the factory and seeds each produced child's `parent` to this node

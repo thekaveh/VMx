@@ -10,7 +10,8 @@ This chapter covers four primitives:
 - `ServicedObservableCollection<T>` — hub-aware observable collection
 - `ObservableList<T>` — granular per-mutation events
 - `ObservableDictionary` — multi-key observable dictionary
-- `PagedComposition<TVM>` — paged composition helper
+- `PagedComposition<TVM>` — finite, index-based paged composition helper
+- `TokenPagedComposition<TVM, TToken>` — accumulated, forward-only token paging
 
 Paging and filtering capabilities (`IPageable` / `IFilterable<TItem>`) are defined
 in `14-capabilities.md`. `PagedComposition<TVM>` implements `IPageable` as
@@ -111,7 +112,20 @@ wanting foreground delivery subscribe via `ObserveOn(dispatcher.Foreground)`
 after the fact, as they would for any other hub message
 (see [chapter 11 — threading](11-threading.md)).
 
-### 2.6 Conformance
+### 2.6 Ownership
+
+`ServicedObservableCollection<T>` does **not** own, construct, destruct, or
+dispose the items it contains. "Serviced" means "optionally publishes
+collection-change messages to a service" (`IMessageHub`), not "service-managed
+lifecycle."
+
+Removing, replacing, clearing, or popping an item only mutates the collection and
+emits collection-change notifications. If the items are disposable VMs, the
+caller remains responsible for their lifecycle. Consumers that need
+lifecycle-cascading VM ownership should use `CompositeVM` / `GroupVM` or an
+explicit owner wrapper.
+
+### 2.7 Conformance
 
 `COL-001` through `COL-004` in `12-conformance.md`.
 
@@ -361,13 +375,66 @@ When the source is empty:
 
 Navigation verbs are all no-ops on an empty source.
 
-### 5.5 Conformance
+### 5.5 Source observation
 
-`COL-016` through `COL-021` in `12-conformance.md`.
+`PagedComposition<TVM>` observes source mutation streams when the source exposes
+them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
+`ItemReplaced` / `Reset`, with per-flavor casing) and composite-style
+`CollectionChanged` streams are both valid source shapes.
 
-## 6. Composition with other helpers
+### 5.6 Conformance
 
-### 6.1 Filter-then-page ordering
+`COL-016` through `COL-021` and `COL-031` in `12-conformance.md`.
+
+## 6. Token paging: `TokenPagedComposition<TVM, TToken>`
+
+Per ADR-0069.
+
+### 6.1 Shape
+
+```
+TokenPagedComposition<TVM, TToken>:
+    constructor(fetch_next)                 # async function: token? -> (items, nextToken?)
+
+    Items        : IReadOnlyList<TVM>       # accumulated loaded items
+    CurrentToken : TToken?                  # token for the next load; null/nil/None after terminal page
+    HasMore      : bool                     # true before first fetch, then CurrentToken != null/nil/None
+
+    LoadMoreCommand : AsyncRelayCommand     # fetches CurrentToken, appends returned items
+    RefreshCommand  : AsyncRelayCommand     # fetches from initial token and replaces/dedups accumulator
+
+    CollectionChanged                       # reset event after effective accumulator mutations
+    PropertyChanged                         # Items / CurrentToken / HasMore changes
+```
+
+The token is opaque to VMx. `null` / `None` / `nil` is the initial token and the
+terminal "no more pages" token.
+
+### 6.2 Load and refresh semantics
+
+`LoadMoreCommand` calls `fetch_next(CurrentToken)`, appends returned items to the
+accumulator, stores the returned next token, and emits a coarse `Reset`
+collection event. When the returned token is terminal, `HasMore` becomes false
+and `LoadMoreCommand.CanExecute` returns false.
+
+`RefreshCommand` calls `fetch_next(null)` and treats the result as a new first
+page. If the new first page matches the current accumulator head according to
+the flavor's equality/comparer hook, the accumulator is not mutated and no
+collection event is emitted; token and property state are still refreshed. If it
+differs, the accumulator is replaced with the first page and a coarse `Reset`
+event is emitted.
+
+When `auto_construct_on_add` / `autoConstructOnAdd` / `AutoConstructOnAdd` is
+enabled and returned items are VMx component VMs, they are constructed before
+the reset event is emitted.
+
+### 6.3 Conformance
+
+`COL-024` through `COL-030` in `12-conformance.md`.
+
+## 7. Composition with other helpers
+
+### 7.1 Filter-then-page ordering
 
 When both `SearchableState<T>` (ADR-0014) and `PagedComposition<TVM>` wrap the
 same composition, the correct ordering is:
@@ -386,7 +453,7 @@ Reversing the order (page first, then filter) is permitted by the spec but is
 rarely the desired behaviour and is therefore not the documented idiomatic
 pattern.
 
-### 6.2 Batch interaction
+### 7.2 Batch interaction
 
 When a `BatchUpdate()` scope is active, `ObservableList<T>` suppresses granular
 events and emits a single `Reset` on completion (per §3.5). A
@@ -394,7 +461,7 @@ events and emits a single `Reset` on completion (per §3.5). A
 its page slice. The recomputation happens once after the batch, not once per
 item.
 
-### 6.3 `ServicedObservableCollection<T>` with composition helpers
+### 7.3 `ServicedObservableCollection<T>` with composition helpers
 
 `ServicedObservableCollection<T>` publishes `CollectionChangedMessage` to the
 hub on every mutation, even when wrapped by `SearchableState` or
@@ -402,7 +469,7 @@ hub on every mutation, even when wrapped by `SearchableState` or
 the downstream view's state. Consumers observing the hub receive the raw change
 regardless of what filtering or paging is applied on top.
 
-## 7. Conformance
+## 8. Conformance
 
-`COL-001` through `COL-023` in `12-conformance.md`. Applicable ADRs:
-ADR-0024 (§2), ADR-0026 (§3), ADR-0025 (§4), ADR-0023 (§5).
+`COL-001` through `COL-031` in `12-conformance.md`. Applicable ADRs:
+ADR-0024 (§2), ADR-0026 (§3), ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6).

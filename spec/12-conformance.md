@@ -32,6 +32,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
 | `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
 | `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
+| `DISC-NNN`  | DiscriminatorVM (single active-key coordinator)      | `22-discriminator-vm.md`                      |
 | `THEME-NNN` | Theme as a VM concern (scenario contract, v2.4)      | `proposals/2026-06-02-theme-vm-scenario.md`   |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
@@ -379,6 +380,17 @@ cannot double-run)
 
 > Spec: `04-commands.md §10`, ADR-0056. Full-parity (C#/Python/TypeScript) only —
 > Swift does not ship `AsyncRelayCommand` (ADR-0037 subset).
+
+### CMD-013 — disposed relay commands are inert
+
+**Given** a `RelayCommand` or parameterized `RelayCommand<T>` built with a task
+**And** the command has been disposed
+**When** `CanExecute` is queried
+**Then** it returns `false`
+**And when** `Execute` is invoked
+**Then** the configured task is not invoked and no exception is raised
+
+> Spec: `04-commands.md §5`, ADR-0068.
 
 ______________________________________________________________________
 
@@ -1479,6 +1491,71 @@ and `c` is `Constructed` and not yet `Current`)
 **And** a subsequent `c.select()` is a no-op — `composite.Current` stays `null` —
 because `c` no longer has a `Parent` to delegate to
 
+### COMP-028 — FilteredCompositeVM visible projection
+
+**Given** a source `CompositeVM<VM>` and a predicate
+**When** a `FilteredCompositeVM<VM>` is created over the source
+**Then** `Visible` contains only source children accepted by the predicate
+**And** source order is preserved
+
+### COMP-029 — FilteredCompositeVM visible count
+
+**Given** a filtered composite view
+**When** `VisibleCount` is queried
+**Then** it equals the current visible projection length
+
+### COMP-030 — FilteredCompositeVM current maps to visible domain
+
+**Given** a filtered composite view with at least one visible item
+**When** `Current` is set to a visible item
+**Then** `Current` returns that same source child
+
+### COMP-031 — predicate change recomputes projection
+
+**Given** a filtered composite view
+**When** its predicate is replaced
+**Then** the visible projection is recomputed immediately
+
+### COMP-032 — source mutation reconciles projection
+
+**Given** a filtered composite view subscribed to its source composite
+**When** the source composite is mutated
+**Then** the visible projection is recomputed
+
+### COMP-033 — filtered cursor policies
+
+**Given** a filtered composite view whose current item becomes filtered out
+**When** the cursor policy is snap-to-first
+**Then** `Current` moves to the first visible item
+**And when** the cursor policy is clear
+**Then** `Current` becomes null
+
+### COMP-034 — visible navigation
+
+**Given** a filtered composite view with multiple visible items
+**When** next and previous visible navigation methods are invoked
+**Then** `Current` moves within the visible projection and clamps at bounds
+
+### COMP-035 — filtered view disposal
+
+**Given** a filtered composite view
+**When** it is disposed
+**Then** later source mutations no longer update that view
+
+### COMP-036 — scored filter orders by score with stable ties
+
+**Given** a scored filtered composite view
+**When** scores are computed
+**Then** items with null/absent scores are excluded
+**And** remaining items are ordered by descending score
+**And** equal scores preserve source order
+
+### COMP-037 — scored filter can recompute ordering
+
+**Given** a scored filtered composite view whose scorer reads external score state
+**When** that score state changes and `RefreshScores()` is called
+**Then** the visible projection is reordered from the latest scores
+
 ______________________________________________________________________
 
 ## 21. GroupVM v2.0 additions (`GRP-007..010`)
@@ -1800,6 +1877,66 @@ count-preserving mutations (e.g., only replace operations)
 **Then** a `Reset` is emitted (mutations occurred)
 **And** no `PropertyChanged("Count")` is emitted (count unchanged)
 
+### COL-024 — `TokenPagedComposition<TVM,TToken>` initial state
+
+**Given** a token-paged composition with an async `fetch_next` function
+**When** the composition is created before any fetch
+**Then** `Items` is empty
+**And** `CurrentToken` is terminal/null
+**And** `HasMore` is true
+**And** `LoadMoreCommand.CanExecute` is true
+
+### COL-025 — token load-more appends items and advances token
+
+**Given** a token-paged composition whose first fetch returns items and a next token
+**When** `LoadMoreCommand` is executed
+**Then** the returned items are appended to `Items`
+**And** `CurrentToken` becomes the returned next token
+**And** a later load passes that token to `fetch_next`
+
+### COL-026 — terminal token disables load-more
+
+**Given** a token-paged composition whose fetch returns a terminal/null next token
+**When** the load completes
+**Then** `HasMore` is false
+**And** `LoadMoreCommand.CanExecute` is false
+
+### COL-027 — refresh refetches from the initial token
+
+**Given** a token-paged composition with previously loaded items
+**When** `RefreshCommand` is executed
+**Then** `fetch_next` is called with the initial terminal/null token
+**And** the accumulator reflects the refreshed first page
+**And** token state reflects the refreshed next token
+
+### COL-028 — refresh dedup suppresses redundant mutation
+
+**Given** a token-paged composition whose refreshed first page matches the current accumulator head
+**When** `RefreshCommand` is executed
+**Then** the accumulator is not mutated
+**And** no `CollectionChanged` event is emitted for the redundant refresh
+
+### COL-029 — token-paged collection changes use reset semantics
+
+**Given** a token-paged composition with a `CollectionChanged` subscriber
+**When** a load effectively mutates the accumulator
+**Then** exactly one coarse `Reset` collection event is emitted
+
+### COL-030 — token-paged auto-construct-on-add
+
+**Given** a token-paged composition created with auto-construct-on-add enabled
+**And** a fetched page contains VMx component VMs
+**When** the load completes
+**Then** the added component VMs are constructed before subscribers observe the reset event
+
+### COL-031 — `PagedComposition<TVM>` observes composite collection changes
+
+**Given** a finite `PagedComposition<TVM>` wrapping a `CompositeVM<TVM>` source
+**And** a property-changed subscriber
+**When** the composite source is mutated
+**Then** the paged composition recomputes page state
+**And** emits an `Items` property notification
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
@@ -1971,6 +2108,36 @@ descendant) or `node.ReparentChild(node)` is called (self-reparenting)
 are as before)
 **And** no `TreeStructureChangedMessage` is published
 
+### HIER-019 — `InvalidateChildren` reloads on next access
+
+**Given** a `HierarchicalVM` node whose `Children` have already been materialized
+**When** `InvalidateChildren` is called
+**And** `Children` is accessed again
+**Then** the children factory is invoked again
+**And** the new child list replaces the previous cache
+
+### HIER-020 — `InvalidateChildren` on an unmaterialized node is a no-op
+
+**Given** a `HierarchicalVM` node whose `Children` have not been materialized
+**When** `InvalidateChildren` is called
+**Then** the children factory is not invoked
+**And** the next `Children` access still performs the first materialization
+
+### HIER-021 — `InvalidateSubtree` invalidates materialized descendants
+
+**Given** a materialized hierarchy with at least one materialized descendant
+**When** `InvalidateSubtree` is called on the root
+**Then** the root's cached child list is dropped
+**And** every materialized descendant's cached child list is also dropped
+**And** subsequent `Children` access re-invokes the relevant factories
+
+### HIER-022 — Child-cache invalidation publishes property changed
+
+**Given** a materialized `HierarchicalVM` node with a hub subscriber
+**When** `InvalidateChildren` is called
+**Then** a `PropertyChangedMessage` is published for the children property
+**And** no `TreeStructureChangedMessage` is required for the cache refresh
+
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract
@@ -2061,6 +2228,43 @@ overload, or a host that disposes the awaiting context).
 command and whose `Execute` first awaits the dialog's `Confirm` result
 **And** the inner command is only executed when `Confirm` returns `true`
 **And** the inner command is NOT executed when `Confirm` returns `false`
+
+### DIA-009 — VM-backed modal presentation returns the modal result
+
+**Given** a modal VM with a cancellation result
+**And** a modal-capable dialog service whose host chooses result `r`
+**When** `Present(modal)` is awaited
+**Then** the awaitable resolves to `r`
+**And** the modal's `Result` is `r`
+
+### DIA-010 — Null modal presentation resolves with cancellation result
+
+**Given** a `NullDialogService`
+**And** a modal VM with cancellation result `c`
+**When** `Present(modal)` is awaited
+**Then** the awaitable resolves to `c`
+**And** the modal is dismissed with result `c`
+
+### DIA-011 — Modal disposal completes with cancellation result
+
+**Given** a modal VM with cancellation result `c`
+**When** the modal is disposed before a host result is chosen
+**Then** the modal's completion awaitable resolves to `c`
+**And** the modal is dismissed
+
+### DIA-012 — Modal dismissal is idempotent
+
+**Given** a modal VM
+**When** `Dismiss(first)` is called
+**And** `Dismiss(second)` is called later
+**Then** the modal completion resolves to `first`
+**And** the stored result remains `first`
+
+### DIA-013 — Existing dialog methods remain source-compatible
+
+**Given** a `NullDialogService` consumed through the existing dialog-service surface
+**When** `PickFileToOpen`, `PickFileToSave`, `Confirm`, and `Notify` are called
+**Then** they retain their existing names, parameters, and null-object return values
 
 ## 27. FORM — FormVM (chapter 20) — spec v2.1
 
@@ -2234,9 +2438,112 @@ discarded faulted task)
 
 *(Added in v3 via ADR-0048. The awaitable `ApproveAsync()` path keeps its
 throw-to-the-awaiter behavior — FORM-007 — and emits nothing on `ApproveErrors`;
-this ID pins the command-path error channel, chapter 20 §2/§7.)*
+this ID pins the command-path error channel, chapter 20 §2/§8.)*
 
-## 28. THEME — Theme as a VM concern (spec v2.4 scenario contract)
+### FORM-016 — Field validator populates field error
+
+**Given** a `FormVM<TM>` constructed with a field validator for field `f`
+**When** the current model fails that validator
+**Then** `FieldError(f)` returns the validator's string error
+**And** `Errors[f]` contains the same error
+
+### FORM-017 — Model validator populates errors
+
+**Given** a `FormVM<TM>` constructed with a model validator
+**When** the validator returns a field-name keyed error map
+**Then** `Errors` contains those field errors
+
+### FORM-018 — `IsValid` reflects errors
+
+**Given** a `FormVM<TM>` whose validators produce one or more errors
+**Then** `IsValid == false`
+**And** when the effective `Errors` map is empty, `IsValid == true`
+
+### FORM-019 — Invalid form blocks approval
+
+**Given** an invalid `FormVM<TM>` whose persister records invocations
+**When** `ApproveCommand.CanExecute` is queried
+**Then** it returns `false`
+**When** the awaitable approve entry point is called
+**Then** the persister is not invoked
+
+### FORM-020 — Validation reruns after model mutation
+
+**Given** a `FormVM<TM>` whose current model has validation errors
+**When** `SetModel` replaces it with a valid model
+**Then** `Errors` becomes empty
+**And** `IsValid == true`
+
+### FORM-021 — `ErrorsChanged` fires only on effective changes
+
+**Given** a `FormVM<TM>` with a subscriber to `ErrorsChanged`
+**When** `SetModel` changes the model but produces the same effective errors
+**Then** no error-change event is emitted
+**When** `SetModel` changes the effective error map
+**Then** exactly one fresh error map is emitted for that change
+
+### FORM-022 — `FormVMBuilder<TM>` registers validators immutably
+
+**Given** a configured `FormVM<TM>.Builder()`
+**When** `Validator(field, fn)` is called
+**Then** a new builder instance is returned
+**And** the original builder is unchanged
+**And** the new builder constructs a form that applies the validator
+
+### FORM-023 — Clearing errors enables approval when other gates pass
+
+**Given** a strict `FormVM<TM>` with validation errors
+**When** `SetModel` changes the model so validation passes and the form is dirty
+**Then** `ApproveCommand.CanExecute == true`
+
+## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1
+
+### DISC-001 — Initial active key and `IsActive`
+
+**Given** a `DiscriminatorVM<TKey>` constructed with initial key `k0`
+**Then** `ActiveKey == k0`
+**And** `IsActive(k0) == true`
+**And** `IsActive(other) == false`
+
+### DISC-002 — Changing active key emits once
+
+**Given** a `DiscriminatorVM<TKey>` with a subscriber to `ActiveChanged`
+**When** `SetActiveKey(k1)` is called with `k1 != ActiveKey`
+**Then** `ActiveKey == k1`
+**And** the subscriber observes exactly one emission carrying `k1`
+
+### DISC-003 — Setting the same key is a no-op
+
+**Given** a `DiscriminatorVM<TKey>` with active key `k0`
+**And** a subscriber to `ActiveChanged`
+**When** `SetActiveKey(k0)` is called
+**Then** no change is emitted
+
+### DISC-004 — Modal open activates modal key
+
+**Given** a `DiscriminatorVM<TKey>` with active key `k0`
+**When** `ModalOpen(modalKey)` is called
+**Then** `ActiveKey == modalKey`
+**And** `IsActive(modalKey) == true`
+
+### DISC-005 — Modal close restores prior key
+
+**Given** a `DiscriminatorVM<TKey>` with active key `k0`
+**And** `SetActiveKey(k1)` has been called
+**When** `ModalOpen(modalKey)` is called
+**And** `ModalClose()` is called
+**Then** `ActiveKey == k1`
+
+### DISC-006 — Nested modal precedence restores in LIFO order
+
+**Given** a `DiscriminatorVM<TKey>` with active key `k0`
+**When** `ModalOpen(a)` then `ModalOpen(b)` are called
+**And** `ModalClose()` is called once
+**Then** `ActiveKey == a`
+**When** `ModalClose()` is called again
+**Then** `ActiveKey == k0`
+
+## 29. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 
 The `THEME-NNN` family covers the **scenario contract** at
 `spec/proposals/2026-06-02-theme-vm-scenario.md` (ADR-0036 §2.C). This contract

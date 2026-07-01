@@ -10,6 +10,9 @@
 // then hub?.send(_:). Delivery is synchronous on the caller's thread,
 // with no dispatcher marshaling (COL-004).
 //
+// Ownership stays with the caller: removing, replacing, or clearing an item
+// does not call dispose/destruct or any VM lifecycle method on that item.
+//
 // See spec/21-collections.md §2 and ADR-0024.
 //
 import Foundation

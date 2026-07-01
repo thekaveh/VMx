@@ -138,6 +138,34 @@ describe("CMD-007", () => {
 });
 
 // ---------------------------------------------------------------------------
+// CMD-013
+// ---------------------------------------------------------------------------
+
+describe("CMD-013", () => {
+  it("disposed RelayCommand instances are inert", () => {
+    const fn = vi.fn();
+    const cmd = RelayCommand.builder().task(fn).build();
+
+    cmd.dispose();
+    cmd.execute();
+
+    expect(cmd.canExecute()).toBe(false);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("disposed RelayCommandOf instances are inert", () => {
+    const fn = vi.fn();
+    const cmd = RelayCommandOf.builder<number>().task(fn).build();
+
+    cmd.dispose();
+    cmd.execute(42);
+
+    expect(cmd.canExecute(42)).toBe(false);
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CMD-012 — async command cancellation (spec/04-commands.md §11, ADR-0056)
 // ---------------------------------------------------------------------------
 

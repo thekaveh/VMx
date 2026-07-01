@@ -18,6 +18,12 @@ export type Persister<TM> = (model: TM) => Promise<void>;
 /** Optional custom snapshot function. Defaults to `structuredClone`. */
 export type Snapshotter<TM> = (model: TM) => TM;
 
+/** Field-level validator. Return a string error, or null/undefined when valid. */
+export type FieldValidator<TM> = (model: TM) => string | null | undefined;
+
+/** Model-level validator returning field-name errors. Null entries clear fields. */
+export type ModelValidator<TM> = (model: TM) => Record<string, string | null | undefined>;
+
 /**
  * Optional custom equality predicate for dirty-tracking. Returns `true` when
  * `a` and `b` are considered the *same* (i.e. the form is clean). Defaults to
@@ -153,6 +159,10 @@ export interface FormVMOptions<TM> {
    * of fields or with reference semantics.
    */
   equals?: ModelEquals<TM>;
+  /** Optional field validators keyed by idiomatic field/property name. */
+  validators?: Record<string, FieldValidator<TM>>;
+  /** Optional model-level validator returning field-name errors. */
+  modelValidator?: ModelValidator<TM>;
 }
 
 /**
@@ -165,15 +175,19 @@ export class FormVM<TM> {
   readonly #persister: Persister<TM>;
   readonly #snapshotter: Snapshotter<TM>;
   readonly #equals: ModelEquals<TM>;
+  readonly #validators: Record<string, FieldValidator<TM>>;
+  readonly #modelValidator: ModelValidator<TM> | null;
   readonly #strict: boolean;
   readonly #hub: IMessageHub;
 
   #model: TM;
   #snapshot: TM;
+  #errors: Record<string, string>;
   #disposed = false;
 
   readonly #onApproved = new Subject<TM>();
   readonly #approveErrors = new Subject<unknown>();
+  readonly #errorsChanged = new Subject<Record<string, string>>();
   readonly #canExecuteTrigger = new Subject<void>();
 
   readonly denyCommand: RelayCommand;
@@ -189,7 +203,16 @@ export class FormVM<TM> {
   }
 
   constructor(options: FormVMOptions<TM>) {
-    const { initial, persister, hub, strict = false, snapshotter, equals } = options;
+    const {
+      initial,
+      persister,
+      hub,
+      strict = false,
+      snapshotter,
+      equals,
+      validators,
+      modelValidator,
+    } = options;
 
     if (initial === null || initial === undefined) {
       throw new Error("initial must not be null or undefined");
@@ -204,9 +227,12 @@ export class FormVM<TM> {
     this.#strict = strict;
     this.#snapshotter = snapshotter ?? ((m: TM) => structuredClone(m));
     this.#equals = equals ?? ((a: TM, b: TM) => deepEquals(a, b));
+    this.#validators = { ...(validators ?? {}) };
+    this.#modelValidator = modelValidator ?? null;
 
     this.#model = initial;
     this.#snapshot = this.#snapshotter(initial);
+    this.#errors = this.#validate(initial);
 
     this.denyCommand = RelayCommand.builder()
       .task(() => this.#deny())
@@ -224,7 +250,7 @@ export class FormVM<TM> {
           this.#approveErrors.next(err);
         });
       })
-      .predicate(() => !this.#strict || this.isDirty)
+      .predicate(() => this.isValid && (!this.#strict || this.isDirty))
       .triggers(this.#canExecuteTrigger)
       .build();
   }
@@ -249,6 +275,16 @@ export class FormVM<TM> {
     return !this.#equals(this.#model, this.#snapshot);
   }
 
+  /** Current validation errors keyed by field/property name. */
+  get errors(): Record<string, string> {
+    return { ...this.#errors };
+  }
+
+  /** True when the current model has no validation errors. */
+  get isValid(): boolean {
+    return Object.keys(this.#errors).length === 0;
+  }
+
   /** Observable that emits the current model after each successful persist. */
   get onApproved(): Observable<TM> {
     return this.#onApproved.asObservable();
@@ -266,6 +302,16 @@ export class FormVM<TM> {
     return this.#approveErrors.asObservable();
   }
 
+  /** Emits only when the effective validation error map changes. */
+  get errorsChanged(): Observable<Record<string, string>> {
+    return this.#errorsChanged.asObservable();
+  }
+
+  /** Return the current validation error for a field, if any. */
+  fieldError(field: string): string | undefined {
+    return this.#errors[field];
+  }
+
   // ── Mutation ───────────────────────────────────────────────────────────────
 
   /**
@@ -277,8 +323,10 @@ export class FormVM<TM> {
       throw new Error("model must not be null or undefined");
     }
     const wasDirty = this.isDirty;
+    const wasValid = this.isValid;
     this.#model = model;
-    if (this.#strict && this.isDirty !== wasDirty) {
+    this.#revalidate();
+    if ((this.#strict && this.isDirty !== wasDirty) || this.isValid !== wasValid) {
       this.#canExecuteTrigger.next();
     }
   }
@@ -293,6 +341,7 @@ export class FormVM<TM> {
     // A disposed form is a full no-op — the persister must not be invoked
     // (symmetric with the deny guard).
     if (this.#disposed) return;
+    if (!this.isValid) return;
     const current = this.#model;
 
     // May throw — intentional. No state mutation if this throws.
@@ -328,6 +377,7 @@ export class FormVM<TM> {
     this.#disposed = true;
     this.#onApproved.complete();
     this.#approveErrors.complete();
+    this.#errorsChanged.complete();
     this.#canExecuteTrigger.complete();
     this.denyCommand.dispose();
     this.approveCommand.dispose();
@@ -338,17 +388,54 @@ export class FormVM<TM> {
   #deny(): void {
     if (this.#disposed) return;
     const wasDirty = this.isDirty;
+    const wasValid = this.isValid;
     this.#model = this.#snapshotter(this.#snapshot);
+    this.#revalidate();
 
     this.#hub.send(new FormRevertedMessage(this, "FormVM"));
     this.#hub.send(
       PropertyChangedMessage.create(this, "FormVM", "model"),
     );
 
-    if (this.#strict && wasDirty !== this.isDirty) {
+    if ((this.#strict && wasDirty !== this.isDirty) || wasValid !== this.isValid) {
       this.#canExecuteTrigger.next();
     }
   }
+
+  #validate(model: TM): Record<string, string> {
+    const errors: Record<string, string> = {};
+    for (const [field, validator] of Object.entries(this.#validators)) {
+      const error = validator(model);
+      if (error !== null && error !== undefined) errors[field] = error;
+    }
+    if (this.#modelValidator !== null) {
+      for (const [field, error] of Object.entries(this.#modelValidator(model))) {
+        if (error === null || error === undefined) {
+          Reflect.deleteProperty(errors, field);
+        } else {
+          errors[field] = error;
+        }
+      }
+    }
+    return errors;
+  }
+
+  #revalidate(): void {
+    const errors = this.#validate(this.#model);
+    if (sameErrors(errors, this.#errors)) return;
+    this.#errors = errors;
+    this.#errorsChanged.next({ ...errors });
+  }
+}
+
+function sameErrors(a: Record<string, string>, b: Record<string, string>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +462,8 @@ export class FormVMBuilder<TM> {
   #strict = false;
   #snapshotter: Snapshotter<TM> | null = null;
   #equals: ModelEquals<TM> | null = null;
+  #validators: Record<string, FieldValidator<TM>> = {};
+  #modelValidator: ModelValidator<TM> | null = null;
 
   constructor(from?: FormVMBuilder<TM>) {
     if (from) {
@@ -385,6 +474,8 @@ export class FormVMBuilder<TM> {
       this.#strict = from.#strict;
       this.#snapshotter = from.#snapshotter;
       this.#equals = from.#equals;
+      this.#validators = { ...from.#validators };
+      this.#modelValidator = from.#modelValidator;
     }
   }
 
@@ -434,6 +525,20 @@ export class FormVMBuilder<TM> {
     return b;
   }
 
+  /** Register a field validator. The returned builder is a new instance. */
+  validator(field: string, value: FieldValidator<TM>): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#validators[field] = value;
+    return b;
+  }
+
+  /** Register a model-level validator returning field-name errors. */
+  modelValidator(value: ModelValidator<TM>): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#modelValidator = value;
+    return b;
+  }
+
   /**
    * Validate required fields and construct a {@link FormVM}.
    *
@@ -451,6 +556,8 @@ export class FormVMBuilder<TM> {
     options.strict = this.#strict;
     if (this.#snapshotter !== null) options.snapshotter = this.#snapshotter;
     if (this.#equals !== null) options.equals = this.#equals;
+    if (Object.keys(this.#validators).length > 0) options.validators = { ...this.#validators };
+    if (this.#modelValidator !== null) options.modelValidator = this.#modelValidator;
 
     return new FormVM<TM>(options);
   }

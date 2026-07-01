@@ -23,6 +23,7 @@ ComponentVM:
     IsCurrent : bool                       # parent-derived; raised through PropertyChanged
     IsConstructed : bool                   # equals Status == Constructed
     Status : ConstructionStatus            # see 02-lifecycle.md
+    PropertyChanged : per-instance stream  # flavor-idiomatic; see §2.1
 
     # Built-in commands
     SelectCommand : ICommand
@@ -51,6 +52,23 @@ Every variant also holds an internal `Parent` back-reference (see `01-concepts.m
 §1.3 and §6.1 below). It is not a public, consumer-settable member and does not emit
 a `PropertyChangedMessage`; it is listed here only because the selection predicates
 in §6 read it.
+
+### 2.1 Per-instance property change surface
+
+Every component exposes a property-change surface scoped to that VM instance, so
+views do not need to subscribe to a shared hub and filter by sender when they only
+care about one VM:
+
+| Flavor     | Surface                  | Payload                      |
+| ---------- | ------------------------ | ---------------------------- |
+| C#         | `INotifyPropertyChanged` | `PropertyChangedEventArgs`   |
+| Python     | `property_changed`       | changed property name string |
+| TypeScript | `propertyChanged`        | changed property name string |
+| Swift      | `propertyChanged`        | changed property name string |
+
+The shared hub `PropertyChangedMessage` path remains the cross-VM coordination
+channel. The per-instance surface is the preferred binding target for a single
+VM's view adapter.
 
 ## 3. Modeled variant additions (`ComponentVM<M>`)
 

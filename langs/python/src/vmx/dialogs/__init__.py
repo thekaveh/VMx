@@ -7,12 +7,14 @@ See spec/19-dialogs.md.
 """
 
 from vmx.dialogs.dialog_service import DialogService, FileFilter, NotificationSeverity
+from vmx.dialogs.modal_vm import ModalVM
 from vmx.dialogs.null_dialog_service import NULL_DIALOG_SERVICE, NullDialogService
 
 __all__ = [
     "NULL_DIALOG_SERVICE",
     "DialogService",
     "FileFilter",
+    "ModalVM",
     "NotificationSeverity",
     "NullDialogService",
 ]

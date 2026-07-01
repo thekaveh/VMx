@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 import reactivex as rx
@@ -21,6 +21,9 @@ from vmx.services.message_hub import MessageHubProto
 from vmx.services.null_message_hub import NULL_MESSAGE_HUB
 
 TM = TypeVar("TM")
+
+FieldValidator = Callable[[TM], str | None]
+ModelValidator = Callable[[TM], Mapping[str, str | None]]
 
 
 class FormVM(Generic[TM]):
@@ -55,6 +58,8 @@ class FormVM(Generic[TM]):
         hub: MessageHubProto[Any] | None = None,
         strict: bool = False,
         snapshotter: Callable[[TM], TM] | None = None,
+        validators: Mapping[str, FieldValidator[TM]] | None = None,
+        model_validator: ModelValidator[TM] | None = None,
     ) -> None:
         if initial is None:
             raise ValueError("initial must not be None")
@@ -67,15 +72,19 @@ class FormVM(Generic[TM]):
         self._snapshotter: Callable[[TM], TM] = (
             snapshotter if snapshotter is not None else copy.deepcopy
         )
+        self._validators: dict[str, FieldValidator[TM]] = dict(validators or {})
+        self._model_validator = model_validator
 
         self._model: TM = initial
         self._snapshot: TM = self._snapshotter(initial)
+        self._errors: dict[str, str] = self._validate(initial)
 
         self._disposed = False
 
         # Observables
         self._on_approved: Subject[TM] = Subject()
         self._approve_errors: Subject[BaseException] = Subject()
+        self._errors_changed: Subject[dict[str, str]] = Subject()
         self._can_execute_trigger: Subject[None] = Subject()
 
         # Commands
@@ -83,7 +92,7 @@ class FormVM(Generic[TM]):
         self._approve_command = (
             RelayCommand.builder()
             .task(self._approve_fire_and_forget)
-            .predicate(lambda: not self._strict or self.is_dirty)
+            .predicate(lambda: self.is_valid and (not self._strict or self.is_dirty))
             .triggers(self._can_execute_trigger)
             .build()
         )
@@ -117,6 +126,16 @@ class FormVM(Generic[TM]):
         return self._model != self._snapshot
 
     @property
+    def errors(self) -> dict[str, str]:
+        """Current validation errors keyed by field name."""
+        return dict(self._errors)
+
+    @property
+    def is_valid(self) -> bool:
+        """``True`` when the current model has no validation errors."""
+        return not self._errors
+
+    @property
     def deny_command(self) -> RelayCommand:
         """Reverts ``model`` to ``snapshot`` and publishes hub messages."""
         return self._deny_command
@@ -143,6 +162,15 @@ class FormVM(Generic[TM]):
         """
         return self._approve_errors
 
+    @property
+    def errors_changed(self) -> rx.Observable[dict[str, str]]:
+        """Observable that emits when the effective validation error map changes."""
+        return self._errors_changed
+
+    def field_error(self, field: str) -> str | None:
+        """Return the current validation error for ``field``, if any."""
+        return self._errors.get(field)
+
     # ── Mutation ──────────────────────────────────────────────────────────────
 
     def set_model(self, model: TM) -> None:
@@ -153,8 +181,10 @@ class FormVM(Generic[TM]):
         if model is None:
             raise ValueError("model must not be None")
         was_dirty = self.is_dirty
+        was_valid = self.is_valid
         self._model = model
-        if self._strict and self.is_dirty != was_dirty:
+        self._revalidate()
+        if (self._strict and self.is_dirty != was_dirty) or self.is_valid != was_valid:
             self._can_execute_trigger.on_next(None)
 
     # ── Async core ────────────────────────────────────────────────────────────
@@ -168,6 +198,8 @@ class FormVM(Generic[TM]):
         (symmetric with the deny guard).
         """
         if self._disposed:
+            return
+        if not self.is_valid:
             return
         current = self._model
 
@@ -205,6 +237,8 @@ class FormVM(Generic[TM]):
         self._on_approved.dispose()
         self._approve_errors.on_completed()
         self._approve_errors.dispose()
+        self._errors_changed.on_completed()
+        self._errors_changed.dispose()
         self._can_execute_trigger.on_completed()
         self._can_execute_trigger.dispose()
         self._deny_command.dispose()
@@ -216,7 +250,9 @@ class FormVM(Generic[TM]):
         if self._disposed:
             return
         was_dirty = self.is_dirty
+        was_valid = self.is_valid
         self._model = self._snapshotter(self._snapshot)
+        self._revalidate()
 
         self._hub.send(FormRevertedMessage(sender=self, sender_name="FormVM"))
         self._hub.send(
@@ -227,8 +263,29 @@ class FormVM(Generic[TM]):
             )
         )
 
-        if self._strict and was_dirty != self.is_dirty:
+        if (self._strict and was_dirty != self.is_dirty) or self.is_valid != was_valid:
             self._can_execute_trigger.on_next(None)
+
+    def _validate(self, model: TM) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        for field, validator in self._validators.items():
+            error = validator(model)
+            if error is not None:
+                errors[field] = error
+        if self._model_validator is not None:
+            for field, error in self._model_validator(model).items():
+                if error is None:
+                    errors.pop(field, None)
+                else:
+                    errors[field] = error
+        return errors
+
+    def _revalidate(self) -> None:
+        errors = self._validate(self._model)
+        if errors == self._errors:
+            return
+        self._errors = errors
+        self._errors_changed.on_next(dict(errors))
 
     def _approve_fire_and_forget(self) -> None:
         """Synchronous wrapper that schedules the async approve.

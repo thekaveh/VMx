@@ -37,6 +37,7 @@ public final class PagedComposition<TVM>: Pageable {
     private var _pageSize: Int
     private var _currentPageIndex: Int = 0
     private let _propertyChangedSubject = PassthroughSubject<String, Never>()
+    private var _sourceCancellables: Set<AnyCancellable> = []
 
     // MARK: - Init
 
@@ -176,5 +177,22 @@ public final class PagedComposition<TVM>: Pageable {
         if index < 0 { return 0 }
         if index > maxIndex { return maxIndex }
         return index
+    }
+}
+
+public extension PagedComposition where TVM: ComponentVMBase {
+    /// Creates a paged view over a CompositeVM source and refreshes the source
+    /// snapshot whenever the composite emits `collectionChanged`.
+    convenience init(sourceComposite: CompositeVM<TVM>, pageSize: Int = 0) {
+        self.init(
+            source: (0..<sourceComposite.count).map { sourceComposite.at($0) },
+            pageSize: pageSize
+        )
+        sourceComposite.collectionChanged
+            .sink { [weak self, weak sourceComposite] _ in
+                guard let sourceComposite else { return }
+                self?.setSource((0..<sourceComposite.count).map { sourceComposite.at($0) })
+            }
+            .store(in: &_sourceCancellables)
     }
 }

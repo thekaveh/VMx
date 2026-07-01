@@ -121,6 +121,38 @@ public class CommandConformanceTests
         }
     }
 
+    // CMD-013 — Disposed RelayCommand instances are inert.
+    [Fact, Trait("Conformance", "CMD-013")]
+    public void CMD_013_Disposed_RelayCommand_Is_Inert()
+    {
+        var invoked = false;
+        var cmd = RelayCommand.Builder()
+            .Task(() => invoked = true)
+            .Build();
+
+        ((IDisposable)cmd).Dispose();
+        cmd.Execute(null);
+
+        cmd.CanExecute(null).Should().BeFalse("disposed commands are no longer executable");
+        invoked.Should().BeFalse("disposed commands must not invoke their task");
+    }
+
+    // CMD-013 — Disposed parameterized RelayCommand instances are inert.
+    [Fact, Trait("Conformance", "CMD-013")]
+    public void CMD_013_Disposed_Parameterized_RelayCommand_Is_Inert()
+    {
+        var invoked = false;
+        var cmd = RelayCommand<int>.Builder()
+            .Task(_ => invoked = true)
+            .Build();
+
+        ((IDisposable)cmd).Dispose();
+        cmd.Execute(42);
+
+        cmd.CanExecute(42).Should().BeFalse("disposed parameterized commands are no longer executable");
+        invoked.Should().BeFalse("disposed parameterized commands must not invoke their task");
+    }
+
     // CMD-012 — cancel() cancels an in-flight async command task; the command returns
     // to a non-executing state; no exception surfaces by default (spec §11, ADR-0056).
     [Fact, Trait("Conformance", "CMD-012")]

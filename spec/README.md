@@ -25,7 +25,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (242 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (284 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -47,6 +47,7 @@ version.
   `DenyCommand`, `ApproveCommand`, `OnApproved`, strict mode.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
+- `22-discriminator-vm.md` — active-key / modal-overlay state coordinator.
 
 The following existing chapters were also extended in v2.1:
 
@@ -278,14 +279,36 @@ catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
   as-is, and **ADR-0058** holds the explicit `AggregateVM1..6` arity surface — both
   are "no change" decisions (teaching notes).
 
-- The catalog therefore ends v3 at **242 total (237 library + 5 THEME scenario
+- The catalog therefore ends v3.0 at **242 total (237 library + 5 THEME scenario
   IDs)**; chapter count stays at 22.
 
-### 1.10 Supporting artefacts
+### 1.10 v3.0.0 → v3.1.0 changes
 
-- `VERSION` — current spec SemVer (`3.0.0`).
+v3.1.0 is an additive minor bump driven by upstream consumer adoption feedback.
+It keeps the four flavors at total parity and raises the conformance catalog
+from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
+
+- **ADR-0068** — disposed `RelayCommand` instances are inert (`CMD-013`).
+- **ADR-0069** — token/cursor pagination via `TokenPagedComposition`
+  (`COL-024..031`).
+- **ADR-0070** — filtered and scored composite views
+  (`COMP-028..037`).
+- **ADR-0071** — declarative `FormVM` field/model validation
+  (`FORM-016..023`).
+- **ADR-0072** — VM-backed modal presentation
+  (`DIA-009..013`).
+- **ADR-0073** — explicit hierarchical child-cache invalidation
+  (`HIER-019..022`).
+- **ADR-0074** — documentation clarifications for serviced collection
+  ownership and per-instance property-change surfaces.
+- **ADR-0075** — `DiscriminatorVM` active-key/modal stack coordinator
+  (`DISC-001..006`) and new chapter `22-discriminator-vm.md`.
+
+### 1.11 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0058); see
+- `ADRs/` — Architecture Decision Records (0001-0075); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
@@ -294,7 +317,7 @@ catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
   ThemeVM scenario contract (`proposals/2026-06-02-theme-vm-scenario.md`,
   ADR-0036 §2.C) is such a case — its `THEME-001..THEME-005` IDs are normative
   for any flavor or example app that implements the contract (`12-conformance.md`
-  §28). Where `12-conformance.md` cites a proposal, that proposal's referenced
+  §29). Where `12-conformance.md` cites a proposal, that proposal's referenced
   scenario contract is normative even though the surrounding proposal prose is
   not (clarified in v3 via ADR-0051).
 

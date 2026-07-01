@@ -8,6 +8,7 @@
 // - Task nil → `execute(_:)` is a no-op (no error raised).
 // - `execute(_:)` is gated on `canExecute(_:)`: if false, returns immediately.
 // - Trigger emissions fire `canExecuteChanged`.
+// - Disposed commands are inert: `canExecute(_:)` returns false and `execute(_:)` is a no-op.
 // - Builder is immutable: every setter returns a new builder instance.
 // - Triggers are additive across `.triggers(...)` calls.
 //
@@ -38,6 +39,7 @@ public final class RelayCommandOf<T> {
     }
 
     public func canExecute(_ parameter: T) -> Bool {
+        guard !disposed else { return false }
         guard let predicate else { return true }
         return predicate(parameter)
     }

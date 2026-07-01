@@ -25,8 +25,10 @@ Key properties:
   messages.
 - **`ApproveCommand`** (Save) invokes the persister; on success updates `Snapshot`
   and raises `OnApproved`. A persister failure on the fire-and-forget command path
-  is surfaced on `ApproveErrors` (§7).
-- **Strict mode** (opt-in): `ApproveCommand.CanExecute = IsDirty`.
+  is surfaced on `ApproveErrors` (§8).
+- **Validation** (opt-in): field/model validators produce `Errors`; approval is
+  disabled while invalid (§5).
+- **Strict mode** (opt-in): `ApproveCommand.CanExecute = IsValid && IsDirty`.
 
 ### 1.1 Relationship to `ComponentVM<M>`, validation, and persistence
 
@@ -35,21 +37,18 @@ Key properties:
 post-set callback; `FormVM<TM>` adds an entire **edit lifecycle** on top — a
 snapshot captured at construct (§3), automatic `IsDirty` derivation (§4), a
 revert path (`DenyCommand`), and a guarded persist path with success/error
-channels (`ApproveCommand` / `OnApproved` / `ApproveErrors`, §7). The two are
+channels (`ApproveCommand` / `OnApproved` / `ApproveErrors`, §8). The two are
 orthogonal: `ComponentVM<M>` is the model-bearing leaf VM; `FormVM<TM>` is the
 snapshot/revert/approve workflow that a consumer reaches for when editing then
 committing or discarding an entity. ADR-0030 records the rationale for shipping
 it as its own type rather than a `ComponentVM<M>` recipe.
 
-**Validation is composed, not built in.** `FormVM<TM>` deliberately ships no
-validation framework. A form's validity is expressed by composing a
-`DerivedProperty<bool>` (`15-derived-properties.md`) over the model's fields and,
-in strict mode, the consumer gates `ApproveCommand` on both `IsDirty` and that
-derived `IsValid` (the flagship examples follow exactly this pattern). A
-first-class `IValidator<TM>` / `IsValid` surface on the type is recorded as
-**accepted future work** (ADR-0051) — it would be an additive opt-in collaborator,
-not a change to the present shape, so it is out of scope for the v3
-reconciliation.
+**Validation is declarative and opt-in.** `FormVM<TM>` accepts field validators
+and one model-level validator. Validators produce field-name keyed string errors;
+when no validators are supplied, `Errors` is empty and `IsValid == true`. This is
+intentionally smaller than a persistence or schema framework: consumers can still
+compose `DerivedProperty<T>` for richer UI state, but the common save-gating and
+field-error pattern lives on the form.
 
 **Persistence is a consumer concern.** The persist step is a consumer-supplied
 delegate or `IFormPersister<TM>` collaborator (§2) — this seam *is* the framework's
@@ -72,9 +71,13 @@ FormVM<TM>:
     ApproveCommand : ICommand      # invokes persister; updates Snapshot on success
     OnApproved     : event/obs     # fires the persisted value after successful persist
     ApproveErrors  : observable    # surfaces a persister failure from the command path
+    Errors         : map<string,string> # current field-name validation errors
+    IsValid        : bool          # Errors is empty
+    ErrorsChanged  : observable    # fires only when the effective error map changes
 
     SetModel(newModel : TM) -> void   # mutator (per-flavor idiomatic name)
     ApproveAsync() -> Task            # awaitable entry-point for the persist flow
+    FieldError(field : string) -> string? # current error for a single field
 ```
 
 `ApproveCommand` invokes `ApproveAsync` internally; consumers may either bind the
@@ -91,7 +94,7 @@ a persister failure to its caller:
   `ApproveAsync` and returns immediately; a persister failure cannot propagate to
   the caller. Rather than discarding the faulted task — which silently swallows the
   error and, on some runtimes, surfaces only as an unobserved-exception warning at
-  GC — the failure is emitted on the **`ApproveErrors`** observable (§7). On
+  GC — the failure is emitted on the **`ApproveErrors`** observable (§8). On
   success the command path is identical to the awaitable path (snapshot advances,
   `OnApproved` fires).
 
@@ -104,7 +107,9 @@ FormVM(
     persister   : Func<TM, Task>,   # or IFormPersister<TM>
     hub?        : IMessageHub,      # optional hub; default is the null hub
     strict?     : bool = false,
-    snapshotter?: Func<TM, TM>      # custom snapshot function (opt-in; default is a deep copy — §3)
+    snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in; default is a deep copy — §3)
+    validators?: map<string, Func<TM, string?>>,
+    model_validator?: Func<TM, map<string, string?>>
 )
 ```
 
@@ -185,7 +190,32 @@ object-typed keys/members compare by reference — adequate for the primitive-ke
 models dirty-tracking targets; a consumer needing deep key comparison injects a
 custom `equals`.
 
-## 5. Lifecycle state diagram
+## 5. Validation
+
+Validation is optional. A form with no validators starts valid and behaves like
+the pre-validation shape except that `ApproveCommand.CanExecute` also checks
+`IsValid`.
+
+Two validator forms are supported:
+
+- **Field validators**: keyed by the flavor-idiomatic field/property name
+  (`"Name"` / `"name"` / `"name"`). Each receives the whole model and returns a
+  string error or null/none when valid.
+- **Model validator**: receives the whole model and returns a field-name keyed
+  map of string errors. Null/none values remove a field error. The model
+  validator runs after field validators, so it can refine or clear field errors.
+
+`Errors` exposes the current effective error map. `FieldError(field)` returns one
+entry from that map. `ErrorsChanged` emits a fresh error map only when validation
+changes the effective map; a model mutation that leaves errors identical emits
+nothing.
+
+Validation runs at construction, on `SetModel`, and after `DenyCommand` reverts
+the model. `ApproveCommand.CanExecute` returns `false` while invalid, regardless
+of strict mode. `ApproveAsync` is a no-op while invalid and does not invoke the
+persister.
+
+## 6. Lifecycle state diagram
 
 ```mermaid
 stateDiagram-v2
@@ -205,7 +235,7 @@ Notes:
   `IsDirty` becomes `false` immediately after `OnApproved`.
 - After approval, a subsequent mutation transitions back to `Dirty`.
 
-## 6. `IDialogService` integration
+## 7. `IDialogService` integration
 
 `IDialogService` (chapter 19) is a natural collaborator: wrapping `DenyCommand` with
 `ConfirmationDecoratorCommand` (chapter 04 §8) allows "Are you sure you want to
@@ -219,7 +249,7 @@ var confirmDeny = denyCommand.Confirm(() => dialogService.Confirm("Discard chang
 This is a **documented composition pattern** only — `FormVM` does not depend on
 `IDialogService`. Conformance test `FORM-010` exercises this integration.
 
-## 7. Hub messages
+## 8. Hub messages
 
 `DenyCommand` publishes two messages on the message hub (chapter 03) after reverting:
 
@@ -261,19 +291,20 @@ FormRevertedMessage:
   persister failure that lands *after* `Dispose()` is dropped (not emitted). A
   successful persist emits nothing on `ApproveErrors`.
 
-## 8. Strict mode
+## 9. Strict mode
 
 Strict mode (opt-in via `strict = true` at construction):
 
-- `ApproveCommand.CanExecute` returns `false` when `IsDirty == false`.
+- `ApproveCommand.CanExecute` returns `false` when `IsValid == false` or
+  `IsDirty == false`.
 - Prevents saving an unchanged form.
 
 Default mode (strict = false):
 
-- `ApproveCommand.CanExecute` is always `true` (consumer-controlled).
+- `ApproveCommand.CanExecute` returns `false` only while `IsValid == false`.
 - Allows re-saving without a change (e.g., triggering a re-sync).
 
-## 9. Disposal
+## 10. Disposal
 
 `Dispose()` completes and disposes the `OnApproved` and `ApproveErrors`
 observables and the command surface. A disposed form is **inert** (added in
@@ -290,7 +321,7 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   (which has already completed).
 - `Dispose()` is idempotent.
 
-## 10. Conformance
+## 11. Conformance
 
 - `FORM-001` — Snapshot captured at construct; `Model == Snapshot`; `IsDirty == false` immediately after construction.
 - `FORM-002` — Mutating `Model` reflects in `IsDirty == true`; `Snapshot` is
@@ -303,7 +334,7 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   is updated to the current `Model` value.
 - `FORM-006` — `OnApproved` event/observable fires only after a successful persist,
   carrying the persisted value (the model captured before the persister await,
-  uniform across flavors — §7); it does not fire when the persister throws.
+  uniform across flavors — §8); it does not fire when the persister throws.
 - `FORM-007` — When the persister throws, no state mutation occurs: `Snapshot` and
   `Model` remain unchanged, `IsDirty` is still `true`.
 - `FORM-008` — `DenyCommand` publishes `FormRevertedMessage` and
@@ -324,9 +355,20 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   the default deep-copy of `Initial` (§3), and `Strict` to `false` (so
   `ApproveCommand.CanExecute()` returns `true` regardless of `IsDirty`).
 - `FORM-014` — A disposed form is inert: approve does not invoke the
-  persister; deny does not revert the model (§9).
+  persister; deny does not revert the model (§10).
 - `FORM-015` — A persister failure on the fire-and-forget command path is
   surfaced on `ApproveErrors` rather than swallowed: invoking
   `ApproveCommand.Execute()` with a rejecting persister emits the persister
   exception on `ApproveErrors`, no state is mutated (`IsDirty` stays `true`),
-  and `OnApproved` does not fire (§2, §7; added in v3 via ADR-0048).
+  and `OnApproved` does not fire (§2, §8; added in v3 via ADR-0048).
+- `FORM-016` — A field validator populates `FieldError(field)` and `Errors`.
+- `FORM-017` — A model validator can populate one or more field-name errors.
+- `FORM-018` — `IsValid` is `false` when `Errors` is non-empty and `true`
+  when empty.
+- `FORM-019` — An invalid form disables `ApproveCommand` and `ApproveAsync`
+  does not invoke the persister.
+- `FORM-020` — Validation reruns after `SetModel`.
+- `FORM-021` — `ErrorsChanged` fires only on effective error-map changes.
+- `FORM-022` — `FormVMBuilder<TM>` registers validators immutably.
+- `FORM-023` — Clearing validation errors enables approval when all other
+  gates pass.

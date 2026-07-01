@@ -43,6 +43,9 @@ public protocol DialogService {
     /// Presents a notification with the given severity. Returns when
     /// acknowledged or dismissed.
     func notify(_ message: String, title: String?, severity: NotificationSeverity) async
+
+    /// Presents a VM-backed modal and resolves with its result.
+    func present<M: ModalVM>(_ modalVM: M) async -> M.Result
 }
 
 // MARK: - Convenience overloads (optional parameters)
@@ -86,5 +89,12 @@ public extension DialogService {
     /// `notify` with explicit title but default severity (`info`).
     func notify(_ message: String, title: String?) async {
         await notify(message, title: title, severity: .info)
+    }
+
+    /// Default modal presentation preserves null-object safety. Host services
+    /// override this method to bridge a modal VM to native UI.
+    func present<M: ModalVM>(_ modalVM: M) async -> M.Result {
+        modalVM.dismiss(modalVM.cancellationResult)
+        return modalVM.cancellationResult
     }
 }

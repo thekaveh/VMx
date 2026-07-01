@@ -4,6 +4,23 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] — 2026-07-01
+
+Implements `spec-v3.1.0` and keeps C# at full library parity: 279/279
+conformance IDs covered.
+
+### Added
+
+- `RelayCommand` / `RelayCommand<T>` disposed-state inertness (`CMD-013`).
+- `TokenPagedComposition`, filtered/scored composite views, declarative
+  `FormVM` validation, VM-backed modal presentation, hierarchical child-cache
+  invalidation, and `DiscriminatorVM`.
+
+### Changed
+
+- Clarified serviced collection ownership and per-instance property-change
+  surfaces in docs/spec comments.
+
 ## [3.0.0] — 2026-06-28
 
 The **v3 framework overhaul** — a breaking release that hardens the

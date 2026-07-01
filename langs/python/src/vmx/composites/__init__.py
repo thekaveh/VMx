@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
 from vmx.composites.composite_vm import CompositeVM, CompositeVMOf
+from vmx.composites.filtered_composite_vm import FilteredCompositeVM, FilteredCursorPolicy
 from vmx.composites.protocols import CompositeVMOfProto, CompositeVMProto
+from vmx.composites.scored_filtered_composite_vm import ScoredFilteredCompositeVM
 
 __all__ = [
     "CompositeVM",
@@ -26,4 +28,7 @@ __all__ = [
     "CompositeVMOfBuilder",
     "CompositeVMOfProto",
     "CompositeVMProto",
+    "FilteredCompositeVM",
+    "FilteredCursorPolicy",
+    "ScoredFilteredCompositeVM",
 ]

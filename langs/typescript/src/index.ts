@@ -53,6 +53,11 @@ export {
   PagedComposition,
   type PagedCompositionSource,
 } from "./collections/pagedComposition.js";
+export {
+  TokenPagedComposition,
+  type TokenPage,
+  type TokenPagedCompositionOptions,
+} from "./collections/tokenPagedComposition.js";
 
 // Collection messages
 export type { CollectionMutationAction, ICollectionChangedMessage } from "./messages/collectionChanged.js";
@@ -65,6 +70,9 @@ export type { IDispatcher } from "./services/dispatcher.js";
 export { RxDispatcher } from "./services/dispatcher.js";
 export { NullMessageHub } from "./services/nullMessageHub.js";
 export { NullDispatcher } from "./services/nullDispatcher.js";
+
+// State helpers
+export { DiscriminatorVM } from "./state/discriminatorVM.js";
 
 // Commands
 export type { ICommand, ICommandOf, IAsyncCommand } from "./commands/types.js";
@@ -123,6 +131,15 @@ export {
   CompositeVMOf,
   CompositeVMOfBuilder,
 } from "./composites/compositeVMOf.js";
+export {
+  FilteredCompositeVM,
+  FilteredCursorPolicy,
+  type FilteredCompositeOptions,
+} from "./composites/filteredCompositeVM.js";
+export {
+  ScoredFilteredCompositeVM,
+  type ScoredFilteredCompositeOptions,
+} from "./composites/scoredFilteredCompositeVM.js";
 
 // Groups
 export { GroupVM, GroupVMBuilder } from "./groups/groupVM.js";
@@ -174,9 +191,11 @@ export type {
 // Dialogs (spec v2.1)
 export type {
   IDialogService,
+  IModalDialogService,
   FileFilter,
   NotificationSeverity,
 } from "./dialogs/dialogService.js";
+export { ModalVM } from "./dialogs/modalVM.js";
 export { NullDialogService } from "./dialogs/nullDialogService.js";
 
 // Forms (spec v2.1)

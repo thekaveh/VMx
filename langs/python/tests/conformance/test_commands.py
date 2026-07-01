@@ -10,6 +10,7 @@ CMD-004  Trigger emissions fire can_execute_changed
 CMD-005  Parameterized variant passes the parameter through
 CMD-006  Null task is a no-op (no exception)
 CMD-007  Table-driven configurations from command-truthtable.json
+CMD-013  Disposed RelayCommand instances are inert
 """
 
 from __future__ import annotations
@@ -145,6 +146,37 @@ def test_CMD_007_truth_table(case: dict) -> None:  # type: ignore[type-arg]
     assert bool(task_called) is expected_task_invoked, (
         f"[{case['id']}] task invoked={bool(task_called)}, expected={expected_task_invoked}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CMD-013 — disposed relay commands are inert
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("CMD-013")
+def test_CMD_013_disposed_relay_command_is_inert() -> None:
+    called: list[int] = []
+    cmd = RelayCommand.builder().task(lambda: called.append(1)).build()
+
+    cmd.dispose()
+    cmd.execute()
+
+    assert cmd.can_execute() is False
+    assert called == []
+
+
+@pytest.mark.conformance("CMD-013")
+def test_CMD_013_disposed_parameterized_relay_command_is_inert() -> None:
+    called: list[int] = []
+    cmd: RelayCommandOf[int] = (
+        RelayCommandOf.builder().task(lambda p: called.append(p or 0)).build()
+    )
+
+    cmd.dispose()
+    cmd.execute(42)
+
+    assert cmd.can_execute(42) is False
+    assert called == []
 
 
 # ---------------------------------------------------------------------------

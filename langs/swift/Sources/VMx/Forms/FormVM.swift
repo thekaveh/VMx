@@ -32,11 +32,15 @@ public final class FormVM<Model> {
     private let strict: Bool
     private let snapshotter: (Model) -> Model
     private let equals: (Model, Model) -> Bool
+    private let validators: [String: (Model) -> String?]
+    private let modelValidator: ((Model) -> [String: String?])?
+    private var _errors: [String: String]
 
     // ── Reactive channels (sealed) ────────────────────────────────────────────
 
     private let _onApproved = PassthroughSubject<Model, Never>()
     private let _approveErrors = PassthroughSubject<Error, Never>()
+    private let _errorsChanged = PassthroughSubject<[String: String], Never>()
     /// Fires when `isDirty` transitions in strict mode; wired as a trigger on
     /// `approveCommand` so that subscribers to `canExecuteChanged` are notified.
     private let _approveCanExecSubject = PassthroughSubject<Void, Never>()
@@ -61,6 +65,8 @@ public final class FormVM<Model> {
         hub: MessageHubProtocol = NullMessageHub.INSTANCE,
         strict: Bool = false,
         snapshotter: @escaping (Model) -> Model = { $0 },
+        validators: [String: (Model) -> String?] = [:],
+        modelValidator: ((Model) -> [String: String?])? = nil,
         equals: @escaping (Model, Model) -> Bool
     ) {
         self._model = initial
@@ -69,8 +75,15 @@ public final class FormVM<Model> {
         self.strict = strict
         self.snapshotter = snapshotter
         self.equals = equals
+        self.validators = validators
+        self.modelValidator = modelValidator
         // Capture snapshot at construction via snapshotter.
         self._snapshot = snapshotter(initial)
+        self._errors = Self.validate(
+            initial,
+            validators: validators,
+            modelValidator: modelValidator
+        )
 
         // Phase 1: satisfy Swift's two-phase init by giving both commands a
         // placeholder before `self` is available for capture.
@@ -109,6 +122,16 @@ public final class FormVM<Model> {
         !equals(_model, _snapshot)
     }
 
+    /// Current validation errors keyed by field/property name.
+    public var errors: [String: String] {
+        _errors
+    }
+
+    /// `true` when the current model has no validation errors.
+    public var isValid: Bool {
+        _errors.isEmpty
+    }
+
     /// Emits the persisted model value after each successful ``approveAsync()``
     /// call (including the command path). Does NOT emit on failure.
     public var onApproved: AnyPublisher<Model, Never> {
@@ -122,6 +145,16 @@ public final class FormVM<Model> {
         _approveErrors.eraseToAnyPublisher()
     }
 
+    /// Emits only when the effective validation error map changes.
+    public var errorsChanged: AnyPublisher<[String: String], Never> {
+        _errorsChanged.eraseToAnyPublisher()
+    }
+
+    /// Returns the current validation error for a field, if any.
+    public func fieldError(_ field: String) -> String? {
+        _errors[field]
+    }
+
     // ── Mutation ──────────────────────────────────────────────────────────────
 
     /// Replaces the current model. The snapshot is unaffected.
@@ -129,8 +162,10 @@ public final class FormVM<Model> {
     /// transitions so that UI bindings can re-evaluate the approve button state.
     public func setModel(_ newModel: Model) {
         let wasDirty = isDirty
+        let wasValid = isValid
         _model = newModel
-        if strict && isDirty != wasDirty {
+        revalidate()
+        if (strict && isDirty != wasDirty) || isValid != wasValid {
             _approveCanExecSubject.send(())
         }
     }
@@ -145,6 +180,7 @@ public final class FormVM<Model> {
     /// After `dispose()`: returns immediately (no-op).
     public func approveAsync() async throws {
         guard !_disposed else { return }
+        guard isValid else { return }
 
         // Capture before the suspension point so racing setModel calls cannot
         // change the value that was actually persisted (mirrors TS / C# / Python).
@@ -172,6 +208,7 @@ public final class FormVM<Model> {
         _disposed = true
         _onApproved.send(completion: .finished)
         _approveErrors.send(completion: .finished)
+        _errorsChanged.send(completion: .finished)
         _approveCanExecSubject.send(completion: .finished)
         denyCommand.dispose()
         approveCommand.dispose()
@@ -200,8 +237,7 @@ public final class FormVM<Model> {
             },
             predicate: { [weak self] in
                 guard let self else { return true }
-                if self.strict { return self.isDirty }
-                return true
+                return self.isValid && (!self.strict || self.isDirty)
             },
             triggers: [_approveCanExecSubject.eraseToAnyPublisher()]
         )
@@ -212,12 +248,48 @@ public final class FormVM<Model> {
     private func performDeny() {
         guard !_disposed else { return }
         let wasDirty = isDirty
+        let wasValid = isValid
         _model = snapshotter(_snapshot)
+        revalidate()
         hub.send(FormRevertedMessage(senderObject: self, senderName: "FormVM"))
         hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
-        if strict && isDirty != wasDirty {
+        if (strict && isDirty != wasDirty) || isValid != wasValid {
             _approveCanExecSubject.send(())
         }
+    }
+
+    private static func validate(
+        _ model: Model,
+        validators: [String: (Model) -> String?],
+        modelValidator: ((Model) -> [String: String?])?
+    ) -> [String: String] {
+        var errors: [String: String] = [:]
+        for (field, validator) in validators {
+            if let error = validator(model) {
+                errors[field] = error
+            }
+        }
+        if let modelValidator {
+            for (field, error) in modelValidator(model) {
+                if let error {
+                    errors[field] = error
+                } else {
+                    errors.removeValue(forKey: field)
+                }
+            }
+        }
+        return errors
+    }
+
+    private func revalidate() {
+        let errors = Self.validate(
+            _model,
+            validators: validators,
+            modelValidator: modelValidator
+        )
+        guard errors != _errors else { return }
+        _errors = errors
+        _errorsChanged.send(errors)
     }
 }
 
@@ -246,7 +318,9 @@ extension FormVM where Model: Equatable {
         persister: @escaping (Model) async throws -> Void,
         hub: MessageHubProtocol = NullMessageHub.INSTANCE,
         strict: Bool = false,
-        snapshotter: @escaping (Model) -> Model = { $0 }
+        snapshotter: @escaping (Model) -> Model = { $0 },
+        validators: [String: (Model) -> String?] = [:],
+        modelValidator: ((Model) -> [String: String?])? = nil
     ) {
         self.init(
             initial: initial,
@@ -254,6 +328,8 @@ extension FormVM where Model: Equatable {
             hub: hub,
             strict: strict,
             snapshotter: snapshotter,
+            validators: validators,
+            modelValidator: modelValidator,
             equals: ==
         )
     }
