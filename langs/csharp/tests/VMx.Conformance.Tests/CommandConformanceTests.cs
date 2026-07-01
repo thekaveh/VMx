@@ -279,7 +279,7 @@ public class CommandConformanceTests
             .Build();
 
         var runs = Enumerable.Range(0, 64)
-            .Select(_ => Task.Run(() => cmd.ExecuteAsync()))
+            .Select(_ => cmd.ExecuteAsync())
             .ToArray();
 
         await started.Task;
