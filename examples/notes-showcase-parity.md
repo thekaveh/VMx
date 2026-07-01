@@ -26,6 +26,7 @@ a browsable HTML version with summary cards is at
 - **C# / Avalonia 11 on .NET 8** — `examples/csharp/avalonia/NotesShowcase/`
 - **Python / Textual ≥ 0.80** — `examples/python/textual/notes_showcase/`
 - **TypeScript / React 18 + Vite** — `examples/typescript/react/notes-showcase/`
+- **Swift / SwiftUI + Combine (macOS)** — `examples/swift/notes-showcase/` (ADR-0067)
 
 Each column reports whether the indicated flavor exercises the indicated VMx
 spec feature inside its `viewmodels/` layer and surfaces it through its
@@ -33,24 +34,24 @@ spec feature inside its `viewmodels/` layer and surfaces it through its
 means the feature is wired end-to-end — VM emits, adapter forwards, view
 renders, headless smoke covers it.
 
-| #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React |
-| --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ |
-| 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  |
-| 2   | `CompositeVM.Current` (ch. 6) — notes selection       | ✓             | ✓                | ✓                  |
-| 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  |
-| 4   | `FormVM` snapshot/revert (ch. 20) — note editor       | ✓             | ✓                | ✓                  |
-| 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  |
-| 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | ✓ | ✓         | ✓                  |
-| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5–14.6) — title search + starred filter | ✓ | ✓ | ✓               |
-| 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  |
-| 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  |
-| 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save | ✓ | ✓ | ✓        |
-| 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | ✓ | ✓             | ✓                  |
-| 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | ✓           | ✓                | ✓                  |
-| 13  | `IDialogService` (ch. 19) — export → save-file dialog | ✓             | ✓                | ✓                  |
-| 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | ✓     | ✓                | ✓                  |
-| 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  |
-| 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ |
+| #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React | Swift / SwiftUI |
+| --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ | --------------- |
+| 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  | ✓               |
+| 2   | `CompositeVM.Current` (ch. 6) — notes selection       | ✓             | ✓                | ✓                  | ✓               |
+| 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  | ✓               |
+| 4   | `FormVM` snapshot/revert (ch. 20) — note editor       | ✓             | ✓                | ✓                  | ✓               |
+| 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  | ✓               |
+| 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | ✓ | ✓         | ✓                  | ✓               |
+| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5–14.6) — title search + starred filter | ✓ | ✓ | ✓               | ✓               |
+| 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  | ✓               |
+| 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  | ✓               |
+| 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save | ✓ | ✓ | ✓        | ✓               |
+| 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | ✓ | ✓             | ✓                  | ✓               |
+| 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | ✓           | ✓                | ✓                  | ✓               |
+| 13  | `IDialogService` (ch. 19) — export → save-file dialog | ✓             | ✓                | ✓                  | ✓               |
+| 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | ✓     | ✓                | ✓                  | ✓               |
+| 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  | ✓               |
+| 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ | ✓ |
 
 [^theme]: ThemeVM ships in v2.4.0 as a standalone scenario VM in each flavor's
     `viewmodels/` (plus a per-framework `ThemeAdapter` in `views/adapter/`).
@@ -65,18 +66,18 @@ renders, headless smoke covers it.
     set in `tools/check-conformance-coverage.py`.
 
 [^readonly]: The core capability action bar (CRUD capability dispatch +
-    `DerivedProperty`-driven enablement) ships in all three flavors. The Python
+    `DerivedProperty`-driven enablement) ships in all four flavors. The Python
     and TypeScript `CapabilityActionsVM` additionally expose a host-gated
     **add-note command** (`add_note_command` / `addNoteCommand`, fed by
     `can_add_note`/`add_note_action` builder hooks) backed by a
     `NotebookModel.is_readonly` / `isReadonly` flag, with dedicated unit tests.
-    The C#/Avalonia flavor does **not** ship this sub-feature yet. It is dormant
-    in every flavor — no seed notebook is marked read-only and no host UI renders
-    the add-note command — so there is no user-visible behavioral difference
-    today; the gap is a VM-surface/test asymmetry only. Bringing C# to parity
-    (model flag + gated command + `WorkspaceVM` wiring + tests) is **deferred to a
-    follow-up PR** rather than handled in the maintenance loop, since it is
-    feature work on the example app.
+    The C#/Avalonia and Swift/SwiftUI flavors do **not** ship this sub-feature
+    yet. It is dormant in every flavor — no seed notebook is marked read-only
+    and no host UI renders the add-note command — so there is no user-visible
+    behavioral difference today; the gap is a VM-surface/test asymmetry only.
+    Bringing C# and Swift to parity (model flag + gated command + `WorkspaceVM`
+    wiring + tests) is **deferred to a follow-up PR** rather than handled in the
+    maintenance loop, since it is feature work on the example app.
 
 ## 3. Reading the matrix
 
@@ -89,11 +90,19 @@ renders, headless smoke covers it.
   added via ADR-0034 as a non-breaking minor bump (`spec-v2.2.0`) so that
   `WorkspaceVM` could compose its six heterogeneous children without a
   synthetic chrome wrapper.
+- **Swift / SwiftUI binding bridge.** The Swift flagship uses a net-new
+  Combine→SwiftUI bridge (`BindableVM`/`BindableCollection`/`BindableCommand`/
+  `BindableDerived` + `ThemeAdapter`) that is not part of the library (ADR-0036
+  "no new core types"); it is contained entirely in the `NotesShowcase` app
+  target. Views use `@StateObject`/`@ObservedObject` + live VM getters. The
+  `NotesShowcaseCore` target (pure VM layer, no SwiftUI) is
+  CommandLineTools-buildable; the `NotesShowcase` and `NotesShowcaseTests`
+  targets require macOS + Xcode.
 - **Screenshots.** Reference screenshots are owner-driven and pending. Once
   captured they will live under `examples/assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.
 
-[^hier]: All three flavors implement an equivalent flat-collection +
+[^hier]: All four flavors implement an equivalent flat-collection +
     parent-id navigation pattern instead of subclassing
     `HierarchicalVM<TModel, TVM>` directly, because the canonical class
     sources each node's children from a per-node factory (materialized
@@ -101,19 +110,22 @@ renders, headless smoke covers it.
     freely-mutated `parent_id` collection. The observable contract —
     `TreeStructureChangedMessage` emission on add/remove, `current`
     selection, and `walk()` / `childrenOf()` accessors — is preserved
-    identically across all three flavors, so capability dispatch and
+    identically across all four flavors, so capability dispatch and
     spec-level tree messaging behave the same way as a canonical
     `HierarchicalVM`. Per-flavor source notes:
     `examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs`,
     `examples/python/textual/notes_showcase/src/notes_showcase/viewmodels/notebooks_root_vm.py`,
+    `examples/typescript/react/notes-showcase/src/viewmodels/notebooksRootVM.ts`,
     and
-    `examples/typescript/react/notes-showcase/src/viewmodels/notebooksRootVM.ts`.
+    `examples/swift/notes-showcase/Sources/NotesShowcaseCore/ViewModels/NotebooksRootVM.swift`.
 
 ## 4. Cross-references
 
 - Scenario contract: [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 - ADR-0034: [`spec/ADRs/0034-aggregate-vm6.md`](../spec/ADRs/0034-aggregate-vm6.md)
+- ADR-0067: [`spec/ADRs/0067-swift-notes-showcase-flagship.md`](../spec/ADRs/0067-swift-notes-showcase-flagship.md) — Swift flagship decision record
 - Per-flavor READMEs:
   [`examples/csharp/avalonia/NotesShowcase/README.md`](csharp/avalonia/NotesShowcase/README.md),
   [`examples/python/textual/notes_showcase/README.md`](python/textual/notes_showcase/README.md),
-  [`examples/typescript/react/notes-showcase/README.md`](typescript/react/notes-showcase/README.md)
+  [`examples/typescript/react/notes-showcase/README.md`](typescript/react/notes-showcase/README.md),
+  [`examples/swift/notes-showcase/README.md`](swift/notes-showcase/README.md)

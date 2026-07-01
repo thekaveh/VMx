@@ -5,12 +5,15 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.0.0 — full library parity.** Covers **all 237 of 237** library conformance
-IDs from `spec-v3.0.0` (recounted honestly in ADR-0037; +COMP-025/COMP-026 added
-per ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50
-leaf-area IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3
-Inc-2 — ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3
-Inc-3 — ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25
+**v3.1.0 — total parity.** Covers **all 237 of 237** library conformance IDs
+from `spec-v3.0.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **242 total**, at
+full parity with C#, Python, and TypeScript. Library IDs accumulated
+incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
+ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
+IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
+ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 —
+ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25
 notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063; +19 composite/group
 IDs via Phase-3 Inc-6 — ADR-0064): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
@@ -31,10 +34,9 @@ dispatch, async selection), `SearchableState` (composite and group contexts),
 message hub semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
-`makeConfirm` bridge). The five `THEME-00x` flagship scenario IDs (which live
-in example apps, not the library conformance suite) are the only remaining gap
-before total parity — see §5. Requires Swift 5.9+, Combine, iOS 16 / macOS 13
-/ tvOS 16 / watchOS 9.
+`makeConfirm` bridge). Requires Swift 5.9+, Combine, iOS 16 / macOS 13 /
+tvOS 16 / watchOS 9. The notes-showcase flagship (SwiftUI + Combine, macOS)
+is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
@@ -145,7 +147,7 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
-## 5. Conformance — full library parity
+## 5. Conformance — total parity (242)
 
 This flavor implements **all 237 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
@@ -336,12 +338,13 @@ GRP-007..010    SearchableState<T> group context — same Combine-native impleme
                 (Swift equivalent of TS Number(t) || 0) (Inc-6 — ADR-0064 §2.3)
 ```
 
-**Deferred:**
+**THEME scenario IDs (example app — not scraped by the library coverage gate):**
 
-- `THEME-00x` — flagship scenario IDs (live in example apps, not in the library
-  conformance suite; deferred to Increment 7)
+- `THEME-001..005` — covered by `ThemeVMTests.swift` in
+  `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
+  `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 237 library conformance IDs are covered. This flavor is at full library parity with C#, Python, and TypeScript.**
+**All 237 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (242) with C#, Python, and TypeScript.**
 
 Run the suite:
 
