@@ -63,7 +63,7 @@ final class NotificationsVMTests: XCTestCase {
         defer { f.notifHub.dispose() }
 
         Task { _ = await f.notifHub.post(n("Saved")) }
-        await Task.yield()
+        await waitUntil { f.vm.visible.count == 1 }
 
         XCTAssertEqual(1, f.vm.visible.count)
         XCTAssertEqual("Saved", f.vm.visible[0].notification.message)
@@ -100,7 +100,7 @@ final class NotificationsVMTests: XCTestCase {
 
         let notification = n("x")
         Task { _ = await f.notifHub.post(notification) }
-        await Task.yield()
+        await waitUntil { f.vm.visible.count == 1 }
         XCTAssertEqual(1, f.vm.visible.count)
 
         f.notifHub.resolve(notification, .approve)
@@ -117,7 +117,7 @@ final class NotificationsVMTests: XCTestCase {
 
         let notification = n("x")
         Task { _ = await f.notifHub.post(notification) }
-        await Task.yield()
+        await waitUntil { f.vm.visible.count == 1 }
         XCTAssertEqual(1, f.vm.visible.count)
 
         // Advance past the 5-second lifespan.
