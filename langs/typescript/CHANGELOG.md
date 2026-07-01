@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] — 2026-07-01
 
-Implements `spec-v3.1.0` and keeps TypeScript at full library parity: 279/279
+Implements `spec-v3.1.0` and keeps TypeScript at full library parity: 281/281
 conformance IDs covered.
 
 ### Added
@@ -20,6 +20,8 @@ conformance IDs covered.
 
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
+- Pinned common options-factory conformance (`BLD-006`) and group-child
+  non-selection semantics (`GRP-011`).
 
 ### Fixed
 
@@ -29,6 +31,9 @@ conformance IDs covered.
   because `cancel()` was requested.
 - `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
   if it is disposed before the fetch completes.
+- Group children no longer report enabled child selection into a group.
+- Removed the ineffective `MessageHub` subscriber-error diagnostic constructor
+  hook; RxJS reports subscriber throws through `config.onUnhandledError`.
 
 ## [3.0.0] — 2026-06-28
 

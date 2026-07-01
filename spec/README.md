@@ -28,7 +28,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (284 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (286 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -289,7 +289,7 @@ catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
 
 v3.1.0 is an additive minor bump driven by upstream consumer adoption feedback.
 It keeps the four flavors at total parity and raises the conformance catalog
-from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
+from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
 
 - **ADR-0068** — disposed `RelayCommand` instances are inert (`CMD-013`).
 - **ADR-0069** — token/cursor pagination via `TokenPagedComposition`
@@ -310,12 +310,14 @@ from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
 - **ADR-0077** — Swift `FormVM` snapshot default documentation correction.
 - **ADR-0078** — `TokenPagedComposition` post-dispose load/refresh completion
   clarification.
+- **ADR-0079** — Swift options-value factories and non-selectable group
+  children add `BLD-006` and `GRP-011`.
 
 ### 1.11 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0078); see
+- `ADRs/` — Architecture Decision Records (0001-0079); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

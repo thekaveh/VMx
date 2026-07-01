@@ -4,13 +4,15 @@ using FluentAssertions;
 using VMx.Builders;
 using VMx.Commands;
 using VMx.Components;
+using VMx.Composites;
+using VMx.Groups;
 using VMx.Tests.Helpers;
 using Xunit;
 
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for builder semantics: BLD-001..005.
+/// Conformance tests for builder semantics: BLD-001..006.
 /// Representative VM: <see cref="ComponentVM{M}"/> with M = string.
 /// See spec/10-builders.md and spec/12-conformance.md §Builders.
 /// </summary>
@@ -177,5 +179,68 @@ public class BuilderConformanceTests
         var vm = Components.ComponentVM<string>.Builder()
             .Name("first").Name("second").Services(hub, dispatcher).Model("m").Build();
         vm.Name.Should().Be("second", "Name() must overwrite, not accumulate");
+    }
+
+    /// <summary>
+    /// BLD-006: the additive options factories for common VM types delegate to
+    /// the same validation/defaulting path as the fluent builders.
+    /// </summary>
+    [Fact, Trait("Conformance", "BLD-006")]
+    public void BLD_006_Options_Factories_Match_Builder_Semantics()
+    {
+        var (hub, dispatcher) = MakeServices();
+
+        var component = ComponentVM.Create(new ComponentVMOptions
+        {
+            Name = "component",
+            Hint = "h",
+            Hub = hub,
+            Dispatcher = dispatcher,
+        });
+        component.Name.Should().Be("component");
+        component.Hint.Should().Be("h");
+        component.Type.Should().Be(ViewModelType.Component);
+
+        var modeled = ComponentVM<string>.Create(new ComponentVMOptions<string>
+        {
+            Name = "modeled",
+            Model = "m",
+            Hub = hub,
+            Dispatcher = dispatcher,
+        });
+        modeled.Model.Should().Be("m");
+
+        var child = ComponentVM.Create(new ComponentVMOptions
+        {
+            Name = "child",
+            Hub = hub,
+            Dispatcher = dispatcher,
+        });
+        var composite = CompositeVM<ComponentVM>.Create(new CompositeVMOptions<ComponentVM>
+        {
+            Name = "composite",
+            Hub = hub,
+            Dispatcher = dispatcher,
+            Children = () => new[] { child },
+        });
+        composite.Construct();
+        composite.Count.Should().Be(1);
+
+        var group = GroupVM<ComponentVM>.Create(new GroupVMOptions<ComponentVM>
+        {
+            Name = "group",
+            Hub = hub,
+            Dispatcher = dispatcher,
+            Children = Array.Empty<ComponentVM>,
+        });
+        group.Type.Should().Be(ViewModelType.Group);
+
+        var missingName = () => ComponentVM.Create(new ComponentVMOptions
+        {
+            Hub = hub,
+            Dispatcher = dispatcher,
+        });
+        missingName.Should().Throw<BuilderValidationException>()
+            .Which.MissingField.Should().Be("Name");
     }
 }

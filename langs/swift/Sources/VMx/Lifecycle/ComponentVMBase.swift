@@ -19,6 +19,7 @@ import Combine
 /// Minimal parent interface used by a child for selection delegation.
 /// Mirrors `IParentVM` in the other flavors.
 public protocol ParentVM: AnyObject {
+    var supportsChildSelection: Bool { get }
     var currentChild: ComponentVMBase? { get }
     func selectChild(_ vm: ComponentVMBase)
     func deselectChild(_ vm: ComponentVMBase)
@@ -451,11 +452,12 @@ open class ComponentVMBase {
     // ── Selection ───────────────────────────────────────────────────────
 
     public func canSelect() -> Bool {
-        // spec/05 §5: parent non-nil, not already current, constructed.
-        // No "parent has a selection slot" condition — a group child
-        // reports true and select() is a no-op, same as the other flavors.
+        // spec/05 §5 + spec/07: parent non-nil, parent owns a selection slot,
+        // not already current, constructed.
         guard let parent = _parent else { return false }
-        return parent.currentChild !== self && _statusSnapshot() == .constructed
+        return parent.supportsChildSelection &&
+            parent.currentChild !== self &&
+            _statusSnapshot() == .constructed
     }
 
     public func select() {

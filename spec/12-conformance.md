@@ -741,6 +741,17 @@ the VM class
 **And** other (non-additive) setters such as `Name` and `Task` continue to overwrite
 on repeated calls per BLD-001's standard semantics
 
+### BLD-006 — Common VM options factories match builder semantics
+
+**Given** the common VM types `ComponentVM`, modeled `ComponentVM<M>`,
+`CompositeVM<VM>`, and `GroupVM<VM>`
+**When** each type is constructed through its additive positional-options form
+(`Create`, `create`, `create(options)`, or Swift `create(_:)`)
+**Then** the produced VM has the same observable defaults and field values as the
+equivalent fluent builder path
+**And** missing required fields are validated through the same
+`BuilderValidationError` / `BuilderValidationException` path as `Build()`
+
 ______________________________________________________________________
 
 ## 13. Threading (`THR-NNN`)
@@ -1589,6 +1600,15 @@ window elapses
 **Given** a `SearchableState` with a custom predicate
 **When** `SearchTerm` is set and `search()` is called
 **Then** the filtered snapshot reflects the custom predicate's matches
+
+### GRP-011 — Group children are not selectable peers
+
+**Given** a constructed `GroupVM<VM>` containing `child`
+**And** `child` has reached `Constructed`
+**When** `child.can_select` / `child.CanSelect()` / `child.canSelect()` is queried
+**Then** the result is `false`
+**And** the inherited child select command's predicate is disabled
+**And** calling `child.select()` / `child.Select()` does not make the child current
 
 ______________________________________________________________________
 

@@ -1,7 +1,7 @@
 //
 // Builder conformance tests.
 //
-// Claimed IDs: BLD-001..004 here (BLD-005, additive triggers, lives in
+// Claimed IDs: BLD-001..004 and BLD-006 here (BLD-005, additive triggers, lives in
 // RelayCommandTests).
 //
 import XCTest
@@ -96,5 +96,63 @@ final class BuilderTests: XCTestCase {
         // Constructing succeeds via the null hub & dispatcher.
         try vm.construct()
         XCTAssertEqual(vm.status, .constructed)
+    }
+
+    /// BLD-006 — common VM options factories delegate to builder validation
+    /// and defaults.
+    func testBld006OptionsFactoriesMatchBuilderSemantics() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+
+        let component = try ComponentVM.create(ComponentVMOptions(
+            name: "component",
+            hint: "h",
+            hub: hub,
+            dispatcher: dispatcher
+        ))
+        XCTAssertEqual(component.name, "component")
+        XCTAssertEqual(component.hint, "h")
+        XCTAssertEqual(component.type, .component)
+
+        let modeled = try ComponentVMOf<String>.create(ComponentVMOfOptions(
+            name: "modeled",
+            model: "m",
+            hub: hub,
+            dispatcher: dispatcher
+        ))
+        XCTAssertEqual(modeled.model, "m")
+
+        let child = try ComponentVM.create(ComponentVMOptions(
+            name: "child",
+            hub: hub,
+            dispatcher: dispatcher
+        ))
+        let composite = try CompositeVM<ComponentVM>.create(CompositeVMOptions(
+            name: "composite",
+            hub: hub,
+            dispatcher: dispatcher,
+            children: { [child] }
+        ))
+        try composite.construct()
+        XCTAssertEqual(composite.status, .constructed)
+        XCTAssertEqual(composite.count, 1)
+
+        let group = try GroupVM<ComponentVM>.create(GroupVMOptions(
+            name: "group",
+            hub: hub,
+            dispatcher: dispatcher,
+            children: { [] }
+        ))
+        XCTAssertEqual(group.type, .group)
+
+        XCTAssertThrowsError(
+            try ComponentVM.create(ComponentVMOptions(hub: hub, dispatcher: dispatcher))
+        ) { err in
+            guard let e = err as? BuilderValidationError else {
+                XCTFail("expected BuilderValidationError, got \(err)")
+                return
+            }
+            XCTAssertEqual(e.missingField, "name")
+        }
     }
 }

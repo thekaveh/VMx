@@ -7,10 +7,42 @@
 import Foundation
 import Combine
 
+public struct GroupVMOptions<Child: ComponentVMBase> {
+    public var name: String?
+    public var hint: String
+    public var hub: MessageHubProtocol?
+    public var dispatcher: Dispatcher?
+    public var children: (() -> [Child])?
+    public var onConstruct: (() -> Void)?
+    public var onDestruct: (() -> Void)?
+    public var autoConstructOnAdd: Bool
+
+    public init(
+        name: String? = nil,
+        hint: String = "",
+        hub: MessageHubProtocol? = nil,
+        dispatcher: Dispatcher? = nil,
+        children: (() -> [Child])? = nil,
+        onConstruct: (() -> Void)? = nil,
+        onDestruct: (() -> Void)? = nil,
+        autoConstructOnAdd: Bool = false
+    ) {
+        self.name = name
+        self.hint = hint
+        self.hub = hub
+        self.dispatcher = dispatcher
+        self.children = children
+        self.onConstruct = onConstruct
+        self.onDestruct = onDestruct
+        self.autoConstructOnAdd = autoConstructOnAdd
+    }
+}
+
 /// Internal parent adaptor — `GroupVM` has no "current child" concept,
 /// so `selectChild`/`deselectChild` are deliberate no-ops (spec/07 —
 /// children are peers; there is no slot to select into).
 private final class GroupParent: ParentVM {
+    var supportsChildSelection: Bool { false }
     var currentChild: ComponentVMBase? { nil }
     func selectChild(_ vm: ComponentVMBase) { /* no-op */ }
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
@@ -129,20 +161,39 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable {
             for c in factory() { add(c) }
         }
         // A peer's throwing `construct()` (ADR-0053) propagates up the cascade.
-        for child in children { try child.construct() }
+        // Snapshot first so child hooks can mutate the group without perturbing
+        // the active lifecycle iteration.
+        let snapshot = children
+        for child in snapshot { try child.construct() }
     }
 
     open override func _onDestruct() throws {
-        for child in children { try child.destruct() }
+        let snapshot = children
+        for child in snapshot { try child.destruct() }
         try super._onDestruct()
     }
 
     open override func dispose() {
-        for child in children { child.dispose() }
+        let snapshot = children
+        for child in snapshot { child.dispose() }
         super.dispose()
     }
 
     public static func builder() -> GroupVMBuilder<Child> {
         GroupVMBuilder<Child>()
+    }
+
+    public static func create(_ options: GroupVMOptions<Child>) throws -> GroupVM<Child> {
+        var b = GroupVM<Child>.builder()
+            .hint(options.hint)
+            .autoConstructOnAdd(options.autoConstructOnAdd)
+        if let name = options.name { b = b.name(name) }
+        if let hub = options.hub, let dispatcher = options.dispatcher {
+            b = b.services(hub: hub, dispatcher: dispatcher)
+        }
+        if let children = options.children { b = b.children(children) }
+        if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
+        if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }
+        return try b.build()
     }
 }

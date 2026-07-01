@@ -30,6 +30,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   extends ComponentVMBase
   implements IParentVM, IBatchable
 {
+  readonly supportsChildSelection = true;
   readonly #asyncSelection: boolean;
   readonly #autoConstructOnAdd: boolean;
   protected _children: VM[] = [];

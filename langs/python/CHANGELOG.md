@@ -6,7 +6,7 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [3.1.0] — 2026-07-01
 
-Implements `spec-v3.1.0` and keeps Python at full library parity: 279/279
+Implements `spec-v3.1.0` and keeps Python at full library parity: 281/281
 conformance IDs covered.
 
 ### Added
@@ -20,6 +20,8 @@ conformance IDs covered.
 
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
+- Pinned existing common options-factory behavior (`BLD-006`) and group-child
+  non-selection behavior (`GRP-011`) in conformance coverage.
 
 ### Fixed
 

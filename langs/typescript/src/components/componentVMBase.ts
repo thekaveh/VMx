@@ -25,6 +25,7 @@ import { declareCapabilities } from "../capabilities/registry.js";
 
 /** Minimal parent interface used by a child for selection delegation. */
 export interface IParentVM {
+  readonly supportsChildSelection: boolean;
   readonly currentChild: ComponentVMBase | null;
   selectChild(vm: ComponentVMBase): void;
   deselectChild(vm: ComponentVMBase): void;
@@ -420,6 +421,7 @@ export abstract class ComponentVMBase {
   canSelect(): boolean {
     return (
       this._parent !== null &&
+      this._parent.supportsChildSelection &&
       this._parent.currentChild !== this &&
       this.#status === ConstructionStatus.Constructed
     );

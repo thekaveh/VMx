@@ -1,4 +1,4 @@
-"""Cross-cutting builder conformance tests (BLD-001..004).
+"""Cross-cutting builder conformance tests (BLD-001..006).
 
 These test the builder behaviors that apply across all VM types, using
 ComponentVMOf[str] as the representative VM.
@@ -9,8 +9,11 @@ from __future__ import annotations
 import pytest
 
 from vmx.builders.exceptions import BuilderValidationError
-from vmx.components.component_vm import ComponentVMOf
+from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.components.protocols import ViewModelType
+from vmx.composites.composite_vm import CompositeVM
+from vmx.groups.group_vm import GroupVM
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
@@ -71,6 +74,49 @@ def test_BLD_004_field_defaults_applied() -> None:
     # (spec BLD-004 "Parent == null"; matches the TS isCurrent proxy).
     assert vm.is_current is False
     vm.dispose()
+
+
+@pytest.mark.conformance("BLD-006")
+def test_BLD_006_options_factories_match_builder_semantics() -> None:
+    """Common VM ``create`` factories validate/default like their builders."""
+    hub: MessageHub[Message] = MessageHub()
+    dispatcher = RxDispatcher.immediate()
+
+    component = ComponentVM.create(name="component", hint="h", hub=hub, dispatcher=dispatcher)
+    assert component.name == "component"
+    assert component.hint == "h"
+    assert component.type is ViewModelType.COMPONENT
+
+    modeled = ComponentVMOf[str].create(
+        name="modeled",
+        model="m",
+        hub=hub,
+        dispatcher=dispatcher,
+    )
+    assert modeled.model == "m"
+
+    child = ComponentVM.create(name="child", hub=hub, dispatcher=dispatcher)
+    composite: CompositeVM[ComponentVM] = CompositeVM.create(
+        name="composite",
+        hub=hub,
+        dispatcher=dispatcher,
+        children=lambda: (child,),
+    )
+    composite.construct()
+    assert composite.status is ConstructionStatus.CONSTRUCTED
+    assert len(composite) == 1
+
+    group: GroupVM[ComponentVM] = GroupVM.create(
+        name="group",
+        hub=hub,
+        dispatcher=dispatcher,
+        children=lambda: (),
+    )
+    assert group.type is ViewModelType.GROUP
+
+    with pytest.raises(BuilderValidationError) as exc_info:
+        ComponentVM.create(hub=hub, dispatcher=dispatcher)
+    assert exc_info.value.missing_field == "name"
 
 
 def test_with_null_services_wires_null_singletons() -> None:

@@ -18,6 +18,9 @@ namespace VMx.Components;
 /// </summary>
 internal interface IParentCompositeVM
 {
+    /// <summary>True when children can select/deselect into a parent-owned current slot.</summary>
+    bool SupportsChildSelection { get; }
+
     /// <summary>The currently selected child, or null.</summary>
     IComponentVM? CurrentChild { get; }
 
@@ -650,6 +653,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public bool CanSelect() =>
         Parent is not null &&
+        Parent.SupportsChildSelection &&
         !ReferenceEquals(Parent.CurrentChild, this) &&
         _status == ConstructionStatus.Constructed;
 
