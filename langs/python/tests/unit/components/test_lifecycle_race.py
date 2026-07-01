@@ -253,4 +253,5 @@ def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() ->
     release_constructing.wait(timeout=1)
 
     assert dispose_won_before_constructing is False or not hook_called.is_set()
+    assert dispose_done.wait(timeout=1)
     assert vm.status is ConstructionStatus.DISPOSED
