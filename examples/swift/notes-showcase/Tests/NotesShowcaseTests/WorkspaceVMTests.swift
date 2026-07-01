@@ -247,6 +247,57 @@ final class WorkspaceVMTests: XCTestCase {
         XCTAssertTrue(ws.newNoteCommand.canExecute())
     }
 
+    func testNotebookModel_defaultIsNotReadonly() {
+        let nb = NotebookModel(id: "nb", name: "Notebook", parentId: nil)
+
+        XCTAssertFalse(nb.isReadonly)
+    }
+
+    func testCapabilityAddNote_isDisabledForReadonlyNotebook() async throws {
+        let repo = InMemoryNoteRepository(
+            seed: (
+                notebooks: [
+                    NotebookModel(
+                        id: "nb-readonly",
+                        name: "Archive",
+                        parentId: nil,
+                        isReadonly: true
+                    )
+                ],
+                notes: []
+            ),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0
+        )
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+
+        XCTAssertTrue(ws.notesView.currentNotebookIsReadonly)
+        XCTAssertFalse(ws.capabilityActions.addNoteCommand.canExecute())
+    }
+
+    func testCapabilityAddNote_isEnabledForWritableNotebook() async throws {
+        let repo = InMemoryNoteRepository(
+            seed: (
+                notebooks: [
+                    NotebookModel(id: "nb-rw", name: "Drafts", parentId: nil)
+                ],
+                notes: []
+            ),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0
+        )
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+
+        XCTAssertFalse(ws.notesView.currentNotebookIsReadonly)
+        XCTAssertTrue(ws.capabilityActions.addNoteCommand.canExecute())
+    }
+
     func testConstruct_withNoNotebooks_stillEnablesNewNotebookButton() async throws {
         let repo = InMemoryNoteRepository(
             seed: (notebooks: [], notes: []),

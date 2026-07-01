@@ -8,10 +8,12 @@ public struct NotebookModel: Sendable, Equatable, Codable {
     public let id: String
     public let name: String
     public let parentId: String?
+    public let isReadonly: Bool
 
-    public init(id: String, name: String, parentId: String?) {
+    public init(id: String, name: String, parentId: String?, isReadonly: Bool = false) {
         self.id = id
         self.name = name
         self.parentId = parentId
+        self.isReadonly = isReadonly
     }
 }

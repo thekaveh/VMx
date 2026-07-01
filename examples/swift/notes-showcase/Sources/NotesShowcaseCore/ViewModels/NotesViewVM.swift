@@ -53,6 +53,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     private let _pageCommandTrigger = PassthroughSubject<Void, Never>()
 
     private var _showStarredOnly: Bool = false
+    private var _currentNotebookIsReadonly: Bool = false
     private var _filter: ((NoteVM) -> Bool)?
     private var _current: NoteVM?
 
@@ -96,6 +97,17 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
 
     /// The notebook id this view is currently bound to (or `nil`).
     public private(set) var boundNotebookId: String?
+
+    /// Readonly flag of the currently-bound notebook, supplied by the host.
+    public var currentNotebookIsReadonly: Bool {
+        get { _currentNotebookIsReadonly }
+        set {
+            guard _currentNotebookIsReadonly != newValue else { return }
+            _currentNotebookIsReadonly = newValue
+            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "currentNotebookIsReadonly"))
+            _raisePropertyChanged("currentNotebookIsReadonly")
+        }
+    }
 
     // MARK: - Current selection
 

@@ -1,4 +1,6 @@
 using System.Reactive.Subjects;
+using System.Reactive.Linq;
+using System.Windows.Input;
 using VMx.Builders;
 using VMx.Capabilities;
 using VMx.Commands;
@@ -22,6 +24,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
 {
     private readonly Func<object?> _focusedGetter;
     private readonly BehaviorSubject<object?> _focusSubject;
+    private readonly Func<bool> _canAddNote;
     private bool _ownDisposed;
 
     /// <inheritdoc/>
@@ -39,6 +42,9 @@ public sealed class CapabilityActionsVM : ComponentVMBase
     /// repopulates whenever focus changes — see <see cref="BindableDerived{T}"/>.
     /// </summary>
     public BindableDerived<IReadOnlyList<ActionVM>> ActionsBindable { get; }
+
+    /// <summary>Host-driven Add Note command, gated by the selected notebook.</summary>
+    public ICommand AddNoteCommand { get; }
 
     /// <summary>
     /// Inspects the focused VM and rebuilds the action list. The host calls
@@ -142,13 +148,21 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         string hint,
         IMessageHub hub,
         IDispatcher dispatcher,
-        Func<object?> focusedGetter)
+        Func<object?> focusedGetter,
+        Action addNoteAction,
+        Func<bool> canAddNote)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _focusedGetter = focusedGetter;
+        _canAddNote = canAddNote;
         _focusSubject = new BehaviorSubject<object?>(focusedGetter());
         Actions = DerivedProperty.From(_focusSubject, Project);
         ActionsBindable = new BindableDerived<IReadOnlyList<ActionVM>>(Actions);
+        AddNoteCommand = RelayCommand.Builder()
+            .Predicate(_canAddNote)
+            .Task(addNoteAction)
+            .Triggers(_focusSubject.Select(_ => System.Reactive.Unit.Default))
+            .Build();
     }
 
     /// <inheritdoc/>
@@ -158,6 +172,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         _ownDisposed = true;
         ActionsBindable.Dispose();
         Actions.Dispose();
+        (AddNoteCommand as IDisposable)?.Dispose();
         _focusSubject.OnCompleted();
         _focusSubject.Dispose();
         base.Dispose();
@@ -174,27 +189,37 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         private readonly IMessageHub? _hub;
         private readonly IDispatcher? _dispatcher;
         private readonly Func<object?>? _focusedGetter;
+        private readonly Action? _addNoteAction;
+        private readonly Func<bool>? _canAddNote;
 
         internal static readonly CapabilityActionsVMBuilder Empty = new();
         private CapabilityActionsVMBuilder() { _hint = ""; }
         private CapabilityActionsVMBuilder(
             string? name, string hint,
             IMessageHub? hub, IDispatcher? dispatcher,
-            Func<object?>? focusedGetter)
+            Func<object?>? focusedGetter,
+            Action? addNoteAction,
+            Func<bool>? canAddNote)
         {
             _name = name; _hint = hint;
             _hub = hub; _dispatcher = dispatcher;
             _focusedGetter = focusedGetter;
+            _addNoteAction = addNoteAction;
+            _canAddNote = canAddNote;
         }
 
         /// <summary>Sets the required Name.</summary>
-        public CapabilityActionsVMBuilder Name(string name) => new(name, _hint, _hub, _dispatcher, _focusedGetter);
+        public CapabilityActionsVMBuilder Name(string name) => new(name, _hint, _hub, _dispatcher, _focusedGetter, _addNoteAction, _canAddNote);
         /// <summary>Sets the optional Hint.</summary>
-        public CapabilityActionsVMBuilder Hint(string hint) => new(_name, hint, _hub, _dispatcher, _focusedGetter);
+        public CapabilityActionsVMBuilder Hint(string hint) => new(_name, hint, _hub, _dispatcher, _focusedGetter, _addNoteAction, _canAddNote);
         /// <summary>Sets the required Services.</summary>
-        public CapabilityActionsVMBuilder Services(IMessageHub hub, IDispatcher dispatcher) => new(_name, _hint, hub, dispatcher, _focusedGetter);
+        public CapabilityActionsVMBuilder Services(IMessageHub hub, IDispatcher dispatcher) => new(_name, _hint, hub, dispatcher, _focusedGetter, _addNoteAction, _canAddNote);
         /// <summary>Sets the required focus-getter delegate.</summary>
-        public CapabilityActionsVMBuilder FocusedGetter(Func<object?> getter) => new(_name, _hint, _hub, _dispatcher, getter);
+        public CapabilityActionsVMBuilder FocusedGetter(Func<object?> getter) => new(_name, _hint, _hub, _dispatcher, getter, _addNoteAction, _canAddNote);
+        /// <summary>Sets the host Add Note action.</summary>
+        public CapabilityActionsVMBuilder AddNoteAction(Action action) => new(_name, _hint, _hub, _dispatcher, _focusedGetter, action, _canAddNote);
+        /// <summary>Sets the host Add Note can-execute predicate.</summary>
+        public CapabilityActionsVMBuilder CanAddNote(Func<bool> predicate) => new(_name, _hint, _hub, _dispatcher, _focusedGetter, _addNoteAction, predicate);
 
         /// <summary>Builds the VM after validation.</summary>
         public CapabilityActionsVM Build()
@@ -203,7 +228,14 @@ public sealed class CapabilityActionsVM : ComponentVMBase
             BuilderValidationException.Require(_hub, "Hub");
             BuilderValidationException.Require(_dispatcher, "Dispatcher");
             BuilderValidationException.Require(_focusedGetter, "FocusedGetter");
-            return new CapabilityActionsVM(_name!, _hint, _hub!, _dispatcher!, _focusedGetter!);
+            return new CapabilityActionsVM(
+                _name!,
+                _hint,
+                _hub!,
+                _dispatcher!,
+                _focusedGetter!,
+                _addNoteAction ?? (() => { }),
+                _canAddNote ?? (() => true));
         }
     }
 }

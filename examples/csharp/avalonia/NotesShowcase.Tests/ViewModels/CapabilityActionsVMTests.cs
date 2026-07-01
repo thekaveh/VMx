@@ -81,6 +81,33 @@ public sealed class CapabilityActionsVMTests
     }
 
     [Fact]
+    public void AddNoteCommand_delegates_to_host_predicate_and_action()
+    {
+        var canAdd = false;
+        var calls = 0;
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var vm = CapabilityActionsVM.Builder()
+            .Name("caps")
+            .Services(hub, dispatcher)
+            .FocusedGetter(() => null)
+            .CanAddNote(() => canAdd)
+            .AddNoteAction(() => calls++)
+            .Build();
+        vm.Construct();
+
+        Assert.False(vm.AddNoteCommand.CanExecute(null));
+        vm.AddNoteCommand.Execute(null);
+        Assert.Equal(0, calls);
+
+        canAdd = true;
+
+        Assert.True(vm.AddNoteCommand.CanExecute(null));
+        vm.AddNoteCommand.Execute(null);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public void RecomputeActions_picks_up_focus_change()
     {
         object? focused = SampleNotebook();

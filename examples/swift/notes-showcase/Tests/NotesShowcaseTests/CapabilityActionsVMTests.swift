@@ -161,6 +161,31 @@ final class CapabilityActionsVMTests: XCTestCase {
                       "Expected empty actions for nil focus")
     }
 
+    func testAddNoteCommandDelegatesToHostPredicateAndAction() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        var canAdd = false
+        var calls = 0
+        let caps = try CapabilityActionsVM.builder()
+            .name("caps")
+            .services(hub: hub, dispatcher: dispatcher)
+            .focusedGetter({ nil })
+            .canAddNote({ canAdd })
+            .addNoteAction({ calls += 1 })
+            .build()
+        try caps.construct()
+
+        XCTAssertFalse(caps.addNoteCommand.canExecute())
+        caps.addNoteCommand.execute()
+        XCTAssertEqual(0, calls)
+
+        canAdd = true
+
+        XCTAssertTrue(caps.addNoteCommand.canExecute())
+        caps.addNoteCommand.execute()
+        XCTAssertEqual(1, calls)
+    }
+
     // MARK: - recomputeActions
 
     func testRecomputeActionsPicksUpFocusChange() throws {

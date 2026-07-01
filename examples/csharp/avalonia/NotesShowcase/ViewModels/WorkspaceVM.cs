@@ -161,6 +161,8 @@ public sealed class WorkspaceVM : IDisposable
         var capabilities = CapabilityActionsVM.Builder()
             .Name("capabilities").Services(hub, dispatcher)
             .FocusedGetter(() => _focused)
+            .CanAddNote(() => IsConstructed && NotebooksRoot.Current is not null && !NotesView.CurrentNotebookIsReadOnly)
+            .AddNoteAction(() => _ = AddNewNoteToCurrentAsync())
             .Build();
 
         _agg = AggregateVM6<
@@ -230,6 +232,7 @@ public sealed class WorkspaceVM : IDisposable
             {
                 var nb = notebooks.Current;
                 if (nb is null) return;
+                notesView.CurrentNotebookIsReadOnly = nb.Model.IsReadOnly;
                 TrackFocus(nb);
                 _commandTrigger.OnNext(System.Reactive.Unit.Default);
                 if (string.Equals(_requestedNotebookId, nb.Model.Id, StringComparison.Ordinal)) return;
@@ -337,6 +340,7 @@ public sealed class WorkspaceVM : IDisposable
             _dispatcher.Foreground.Schedule(() =>
             {
                 if (_disposed) return; // queued tail may outlive the workspace
+                NotesView.CurrentNotebookIsReadOnly = first.Model.IsReadOnly;
                 NotebooksRoot.Current = first;
                 TrackFocus(first);
                 _commandTrigger.OnNext(System.Reactive.Unit.Default);

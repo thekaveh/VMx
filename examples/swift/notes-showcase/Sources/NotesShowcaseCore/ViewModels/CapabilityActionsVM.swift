@@ -31,6 +31,7 @@ public final class CapabilityActionsVM: ComponentVMBase {
 
     private let _focusedGetter: () -> AnyObject?
     private let _focusSubject: CurrentValueSubject<AnyObject?, Never>
+    private let _canAddNote: () -> Bool
 
     // ── Derived property ───────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ public final class CapabilityActionsVM: ComponentVMBase {
     /// `recomputeActions()` is called (or on construction with the initial
     /// focused value from the getter).
     public let actions: DerivedProperty<[ActionVM]>
+    public private(set) var addNoteCommand: RelayCommand
 
     // ── Public API ─────────────────────────────────────────────────────────
 
@@ -200,11 +202,15 @@ public final class CapabilityActionsVM: ComponentVMBase {
         hint: String,
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
-        focusedGetter: @escaping () -> AnyObject?
+        focusedGetter: @escaping () -> AnyObject?,
+        addNoteAction: @escaping () -> Void,
+        canAddNote: @escaping () -> Bool
     ) {
         _focusedGetter = focusedGetter
+        _canAddNote = canAddNote
         let subject = CurrentValueSubject<AnyObject?, Never>(focusedGetter())
         _focusSubject = subject
+        addNoteCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
 
         actions = DerivedProperty<[ActionVM]>.from(
             subject.eraseToAnyPublisher(),
@@ -212,12 +218,19 @@ public final class CapabilityActionsVM: ComponentVMBase {
         )
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
+
+        addNoteCommand = RelayCommand.builder()
+            .predicate(canAddNote)
+            .task(addNoteAction)
+            .triggers(subject.map { _ in () }.eraseToAnyPublisher())
+            .build()
     }
 
     // ── Lifecycle overrides ────────────────────────────────────────────────
 
     public override func _onDispose() {
         actions.dispose()
+        addNoteCommand.dispose()
         _focusSubject.send(completion: .finished)
         super._onDispose()
     }
@@ -239,6 +252,8 @@ public final class CapabilityActionsVM: ComponentVMBase {
         private var _hub: MessageHubProtocol?
         private var _dispatcher: Dispatcher?
         private var _focusedGetter: (() -> AnyObject?)?
+        private var _addNoteAction: (() -> Void)?
+        private var _canAddNote: (() -> Bool)?
 
         fileprivate init() {}
 
@@ -255,6 +270,12 @@ public final class CapabilityActionsVM: ComponentVMBase {
         public func focusedGetter(_ getter: @escaping () -> AnyObject?) -> CapabilityActionsVMBuilder {
             var c = self; c._focusedGetter = getter; return c
         }
+        public func addNoteAction(_ action: @escaping () -> Void) -> CapabilityActionsVMBuilder {
+            var c = self; c._addNoteAction = action; return c
+        }
+        public func canAddNote(_ predicate: @escaping () -> Bool) -> CapabilityActionsVMBuilder {
+            var c = self; c._canAddNote = predicate; return c
+        }
 
         /// Validates required fields and constructs a `CapabilityActionsVM`.
         ///
@@ -267,7 +288,9 @@ public final class CapabilityActionsVM: ComponentVMBase {
             return CapabilityActionsVM(
                 name: name, hint: _hint,
                 hub: hub, dispatcher: dispatcher,
-                focusedGetter: getter
+                focusedGetter: getter,
+                addNoteAction: _addNoteAction ?? {},
+                canAddNote: _canAddNote ?? { true }
             )
         }
     }

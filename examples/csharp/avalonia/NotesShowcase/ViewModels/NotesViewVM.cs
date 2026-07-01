@@ -59,6 +59,7 @@ public sealed class NotesViewVM
 
     private CancellationTokenSource? _activeFetchCts;
     private bool _showStarredOnlyField;
+    private bool _currentNotebookIsReadOnly;
     private System.Predicate<NoteVM>? _filter;
     private NoteVM? _current;
     private bool _ownDisposed;
@@ -206,6 +207,19 @@ public sealed class NotesViewVM
 
     /// <summary>The id of the notebook this view is currently bound to (or null).</summary>
     public string? BoundNotebookId { get; private set; }
+
+    /// <summary>Readonly flag of the currently-bound notebook, supplied by the host.</summary>
+    public bool CurrentNotebookIsReadOnly
+    {
+        get => _currentNotebookIsReadOnly;
+        set
+        {
+            if (_currentNotebookIsReadOnly == value) return;
+            _currentNotebookIsReadOnly = value;
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(CurrentNotebookIsReadOnly)));
+            RaisePropertyChanged(nameof(CurrentNotebookIsReadOnly));
+        }
+    }
 
     /// <summary>
     /// Cancel any in-flight fetch, load notes for the given notebook, and

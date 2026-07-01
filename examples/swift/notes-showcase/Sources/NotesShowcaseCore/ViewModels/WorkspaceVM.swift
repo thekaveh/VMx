@@ -232,6 +232,28 @@ public final class WorkspaceVM {
             .name("capabilities")
             .services(hub: hub, dispatcher: dispatcher)
             .focusedGetter({ [weak focusCell] in focusCell?.focused })
+            .canAddNote({ [weak notesView, weak notebooks] in
+                guard let notesView, let notebooks else { return false }
+                return notebooks.current != nil && !notesView.currentNotebookIsReadonly
+            })
+            .addNoteAction({ [weak notesView, weak notebooks, repo] in
+                guard let nb = notebooks?.current else { return }
+                let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+                let note = NoteModel(
+                    id: "note-\(uuid.prefix(5))",
+                    notebookId: nb.model.id,
+                    title: "Untitled",
+                    tags: [],
+                    body: "",
+                    starred: false,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+                Task {
+                    try? await repo.saveNote(note)
+                    await notesView?.bindTo(notebookId: nb.model.id)
+                }
+            })
             .build()
 
         // Assign children to stored properties.
@@ -354,6 +376,7 @@ public final class WorkspaceVM {
                 self._dispatcher.scheduleForeground { [weak self] in
                     guard let self else { return }
                     guard let nb = self._notebooks.current else { return }
+                    self._notesView.currentNotebookIsReadonly = nb.model.isReadonly
                     self.trackFocus(nb)
                     self._commandTrigger.send(())
                     guard self._requestedNotebookId != nb.model.id else { return }
@@ -454,6 +477,7 @@ public final class WorkspaceVM {
             _dispatcher.scheduleForeground { [weak self, first] in
                 guard let self, !self._disposed else { return }
                 self._notebooks.current = first
+                self._notesView.currentNotebookIsReadonly = first.model.isReadonly
                 self.trackFocus(first)
                 self._commandTrigger.send(())
             }
