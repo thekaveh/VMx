@@ -32,8 +32,8 @@ version, and creates a GitHub Release for SwiftPM consumers.
    ```bash
    git checkout main
    git pull --ff-only origin main
-   git tag swift-v3.1.0
-   git push origin swift-v3.1.0
+   git tag swift-vX.Y.Z
+   git push origin swift-vX.Y.Z
    ```
 
 4. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease>.
@@ -51,9 +51,9 @@ version, and creates a GitHub Release for SwiftPM consumers.
 mkdir /tmp/vmx-swift-verify && cd /tmp/vmx-swift-verify
 swift package init --type executable
 # Edit Package.swift to add:
-# .package(url: "https://github.com/thekaveh/VMx", from: "3.1.0")
+# .package(url: "https://github.com/thekaveh/VMx", from: "X.Y.Z")
 swift build
-gh release view swift-v3.1.0
+gh release view swift-vX.Y.Z
 ```
 
 ## 5. Failure Modes

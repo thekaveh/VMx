@@ -41,11 +41,14 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
+The source tree currently implements v3.1.0. SwiftPM consumes VMx from git
+tags; use the versioned dependency after a `swift-v*` release publishes it.
+
 Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "3.1.0")
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "X.Y.Z")
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
@@ -55,6 +58,14 @@ targets: [
 ```
 
 Or in Xcode: **File → Add Package Dependencies → enter the repo URL**.
+
+For local development from a checked-out clone:
+
+```swift
+dependencies: [
+    .package(path: "/path/to/VMx/langs/swift")
+]
+```
 
 ## 3. Quick start
 

@@ -17,6 +17,9 @@ ______________________________________________________________________
 
 ## 1. Install
 
+The source tree currently implements v3.1.0. SwiftPM consumes VMx from git
+tags; use the versioned dependency after a `swift-v*` release publishes it.
+
 Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
@@ -29,7 +32,7 @@ let package = Package(
         .iOS(.v16), .macOS(.v13), .tvOS(.v16), .watchOS(.v9),
     ],
     dependencies: [
-        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.1.0"),
+        .package(url: "https://github.com/thekaveh/VMx.git", from: "X.Y.Z"),
     ],
     targets: [
         .target(name: "MyApp", dependencies: [
@@ -41,6 +44,12 @@ let package = Package(
 
 Or in Xcode: **File → Add Package Dependencies → enter
 `https://github.com/thekaveh/VMx.git`**.
+
+For local development from a checked-out clone, use a path dependency:
+
+```swift
+.package(path: "/path/to/VMx/langs/swift")
+```
 
 The Swift package uses Combine for reactive primitives and Dispatch for
 scheduling. No additional dependencies are required.

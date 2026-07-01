@@ -135,7 +135,7 @@ Each flavor implements the same conceptual stack:
 | C#         | v3.1.0 in source            | NuGet package not published yet                            | System.Reactive    |
 | Python     | v3.1.0 in source            | [`vmx`](https://pypi.org/project/vmx/) latest published: 2.6.1 | reactivex       |
 | TypeScript | v3.1.0 in source            | npm package not published yet                              | rxjs               |
-| Swift      | v3.1.0 in source            | SwiftPM consumes git tags; no central registry             | Combine            |
+| Swift      | v3.1.0 in source            | SwiftPM tag not published yet; no central registry         | Combine            |
 
 `main` may contain an in-development source version before that version is
 published to package registries. Use the compatibility matrix for source-level
