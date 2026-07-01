@@ -134,7 +134,7 @@ class GlobalSearchVM(ComponentVM):
         super().dispose()
 
     @staticmethod
-    def builder() -> GlobalSearchVMBuilder:
+    def builder() -> GlobalSearchVMBuilder:  # type: ignore[override]
         return GlobalSearchVMBuilder()
 
 
