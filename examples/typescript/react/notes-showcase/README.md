@@ -16,7 +16,7 @@ The app is strictly partitioned into `src/models/`, `src/viewmodels/`,
 ESLint's `no-restricted-imports` rule enforces that under
 `src/views/components/**`.
 
-## Run
+## 1. Run
 
 ```bash
 cd examples/typescript/react/notes-showcase
@@ -37,7 +37,7 @@ npm test
 npm run typecheck
 ```
 
-## Project layout
+## 2. Project layout
 
 ```
 examples/typescript/react/notes-showcase/
@@ -72,7 +72,7 @@ examples/typescript/react/notes-showcase/
 └── tests/{models,viewmodels,views}/
 ```
 
-## Feature traceability
+## 3. Feature traceability
 
 | #   | Feature                          | Where                                                                                       |
 | --- | -------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -93,7 +93,7 @@ examples/typescript/react/notes-showcase/
 | 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                 |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
 
-## Keyboard shortcuts
+## 4. Keyboard shortcuts
 
 | Binding         | Action                                |
 | --------------- | ------------------------------------- |
@@ -107,7 +107,7 @@ examples/typescript/react/notes-showcase/
 command's `execute()` once the matching `canExecute` predicate is truthy,
 keeping the Pure-VM contract intact.
 
-## References
+## 5. References
 
 - Scenario contract: [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 - Cross-flavor parity: [`examples/notes-showcase-parity.md`](../../../notes-showcase-parity.md)

@@ -111,7 +111,7 @@ scenario contract lives at
 
 ## 5. IDE workflow
 
-Open `Examples.sln` in Visual Studio or Rider to step through all three
+Open `Examples.sln` in Visual Studio or Rider to step through the C# example
 projects with the debugger attached.
 
 ## 6. Project layout

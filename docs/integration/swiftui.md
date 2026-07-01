@@ -83,10 +83,10 @@ A non-child `current` assignment likewise has a throwing companion
 
 ## 5. Fuller example
 
-The Swift flavor's first release does not yet ship a Notes-Showcase
-SwiftUI app; the [`langs/swift/README.md`](../../langs/swift/README.md)
-covers the broader install + quick-start flow. A SwiftUI flagship is
-planned for the follow-up PR.
+The SwiftUI Notes Workspace flagship lives at
+[`examples/swift/notes-showcase/`](../../examples/swift/notes-showcase/). Its
+`NotesShowcaseCore` target keeps the pure VM layer separate from SwiftUI, while
+the app target contains the Combine-to-SwiftUI binding bridge.
 
 ## 6. Cross-flavor parity
 

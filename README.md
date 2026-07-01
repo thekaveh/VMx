@@ -16,7 +16,7 @@ at total parity), 279 library conformance IDs + 5 THEME scenario IDs = **284
 total** verified on every commit (all four flavors, including the Swift
 notes-showcase flagship).
 
-## Contents
+## 0. Contents
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
@@ -104,7 +104,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 75 ADRs,
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 76 ADRs,
   4 JSON fixtures, 284 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -246,7 +246,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0075)
+│   ├── ADRs/              architecture decision records (0001..0076)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         historical planning artifacts (not part of published docs)
 │   └── VERSION            spec SemVer
@@ -258,6 +258,7 @@ Smaller per-flavor demos:
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
+├── docs/maintenance/      maintenance run ledgers and audit records
 ├── tools/                 cross-cutting scripts (conformance coverage)
 ├── assets/                architecture + class diagrams, notes-showcase assets
 ├── .github/               issue/PR templates + CI workflows
@@ -276,7 +277,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 75 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 76 ADRs,
   4 fixtures, and the 284-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
@@ -305,7 +306,8 @@ This README is the entry point; the documents below add focused detail.
 - Per-flavor examples READMEs (run instructions):
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
-  [`examples/typescript/README.md`](examples/typescript/README.md).
+  [`examples/typescript/README.md`](examples/typescript/README.md),
+  [`examples/swift/notes-showcase/README.md`](examples/swift/notes-showcase/README.md).
 - [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
   cross-flavor parity matrix for all four flagship Notes-Showcase apps
   (Avalonia / Textual / React / SwiftUI); 16 spec features × 4 flavors.
@@ -313,6 +315,9 @@ This README is the entry point; the documents below add focused detail.
   integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
   NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe
   shows the framework-native binding + lifecycle + dispose pattern.
+- [`docs/maintenance/2026-07-01-contract-ledger.md`](docs/maintenance/2026-07-01-contract-ledger.md) —
+  external dependency and tool-contract checks recorded during the maintenance
+  run.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 

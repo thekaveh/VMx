@@ -378,8 +378,8 @@ and `CanExecute` returns `true`
 **And** while the task was in flight `CanExecute` returned `false` (the command
 cannot double-run)
 
-> Spec: `04-commands.md §10`, ADR-0056. Full-parity (C#/Python/TypeScript) only —
-> Swift does not ship `AsyncRelayCommand` (ADR-0037 subset).
+> Spec: `04-commands.md §10`, ADR-0056, ADR-0076. Full-parity
+> (C#/Python/TypeScript/Swift).
 
 ### CMD-013 — disposed relay commands are inert
 
@@ -2295,13 +2295,14 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Note** (v3, ADR-0048; supersedes the ADR-0037 caveat): structural equality is
 evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals` (C#),
-`__eq__` (Python), and an injectable structural deep-equal (TypeScript, default).
+`__eq__` (Python), and an injectable structural deep-equal (TypeScript and
+Swift, default).
 The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references, so the equal-values
-guarantee now holds unconditionally in all three flavors. Consumers needing
-field-subset or reference semantics inject a custom `equals` (TypeScript) or define
-their model's own equality (C#/Python).
+guarantee now holds unconditionally in all four flavors. Consumers needing
+field-subset or reference semantics inject a custom `equals` (TypeScript/Swift)
+or define their model's own equality (C#/Python).
 
 ### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
 

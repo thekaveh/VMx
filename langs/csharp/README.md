@@ -140,8 +140,8 @@ For aggregate trees, reach for `AggregateVM1..6<…>` (heterogeneous,
 fixed-arity) or `CompositeVM<VM>` (homogeneous, variable-arity) instead
 of subclassing.
 
-For an end-to-end composition pattern across all three flavors (Avalonia,
-Textual, React), see the Notes-Showcase Avalonia flagship at
+For an end-to-end composition pattern across all four flagship flavors
+(Avalonia, Textual, React, SwiftUI), see the Notes-Showcase Avalonia flagship at
 [`examples/csharp/avalonia/NotesShowcase/`](../../examples/csharp/avalonia/NotesShowcase/),
 with cross-flavor parity documented in
 [`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md).

@@ -261,7 +261,7 @@ This is a **documented composition pattern** only — `FormVM` does not depend o
 `ApproveCommand` does not publish hub messages directly; two observables carry the
 approve outcome instead (see *Approve signals* below).
 
-### `FormRevertedMessage`
+### 8.1. `FormRevertedMessage`
 
 ```
 FormRevertedMessage:
@@ -269,7 +269,7 @@ FormRevertedMessage:
     sender_name : string          # per-flavor: type name of sender
 ```
 
-### Approve signals: `OnApproved` and `ApproveErrors`
+### 8.2. Approve signals: `OnApproved` and `ApproveErrors`
 
 - **`OnApproved`** — fires exactly once after a *successful* persist. It carries
   the value that was **actually persisted**: the `Model` captured at the start of
@@ -278,7 +278,7 @@ FormRevertedMessage:
   the form `IsDirty` against the newer, un-persisted model), and `OnApproved`
   reports the persisted value — never the racing newer one. This is **uniform
   across flavors**: before v3, C# emitted the captured (pre-await) value while
-  Python and TypeScript emitted the live post-await `Model`; all three now emit the
+  Python and TypeScript emitted the live post-await `Model`; all four now emit the
   captured persisted value (ADR-0048 resolves the ADR-0009 divergence note for
   `OnApproved`).
 - **`ApproveErrors`** (`ApproveErrors` / `approve_errors` / `approveErrors`) — an

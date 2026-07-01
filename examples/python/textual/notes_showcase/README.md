@@ -16,7 +16,7 @@ The package is strictly partitioned into `models/`, `viewmodels/`, and
 `on_mount()` / one-statement `action_*()` methods — enforced by
 `tools/check-textual-views.py`.
 
-## Run
+## 1. Run
 
 ```bash
 # From the repo root
@@ -35,7 +35,7 @@ uv run pytest
 
 The package coverage gate is ≥ 90 % on `viewmodels/` + `views/adapter/`.
 
-## Project layout
+## 2. Project layout
 
 ```
 examples/python/textual/notes_showcase/
@@ -68,7 +68,7 @@ examples/python/textual/notes_showcase/
 └── tests/{models,viewmodels,views}/
 ```
 
-## Feature traceability
+## 3. Feature traceability
 
 | #   | Feature                          | Where                                                                                          |
 | --- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -89,7 +89,7 @@ examples/python/textual/notes_showcase/
 | 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                   |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
 
-## Keyboard shortcuts
+## 4. Keyboard shortcuts
 
 | Binding         | Action                                |
 | --------------- | ------------------------------------- |
@@ -103,7 +103,7 @@ Bindings are declared as Textual `BINDINGS` on `views/app.py`. Each
 `action_*` method is a single statement that calls into the VM, keeping the
 Pure-VM contract intact.
 
-## References
+## 5. References
 
 - Scenario contract: [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 - Cross-flavor parity: [`examples/notes-showcase-parity.md`](../../../notes-showcase-parity.md)

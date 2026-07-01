@@ -44,9 +44,10 @@ variant with a generic-parameter suffix on the same identifier
 `ComponentVMOf` type because their generics syntax cannot overload an
 unparameterised name. Throughout this spec, statements about
 `ComponentVM<M>` apply equally to `ComponentVMOf[M]` and
-`ComponentVMOf<M>` unless explicitly called out. The Swift flavor ships
-as a subset (41 / 237 conformance IDs as of v2.6.0, recounted in ADR-0037 with COMP-025/026 added per ADR-0042; first shipped in v2.4.0); see
-[`langs/swift/README.md` §5](../langs/swift/README.md) for the in / deferred matrix.
+`ComponentVMOf<M>` unless explicitly called out. The Swift flavor reached
+full library parity in v3.1.0; see
+[`langs/swift/README.md` §5](../langs/swift/README.md) for the current
+conformance matrix and documented Swift-specific divergences.
 
 **Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
 are render-side VMs with auto-dismiss lifecycle, suitable for toast/banner UI.

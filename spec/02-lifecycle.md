@@ -76,7 +76,7 @@ ADR-0053.
 `ComponentVMBase` exposes three protected, overridable hooks so subclasses can
 attach per-phase logic without reimplementing the status state machine. Names
 follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
-`_onConstruct` TS; the Swift subset uses the same shape where present):
+`_onConstruct` TypeScript and Swift):
 
 - `OnConstruct` — invoked during `construct()` (and the construct phase of
   `reconstruct()`), after the VM enters `Constructing` and before it reaches

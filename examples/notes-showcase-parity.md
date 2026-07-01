@@ -1,7 +1,7 @@
 # Notes Workspace — cross-flavor parity matrix
 
 The Notes Workspace is the VMx flagship example portfolio: one scenario
-(`spec/proposals/2026-05-29-notes-showcase-scenario.md`), three idiomatic
+(`spec/proposals/2026-05-29-notes-showcase-scenario.md`), four idiomatic
 implementations sharing one language-neutral VM API. This document is the
 single-page proof that every spec feature in scope is exercised by every
 flavor.
@@ -9,8 +9,8 @@ flavor.
 ## 1. VM hierarchy
 
 The diagram below is the canonical visual of the example's VM tree —
-derived from the scenario contract, so it applies identically to all three
-flavor implementations (names appear in their language-neutral form per
+derived from the scenario contract, so it applies identically to all four
+flagship implementations (names appear in their language-neutral form per
 ADR-0006). The same diagram is linked from each flavor's NotesShowcase
 README.
 
@@ -99,7 +99,7 @@ renders, headless smoke covers it.
   CommandLineTools-buildable; the `NotesShowcase` and `NotesShowcaseTests`
   targets require macOS + Xcode.
 - **Screenshots.** Reference screenshots are owner-driven and pending. Once
-  captured they will live under `examples/assets/notes-showcase/` — one PNG per
+  captured they will live under `assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.
 
 [^hier]: All four flavors implement an equivalent flat-collection +

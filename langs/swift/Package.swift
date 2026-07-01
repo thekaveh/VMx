@@ -1,10 +1,9 @@
 // swift-tools-version: 5.9
 //
-// VMx — Swift flavor (skeleton).
+// VMx — Swift flavor.
 //
-// Implements a 41-ID subset of spec v2.6.0 (LIFE, CVM, COMP, GRP, AGG,
-// CMD, BLD areas). See README.md §5 for the in / deferred matrix and
-// CHANGELOG.md for per-release history.
+// Implements spec v3.1.0 at full library parity. See README.md §5 for the
+// conformance matrix and CHANGELOG.md for per-release history.
 //
 import PackageDescription
 
@@ -20,7 +19,7 @@ let package = Package(
         .library(name: "VMx", targets: ["VMx"]),
     ],
     targets: [
-        // Both conformance fixtures live in the library bundle. The tests load
+        // Shared conformance fixtures live in the library bundle. The tests load
         // them via `Bundle.module`, which — with no resources on the test target
         // and `@testable import VMx` — resolves to the library's bundle. Adding
         // resources to the test target would generate a VMxTests `Bundle.module`

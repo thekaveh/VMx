@@ -2,10 +2,9 @@
 // CompositeVM<VM> — homogeneous-child container with a `current`
 // selection slot.
 //
-// See spec/06-composite-vm.md. This is the skeleton flavor: it covers
-// add / remove / select / current and the lifecycle cascade. Batch
-// updates, async selection, and the full CollectionChanged event surface
-// land in a follow-up PR.
+// See spec/06-composite-vm.md. The Swift flavor is at full library parity as
+// of v3.1.0; this type covers child mutation, selection, lifecycle cascade,
+// batch updates, async selection, and CollectionChanged events.
 //
 import Foundation
 import Combine

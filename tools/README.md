@@ -16,10 +16,10 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   # report-only
   python3 tools/check-conformance-coverage.py
 
-  # CI mode — require all three flavors to be at 100% coverage (matches
+  # CI mode — require all four flavors to be at 100% coverage (matches
   # .github/workflows/conformance.yml)
   python3 tools/check-conformance-coverage.py \
-      --require csharp --require python --require typescript
+      --require csharp --require python --require typescript --require swift
   ```
 
   Unit tests live in `tools/tests/`. Run with:
@@ -44,7 +44,7 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   direct hub subscriptions). Excludes `views/adapter/**`.
 
 - `check-layer-imports.py` — enforces the layered import direction for
-  all three flavors:
+  all four flagship example flavors:
 
     Models → Models only
     ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,

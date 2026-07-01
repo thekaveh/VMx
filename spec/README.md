@@ -302,13 +302,14 @@ from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
 - **ADR-0074** — documentation clarifications for serviced collection
   ownership and per-instance property-change surfaces.
 - **ADR-0075** — `DiscriminatorVM` active-key/modal stack coordinator
+- **ADR-0076** — Swift `AsyncRelayCommand` parity documentation correction
   (`DISC-001..006`) and new chapter `22-discriminator-vm.md`.
 
 ### 1.11 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0075); see
+- `ADRs/` — Architecture Decision Records (0001-0076); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
