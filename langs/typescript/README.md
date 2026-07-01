@@ -113,7 +113,7 @@ VMx-TS is browser-safe and works out of the box with all modern bundlers —
 contains no runtime imports of `node:fs`, `node:path`, or `node:url`; the
 lifecycle-transitions fixture is bundled in at build time.
 
-Minimal Vite/SvelteKit/Next.js install:
+Minimal Vite/SvelteKit/Next.js install, after the npm package is published:
 
 ```bash
 npm install @thekaveh/vmx rxjs

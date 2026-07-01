@@ -103,7 +103,7 @@ npm view @thekaveh/vmx version
 # Install in a fresh project:
 mkdir /tmp/vmx-ts-verify && cd /tmp/vmx-ts-verify
 npm init -y
-npm install @thekaveh/vmx@2.6.0
+npm install @thekaveh/vmx@X.Y.Z
 node -e "const vmx = require('@thekaveh/vmx'); console.log('ok', vmx.__minSpecVersion__)"
 ```
 

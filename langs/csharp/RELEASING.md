@@ -111,7 +111,7 @@ curl -s "https://api.nuget.org/v3-flatcontainer/vmx/index.json" \
 mkdir /tmp/vmx-cs-verify && cd /tmp/vmx-cs-verify
 dotnet new classlib -n Verify
 cd Verify
-dotnet add package VMx --version 2.6.0
+dotnet add package VMx --version X.Y.Z
 ```
 
 ## 4. Failure modes
