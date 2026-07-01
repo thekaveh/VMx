@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --package-lock-only --audit-level=low
+
       - name: Sync spec fixtures
         run: npm run sync-fixtures
 
@@ -100,7 +103,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: examples/typescript/react/notes-showcase/package-lock.json
+          cache-dependency-path: |
+            examples/typescript/console/hello-vmx/package-lock.json
+            examples/typescript/react/notes-showcase/package-lock.json
 
       - name: Install vmx lib deps + build dist
         # The notes-showcase imports `vmx` via `file:../../../../langs/typescript`
@@ -115,6 +120,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: console example install
+        run: npm ci --prefix examples/typescript/console/hello-vmx
+
+      - name: console example type-check
+        run: npm run typecheck --prefix examples/typescript/console/hello-vmx
+
+      - name: console example smoke
+        run: npm start --prefix examples/typescript/console/hello-vmx
+
       - name: notes-showcase install
         # `npm ci` requires a checked-in package-lock.json — committed under
         # examples/typescript/react/notes-showcase/ (audit round 3 Critical-3:
@@ -122,6 +136,9 @@ jobs:
         # the actions/setup-node cache above). No `npm install` fallback: a
         # drifted lockfile must fail loudly, not silently install unpinned.
         run: npm ci --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase audit
+        run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
       - name: notes-showcase test
         run: npm test --prefix examples/typescript/react/notes-showcase

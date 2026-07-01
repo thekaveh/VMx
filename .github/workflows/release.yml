@@ -50,6 +50,16 @@ jobs:
         run: dotnet build langs/csharp/VMx.sln -c Release --no-restore --nologo
       - name: Test
         run: dotnet test langs/csharp/VMx.sln -c Release --no-build --nologo
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/csharp-v}"
+          pkg_version=$(python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("langs/csharp/src/VMx/VMx.csproj").getroot().findtext("PropertyGroup/Version"))')
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match VMx package version ($pkg_version)." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches VMx package version $pkg_version."
       - name: Pack
         run: dotnet pack langs/csharp/VMx.sln -c Release --nologo --no-build -o /tmp/nupkgs
       - name: Push to NuGet
@@ -268,11 +278,12 @@ jobs:
   typescript:
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
+    environment:
+      name: npm-typescript
+      url: https://www.npmjs.com/package/@thekaveh/vmx
     permissions:
-      # Token-based npm publish: only contents:read is needed. When the TS
-      # release migrates to npm provenance via OIDC (would also need
-      # `provenance: true` on `npm publish`), restore `id-token: write`.
       contents: read
+      id-token: write
     env:
       # See the rationale on the csharp job's env block — secrets must be
       # projected to job-level env so that step `if:` can read them.
@@ -295,10 +306,21 @@ jobs:
       - name: Test
         working-directory: langs/typescript
         run: npm test
+      - name: Verify tag matches package version
+        working-directory: langs/typescript
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
+          pkg_version=$(node -p "require('./package.json').version")
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match package version ($pkg_version)." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches package version $pkg_version."
       - name: Publish to npm
         if: env.NPM_TOKEN != ''
         working-directory: langs/typescript
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
   swift:
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —

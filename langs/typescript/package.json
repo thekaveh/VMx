@@ -80,6 +80,9 @@
       "optional": false
     }
   },
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
