@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VMx System Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: #020617;
+      color: white;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+    }
+    object { display: block; width: 100%; min-width: 1180px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+      padding: 16px;
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>VMx System Architecture</h1></div>
+      <p class="subtitle">spec 3.1.0 source of truth -&gt; parity flavors -&gt; host examples</p>
+    </header>
+    <div class="diagram"><object data="system-architecture.svg" type="image/svg+xml" aria-label="VMx System Architecture"></object></div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>Source of truth</h2>
+        </div>
+        <ul><li>Behavior changes start in spec/ and flow through fixtures and conformance IDs.</li><li>The lifecycle table, message ordering, and command truth table are shared repo facts.</li><li>The docs diagrams mirror the same structure rather than invent a parallel model.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Parity shape</h2>
+        </div>
+        <ul><li>C#, Python, TypeScript, and Swift share one conceptual runtime with idiomatic casing only.</li><li>Reactive primitives stay native per flavor: System.Reactive, reactivex, rxjs, and Combine.</li><li>Runtime helpers such as paging, derived properties, dialogs, and notifications remain consistent.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Examples and gates</h2>
+        </div>
+        <ul><li>The flagship Notes Workspace exercises 19 framework features plus THEME scenarios.</li><li>Coverage, spec discipline, and example checks keep docs claims tied to repository state.</li><li>Compatibility and release surfaces are versioned per flavor but tracked against the spec.</li></ul>
+      </section>
+    </div>
+    <footer>Generated for VMx spec 3.1.0 documentation.</footer>
+  </main>
+</body>
+</html>

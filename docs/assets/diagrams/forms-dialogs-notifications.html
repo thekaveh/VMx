@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forms Dialogs And Notifications Flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: #020617;
+      color: white;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+    }
+    object { display: block; width: 100%; min-width: 1180px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+      padding: 16px;
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>Forms Dialogs And Notifications Flow</h1></div>
+      <p class="subtitle">edit lifecycle, modal request/response, and fire-and-forget notification channels</p>
+    </header>
+    <div class="diagram"><object data="forms-dialogs-notifications.svg" type="image/svg+xml" aria-label="Forms Dialogs And Notifications Flow"></object></div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>FormVM</h2>
+        </div>
+        <ul><li>FormVM is an edit-lifecycle primitive, not a persistence framework.</li><li>Snapshot, dirty tracking, validation, and success/error channels all live on the VM surface.</li><li>Dialog confirmation is documented composition, not a hard dependency.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Dialog seam</h2>
+        </div>
+        <ul><li>IDialogService is the host-facing modal contract for file pickers, confirms, and VM-backed modals.</li><li>NullDialogService exists so tests can stay deterministic.</li><li>ConfirmationDecoratorCommand composes directly with dialogService.Confirm().</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Notifications</h2>
+        </div>
+        <ul><li>The notifications package is opt-in and orthogonal to dialogs.</li><li>NotificationVM and ConfirmationVM render posted notifications without changing the core VM family.</li><li>The make_confirm bridge is the clean way to reuse notification flows for command confirmation.</li></ul>
+      </section>
+    </div>
+    <footer>Generated for VMx spec 3.1.0 documentation.</footer>
+  </main>
+</body>
+</html>

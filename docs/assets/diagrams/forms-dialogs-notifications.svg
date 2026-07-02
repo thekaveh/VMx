@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1040" viewBox="0 0 1720 1040">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
+    </pattern>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">Forms Dialogs And Notifications Flow</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">edit lifecycle, modal request/response, and fire-and-forget notification channels</text>
+  <polyline points="320,298 220,336" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="195" y="308" width="95" height="20" rx="10" fill="#0b1420" stroke="#94a3b8" stroke-width="1"/>
+<text x="242" y="322" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">cancel path</text>
+<polyline points="340,298 440,336" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="378" y="308" width="81" height="20" rx="10" fill="#0b1420" stroke="#94a3b8" stroke-width="1"/>
+<text x="418" y="322" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">save path</text>
+<polyline points="220,454 220,494" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="440,454 440,494" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="330,636 330,678" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,394 670,394" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="543" y="366" width="130" height="20" rx="10" fill="#0b1420" stroke="#fbbf24" stroke-width="1"/>
+<text x="608" y="380" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">wrap Deny/Delete</text>
+<polyline points="855,516 855,570" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="875" y="532" width="158" height="20" rx="10" fill="#0b1420" stroke="#fbbf24" stroke-width="1"/>
+<text x="954" y="546" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">host modal semantics</text>
+<polyline points="1040,454 1170,454" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1011" y="426" width="214" height="20" rx="10" fill="#0b1420" stroke="#fb7185" stroke-width="1"/>
+<text x="1118" y="440" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">alternatively bridge via hub</text>
+<polyline points="1385,298 1385,338" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1270,456 1270,494" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1288" y="466" width="60" height="20" rx="10" fill="#0b1420" stroke="#a78bfa" stroke-width="1"/>
+<text x="1318" y="480" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">adapts</text>
+<polyline points="1495,456 1495,494" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1385,634 1385,678" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="70" y="118" width="520" height="760" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">FormVM edit lifecycle</text>
+<rect x="620" y="118" width="470" height="760" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="634" y="140" fill="#fbbf24" font-size="12" font-weight="700" text-anchor="start">Modal dialog seam</text>
+<rect x="1120" y="118" width="530" height="760" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="1134" y="140" fill="#fb7185" font-size="12" font-weight="700" text-anchor="start">Notification hub and rendering VMs</text>
+<rect x="120" y="170" width="420" height="128" rx="8" fill="#0f172a"/>
+<rect x="120" y="170" width="420" height="128" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="330" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">FormVM&lt;TM&gt;</text>
+<text x="330" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Snapshot captured at construct()</text>
+<text x="330" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Model mutates via SetModel()</text>
+<text x="330" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsDirty derives from Model vs Snapshot</text>
+<rect x="120" y="336" width="200" height="118" rx="8" fill="#0f172a"/>
+<rect x="120" y="336" width="200" height="118" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="220" y="364" fill="white" font-size="18" font-weight="700" text-anchor="middle">DenyCommand</text>
+<text x="220" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">revert Model to Snapshot</text>
+<text x="220" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">publish property changes</text>
+<rect x="340" y="336" width="200" height="118" rx="8" fill="#0f172a"/>
+<rect x="340" y="336" width="200" height="118" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="440" y="364" fill="white" font-size="18" font-weight="700" text-anchor="middle">ApproveCommand</text>
+<text x="440" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fire-and-forget entry point</text>
+<text x="440" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">calls ApproveAsync()</text>
+<text x="440" y="428" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">errors -&gt; ApproveErrors</text>
+<rect x="120" y="494" width="420" height="142" rx="8" fill="#0f172a"/>
+<rect x="120" y="494" width="420" height="142" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="330" y="522" fill="white" font-size="18" font-weight="700" text-anchor="middle">Validation surface</text>
+<text x="330" y="548" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">field validators + model validator</text>
+<text x="330" y="567" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Errors / FieldError(field)</text>
+<text x="330" y="586" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsValid gates approval</text>
+<text x="330" y="605" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">strict mode = IsDirty &amp;&amp; IsValid</text>
+<rect x="120" y="678" width="420" height="146" rx="8" fill="#0f172a"/>
+<rect x="120" y="678" width="420" height="146" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="330" y="706" fill="white" font-size="18" font-weight="700" text-anchor="middle">Success + failure channels</text>
+<text x="330" y="732" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">OnApproved emits persisted model</text>
+<text x="330" y="751" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ApproveAsync throws to awaiter</text>
+<text x="330" y="770" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">command path surfaces failures on ApproveErrors</text>
+<rect x="670" y="210" width="370" height="128" rx="8" fill="#0f172a"/>
+<rect x="670" y="210" width="370" height="128" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="855" y="238" fill="white" font-size="18" font-weight="700" text-anchor="middle">IDialogService</text>
+<text x="855" y="264" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PickFileToOpen / PickFileToSave</text>
+<text x="855" y="283" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Confirm(message, title?)</text>
+<text x="855" y="302" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Notify(message, severity?)</text>
+<text x="855" y="321" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Present(modalVM) for VM-backed modals</text>
+<rect x="670" y="392" width="370" height="124" rx="8" fill="#0f172a"/>
+<rect x="670" y="392" width="370" height="124" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="855" y="420" fill="white" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
+<text x="855" y="446" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps delete or deny commands</text>
+<text x="855" y="465" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirm delegate can call dialogService.Confirm()</text>
+<text x="855" y="484" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same pattern works for file/export prompts</text>
+<rect x="670" y="570" width="370" height="140" rx="8" fill="#0f172a"/>
+<rect x="670" y="570" width="370" height="140" rx="8" fill="rgba(30, 41, 59, 0.56)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="855" y="598" fill="white" font-size="18" font-weight="700" text-anchor="middle">NullDialogService + cancellation</text>
+<text x="855" y="624" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">safe defaults: PickFile* -&gt; null</text>
+<text x="855" y="643" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Confirm -&gt; false, Notify -&gt; no-op</text>
+<text x="855" y="662" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">cancellation completes with safe default</text>
+<rect x="1170" y="170" width="430" height="128" rx="8" fill="#0f172a"/>
+<rect x="1170" y="170" width="430" height="128" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1385" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">INotificationHub</text>
+<text x="1385" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Post(notification) -&gt; await NotificationReaction</text>
+<text x="1385" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Resolve(notification, reaction)</text>
+<text x="1385" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Pending behaves like a hot current snapshot</text>
+<rect x="1170" y="338" width="200" height="118" rx="8" fill="#0f172a"/>
+<rect x="1170" y="338" width="200" height="118" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1270" y="366" fill="white" font-size="18" font-weight="700" text-anchor="middle">NotificationVM</text>
+<text x="1270" y="392" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps Notification</text>
+<text x="1270" y="411" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">auto-dismiss at lifespan end</text>
+<text x="1270" y="430" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DismissCommand resolves Approve</text>
+<rect x="1400" y="338" width="200" height="118" rx="8" fill="#0f172a"/>
+<rect x="1400" y="338" width="200" height="118" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1500" y="366" fill="white" font-size="18" font-weight="700" text-anchor="middle">ConfirmationVM</text>
+<text x="1500" y="392" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">inherits NotificationVM</text>
+<text x="1500" y="411" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ApproveCommand / RejectCommand</text>
+<text x="1500" y="430" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no auto-resolve on timeout</text>
+<rect x="1170" y="494" width="430" height="140" rx="8" fill="#0f172a"/>
+<rect x="1170" y="494" width="430" height="140" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="1385" y="522" fill="white" font-size="18" font-weight="700" text-anchor="middle">Bridge helper</text>
+<text x="1385" y="548" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">make_confirm(hub, prompt) -&gt; async bool</text>
+<text x="1385" y="567" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">posts Confirmation notification</text>
+<text x="1385" y="586" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">adapts hub flow for command decorators</text>
+<rect x="1170" y="678" width="430" height="146" rx="8" fill="#0f172a"/>
+<rect x="1170" y="678" width="430" height="146" rx="8" fill="rgba(30, 41, 59, 0.56)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="1385" y="706" fill="white" font-size="18" font-weight="700" text-anchor="middle">Responsibility split</text>
+<text x="1385" y="732" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">dialogs: modal request/response</text>
+<text x="1385" y="751" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">notification hub: informational or queued user action</text>
+<text x="1385" y="770" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">both can be injected into the same VM</text>
+<rect x="150" y="896" width="1450" height="86" rx="8" fill="#111c2a"/>
+<rect x="150" y="896" width="1450" height="86" rx="8" fill="rgba(15, 23, 42, 0.68)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="166" y="920" fill="white" font-size="13" font-weight="700" text-anchor="start">Decision rule</text>
+<text x="166" y="942" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Awaiting a user decision belongs on IDialogService. Informing the user without blocking belongs on INotificationHub.</text>
+</svg>

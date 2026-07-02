@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1040" viewBox="0 0 1720 1040">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
+    </pattern>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">Lifecycle And Messaging Flow</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">guarded state transitions, rollback rules, and hub publication paths</text>
+  <polyline points="290,217 340,217" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="271" y="190" width="95" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
+<text x="318" y="204" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">construct()</text>
+<polyline points="520,217 570,217" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="750,217 800,217" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="732" y="190" width="88" height="20" rx="10" fill="#0b1420" stroke="#fb923c" stroke-width="1"/>
+<text x="776" y="204" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">destruct()</text>
+<polyline points="980,217 1030,217" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="966" y="190" width="81" height="20" rx="10" fill="#0b1420" stroke="#fb7185" stroke-width="1"/>
+<text x="1006" y="204" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">dispose()</text>
+<polyline points="660,264 660,310 430,310 430,264" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="494" y="286" width="109" height="20" rx="10" fill="#0b1420" stroke="#34d399" stroke-width="1"/>
+<text x="548" y="300" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">reconstruct()</text>
+<polyline points="1210,217 1300,217" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1205" y="190" width="102" height="20" rx="10" fill="#0b1420" stroke="#fbbf24" stroke-width="1"/>
+<text x="1256" y="204" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">validated by</text>
+<polyline points="225,542 225,684" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="515,542 515,684" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="530" y="600" width="116" height="20" rx="10" fill="#0b1420" stroke="#34d399" stroke-width="1"/>
+<text x="588" y="614" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">gates commands</text>
+<polyline points="820,542 820,684" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="826" y="600" width="81" height="20" rx="10" fill="#0b1420" stroke="#fb7185" stroke-width="1"/>
+<text x="866" y="614" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">publishes</text>
+<polyline points="1130,542 1130,684" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1440,542 1440,684" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1455" y="600" width="123" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
+<text x="1516" y="614" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">drives children</text>
+<polyline points="370,750 420,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="680,750 730,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="990,750 1040,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1300,750 1350,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="70" y="118" width="1580" height="232" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Lifecycle state machine</text>
+<rect x="70" y="378" width="1580" height="224" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="400" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Operations and atomicity rules</text>
+<rect x="70" y="630" width="1580" height="240" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="652" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Hub publication and cross-VM coordination</text>
+<rect x="110" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
+<rect x="110" y="170" width="180" height="94" rx="8" fill="rgba(30, 41, 59, 0.56)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="200" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">Destructed</text>
+<text x="200" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fresh build state</text>
+<text x="200" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">construct() legal</text>
+<rect x="340" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
+<rect x="340" y="170" width="180" height="94" rx="8" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="1.8"/>
+<text x="430" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">Constructing</text>
+<text x="430" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">OnConstruct hook</text>
+<text x="430" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">intermediate status</text>
+<rect x="570" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
+<rect x="570" y="170" width="180" height="94" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="660" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">Constructed</text>
+<text x="660" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ready for selection</text>
+<text x="660" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">can_reconstruct()</text>
+<rect x="800" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
+<rect x="800" y="170" width="180" height="94" rx="8" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="1.8"/>
+<text x="890" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">Destructing</text>
+<text x="890" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current clears first</text>
+<text x="890" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">OnDestruct hook</text>
+<rect x="1030" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
+<rect x="1030" y="170" width="180" height="94" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1120" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">Disposed</text>
+<text x="1120" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">terminal</text>
+<text x="1120" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">late completion aborts</text>
+<rect x="1300" y="160" width="290" height="112" rx="8" fill="#0f172a"/>
+<rect x="1300" y="160" width="290" height="112" rx="8" fill="rgba(120, 53, 15, 0.34)" stroke="#fbbf24" stroke-width="1.8"/>
+<text x="1445" y="188" fill="white" font-size="18" font-weight="700" text-anchor="middle">Fixture-backed validator</text>
+<text x="1445" y="214" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">spec/fixtures/lifecycle-transitions.json</text>
+<text x="1445" y="233" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared across all conformance suites</text>
+<rect x="110" y="420" width="230" height="122" rx="8" fill="#0f172a"/>
+<rect x="110" y="420" width="230" height="122" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="225" y="448" fill="white" font-size="18" font-weight="700" text-anchor="middle">Operations</text>
+<text x="225" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">construct</text>
+<text x="225" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">destruct</text>
+<text x="225" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reconstruct</text>
+<text x="225" y="531" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">dispose</text>
+<rect x="390" y="420" width="250" height="122" rx="8" fill="#0f172a"/>
+<rect x="390" y="420" width="250" height="122" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="515" y="448" fill="white" font-size="18" font-weight="700" text-anchor="middle">Predicates</text>
+<text x="515" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">can_construct()</text>
+<text x="515" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">can_destruct()</text>
+<text x="515" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">can_reconstruct()</text>
+<text x="515" y="531" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">safe no-op states</text>
+<rect x="690" y="420" width="260" height="122" rx="8" fill="#0f172a"/>
+<rect x="690" y="420" width="260" height="122" rx="8" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="1.8"/>
+<text x="820" y="448" fill="white" font-size="18" font-weight="700" text-anchor="middle">Per-VM guard</text>
+<text x="820" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">serializes lifecycle ops</text>
+<text x="820" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">rejects concurrent re-entry</text>
+<text x="820" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">prevents resurrection</text>
+<rect x="1000" y="420" width="260" height="122" rx="8" fill="#0f172a"/>
+<rect x="1000" y="420" width="260" height="122" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1130" y="448" fill="white" font-size="18" font-weight="700" text-anchor="middle">Transactional rollback</text>
+<text x="1130" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">failed construct -&gt; Destructed</text>
+<text x="1130" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">failed destruct -&gt; Constructed</text>
+<text x="1130" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">rollback publishes status</text>
+<rect x="1310" y="420" width="260" height="122" rx="8" fill="#0f172a"/>
+<rect x="1310" y="420" width="260" height="122" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1440" y="448" fill="white" font-size="18" font-weight="700" text-anchor="middle">Parent orchestration</text>
+<text x="1440" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">composite/group/aggregate</text>
+<text x="1440" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wait for child settled states</text>
+<text x="1440" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">sequential reference impls</text>
+<rect x="110" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
+<rect x="110" y="684" width="260" height="132" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="240" y="712" fill="white" font-size="18" font-weight="700" text-anchor="middle">ConstructionStatusChangedMessage</text>
+<text x="240" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">two emissions for construct/destruct</text>
+<text x="240" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">four for reconstruct</text>
+<text x="240" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hot FIFO hub delivery</text>
+<rect x="420" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
+<rect x="420" y="684" width="260" height="132" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="550" y="712" fill="white" font-size="18" font-weight="700" text-anchor="middle">PropertyChangedMessage</text>
+<text x="550" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsCurrent, Model, Snapshot, ActiveKey</text>
+<text x="550" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">per-flavor property names</text>
+<rect x="730" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
+<rect x="730" y="684" width="260" height="132" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="860" y="712" fill="white" font-size="18" font-weight="700" text-anchor="middle">Collection + tree messages</text>
+<text x="860" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CollectionChangedMessage</text>
+<text x="860" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TreeStructureChangedMessage</text>
+<text x="860" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">batch Reset interactions</text>
+<rect x="1040" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
+<rect x="1040" y="684" width="260" height="132" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1170" y="712" fill="white" font-size="18" font-weight="700" text-anchor="middle">Per-instance binding surface</text>
+<text x="1170" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">INotifyPropertyChanged / propertyChanged</text>
+<text x="1170" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">adapter-friendly single-VM binding</text>
+<rect x="1350" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="1350" y="684" width="220" height="132" rx="8" fill="rgba(30, 41, 59, 0.56)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="1460" y="712" fill="white" font-size="18" font-weight="700" text-anchor="middle">Consumers</text>
+<text x="1460" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">commands</text>
+<text x="1460" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">view adapters</text>
+<text x="1460" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">cross-VM observers</text>
+<rect x="120" y="874" width="1460" height="94" rx="8" fill="#111c2a"/>
+<rect x="120" y="874" width="1460" height="94" rx="8" fill="rgba(15, 23, 42, 0.68)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="136" y="898" fill="white" font-size="13" font-weight="700" text-anchor="start">Key rule</text>
+<text x="136" y="920" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Lifecycle operations raise when called from an illegal state, while selection after Disposed is a silent no-op.</text>
+<text x="136" y="938" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">That distinction matters for both conformance and view-adapter expectations.</text>
+</svg>

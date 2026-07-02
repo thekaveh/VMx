@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Examples VM Layer Map</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: #020617;
+      color: white;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+    }
+    object { display: block; width: 100%; min-width: 1180px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+      padding: 16px;
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>Examples VM Layer Map</h1></div>
+      <p class="subtitle">Notes Workspace composition contract across C#, Python, TypeScript, and Swift</p>
+    </header>
+    <div class="diagram"><object data="examples-vm-layer.svg" type="image/svg+xml" aria-label="Examples VM Layer Map"></object></div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>Root composition</h2>
+        </div>
+        <ul><li>WorkspaceVM presents a stable language-neutral VM surface even though C# AggregateVM6 is sealed.</li><li>All four examples therefore wrap composition rather than subclassing the aggregate root directly.</li><li>The same child responsibilities show up in each host implementation.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Feature coverage</h2>
+        </div>
+        <ul><li>NotesViewVM covers paging, filtering, searching, and current selection.</li><li>NoteFormVM covers FormVM validation, DiscriminatorVM modes, and SearchableState tag suggestions.</li><li>NotificationsVM and CapabilityActionsVM surface the optional notification and capability-driven UI seams.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Adapter boundary</h2>
+        </div>
+        <ul><li>The VM layer stays framework-neutral and view-pure checks enforce that split.</li><li>Property, command, collection, dialog, and dispatcher adapters bridge each host toolkit to VMx.</li><li>That separation is why the example portfolio is useful as a documentation reference.</li></ul>
+      </section>
+    </div>
+    <footer>Generated for VMx spec 3.1.0 documentation.</footer>
+  </main>
+</body>
+</html>

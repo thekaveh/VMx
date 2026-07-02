@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Class Architecture Map</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: #020617;
+      color: white;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+    }
+    object { display: block; width: 100%; min-width: 1180px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid #273542;
+      border-radius: 8px;
+      background: rgba(16, 27, 38, 0.72);
+      padding: 16px;
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>Class Architecture Map</h1></div>
+      <p class="subtitle">clustered library families with explicit relationship kinds</p>
+    </header>
+    <div class="diagram"><object data="class-architecture.svg" type="image/svg+xml" aria-label="Class Architecture Map"></object></div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>Lineage</h2>
+        </div>
+        <ul><li>ComponentVMBase underpins every core VM family, while specialized VMs extend or compose around that runtime.</li><li>CompositeVM, GroupVM, AggregateVM, and HierarchicalVM are separate containers rather than one mutable mega-type.</li><li>Forwarding decorators stay wrappers: they delegate the wrapped interface by default.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Composition helpers</h2>
+        </div>
+        <ul><li>FormVM adds an edit lifecycle on top of model-bearing leaves.</li><li>PagedComposition and TokenPagedComposition stay outside the VM inheritance tree and layer paging behavior onto sources.</li><li>SearchableState and ExpandableState provide opt-in behavior through capability contracts.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Command and service seams</h2>
+        </div>
+        <ul><li>DecoratorCommand and ConfirmationDecoratorCommand layer behavior on ICommand without changing callers.</li><li>ConfirmHelper bridges NotificationHub flows into confirmation delegates.</li><li>IDialogService and INotificationHub stay orthogonal: modal request/response vs toast-style async posting.</li></ul>
+      </section>
+    </div>
+    <footer>Generated for VMx spec 3.1.0 documentation.</footer>
+  </main>
+</body>
+</html>
