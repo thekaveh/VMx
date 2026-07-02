@@ -10,6 +10,7 @@
 
 # ─── Claude Code session state ─────────────────────────────────────────
 .claude/
+.superpowers/
 CLAUDE.md
 docs/superpowers/
 
@@ -116,5 +117,9 @@ coverage/
 
 # ─── Docs builds ──────────────────────────────────────────────────────
 docs/_build/
-docs/site/
 site/
+!docs/site/
+!docs/site/**
+
+# ─── Local git worktrees ──────────────────────────────────────────────
+.worktrees/

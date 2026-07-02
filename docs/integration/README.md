@@ -5,6 +5,8 @@ reactivity primitive. These are *not* full tutorials — they show the
 minimum adapter shape and point to a fuller example (the
 [Notes-Showcase](../../examples/) project where one exists, or the
 matching cookbook folder under `examples/` for the existing apps).
+The published documentation site also groups these recipes under
+[Integration Recipes](https://thekaveh.github.io/VMx/integration-recipes/).
 
 Each recipe explains:
 

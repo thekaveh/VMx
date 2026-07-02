@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commands And Capabilities Map</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: light dark;
+      --page-bg: #edf3fa;
+      --page-accent: rgba(34, 211, 238, 0.1);
+      --surface: rgba(255, 255, 255, 0.88);
+      --surface-strong: #ffffff;
+      --surface-border: #c9d4e2;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-tertiary: #64748b;
+      --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page-bg: #020617;
+        --page-accent: rgba(56, 189, 248, 0.08);
+        --surface: rgba(15, 23, 42, 0.82);
+        --surface-strong: rgba(16, 27, 38, 0.94);
+        --surface-border: #273542;
+        --text-primary: #f8fafc;
+        --text-secondary: #cbd5e1;
+        --text-tertiary: #94a3b8;
+        --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
+      }
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: var(--page-bg);
+      background-image:
+        radial-gradient(circle at top left, var(--page-accent), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 18rem);
+      color: var(--text-primary);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px 14px 10px;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    object { display: block; width: 100%; min-width: 1180px; }
+    .diagram-caption {
+      margin: 12px 4px 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--surface-strong);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>Commands And Capabilities Map</h1></div>
+      <p class="subtitle">reactive ICommand primitives and the 22 opt-in behavior contracts</p>
+    </header>
+    <div class="diagram">
+      <object data="commands-capabilities.svg" type="image/svg+xml" aria-label="Commands And Capabilities Map"></object>
+      <p class="diagram-caption">Embedded SVG stays high-contrast for portability while the page chrome adapts to your color scheme.</p>
+    </div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>Command stack</h2>
+        </div>
+        <ul><li>RelayCommand is the concrete workhorse.</li><li>CompositeCommand and decorator commands layer orchestration and gating without changing the ICommand contract.</li><li>Reactive triggers keep enabled state honest when predicates depend on mutable VM state.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Capability taxonomy</h2>
+        </div>
+        <ul><li>The selection and expansion triples stay granular on purpose.</li><li>CRUD is split into independent verb interfaces so VMs advertise only the mutations they support.</li><li>Paging is a navigation contract; it does not imply a specific container implementation.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Practical wiring</h2>
+        </div>
+        <ul><li>ModeledCrudCommands turns current-selection state into concrete commands.</li><li>FormVM, dialog flows, and confirmation helpers compose with the same command surface.</li><li>This map explains the capability-aware action bar used in the flagship example.</li></ul>
+      </section>
+    </div>
+    <footer>Generated from repo-derived facts for VMx spec 3.1.0.</footer>
+  </main>
+</body>
+</html>

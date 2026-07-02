@@ -6,6 +6,10 @@ implementations sharing one language-neutral VM API. This document is the
 single-page proof that every spec feature in scope is exercised by every
 flavor.
 
+Published walkthroughs:
+[Notes Workspace](https://thekaveh.github.io/VMx/examples/notes-workspace/),
+[VM layer map](https://thekaveh.github.io/VMx/examples/notes-workspace-vm-layer/).
+
 ## 1. VM hierarchy
 
 The diagram below is the canonical visual of the example's VM tree —

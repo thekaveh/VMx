@@ -1,0 +1,90 @@
+[
+  {
+    "id": "system-architecture",
+    "title": "VMx System Architecture",
+    "html": "system-architecture.html",
+    "svg": "system-architecture.svg",
+    "png": "system-architecture.png",
+    "referencedBy": [
+      "docs/site/architecture/system-architecture.md",
+      "docs/wiki/Architecture/Architecture-Map.md"
+    ]
+  },
+  {
+    "id": "class-architecture",
+    "title": "Class Architecture Map",
+    "html": "class-architecture.html",
+    "svg": "class-architecture.svg",
+    "png": "class-architecture.png",
+    "referencedBy": [
+      "docs/site/architecture/class-architecture.md",
+      "docs/wiki/Architecture/Class-Architecture.md"
+    ]
+  },
+  {
+    "id": "viewmodel-families",
+    "title": "ViewModel Families Map",
+    "html": "viewmodel-families.html",
+    "svg": "viewmodel-families.svg",
+    "png": "viewmodel-families.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/index.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/ViewModel-Families.md"
+    ]
+  },
+  {
+    "id": "lifecycle-messaging",
+    "title": "Lifecycle And Messaging Flow",
+    "html": "lifecycle-messaging.html",
+    "svg": "lifecycle-messaging.svg",
+    "png": "lifecycle-messaging.png",
+    "referencedBy": [
+      "docs/site/architecture/lifecycle-messaging.md",
+      "docs/wiki/Architecture/Lifecycle-and-Messaging.md"
+    ]
+  },
+  {
+    "id": "composite-family",
+    "title": "Composite Family Deep Dive",
+    "html": "composite-family.html",
+    "svg": "composite-family.svg",
+    "png": "composite-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/composite-family.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Composite-Family.md"
+    ]
+  },
+  {
+    "id": "commands-capabilities",
+    "title": "Commands And Capabilities Map",
+    "html": "commands-capabilities.html",
+    "svg": "commands-capabilities.svg",
+    "png": "commands-capabilities.png",
+    "referencedBy": [
+      "docs/site/primitives/command-families.md",
+      "docs/wiki/Framework-Primitives/Command-Families.md"
+    ]
+  },
+  {
+    "id": "forms-dialogs-notifications",
+    "title": "Forms Dialogs And Notifications Flow",
+    "html": "forms-dialogs-notifications.html",
+    "svg": "forms-dialogs-notifications.svg",
+    "png": "forms-dialogs-notifications.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/specialized/form-vm.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Specialized/FormVM.md"
+    ]
+  },
+  {
+    "id": "examples-vm-layer",
+    "title": "Examples VM Layer Map",
+    "html": "examples-vm-layer.html",
+    "svg": "examples-vm-layer.svg",
+    "png": "examples-vm-layer.png",
+    "referencedBy": [
+      "docs/site/examples/notes-workspace-vm-layer.md",
+      "docs/wiki/Examples/VM-Layer-Map.md"
+    ]
+  }
+]

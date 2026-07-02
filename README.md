@@ -283,6 +283,8 @@ Smaller per-flavor demos:
 
 This README is the entry point; the documents below add focused detail.
 
+- Public documentation site: [thekaveh.github.io/VMx](https://thekaveh.github.io/VMx/)
+- GitHub wiki: [github.com/thekaveh/VMx/wiki](https://github.com/thekaveh/VMx/wiki)
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — spec / ADR / conformance workflow,
   per-flavor build commands, pre-commit setup. Read before opening a PR.
 - [`SECURITY.md`](SECURITY.md) — supported-version table and how to report

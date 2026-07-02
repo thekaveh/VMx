@@ -1,0 +1,113 @@
+site_name: VMx
+site_description: Language-neutral MVVM viewmodel framework with C#, Python, TypeScript, and Swift parity
+site_url: https://thekaveh.github.io/VMx/
+repo_url: https://github.com/thekaveh/VMx
+repo_name: thekaveh/VMx
+docs_dir: docs/site
+site_dir: site
+
+theme:
+  name: material
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Core Concepts: core-concepts.md
+  - Architecture Map:
+      - Overview: architecture/index.md
+      - System Architecture: architecture/system-architecture.md
+      - Class Architecture: architecture/class-architecture.md
+      - Lifecycle & Messaging: architecture/lifecycle-messaging.md
+      - Diagram Gallery: architecture/diagram-gallery.md
+  - Framework Primitives:
+      - Overview: primitives/index.md
+      - ViewModel Families:
+          - Overview: primitives/viewmodel-families/index.md
+          - Component Family: primitives/viewmodel-families/component-family.md
+          - Aggregate Family: primitives/viewmodel-families/aggregate-family.md
+          - Group Family: primitives/viewmodel-families/group-family.md
+          - Composite Family: primitives/viewmodel-families/composite-family.md
+          - Hierarchical Family: primitives/viewmodel-families/hierarchical-family.md
+          - Forwarding & Wrapper Family: primitives/viewmodel-families/forwarding-wrapper-family.md
+          - Specialized ViewModels & Coordinators:
+              - Overview: primitives/viewmodel-families/specialized/index.md
+              - FormVM: primitives/viewmodel-families/specialized/form-vm.md
+              - DiscriminatorVM: primitives/viewmodel-families/specialized/discriminator-vm.md
+              - NotificationVM: primitives/viewmodel-families/specialized/notification-vm.md
+              - ConfirmationVM: primitives/viewmodel-families/specialized/confirmation-vm.md
+              - ModalVM: primitives/viewmodel-families/specialized/modal-vm.md
+      - Command Families: primitives/command-families.md
+      - Capability Families: primitives/capability-families.md
+      - State & Reactive Helpers: primitives/state-reactive-helpers.md
+      - Services, Messages & Dispatching: primitives/services-messages-dispatching.md
+      - Builders, Collections & Tree Utilities: primitives/builders-collections-tree-utilities.md
+  - Language Flavors:
+      - Overview: flavors/index.md
+      - C#: flavors/csharp.md
+      - Python: flavors/python.md
+      - TypeScript: flavors/typescript.md
+      - Swift: flavors/swift.md
+      - Cross-Language Naming: flavors/cross-language-naming.md
+  - Examples:
+      - Overview: examples/index.md
+      - Notes Workspace: examples/notes-workspace.md
+      - VM Layer Map: examples/notes-workspace-vm-layer.md
+      - Global Search & Token Paging: examples/global-search-token-paging.md
+      - Editor Mode & DiscriminatorVM: examples/editor-mode-discriminator-vm.md
+      - Tag Autocomplete & SearchableState: examples/tag-autocomplete-searchable-state.md
+      - Smaller Examples: examples/smaller-examples.md
+  - Integration Recipes: integration-recipes.md
+  - Specification & Conformance: specification-conformance.md
+  - Contributing & Releases: contributing-releases.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+exclude_docs: |
+  superpowers/
+  assets/diagrams/README.md
+  assets/diagrams/generate_diagrams.py
+  assets/diagrams/test_generate_diagrams.py
+  assets/diagrams/__pycache__/
