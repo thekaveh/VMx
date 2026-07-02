@@ -38,6 +38,15 @@ extra_css:
 
 nav:
   - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Core Concepts: core-concepts.md
+  - Architecture Map:
+      - Overview: architecture/index.md
+      - System Architecture: architecture/system-architecture.md
+      - Class Architecture: architecture/class-architecture.md
+      - Lifecycle & Messaging: architecture/lifecycle-messaging.md
+      - Diagram Gallery: architecture/diagram-gallery.md
 
 markdown_extensions:
   - admonition
