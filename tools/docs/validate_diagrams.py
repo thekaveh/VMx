@@ -3,11 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
+import re
 import struct
 from pathlib import Path
 from typing import TypedDict
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+DIAGRAM_LINK_RE = re.compile(
+    r"""(?:src|href)=["'](?P<html>[^"']*assets/diagrams/[^"']+)["']"""
+    r"""|!?\[[^\]]*\]\((?P<md>[^)\s]*assets/diagrams/[^)\s]+)\)"""
+)
 
 
 class Diagram(TypedDict):
@@ -38,6 +44,35 @@ def png_size(path: Path) -> tuple[int, int]:
     if width == 0 or height == 0:
         raise ValueError(f"invalid PNG dimensions {width}x{height}")
     return width, height
+
+
+def diagram_links(text: str) -> list[str]:
+    return [match.group("html") or match.group("md") for match in DIAGRAM_LINK_RE.finditer(text)]
+
+
+def rendered_site_dir(ref: Path) -> Path:
+    rel = ref.relative_to("docs/site")
+    if rel.name == "index.md":
+        return Path("site") / rel.parent
+    return Path("site") / rel.parent / rel.stem
+
+
+def validate_site_diagram_links(ref: Path, text: str, asset_names: set[str]) -> list[str]:
+    errors: list[str] = []
+    for target in diagram_links(text):
+        clean_target = target.split("#", 1)[0].split("?", 1)[0]
+        asset_name = Path(clean_target).name
+        if asset_name not in asset_names:
+            continue
+        if clean_target.startswith(("http://", "https://", "/")):
+            continue
+        resolved = posixpath.normpath(str(rendered_site_dir(ref) / clean_target))
+        expected = posixpath.normpath(str(Path("site/assets/diagrams") / asset_name))
+        if resolved != expected:
+            errors.append(
+                f"{ref}: diagram link {target} resolves to {resolved}, expected {expected}"
+            )
+    return errors
 
 
 def load_registry(path: Path) -> tuple[list[object], list[str]]:
@@ -131,12 +166,15 @@ def validate(root: Path, registry_path: Path, *, assets_only: bool = False) -> l
                 errors.append(f"{diagram['id']}: missing reference file {ref}")
                 continue
             text = ref_path.read_text(encoding="utf-8")
+            asset_names = {diagram["html"], diagram["svg"], diagram["png"]}
             if (
                 diagram["svg"] not in text
                 and diagram["png"] not in text
                 and diagram["html"] not in text
             ):
                 errors.append(f"{diagram['id']}: {ref} does not reference diagram asset")
+            if ref.startswith("docs/site/"):
+                errors.extend(validate_site_diagram_links(Path(ref), text, asset_names))
     return errors
 
 

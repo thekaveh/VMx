@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 WIKI_LINK_RE = re.compile(r"\[\[(?:(?P<label>[^\]|]+)\|)?(?P<page>[^\]]+)\]\]")
+MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 DIAGRAM_ASSET_RE = re.compile(r"(?:\.\./)+assets/diagrams/(?P<asset>[^)\s]+)")
 
 
@@ -50,6 +51,19 @@ def rewrite_diagram_asset_links(text: str) -> str:
     return DIAGRAM_ASSET_RE.sub(r"assets/diagrams/\g<asset>", text)
 
 
+def validate_markdown_links(text: str, source: Path) -> None:
+    for match in MARKDOWN_LINK_RE.finditer(text):
+        target = match.group("target").strip()
+        target_path = target.split("#", 1)[0].split("?", 1)[0]
+        if not target_path or target_path.startswith(("http://", "https://", "mailto:")):
+            continue
+        if target_path.endswith(".md"):
+            raise ValueError(
+                f"{source}: markdown link points to source markdown file {target}; "
+                "use a wiki link or public URL"
+            )
+
+
 def build(source_root: Path, output_root: Path) -> list[Path]:
     pages = collect_pages(source_root)
     stems = {Path(name).stem for name in pages}
@@ -63,6 +77,7 @@ def build(source_root: Path, output_root: Path) -> list[Path]:
     written: list[Path] = []
     for flat_name, source in pages.items():
         text = source.read_text(encoding="utf-8")
+        validate_markdown_links(text, source)
         text = rewrite_links(text, stems)
         text = rewrite_diagram_asset_links(text)
         target = output_root / flat_name

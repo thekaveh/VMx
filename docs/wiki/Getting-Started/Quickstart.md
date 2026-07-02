@@ -17,4 +17,4 @@ The smallest VMx shape is the same in every language flavor:
 ## Reference
 
 For the four-language snippet and exact builder spelling, use the docs site
-quickstart page in this branch: [docs/site/quickstart.md](../../site/quickstart.md).
+quickstart page: [VMx Quickstart](https://thekaveh.github.io/VMx/quickstart/).

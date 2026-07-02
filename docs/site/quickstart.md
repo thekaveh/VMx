@@ -117,7 +117,7 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
         .children { [homeTab, settingsTab] }
         .build()
 
-    tabs.construct()
+    try tabs.construct()
     tabs.current = settingsTab
     ```
 

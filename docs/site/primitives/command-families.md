@@ -9,14 +9,14 @@ itself.
 Start with `RelayCommand`; add composition or confirmation only when the
 workflow needs it.
 
-<img src="../assets/diagrams/commands-capabilities.svg" alt="Commands And Capabilities Map" class="vmx-diagram" />
+<img src="../../assets/diagrams/commands-capabilities.svg" alt="Commands And Capabilities Map" class="vmx-diagram" />
 
 <p>
-  <a href="../assets/diagrams/commands-capabilities.html">HTML</a>
+  <a href="../../assets/diagrams/commands-capabilities.html">HTML</a>
   &middot;
-  <a href="../assets/diagrams/commands-capabilities.svg">SVG</a>
+  <a href="../../assets/diagrams/commands-capabilities.svg">SVG</a>
   &middot;
-  <a href="../assets/diagrams/commands-capabilities.png">PNG</a>
+  <a href="../../assets/diagrams/commands-capabilities.png">PNG</a>
 </p>
 
 ## Shape And Ownership

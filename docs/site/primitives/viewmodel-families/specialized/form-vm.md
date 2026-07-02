@@ -7,14 +7,14 @@ changes or denies them and reverts to the last snapshot. This is the right
 primitive for editors, settings forms, CRUD dialogs, and other explicit
 edit-save-cancel workflows.
 
-<img src="../../../assets/diagrams/forms-dialogs-notifications.svg" alt="Forms Dialogs And Notifications Flow" class="vmx-diagram" />
+<img src="../../../../assets/diagrams/forms-dialogs-notifications.svg" alt="Forms Dialogs And Notifications Flow" class="vmx-diagram" />
 
 <p>
-  <a href="../../../assets/diagrams/forms-dialogs-notifications.html">HTML</a>
+  <a href="../../../../assets/diagrams/forms-dialogs-notifications.html">HTML</a>
   &middot;
-  <a href="../../../assets/diagrams/forms-dialogs-notifications.svg">SVG</a>
+  <a href="../../../../assets/diagrams/forms-dialogs-notifications.svg">SVG</a>
   &middot;
-  <a href="../../../assets/diagrams/forms-dialogs-notifications.png">PNG</a>
+  <a href="../../../../assets/diagrams/forms-dialogs-notifications.png">PNG</a>
 </p>
 
 ## Shape And Ownership

@@ -9,14 +9,14 @@ plus selection" workflows belong here.
 Use the modeled composite when children are projected from models during
 construction instead of being provided directly.
 
-<img src="../../assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
+<img src="../../../assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
 
 <p>
-  <a href="../../assets/diagrams/composite-family.html">HTML</a>
+  <a href="../../../assets/diagrams/composite-family.html">HTML</a>
   &middot;
-  <a href="../../assets/diagrams/composite-family.svg">SVG</a>
+  <a href="../../../assets/diagrams/composite-family.svg">SVG</a>
   &middot;
-  <a href="../../assets/diagrams/composite-family.png">PNG</a>
+  <a href="../../../assets/diagrams/composite-family.png">PNG</a>
 </p>
 
 ## Shape And Ownership
@@ -53,54 +53,46 @@ The composite owns both child lifecycle and selection messaging:
 
 === "C#"
 
-````
-```csharp
-var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
-    .Name("tab-bar")
-    .Services(hub, dispatcher)
-    .Children(() => new[] { home, settings })
-    .Build();
-```
-````
+    ```csharp
+    var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
+        .Name("tab-bar")
+        .Services(hub, dispatcher)
+        .Children(() => new[] { home, settings })
+        .Build();
+    ```
 
 === "Python"
 
-````
-```python
-tabs = (
-    CompositeVM[ComponentVMOf[TabModel]]
-    .builder()
-    .name("tab-bar")
-    .services(hub, dispatcher)
-    .children(lambda: [home, settings])
-    .build()
-)
-```
-````
+    ```python
+    tabs = (
+        CompositeVM[ComponentVMOf[TabModel]]
+        .builder()
+        .name("tab-bar")
+        .services(hub, dispatcher)
+        .children(lambda: [home, settings])
+        .build()
+    )
+    ```
 
 === "TypeScript"
 
-````
-```ts
-const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
-  .name("tab-bar")
-  .services(hub, dispatcher)
-  .children(() => [home, settings])
-  .build();
-```
-````
+    ```ts
+    const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
+      .name("tab-bar")
+      .services(hub, dispatcher)
+      .children(() => [home, settings])
+      .build();
+    ```
 
 === "Swift"
 
-````
-```swift
-let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
-    .name("tab-bar")
-    .services(hub: hub, dispatcher: dispatcher)
-    .children { [home, settings] }
-    .build()
-```
-````
+    ```swift
+    let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
+        .name("tab-bar")
+        .services(hub: hub, dispatcher: dispatcher)
+        .children { [home, settings] }
+        .build()
+    ```
 
 ## Common Pitfalls
 

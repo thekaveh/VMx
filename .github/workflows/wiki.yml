@@ -8,6 +8,7 @@ on:
       - "docs/wiki/**"
       - "tools/docs/build_wiki.py"
       - "tools/docs/publish_wiki.sh"
+      - "tools/docs/validate_diagrams.py"
       - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
@@ -24,6 +25,8 @@ jobs:
           python-version: "3.12"
       - name: Validate wiki export
         run: python3 tools/docs/build_wiki.py
+      - name: Validate diagrams
+        run: python3 tools/docs/validate_diagrams.py
       - name: Publish wiki
         env:
           GIT_AUTHOR_NAME: github-actions[bot]

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from docs.build_wiki import build, flattened_name, rewrite_links
+from docs.build_wiki import build, flattened_name, rewrite_links, validate_markdown_links
 
 
 def test_flattened_name_preserves_special_pages(tmp_path: Path) -> None:
@@ -38,6 +38,19 @@ def test_build_raises_for_missing_link_in_source(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="missing page"):
         build(source, out)
+
+
+def test_validate_markdown_links_rejects_source_markdown_links() -> None:
+    with pytest.raises(ValueError, match="source markdown file"):
+        validate_markdown_links("[Quickstart](../../site/quickstart.md)", Path("docs/wiki/Home.md"))
+
+
+def test_validate_markdown_links_allows_public_urls_and_diagram_assets() -> None:
+    validate_markdown_links(
+        "[Quickstart](https://thekaveh.github.io/VMx/quickstart/)\n"
+        "![Diagram](../../assets/diagrams/system-architecture.png)\n",
+        Path("docs/wiki/Home.md"),
+    )
 
 
 def test_build_rewrites_hierarchical_links_to_flattened_targets(tmp_path: Path) -> None:

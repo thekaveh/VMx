@@ -5,6 +5,7 @@ repo_url="${1:-https://github.com/thekaveh/VMx.wiki.git}"
 workdir="${2:-docs/_build/wiki-repo}"
 
 python3 tools/docs/build_wiki.py --out docs/_build/wiki
+python3 tools/docs/validate_diagrams.py
 rm -rf "$workdir"
 git clone "$repo_url" "$workdir"
 find "$workdir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +

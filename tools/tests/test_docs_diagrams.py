@@ -171,6 +171,39 @@ def test_validate_reports_missing_reference_file(tmp_path: Path) -> None:
     assert validate(tmp_path, registry) == ["one: missing reference file docs/site/page.md"]
 
 
+def test_validate_reports_site_diagram_link_that_resolves_to_wrong_output_path(
+    tmp_path: Path,
+) -> None:
+    diagrams = tmp_path / "docs" / "assets" / "diagrams"
+    diagrams.mkdir(parents=True)
+    (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
+    (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
+    write_png(diagrams / "one.png", 3200, 1800)
+    ref = tmp_path / "docs" / "site" / "primitives" / "command-families.md"
+    ref.parent.mkdir(parents=True)
+    ref.write_text('<img src="../assets/diagrams/one.svg" />', encoding="utf-8")
+    registry = diagrams / "diagram-registry.json"
+    write_registry(
+        registry,
+        [
+            {
+                "id": "one",
+                "title": "One",
+                "html": "one.html",
+                "svg": "one.svg",
+                "png": "one.png",
+                "referencedBy": ["docs/site/primitives/command-families.md"],
+            }
+        ],
+    )
+
+    assert validate(tmp_path, registry) == [
+        "docs/site/primitives/command-families.md: diagram link ../assets/diagrams/one.svg "
+        "resolves to site/primitives/assets/diagrams/one.svg, "
+        "expected site/assets/diagrams/one.svg"
+    ]
+
+
 def test_main_reports_malformed_registry_errors(tmp_path: Path, capsys, monkeypatch) -> None:
     registry = tmp_path / "docs" / "assets" / "diagrams" / "diagram-registry.json"
     registry.parent.mkdir(parents=True)
