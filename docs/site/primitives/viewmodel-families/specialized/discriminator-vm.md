@@ -52,16 +52,19 @@ The Notes Workspace editor mode is the concrete showcase feature:
 Each editor keeps `"edit"` and `"preview"` in a `DiscriminatorVM` instead of
 spreading active-mode booleans across unrelated properties.
 
-**C#**
+=== "C#"
 
+````
 ```csharp
 private readonly DiscriminatorVM<string> _editorMode = new("edit");
 public string EditorMode => _editorMode.ActiveKey;
 public bool IsPreviewMode => _editorMode.IsActive("preview");
 ```
+````
 
-**Python**
+=== "Python"
 
+````
 ```python
 self._editor_mode: DiscriminatorVM[str] = DiscriminatorVM("edit")
 
@@ -69,9 +72,11 @@ self._editor_mode: DiscriminatorVM[str] = DiscriminatorVM("edit")
 def is_preview_mode(self) -> bool:
     return self._editor_mode.is_active("preview")
 ```
+````
 
-**TypeScript**
+=== "TypeScript"
 
+````
 ```ts
 readonly #editorMode = new DiscriminatorVM<EditorMode>("edit");
 
@@ -79,9 +84,11 @@ get isPreviewMode(): boolean {
   return this.#editorMode.isActive("preview");
 }
 ```
+````
 
-**Swift**
+=== "Swift"
 
+````
 ```swift
 private let _editorMode = DiscriminatorVM<String>(initial: "edit")
 
@@ -89,6 +96,7 @@ public var isPreviewMode: Bool {
     _editorMode.isActive("preview")
 }
 ```
+````
 
 ## Common Pitfalls
 

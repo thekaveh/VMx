@@ -65,8 +65,9 @@ and TypeScript supply a `TestNode` factory for their concrete recursive node;
 Python can build plain `HierarchicalVM` directly and uses `vm_factory(...)` only
 when a subclass is required.
 
-**C#**
+=== "C#"
 
+````
 ```csharp
 var root = HierarchicalVMBuilder<string, TestNode>.Empty
     .Model("root")
@@ -77,9 +78,11 @@ var root = HierarchicalVMBuilder<string, TestNode>.Empty
         ctx.Name, ctx.Hint, ctx.EagerChildren))
     .Build();
 ```
+````
 
-**Python**
+=== "Python"
 
+````
 ```python
 root = (
     HierarchicalVMBuilder()
@@ -89,9 +92,11 @@ root = (
     .build()
 )
 ```
+````
 
-**TypeScript**
+=== "TypeScript"
 
+````
 ```ts
 const root = new HierarchicalVMBuilder<string, TestNode>()
   .model("root")
@@ -100,9 +105,11 @@ const root = new HierarchicalVMBuilder<string, TestNode>()
   .vmFactory((ctx) => new TestNode(ctx))
   .build();
 ```
+````
 
-**Swift**
+=== "Swift"
 
+````
 ```swift
 let root = try HierarchicalVM<String, TestNode>.builder()
     .model("root")
@@ -121,6 +128,7 @@ let root = try HierarchicalVM<String, TestNode>.builder()
     }
     .build()
 ```
+````
 
 That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.

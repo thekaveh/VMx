@@ -53,16 +53,19 @@ render VMs:
 Those VMs subscribe to `Pending`, build a bounded visible list, and let each
 `NotificationVM` manage its own fade and dismissal timing.
 
-**C#**
+=== "C#"
 
+````
 ```csharp
 var vm = new NotificationVM(n, _notificationHub, _scheduler, _lifespan);
 _map[n] = vm;
 _visible.Add(vm);
 ```
+````
 
-**Python**
+=== "Python"
 
+````
 ```python
 vm = NotificationVM(
     notification=n,
@@ -73,9 +76,11 @@ vm = NotificationVM(
 self._map[n] = vm
 self._visible.append(vm)
 ```
+````
 
-**TypeScript**
+=== "TypeScript"
 
+````
 ```ts
 const vm = new NotificationVM(
   n,
@@ -86,9 +91,11 @@ const vm = new NotificationVM(
 this.#map.set(n, vm);
 this.#visible.push(vm);
 ```
+````
 
-**Swift**
+=== "Swift"
 
+````
 ```swift
 let lifespan = _lifespan ?? 60.0
 let vm = NotificationVM(
@@ -100,6 +107,7 @@ let vm = NotificationVM(
 _map[key] = vm
 _visible.append(vm)
 ```
+````
 
 ## Common Pitfalls
 

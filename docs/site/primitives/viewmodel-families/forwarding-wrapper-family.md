@@ -48,8 +48,9 @@ inner VM's behavior unless an override changes it. In practice this means:
 The key design point is that the wrapper changes behavior by composition, not by
 copying or re-implementing the wrapped VM:
 
-**C#**
+=== "C#"
 
+````
 ```csharp
 private sealed class HintOverrideVM : ForwardingComponentVM<string>
 {
@@ -57,18 +58,22 @@ private sealed class HintOverrideVM : ForwardingComponentVM<string>
     public override string Hint => "OVERRIDE";
 }
 ```
+````
 
-**Python**
+=== "Python"
 
+````
 ```python
 class HintOverrideVM(ForwardingComponentVM[str]):
     @property
     def hint(self) -> str:
         return "OVERRIDE"
 ```
+````
 
-**TypeScript**
+=== "TypeScript"
 
+````
 ```ts
 class HintOverrideVM extends ForwardingComponentVM<string> {
   override get hint(): string {
@@ -76,14 +81,17 @@ class HintOverrideVM extends ForwardingComponentVM<string> {
   }
 }
 ```
+````
 
-**Swift**
+=== "Swift"
 
+````
 ```swift
 final class ModeledHintOverrideVM: ForwardingComponentVM<String> {
     override var modeledHint: String { "OVERRIDE" }
 }
 ```
+````
 
 Swift is the explicit divergence here: `name` and `hint` are stored `let`
 properties on `ComponentVMBase`, so the nearest overridable analog is
