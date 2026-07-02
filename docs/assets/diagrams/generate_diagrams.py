@@ -718,7 +718,7 @@ def class_architecture() -> Diagram:
         ),
         boxes=(
             Box(90, 150, 240, 108, "ComponentVMBase", ("lifecycle state machine", "hub + dispatcher", "protected hooks"), "backend"),
-            Box(390, 142, 220, 120, "ComponentVM", ("leaf VM family", "modeled + readonly variants", "propertyChanged surface"), "frontend"),
+            Box(390, 142, 220, 120, "ComponentVM<M>", ("modeled leaf VM", "extends ComponentVMBaseOfM<M>", "implements IComponentVM<M>"), "frontend"),
             Box(670, 142, 220, 120, "CompositeVM", ("children list", "Current slot", "select_component"), "frontend"),
             Box(950, 142, 220, 120, "GroupVM", ("peer children", "no Current", "batch updates"), "frontend"),
             Box(1230, 142, 220, 120, "AggregateVM1..6", ("fixed arity", "Component1..6 accessors", "heterogeneous slots"), "frontend"),

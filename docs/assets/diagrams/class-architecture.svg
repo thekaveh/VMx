@@ -82,10 +82,10 @@
 <text x="210" y="242" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">protected hooks</text>
 <rect x="390" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
 <rect x="390" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="500" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ComponentVM</text>
-<text x="500" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">leaf VM family</text>
-<text x="500" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">modeled + readonly variants</text>
-<text x="500" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">propertyChanged surface</text>
+<text x="500" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ComponentVM&lt;M&gt;</text>
+<text x="500" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">modeled leaf VM</text>
+<text x="500" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">extends ComponentVMBaseOfM&lt;M&gt;</text>
+<text x="500" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">implements IComponentVM&lt;M&gt;</text>
 <rect x="670" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
 <rect x="670" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
 <text x="780" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>

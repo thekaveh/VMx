@@ -87,6 +87,7 @@ class GenerateDiagramsTests(unittest.TestCase):
         viewmodel_families = self.generator.viewmodel_families()
         capability_box = next(box for box in viewmodel_families.boxes if box.title == "Capability overlays")
 
+        self.assertIn("ComponentVM<M>", titles)
         self.assertIn("IComponentVM<M>", titles)
         self.assertIn("ICompositeVM<VM>", titles)
         self.assertIn("ICommand", titles)
