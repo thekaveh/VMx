@@ -10,6 +10,16 @@ Use this page when you have decided the problem is fundamentally about VM shape
 and need to choose the right family before dropping to a specific primitive
 page.
 
+<img src="../../assets/diagrams/viewmodel-families.svg" alt="ViewModel Families Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/viewmodel-families.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/viewmodel-families.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/viewmodel-families.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 The family map is the quickest ownership comparison:

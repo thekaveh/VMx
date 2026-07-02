@@ -29,7 +29,7 @@
     "png": "viewmodel-families.png",
     "referencedBy": [
       "docs/site/primitives/viewmodel-families/index.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Overview.md"
+      "docs/wiki/Framework-Primitives/ViewModel-Families/ViewModel-Families.md"
     ]
   },
   {
@@ -84,7 +84,7 @@
     "png": "examples-vm-layer.png",
     "referencedBy": [
       "docs/site/examples/notes-workspace-vm-layer.md",
-      "docs/wiki/Examples/Notes-Workspace-VM-Layer.md"
+      "docs/wiki/Examples/VM-Layer-Map.md"
     ]
   }
 ]

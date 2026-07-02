@@ -3,6 +3,12 @@
 Use the command family when behavior should be executable, bindable, and
 reactively re-evaluated without changing the VM hierarchy itself.
 
+![Commands And Capabilities Map](../assets/diagrams/commands-capabilities.png)
+
+Support links: [HTML](../assets/diagrams/commands-capabilities.html),
+[SVG](../assets/diagrams/commands-capabilities.svg),
+[PNG](../assets/diagrams/commands-capabilities.png)
+
 ## Main Pieces
 
 - `RelayCommand` and parameterized relay commands

@@ -9,6 +9,16 @@ plus selection" workflows belong here.
 Use the modeled composite when children are projected from models during
 construction instead of being provided directly.
 
+<img src="../../assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/composite-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/composite-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/composite-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 `CompositeVM` adds one core concept on top of a collection container:
