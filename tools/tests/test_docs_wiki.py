@@ -62,3 +62,29 @@ def test_build_rewrites_hierarchical_links_to_flattened_targets(tmp_path: Path) 
     assert (out / "Home.md").read_text(encoding="utf-8") == (
         "# Home\n\n[[Architecture Map|Architecture-Architecture-Map]]\n"
     )
+
+
+def test_build_rewrites_diagram_asset_links_for_flattened_pages(tmp_path: Path) -> None:
+    source = tmp_path / "wiki"
+    out = tmp_path / "out"
+    source.mkdir()
+    (source / "Framework-Primitives" / "ViewModel-Families").mkdir(parents=True)
+    (source / "Home.md").write_text("# Home\n", encoding="utf-8")
+    (source / "_Sidebar.md").write_text("- [[Home]]\n", encoding="utf-8")
+    (source / "_Footer.md").write_text("Footer\n", encoding="utf-8")
+    (source / "Framework-Primitives" / "ViewModel-Families" / "Composite-Family.md").write_text(
+        "# Composite Family\n\n"
+        "![Composite Family](../../assets/diagrams/composite-family.png)\n\n"
+        "[SVG](../../assets/diagrams/composite-family.svg)\n",
+        encoding="utf-8",
+    )
+
+    build(source, out)
+
+    assert (out / "Framework-Primitives-ViewModel-Families-Composite-Family.md").read_text(
+        encoding="utf-8"
+    ) == (
+        "# Composite Family\n\n"
+        "![Composite Family](assets/diagrams/composite-family.png)\n\n"
+        "[SVG](assets/diagrams/composite-family.svg)\n"
+    )

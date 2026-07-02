@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 WIKI_LINK_RE = re.compile(r"\[\[(?:(?P<label>[^\]|]+)\|)?(?P<page>[^\]]+)\]\]")
+DIAGRAM_ASSET_RE = re.compile(r"(?:\.\./)+assets/diagrams/(?P<asset>[^)\s]+)")
 
 
 def flattened_name(source: Path, root: Path) -> str:
@@ -45,6 +46,10 @@ def rewrite_links(text: str, available_stems: set[str]) -> str:
     return WIKI_LINK_RE.sub(replace, text)
 
 
+def rewrite_diagram_asset_links(text: str) -> str:
+    return DIAGRAM_ASSET_RE.sub(r"assets/diagrams/\g<asset>", text)
+
+
 def build(source_root: Path, output_root: Path) -> list[Path]:
     pages = collect_pages(source_root)
     stems = {Path(name).stem for name in pages}
@@ -59,6 +64,7 @@ def build(source_root: Path, output_root: Path) -> list[Path]:
     for flat_name, source in pages.items():
         text = source.read_text(encoding="utf-8")
         text = rewrite_links(text, stems)
+        text = rewrite_diagram_asset_links(text)
         target = output_root / flat_name
         target.write_text(text, encoding="utf-8")
         written.append(target)

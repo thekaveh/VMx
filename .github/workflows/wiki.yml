@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "docs/assets/diagrams/**"
       - "docs/wiki/**"
       - "tools/docs/build_wiki.py"
       - "tools/docs/publish_wiki.sh"
