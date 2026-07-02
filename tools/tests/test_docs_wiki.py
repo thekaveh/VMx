@@ -50,6 +50,20 @@ def test_validate_markdown_links_rejects_reference_source_markdown_links() -> No
         validate_markdown_links("[quickstart]: ../../site/quickstart.md", Path("docs/wiki/Home.md"))
 
 
+def test_validate_markdown_links_rejects_indented_reference_source_markdown_links() -> None:
+    with pytest.raises(ValueError, match="source markdown file"):
+        validate_markdown_links(
+            "   [quickstart]: ../../site/quickstart.md", Path("docs/wiki/Home.md")
+        )
+
+
+def test_validate_markdown_links_rejects_angle_reference_source_markdown_links() -> None:
+    with pytest.raises(ValueError, match="source markdown file"):
+        validate_markdown_links(
+            "[quickstart]: <../../site/quickstart.md>", Path("docs/wiki/Home.md")
+        )
+
+
 def test_validate_markdown_links_allows_public_urls_and_diagram_assets() -> None:
     validate_markdown_links(
         "[Quickstart](https://thekaveh.github.io/VMx/quickstart/)\n"

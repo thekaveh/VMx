@@ -8,7 +8,7 @@ from pathlib import Path
 
 WIKI_LINK_RE = re.compile(r"\[\[(?:(?P<label>[^\]|]+)\|)?(?P<page>[^\]]+)\]\]")
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
-MARKDOWN_REFERENCE_LINK_RE = re.compile(r"^\[[^\]]+\]:\s*(?P<target>\S+)", re.MULTILINE)
+MARKDOWN_REFERENCE_LINK_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*(?P<target>\S+)", re.MULTILINE)
 DIAGRAM_ASSET_RE = re.compile(r"(?:\.\./)+assets/diagrams/(?P<asset>[^)\s]+)")
 
 
@@ -55,6 +55,8 @@ def rewrite_diagram_asset_links(text: str) -> str:
 def validate_markdown_links(text: str, source: Path) -> None:
     for match in (*MARKDOWN_LINK_RE.finditer(text), *MARKDOWN_REFERENCE_LINK_RE.finditer(text)):
         target = match.group("target").strip()
+        if target.startswith("<") and target.endswith(">"):
+            target = target[1:-1]
         target_path = target.split("#", 1)[0].split("?", 1)[0]
         if not target_path or target_path.startswith(("http://", "https://", "mailto:")):
             continue
