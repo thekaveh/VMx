@@ -246,11 +246,28 @@ public sealed class WorkspaceVMTests
             var other = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id != firstId);
 
             ws.NotebooksRoot.Current = other;
-            await TestWait.WaitUntilAsync(() => ws.NotesView.BoundNotebookId == other.Model.Id);
+            await TestWait.WaitUntilAsync(() =>
+            {
+                if (ws.NotesView.BoundNotebookId != other.Model.Id)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    var items = ws.NotesView.FilteredItems.ToArray();
+                    return items.Length > 0
+                           && items.All(n => n.Model.NotebookId == other.Model.Id);
+                }
+                catch (InvalidOperationException)
+                {
+                    return false;
+                }
+            });
 
             Assert.Equal(other.Model.Id, ws.NotesView.BoundNotebookId);
-            Assert.All(ws.NotesView.FilteredItems,
-                n => Assert.Equal(other.Model.Id, n.Model.NotebookId));
+            var snapshot = ws.NotesView.FilteredItems.ToArray();
+            Assert.All(snapshot, n => Assert.Equal(other.Model.Id, n.Model.NotebookId));
         }
         finally
         {
