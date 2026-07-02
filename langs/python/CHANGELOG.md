@@ -4,6 +4,80 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0](https://github.com/thekaveh/VMx/compare/python-v3.1.0...python-v4.0.0) (2026-07-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **v3:** VMx v3.0.0 framework overhaul — verified-merged critique remediation ([#37](https://github.com/thekaveh/VMx/issues/37))
+
+### Features
+
+* absorption-audit-followup — D2/D3 + ADR-0039..0042 (v2.6.0) ([#18](https://github.com/thekaveh/VMx/issues/18)) ([001af07](https://github.com/thekaveh/VMx/commit/001af070b39357a1b7e45ec33a58f3baa6627d50))
+* **absorption-cycle-12:** v2.0.0 — version bumps + compat matrix ([6e29af4](https://github.com/thekaveh/VMx/commit/6e29af453023b6f16e659072fe26b98403a71a77))
+* **absorption-cycle-1:** capability micro-interfaces (CAP-001..020) ([23ec03c](https://github.com/thekaveh/VMx/commit/23ec03c4935795c9f561fb07d0ce5f007b72f375))
+* **absorption-cycle-2:** null-object service convention (NULL-001..003) ([8b26c64](https://github.com/thekaveh/VMx/commit/8b26c64706b190885cf95cdad493b8491aa9a76f))
+* **absorption-cycle-3:** derived properties (DPROP-001..012) ([93f2af4](https://github.com/thekaveh/VMx/commit/93f2af419fc1c84fa5bb4f9208ef1e90640a60c4))
+* **absorption-cycle-4:** command decorators (CMDD-001..009) ([2f92252](https://github.com/thekaveh/VMx/commit/2f92252be212cf23ec45aa654e8b406209807b9a))
+* **absorption-cycle-5:** notification sub-package (NOTIF-001..010) ([fc85b67](https://github.com/thekaveh/VMx/commit/fc85b67b6be69356cf9eeded600b72053295006b))
+* **absorption-cycle-6:** expand/collapse + walk_expanded (EXP-001..005) ([93497f2](https://github.com/thekaveh/VMx/commit/93497f29997a5ee48ef51e63ef205cf12d2d93ca))
+* **absorption-cycle-7:** search/filter (COMP-014..018, GRP-007..010) ([66ae06e](https://github.com/thekaveh/VMx/commit/66ae06e087777870c72b67c7b0294c061d174fcc))
+* **absorption-cycle-8:** modeled CRUD commands (COMP-019..024) ([b30ff0f](https://github.com/thekaveh/VMx/commit/b30ff0f25b7a9534a676279c815049ec49c84cf4))
+* **absorption-cycle-9:** localization hooks (LOC-001..003) ([422567f](https://github.com/thekaveh/VMx/commit/422567f6f0f0acdf304d2be6cc4cb99165b392a8))
+* implement v3.1 upstream consumer asks ([edefcef](https://github.com/thekaveh/VMx/commit/edefcefd8170ce94716774eb9d9db125c11cfeda))
+* **python:** Aggregates module (3g) — AggregateVM1..AggregateVM5 ([3bb857a](https://github.com/thekaveh/VMx/commit/3bb857a21c64f19083a9ebcffecc705b4735ed80))
+* **python:** Commands module (3c) — RelayCommand + parameterized variant ([3e3e81b](https://github.com/thekaveh/VMx/commit/3e3e81b972ccec0d20c044834a481c2988bee503))
+* **python:** Components module (3d) — ComponentVM + ComponentVMOf + ReadonlyComponentVMOf ([77bbdf0](https://github.com/thekaveh/VMx/commit/77bbdf0d639a6b219e86645e73952d63c6f5c8e4))
+* **python:** Composites module (3e) — CompositeVM + CompositeVMOf ([bac2cd6](https://github.com/thekaveh/VMx/commit/bac2cd6735ebc608835622ff5d1dd893538898ab))
+* **python:** expand top-level vmx re-exports to full public surface ([811f4c1](https://github.com/thekaveh/VMx/commit/811f4c1834dc72e293c39dcd7275fba723898477))
+* **python:** Forwarding module (3h) — ForwardingComponentVM + ForwardingCompositeVM ([17bc559](https://github.com/thekaveh/VMx/commit/17bc559b9203224954a0454e7a530b59d0805ea6))
+* **python:** Groups module (3h) — GroupVM peer-container, GRP-001..004 conformance ([db305a7](https://github.com/thekaveh/VMx/commit/db305a7cd4de608923157b226f1232a0d923784c))
+* **python:** Lifecycle module (3a) — ConstructionStatus, StatusTransitionError, transition validator ([ca768f2](https://github.com/thekaveh/VMx/commit/ca768f2d23cbc4c89bdd58e46f0af7a2831abd35))
+* **python:** Messages module (3b) — PropertyChangedMessage, ConstructionStatusChangedMessage, protocols ([827baa2](https://github.com/thekaveh/VMx/commit/827baa2226327b0e06ab75e6184524d1462f7c36))
+* **python:** scaffold vmx package with smoke tests ([cbaa7e5](https://github.com/thekaveh/VMx/commit/cbaa7e588c628575bad90f87c450f0bcab5ce287))
+* **python:** Services module (3b/2) — MessageHub + RxDispatcher ([ebd1a85](https://github.com/thekaveh/VMx/commit/ebd1a851d8a19cb49179d215d6771d67700acf56))
+* **python:** v1.2.0 — RelayCommandOf/AggregateVMNBuilder parity aliases ([8352cb7](https://github.com/thekaveh/VMx/commit/8352cb7706ba742f2f68eff08ed3e57f290aec5f))
+* **spec:** v1.1.0 — AutoConstructOnAdd, BatchUpdate, Tree utilities ([ededa6a](https://github.com/thekaveh/VMx/commit/ededa6af62fd86d0c598756ed4e7e78913ac3803))
+* **v2.1:** absorb 15 post-v2.0 candidates ([#4](https://github.com/thekaveh/VMx/issues/4)) ([796370a](https://github.com/thekaveh/VMx/commit/796370a6338dc6642cf3e912749237a15c1f41ae))
+* **v2.2.0:** notes-showcase flagship examples + AggregateVM6 + downstream-driven maintenance ([#6](https://github.com/thekaveh/VMx/issues/6)) ([9ee9e20](https://github.com/thekaveh/VMx/commit/9ee9e206fe92d193310ad36e206b7626833c5448))
+* **v2.3.0:** builder pattern audit follow-through (ADR-0035) ([#10](https://github.com/thekaveh/VMx/issues/10)) ([bc03a6d](https://github.com/thekaveh/VMx/commit/bc03a6d14db1868be52cccb27ce4b7654ea4bd39))
+* **v2.4.0:** publication + Swift flavor + ThemeVM + coverage backfill (ADR-0036) ([#11](https://github.com/thekaveh/VMx/issues/11)) ([f91a2b3](https://github.com/thekaveh/VMx/commit/f91a2b379dcc48109955ad34aa5593bb4a1a1558))
+* **v3:** VMx v3.0.0 framework overhaul — verified-merged critique remediation ([#37](https://github.com/thekaveh/VMx/issues/37)) ([e979ed6](https://github.com/thekaveh/VMx/commit/e979ed61d6dc7d69b18729a13b6185ef01d02197))
+
+
+### Bug Fixes
+
+* align parity gaps across flavors ([2eace45](https://github.com/thekaveh/VMx/commit/2eace45c1610c889efc0bb7e34b0a0e58c8b2b72))
+* **audit:** final audit pass — version pins, ADR, TS setAt parity ([fc8cd8f](https://github.com/thekaveh/VMx/commit/fc8cd8fca4d200fa2132b31dcdfa1c4307e85561))
+* harden async lifecycle and paging behavior ([60a58e9](https://github.com/thekaveh/VMx/commit/60a58e9156fff92bbab3af9435c76c08a3c813ff))
+* harden lifecycle and async race handling ([eaa4b69](https://github.com/thekaveh/VMx/commit/eaa4b69fb66b7293be352dece5cbbe071ca721ed))
+* **maint-pass-1:** AggregateVM6 reachability in walk + TS dispose ordering parity ([646cbcf](https://github.com/thekaveh/VMx/commit/646cbcf223b253455a018c86003d3c2301845cac))
+* **maint-pass-1:** Python AggregateVM1..6 dispose ordering matches cross-flavor LIFE-013 invariant ([66efdea](https://github.com/thekaveh/VMx/commit/66efdeabdc0a066082384ac89b0a3b9c10055054))
+* **maint:** audit-report verification follow-ups (code, spec/ADR, examples) ([#32](https://github.com/thekaveh/VMx/issues/32)) ([63b9c51](https://github.com/thekaveh/VMx/commit/63b9c51ef0c3014f68cb11de21f3b9e5a17076a8))
+* make Python sdist rebuildable ([db61146](https://github.com/thekaveh/VMx/commit/db61146e75128339f18e1efe8dcf3a2f8d8a529a))
+* **python:** address code-review nits on Task 4 ([7e2de8d](https://github.com/thekaveh/VMx/commit/7e2de8d0165b1b4aeffc903e375fb55fa7fab80d))
+* **python:** correct two cross-language behavior divergences ([ce39f3a](https://github.com/thekaveh/VMx/commit/ce39f3ad02aa330b6e058b5b1fec3626d202fcd8))
+* **python:** drop unused fixture force-includes and duplicate dev group ([b9efd61](https://github.com/thekaveh/VMx/commit/b9efd61c5bb0a580a354b25dd087b454bc8308e5))
+* **python:** remove spurious PropertyChangedMessage emissions for status / is_constructed ([0aae8bc](https://github.com/thekaveh/VMx/commit/0aae8bce0dee66654d994e86c4a6111ed9d874f3))
+
+
+### Documentation
+
+* add repo metadata, code of conduct, issue/PR templates ([20a43fa](https://github.com/thekaveh/VMx/commit/20a43fa36f051929c3ea2db5a75ea6ccde843cf2))
+* **changelog:** note spec-v1.0.0 as the implementation target ([ca9f694](https://github.com/thekaveh/VMx/commit/ca9f694f59ef618aee0be3db16d9a765da57a39a))
+* clarify Python fixture packaging ([6821fce](https://github.com/thekaveh/VMx/commit/6821fce47492bcdd88d5a2791037309f3b4490c8))
+* **forwarding:** consolidate type-ignore rationale comment block ([5f1bde6](https://github.com/thekaveh/VMx/commit/5f1bde6faee96fd50c425589dd53f0883e618ed9))
+* **maint-pass-14:** correct NullDispatcher / NullMessageHub docstrings — Python has no 'I' prefix on these service protocols ([3036a2a](https://github.com/thekaveh/VMx/commit/3036a2a6bfcdc2c4bdcf5172bbe751eb3f23d5a4))
+* **maint-pass-15:** finish Python I-prefix-docstring sweep — Command / MessageHubProto / Dispatcher / ComponentVMProto ([31923f6](https://github.com/thekaveh/VMx/commit/31923f60d00b564def63316046a9b4337306fbca))
+* **maint-pass-16:** finish I-prefix-docstring sweep — relay_command + group_vm src files ([2fc2095](https://github.com/thekaveh/VMx/commit/2fc2095c1b70c8716a20dbdd3a910a5acafddf0e))
+* **maint-pass-22:** fix AggregateVM arity + align CONTRIBUTING with CI commands ([5cbeec9](https://github.com/thekaveh/VMx/commit/5cbeec9afc2a98eb13acd61b06517f3d97f36ef4))
+* **maint-pass-6:** add swift column to cross-language naming table in 3 flavor READMEs ([e5e67fa](https://github.com/thekaveh/VMx/commit/e5e67fac1ac6389077e5fc8e5dcf462d09276ebb))
+* **maint-pass-8:** repair phantom ADR-0036 section refs (§3.C/§3.A → §2.C/§2.A) and IFilterable&lt;TItem&gt; in active parity matrix ([8e86c0e](https://github.com/thekaveh/VMx/commit/8e86c0e72d07e01ca8ea5e5028c474398d8b4108))
+* **python:** add docstrings to Message and TypedMessage Protocols ([258f43a](https://github.com/thekaveh/VMx/commit/258f43aeded5a6c752e60aa945de52e94b19189c))
+* **python:** RELEASING URL-validation checklist + bootstrap tag-ordering gotcha + PyPI badge ([#24](https://github.com/thekaveh/VMx/issues/24)) ([cef3629](https://github.com/thekaveh/VMx/commit/cef3629d623e694350989754c225de1a9c27f909))
+* **readme:** bring C# and Python flavor READMEs to TypeScript parity ([30b1d08](https://github.com/thekaveh/VMx/commit/30b1d08badf59200217c06090456d84d2eab9b17))
+* update status to v1.0.0 across READMEs, SECURITY, compatibility matrix, tools README ([12855c7](https://github.com/thekaveh/VMx/commit/12855c73b9acffea417022ba8bea971689812eab))
+
 ## [3.1.0] — 2026-07-01
 
 Implements `spec-v3.1.0` and keeps Python at full library parity: 281/281
