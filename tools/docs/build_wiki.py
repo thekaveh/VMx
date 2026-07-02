@@ -36,12 +36,9 @@ def rewrite_links(text: str, available_stems: set[str]) -> str:
             return match.group(0)
 
         candidate = page[:-3] if page.endswith(".md") else page
+        candidate = candidate.replace("/", "-")
         if candidate not in available_stems:
-            alt_candidate = candidate.replace("/", "-")
-            if alt_candidate in available_stems:
-                candidate = alt_candidate
-            else:
-                raise ValueError(f"wiki link points to missing page: {page}")
+            raise ValueError(f"wiki link points to missing page: {page}")
 
         return f"[[{label}|{candidate}]]" if label else f"[[{candidate}]]"
 
@@ -61,6 +58,7 @@ def build(source_root: Path, output_root: Path) -> list[Path]:
     written: list[Path] = []
     for flat_name, source in pages.items():
         text = source.read_text(encoding="utf-8")
+        text = rewrite_links(text, stems)
         target = output_root / flat_name
         target.write_text(text, encoding="utf-8")
         written.append(target)
