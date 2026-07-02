@@ -33,12 +33,12 @@ The family integrates directly with `walk` and `walk_expanded`.
 
 ## Cross-Language Surface
 
-| Concept            | C#                                   | Python                               | TypeScript                           | Swift                         |
-| ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | ----------------------------- |
-| Core type          | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM[TModel, TVM]`        | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM<TModel, TVM>` |
-| Builder            | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVMBuilder[TModel, TVM]` | `HierarchicalVMBuilder<TModel, TVM>` | constructor surface           |
-| Eager flag         | `EagerChildren(true)`                | `eager_children(True)`               | `eagerChildren(true)`                | `eagerChildren: true`         |
-| Invalidate subtree | `InvalidateSubtree()`                | `invalidate_subtree()`               | `invalidateSubtree()`                | `invalidateSubtree()`         |
+| Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   |
+| ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- |
+| Core type          | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM[TModel, TVM]`        | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM<TModel, TVM>`           |
+| Builder            | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVMBuilder[TModel, TVM]` | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVM<TModel, TVM>.builder()` |
+| Eager flag         | `EagerChildren(true)`                | `eager_children(True)`               | `eagerChildren(true)`                | `eagerChildren(true)`                   |
+| Invalidate subtree | `InvalidateSubtree()`                | `invalidate_subtree()`               | `invalidateSubtree()`                | `invalidateSubtree()`                   |
 
 ## Example
 
@@ -50,8 +50,10 @@ making the VM itself a recursive node tree.
 
 Use `HierarchicalVM` when the VM graph should actually be recursive:
 
-These concise examples assume the minimal recursive `TestNode` subclass used in
-the conformance suites.
+These concise examples show the canonical builder path per flavor. C#, Swift,
+and TypeScript supply a `TestNode` factory for their concrete recursive node;
+Python can build plain `HierarchicalVM` directly and uses `vm_factory(...)` only
+when a subclass is required.
 
 **C#**
 
@@ -92,12 +94,22 @@ const root = new HierarchicalVMBuilder<string, TestNode>()
 **Swift**
 
 ```swift
-let root = TestNode(
-    model: "root",
-    childrenFactory: { _ in [] },
-    hub: hub,
-    dispatcher: dispatcher
-)
+let root = try HierarchicalVM<String, TestNode>.builder()
+    .model("root")
+    .childrenFactory { _ in [] }
+    .services(hub: hub, dispatcher: dispatcher)
+    .vmFactory { model, childrenFactory, hub, dispatcher, name, hint, eager in
+        TestNode(
+            model: model,
+            childrenFactory: childrenFactory,
+            hub: hub,
+            dispatcher: dispatcher,
+            name: name,
+            hint: hint,
+            eagerChildren: eager
+        )
+    }
+    .build()
 ```
 
 That split is the practical rule: use the tree primitive when the tree is real,
