@@ -66,7 +66,7 @@ examples/csharp/avalonia/NotesShowcase/
 
 | #   | Feature                          | Where                                                                                     |
 | --- | -------------------------------- | ----------------------------------------------------------------------------------------- |
-| 1   | `HierarchicalVM`                 | `ViewModels/NotebooksRootVM.cs` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
+| 1   | `HierarchicalVM` capability      | `ViewModels/NotebooksRootVM.cs`, `ViewModels/NotebookVM.cs` (flat `ComponentVM`-based `NotebooksRootVM` / `NotebookVM` adapters that project the notebook tree and emit `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.Current`            | `ViewModels/NotesViewVM.cs` (`Current` two-way binding to the inner composite)            |
 | 3   | `ComponentVM<M>` modeled         | `ViewModels/NoteVM.cs`, `ViewModels/NotebookVM.cs`                                        |
 | 4   | `FormVM` snapshot / revert / validation       | `ViewModels/NoteFormVM.cs` (owns a strict `FormVM<NoteModel>`)                            |

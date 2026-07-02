@@ -74,7 +74,7 @@ examples/python/textual/notes_showcase/
 
 | #   | Feature                          | Where                                                                                          |
 | --- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 1   | `HierarchicalVM`                 | `viewmodels/notebooks_root_vm.py` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
+| 1   | `HierarchicalVM` capability      | `viewmodels/notebooks_root_vm.py`, `viewmodels/notebook_vm.py` (flat `ComponentVM`-based `NotebooksRootVM` / `NotebookVM` adapters that project the notebook tree and emit `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.current`            | `viewmodels/notes_view_vm.py` (`current` two-way binding)                                      |
 | 3   | `ComponentVMOf[M]` modeled       | `viewmodels/note_vm.py`, `viewmodels/notebook_vm.py`                                            |
 | 4   | `FormVM` snapshot / revert / validation       | `viewmodels/note_form_vm.py` (owns a strict `FormVM[NoteModel]`)                                |

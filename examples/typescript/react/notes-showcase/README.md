@@ -78,7 +78,7 @@ examples/typescript/react/notes-showcase/
 
 | #   | Feature                          | Where                                                                                       |
 | --- | -------------------------------- | ------------------------------------------------------------------------------------------- |
-| 1   | `HierarchicalVM`                 | `viewmodels/notebooksRootVM.ts` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
+| 1   | `HierarchicalVM` capability      | `viewmodels/notebooksRootVM.ts`, `viewmodels/notebookVM.ts` (flat `ComponentVM`-based `NotebooksRootVM` / `NotebookVM` adapters that project the notebook tree and emit `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.current`            | `viewmodels/notesViewVM.ts` (`current` two-way binding)                                     |
 | 3   | `ComponentVMOf<M>` modeled       | `viewmodels/noteVM.ts`, `viewmodels/notebookVM.ts`                                          |
 | 4   | `FormVM` snapshot / revert / validation       | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                              |
