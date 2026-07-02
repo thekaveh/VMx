@@ -117,8 +117,9 @@ coverage/
 
 # ─── Docs builds ──────────────────────────────────────────────────────
 docs/_build/
-docs/site/
 site/
+!docs/site/
+!docs/site/**
 
 # ─── Local git worktrees ──────────────────────────────────────────────
 .worktrees/
