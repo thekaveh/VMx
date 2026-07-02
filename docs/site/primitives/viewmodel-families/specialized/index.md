@@ -14,6 +14,16 @@ Use them when the workflow itself is the reusable primitive. If the need is
 just "a leaf with one more property", stay on the core hierarchy and compose the
 smaller helpers instead.
 
+<img src="../../../assets/diagrams/specialized-vm-family.svg" alt="Specialized ViewModel Coordinator Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../../assets/diagrams/specialized-vm-family.html">HTML</a>
+  &middot;
+  <a href="../../../assets/diagrams/specialized-vm-family.svg">SVG</a>
+  &middot;
+  <a href="../../../assets/diagrams/specialized-vm-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 These types typically wrap or coordinate other VM state rather than replacing

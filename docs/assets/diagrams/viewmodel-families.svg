@@ -1,225 +1,225 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="980" viewBox="0 0 1700 980" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="980" viewBox="0 0 1700 980" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
   <defs>
     <style>
-      text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+      text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
     </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#d7e1ec" stroke-width="0.8"/>
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.8"/>
     </pattern>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
     </marker>
   </defs>
-  <rect width="100%" height="100%" fill="#f3f7fb"/>
+  <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
-  <text x="40" y="54" fill="#0f172a" font-size="28" font-weight="700" text-anchor="start">ViewModel Families Map</text>
-  <text x="40" y="82" fill="#64748b" font-size="15" font-weight="400" text-anchor="start">one conceptual hierarchy, five idioms, and specialized companions</text>
+  <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">ViewModel Families Map</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">one conceptual hierarchy, five idioms, and specialized companions</text>
   <polyline points="230,276 230,320" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="245" y="288" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
-<text x="278" y="302" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
 <polyline points="340,224 390,224" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="340,246 680,246" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="340,268 970,268" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="340,290 1260,290" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="510,452 510,514" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="522" y="474" width="88" height="20" rx="10" fill="#ffffff" stroke="#34d399" stroke-width="1"/>
-<text x="566" y="488" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
 <polyline points="800,452 800,514" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="819" y="474" width="74" height="20" rx="10" fill="#ffffff" stroke="#a78bfa" stroke-width="1"/>
-<text x="856" y="488" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">composes</text>
 <polyline points="1090,452 1090,514" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="1106" y="474" width="137" height="20" rx="10" fill="#ffffff" stroke="#fb923c" stroke-width="1"/>
-<text x="1174" y="488" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps / decorates</text>
 <polyline points="1390,452 1390,514" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="1407" y="474" width="123" height="20" rx="10" fill="#ffffff" stroke="#fb7185" stroke-width="1"/>
-<text x="1468" y="488" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">injects / posts</text>
 <polyline points="1390,642 1390,694" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1090,642 1090,694" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="800,642 800,694" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="510,642 510,694" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="60" y="122" width="1580" height="694" rx="12" fill="rgba(255, 255, 255, 0.48)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<rect x="60" y="122" width="1580" height="694" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="74" y="144" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">VM family bands</text>
-<rect x="120" y="170" width="220" height="106" rx="8" fill="#ffffff"/>
-<rect x="120" y="170" width="220" height="106" rx="8" fill="rgba(102, 183, 142, 0.16)" stroke="#2e7d59" stroke-width="1.8"/>
-<text x="230" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Lifecycle base</text>
-<text x="230" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ComponentVMBase</text>
-<text x="230" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Constructed / Disposed</text>
-<text x="230" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">message hub hooks</text>
-<rect x="120" y="320" width="220" height="132" rx="8" fill="#ffffff"/>
-<rect x="120" y="320" width="220" height="132" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="230" y="348" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Leaf family</text>
-<text x="230" y="374" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ComponentVM</text>
-<text x="230" y="393" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ComponentVM&lt;M&gt;</text>
-<text x="230" y="412" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ReadonlyComponentVM&lt;M&gt;</text>
-<rect x="390" y="170" width="240" height="132" rx="8" fill="#ffffff"/>
-<rect x="390" y="170" width="240" height="132" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="510" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Selectable containers</text>
-<text x="510" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CompositeVM&lt;VM&gt;</text>
-<text x="510" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CompositeVM&lt;M,VM&gt;</text>
-<text x="510" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Current slot</text>
-<rect x="390" y="336" width="240" height="116" rx="8" fill="#ffffff"/>
-<rect x="390" y="336" width="240" height="116" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="510" y="364" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Peer containers</text>
-<text x="510" y="390" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">GroupVM&lt;VM&gt;</text>
-<text x="510" y="409" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">homogeneous peers</text>
-<text x="510" y="428" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">no Current</text>
-<rect x="680" y="170" width="240" height="132" rx="8" fill="#ffffff"/>
-<rect x="680" y="170" width="240" height="132" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="800" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Fixed-arity containers</text>
-<text x="800" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">AggregateVM1..6</text>
-<text x="800" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">heterogeneous components</text>
-<text x="800" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">typed ComponentN slots</text>
-<rect x="680" y="336" width="240" height="116" rx="8" fill="#ffffff"/>
-<rect x="680" y="336" width="240" height="116" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="800" y="364" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Recursive container</text>
-<text x="800" y="390" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">HierarchicalVM&lt;TModel,TVM&gt;</text>
-<text x="800" y="409" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Parent / Depth / Path</text>
-<text x="800" y="428" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">structural messages</text>
-<rect x="970" y="170" width="240" height="132" rx="8" fill="#ffffff"/>
-<rect x="970" y="170" width="240" height="132" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
-<text x="1090" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Forwarding decorators</text>
-<text x="1090" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ForwardingComponentVM</text>
-<text x="1090" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ForwardingCompositeVM</text>
-<text x="1090" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">instrumentation / overrides</text>
-<rect x="1260" y="170" width="260" height="132" rx="8" fill="#ffffff"/>
-<rect x="1260" y="170" width="260" height="132" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
-<text x="1390" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Specialized VMs</text>
-<text x="1390" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">FormVM</text>
-<text x="1390" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">NotificationVM</text>
-<text x="1390" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ConfirmationVM</text>
-<text x="1390" y="281" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">DiscriminatorVM</text>
-<rect x="390" y="514" width="240" height="128" rx="8" fill="#ffffff"/>
-<rect x="390" y="514" width="240" height="128" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
-<text x="510" y="542" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Capability overlays</text>
-<text x="510" y="568" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">selection / expansion</text>
-<text x="510" y="587" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CRUD / dialog / paging</text>
-<text x="510" y="606" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">22 micro-interfaces</text>
-<rect x="680" y="514" width="240" height="128" rx="8" fill="#ffffff"/>
-<rect x="680" y="514" width="240" height="128" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
-<text x="800" y="542" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">State helpers</text>
-<text x="800" y="568" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">DerivedProperty</text>
-<text x="800" y="587" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ExpandableState</text>
-<text x="800" y="606" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">SearchableState</text>
-<rect x="970" y="514" width="240" height="128" rx="8" fill="#ffffff"/>
-<rect x="970" y="514" width="240" height="128" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
-<text x="1090" y="542" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Paging helpers</text>
-<text x="1090" y="568" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">PagedComposition</text>
-<text x="1090" y="587" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">TokenPagedComposition</text>
-<text x="1090" y="606" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">filtered/scored views</text>
-<rect x="1260" y="514" width="260" height="128" rx="8" fill="#ffffff"/>
-<rect x="1260" y="514" width="260" height="128" rx="8" fill="rgba(239, 174, 104, 0.18)" stroke="#c77729" stroke-width="1.8"/>
-<text x="1390" y="542" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Services + messages</text>
-<text x="1390" y="568" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">MessageHub</text>
-<text x="1390" y="587" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">IDialogService</text>
-<text x="1390" y="606" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">INotificationHub</text>
-<text x="1390" y="625" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">PropertyChangedMessage</text>
-<rect x="240" y="694" width="1240" height="86" rx="8" fill="#ffffff"/>
-<rect x="240" y="694" width="1240" height="86" rx="8" fill="rgba(170, 184, 201, 0.18)" stroke="#6a7c91" stroke-width="1.8"/>
-<text x="860" y="722" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Flavor surface</text>
-<text x="860" y="748" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">C</text>
-<text x="860" y="767" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">#</text>
-<text x="860" y="786" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="805" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">P</text>
-<text x="860" y="824" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="843" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="862" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">c</text>
-<text x="860" y="881" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="900" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">l</text>
-<text x="860" y="919" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">C</text>
-<text x="860" y="938" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="957" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="976" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="995" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">,</text>
-<text x="860" y="1014" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1033" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">P</text>
-<text x="860" y="1052" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">y</text>
-<text x="860" y="1071" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">t</text>
-<text x="860" y="1090" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">h</text>
-<text x="860" y="1109" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">o</text>
-<text x="860" y="1128" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">n</text>
-<text x="860" y="1147" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1166" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="1185" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">n</text>
-<text x="860" y="1204" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="1223" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">k</text>
-<text x="860" y="1242" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="1261" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">_</text>
-<text x="860" y="1280" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">c</text>
-<text x="860" y="1299" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="1318" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="1337" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="1356" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">,</text>
-<text x="860" y="1375" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1394" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">T</text>
-<text x="860" y="1413" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">y</text>
-<text x="860" y="1432" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">p</text>
-<text x="860" y="1451" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="1470" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">S</text>
-<text x="860" y="1489" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">c</text>
-<text x="860" y="1508" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">r</text>
-<text x="860" y="1527" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">i</text>
-<text x="860" y="1546" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">p</text>
-<text x="860" y="1565" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">t</text>
-<text x="860" y="1584" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1603" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="1622" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">n</text>
-<text x="860" y="1641" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">d</text>
-<text x="860" y="1660" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1679" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">S</text>
-<text x="860" y="1698" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">w</text>
-<text x="860" y="1717" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">i</text>
-<text x="860" y="1736" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">f</text>
-<text x="860" y="1755" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">t</text>
-<text x="860" y="1774" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1793" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">c</text>
-<text x="860" y="1812" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="1831" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">m</text>
-<text x="860" y="1850" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="1869" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">l</text>
-<text x="860" y="1888" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">C</text>
-<text x="860" y="1907" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="1926" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="1945" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="1964" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="1983" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">-</text>
-<text x="860" y="2002" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="2021" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="2040" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="2059" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">m</text>
-<text x="860" y="2078" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="2097" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="2116" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="2135" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">h</text>
-<text x="860" y="2154" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="2173" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">p</text>
-<text x="860" y="2192" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="2211" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">,</text>
-<text x="860" y="2230" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="2249" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">i</text>
-<text x="860" y="2268" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">d</text>
-<text x="860" y="2287" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">i</text>
-<text x="860" y="2306" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">o</text>
-<text x="860" y="2325" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">m</text>
-<text x="860" y="2344" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="2363" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">t</text>
-<text x="860" y="2382" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">i</text>
-<text x="860" y="2401" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">c</text>
-<text x="860" y="2420" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="2439" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">s</text>
-<text x="860" y="2458" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">u</text>
-<text x="860" y="2477" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">r</text>
-<text x="860" y="2496" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">f</text>
-<text x="860" y="2515" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">a</text>
-<text x="860" y="2534" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">c</text>
-<text x="860" y="2553" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">e</text>
-<text x="860" y="2572" fill="#516273" font-size="13" font-weight="400" text-anchor="middle"> </text>
-<text x="860" y="2591" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">o</text>
-<text x="860" y="2610" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">n</text>
-<text x="860" y="2629" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">l</text>
-<text x="860" y="2648" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">y</text>
-<text x="860" y="2667" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">.</text>
-<rect x="80" y="842" width="1540" height="76" rx="8" fill="#f8fbff"/>
-<rect x="80" y="842" width="1540" height="76" rx="8" fill="rgba(255, 255, 255, 0.94)" stroke="#94a3b8" stroke-width="1.2"/>
-<text x="96" y="866" fill="#0f172a" font-size="13" font-weight="700" text-anchor="start">Reading note</text>
-<text x="96" y="888" fill="#516273" font-size="12" font-weight="400" text-anchor="start">VMx keeps containers, decorators, helpers, and specialized VMs as separate families so host apps can compose only the primitives they need.</text>
+<rect x="120" y="170" width="220" height="106" rx="8" fill="#0f172a"/>
+<rect x="120" y="170" width="220" height="106" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
+<text x="230" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Lifecycle base</text>
+<text x="230" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ComponentVMBase</text>
+<text x="230" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Constructed / Disposed</text>
+<text x="230" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">message hub hooks</text>
+<rect x="120" y="320" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="120" y="320" width="220" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="230" y="348" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Leaf family</text>
+<text x="230" y="374" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ComponentVM</text>
+<text x="230" y="393" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ComponentVM&lt;M&gt;</text>
+<text x="230" y="412" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ReadonlyComponentVM&lt;M&gt;</text>
+<rect x="390" y="170" width="240" height="132" rx="8" fill="#0f172a"/>
+<rect x="390" y="170" width="240" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="510" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Selectable containers</text>
+<text x="510" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CompositeVM&lt;VM&gt;</text>
+<text x="510" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CompositeVM&lt;M,VM&gt;</text>
+<text x="510" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current slot</text>
+<rect x="390" y="336" width="240" height="116" rx="8" fill="#0f172a"/>
+<rect x="390" y="336" width="240" height="116" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="510" y="364" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Peer containers</text>
+<text x="510" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">GroupVM&lt;VM&gt;</text>
+<text x="510" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">homogeneous peers</text>
+<text x="510" y="428" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no Current</text>
+<rect x="680" y="170" width="240" height="132" rx="8" fill="#0f172a"/>
+<rect x="680" y="170" width="240" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="800" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Fixed-arity containers</text>
+<text x="800" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">AggregateVM1..6</text>
+<text x="800" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">heterogeneous components</text>
+<text x="800" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">typed ComponentN slots</text>
+<rect x="680" y="336" width="240" height="116" rx="8" fill="#0f172a"/>
+<rect x="680" y="336" width="240" height="116" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="800" y="364" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Recursive container</text>
+<text x="800" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">HierarchicalVM&lt;TModel,TVM&gt;</text>
+<text x="800" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Parent / Depth / Path</text>
+<text x="800" y="428" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">structural messages</text>
+<rect x="970" y="170" width="240" height="132" rx="8" fill="#0f172a"/>
+<rect x="970" y="170" width="240" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1090" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Forwarding decorators</text>
+<text x="1090" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ForwardingComponentVM</text>
+<text x="1090" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ForwardingCompositeVM</text>
+<text x="1090" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">instrumentation / overrides</text>
+<rect x="1260" y="170" width="260" height="132" rx="8" fill="#0f172a"/>
+<rect x="1260" y="170" width="260" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1390" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Specialized VMs</text>
+<text x="1390" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">FormVM</text>
+<text x="1390" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NotificationVM</text>
+<text x="1390" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ConfirmationVM</text>
+<text x="1390" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DiscriminatorVM</text>
+<rect x="390" y="514" width="240" height="128" rx="8" fill="#0f172a"/>
+<rect x="390" y="514" width="240" height="128" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="510" y="542" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Capability overlays</text>
+<text x="510" y="568" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">selection / expansion</text>
+<text x="510" y="587" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CRUD / dialog / paging</text>
+<text x="510" y="606" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">22 micro-interfaces</text>
+<rect x="680" y="514" width="240" height="128" rx="8" fill="#0f172a"/>
+<rect x="680" y="514" width="240" height="128" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="800" y="542" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">State helpers</text>
+<text x="800" y="568" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DerivedProperty</text>
+<text x="800" y="587" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ExpandableState</text>
+<text x="800" y="606" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">SearchableState</text>
+<rect x="970" y="514" width="240" height="128" rx="8" fill="#0f172a"/>
+<rect x="970" y="514" width="240" height="128" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="1090" y="542" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Paging helpers</text>
+<text x="1090" y="568" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PagedComposition</text>
+<text x="1090" y="587" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TokenPagedComposition</text>
+<text x="1090" y="606" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">filtered/scored views</text>
+<rect x="1260" y="514" width="260" height="128" rx="8" fill="#0f172a"/>
+<rect x="1260" y="514" width="260" height="128" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="1390" y="542" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Services + messages</text>
+<text x="1390" y="568" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">MessageHub</text>
+<text x="1390" y="587" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IDialogService</text>
+<text x="1390" y="606" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">INotificationHub</text>
+<text x="1390" y="625" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PropertyChangedMessage</text>
+<rect x="240" y="694" width="1240" height="86" rx="8" fill="#0f172a"/>
+<rect x="240" y="694" width="1240" height="86" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="860" y="722" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Flavor surface</text>
+<text x="860" y="748" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">C</text>
+<text x="860" y="767" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">#</text>
+<text x="860" y="786" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="805" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">P</text>
+<text x="860" y="824" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="843" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="862" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">c</text>
+<text x="860" y="881" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="900" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">l</text>
+<text x="860" y="919" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">C</text>
+<text x="860" y="938" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="957" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="976" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="995" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">,</text>
+<text x="860" y="1014" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1033" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">P</text>
+<text x="860" y="1052" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">y</text>
+<text x="860" y="1071" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">t</text>
+<text x="860" y="1090" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">h</text>
+<text x="860" y="1109" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">o</text>
+<text x="860" y="1128" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">n</text>
+<text x="860" y="1147" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1166" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="1185" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">n</text>
+<text x="860" y="1204" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="1223" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">k</text>
+<text x="860" y="1242" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="1261" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">_</text>
+<text x="860" y="1280" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">c</text>
+<text x="860" y="1299" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="1318" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="1337" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="1356" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">,</text>
+<text x="860" y="1375" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">T</text>
+<text x="860" y="1413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">y</text>
+<text x="860" y="1432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">p</text>
+<text x="860" y="1451" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="1470" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">S</text>
+<text x="860" y="1489" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">c</text>
+<text x="860" y="1508" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">r</text>
+<text x="860" y="1527" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">i</text>
+<text x="860" y="1546" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">p</text>
+<text x="860" y="1565" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">t</text>
+<text x="860" y="1584" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1603" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="1622" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">n</text>
+<text x="860" y="1641" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">d</text>
+<text x="860" y="1660" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1679" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">S</text>
+<text x="860" y="1698" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">w</text>
+<text x="860" y="1717" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">i</text>
+<text x="860" y="1736" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">f</text>
+<text x="860" y="1755" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">t</text>
+<text x="860" y="1774" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1793" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">c</text>
+<text x="860" y="1812" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="1831" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">m</text>
+<text x="860" y="1850" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="1869" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">l</text>
+<text x="860" y="1888" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">C</text>
+<text x="860" y="1907" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="1926" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="1945" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="1964" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="1983" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">-</text>
+<text x="860" y="2002" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="2021" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="2040" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="2059" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">m</text>
+<text x="860" y="2078" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="2097" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="2116" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="2135" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">h</text>
+<text x="860" y="2154" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="2173" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">p</text>
+<text x="860" y="2192" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="2211" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">,</text>
+<text x="860" y="2230" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="2249" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">i</text>
+<text x="860" y="2268" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">d</text>
+<text x="860" y="2287" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">i</text>
+<text x="860" y="2306" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">o</text>
+<text x="860" y="2325" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">m</text>
+<text x="860" y="2344" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="2363" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">t</text>
+<text x="860" y="2382" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">i</text>
+<text x="860" y="2401" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">c</text>
+<text x="860" y="2420" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="2439" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">s</text>
+<text x="860" y="2458" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">u</text>
+<text x="860" y="2477" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">r</text>
+<text x="860" y="2496" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">f</text>
+<text x="860" y="2515" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">a</text>
+<text x="860" y="2534" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">c</text>
+<text x="860" y="2553" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">e</text>
+<text x="860" y="2572" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle"> </text>
+<text x="860" y="2591" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">o</text>
+<text x="860" y="2610" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">n</text>
+<text x="860" y="2629" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">l</text>
+<text x="860" y="2648" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">y</text>
+<text x="860" y="2667" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">.</text>
+<rect x="80" y="842" width="1540" height="76" rx="8" fill="#0f172a"/>
+<rect x="80" y="842" width="1540" height="76" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#94a3b8" stroke-width="1.2"/>
+<text x="96" y="866" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Reading note</text>
+<text x="96" y="888" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">VMx keeps containers, decorators, helpers, and specialized VMs as separate families so host apps can compose only the primitives they need.</text>
+<rect x="245" y="288" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="278" y="302" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="522" y="474" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="566" y="488" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
+<rect x="819" y="474" width="74" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="856" y="488" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">composes</text>
+<rect x="1106" y="474" width="137" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="1174" y="488" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps / decorates</text>
+<rect x="1407" y="474" width="123" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="1468" y="488" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">injects / posts</text>
 </svg>

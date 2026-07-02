@@ -9,6 +9,16 @@ parent, depth, and path semantics.
 This family exists so you do not have to manually recurse a `CompositeVM` and
 rebuild tree bookkeeping in every app.
 
+<img src="../../../assets/diagrams/hierarchical-family.svg" alt="Hierarchical Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../../assets/diagrams/hierarchical-family.html">HTML</a>
+  &middot;
+  <a href="../../../assets/diagrams/hierarchical-family.svg">SVG</a>
+  &middot;
+  <a href="../../../assets/diagrams/hierarchical-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 A hierarchical node owns:

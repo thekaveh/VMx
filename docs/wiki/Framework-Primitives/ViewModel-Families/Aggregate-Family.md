@@ -3,6 +3,12 @@
 Use `AggregateVM1..6` when a parent owns a fixed set of heterogeneous child
 roles.
 
+![Aggregate Family Map](../../assets/diagrams/aggregate-family.png)
+
+Support links: [HTML](../../assets/diagrams/aggregate-family.html),
+[SVG](../../assets/diagrams/aggregate-family.svg),
+[PNG](../../assets/diagrams/aggregate-family.png)
+
 ## Best Fit
 
 - workspace shells

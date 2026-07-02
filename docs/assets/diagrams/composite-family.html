@@ -4,32 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Composite Family Deep Dive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
     :root {
-      color-scheme: light dark;
-      --page-bg: #edf3fa;
-      --page-accent: rgba(34, 211, 238, 0.1);
-      --surface: rgba(255, 255, 255, 0.88);
-      --surface-strong: #ffffff;
-      --surface-border: #c9d4e2;
-      --text-primary: #0f172a;
-      --text-secondary: #475569;
-      --text-tertiary: #64748b;
-      --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --page-bg: #020617;
-        --page-accent: rgba(56, 189, 248, 0.08);
-        --surface: rgba(15, 23, 42, 0.82);
-        --surface-strong: rgba(16, 27, 38, 0.94);
-        --surface-border: #273542;
-        --text-primary: #f8fafc;
-        --text-secondary: #cbd5e1;
-        --text-tertiary: #94a3b8;
-        --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
-      }
+      color-scheme: dark;
+      --page-bg: #020617;
+      --page-accent: rgba(56, 189, 248, 0.08);
+      --surface: rgba(15, 23, 42, 0.82);
+      --surface-strong: rgba(16, 27, 38, 0.94);
+      --surface-border: #273542;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
     }
     body {
       margin: 0;
@@ -38,9 +28,9 @@
       background: var(--page-bg);
       background-image:
         radial-gradient(circle at top left, var(--page-accent), transparent 28%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 18rem);
+        linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent 18rem);
       color: var(--text-primary);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     }
     main { max-width: 1600px; margin: 0 auto; }
     header { margin-bottom: 20px; }
@@ -63,7 +53,8 @@
       background: var(--surface);
       box-shadow: var(--shadow);
     }
-    object { display: block; width: 100%; min-width: 1180px; }
+    .svg-frame { min-width: 1180px; }
+    .svg-frame svg { display: block; width: 100%; height: auto; }
     .diagram-caption {
       margin: 12px 4px 0;
       color: var(--text-secondary);
@@ -100,8 +91,143 @@
       <p class="subtitle">selection containers, peer groups, fixed aggregates, recursive trees, and paging companions</p>
     </header>
     <div class="diagram">
-      <object data="composite-family.svg" type="image/svg+xml" aria-label="Composite Family Deep Dive"></object>
-      <p class="diagram-caption">Embedded SVG stays high-contrast for portability while the page chrome adapts to your color scheme.</p>
+      <div class="svg-frame" role="img" aria-label="Composite Family Deep Dive">
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1080" viewBox="0 0 1760 1080" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <defs>
+    <style>
+      text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.8"/>
+    </pattern>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Composite Family Deep Dive</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">selection containers, peer groups, fixed aggregates, recursive trees, and paging companions</text>
+  <polyline points="400,250 450,250" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="740,250 790,250" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1090,250 1140,250" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="255,338 255,398" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="595,338 630,398" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="940,338 970,398" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1350,338 1350,398" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="325,560 325,680 685,680 685,810" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="685,930 900,930" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1210,870 1280,870" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="70" y="118" width="1620" height="620" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Container primitives</text>
+<rect x="70" y="768" width="1620" height="210" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="790" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Composition helpers around containers</text>
+<rect x="110" y="170" width="290" height="168" rx="8" fill="#0f172a"/>
+<rect x="110" y="170" width="290" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="255" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>
+<text x="255" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ordered homogeneous children</text>
+<text x="255" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current designates one selected child</text>
+<text x="255" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">select_component / deselect_component</text>
+<text x="255" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ModeledCrudCommands can bind to Current</text>
+<rect x="450" y="170" width="290" height="168" rx="8" fill="#0f172a"/>
+<rect x="450" y="170" width="290" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="595" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">GroupVM</text>
+<text x="595" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same IList surface</text>
+<text x="595" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">peer children only</text>
+<text x="595" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">group child select command stays disabled</text>
+<text x="595" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">good for notification stacks</text>
+<rect x="790" y="170" width="300" height="168" rx="8" fill="#0f172a"/>
+<rect x="790" y="170" width="300" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="940" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">AggregateVM1..6</text>
+<text x="940" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">heterogeneous fixed slots</text>
+<text x="940" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Component1..6 accessors</text>
+<text x="940" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">factories invoked on construct()</text>
+<text x="940" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">best for shells and workspaces</text>
+<rect x="1140" y="170" width="420" height="168" rx="8" fill="#0f172a"/>
+<rect x="1140" y="170" width="420" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1350" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">HierarchicalVM</text>
+<text x="1350" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">recursive nodes with Parent / Depth / Path</text>
+<text x="1350" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lazy or eager child materialization</text>
+<text x="1350" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TreeStructureChangedMessage on structure changes</text>
+<text x="1350" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">walk / walk_expanded integrate naturally</text>
+<rect x="150" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
+<rect x="150" y="398" width="280" height="162" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="290" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Selection semantics</text>
+<text x="290" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current is null or contained</text>
+<text x="290" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">children update IsCurrent</text>
+<text x="290" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">AsyncSelection is opt-in</text>
+<rect x="490" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
+<rect x="490" y="398" width="280" height="162" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="630" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection semantics</text>
+<text x="630" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Add / Remove / Insert / Clear</text>
+<text x="630" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">publish collection changes</text>
+<text x="630" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">BatchUpdate emits one Reset</text>
+<rect x="830" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
+<rect x="830" y="398" width="280" height="162" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
+<text x="970" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Construction semantics</text>
+<text x="970" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Constructed after children settle</text>
+<text x="970" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reference implementations</text>
+<text x="970" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">visit children sequentially</text>
+<rect x="1170" y="398" width="360" height="162" rx="8" fill="#0f172a"/>
+<rect x="1170" y="398" width="360" height="162" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1350" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Tree semantics</text>
+<text x="1350" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">HierarchicalVM rejects ancestor cycles</text>
+<text x="1350" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">InvalidateChildren refreshes the child cache</text>
+<text x="1350" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lazy boundaries stay explicit</text>
+<rect x="180" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
+<rect x="180" y="810" width="290" height="120" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="325" y="838" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">SearchableState</text>
+<text x="325" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">filter first</text>
+<text x="325" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">debounced SearchTerm</text>
+<text x="325" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">filtered view source</text>
+<rect x="540" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
+<rect x="540" y="810" width="290" height="120" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="685" y="838" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">PagedComposition</text>
+<text x="685" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">finite page slice</text>
+<text x="685" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">implements IPageable</text>
+<text x="685" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">decorates iterable source</text>
+<rect x="900" y="810" width="310" height="120" rx="8" fill="#0f172a"/>
+<rect x="900" y="810" width="310" height="120" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="1055" y="838" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">TokenPagedComposition</text>
+<text x="1055" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">forward-only fetch_next(token)</text>
+<text x="1055" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">LoadMore / Refresh</text>
+<text x="1055" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">accumulated Items + HasMore</text>
+<rect x="1280" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
+<rect x="1280" y="810" width="290" height="120" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1425" y="838" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ForwardingCompositeVM</text>
+<text x="1425" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps ICompositeVM&lt;VM&gt;</text>
+<text x="1425" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">override single behaviors</text>
+<text x="1425" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">still forwards disposal</text>
+<rect x="1040" y="596" width="610" height="112" rx="8" fill="#0f172a"/>
+<rect x="1040" y="596" width="610" height="112" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="1056" y="620" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Why separate primitives</text>
+<text x="1056" y="642" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">CompositeVM handles Current; GroupVM represents peers.</text>
+<text x="1056" y="660" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">AggregateVM owns fixed slots; HierarchicalVM owns trees.</text>
+<text x="1056" y="678" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Paging helpers sit beside containers, not under them.</text>
+<rect x="339" y="138" width="186" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="432" y="152" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">same IList minus Current</text>
+<rect x="687" y="138" width="151" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="762" y="152" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">fixed heterogeneity</text>
+<rect x="1051" y="138" width="130" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="1116" y="152" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">recursive domain</text>
+<rect x="260" y="358" width="81" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
+<text x="300" y="372" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">selection</text>
+<rect x="620" y="358" width="60" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="650" y="372" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">events</text>
+<rect x="960" y="358" width="81" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="1000" y="372" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">lifecycle</text>
+<rect x="1360" y="358" width="81" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="1400" y="372" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">structure</text>
+<rect x="462" y="652" width="116" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="520" y="666" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">filter -&gt; page</text>
+<rect x="733" y="943" width="123" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="794" y="957" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">finite vs token</text>
+<rect x="1219" y="842" width="54" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="1246" y="856" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
+</svg>
+
+      </div>
+      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">

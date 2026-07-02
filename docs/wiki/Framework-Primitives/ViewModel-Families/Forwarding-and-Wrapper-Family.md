@@ -3,6 +3,12 @@
 Use forwarding wrappers when you need to instrument, adapt, or selectively
 override a shipped VM without copying its whole surface.
 
+![Forwarding Wrapper Family Map](../../assets/diagrams/forwarding-wrapper-family.png)
+
+Support links: [HTML](../../assets/diagrams/forwarding-wrapper-family.html),
+[SVG](../../assets/diagrams/forwarding-wrapper-family.svg),
+[PNG](../../assets/diagrams/forwarding-wrapper-family.png)
+
 ## Shipped Families
 
 - `ForwardingComponentVM<M>`

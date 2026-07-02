@@ -4,32 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Commands And Capabilities Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
     :root {
-      color-scheme: light dark;
-      --page-bg: #edf3fa;
-      --page-accent: rgba(34, 211, 238, 0.1);
-      --surface: rgba(255, 255, 255, 0.88);
-      --surface-strong: #ffffff;
-      --surface-border: #c9d4e2;
-      --text-primary: #0f172a;
-      --text-secondary: #475569;
-      --text-tertiary: #64748b;
-      --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --page-bg: #020617;
-        --page-accent: rgba(56, 189, 248, 0.08);
-        --surface: rgba(15, 23, 42, 0.82);
-        --surface-strong: rgba(16, 27, 38, 0.94);
-        --surface-border: #273542;
-        --text-primary: #f8fafc;
-        --text-secondary: #cbd5e1;
-        --text-tertiary: #94a3b8;
-        --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
-      }
+      color-scheme: dark;
+      --page-bg: #020617;
+      --page-accent: rgba(56, 189, 248, 0.08);
+      --surface: rgba(15, 23, 42, 0.82);
+      --surface-strong: rgba(16, 27, 38, 0.94);
+      --surface-border: #273542;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
     }
     body {
       margin: 0;
@@ -38,9 +28,9 @@
       background: var(--page-bg);
       background-image:
         radial-gradient(circle at top left, var(--page-accent), transparent 28%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 18rem);
+        linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent 18rem);
       color: var(--text-primary);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     }
     main { max-width: 1600px; margin: 0 auto; }
     header { margin-bottom: 20px; }
@@ -63,7 +53,8 @@
       background: var(--surface);
       box-shadow: var(--shadow);
     }
-    object { display: block; width: 100%; min-width: 1180px; }
+    .svg-frame { min-width: 1180px; }
+    .svg-frame svg { display: block; width: 100%; height: auto; }
     .diagram-caption {
       margin: 12px 4px 0;
       color: var(--text-secondary);
@@ -100,8 +91,143 @@
       <p class="subtitle">reactive ICommand primitives and the 22 opt-in behavior contracts</p>
     </header>
     <div class="diagram">
-      <object data="commands-capabilities.svg" type="image/svg+xml" aria-label="Commands And Capabilities Map"></object>
-      <p class="diagram-caption">Embedded SVG stays high-contrast for portability while the page chrome adapts to your color scheme.</p>
+      <div class="svg-frame" role="img" aria-label="Commands And Capabilities Map">
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1100" viewBox="0 0 1780 1100" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <defs>
+    <style>
+      text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.8"/>
+    </pattern>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Commands And Capabilities Map</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">reactive ICommand primitives and the 22 opt-in behavior contracts</text>
+  <polyline points="540,229 690,229" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,381 690,381" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,533 690,533" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,685 690,685 690,588" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,837 1030,837" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1180,654 1180,730" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1520,478 1520,730" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="840,654 840,730" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1520,302 1520,346" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1180,302 1180,346" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="840,302 840,346" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="70" y="118" width="520" height="820" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="140" fill="#fb923c" font-size="12" font-weight="700" text-anchor="start">Command primitives</text>
+<rect x="630" y="118" width="1080" height="820" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="644" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Capability families</text>
+<rect x="120" y="170" width="420" height="118" rx="8" fill="#0f172a"/>
+<rect x="120" y="170" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ICommand / ICommand&lt;T&gt;</text>
+<text x="330" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CanExecute / Execute / CanExecuteChanged</text>
+<text x="330" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">parameterized variant when payload is needed</text>
+<rect x="120" y="322" width="420" height="118" rx="8" fill="#0f172a"/>
+<rect x="120" y="322" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="350" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">RelayCommand</text>
+<text x="330" y="376" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional predicate + task</text>
+<text x="330" y="395" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">trigger observables re-fire CanExecuteChanged</text>
+<text x="330" y="414" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">disposed command becomes inert</text>
+<rect x="120" y="474" width="420" height="118" rx="8" fill="#0f172a"/>
+<rect x="120" y="474" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="502" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">CompositeCommand</text>
+<text x="330" y="528" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">execute every enabled inner command</text>
+<text x="330" y="547" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">aggregate CanExecute over children</text>
+<rect x="120" y="626" width="420" height="118" rx="8" fill="#0f172a"/>
+<rect x="120" y="626" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="654" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">DecoratorCommand</text>
+<text x="330" y="680" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">inner command + extra gate</text>
+<text x="330" y="699" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional pre/post actions</text>
+<rect x="120" y="778" width="420" height="118" rx="8" fill="#0f172a"/>
+<rect x="120" y="778" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="806" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
+<text x="330" y="832" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirm delegate before Execute</text>
+<text x="330" y="851" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ExecuteAsync and errors channel</text>
+<text x="330" y="870" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fluent Confirm helper overloads</text>
+<rect x="690" y="170" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="690" y="170" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="840" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Selection family</text>
+<text x="840" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ISelectable</text>
+<text x="840" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IDeselectable</text>
+<text x="840" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ISelectionTogglable</text>
+<rect x="1030" y="170" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="1030" y="170" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1180" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Expansion family</text>
+<text x="1180" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IExpandable</text>
+<text x="1180" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ICollapsible</text>
+<text x="1180" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IExpansionTogglable</text>
+<rect x="1370" y="170" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="1370" y="170" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1520" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Lifecycle family</text>
+<text x="1520" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IConstructable</text>
+<text x="1520" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IDestructable</text>
+<text x="1520" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IReconstructable</text>
+<rect x="690" y="346" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="690" y="346" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="840" y="374" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Dialog / form family</text>
+<text x="840" y="400" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IClosable</text>
+<text x="840" y="419" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IApprovable</text>
+<text x="840" y="438" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ICancelable</text>
+<rect x="1030" y="346" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="1030" y="346" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1180" y="374" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Search / filter family</text>
+<text x="1180" y="400" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ISearchable</text>
+<text x="1180" y="419" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IFilterable&lt;TItem&gt;</text>
+<rect x="1370" y="346" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="1370" y="346" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1520" y="374" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Paging family</text>
+<text x="1520" y="400" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IPageable</text>
+<text x="1520" y="419" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">page navigation surface only</text>
+<rect x="690" y="522" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="690" y="522" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="840" y="550" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">CRUD family</text>
+<text x="840" y="576" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">INewCreatable</text>
+<text x="840" y="595" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IDeletable&lt;T&gt;</text>
+<text x="840" y="614" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IUpdatable&lt;T&gt;</text>
+<text x="840" y="633" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ISavable&lt;T&gt;</text>
+<rect x="1030" y="522" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="1030" y="522" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1180" y="550" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Container-current family</text>
+<text x="1180" y="576" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ICurrentDeletable</text>
+<text x="1180" y="595" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ICurrentUpdatable</text>
+<rect x="1370" y="522" width="300" height="132" rx="8" fill="#0f172a"/>
+<rect x="1370" y="522" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1520" y="550" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Management escape hatch</text>
+<text x="1520" y="576" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IManagable&lt;T&gt;</text>
+<text x="1520" y="595" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">consumer-specific management action</text>
+<rect x="820" y="730" width="720" height="166" rx="8" fill="#0f172a"/>
+<rect x="820" y="730" width="720" height="166" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1180" y="758" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Typical compositions</text>
+<text x="1180" y="784" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CompositeVM.Current -&gt; ModeledCrudCommands triggers</text>
+<text x="1180" y="803" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ExpandableState delegates expansion capabilities</text>
+<text x="1180" y="822" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PagedComposition implements IPageable over a filtered source</text>
+<text x="1180" y="841" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">FormVM and dialogs wire commands rather than grow a custom command type</text>
+<rect x="130" y="948" width="1540" height="94" rx="8" fill="#0f172a"/>
+<rect x="130" y="948" width="1540" height="94" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="146" y="972" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Why micro-interfaces matter</text>
+<text x="146" y="994" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Capability interfaces advertise exactly the verbs a VM supports, so command bars and view adapters can stay capability-based without reshaping the core VM hierarchy.</text>
+<rect x="506" y="201" width="228" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="620" y="215" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">commands call capability verbs</text>
+<rect x="545" y="353" width="151" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="620" y="367" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">bind UI affordances</text>
+<rect x="564" y="505" width="81" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="604" y="519" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">gate CRUD</text>
+<rect x="572" y="657" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="616" y="671" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">extra gate</text>
+<rect x="679" y="809" width="214" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="786" y="823" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">confirm / dialog integration</text>
+<rect x="1174" y="684" width="172" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="1260" y="698" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">implemented by helpers</text>
+</svg>
+
+      </div>
+      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">

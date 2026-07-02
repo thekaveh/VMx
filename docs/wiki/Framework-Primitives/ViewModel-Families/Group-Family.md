@@ -3,6 +3,12 @@
 Use `GroupVM` for an ordered homogeneous peer collection that does not own a
 current child.
 
+![Group Family Map](../../assets/diagrams/group-family.png)
+
+Support links: [HTML](../../assets/diagrams/group-family.html),
+[SVG](../../assets/diagrams/group-family.svg),
+[PNG](../../assets/diagrams/group-family.png)
+
 ## Best Fit
 
 - toolbars and peer lists
