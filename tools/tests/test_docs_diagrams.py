@@ -204,6 +204,40 @@ def test_validate_reports_site_diagram_link_that_resolves_to_wrong_output_path(
     ]
 
 
+def test_validate_scans_site_pages_not_listed_in_registry_references(tmp_path: Path) -> None:
+    diagrams = tmp_path / "docs" / "assets" / "diagrams"
+    diagrams.mkdir(parents=True)
+    (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
+    (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
+    write_png(diagrams / "one.png", 3200, 1800)
+    canonical = tmp_path / "docs" / "site" / "page.md"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("![One](../assets/diagrams/one.svg)", encoding="utf-8")
+    gallery = tmp_path / "docs" / "site" / "architecture" / "diagram-gallery.md"
+    gallery.parent.mkdir(parents=True)
+    gallery.write_text('<img src="../assets/diagrams/one.svg" />', encoding="utf-8")
+    registry = diagrams / "diagram-registry.json"
+    write_registry(
+        registry,
+        [
+            {
+                "id": "one",
+                "title": "One",
+                "html": "one.html",
+                "svg": "one.svg",
+                "png": "one.png",
+                "referencedBy": ["docs/site/page.md"],
+            }
+        ],
+    )
+
+    assert validate(tmp_path, registry) == [
+        "docs/site/architecture/diagram-gallery.md: diagram link ../assets/diagrams/one.svg "
+        "resolves to site/architecture/assets/diagrams/one.svg, "
+        "expected site/assets/diagrams/one.svg"
+    ]
+
+
 def test_main_reports_malformed_registry_errors(tmp_path: Path, capsys, monkeypatch) -> None:
     registry = tmp_path / "docs" / "assets" / "diagrams" / "diagram-registry.json"
     registry.parent.mkdir(parents=True)

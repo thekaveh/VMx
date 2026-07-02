@@ -75,6 +75,15 @@ def validate_site_diagram_links(ref: Path, text: str, asset_names: set[str]) -> 
     return errors
 
 
+def validate_all_site_diagram_links(root: Path, asset_names: set[str]) -> list[str]:
+    errors: list[str] = []
+    for ref_path in sorted((root / "docs/site").rglob("*.md")):
+        ref = ref_path.relative_to(root)
+        text = ref_path.read_text(encoding="utf-8")
+        errors.extend(validate_site_diagram_links(ref, text, asset_names))
+    return errors
+
+
 def load_registry(path: Path) -> tuple[list[object], list[str]]:
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
@@ -139,11 +148,13 @@ def validate(root: Path, registry_path: Path, *, assets_only: bool = False) -> l
     diagrams_dir = registry_path.parent
     registry, registry_errors = load_registry(registry_path)
     errors.extend(registry_errors)
+    all_asset_names: set[str] = set()
     for index, item in enumerate(registry):
         diagram, row_errors = validate_diagram_row(item, index)
         errors.extend(row_errors)
         if diagram is None:
             continue
+        all_asset_names.update({diagram["html"], diagram["svg"], diagram["png"]})
         for key in ("html", "svg", "png"):
             asset = diagrams_dir / diagram[key]
             if not asset.exists():
@@ -166,15 +177,14 @@ def validate(root: Path, registry_path: Path, *, assets_only: bool = False) -> l
                 errors.append(f"{diagram['id']}: missing reference file {ref}")
                 continue
             text = ref_path.read_text(encoding="utf-8")
-            asset_names = {diagram["html"], diagram["svg"], diagram["png"]}
             if (
                 diagram["svg"] not in text
                 and diagram["png"] not in text
                 and diagram["html"] not in text
             ):
                 errors.append(f"{diagram['id']}: {ref} does not reference diagram asset")
-            if ref.startswith("docs/site/"):
-                errors.extend(validate_site_diagram_links(Path(ref), text, asset_names))
+    if not assets_only:
+        errors.extend(validate_all_site_diagram_links(root, all_asset_names))
     return errors
 
 
