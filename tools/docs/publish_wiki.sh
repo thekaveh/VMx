@@ -9,6 +9,10 @@ rm -rf "$workdir"
 git clone "$repo_url" "$workdir"
 find "$workdir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 cp docs/_build/wiki/*.md "$workdir"/
+mkdir -p "$workdir/assets"
+mkdir -p "$workdir/assets/diagrams"
+find docs/assets/diagrams -maxdepth 1 -type f \( -name "*.html" -o -name "*.svg" -o -name "*.png" \) \
+  -exec cp {} "$workdir/assets/diagrams/" \;
 (
   cd "$workdir"
   git add .
