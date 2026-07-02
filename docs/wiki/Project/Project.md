@@ -5,6 +5,6 @@ release references.
 
 ## Start Here
 
-- \[[Contributing & Releases|Project/Contributing-and-Releases]\]
-- \[[Repository Layout|Project/Repository-Layout]\]
-- \[[Release Shape|Project/Release-Shape]\]
+- [[Contributing & Releases|Project/Contributing-and-Releases]]
+- [[Repository Layout|Project/Repository-Layout]]
+- [[Release Shape|Project/Release-Shape]]

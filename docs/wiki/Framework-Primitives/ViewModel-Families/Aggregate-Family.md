@@ -16,5 +16,5 @@ not when the shape is list-like.
 
 ## Related Pages
 
-- \[[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]\]
-- \[[Notes Workspace|Examples/Notes-Workspace]\]
+- [[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]]
+- [[Notes Workspace|Examples/Notes-Workspace]]

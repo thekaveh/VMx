@@ -13,5 +13,5 @@ flavors for runtime loading and conformance validation.
 
 ## Related Pages
 
-- \[[Spec Source Of Truth|Specification-and-Conformance/Spec-Source-Of-Truth]\]
-- \[[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]\]
+- [[Spec Source Of Truth|Specification-and-Conformance/Spec-Source-Of-Truth]]
+- [[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]]

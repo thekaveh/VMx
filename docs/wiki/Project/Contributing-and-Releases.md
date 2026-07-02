@@ -13,5 +13,5 @@ rules visible.
 
 ## Related Pages
 
-- \[[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]\]
-- \[[Repository Layout|Project/Repository-Layout]\]
+- [[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]]
+- [[Repository Layout|Project/Repository-Layout]]

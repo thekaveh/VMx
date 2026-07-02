@@ -18,6 +18,6 @@ reshape ownership.
 
 ## Related Pages
 
-- \[[ViewModel Families|Framework-Primitives/ViewModel-Families/ViewModel-Families]\]
-- \[[State & Reactive Helpers|Framework-Primitives/State-and-Reactive-Helpers]\]
-- \[[Command Families|Framework-Primitives/Command-Families]\]
+- [[ViewModel Families|Framework-Primitives/ViewModel-Families/ViewModel-Families]]
+- [[State & Reactive Helpers|Framework-Primitives/State-and-Reactive-Helpers]]
+- [[Command Families|Framework-Primitives/Command-Families]]

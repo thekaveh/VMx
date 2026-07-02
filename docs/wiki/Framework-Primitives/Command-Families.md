@@ -12,6 +12,6 @@ reactively re-evaluated without changing the VM hierarchy itself.
 
 ## Related Pages
 
-- \[[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]\]
-- \[[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]\]
-- \[[Services, Messages & Dispatching|Framework-Primitives/Services-Messages-and-Dispatching]\]
+- [[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]]
+- [[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]]
+- [[Services, Messages & Dispatching|Framework-Primitives/Services-Messages-and-Dispatching]]

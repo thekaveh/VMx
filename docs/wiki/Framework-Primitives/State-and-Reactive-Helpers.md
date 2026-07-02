@@ -18,6 +18,6 @@ VM boundary themselves.
 
 ## Related Pages
 
-- \[[Capability Families|Framework-Primitives/Capability-Families]\]
-- \[[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]\]
-- \[[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]\]
+- [[Capability Families|Framework-Primitives/Capability-Families]]
+- [[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]]
+- [[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]]

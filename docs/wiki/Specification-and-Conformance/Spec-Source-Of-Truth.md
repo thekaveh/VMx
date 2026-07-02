@@ -9,6 +9,6 @@ The spec currently contains:
 
 ## Related Pages
 
-- \[[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]\]
-- \[[Shared Fixtures|Specification-and-Conformance/Shared-Fixtures]\]
-- \[[Project|Project/Project]\]
+- [[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]]
+- [[Shared Fixtures|Specification-and-Conformance/Shared-Fixtures]]
+- [[Project|Project/Project]]

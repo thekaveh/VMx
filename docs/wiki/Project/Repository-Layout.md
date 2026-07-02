@@ -14,5 +14,5 @@ language flavors.
 
 ## Related Pages
 
-- \[[Spec Source Of Truth|Specification-and-Conformance/Spec-Source-Of-Truth]\]
-- \[[Examples|Examples/Examples]\]
+- [[Spec Source Of Truth|Specification-and-Conformance/Spec-Source-Of-Truth]]
+- [[Examples|Examples/Examples]]

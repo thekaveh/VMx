@@ -15,5 +15,5 @@
 
 ## Related Pages
 
-- \[[Examples|Examples/Examples]\]
-- \[[Integration Recipes|Getting-Started/Integration-Recipes]\]
+- [[Examples|Examples/Examples]]
+- [[Integration Recipes|Getting-Started/Integration-Recipes]]

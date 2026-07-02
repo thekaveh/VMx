@@ -15,5 +15,5 @@ to change.
 
 ## Related Pages
 
-- \[[Component Family|Framework-Primitives/ViewModel-Families/Component-Family]\]
-- \[[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]\]
+- [[Component Family|Framework-Primitives/ViewModel-Families/Component-Family]]
+- [[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]]

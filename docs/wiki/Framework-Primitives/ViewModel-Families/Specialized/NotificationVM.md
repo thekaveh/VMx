@@ -12,5 +12,5 @@ Use `NotificationVM` when a host wants to render pending notifications from
 
 ## Related Pages
 
-- \[[ConfirmationVM|Framework-Primitives/ViewModel-Families/Specialized/ConfirmationVM]\]
-- \[[Notes Workspace|Examples/Notes-Workspace]\]
+- [[ConfirmationVM|Framework-Primitives/ViewModel-Families/Specialized/ConfirmationVM]]
+- [[Notes Workspace|Examples/Notes-Workspace]]

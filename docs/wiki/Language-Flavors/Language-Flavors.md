@@ -14,8 +14,8 @@ C#, Python, TypeScript, and Swift.
 
 ## Read Next
 
-- \[[Cross-Language Naming|Language-Flavors/Cross-Language-Naming]\]
-- \[[C#|Language-Flavors/CSharp]\]
-- \[[Python|Language-Flavors/Python]\]
-- \[[TypeScript|Language-Flavors/TypeScript]\]
-- \[[Swift|Language-Flavors/Swift]\]
+- [[Cross-Language Naming|Language-Flavors/Cross-Language-Naming]]
+- [[C#|Language-Flavors/CSharp]]
+- [[Python|Language-Flavors/Python]]
+- [[TypeScript|Language-Flavors/TypeScript]]
+- [[Swift|Language-Flavors/Swift]]

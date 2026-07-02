@@ -11,5 +11,5 @@ active pane, mode, route, focus target, or modal precedence stack.
 
 ## Related Pages
 
-- \[[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]\]
-- \[[Editor Mode & DiscriminatorVM|Examples/Editor-Mode-and-DiscriminatorVM]\]
+- [[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]]
+- [[Editor Mode & DiscriminatorVM|Examples/Editor-Mode-and-DiscriminatorVM]]

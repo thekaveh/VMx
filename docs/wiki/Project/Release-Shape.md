@@ -10,5 +10,5 @@ Releases are coordinated through three tag families on the same commit.
 
 ## Related Pages
 
-- \[[Compatibility Matrix|Specification-and-Conformance/Compatibility-Matrix]\]
-- \[[Contributing & Releases|Project/Contributing-and-Releases]\]
+- [[Compatibility Matrix|Specification-and-Conformance/Compatibility-Matrix]]
+- [[Contributing & Releases|Project/Contributing-and-Releases]]

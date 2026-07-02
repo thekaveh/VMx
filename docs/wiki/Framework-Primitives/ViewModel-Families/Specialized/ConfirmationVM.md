@@ -10,5 +10,5 @@ the underlying decision.
 
 ## Related Pages
 
-- \[[NotificationVM|Framework-Primitives/ViewModel-Families/Specialized/NotificationVM]\]
-- \[[ModalVM|Framework-Primitives/ViewModel-Families/Specialized/ModalVM]\]
+- [[NotificationVM|Framework-Primitives/ViewModel-Families/Specialized/NotificationVM]]
+- [[ModalVM|Framework-Primitives/ViewModel-Families/Specialized/ModalVM]]

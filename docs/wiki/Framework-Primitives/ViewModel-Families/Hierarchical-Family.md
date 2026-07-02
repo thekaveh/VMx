@@ -16,5 +16,5 @@ The current Notes Workspace portfolio represents notebook structure through flat
 
 ## Related Pages
 
-- \[[Builders, Collections & Tree Utilities|Framework-Primitives/Builders-Collections-and-Tree-Utilities]\]
-- \[[VM Layer Map|Examples/VM-Layer-Map]\]
+- [[Builders, Collections & Tree Utilities|Framework-Primitives/Builders-Collections-and-Tree-Utilities]]
+- [[VM Layer Map|Examples/VM-Layer-Map]]

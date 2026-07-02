@@ -11,5 +11,5 @@ current child.
 
 ## Related Pages
 
-- \[[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]\]
-- \[[Aggregate Family|Framework-Primitives/ViewModel-Families/Aggregate-Family]\]
+- [[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]]
+- [[Aggregate Family|Framework-Primitives/ViewModel-Families/Aggregate-Family]]

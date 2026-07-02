@@ -19,5 +19,5 @@ shift only to match the host language idiom.
 
 ## Related Pages
 
-- \[[Quickstart|Getting-Started/Quickstart]\]
-- \[[Framework Primitives|Framework-Primitives/Framework-Primitives]\]
+- [[Quickstart|Getting-Started/Quickstart]]
+- [[Framework Primitives|Framework-Primitives/Framework-Primitives]]

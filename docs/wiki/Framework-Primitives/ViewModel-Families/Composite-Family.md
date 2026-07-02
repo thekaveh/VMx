@@ -17,5 +17,5 @@ Support links: [HTML](../../assets/diagrams/composite-family.html),
 
 ## Related Pages
 
-- \[[Group Family|Framework-Primitives/ViewModel-Families/Group-Family]\]
-- \[[Builders, Collections & Tree Utilities|Framework-Primitives/Builders-Collections-and-Tree-Utilities]\]
+- [[Group Family|Framework-Primitives/ViewModel-Families/Group-Family]]
+- [[Builders, Collections & Tree Utilities|Framework-Primitives/Builders-Collections-and-Tree-Utilities]]

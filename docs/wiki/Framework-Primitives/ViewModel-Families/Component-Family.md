@@ -16,5 +16,5 @@ Use `ComponentVM` for an addressable leaf VM that is not itself a container.
 
 ## Related Pages
 
-- \[[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]\]
-- \[[Forwarding & Wrapper Family|Framework-Primitives/ViewModel-Families/Forwarding-and-Wrapper-Family]\]
+- [[Composite Family|Framework-Primitives/ViewModel-Families/Composite-Family]]
+- [[Forwarding & Wrapper Family|Framework-Primitives/ViewModel-Families/Forwarding-and-Wrapper-Family]]

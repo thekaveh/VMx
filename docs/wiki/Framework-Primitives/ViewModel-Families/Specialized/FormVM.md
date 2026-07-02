@@ -18,5 +18,5 @@ revert to the last snapshot.
 
 ## Related Pages
 
-- \[[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]\]
-- \[[Notes Workspace|Examples/Notes-Workspace]\]
+- [[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]]
+- [[Notes Workspace|Examples/Notes-Workspace]]

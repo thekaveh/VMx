@@ -15,6 +15,6 @@ tree, so check the flavor README before pinning a release.
 
 ## Related Pages
 
-- \[[Quickstart|Getting-Started/Quickstart]\]
-- \[[Language Flavors|Language-Flavors/Language-Flavors]\]
-- \[[Integration Recipes|Getting-Started/Integration-Recipes]\]
+- [[Quickstart|Getting-Started/Quickstart]]
+- [[Language Flavors|Language-Flavors/Language-Flavors]]
+- [[Integration Recipes|Getting-Started/Integration-Recipes]]

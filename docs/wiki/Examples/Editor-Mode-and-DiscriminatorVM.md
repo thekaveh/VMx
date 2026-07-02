@@ -11,5 +11,5 @@ portfolio: one editor surface, multiple active modes.
 
 ## Related Pages
 
-- \[[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]\]
-- \[[Notes Workspace|Examples/Notes-Workspace]\]
+- [[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]]
+- [[Notes Workspace|Examples/Notes-Workspace]]

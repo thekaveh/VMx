@@ -11,5 +11,5 @@ bump in every active flavor.
 
 ## Related Pages
 
-- \[[Project|Project/Project]\]
-- \[[Release Shape|Project/Release-Shape]\]
+- [[Project|Project/Project]]
+- [[Release Shape|Project/Release-Shape]]

@@ -10,9 +10,9 @@ The smallest VMx shape is the same in every language flavor:
 
 ## What To Learn Next
 
-- \[[Core Concepts|Getting-Started/Core-Concepts]\]
-- \[[ViewModel Families|Framework-Primitives/ViewModel-Families/ViewModel-Families]\]
-- \[[Language Flavors|Language-Flavors/Language-Flavors]\]
+- [[Core Concepts|Getting-Started/Core-Concepts]]
+- [[ViewModel Families|Framework-Primitives/ViewModel-Families/ViewModel-Families]]
+- [[Language Flavors|Language-Flavors/Language-Flavors]]
 
 ## Reference
 

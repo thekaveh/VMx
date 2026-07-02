@@ -12,5 +12,5 @@ host-adapter basics without reading the full flagship app.
 
 ## Related Pages
 
-- \[[Quickstart|Getting-Started/Quickstart]\]
-- \[[Language Flavors|Language-Flavors/Language-Flavors]\]
+- [[Quickstart|Getting-Started/Quickstart]]
+- [[Language Flavors|Language-Flavors/Language-Flavors]]

@@ -23,6 +23,6 @@ structure and lifecycle cascades.
 
 ## Related Pages
 
-- \[[Architecture Map|Architecture/Architecture-Map]\]
-- \[[Framework Primitives|Framework-Primitives/Framework-Primitives]\]
-- \[[Specification & Conformance|Specification-and-Conformance/Specification-and-Conformance]\]
+- [[Architecture Map|Architecture/Architecture-Map]]
+- [[Framework Primitives|Framework-Primitives/Framework-Primitives]]
+- [[Specification & Conformance|Specification-and-Conformance/Specification-and-Conformance]]

@@ -11,5 +11,5 @@ result that host services can present and await.
 
 ## Related Pages
 
-- \[[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]\]
-- \[[Services, Messages & Dispatching|Framework-Primitives/Services-Messages-and-Dispatching]\]
+- [[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]]
+- [[Services, Messages & Dispatching|Framework-Primitives/Services-Messages-and-Dispatching]]

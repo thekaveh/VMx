@@ -11,8 +11,8 @@ Support links: [HTML](../../assets/diagrams/forms-dialogs-notifications.html),
 
 ## Pages In This Section
 
-- \[[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]\]
-- \[[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]\]
-- \[[ConfirmationVM|Framework-Primitives/ViewModel-Families/Specialized/ConfirmationVM]\]
-- \[[ModalVM|Framework-Primitives/ViewModel-Families/Specialized/ModalVM]\]
-- \[[NotificationVM|Framework-Primitives/ViewModel-Families/Specialized/NotificationVM]\]
+- [[FormVM|Framework-Primitives/ViewModel-Families/Specialized/FormVM]]
+- [[DiscriminatorVM|Framework-Primitives/ViewModel-Families/Specialized/DiscriminatorVM]]
+- [[ConfirmationVM|Framework-Primitives/ViewModel-Families/Specialized/ConfirmationVM]]
+- [[ModalVM|Framework-Primitives/ViewModel-Families/Specialized/ModalVM]]
+- [[NotificationVM|Framework-Primitives/ViewModel-Families/Specialized/NotificationVM]]

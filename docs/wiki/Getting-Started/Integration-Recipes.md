@@ -18,5 +18,5 @@ wiki page is the short router.
 
 ## Related Pages
 
-- \[[Language Flavors|Language-Flavors/Language-Flavors]\]
-- \[[Examples|Examples/Examples]\]
+- [[Language Flavors|Language-Flavors/Language-Flavors]]
+- [[Examples|Examples/Examples]]

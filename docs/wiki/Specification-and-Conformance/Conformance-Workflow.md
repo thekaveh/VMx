@@ -11,5 +11,5 @@ own test suite.
 
 ## Related Pages
 
-- \[[Spec Source Of Truth|Specification-and-Conformance/Spec-Source-Of-Truth]\]
-- \[[Compatibility Matrix|Specification-and-Conformance/Compatibility-Matrix]\]
+- [[Spec Source Of Truth|Specification-and-Conformance/Spec-Source-Of-Truth]]
+- [[Compatibility Matrix|Specification-and-Conformance/Compatibility-Matrix]]

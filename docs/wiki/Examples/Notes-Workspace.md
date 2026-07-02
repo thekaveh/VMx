@@ -20,7 +20,7 @@ Support links: [HTML](../../assets/diagrams/examples-vm-layer.html),
 
 ## Related Pages
 
-- \[[VM Layer Map|Examples/VM-Layer-Map]\]
-- \[[Global Search & Token Paging|Examples/Global-Search-and-Token-Paging]\]
-- \[[Tag Autocomplete & SearchableState|Examples/Tag-Autocomplete-and-SearchableState]\]
-- \[[Editor Mode & DiscriminatorVM|Examples/Editor-Mode-and-DiscriminatorVM]\]
+- [[VM Layer Map|Examples/VM-Layer-Map]]
+- [[Global Search & Token Paging|Examples/Global-Search-and-Token-Paging]]
+- [[Tag Autocomplete & SearchableState|Examples/Tag-Autocomplete-and-SearchableState]]
+- [[Editor Mode & DiscriminatorVM|Examples/Editor-Mode-and-DiscriminatorVM]]

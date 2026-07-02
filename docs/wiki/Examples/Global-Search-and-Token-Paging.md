@@ -11,6 +11,6 @@ Global all-notes search is the main scenario path that demonstrates
 
 ## Related Pages
 
-- \[[Notes Workspace|Examples/Notes-Workspace]\]
-- \[[State & Reactive Helpers|Framework-Primitives/State-and-Reactive-Helpers]\]
-- \[[Builders, Collections & Tree Utilities|Framework-Primitives/Builders-Collections-and-Tree-Utilities]\]
+- [[Notes Workspace|Examples/Notes-Workspace]]
+- [[State & Reactive Helpers|Framework-Primitives/State-and-Reactive-Helpers]]
+- [[Builders, Collections & Tree Utilities|Framework-Primitives/Builders-Collections-and-Tree-Utilities]]

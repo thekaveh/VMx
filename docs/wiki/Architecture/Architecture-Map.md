@@ -11,7 +11,7 @@ Support links: [HTML](../../assets/diagrams/system-architecture.html),
 
 ## Read This Section In Order
 
-1. \[[System Architecture|Architecture/System-Architecture]\]
-1. \[[Class Architecture|Architecture/Class-Architecture]\]
-1. \[[Lifecycle & Messaging|Architecture/Lifecycle-and-Messaging]\]
-1. \[[Diagram Gallery|Architecture/Diagram-Gallery]\]
+1. [[System Architecture|Architecture/System-Architecture]]
+1. [[Class Architecture|Architecture/Class-Architecture]]
+1. [[Lifecycle & Messaging|Architecture/Lifecycle-and-Messaging]]
+1. [[Diagram Gallery|Architecture/Diagram-Gallery]]
