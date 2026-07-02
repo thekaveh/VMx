@@ -72,37 +72,37 @@ examples/python/textual/notes_showcase/
 
 ## 3. Feature traceability
 
-| #   | Feature                          | Where                                                                                          |
-| --- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 1   | `HierarchicalVM` capability      | `viewmodels/notebooks_root_vm.py`, `viewmodels/notebook_vm.py` (flat `ComponentVM`-based `NotebooksRootVM` / `NotebookVM` adapters that project the notebook tree and emit `TreeStructureChangedMessage`) |
-| 2   | `CompositeVM.current`            | `viewmodels/notes_view_vm.py` (`current` two-way binding)                                      |
-| 3   | `ComponentVMOf[M]` modeled       | `viewmodels/note_vm.py`, `viewmodels/notebook_vm.py`                                            |
-| 4   | `FormVM` snapshot / revert / validation       | `viewmodels/note_form_vm.py` (owns a strict `FormVM[NoteModel]`)                                |
-| 5   | `DerivedProperty`                | `viewmodels/status_bar_vm.py`, `note_form_vm.is_dirty`, `capability_actions_vm.actions`         |
-| 6   | `RelayCommand` reactive          | `note_form_vm.approve_command` / `deny_command`, `note_vm.delete_command`                       |
-| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`); `note_form_vm` tag suggestions                   |
-| 8   | `IPageable` + `PagedComposition` | `viewmodels/notes_view_vm.py` (page size 5, paging commands delegate to inner `PagedComposition`) |
-| 9   | `INotificationHub` + `NotificationVM` | `viewmodels/notifications_vm.py`, `views/notifications.py`                                 |
-| 10  | Async `construct()` + dispatcher | `viewmodels/workspace_vm.py` (`async construct()`), `views/adapter/dispatcher.py`               |
-| 11  | `TreeStructureChangedMessage`    | `viewmodels/notebooks_root_vm.py` (`add_notebook` / `populate`)                                 |
-| 12  | `ConfirmationDecoratorCommand`   | `viewmodels/note_vm.py` (`delete_command` wraps inner delete)                                   |
-| 13  | `IDialogService`                 | `viewmodels/dialog_service.py`; `views/adapter/dialog.py` implements confirm / notify / save-file modals used by the scenario (`pick_file_to_open` is deliberately unwired and tested as such) |
-| 14  | Capability-aware UI              | `viewmodels/capability_actions_vm.py` + `views/capability_actions.py`                           |
-| 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                   |
+| #   | Feature                                                  | Where                                                                                                                                                                                                                                                                 |
+| --- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Notebook tree projection                                 | `viewmodels/notebooks_root_vm.py`, `viewmodels/notebook_vm.py` (flat `ComponentVM`-based adapters representing the `HierarchicalVM` capability and emitting `TreeStructureChangedMessage`)                                                                            |
+| 2   | `CompositeVM.current`                                    | `viewmodels/notes_view_vm.py` (`current` two-way binding)                                                                                                                                                                                                             |
+| 3   | `ComponentVMOf[M]` modeled                               | `viewmodels/note_vm.py`, `viewmodels/notebook_vm.py`                                                                                                                                                                                                                  |
+| 4   | `FormVM` snapshot / revert / validation                  | `viewmodels/note_form_vm.py` (owns a strict `FormVM[NoteModel]`)                                                                                                                                                                                                      |
+| 5   | `DerivedProperty`                                        | `viewmodels/status_bar_vm.py`, `note_form_vm.is_dirty`, `capability_actions_vm.actions`                                                                                                                                                                               |
+| 6   | `RelayCommand` reactive                                  | `note_form_vm.approve_command` / `deny_command`, `note_vm.delete_command`                                                                                                                                                                                             |
+| 7   | `SearchableState` + `IFilterable<TItem>`                 | `viewmodels/notes_view_vm.py` (debounced 150 ms search + `show_starred_only`); `note_form_vm` tag suggestions                                                                                                                                                         |
+| 8   | `IPageable` + `PagedComposition`                         | `viewmodels/notes_view_vm.py` (page size 5, paging commands delegate to inner `PagedComposition`)                                                                                                                                                                     |
+| 9   | `INotificationHub` + `NotificationVM`                    | `viewmodels/notifications_vm.py`, `views/notifications.py`                                                                                                                                                                                                            |
+| 10  | Async `construct()` + dispatcher                         | `viewmodels/workspace_vm.py` (`async construct()`), `views/adapter/dispatcher.py`                                                                                                                                                                                     |
+| 11  | `TreeStructureChangedMessage`                            | `viewmodels/notebooks_root_vm.py` (`add_notebook` / `populate`)                                                                                                                                                                                                       |
+| 12  | `ConfirmationDecoratorCommand`                           | `viewmodels/note_vm.py` (`delete_command` wraps inner delete)                                                                                                                                                                                                         |
+| 13  | `IDialogService`                                         | `viewmodels/dialog_service.py`; `views/adapter/dialog.py` implements confirm / notify / save-file modals used by the scenario (`pick_file_to_open` is deliberately unwired and tested as such)                                                                        |
+| 14  | Capability-aware UI                                      | `viewmodels/capability_actions_vm.py` + `views/capability_actions.py`                                                                                                                                                                                                 |
+| 15  | `AggregateVM6` (spec 2.2.0)                              | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                                                                                                                                                                                         |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (workspace-owned `ThemeVM` sibling bound through the Textual adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
-| 17  | `TokenPagedComposition`          | `viewmodels/global_search_vm.py` + repository token-paged `search_notes`                        |
-| 18  | `DiscriminatorVM`                | `viewmodels/note_form_vm.py` edit/preview editor mode                                          |
-| 19  | Tag autocomplete                 | `viewmodels/note_form_vm.py` composes `SearchableState[str]` over workspace tags                |
+| 17  | `TokenPagedComposition`                                  | `viewmodels/global_search_vm.py` + repository token-paged `search_notes`                                                                                                                                                                                              |
+| 18  | `DiscriminatorVM`                                        | `viewmodels/note_form_vm.py` edit/preview editor mode                                                                                                                                                                                                                 |
+| 19  | Tag autocomplete                                         | `viewmodels/note_form_vm.py` composes `SearchableState[str]` over workspace tags                                                                                                                                                                                      |
 
 ## 4. Keyboard shortcuts
 
-| Binding         | Action                                |
-| --------------- | ------------------------------------- |
-| `Ctrl+S`        | Approve (save) the form               |
-| `Ctrl+N`        | New note in the current notebook      |
-| `Ctrl+Shift+N`  | New notebook at the root              |
-| `Ctrl+E`        | Export the workspace snapshot         |
-| `Ctrl+F`        | Focus the search input                |
+| Binding        | Action                           |
+| -------------- | -------------------------------- |
+| `Ctrl+S`       | Approve (save) the form          |
+| `Ctrl+N`       | New note in the current notebook |
+| `Ctrl+Shift+N` | New notebook at the root         |
+| `Ctrl+E`       | Export the workspace snapshot    |
+| `Ctrl+F`       | Focus the search input           |
 
 Bindings are declared as Textual `BINDINGS` on `views/app.py`. Each
 `action_*` method is a single statement that calls into the VM, keeping the
