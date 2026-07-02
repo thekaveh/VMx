@@ -10,6 +10,7 @@
 
 # ─── Claude Code session state ─────────────────────────────────────────
 .claude/
+.superpowers/
 CLAUDE.md
 docs/superpowers/
 
