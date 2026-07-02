@@ -47,6 +47,28 @@ nav:
       - Class Architecture: architecture/class-architecture.md
       - Lifecycle & Messaging: architecture/lifecycle-messaging.md
       - Diagram Gallery: architecture/diagram-gallery.md
+  - Framework Primitives:
+      - Overview: primitives/index.md
+      - ViewModel Families:
+          - Overview: primitives/viewmodel-families/index.md
+          - Component Family: primitives/viewmodel-families/component-family.md
+          - Aggregate Family: primitives/viewmodel-families/aggregate-family.md
+          - Group Family: primitives/viewmodel-families/group-family.md
+          - Composite Family: primitives/viewmodel-families/composite-family.md
+          - Hierarchical Family: primitives/viewmodel-families/hierarchical-family.md
+          - Forwarding & Wrapper Family: primitives/viewmodel-families/forwarding-wrapper-family.md
+          - Specialized ViewModels & Coordinators:
+              - Overview: primitives/viewmodel-families/specialized/index.md
+              - FormVM: primitives/viewmodel-families/specialized/form-vm.md
+              - DiscriminatorVM: primitives/viewmodel-families/specialized/discriminator-vm.md
+              - NotificationVM: primitives/viewmodel-families/specialized/notification-vm.md
+              - ConfirmationVM: primitives/viewmodel-families/specialized/confirmation-vm.md
+              - ModalVM: primitives/viewmodel-families/specialized/modal-vm.md
+      - Command Families: primitives/command-families.md
+      - Capability Families: primitives/capability-families.md
+      - State & Reactive Helpers: primitives/state-reactive-helpers.md
+      - Services, Messages & Dispatching: primitives/services-messages-dispatching.md
+      - Builders, Collections & Tree Utilities: primitives/builders-collections-tree-utilities.md
 
 markdown_extensions:
   - admonition
