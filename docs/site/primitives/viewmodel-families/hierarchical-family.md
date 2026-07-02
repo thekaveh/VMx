@@ -42,15 +42,65 @@ The family integrates directly with `walk` and `walk_expanded`.
 
 ## Example
 
-The Notes Workspace feature tables point to concrete tree implementations:
+The current Notes Workspace examples do **not** subclass `HierarchicalVM` in
+any flavor. Each `NotebooksRootVM` owns a flat notebook collection plus
+`roots` / `childrenOf` / `walk` projections and republishes
+`TreeStructureChangedMessage`, which gives the host tree-shaped state without
+making the VM itself a recursive node tree.
 
-- C#: notebooks tree in `ViewModels/NotebooksRootVM.cs`
-- Python: notebooks tree in `viewmodels/notebooks_root_vm.py`
-- TypeScript: notebooks tree in `viewmodels/notebooksRootVM.ts`
-- Swift: the flagship keeps a flat notebook list and mirrors the structural
-  notifications contract without using `HierarchicalVM` directly
+Use `HierarchicalVM` when the VM graph should actually be recursive:
 
-That split is a good reminder: choose the tree primitive when the tree is real,
+These concise examples assume the minimal recursive `TestNode` subclass used in
+the conformance suites.
+
+**C#**
+
+```csharp
+var root = HierarchicalVMBuilder<string, TestNode>.Empty
+    .Model("root")
+    .ChildrenFactory(_ => Array.Empty<TestNode>())
+    .Services(hub, dispatcher)
+    .VmFactory(ctx => new TestNode(
+        ctx.Model, ctx.ChildrenFactory, ctx.Hub, ctx.Dispatcher,
+        ctx.Name, ctx.Hint, ctx.EagerChildren))
+    .Build();
+```
+
+**Python**
+
+```python
+root = (
+    HierarchicalVMBuilder()
+    .model("root")
+    .children_factory(lambda _parent: [])
+    .services(hub, dispatcher)
+    .build()
+)
+```
+
+**TypeScript**
+
+```ts
+const root = new HierarchicalVMBuilder<string, TestNode>()
+  .model("root")
+  .childrenFactory((_parent) => [])
+  .services(hub, dispatcher)
+  .vmFactory((ctx) => new TestNode(ctx))
+  .build();
+```
+
+**Swift**
+
+```swift
+let root = TestNode(
+    model: "root",
+    childrenFactory: { _ in [] },
+    hub: hub,
+    dispatcher: dispatcher
+)
+```
+
+That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.
 
 ## Common Pitfalls

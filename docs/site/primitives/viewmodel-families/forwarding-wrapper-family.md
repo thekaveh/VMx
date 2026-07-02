@@ -35,14 +35,49 @@ inner VM's behavior unless an override changes it. In practice this means:
 
 ## Example
 
-The Python and Swift forwarding modules show the intended pattern clearly:
-
-- Python documents a logging wrapper in `vmx/forwarding/component.py`
-- Swift keeps `ForwardingComponentVM` and `ForwardingCompositeVM` as open
-  classes whose overrides can alter selected accessors while the rest forward
-
 The key design point is that the wrapper changes behavior by composition, not by
-copying or re-implementing the wrapped VM.
+copying or re-implementing the wrapped VM:
+
+**C#**
+
+```csharp
+private sealed class HintOverrideVM : ForwardingComponentVM<string>
+{
+    public HintOverrideVM(IComponentVM<string> inner) : base(inner) { }
+    public override string Hint => "OVERRIDE";
+}
+```
+
+**Python**
+
+```python
+class HintOverrideVM(ForwardingComponentVM[str]):
+    @property
+    def hint(self) -> str:
+        return "OVERRIDE"
+```
+
+**TypeScript**
+
+```ts
+class HintOverrideVM extends ForwardingComponentVM<string> {
+  override get hint(): string {
+    return "OVERRIDE";
+  }
+}
+```
+
+**Swift**
+
+```swift
+final class ModeledHintOverrideVM: ForwardingComponentVM<String> {
+    override var modeledHint: String { "OVERRIDE" }
+}
+```
+
+Swift is the explicit divergence here: `name` and `hint` are stored `let`
+properties on `ComponentVMBase`, so the nearest overridable analog is
+`modeledHint`, not `hint`.
 
 ## Common Pitfalls
 

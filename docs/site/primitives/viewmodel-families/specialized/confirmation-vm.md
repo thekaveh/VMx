@@ -45,6 +45,37 @@ The flagship Notes Workspace apps currently do not project confirmations through
 That split is intentional. Use `ConfirmationVM` when the confirmation itself
 should be part of a rendered notification stream rather than a host modal.
 
+When you do want the confirmation inside the notification stream, the direct
+library surface is:
+
+**C#**
+
+```csharp
+using var vm = new ConfirmationVM(notification, hub, scheduler);
+vm.RejectCommand.Execute(null);
+```
+
+**Python**
+
+```python
+vm = ConfirmationVM(notification=notif, hub=hub, scheduler=scheduler)
+vm.reject_command.execute()
+```
+
+**TypeScript**
+
+```ts
+const vm = new ConfirmationVM(notif, hub, scheduler);
+vm.rejectCommand.execute();
+```
+
+**Swift**
+
+```swift
+let vm = ConfirmationVM(notification: notif, hub: hub, scheduler: scheduler)
+vm.rejectCommand.execute()
+```
+
 ## Common Pitfalls
 
 - Expecting timeout to auto-resolve. It does not.

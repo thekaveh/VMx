@@ -53,6 +53,38 @@ Relevant shipped surfaces:
 Use this primitive when you need a VM-backed modal result instead of a fixed
 host dialog verb.
 
+**C#**
+
+```csharp
+var modal = new ModalVM<string>("cancel");
+modal.Dismiss("save");
+var result = await modal.Completion;
+```
+
+**Python**
+
+```python
+modal = ModalVM[str]("cancel")
+modal.dismiss("save")
+result = await modal.wait_result()
+```
+
+**TypeScript**
+
+```ts
+const modal = new ModalVM("cancel");
+modal.dismiss("save");
+const result = await modal.completion;
+```
+
+**Swift**
+
+```swift
+let modal = BasicModalVM<String>(cancellationResult: "cancel")
+modal.dismiss("save")
+let result = await modal.waitResult()
+```
+
 ## Common Pitfalls
 
 - Reaching for a modal VM when `Confirm`, `PickFileToOpen`, `PickFileToSave`, or

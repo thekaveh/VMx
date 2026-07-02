@@ -25,14 +25,19 @@ have with its children, if any?
 
 ## Notes Workspace Cross-Check
 
-The flagship Notes Workspace portfolio exercises the whole family map:
+The flagship Notes Workspace portfolio exercises most of the family map, but
+the notebooks tree is intentionally a flat adapter in every flavor today:
 
-- `HierarchicalVM` for the notebooks tree in C#, Python, and TypeScript
+- flat `ComponentVM`-based notebooks adapters (`NotebooksRootVM` plus
+  `NotebookVM`) that expose `Roots` / `ChildrenOf` / `Walk` or idiomatic
+  equivalents and publish `TreeStructureChangedMessage`, rather than direct
+  `HierarchicalVM` subclasses
 - `CompositeVM` for the notes list and tab-like current selection
 - `AggregateVM6` for the workspace shell
 - `ComponentVM` leaves for notebooks, notes, status, and capability actions
 - `FormVM`, `DiscriminatorVM`, and `NotificationVM` in the editor and
   notifications flows
 
-Use these pages together with the per-example feature traceability tables in the
-example READMEs when you want a concrete, end-to-end reference.
+Use `HierarchicalVM` when the recursive VM tree is itself the right model. Use
+the Notes Workspace READMEs and parity tables when you want the current
+flat-adapter example shape.
