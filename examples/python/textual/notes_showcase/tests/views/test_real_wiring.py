@@ -54,7 +54,7 @@ async def _settle(pilot: object, ticks: int = 4) -> None:
 
 
 def _rendered(widget: object) -> str:
-    return str(getattr(widget, "renderable"))
+    return str(getattr(widget, "content", getattr(widget, "renderable", "")))
 
 
 @pytest.mark.asyncio

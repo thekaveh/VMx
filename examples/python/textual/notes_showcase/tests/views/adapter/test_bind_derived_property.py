@@ -20,7 +20,7 @@ def test_bind_derived_property_seeds_widget_from_current_value() -> None:
 
     sub = bind_derived_property(widget, "renderable", derived)
     try:
-        assert str(widget.renderable) == "<hello>"
+        assert str(widget.content) == "<hello>"
     finally:
         sub.dispose()
         derived.dispose()
@@ -35,11 +35,11 @@ def test_bind_derived_property_updates_widget_on_value_change() -> None:
 
     sub = bind_derived_property(widget, "renderable", derived)
     try:
-        assert str(widget.renderable) == "10"
+        assert str(widget.content) == "10"
         src.on_next(5)
-        assert str(widget.renderable) == "50"
+        assert str(widget.content) == "50"
         src.on_next(7)
-        assert str(widget.renderable) == "70"
+        assert str(widget.content) == "70"
     finally:
         sub.dispose()
         derived.dispose()
