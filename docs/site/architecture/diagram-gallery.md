@@ -7,98 +7,98 @@ standalone HTML pages for zoomable browsing and the PNG exports for sharing.
 
 ### VMx System Architecture
 
-<img src="/assets/diagrams/system-architecture.svg" alt="VMx System Architecture" class="vmx-diagram" />
+<img src="../../assets/diagrams/system-architecture.svg" alt="VMx System Architecture" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/system-architecture.html">HTML</a>
+  <a href="../../assets/diagrams/system-architecture.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/system-architecture.svg">SVG</a>
+  <a href="../../assets/diagrams/system-architecture.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/system-architecture.png">PNG</a>
+  <a href="../../assets/diagrams/system-architecture.png">PNG</a>
 </p>
 
 ### Class Architecture Map
 
-<img src="/assets/diagrams/class-architecture.svg" alt="Class Architecture Map" class="vmx-diagram" />
+<img src="../../assets/diagrams/class-architecture.svg" alt="Class Architecture Map" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/class-architecture.html">HTML</a>
+  <a href="../../assets/diagrams/class-architecture.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/class-architecture.svg">SVG</a>
+  <a href="../../assets/diagrams/class-architecture.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/class-architecture.png">PNG</a>
+  <a href="../../assets/diagrams/class-architecture.png">PNG</a>
 </p>
 
 ### Lifecycle And Messaging Flow
 
-<img src="/assets/diagrams/lifecycle-messaging.svg" alt="Lifecycle And Messaging Flow" class="vmx-diagram" />
+<img src="../../assets/diagrams/lifecycle-messaging.svg" alt="Lifecycle And Messaging Flow" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/lifecycle-messaging.html">HTML</a>
+  <a href="../../assets/diagrams/lifecycle-messaging.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/lifecycle-messaging.svg">SVG</a>
+  <a href="../../assets/diagrams/lifecycle-messaging.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/lifecycle-messaging.png">PNG</a>
+  <a href="../../assets/diagrams/lifecycle-messaging.png">PNG</a>
 </p>
 
 ## Primitives And Examples
 
 ### ViewModel Families Map
 
-<img src="/assets/diagrams/viewmodel-families.svg" alt="ViewModel Families Map" class="vmx-diagram" />
+<img src="../../assets/diagrams/viewmodel-families.svg" alt="ViewModel Families Map" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/viewmodel-families.html">HTML</a>
+  <a href="../../assets/diagrams/viewmodel-families.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/viewmodel-families.svg">SVG</a>
+  <a href="../../assets/diagrams/viewmodel-families.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/viewmodel-families.png">PNG</a>
+  <a href="../../assets/diagrams/viewmodel-families.png">PNG</a>
 </p>
 
 ### Composite Family Deep Dive
 
-<img src="/assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
+<img src="../../assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/composite-family.html">HTML</a>
+  <a href="../../assets/diagrams/composite-family.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/composite-family.svg">SVG</a>
+  <a href="../../assets/diagrams/composite-family.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/composite-family.png">PNG</a>
+  <a href="../../assets/diagrams/composite-family.png">PNG</a>
 </p>
 
 ### Commands And Capabilities Map
 
-<img src="/assets/diagrams/commands-capabilities.svg" alt="Commands And Capabilities Map" class="vmx-diagram" />
+<img src="../../assets/diagrams/commands-capabilities.svg" alt="Commands And Capabilities Map" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/commands-capabilities.html">HTML</a>
+  <a href="../../assets/diagrams/commands-capabilities.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/commands-capabilities.svg">SVG</a>
+  <a href="../../assets/diagrams/commands-capabilities.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/commands-capabilities.png">PNG</a>
+  <a href="../../assets/diagrams/commands-capabilities.png">PNG</a>
 </p>
 
 ### Forms Dialogs And Notifications Flow
 
-<img src="/assets/diagrams/forms-dialogs-notifications.svg" alt="Forms Dialogs And Notifications Flow" class="vmx-diagram" />
+<img src="../../assets/diagrams/forms-dialogs-notifications.svg" alt="Forms Dialogs And Notifications Flow" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/forms-dialogs-notifications.html">HTML</a>
+  <a href="../../assets/diagrams/forms-dialogs-notifications.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/forms-dialogs-notifications.svg">SVG</a>
+  <a href="../../assets/diagrams/forms-dialogs-notifications.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/forms-dialogs-notifications.png">PNG</a>
+  <a href="../../assets/diagrams/forms-dialogs-notifications.png">PNG</a>
 </p>
 
 ### Examples VM Layer Map
 
-<img src="/assets/diagrams/examples-vm-layer.svg" alt="Examples VM Layer Map" class="vmx-diagram" />
+<img src="../../assets/diagrams/examples-vm-layer.svg" alt="Examples VM Layer Map" class="vmx-diagram" />
 
 <p>
-  <a href="/assets/diagrams/examples-vm-layer.html">HTML</a>
+  <a href="../../assets/diagrams/examples-vm-layer.html">HTML</a>
   &middot;
-  <a href="/assets/diagrams/examples-vm-layer.svg">SVG</a>
+  <a href="../../assets/diagrams/examples-vm-layer.svg">SVG</a>
   &middot;
-  <a href="/assets/diagrams/examples-vm-layer.png">PNG</a>
+  <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
 </p>

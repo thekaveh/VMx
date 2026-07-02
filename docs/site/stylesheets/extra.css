@@ -80,6 +80,14 @@
   padding: 0.5rem;
 }
 
+.vmx-code-lt::before {
+  content: "<";
+}
+
+.vmx-code-gt::before {
+  content: ">";
+}
+
 .md-grid {
   max-width: 68rem;
 }
