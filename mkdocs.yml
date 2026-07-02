@@ -69,6 +69,24 @@ nav:
       - State & Reactive Helpers: primitives/state-reactive-helpers.md
       - Services, Messages & Dispatching: primitives/services-messages-dispatching.md
       - Builders, Collections & Tree Utilities: primitives/builders-collections-tree-utilities.md
+  - Language Flavors:
+      - Overview: flavors/index.md
+      - C#: flavors/csharp.md
+      - Python: flavors/python.md
+      - TypeScript: flavors/typescript.md
+      - Swift: flavors/swift.md
+      - Cross-Language Naming: flavors/cross-language-naming.md
+  - Examples:
+      - Overview: examples/index.md
+      - Notes Workspace: examples/notes-workspace.md
+      - VM Layer Map: examples/notes-workspace-vm-layer.md
+      - Global Search & Token Paging: examples/global-search-token-paging.md
+      - Editor Mode & DiscriminatorVM: examples/editor-mode-discriminator-vm.md
+      - Tag Autocomplete & SearchableState: examples/tag-autocomplete-searchable-state.md
+      - Smaller Examples: examples/smaller-examples.md
+  - Integration Recipes: integration-recipes.md
+  - Specification & Conformance: specification-conformance.md
+  - Contributing & Releases: contributing-releases.md
 
 markdown_extensions:
   - admonition
