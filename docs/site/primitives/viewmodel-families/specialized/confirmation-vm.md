@@ -48,33 +48,41 @@ should be part of a rendered notification stream rather than a host modal.
 When you do want the confirmation inside the notification stream, the direct
 library surface is:
 
-**C#**
+=== "C#"
 
+````
 ```csharp
 using var vm = new ConfirmationVM(notification, hub, scheduler);
 vm.RejectCommand.Execute(null);
 ```
+````
 
-**Python**
+=== "Python"
 
+````
 ```python
 vm = ConfirmationVM(notification=notif, hub=hub, scheduler=scheduler)
 vm.reject_command.execute()
 ```
+````
 
-**TypeScript**
+=== "TypeScript"
 
+````
 ```ts
 const vm = new ConfirmationVM(notif, hub, scheduler);
 vm.rejectCommand.execute();
 ```
+````
 
-**Swift**
+=== "Swift"
 
+````
 ```swift
 let vm = ConfirmationVM(notification: notif, hub: hub, scheduler: scheduler)
 vm.rejectCommand.execute()
 ```
+````
 
 ## Common Pitfalls
 

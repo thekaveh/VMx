@@ -66,8 +66,9 @@ The Notes Workspace editor is the best concrete reference:
 All four compose a strict inner `FormVM` rather than subclassing it, then layer
 editor-specific commands and notifications around that core workflow.
 
-**C#**
+=== "C#"
 
+````
 ```csharp
 _form = new FormVM<NoteModel>(
     initial: note,
@@ -79,9 +80,11 @@ _form = new FormVM<NoteModel>(
         [nameof(Title)] = note => string.IsNullOrWhiteSpace(note.Title) ? TitleRequired : null
     });
 ```
+````
 
-**Python**
+=== "Python"
 
+````
 ```python
 form = FormVM(
     initial=note,
@@ -91,9 +94,11 @@ form = FormVM(
     validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
 )
 ```
+````
 
-**TypeScript**
+=== "TypeScript"
 
+````
 ```ts
 this.#form = new FormVM<NoteModel>({
   initial: note,
@@ -105,9 +110,11 @@ this.#form = new FormVM<NoteModel>({
   },
 });
 ```
+````
 
-**Swift**
+=== "Swift"
 
+````
 ```swift
 let form = FormVM<NoteModel>(
     initial: note,
@@ -126,6 +133,7 @@ let form = FormVM<NoteModel>(
     ]
 )
 ```
+````
 
 ## Common Pitfalls
 

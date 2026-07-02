@@ -57,6 +57,9 @@ Representative naming differences:
 
 Canonical relay-command shape:
 
+=== "TypeScript"
+
+````
 ```ts
 const save = RelayCommand.builder()
   .predicate(() => form.isDirty && form.isValid)
@@ -66,6 +69,7 @@ const save = RelayCommand.builder()
   .triggers(currentChanged)
   .build();
 ```
+````
 
 The same structure appears across all four flavors with only casing changes.
 The Notes Workspace editor and delete flows are concrete examples.
