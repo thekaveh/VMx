@@ -51,12 +51,10 @@ The Quickstart flow shows the minimal service pair every VM needs:
 
 === "Python"
 
-````
-```python
-hub = MessageHub()
-dispatcher = RxDispatcher.immediate()
-```
-````
+    ```python
+    hub = MessageHub()
+    dispatcher = RxDispatcher.immediate()
+    ```
 
 From there, higher-level examples add `INotificationHub` and `IDialogService`
 only where the workflow requires them.

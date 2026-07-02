@@ -68,72 +68,64 @@ editor-specific commands and notifications around that core workflow.
 
 === "C#"
 
-````
-```csharp
-_form = new FormVM<NoteModel>(
-    initial: note,
-    persister: PersistAsync,
-    hub: Hub,
-    strict: true,
-    validators: new Dictionary<string, Func<NoteModel, string?>>
-    {
-        [nameof(Title)] = note => string.IsNullOrWhiteSpace(note.Title) ? TitleRequired : null
-    });
-```
-````
+    ```csharp
+    _form = new FormVM<NoteModel>(
+        initial: note,
+        persister: PersistAsync,
+        hub: Hub,
+        strict: true,
+        validators: new Dictionary<string, Func<NoteModel, string?>>
+        {
+            [nameof(Title)] = note => string.IsNullOrWhiteSpace(note.Title) ? TitleRequired : null
+        });
+    ```
 
 === "Python"
 
-````
-```python
-form = FormVM(
-    initial=note,
-    persister=self._persist,
-    hub=self._hub,
-    strict=True,
-    validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
-)
-```
-````
+    ```python
+    form = FormVM(
+        initial=note,
+        persister=self._persist,
+        hub=self._hub,
+        strict=True,
+        validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
+    )
+    ```
 
 === "TypeScript"
 
-````
-```ts
-this.#form = new FormVM<NoteModel>({
-  initial: note,
-  persister: (m) => this.#persistAsync(m),
-  hub: this._hub,
-  strict: true,
-  validators: {
-    title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
-  },
-});
-```
-````
+    ```ts
+    this.#form = new FormVM<NoteModel>({
+      initial: note,
+      persister: (m) => this.#persistAsync(m),
+      hub: this._hub,
+      strict: true,
+      validators: {
+        title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
+      },
+    });
+    ```
 
 === "Swift"
 
-````
-```swift
-let form = FormVM<NoteModel>(
-    initial: note,
-    persister: { [weak self] n in
-        guard let self else { return }
-        try await self._repo.saveNote(n)
-    },
-    hub: hub,
-    strict: true,
-    validators: [
-        "title": { model in
-            model.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? Self.titleRequired
-                : nil
-        }
-    ]
-)
-```
-````
+    ```swift
+    let form = FormVM<NoteModel>(
+        initial: note,
+        persister: { [weak self] n in
+            guard let self else { return }
+            try await self._repo.saveNote(n)
+        },
+        hub: hub,
+        strict: true,
+        validators: [
+            "title": { model in
+                model.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? Self.titleRequired
+                    : nil
+            }
+        ]
+    )
+    ```
 
 ## Common Pitfalls
 

@@ -36,7 +36,16 @@ repos:
     hooks:
       - id: mdformat
         files: ^(spec|docs)/.*\.md$
-        exclude: ^(docs/site/(installation|quickstart|primitives/viewmodel-families/composite-family)\.md|docs/wiki/.*\.md)$
+        # mdformat rewrites indented Material tab content into standalone fenced
+        # blocks, which builds but renders as separate single-tab groups.
+        exclude: |
+          (?x)^(
+            docs/site/(installation|quickstart)\.md|
+            docs/site/primitives/(command-families|services-messages-dispatching)\.md|
+            docs/site/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|
+            docs/site/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md|
+            docs/wiki/.*\.md
+          )$
         additional_dependencies:
           - mdformat-gfm==1.0.0
           - mdformat-tables==1.0.0

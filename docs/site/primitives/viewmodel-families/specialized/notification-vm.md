@@ -55,59 +55,51 @@ Those VMs subscribe to `Pending`, build a bounded visible list, and let each
 
 === "C#"
 
-````
-```csharp
-var vm = new NotificationVM(n, _notificationHub, _scheduler, _lifespan);
-_map[n] = vm;
-_visible.Add(vm);
-```
-````
+    ```csharp
+    var vm = new NotificationVM(n, _notificationHub, _scheduler, _lifespan);
+    _map[n] = vm;
+    _visible.Add(vm);
+    ```
 
 === "Python"
 
-````
-```python
-vm = NotificationVM(
-    notification=n,
-    hub=self._notification_hub,
-    scheduler=self._scheduler,
-    lifespan=self._lifespan,
-)
-self._map[n] = vm
-self._visible.append(vm)
-```
-````
+    ```python
+    vm = NotificationVM(
+        notification=n,
+        hub=self._notification_hub,
+        scheduler=self._scheduler,
+        lifespan=self._lifespan,
+    )
+    self._map[n] = vm
+    self._visible.append(vm)
+    ```
 
 === "TypeScript"
 
-````
-```ts
-const vm = new NotificationVM(
-  n,
-  this.#notificationHub,
-  this.#scheduler,
-  this.#lifespanMs,
-);
-this.#map.set(n, vm);
-this.#visible.push(vm);
-```
-````
+    ```ts
+    const vm = new NotificationVM(
+      n,
+      this.#notificationHub,
+      this.#scheduler,
+      this.#lifespanMs,
+    );
+    this.#map.set(n, vm);
+    this.#visible.push(vm);
+    ```
 
 === "Swift"
 
-````
-```swift
-let lifespan = _lifespan ?? 60.0
-let vm = NotificationVM(
-    notification: n,
-    hub: _notificationHub,
-    scheduler: _scheduler,
-    lifespan: lifespan
-)
-_map[key] = vm
-_visible.append(vm)
-```
-````
+    ```swift
+    let lifespan = _lifespan ?? 60.0
+    let vm = NotificationVM(
+        notification: n,
+        hub: _notificationHub,
+        scheduler: _scheduler,
+        lifespan: lifespan
+    )
+    _map[key] = vm
+    _visible.append(vm)
+    ```
 
 ## Common Pitfalls
 

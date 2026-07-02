@@ -24,10 +24,33 @@ def language_fences_outside_tabs(path: Path) -> list[int]:
     return bad_lines
 
 
+def tab_markers_without_indented_content(path: Path) -> list[int]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    bad_lines: list[int] = []
+    for index, line in enumerate(lines):
+        if not TAB_RE.match(line):
+            continue
+        content_index = index + 1
+        while content_index < len(lines) and not lines[content_index]:
+            content_index += 1
+        if content_index == len(lines) or not lines[content_index].startswith("    "):
+            bad_lines.append(index + 1)
+    return bad_lines
+
+
 def test_language_specific_site_code_fences_are_tabbed() -> None:
     offenders: list[str] = []
     for path in sorted(DOCS_SITE.rglob("*.md")):
         for line in language_fences_outside_tabs(path):
+            offenders.append(f"{path.relative_to(REPO_ROOT)}:{line}")
+
+    assert offenders == []
+
+
+def test_site_tab_blocks_indent_their_content() -> None:
+    offenders: list[str] = []
+    for path in sorted(DOCS_SITE.rglob("*.md")):
+        for line in tab_markers_without_indented_content(path):
             offenders.append(f"{path.relative_to(REPO_ROOT)}:{line}")
 
     assert offenders == []

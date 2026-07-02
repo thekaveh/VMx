@@ -67,68 +67,60 @@ when a subclass is required.
 
 === "C#"
 
-````
-```csharp
-var root = HierarchicalVMBuilder<string, TestNode>.Empty
-    .Model("root")
-    .ChildrenFactory(_ => Array.Empty<TestNode>())
-    .Services(hub, dispatcher)
-    .VmFactory(ctx => new TestNode(
-        ctx.Model, ctx.ChildrenFactory, ctx.Hub, ctx.Dispatcher,
-        ctx.Name, ctx.Hint, ctx.EagerChildren))
-    .Build();
-```
-````
+    ```csharp
+    var root = HierarchicalVMBuilder<string, TestNode>.Empty
+        .Model("root")
+        .ChildrenFactory(_ => Array.Empty<TestNode>())
+        .Services(hub, dispatcher)
+        .VmFactory(ctx => new TestNode(
+            ctx.Model, ctx.ChildrenFactory, ctx.Hub, ctx.Dispatcher,
+            ctx.Name, ctx.Hint, ctx.EagerChildren))
+        .Build();
+    ```
 
 === "Python"
 
-````
-```python
-root = (
-    HierarchicalVMBuilder()
-    .model("root")
-    .children_factory(lambda _parent: [])
-    .services(hub, dispatcher)
-    .build()
-)
-```
-````
+    ```python
+    root = (
+        HierarchicalVMBuilder()
+        .model("root")
+        .children_factory(lambda _parent: [])
+        .services(hub, dispatcher)
+        .build()
+    )
+    ```
 
 === "TypeScript"
 
-````
-```ts
-const root = new HierarchicalVMBuilder<string, TestNode>()
-  .model("root")
-  .childrenFactory((_parent) => [])
-  .services(hub, dispatcher)
-  .vmFactory((ctx) => new TestNode(ctx))
-  .build();
-```
-````
+    ```ts
+    const root = new HierarchicalVMBuilder<string, TestNode>()
+      .model("root")
+      .childrenFactory((_parent) => [])
+      .services(hub, dispatcher)
+      .vmFactory((ctx) => new TestNode(ctx))
+      .build();
+    ```
 
 === "Swift"
 
-````
-```swift
-let root = try HierarchicalVM<String, TestNode>.builder()
-    .model("root")
-    .childrenFactory { _ in [] }
-    .services(hub: hub, dispatcher: dispatcher)
-    .vmFactory { model, childrenFactory, hub, dispatcher, name, hint, eager in
-        TestNode(
-            model: model,
-            childrenFactory: childrenFactory,
-            hub: hub,
-            dispatcher: dispatcher,
-            name: name,
-            hint: hint,
-            eagerChildren: eager
-        )
-    }
-    .build()
-```
-````
+    ```swift
+    let root = try HierarchicalVM<String, TestNode>.builder()
+        .model("root")
+        .childrenFactory { _ in [] }
+        .services(hub: hub, dispatcher: dispatcher)
+        .vmFactory { model, childrenFactory, hub, dispatcher, name, hint, eager in
+            TestNode(
+                model: model,
+                childrenFactory: childrenFactory,
+                hub: hub,
+                dispatcher: dispatcher,
+                name: name,
+                hint: hint,
+                eagerChildren: eager
+            )
+        }
+        .build()
+    ```
 
 That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.
