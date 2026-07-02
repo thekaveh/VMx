@@ -32,57 +32,65 @@ The composite owns both child lifecycle and selection messaging:
 
 ## Cross-Language Surface
 
-| Concept | C# | Python | TypeScript | Swift |
-| --- | --- | --- | --- | --- |
-| Type | `CompositeVM<VM>` | `CompositeVM[VM]` | `CompositeVM<VM>` | `CompositeVM<VM>` |
-| Modeled type | `CompositeVM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` |
-| Selection slot | `Current` | `current` | `current` | `current` |
-| Initial selector hook | `Current(selector)` | `current(selector)` | `current(selector)` | `current(selector)` |
+| Concept               | C#                   | Python                 | TypeScript             | Swift                  |
+| --------------------- | -------------------- | ---------------------- | ---------------------- | ---------------------- |
+| Type                  | `CompositeVM<VM>`    | `CompositeVM[VM]`      | `CompositeVM<VM>`      | `CompositeVM<VM>`      |
+| Modeled type          | `CompositeVM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` |
+| Selection slot        | `Current`            | `current`              | `current`              | `current`              |
+| Initial selector hook | `Current(selector)`  | `current(selector)`    | `current(selector)`    | `current(selector)`    |
 
 ## Example
 
 === "C#"
 
-    ```csharp
-    var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
-        .Name("tab-bar")
-        .Services(hub, dispatcher)
-        .Children(() => new[] { home, settings })
-        .Build();
-    ```
+````
+```csharp
+var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
+    .Name("tab-bar")
+    .Services(hub, dispatcher)
+    .Children(() => new[] { home, settings })
+    .Build();
+```
+````
 
 === "Python"
 
-    ```python
-    tabs = (
-        CompositeVM[ComponentVMOf[TabModel]]
-        .builder()
-        .name("tab-bar")
-        .services(hub, dispatcher)
-        .children(lambda: [home, settings])
-        .build()
-    )
-    ```
+````
+```python
+tabs = (
+    CompositeVM[ComponentVMOf[TabModel]]
+    .builder()
+    .name("tab-bar")
+    .services(hub, dispatcher)
+    .children(lambda: [home, settings])
+    .build()
+)
+```
+````
 
 === "TypeScript"
 
-    ```ts
-    const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
-      .name("tab-bar")
-      .services(hub, dispatcher)
-      .children(() => [home, settings])
-      .build();
-    ```
+````
+```ts
+const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
+  .name("tab-bar")
+  .services(hub, dispatcher)
+  .children(() => [home, settings])
+  .build();
+```
+````
 
 === "Swift"
 
-    ```swift
-    let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
-        .name("tab-bar")
-        .services(hub: hub, dispatcher: dispatcher)
-        .children { [home, settings] }
-        .build()
-    ```
+````
+```swift
+let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
+    .name("tab-bar")
+    .services(hub: hub, dispatcher: dispatcher)
+    .children { [home, settings] }
+    .build()
+```
+````
 
 ## Common Pitfalls
 

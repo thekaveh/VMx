@@ -91,7 +91,7 @@ jobs:
         # ones (verified: spec/**/*.md matches 41 of 64).
         run: |
           git ls-files 'spec/*.md' 'docs/*.md' \
-            | grep -Ev '^docs/site/(installation|quickstart|primitives/viewmodel-families/composite-family)\.md$' \
+            | grep -Ev '^docs/site/(installation|quickstart)\.md$' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
                 mdformat --check
