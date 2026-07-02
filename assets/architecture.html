@@ -3,138 +3,49 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VMx — Architecture Diagram</title>
+  <title>VMx Architecture</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
-    .container { max-width: 1280px; margin: 0 auto; }
-    .header { margin-bottom: 2rem; }
-    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
-    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
-    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
-    .diagram-container { background: rgba(15, 23, 42, 0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
-    svg { width: 100%; min-width: 1100px; display: block; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
-    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
-    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .card-dot.cyan { background: #22d3ee; }
-    .card-dot.emerald { background: #34d399; }
-    .card-dot.violet { background: #a78bfa; }
-    .card-dot.amber { background: #fbbf24; }
-    .card-dot.rose { background: #fb7185; }
-    .card-dot.orange { background: #fb923c; }
-    .card h3 { font-size: 0.875rem; font-weight: 600; }
-    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
-    .card li { margin-bottom: 0.375rem; }
-    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 32px; background: #020617; color: white; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+    main { max-width: 1500px; margin: 0 auto; }
+    header { margin-bottom: 24px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot { width: 12px; height: 12px; border-radius: 50%; background: #22d3ee; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }
+    .diagram { overflow-x: auto; padding: 18px; border: 1px solid #1e293b; border-radius: 14px; background: rgba(15, 23, 42, 0.58); }
+    object { display: block; width: 100%; min-width: 1180px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 24px; }
+    .card { padding: 18px; border: 1px solid #1e293b; border-radius: 12px; background: rgba(15, 23, 42, 0.58); }
+    .card h2 { margin: 0 0 10px; font-size: 15px; }
+    .card ul { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 24px; text-align: center; color: #64748b; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="header-row">
-        <div class="pulse-dot"></div>
-        <h1>VMx — Architecture</h1>
-      </div>
-      <p class="subtitle">One language-neutral spec · four idiomatic flavors · cluster-level architecture map (v2.6.0)</p>
-    </div>
-
-    <div class="diagram-container">
-      <object data="architecture.svg" type="image/svg+xml" aria-label="VMx architecture diagram"></object>
-    </div>
-
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>VMx Architecture</h1></div>
+      <p class="subtitle">spec 3.1.0 · four full-parity flavors · examples as contract probes</p>
+    </header>
+    <div class="diagram"><object data="architecture.svg" type="image/svg+xml" aria-label="VMx Architecture"></object></div>
     <div class="cards">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot cyan"></div>
-          <h3>Spec — source of truth</h3>
-        </div>
-        <ul>
-          <li>• 22 numbered chapters (00-overview … 21-collections)</li>
-          <li>• 46 ADRs · 237 conformance IDs · 4 JSON fixtures</li>
-          <li>• <code>spec/VERSION 2.6.0</code></li>
-          <li>• CI gates: every spec/ change ⇒ ADR; every new conformance ID ⇒ stub per full-parity flavor</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot emerald"></div>
-          <h3>Core library — VM family</h3>
-        </div>
-        <ul>
-          <li>• Lifecycle: 6 states · 13 transitions · LIFE-001..013</li>
-          <li>• ComponentVM (leaf) · CompositeVM · GroupVM</li>
-          <li>• AggregateVM1..6 (heterogeneous, fixed arity)</li>
-          <li>• Forwarding decorators · HierarchicalVM · FormVM</li>
-          <li>• Commands: RelayCommand · CompositeCommand · Decorator chain · ConfirmationDecorator · ModeledCrudCommands</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot violet"></div>
-          <h3>Services + data flow</h3>
-        </div>
-        <ul>
-          <li>• MessageHub (Rx Subject pub/sub) · RxDispatcher (fg + bg scheduler)</li>
-          <li>• ILocalizer · IDialogService (v2.1+) · all with Null* siblings (ADR-0017)</li>
-          <li>• Messages: PropertyChanged · ConstructionStatusChanged · TreeStructureChanged</li>
-          <li>• State: DerivedProperty · SearchableState · ExpandableState</li>
-          <li>• Collections (v2.1): ServicedObservableCollection · ObservableList · ObservableDictionary · PagedComposition</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot rose"></div>
-          <h3>Capabilities — opt-in</h3>
-        </div>
-        <ul>
-          <li>• 22 micro-interfaces · CAP-001..022 · spec/14</li>
-          <li>• Selection (ISelectable) · Expansion (IExpandable/ICollapsible)</li>
-          <li>• Query (ISearchable/IFilterable/IPageable/ICountable)</li>
-          <li>• Lifecycle (IClosable) · Dialog (IDialogProvider)</li>
-          <li>• CRUD (ICrudable) — composed via dependency, not inheritance (ADR-0010)</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot orange"></div>
-          <h3>Notifications sub-package</h3>
-        </div>
-        <ul>
-          <li>• Opt-in, distributed separately (`vmx.notifications`, `VMx.Notifications`, `@thekaveh/vmx/notifications`)</li>
-          <li>• Primitives: Notification · NotificationType · NotificationReaction</li>
-          <li>• Hub: INotificationHub + NullNotificationHub</li>
-          <li>• Rendering VMs: NotificationVM · ConfirmationVM (v2.1)</li>
-          <li>• Bridges ConfirmationDecoratorCommand via <code>makeConfirm(hub, prompt)</code></li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot amber"></div>
-          <h3>Flavor surfaces</h3>
-        </div>
-        <ul>
-          <li>• <strong>C#</strong> — VMx v2.6.0 on NuGet · netstandard2.0 + net8.0 · System.Reactive</li>
-          <li>• <strong>Python</strong> — vmx v2.6.1 on PyPI (Trusted Publishing) · 3.10..3.13 · reactivex · mypy --strict</li>
-          <li>• <strong>TypeScript</strong> — @thekaveh/vmx v2.6.0 on npm · Node ≥20 · rxjs · dual ESM + CJS</li>
-          <li>• <strong>Swift</strong> — VMx v2.6.0 (subset 41/237 IDs) · SPM · Combine</li>
-          <li>• Per-flavor min-spec checked at boot (ADR-0006)</li>
-        </ul>
-      </div>
+      <section class="card">
+        <h2>Spec discipline</h2>
+        <ul><li>spec/ is the source of truth.</li><li>Every full-parity flavor tracks 281 library IDs.</li><li>THEME-001..005 live in the flagship examples.</li></ul>
+      </section>
+      <section class="card">
+        <h2>Runtime shape</h2>
+        <ul><li>Core primitives are language-neutral.</li><li>API casing follows ADR-0006.</li><li>Reactive primitive is native per flavor.</li></ul>
+      </section>
+      <section class="card">
+        <h2>Examples</h2>
+        <ul><li>Notes Workspace now covers 19 VMx features.</li><li>Global search uses TokenPagedComposition.</li><li>Editor mode uses DiscriminatorVM.</li></ul>
+      </section>
     </div>
-
-    <p class="footer">
-      VMx · spec/VERSION 2.6.0 · architecture overview · the exhaustive member list lives in spec/ chapters and ADRs
-    </p>
-  </div>
+    <footer>Generated for VMx spec 3.1.0 documentation.</footer>
+  </main>
 </body>
 </html>

@@ -18,7 +18,7 @@ public enum SeedData {
             NotebookModel(id: "nb-specs",    name: "Specs",    parentId: "nb-work"),
             NotebookModel(id: "nb-reviews",  name: "Reviews",  parentId: nil),
             NotebookModel(id: "nb-personal", name: "Personal", parentId: nil),
-            NotebookModel(id: "nb-archive",  name: "Archive",  parentId: nil),
+            NotebookModel(id: "nb-archive",  name: "Archive",  parentId: nil, isReadonly: true),
         ]
 
         var notes: [NoteModel] = []

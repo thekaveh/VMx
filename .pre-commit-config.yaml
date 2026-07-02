@@ -37,8 +37,8 @@ repos:
       - id: mdformat
         files: ^(spec|docs)/.*\.md$
         additional_dependencies:
-          - mdformat-gfm
-          - mdformat-tables
+          - mdformat-gfm==1.0.0
+          - mdformat-tables==1.0.0
 
   - repo: local
     hooks:
@@ -63,7 +63,7 @@ repos:
           bash -c '
             paths=();
             for f in "$@"; do paths+=("${f#langs/typescript/}"); done;
-            cd langs/typescript && npx --no-install eslint "${paths[@]}"
+            cd langs/typescript && npm exec --no -- eslint "${paths[@]}"
           ' --
         language: system
         files: ^langs/typescript/(src|tests|scripts)/.*\.(ts|tsx|mjs|cjs|js)$

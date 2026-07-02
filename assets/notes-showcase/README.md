@@ -9,6 +9,7 @@ runs.
 | `avalonia.png` | [`examples/csharp/avalonia/NotesShowcase/`](../../examples/csharp/avalonia/NotesShowcase/) | `dotnet run --project examples/csharp/avalonia/NotesShowcase`         |
 | `textual.png`  | [`examples/python/textual/notes_showcase/`](../../examples/python/textual/notes_showcase/) | `uv run --project examples/python/textual/notes_showcase python -m notes_showcase` |
 | `react.png`    | [`examples/typescript/react/notes-showcase/`](../../examples/typescript/react/notes-showcase/) | `npm run dev` from the example dir, then capture `localhost:5173`     |
+| `swiftui.png`  | [`examples/swift/notes-showcase/`](../../examples/swift/notes-showcase/) | `swift run NotesShowcase` from the example dir                         |
 
 ## 1. Capture convention
 
@@ -28,4 +29,4 @@ The scenario contract at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 is the source of truth for what the screenshots should depict.
 
-Capture status: all three PNGs are owner-driven and pending — PRs welcome.
+Capture status: all four PNGs are owner-driven and pending — PRs welcome.

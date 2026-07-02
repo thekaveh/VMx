@@ -37,10 +37,10 @@ jobs:
         # the next active LTS line.
         node-version: ["20", "22"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -48,6 +48,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --package-lock-only --audit-level=low
 
       - name: Sync spec fixtures
         run: npm run sync-fixtures
@@ -93,14 +96,16 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: examples/typescript/react/notes-showcase/package-lock.json
+          cache-dependency-path: |
+            examples/typescript/console/hello-vmx/package-lock.json
+            examples/typescript/react/notes-showcase/package-lock.json
 
       - name: Install vmx lib deps + build dist
         # The notes-showcase imports `vmx` via `file:../../../../langs/typescript`
@@ -115,6 +120,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: console example install
+        run: npm ci --prefix examples/typescript/console/hello-vmx
+
+      - name: console example type-check
+        run: npm run typecheck --prefix examples/typescript/console/hello-vmx
+
+      - name: console example smoke
+        run: npm start --prefix examples/typescript/console/hello-vmx
+
       - name: notes-showcase install
         # `npm ci` requires a checked-in package-lock.json — committed under
         # examples/typescript/react/notes-showcase/ (audit round 3 Critical-3:
@@ -122,6 +136,9 @@ jobs:
         # the actions/setup-node cache above). No `npm install` fallback: a
         # drifted lockfile must fail loudly, not silently install unpinned.
         run: npm ci --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase audit
+        run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
       - name: notes-showcase test
         run: npm test --prefix examples/typescript/react/notes-showcase
@@ -132,4 +149,4 @@ jobs:
         # ESLint config under examples/typescript/react/notes-showcase/
         # encodes the rules; running it as a dedicated step surfaces
         # violations distinctly from generic test failures.
-        run: cd examples/typescript/react/notes-showcase && npx eslint src/views/components
+        run: cd examples/typescript/react/notes-showcase && npm exec --no -- eslint src/views/components

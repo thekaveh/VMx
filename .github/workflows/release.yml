@@ -36,8 +36,16 @@ jobs:
       # is to project secret into job env.
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          fi
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: |
             8.0.x
@@ -50,10 +58,41 @@ jobs:
         run: dotnet build langs/csharp/VMx.sln -c Release --no-restore --nologo
       - name: Test
         run: dotnet test langs/csharp/VMx.sln -c Release --no-build --nologo
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/csharp-v}"
+          python3 - "$tag_version" <<'PY' > /tmp/csharp-release-projects.txt
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+
+          tag_version = sys.argv[1]
+          for path in sorted(pathlib.Path("langs/csharp/src").glob("*/*.csproj")):
+              version = ET.parse(path).getroot().findtext("PropertyGroup/Version")
+              if version == tag_version:
+                  print(path)
+          PY
+          if [ ! -s /tmp/csharp-release-projects.txt ]; then
+            echo "::error::No C# package project has Version $tag_version." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches these C# package project(s):"
+          cat /tmp/csharp-release-projects.txt
       - name: Pack
-        run: dotnet pack langs/csharp/VMx.sln -c Release --nologo --no-build -o /tmp/nupkgs
+        run: |
+          set -euo pipefail
+          while IFS= read -r project; do
+            dotnet pack "$project" -c Release --nologo --no-build -o /tmp/nupkgs
+          done < /tmp/csharp-release-projects.txt
+      - name: Verify NuGet API key is configured
+        run: |
+          set -euo pipefail
+          if [ -z "${NUGET_API_KEY:-}" ]; then
+            echo "::error::NUGET_API_KEY is required for csharp-v* releases; refusing to green-skip publish." >&2
+            exit 1
+          fi
       - name: Push to NuGet
-        if: env.NUGET_API_KEY != ''
         run: |
           dotnet nuget push /tmp/nupkgs/*.nupkg \
             --api-key "$NUGET_API_KEY" \
@@ -80,7 +119,15 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          fi
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: "0.11.19"
@@ -124,7 +171,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: "0.11.19"
@@ -154,23 +201,15 @@ jobs:
           fi
           echo "Tag $tag_version matches package version $pkg_version."
 
-      # NOTE: build wheel and sdist as separate `uv build` invocations.
-      # A single `uv build` defaults to "sdist first, then wheel-from-sdist"
-      # which fails because pyproject.toml's `force-include` points outside
-      # the project tree (../../spec/fixtures/lifecycle-transitions.json),
-      # and the sdist (correctly) omits files outside its root. Building
-      # each artifact from the live source tree sidesteps that.
-      - name: Build wheel
-        run: uv build --project langs/python --wheel --out-dir dist
-      - name: Build sdist
-        run: uv build --project langs/python --sdist --out-dir dist
+      - name: Build wheel and sdist
+        run: uv build --project langs/python --out-dir dist
 
       - name: Twine check
         # Catches common metadata issues (missing long_description, invalid
         # RST/MD, malformed classifiers) before uploading. Cheap pre-flight.
         run: |
           set -euo pipefail
-          uv tool run --from twine twine check dist/*
+          uv tool run --from "twine==6.2.0" twine check dist/*
 
       - name: Publish to PyPI
         # Sigstore attestations (`attestations: true`, PEP 740) ship signed
@@ -195,8 +234,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Wait for PyPI CDN + install in fresh venv
@@ -234,7 +273,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Extract CHANGELOG section
         run: |
           set -euo pipefail
@@ -268,19 +307,28 @@ jobs:
   typescript:
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
+    environment:
+      name: npm-typescript
+      url: https://www.npmjs.com/package/@thekaveh/vmx
     permissions:
-      # Token-based npm publish: only contents:read is needed. When the TS
-      # release migrates to npm provenance via OIDC (would also need
-      # `provenance: true` on `npm publish`), restore `id-token: write`.
       contents: read
+      id-token: write
     env:
       # See the rationale on the csharp job's env block — secrets must be
       # projected to job-level env so that step `if:` can read them.
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
@@ -295,10 +343,30 @@ jobs:
       - name: Test
         working-directory: langs/typescript
         run: npm test
-      - name: Publish to npm
-        if: env.NPM_TOKEN != ''
+      - name: Audit
         working-directory: langs/typescript
-        run: npm publish --access public
+        run: npm audit --package-lock-only --audit-level=low
+      - name: Verify tag matches package version
+        working-directory: langs/typescript
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
+          pkg_version=$(node -p "require('./package.json').version")
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match package version ($pkg_version)." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches package version $pkg_version."
+      - name: Verify npm token is configured
+        run: |
+          set -euo pipefail
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN is required for typescript-v* releases; refusing to green-skip publish." >&2
+            exit 1
+          fi
+      - name: Publish to npm
+        working-directory: langs/typescript
+        run: npm publish --access public --provenance
 
   swift:
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —
@@ -312,12 +380,30 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          fi
       - name: Build & test
         # swift test requires full Xcode (XCTest); macos-latest provides it.
         # Combine is macOS-only so ubuntu-latest cannot run these tests.
         working-directory: langs/swift
         run: swift build && swift test --parallel
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/swift-v}"
+          declared_version="$(sed -nE 's/^[[:space:]]*public static let current = "([^"]+)".*/\1/p' langs/swift/Sources/VMx/Version.swift)"
+          if [ "$declared_version" != "$tag_version" ]; then
+            echo "::error::swift-v${tag_version} does not match VMxVersion.current ${declared_version}." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches VMxVersion.current."
       - name: Create GitHub Release for SwiftPM consumers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

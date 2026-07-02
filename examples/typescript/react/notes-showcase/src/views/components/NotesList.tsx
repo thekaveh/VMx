@@ -85,11 +85,11 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
         ))}
       </ul>
       <div className="notes-list-pagination">
-        <button type="button" onClick={moveFirst.execute} disabled={!moveFirst.canExecute}>⏮</button>
-        <button type="button" onClick={movePrev.execute} disabled={!movePrev.canExecute}>◀</button>
+        <button type="button" aria-label="First page" onClick={moveFirst.execute} disabled={!moveFirst.canExecute}>⏮</button>
+        <button type="button" aria-label="Previous page" onClick={movePrev.execute} disabled={!movePrev.canExecute}>◀</button>
         <span>{pageLabel ?? "Page —"}</span>
-        <button type="button" onClick={moveNext.execute} disabled={!moveNext.canExecute}>▶</button>
-        <button type="button" onClick={moveLast.execute} disabled={!moveLast.canExecute}>⏭</button>
+        <button type="button" aria-label="Next page" onClick={moveNext.execute} disabled={!moveNext.canExecute}>▶</button>
+        <button type="button" aria-label="Last page" onClick={moveLast.execute} disabled={!moveLast.canExecute}>⏭</button>
       </div>
     </div>
   );
@@ -103,12 +103,21 @@ interface NotesListItemProps {
 
 const NotesListItem: React.FC<NotesListItemProps> = ({ note, isCurrent, onSelect }) => {
   const liveNote = useVm(note);
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect(note);
+    }
+  };
+
   return (
     <li
       role="option"
       aria-selected={isCurrent}
       className={`notes-list-item${isCurrent ? " is-current" : ""}`}
+      tabIndex={0}
       onClick={() => onSelect(note)}
+      onKeyDown={onKeyDown}
     >
       {liveNote.starred && <span className="notes-list-item-star" aria-label="Starred">★</span>}
       <span>{liveNote.title}</span>

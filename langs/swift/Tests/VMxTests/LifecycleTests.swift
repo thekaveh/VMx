@@ -390,4 +390,85 @@ final class LifecycleTests: XCTestCase {
         XCTAssertThrowsError(try onD.destruct()) { XCTAssertTrue($0 is HookError) }
         XCTAssertEqual(onD.status, .constructed, "failed destruct must roll back to Constructed")
     }
+
+    func testReconstructDestructHookFailureRollsBackToConstructed() throws {
+        struct HookError: Error {}
+        let vm = ComponentVM(
+            name: "reconstruct-destruct",
+            hub: MessageHub(),
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            onDestruct: { throw HookError() }
+        )
+        try vm.construct()
+
+        XCTAssertThrowsError(try vm.reconstruct()) { XCTAssertTrue($0 is HookError) }
+        XCTAssertEqual(vm.status, .constructed)
+    }
+
+    func testReconstructConstructHookFailureRollsBackToDestructed() throws {
+        struct HookError: Error {}
+        var shouldThrow = false
+        let vm = ComponentVM(
+            name: "reconstruct-construct",
+            hub: MessageHub(),
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            onConstruct: {
+                if shouldThrow { throw HookError() }
+            }
+        )
+        try vm.construct()
+        shouldThrow = true
+
+        XCTAssertThrowsError(try vm.reconstruct()) { XCTAssertTrue($0 is HookError) }
+        XCTAssertEqual(vm.status, .destructed)
+    }
+
+    func testConcurrentDisposeInvokesOnDisposeAtMostOnce() {
+        for _ in 0..<500 {
+            let vm = OnDisposeProbeVM()
+            let group = DispatchGroup()
+            let queue = DispatchQueue.global(qos: .userInitiated)
+            let start = DispatchSemaphore(value: 0)
+
+            for _ in 0..<16 {
+                group.enter()
+                queue.async {
+                    start.wait()
+                    vm.dispose()
+                    group.leave()
+                }
+            }
+            for _ in 0..<16 { start.signal() }
+
+            XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+            XCTAssertEqual(vm.disposeCalls, 1)
+        }
+    }
+}
+
+private final class OnDisposeProbeVM: ComponentVMBase {
+    private let lock = NSLock()
+    private var _disposeCalls = 0
+
+    init() {
+        super.init(
+            name: "dispose-probe",
+            hub: MessageHub(),
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+    }
+
+    override var type: ViewModelType { .component }
+
+    var disposeCalls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _disposeCalls
+    }
+
+    override func _onDispose() {
+        lock.lock()
+        _disposeCalls += 1
+        lock.unlock()
+    }
 }

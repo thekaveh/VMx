@@ -48,3 +48,25 @@ async def test_lifecycle_keys_feed_the_message_log_and_refresh_labels() -> None:
         assert any("DESTRUCTED" in label for label in _labels(tree.root)), (
             "tree labels must refresh on lifecycle changes"
         )
+
+
+@pytest.mark.asyncio
+async def test_sample_tree_includes_state_lab_nodes() -> None:
+    from textual.widgets import Tree
+
+    app = VMxInspectorApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        tree = app.query_one(Tree)
+
+        def _labels(node) -> list[str]:
+            out = [str(node.label)]
+            for child in node.children:
+                out.extend(_labels(child))
+            return out
+
+        labels = _labels(tree.root)
+        assert any("state-lab" in label for label in labels)
+        assert any("form-vm" in label for label in labels)
+        assert any("discriminator-vm" in label for label in labels)
+        assert any("token-paged-composition" in label for label in labels)

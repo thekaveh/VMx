@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows.Input;
+using VMx.Commands;
 using VMx.Components;
 using VMx.Messages;
 using VMx.Services;
@@ -32,9 +33,10 @@ public sealed class TodoItemVM : INotifyPropertyChanged, IDisposable
             .Model(item)
             .Build();
 
-        ToggleDoneCommand = new RelayCommand(
-            execute:    () => _vm.Model = _vm.Model with { Done = !_vm.Model.Done },
-            canExecute: () => _vm.IsConstructed);
+        ToggleDoneCommand = RelayCommand.Builder()
+            .Task(() => _vm.Model = _vm.Model with { Done = !_vm.Model.Done })
+            .Predicate(() => _vm.IsConstructed)
+            .Build();
 
         // The inner VM publishes a PropertyChangedMessage("Model") on the hub
         // when the Model record is replaced. Re-raise INPC for the projected
@@ -82,32 +84,8 @@ public sealed class TodoItemVM : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         _hubSubscription.Dispose();
+        (ToggleDoneCommand as IDisposable)?.Dispose();
         _vm.Dispose();
     }
 
-    // ── Tiny ICommand implementation (avoids extra dependencies) ─────────────
-
-    private sealed class RelayCommand : ICommand
-    {
-        private readonly Action _execute;
-        private readonly Func<bool> _canExecute;
-
-        public RelayCommand(Action execute, Func<bool> canExecute)
-        {
-            _execute    = execute;
-            _canExecute = canExecute;
-        }
-
-        // Hook WPF's central requery so CanExecute is re-evaluated on UI
-        // interaction (the standard WPF RelayCommand idiom) instead of staying
-        // frozen at its first-queried value.
-        public event EventHandler? CanExecuteChanged
-        {
-            add => CommandManager.RequerySuggested += value;
-            remove => CommandManager.RequerySuggested -= value;
-        }
-
-        public bool CanExecute(object? _) => _canExecute();
-        public void Execute(object? _)    => _execute();
-    }
 }

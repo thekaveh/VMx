@@ -10,15 +10,17 @@
  * `onApproved` persists via the repository (delegated through the FormVM's
  * `persister`) and then publishes a "Saved" notification.
  */
-import { Subject, type Observable } from "rxjs";
+import { Subject, Subscription, type Observable } from "rxjs";
 
 import {
   ComponentVMBase,
   declareCapabilities,
+  DiscriminatorVM,
   FormVM,
   PropertyChangedMessage,
   RelayCommand,
   RelayCommandOf,
+  SearchableState,
   ViewModelType,
   type ICommand,
   type ICommandOf,
@@ -35,6 +37,8 @@ import type { NoteModel } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
 
 const SENTINEL = Symbol("not-set");
+const TITLE_REQUIRED = "Title is required.";
+export type EditorMode = "edit" | "preview";
 
 const EMPTY: NoteModel = {
   id: "",
@@ -54,10 +58,18 @@ export class NoteFormVM extends ComponentVMBase {
   readonly #addTagCommand: RelayCommand;
   readonly #removeTagCommand: RelayCommandOf<string>;
   readonly #denyCommand: RelayCommand;
+  readonly #showEditModeCommand: RelayCommand;
+  readonly #showPreviewModeCommand: RelayCommand;
   readonly #onSaved = new Subject<NoteModel>();
+  readonly #editorMode = new DiscriminatorVM<EditorMode>("edit");
+  readonly #editorModeSub: Subscription;
+  readonly #tagSearch: SearchableState<string>;
+  readonly #tagSearchSub: Subscription;
   #form: FormVM<NoteModel> | null = null;
   #bound: NoteModel | null = null;
   #tagDraft = "";
+  #tagCatalog: readonly string[] = [];
+  #tagSuggestions: readonly string[] = [];
 
   constructor(opts: {
     name: string;
@@ -76,6 +88,19 @@ export class NoteFormVM extends ComponentVMBase {
     this.#repo = opts.repository;
     this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(this, "IReconstructable");
+    this.#tagSearch = new SearchableState<string>({
+      items: () => this.#tagCatalog,
+      predicate: (tag, term) => {
+        const normalized = term.trim().toLowerCase();
+        if (normalized.length === 0) return false;
+        if (!tag.toLowerCase().includes(normalized)) return false;
+        return !this.draft.tags.some((existing) =>
+          existing.toLowerCase() === tag.toLowerCase(),
+        );
+      },
+      debounceMs: 0,
+      scheduler: opts.dispatcher.foreground,
+    });
 
     // Stable deny delegate (real-wiring audit, pass 6): the inner FormVM's
     // denyCommand publishes with sender = FormVM, which useVm's sender
@@ -104,6 +129,32 @@ export class NoteFormVM extends ComponentVMBase {
       .predicate((tag) => this.hasBoundNote && tag.length > 0)
       .task((tag) => this.#removeTag(tag))
       .build();
+    this.#showEditModeCommand = RelayCommand.builder()
+      .predicate(() => this.isPreviewMode)
+      .task(() => this.#editorMode.setActiveKey("edit"))
+      .triggers(this.#editorMode.activeChanged)
+      .build();
+    this.#showPreviewModeCommand = RelayCommand.builder()
+      .predicate(() => this.isEditMode)
+      .task(() => this.#editorMode.setActiveKey("preview"))
+      .triggers(this.#editorMode.activeChanged)
+      .build();
+    this.#editorModeSub = this.#editorMode.activeChanged.subscribe(() => {
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "editorMode"));
+      this._raisePropertyChanged("editorMode");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "isPreviewMode"));
+      this._raisePropertyChanged("isPreviewMode");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "isEditMode"));
+      this._raisePropertyChanged("isEditMode");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "showEditModeCommand"));
+      this._raisePropertyChanged("showEditModeCommand");
+      this._hub.send(PropertyChangedMessage.create(this, this._name, "showPreviewModeCommand"));
+      this._raisePropertyChanged("showPreviewModeCommand");
+    });
+    this.#tagSearchSub = this.#tagSearch.filtered.subscribe((suggestions) => {
+      this.#tagSuggestions = suggestions;
+      this.#emitTagSuggestionChanges();
+    });
   }
 
   get type(): ViewModelType {
@@ -116,6 +167,26 @@ export class NoteFormVM extends ComponentVMBase {
 
   get hasBoundNote(): boolean {
     return this.#form !== null;
+  }
+
+  get editorMode(): EditorMode {
+    return this.#editorMode.activeKey;
+  }
+
+  get isPreviewMode(): boolean {
+    return this.#editorMode.isActive("preview");
+  }
+
+  get isEditMode(): boolean {
+    return this.#editorMode.isActive("edit");
+  }
+
+  get showEditModeCommand(): ICommand {
+    return this.#showEditModeCommand;
+  }
+
+  get showPreviewModeCommand(): ICommand {
+    return this.#showPreviewModeCommand;
   }
 
   /** Live editable draft. Returns EMPTY before `bindTo`. */
@@ -138,9 +209,12 @@ export class NoteFormVM extends ComponentVMBase {
     return this.#form?.isDirty ?? false;
   }
 
-  /** Validation: non-empty title. */
   get isValid(): boolean {
-    return this.draft.title.trim().length > 0;
+    return this.#form?.isValid ?? false;
+  }
+
+  get titleError(): string | null {
+    return this.#form?.fieldError("title") ?? null;
   }
 
   /** Comma-joined tag list — bind UI text labels to this so the rendered
@@ -176,6 +250,8 @@ export class NoteFormVM extends ComponentVMBase {
       PropertyChangedMessage.create(this, this._name, "tagDraft"),
     );
     this._raisePropertyChanged("tagDraft");
+    this.#tagSearch.searchTerm = value;
+    this.#tagSearch.search();
   }
 
   get addTagCommand(): ICommand {
@@ -184,6 +260,14 @@ export class NoteFormVM extends ComponentVMBase {
 
   get removeTagCommand(): ICommandOf<string> {
     return this.#removeTagCommand;
+  }
+
+  get tagSuggestions(): readonly string[] {
+    return this.#tagSuggestions;
+  }
+
+  get tagSuggestionsText(): string {
+    return this.#tagSuggestions.join(", ");
   }
 
   /** Binds the form to `note` (creates / replaces the inner FormVM). */
@@ -195,6 +279,9 @@ export class NoteFormVM extends ComponentVMBase {
       persister: (m) => this.#persistAsync(m),
       hub: this._hub,
       strict: true,
+      validators: {
+        title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
+      },
     });
     this.#form.onApproved.subscribe((m) => this.#onSaved.next(m));
     this.#emitDraftChanges();
@@ -249,6 +336,25 @@ export class NoteFormVM extends ComponentVMBase {
         ),
       );
     }
+    await this.refreshTagSuggestionsAsync();
+  }
+
+  async refreshTagSuggestionsAsync(): Promise<void> {
+    try {
+      const snapshot = await this.#repo.loadAll();
+      this.#tagCatalog = Array.from(
+        new Set(
+          snapshot.notes
+            .flatMap((note) => note.tags)
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      ).sort((left, right) => left.localeCompare(right));
+      this.#tagSearch.search();
+    } catch {
+      this.#tagCatalog = [];
+      this.#tagSearch.search();
+    }
   }
 
   async #persistAsync(note: NoteModel): Promise<void> {
@@ -262,6 +368,7 @@ export class NoteFormVM extends ComponentVMBase {
       return;
     this.draft = { ...this.draft, tags: [...this.draft.tags, trimmed] };
     this.tagDraft = "";
+    this.#tagSearch.search();
   }
 
   #removeTag(tag: string): void {
@@ -272,6 +379,7 @@ export class NoteFormVM extends ComponentVMBase {
         (t) => t.toLowerCase() !== tag.toLowerCase(),
       ),
     };
+    this.#tagSearch.search();
   }
 
   #emitDraftChanges(): void {
@@ -291,7 +399,10 @@ export class NoteFormVM extends ComponentVMBase {
       "snapshot",
       "isDirty",
       "isValid",
+      "titleError",
       "tagsText",
+      "tagSuggestions",
+      "tagSuggestionsText",
       "approveCommand",
       "denyCommand",
     ]) {
@@ -302,12 +413,25 @@ export class NoteFormVM extends ComponentVMBase {
     }
   }
 
+  #emitTagSuggestionChanges(): void {
+    for (const name of ["tagSuggestions", "tagSuggestionsText"]) {
+      this._hub.send(PropertyChangedMessage.create(this, this._name, name));
+      this._raisePropertyChanged(name);
+    }
+  }
+
   protected override _onDispose(): void {
     this.#form?.dispose();
     this.#approveCommand.dispose();
     this.#addTagCommand.dispose();
     this.#removeTagCommand.dispose();
     this.#denyCommand.dispose();
+    this.#showEditModeCommand.dispose();
+    this.#showPreviewModeCommand.dispose();
+    this.#editorModeSub.unsubscribe();
+    this.#editorMode.dispose();
+    this.#tagSearchSub.unsubscribe();
+    this.#tagSearch.dispose();
     this.#onSaved.complete();
     super._onDispose();
   }

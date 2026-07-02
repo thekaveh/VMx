@@ -19,6 +19,7 @@ import Combine
 /// Minimal parent interface used by a child for selection delegation.
 /// Mirrors `IParentVM` in the other flavors.
 public protocol ParentVM: AnyObject {
+    var supportsChildSelection: Bool { get }
     var currentChild: ComponentVMBase? { get }
     func selectChild(_ vm: ComponentVMBase)
     func deselectChild(_ vm: ComponentVMBase)
@@ -391,11 +392,21 @@ open class ComponentVMBase {
         defer { _setInFlight(false) }
 
         _setStatus(.destructing)
-        try _onDestruct()
+        do {
+            try _onDestruct()
+        } catch {
+            _setStatus(.constructed)
+            throw error
+        }
         _setStatus(.destructed)
 
         _setStatus(.constructing)
-        try _onConstruct()
+        do {
+            try _onConstruct()
+        } catch {
+            _setStatus(.destructed)
+            throw error
+        }
         _setStatus(.constructed)
     }
 
@@ -404,12 +415,17 @@ open class ComponentVMBase {
     /// override `_onDispose()` (and may override `dispose()` itself to
     /// cascade to children).
     open func dispose() {
-        if _isDisposed() { return }
+        lifecycleLock.lock()
+        if _status == .disposed {
+            lifecycleLock.unlock()
+            return
+        }
 
         // `_setStatus(.disposed)` flips `_status` to `.disposed` atomically
         // under `lifecycleLock`, so a racing background transition re-checking
         // via `_isDisposed()` observes the terminal state and aborts.
         _setStatus(.disposed)
+        lifecycleLock.unlock()
         _onDispose()
 
         // Tear down the trigger / property-changed subjects under the same lock
@@ -436,11 +452,12 @@ open class ComponentVMBase {
     // ── Selection ───────────────────────────────────────────────────────
 
     public func canSelect() -> Bool {
-        // spec/05 §5: parent non-nil, not already current, constructed.
-        // No "parent has a selection slot" condition — a group child
-        // reports true and select() is a no-op, same as the other flavors.
+        // spec/05 §5 + spec/07: parent non-nil, parent owns a selection slot,
+        // not already current, constructed.
         guard let parent = _parent else { return false }
-        return parent.currentChild !== self && _statusSnapshot() == .constructed
+        return parent.supportsChildSelection &&
+            parent.currentChild !== self &&
+            _statusSnapshot() == .constructed
     }
 
     public func select() {

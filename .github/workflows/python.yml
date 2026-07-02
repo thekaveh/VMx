@@ -33,7 +33,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
@@ -87,7 +87,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
@@ -119,6 +119,35 @@ jobs:
       - name: notes-showcase tests
         run: uv run --directory examples/python/textual/notes_showcase pytest
 
+  small-examples:
+    name: examples (console + tk)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          version: "0.11.19"
+          enable-cache: true
+          cache-dependency-glob: |
+            examples/python/pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync examples
+        run: uv sync --directory examples/python
+
+      - name: Run console example
+        run: uv run --directory examples/python python -m hello_vmx
+
+      - name: Compile Tk example
+        run: uv run --directory examples/python python -m compileall tk/todo_app
+
   inspector:
     # vmx_inspector (Textual TUI) is a separate standalone uv project; gate it
     # under the same ruff/mypy/pytest standards as the lib + showcase so the
@@ -131,7 +160,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3

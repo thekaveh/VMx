@@ -14,11 +14,18 @@ export interface RepositorySnapshot {
   readonly notes: readonly NoteModel[];
 }
 
+export interface NoteSearchPage {
+  readonly items: readonly NoteModel[];
+  readonly nextToken: string | null;
+}
+
 export interface INoteRepository {
   /** Loads everything. ~300 ms simulated delay. */
   loadAll(): Promise<RepositorySnapshot>;
   /** Loads notes belonging to a given notebook id. ~150 ms simulated delay. */
   loadNotes(notebookId: string): Promise<NoteModel[]>;
+  /** Searches all notes with opaque forward-only token paging. */
+  searchNotes(term: string, token: string | null, pageSize: number): Promise<NoteSearchPage>;
   /** Inserts or updates a note (stamps updatedAt). ~200 ms simulated delay. */
   saveNote(note: NoteModel): Promise<void>;
   /** Removes the note with the given id (no-op if absent). ~120 ms simulated delay. */

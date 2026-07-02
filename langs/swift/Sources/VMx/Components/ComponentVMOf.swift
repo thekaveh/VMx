@@ -31,6 +31,46 @@ func _defaultModelEquals<Model>(_ lhs: Model, _ rhs: Model) -> Bool {
     return (lhs as AnyObject) === (rhs as AnyObject)
 }
 
+public struct ComponentVMOfOptions<Model> {
+    public var name: String?
+    public var hint: String
+    public var model: Model
+    public var hub: MessageHubProtocol?
+    public var dispatcher: Dispatcher?
+    public var modeledHinter: ((Model) -> String)?
+    public var modelEquals: ((Model, Model) -> Bool)?
+    public var onModelChanged: ((Model) -> Void)?
+    public var onConstruct: (() -> Void)?
+    public var onDestruct: (() -> Void)?
+    public var background: Bool
+
+    public init(
+        name: String? = nil,
+        hint: String = "",
+        model: Model,
+        hub: MessageHubProtocol? = nil,
+        dispatcher: Dispatcher? = nil,
+        modeledHinter: ((Model) -> String)? = nil,
+        modelEquals: ((Model, Model) -> Bool)? = nil,
+        onModelChanged: ((Model) -> Void)? = nil,
+        onConstruct: (() -> Void)? = nil,
+        onDestruct: (() -> Void)? = nil,
+        background: Bool = false
+    ) {
+        self.name = name
+        self.hint = hint
+        self.model = model
+        self.hub = hub
+        self.dispatcher = dispatcher
+        self.modeledHinter = modeledHinter
+        self.modelEquals = modelEquals
+        self.onModelChanged = onModelChanged
+        self.onConstruct = onConstruct
+        self.onDestruct = onDestruct
+        self.background = background
+    }
+}
+
 open class ComponentVMOf<Model>: ComponentVMBase {
     private var _model: Model
     private let modeledHinter: (Model) -> String
@@ -107,6 +147,23 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     public static func builder() -> ComponentVMOfBuilder<Model> {
         ComponentVMOfBuilder<Model>()
     }
+
+    public static func create(_ options: ComponentVMOfOptions<Model>) throws -> ComponentVMOf<Model> {
+        var b = ComponentVMOf<Model>.builder()
+            .hint(options.hint)
+            .model(options.model)
+            .background(options.background)
+        if let name = options.name { b = b.name(name) }
+        if let hub = options.hub, let dispatcher = options.dispatcher {
+            b = b.services(hub: hub, dispatcher: dispatcher)
+        }
+        if let modeledHinter = options.modeledHinter { b = b.modeledHinter(modeledHinter) }
+        if let modelEquals = options.modelEquals { b = b.modelEquals(modelEquals) }
+        if let onModelChanged = options.onModelChanged { b = b.onModelChanged(onModelChanged) }
+        if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
+        if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }
+        return try b.build()
+    }
 }
 
 // ─── Equatable convenience overload ──────────────────────────────────────
@@ -116,6 +173,23 @@ open class ComponentVMOf<Model>: ComponentVMBase {
 // the builder defaults to `==`. See `ComponentVMOfBuilder` for details.
 
 extension ComponentVMOf where Model: Equatable {
+    public static func create(_ options: ComponentVMOfOptions<Model>) throws -> ComponentVMOf<Model> {
+        var b = ComponentVMOf<Model>.builder()
+            .hint(options.hint)
+            .model(options.model)
+            .background(options.background)
+        if let name = options.name { b = b.name(name) }
+        if let hub = options.hub, let dispatcher = options.dispatcher {
+            b = b.services(hub: hub, dispatcher: dispatcher)
+        }
+        if let modeledHinter = options.modeledHinter { b = b.modeledHinter(modeledHinter) }
+        if let modelEquals = options.modelEquals { b = b.modelEquals(modelEquals) }
+        if let onModelChanged = options.onModelChanged { b = b.onModelChanged(onModelChanged) }
+        if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
+        if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }
+        return try b.build()
+    }
+
     /// Equatable-aware initializer convenience — defaults `modelEquals`
     /// to `==`. (The builder path gets the same default via the
     /// constraint-overloaded `ComponentVMOfBuilder.build()` — a static

@@ -16,16 +16,25 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   # report-only
   python3 tools/check-conformance-coverage.py
 
-  # CI mode — require all three flavors to be at 100% coverage (matches
+  # CI mode — require all four flavors to be at 100% coverage (matches
   # .github/workflows/conformance.yml)
   python3 tools/check-conformance-coverage.py \
-      --require csharp --require python --require typescript
+      --require csharp --require python --require typescript --require swift
   ```
 
   Unit tests live in `tools/tests/`. Run with:
+
   ```bash
   uv --project langs/python run pytest tools/tests/
   ```
+
+- `check-python-fixture-sync.py` — verifies the Python package's tracked runtime
+  copy of `lifecycle-transitions.json` is byte-identical to the spec fixture.
+  This keeps the package buildable from both the live checkout and the published
+  sdist.
+
+- `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
+  are byte-identical to `spec/fixtures/*.json`.
 
 ## 2. Pure-VM contract checks (notes-showcase, Phase 6)
 
@@ -44,19 +53,24 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   direct hub subscriptions). Excludes `views/adapter/**`.
 
 - `check-layer-imports.py` — enforces the layered import direction for
-  all three flavors:
+  the C#, Python, and TypeScript flagship examples:
 
-    Models → Models only
-    ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,
-    which is treated as a peer because frameworks like Avalonia need
-    INPC-aware sidecars co-located with the VM).
-    Views → anywhere.
+  Models → Models only
+  ViewModels → Models + ViewModels (plus the `Views.Adapter` sub-layer,
+  which is treated as a peer because frameworks like Avalonia need
+  INPC-aware sidecars co-located with the VM).
+  Views → anywhere.
+
+  The Swift flagship is intentionally outside this script: its core/view split
+  is enforced by SwiftPM target boundaries (`NotesShowcaseCore` vs
+  `NotesShowcase`) plus Swift compile checks.
 
 - `check-showcase-parity.py` — verifies each flavor ships the eleven
   canonical VM test files (`workspace_vm`, `notebooks_root_vm`,
   `notebook_vm`, `notes_view_vm`, `note_vm`, `note_form_vm`,
   `status_bar_vm`, `notifications_vm`, `capability_actions_vm`,
-  `theme_vm`, `in_memory_repository`).
+  `theme_vm`, `in_memory_repository`) and all five `THEME-001..005`
+  scenario markers.
 
 A fifth check is the React ESLint rule under
 `examples/typescript/react/notes-showcase/.eslintrc.cjs` —
@@ -71,7 +85,7 @@ python3 tools/check-axaml-codebehind.py
 python3 tools/check-textual-views.py
 python3 tools/check-layer-imports.py
 python3 tools/check-showcase-parity.py
-( cd examples/typescript/react/notes-showcase && npx eslint src/views/components )
+( cd examples/typescript/react/notes-showcase && npm exec --no -- eslint src/views/components )
 ```
 
 <!-- Future tooling ideas (matrix generator, spec-to-docs renderer) are tracked as

@@ -26,7 +26,7 @@ Each recipe explains:
 | Vue 3     | TypeScript | [vue.md](vue.md)           | none yet — recipe-only                                       |
 | Svelte    | TypeScript | [svelte.md](svelte.md)     | none yet — recipe-only                                       |
 | SolidJS   | TypeScript | [solid.md](solid.md)       | none yet — recipe-only                                       |
-| SwiftUI   | Swift      | [swiftui.md](swiftui.md)   | none yet — Swift flavor is a v2.6.0 subset (recipe-only)     |
+| SwiftUI   | Swift      | [swiftui.md](swiftui.md)   | `examples/swift/notes-showcase/` (Notes-Showcase)            |
 
 ## 1. Common pattern
 

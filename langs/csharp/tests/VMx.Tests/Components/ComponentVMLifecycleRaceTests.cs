@@ -100,6 +100,128 @@ public class ComponentVMLifecycleRaceTests
         vm.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
+    [Fact]
+    public async Task ConstructAsync_Completes_When_Background_Construct_Rolls_Back()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .Background(true)
+            .OnConstruct(() => throw new InvalidOperationException("boom"))
+            .Build();
+
+        var task = vm.ConstructAsync();
+        Action runBackground = () => dispatcher.BackgroundScheduler.AdvanceBy(1);
+
+        runBackground.Should().Throw<InvalidOperationException>();
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(task,
+            "the awaiter must observe the rollback transition instead of hanging");
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task DestructAsync_Completes_When_Background_Destruct_Rolls_Back()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .Background(true)
+            .OnDestruct(() => throw new InvalidOperationException("boom"))
+            .Build();
+        vm.Construct();
+        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+
+        var task = vm.DestructAsync();
+        Action runBackground = () => dispatcher.BackgroundScheduler.AdvanceBy(1);
+
+        runBackground.Should().Throw<InvalidOperationException>();
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().BeSameAs(task,
+            "the awaiter must observe the rollback transition instead of hanging");
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task Concurrent_Construct_Is_Rejected_While_First_Construct_Is_In_Flight()
+    {
+        var started = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var constructCalls = 0;
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() =>
+            {
+                Interlocked.Increment(ref constructCalls);
+                started.Set();
+                release.Wait();
+            })
+            .Build();
+
+        var first = Task.Run(vm.Construct);
+        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first construct entered its hook");
+
+        Action second = vm.Construct;
+        second.Should().Throw<StatusTransitionException>(
+            "the per-VM lifecycle guard must reject concurrent construct re-entry");
+
+        release.Set();
+        await first;
+
+        constructCalls.Should().Be(1);
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task Concurrent_Destruct_Is_Rejected_While_First_Destruct_Is_In_Flight()
+    {
+        var started = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var destructCalls = 0;
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnDestruct(() =>
+            {
+                Interlocked.Increment(ref destructCalls);
+                started.Set();
+                release.Wait();
+            })
+            .Build();
+        vm.Construct();
+
+        var first = Task.Run(vm.Destruct);
+        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first destruct entered its hook");
+
+        Action second = vm.Destruct;
+        second.Should().Throw<StatusTransitionException>(
+            "the per-VM lifecycle guard must reject concurrent destruct re-entry");
+
+        release.Set();
+        await first;
+
+        destructCalls.Should().Be(1);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
     /// <summary>
     /// VMX-001/054 regression: a background <c>Construct()</c> whose
     /// <c>SetStatus(Constructed)</c> runs on a real pool thread must never race a
@@ -191,6 +313,49 @@ public class ComponentVMLifecycleRaceTests
             firstViolation.Should().Be(-1,
                 "the background transition and foreground Dispose must be atomic");
         }
+    }
+
+    [Fact]
+    public async Task Concurrent_Dispose_Invokes_OnDispose_At_Most_Once()
+    {
+        const int iterations = 1_000;
+        const int contenders = 16;
+
+        for (var i = 0; i < iterations; i++)
+        {
+            var vm = new OnDisposeProbeVM();
+            using var start = new ManualResetEventSlim();
+            var tasks = Enumerable.Range(0, contenders)
+                .Select(_ => Task.Run(() =>
+                {
+                    start.Wait();
+                    vm.Dispose();
+                }))
+                .ToArray();
+
+            start.Set();
+            await Task.WhenAll(tasks);
+
+            vm.DisposeCalls.Should().Be(1);
+        }
+    }
+}
+
+internal sealed class OnDisposeProbeVM : ComponentVMBase
+{
+    private int _disposeCalls;
+
+    public OnDisposeProbeVM()
+        : base("probe", "", new TestHub(), new TestDispatcher(), null, null)
+    {
+    }
+
+    public override ViewModelType Type => ViewModelType.Component;
+    public int DisposeCalls => _disposeCalls;
+
+    protected override void OnDispose()
+    {
+        Interlocked.Increment(ref _disposeCalls);
     }
 }
 

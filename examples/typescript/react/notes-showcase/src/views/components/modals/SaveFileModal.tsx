@@ -21,7 +21,12 @@ export const SaveFileModal: React.FC<{ request: DialogRequest }> = ({ request })
     request.resolveString(name.length > 0 ? name : null);
   };
   return (
-    <div className="dialog-backdrop" role="dialog" aria-modal="true">
+    <div
+      className="dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={request.title ?? request.message}
+    >
       <form className="dialog-window" onSubmit={onSubmit}>
         <div className="dialog-title">{request.title ?? request.message}</div>
         <label htmlFor="dialog-filename">Filename</label>

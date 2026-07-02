@@ -19,12 +19,16 @@ struct NoteFormView: View {
     @StateObject private var bound: BindableVM<NoteFormVM>
     @StateObject private var approveCmd: BindableCommand
     @StateObject private var addTagCmd: BindableCommand
+    @StateObject private var showEditCmd: BindableCommand
+    @StateObject private var showPreviewCmd: BindableCommand
     @EnvironmentObject private var theme: ThemeAdapter
 
     init(vm: NoteFormVM) {
         _bound     = StateObject(wrappedValue: BindableVM(vm))
         _approveCmd = StateObject(wrappedValue: BindableCommand(vm.approveCommand))
         _addTagCmd  = StateObject(wrappedValue: BindableCommand(vm.addTagCommand))
+        _showEditCmd = StateObject(wrappedValue: BindableCommand(vm.showEditModeCommand))
+        _showPreviewCmd = StateObject(wrappedValue: BindableCommand(vm.showPreviewModeCommand))
     }
 
     var body: some View {
@@ -61,6 +65,11 @@ struct NoteFormView: View {
                             set: { bound.vm.title = $0 }
                         ))
                         .textFieldStyle(.roundedBorder)
+                        if let titleError = bound.vm.titleError {
+                            Text(titleError)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
 
                         // Tags row
                         VStack(alignment: .leading, spacing: 4) {
@@ -90,6 +99,12 @@ struct NoteFormView: View {
                                 .frame(maxWidth: 160)
                                 Button("+") { addTagCmd.execute() }
                                     .disabled(!addTagCmd.canExecute)
+                                    .accessibilityLabel("Add tag")
+                            }
+                            if !bound.vm.tagSuggestionsText.isEmpty {
+                                Text("Suggestions: \(bound.vm.tagSuggestionsText)")
+                                    .font(.caption)
+                                    .foregroundColor(theme.textDim)
                             }
                         }
 
@@ -99,20 +114,41 @@ struct NoteFormView: View {
                             set: { bound.vm.starred = $0 }
                         ))
 
-                        // Body text editor
-                        Text("Body")
-                            .font(.caption)
-                            .foregroundColor(theme.textDim)
-                        TextEditor(text: Binding(
-                            get: { bound.vm.body },
-                            set: { bound.vm.body = $0 }
-                        ))
-                        .font(.body)
-                        .frame(minHeight: 160)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                        )
+                        // Body editor / preview
+                        HStack(spacing: 8) {
+                            Text("Body")
+                                .font(.caption)
+                                .foregroundColor(theme.textDim)
+                            Spacer()
+                            Button("Edit") { showEditCmd.execute() }
+                                .disabled(!showEditCmd.canExecute)
+                            Button("Preview") { showPreviewCmd.execute() }
+                                .disabled(!showPreviewCmd.canExecute)
+                        }
+                        if bound.vm.isPreviewMode {
+                            Text(bound.vm.body.isEmpty ? "No body." : bound.vm.body)
+                                .font(.body)
+                                .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
+                                .padding(8)
+                                .background(Color.secondary.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                                )
+                                .accessibilityLabel("Body preview")
+                        } else {
+                            TextEditor(text: Binding(
+                                get: { bound.vm.body },
+                                set: { bound.vm.body = $0 }
+                            ))
+                            .font(.body)
+                            .frame(minHeight: 160)
+                            .accessibilityLabel("Body")
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                            )
+                        }
 
                         // Action buttons
                         HStack(spacing: 8) {
@@ -146,6 +182,7 @@ private struct TagChipView: View {
             Button("×", action: onRemove)
                 .buttonStyle(.plain)
                 .font(.caption)
+                .accessibilityLabel("Remove tag \(tag)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)

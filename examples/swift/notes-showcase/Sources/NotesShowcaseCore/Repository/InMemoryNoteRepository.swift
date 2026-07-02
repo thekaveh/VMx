@@ -64,6 +64,27 @@ public actor InMemoryNoteRepository: NoteRepository {
         return notes.filter { $0.notebookId == notebookId }
     }
 
+    public func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        try await sleep(loadNotesDelay)
+        let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let parsed = token.flatMap(Int.init) ?? 0
+        let start = max(0, parsed)
+        let safePageSize = max(1, pageSize)
+        let matches = notes.filter { note in
+            if normalized.isEmpty { return true }
+            let haystack = "\(note.title) \(note.body) \(note.tags.joined(separator: " "))"
+                .lowercased()
+            return haystack.contains(normalized)
+        }
+        let end = min(matches.count, start + safePageSize)
+        let items = start < matches.count ? Array(matches[start..<end]) : []
+        return (items, end < matches.count ? String(end) : nil)
+    }
+
     public func saveNote(_ note: NoteModel) async throws {
         try await sleep(saveNoteDelay)
         let stamped = note.with(updatedAt: now())

@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [3.1.0] — 2026-07-01
 
-Implements `spec-v3.1.0` and keeps Swift at full library parity: 279/279
+Implements `spec-v3.1.0` and keeps Swift at full library parity: 281/281
 conformance IDs covered.
 
 ### Added
@@ -15,11 +15,27 @@ conformance IDs covered.
 - `TokenPagedComposition`, filtered/scored composite views, declarative
   `FormVM` validation, VM-backed modal presentation, hierarchical child-cache
   invalidation, and `DiscriminatorVM`.
+- Options-value `create(_:)` factories for the common `ComponentVM`,
+  `ComponentVMOf`, `CompositeVM`, and `GroupVM` types (`BLD-006`).
 
 ### Changed
 
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
+
+### Fixed
+
+- `reconstruct()` now rolls back to the prior settled lifecycle state when its
+  destruct or construct hook throws.
+- Concurrent `dispose()` calls invoke `_onDispose()` at most once.
+- `AsyncRelayCommand` is now inert after disposal, synchronizes its in-flight
+  state, and fire-and-forget cancellation no longer emits on `errors` when
+  `throwOnCancel()` is set.
+- `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
+  if it is disposed before the fetch completes, and serializes token/items state
+  against concurrent disposal.
+- Group children no longer report enabled child selection into a group, and
+  composite/group lifecycle cascades snapshot children before invoking hooks.
 
 ## [3.0.0] — 2026-06-28
 

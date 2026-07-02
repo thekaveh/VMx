@@ -136,6 +136,10 @@ final class NoteFormVMTests: XCTestCase {
         let (form, _) = try build()
         form.bindTo(sampleNote(title: ""))
         XCTAssertFalse(form.isValid)
+        XCTAssertEqual("Title is required.", form.titleError)
+        form.title = "Now valid"
+        XCTAssertTrue(form.isValid)
+        XCTAssertNil(form.titleError)
     }
 
     // MARK: - Tags
@@ -159,6 +163,47 @@ final class NoteFormVMTests: XCTestCase {
         form.removeTagCommand.execute("a")
         XCTAssertFalse(form.draft.tags.contains("a"))
         XCTAssertTrue(form.draft.tags.contains("b"))
+    }
+
+    func testTagSuggestions_filterWorkspaceTagCatalogThroughSearchableState() async throws {
+        let (form, _) = try build()
+        form.bindTo(sampleNote().with(tags: []))
+        await form.refreshTagSuggestions()
+
+        form.tagDraft = "sec"
+
+        XCTAssertEqual(["security"], form.tagSuggestions)
+        XCTAssertEqual("security", form.tagSuggestionsText)
+    }
+
+    func testTagSuggestions_omitTagsAlreadyOnDraft() async throws {
+        let (form, _) = try build()
+        form.bindTo(sampleNote().with(tags: ["security"]))
+        await form.refreshTagSuggestions()
+
+        form.tagDraft = "sec"
+
+        XCTAssertEqual([], form.tagSuggestions)
+        XCTAssertEqual("", form.tagSuggestionsText)
+    }
+
+    // MARK: - Editor Mode
+
+    func testEditorMode_defaultsToEditAndSwitchesThroughDiscriminatorVM() throws {
+        let (form, _) = try build()
+        XCTAssertEqual("edit", form.editorMode)
+        XCTAssertTrue(form.isEditMode)
+        XCTAssertFalse(form.isPreviewMode)
+        XCTAssertFalse(form.showEditModeCommand.canExecute())
+        XCTAssertTrue(form.showPreviewModeCommand.canExecute())
+
+        form.showPreviewModeCommand.execute()
+
+        XCTAssertEqual("preview", form.editorMode)
+        XCTAssertFalse(form.isEditMode)
+        XCTAssertTrue(form.isPreviewMode)
+        XCTAssertTrue(form.showEditModeCommand.canExecute())
+        XCTAssertFalse(form.showPreviewModeCommand.canExecute())
     }
 
     // MARK: - Two-way scalar setters (Phase 5.a parity)

@@ -4,7 +4,7 @@
 // Mirrors the C# App.axaml.cs composition order:
 //   1. Build InMemoryNoteRepository with SeedData
 //   2. Build WorkspaceVM (MessageHub + NotificationHub + MainQueueDispatcher +
-//      NullDialogService default from builder)
+//      AppKitDialogService for native file/confirm/notify dialogs)
 //   3. Fire async construct (fire-and-forget)
 //   4. Build ThemeAdapter from workspace.theme and apply synchronously
 //   5. Inject workspace (via AppState) + ThemeAdapter as .environmentObject
@@ -57,6 +57,7 @@ final class AppState: ObservableObject {
         let workspace = try! WorkspaceVM.builder()
             .repository(repo)
             .dispatcher(MainQueueDispatcher.INSTANCE)
+            .dialogService(AppKitDialogService())
             .build()
         self.workspace = workspace
         self.themeAdapter = ThemeAdapter(themeVM: workspace.theme)

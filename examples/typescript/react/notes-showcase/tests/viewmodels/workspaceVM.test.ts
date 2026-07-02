@@ -75,6 +75,29 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
+  it("selecting a note updates capabilityActions focus", async () => {
+    const ws = makeWorkspace();
+    await ws.constructAsync();
+    const note = ws.notesView.inner[0];
+    expect(note).toBeDefined();
+    if (note === undefined) {
+      throw new Error("expected seeded workspace to load at least one note");
+    }
+
+    ws.notesView.current = note;
+
+    const labels = ws.capabilityActions.actions.value.map((a) => a.label);
+    expect(labels).toContain("Close");
+    expect(labels).toContain("Save");
+    expect(labels).not.toContain("Expand");
+
+    ws.notesView.current = null;
+    const fallback = ws.capabilityActions.actions.value.map((a) => a.label);
+    expect(fallback).toContain("Expand");
+    expect(fallback).not.toContain("Save");
+    ws.dispose();
+  });
+
   it("exportCommand returns silently when dialog cancels", async () => {
     const ws = makeWorkspace();
     await ws.constructAsync();

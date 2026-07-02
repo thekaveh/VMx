@@ -1,7 +1,7 @@
 //
 // GroupVM conformance tests.
 //
-// Claimed IDs: GRP-002, GRP-003, GRP-004 (plus the group path of
+// Claimed IDs: GRP-002, GRP-003, GRP-004, GRP-011 (plus the group path of
 // LIFE-013). GRP-001 (CollectionChanged on add), GRP-005
 // (AutoConstructOnAdd), and GRP-006 (BatchUpdate) are NOT claimed —
 // those behaviors are not implemented by this flavor yet (ADR-0037).
@@ -67,17 +67,16 @@ final class GroupVMTests: XCTestCase {
         XCTAssertEqual(a.status, .destructed)
     }
 
-    /// A group child reports `canSelect() == true` once constructed
-    /// (spec/05 §5 — parent non-nil, not current, constructed) but
-    /// `select()` is a no-op because a group has no selection slot
-    /// (spec/07 — children are peers).
-    func testGroupChildSelectIsNoOp() throws {
+    /// GRP-011 — a group child is a peer, so its inherited select command is
+    /// disabled even though the group has set the child's parent.
+    func testGrp011GroupChildrenAreNotSelectable() throws {
         let a = leaf("a")
         let g = try! GroupVM<ComponentVM>.builder()
             .name("g").withNullServices().children { [a] }.build()
         try g.construct()
 
-        XCTAssertTrue(a.canSelect())
+        XCTAssertFalse(a.canSelect())
+        XCTAssertFalse(a.selectCommand.canExecute())
 
         a.select()
 

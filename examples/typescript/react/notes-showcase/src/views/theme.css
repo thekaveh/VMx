@@ -159,10 +159,20 @@ textarea:focus {
 
 .notebooks-tree-toggle {
   width: 14px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   display: inline-flex;
+  align-items: center;
   justify-content: center;
   color: var(--text-dim);
   font-size: 10px;
+  cursor: pointer;
+}
+
+.notebooks-tree-toggle:disabled {
+  cursor: default;
 }
 
 .notebooks-tree-children {
@@ -227,6 +237,46 @@ textarea:focus {
   color: var(--text-dim);
 }
 
+.global-search {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+}
+
+.global-search-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.global-search-controls input[type="search"] {
+  flex: 1;
+}
+
+.global-search-results {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  margin: 8px 0;
+  overflow-x: auto;
+  padding: 0;
+}
+
+.global-search-results li {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 6px 8px;
+}
+
+.global-search-results small {
+  color: var(--text-dim);
+}
+
+.global-search-more {
+  min-width: 96px;
+}
+
 .note-form {
   display: flex;
   flex-direction: column;
@@ -249,6 +299,24 @@ textarea:focus {
 .note-form-body {
   min-height: 160px;
   resize: vertical;
+}
+
+.note-form-mode-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.note-form-mode-row span {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.note-form-preview {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  white-space: pre-wrap;
 }
 
 .note-form-tags {
@@ -274,6 +342,21 @@ textarea:focus {
   background: transparent;
   padding: 0 2px;
   color: var(--text-dim);
+}
+
+.note-form-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.note-form-suggestions span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 2px 8px;
 }
 
 .note-form-buttons {

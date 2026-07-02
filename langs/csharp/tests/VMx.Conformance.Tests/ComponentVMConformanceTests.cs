@@ -463,6 +463,8 @@ public class ComponentVMConformanceTests
     {
         private IComponentVM? _current;
 
+        public bool SupportsChildSelection => true;
+
         public IComponentVM? CurrentChild => _current;
 
         public void SetCurrent(IComponentVM vm) => _current = vm;

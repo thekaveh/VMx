@@ -38,6 +38,21 @@ public sealed class WorkspaceVMTests
             .Build();
     }
 
+    private static WorkspaceVM BuildWorkspace(
+        IReadOnlyList<NotebookModel> notebooks,
+        IReadOnlyList<NoteModel>? notes = null)
+    {
+        var repo = new InMemoryNoteRepository(
+            (notebooks, notes ?? Array.Empty<NoteModel>()),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero);
+        return WorkspaceVM.Builder()
+            .Repository(repo)
+            .Build();
+    }
+
     [Fact]
     public async Task ConstructAsync_loads_notebooks_selects_first_and_populates_notes()
     {
@@ -116,6 +131,32 @@ public sealed class WorkspaceVMTests
             var labels = ws.CapabilityActions.Actions.Value.Select(a => a.Label).ToList();
             Assert.Contains("Close", labels);
             Assert.DoesNotContain("Expand", labels);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Selecting_a_note_updates_capability_focus()
+    {
+        var ws = BuildWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.FilteredItems[0];
+            ws.NotesView.Current = note;
+
+            var labels = ws.CapabilityActions.Actions.Value.Select(a => a.Label).ToList();
+            Assert.Contains("Close", labels);
+            Assert.Contains("Save", labels);
+            Assert.DoesNotContain("Expand", labels);
+
+            ws.NotesView.Current = null;
+            var fallback = ws.CapabilityActions.Actions.Value.Select(a => a.Label).ToList();
+            Assert.Contains("Expand", fallback);
+            Assert.DoesNotContain("Save", fallback);
         }
         finally
         {
@@ -205,11 +246,28 @@ public sealed class WorkspaceVMTests
             var other = ws.NotebooksRoot.Roots.First(nb => nb.Model.Id != firstId);
 
             ws.NotebooksRoot.Current = other;
-            await TestWait.WaitUntilAsync(() => ws.NotesView.BoundNotebookId == other.Model.Id);
+            await TestWait.WaitUntilAsync(() =>
+            {
+                if (ws.NotesView.BoundNotebookId != other.Model.Id)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    var items = ws.NotesView.FilteredItems.ToArray();
+                    return items.Length > 0
+                           && items.All(n => n.Model.NotebookId == other.Model.Id);
+                }
+                catch (InvalidOperationException)
+                {
+                    return false;
+                }
+            });
 
             Assert.Equal(other.Model.Id, ws.NotesView.BoundNotebookId);
-            Assert.All(ws.NotesView.FilteredItems,
-                n => Assert.Equal(other.Model.Id, n.Model.NotebookId));
+            var snapshot = ws.NotesView.FilteredItems.ToArray();
+            Assert.All(snapshot, n => Assert.Equal(other.Model.Id, n.Model.NotebookId));
         }
         finally
         {
@@ -234,6 +292,52 @@ public sealed class WorkspaceVMTests
             Assert.True(changes > 0,
                 "CanExecuteChanged must fire so bound buttons re-evaluate");
             Assert.True(ws.NewNoteCommand.CanExecute(null));
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public void NotebookModel_default_is_not_readonly()
+    {
+        var nb = new NotebookModel("nb", "Notebook", ParentId: null);
+
+        Assert.False(nb.IsReadOnly);
+    }
+
+    [Fact]
+    public async Task Capability_add_note_is_disabled_for_readonly_notebook()
+    {
+        var ws = BuildWorkspace(new[]
+        {
+            new NotebookModel("nb-readonly", "Archive", ParentId: null, IsReadOnly: true),
+        });
+        await ws.ConstructAsync();
+        try
+        {
+            Assert.True(ws.NotesView.CurrentNotebookIsReadOnly);
+            Assert.False(ws.CapabilityActions.AddNoteCommand.CanExecute(null));
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Capability_add_note_is_enabled_for_writable_notebook()
+    {
+        var ws = BuildWorkspace(new[]
+        {
+            new NotebookModel("nb-rw", "Drafts", ParentId: null),
+        });
+        await ws.ConstructAsync();
+        try
+        {
+            Assert.False(ws.NotesView.CurrentNotebookIsReadOnly);
+            Assert.True(ws.CapabilityActions.AddNoteCommand.CanExecute(null));
         }
         finally
         {
@@ -304,6 +408,8 @@ public sealed class WorkspaceVMTests
             => _inner.LoadAllAsync(ct);
         public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
             => _inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
         public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
         {
             Interlocked.Increment(ref SaveCalls);
@@ -365,6 +471,8 @@ public sealed class WorkspaceVMTests
             }
             return _inner.LoadNotesAsync(notebookId, ct);
         }
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
         public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default) => _inner.SaveNoteAsync(note, ct);
         public Task DeleteNoteAsync(string id, CancellationToken ct = default) => _inner.DeleteNoteAsync(id, ct);
         public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default) => _inner.AddNotebookAsync(notebook, ct);

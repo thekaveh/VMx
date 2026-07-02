@@ -539,6 +539,39 @@ public class CompositeVMTests
     }
 
     [Fact]
+    public void Construct_Cascade_Snapshots_Children_When_Hook_Mutates_Composite()
+    {
+        CompositeVM<ComponentVM<string>>? composite = null;
+        ComponentVM<string>? sibling = null;
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var mutating = ComponentVM<string>.Builder()
+            .Name("mutating")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() => composite!.Remove(sibling!))
+            .Build();
+        sibling = ComponentVM<string>.Builder()
+            .Name("sibling")
+            .Services(hub, dispatcher)
+            .Model("s")
+            .Build();
+        composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("c")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { mutating, sibling })
+            .Build();
+
+        var act = () => composite.Construct();
+
+        act.Should().NotThrow();
+        mutating.Status.Should().Be(ConstructionStatus.Constructed);
+        sibling.Status.Should().Be(ConstructionStatus.Constructed,
+            "the construct cascade uses the entry snapshot even if a hook removes a peer");
+        composite.Count.Should().Be(1);
+    }
+
+    [Fact]
     public void Indexer_Setter_Replacing_Current_Clears_Current()
     {
         var (composite, hub, dispatcher) = BuildComposite();

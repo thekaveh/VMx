@@ -46,6 +46,7 @@ public sealed class WorkspaceVM : IDisposable
     // shares the workspace hub + dispatcher so its ThemeChangedMessage rides
     // the same bus, and the view binds the Avalonia ThemeAdapter to it.
     private readonly ThemeVM _theme;
+    private readonly GlobalSearchVM _globalSearch;
 
     // Round-3 Critical-2: subscription that rebinds NoteForm whenever
     // NotesView.Current changes (e.g. user clicks a different note in the
@@ -86,6 +87,9 @@ public sealed class WorkspaceVM : IDisposable
     /// </summary>
     public ThemeVM Theme => _theme;
 
+    /// <summary>Token-paged all-notes search VM.</summary>
+    public GlobalSearchVM GlobalSearch => _globalSearch;
+
     /// <summary>Public hub accessor.</summary>
     public IMessageHub Hub => _hub;
 
@@ -110,7 +114,7 @@ public sealed class WorkspaceVM : IDisposable
     private object? _focused;
     private bool _disposed;
 
-    private void TrackFocus(object focused)
+    private void TrackFocus(object? focused)
     {
         if (ReferenceEquals(_focused, focused)) return;
         _focused = focused;
@@ -161,6 +165,14 @@ public sealed class WorkspaceVM : IDisposable
         var capabilities = CapabilityActionsVM.Builder()
             .Name("capabilities").Services(hub, dispatcher)
             .FocusedGetter(() => _focused)
+            .CanAddNote(() => IsConstructed && NotebooksRoot.Current is not null && !NotesView.CurrentNotebookIsReadOnly)
+            .AddNoteAction(() => _ = AddNewNoteToCurrentAsync())
+            .Build();
+        var globalSearch = GlobalSearchVM.Builder()
+            .Name("global-search").Services(hub, dispatcher)
+            .Repository(repo)
+            .PageSize(5)
+            .SearchDebounce(TimeSpan.FromMilliseconds(150))
             .Build();
 
         _agg = AggregateVM6<
@@ -180,6 +192,7 @@ public sealed class WorkspaceVM : IDisposable
         _theme = ThemeVM.Builder()
             .Name("theme").Services(hub, dispatcher)
             .Build();
+        _globalSearch = globalSearch;
 
         // Round-3 Critical-2: when the user selects a note in the centre
         // pane, rebind the right-pane editor so it shows the selected note's
@@ -210,10 +223,12 @@ public sealed class WorkspaceVM : IDisposable
                 if (current is not null)
                 {
                     noteForm.BindTo(current.Model);
+                    TrackFocus(current);
                 }
                 else
                 {
                     noteForm.Unbind();
+                    TrackFocus(notebooks.Current);
                 }
             });
 
@@ -228,6 +243,7 @@ public sealed class WorkspaceVM : IDisposable
             {
                 var nb = notebooks.Current;
                 if (nb is null) return;
+                notesView.CurrentNotebookIsReadOnly = nb.Model.IsReadOnly;
                 TrackFocus(nb);
                 _commandTrigger.OnNext(System.Reactive.Unit.Default);
                 if (string.Equals(_requestedNotebookId, nb.Model.Id, StringComparison.Ordinal)) return;
@@ -311,6 +327,7 @@ public sealed class WorkspaceVM : IDisposable
     {
         _agg.Construct();
         _theme.Construct();
+        _globalSearch.Construct();
     }
 
     /// <summary>
@@ -321,6 +338,7 @@ public sealed class WorkspaceVM : IDisposable
     {
         _agg.Construct();
         _theme.Construct();
+        _globalSearch.Construct();
         await NotebooksRoot.PopulateAsync().ConfigureAwait(false);
         var first = NotebooksRoot.Roots.FirstOrDefault();
         if (first is not null)
@@ -332,9 +350,11 @@ public sealed class WorkspaceVM : IDisposable
             // TreeView binding (real-wiring audit, pass 6).
             _requestedNotebookId = first.Model.Id;
             await NotesView.BindToAsync(first.Model.Id).ConfigureAwait(false);
+            await NoteForm.RefreshTagSuggestionsAsync().ConfigureAwait(false);
             _dispatcher.Foreground.Schedule(() =>
             {
                 if (_disposed) return; // queued tail may outlive the workspace
+                NotesView.CurrentNotebookIsReadOnly = first.Model.IsReadOnly;
                 NotebooksRoot.Current = first;
                 TrackFocus(first);
                 _commandTrigger.OnNext(System.Reactive.Unit.Default);
@@ -357,6 +377,7 @@ public sealed class WorkspaceVM : IDisposable
     public void Destruct()
     {
         _theme.Destruct();
+        _globalSearch.Destruct();
         _agg.Destruct();
     }
 
@@ -373,6 +394,7 @@ public sealed class WorkspaceVM : IDisposable
         (NewNoteCommand as IDisposable)?.Dispose();
         (ExportCommand as IDisposable)?.Dispose();
         _theme.Dispose();
+        _globalSearch.Dispose();
         _agg.Dispose();
     }
 

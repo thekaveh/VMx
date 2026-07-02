@@ -21,6 +21,7 @@ from reactivex.abc import DisposableBase
 from vmx import (
     ComponentVM,
     DerivedProperty,
+    DiscriminatorVM,
     FormVM,
     IReconstructable,
     MessageHub,
@@ -29,6 +30,7 @@ from vmx import (
     RelayCommand,
     RelayCommandOf,
     RxDispatcher,
+    SearchableState,
     from_sources,
 )
 from vmx.messages.protocols import Message
@@ -48,6 +50,7 @@ _EMPTY_NOTE = NoteModel(
     created_at=datetime.fromtimestamp(0),
     updated_at=datetime.fromtimestamp(0),
 )
+_TITLE_REQUIRED = "Title is required."
 
 
 class NoteFormVM(ComponentVM, IReconstructable):
@@ -68,6 +71,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._notification_hub = notification_hub
         self._form: FormVM[NoteModel] | None = None
         self._tag_draft: str = ""
+        self._editor_mode: DiscriminatorVM[str] = DiscriminatorVM("edit")
+        self._tag_catalog: tuple[str, ...] = ()
+        self._tag_suggestions: tuple[str, ...] = ()
         # Round-3 Important C-I3: track the hub subscription created by
         # ``bind_to`` so we can dispose the previous one before re-subscribing
         # (previously the prior closure leaked on every rebind).
@@ -94,6 +100,15 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._tags_text: DerivedProperty[str] = from_sources(
             self._self_subject,
             transform=lambda nf: ", ".join(cast(NoteFormVM, nf).tags),
+        )
+        self._tag_search: SearchableState[str] = SearchableState(
+            items=lambda: self._tag_catalog,
+            predicate=lambda tag, term: self._tag_matches(tag, term),
+            debounce_seconds=0,
+            scheduler=dispatcher.foreground,
+        )
+        self._tag_search_subscription = self._tag_search.filtered.subscribe(
+            on_next=self._set_tag_suggestions
         )
 
         # Triggered by the self-subject so bound Buttons' disabled state
@@ -133,6 +148,23 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # the property must hand out one object for the VM's lifetime.
         self._deny_command: RelayCommand = (
             RelayCommand.builder().task(self._deny_current).build()
+        )
+        self._show_edit_mode_command = (
+            RelayCommand.builder()
+            .predicate(lambda: not self.is_edit_mode)
+            .task(lambda: self._editor_mode.set_active_key("edit"))
+            .triggers(self._self_subject)
+            .build()
+        )
+        self._show_preview_mode_command = (
+            RelayCommand.builder()
+            .predicate(lambda: not self.is_preview_mode)
+            .task(lambda: self._editor_mode.set_active_key("preview"))
+            .triggers(self._self_subject)
+            .build()
+        )
+        self._editor_mode_subscription = self._editor_mode.active_changed.subscribe(
+            on_next=lambda _mode: self._emit_editor_mode_changes()
         )
         # Emits the persisted NoteModel after each successful save; the
         # workspace uses it to refresh the note-list row labels.
@@ -226,7 +258,11 @@ class NoteFormVM(ComponentVM, IReconstructable):
         return self._form.is_dirty if self._form is not None else False
 
     def _compute_is_valid(self) -> bool:
-        return bool(self.draft.title.strip())
+        return self._form.is_valid if self._form is not None else False
+
+    @property
+    def title_error(self) -> str | None:
+        return self._form.field_error("title") if self._form is not None else None
 
     # ── Tag draft + commands ───────────────────────────────────────────────
     @property
@@ -240,6 +276,8 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._tag_draft = value
         self._hub.send(PropertyChangedMessage.create(self, self._name, "tag_draft"))
         self._raise_property_changed("tag_draft")
+        self._tag_search.search_term = value
+        self._tag_search.search()
         # Nudge command predicates (add-tag gates on a non-empty draft).
         self._self_subject.on_next(self)
 
@@ -270,6 +308,34 @@ class NoteFormVM(ComponentVM, IReconstructable):
         """
         return self._remove_tag_command
 
+    @property
+    def tag_suggestions(self) -> tuple[str, ...]:
+        return self._tag_suggestions
+
+    @property
+    def tag_suggestions_text(self) -> str:
+        return ", ".join(self._tag_suggestions)
+
+    @property
+    def editor_mode(self) -> str:
+        return self._editor_mode.active_key
+
+    @property
+    def is_preview_mode(self) -> bool:
+        return self._editor_mode.is_active("preview")
+
+    @property
+    def is_edit_mode(self) -> bool:
+        return self._editor_mode.is_active("edit")
+
+    @property
+    def show_edit_mode_command(self) -> RelayCommand:
+        return self._show_edit_mode_command
+
+    @property
+    def show_preview_mode_command(self) -> RelayCommand:
+        return self._show_preview_mode_command
+
     def remove_tag(self, tag: str) -> None:
         """Imperative tag removal (caller provides the tag).
 
@@ -286,6 +352,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if new_tags == current.tags:
             return
         self.draft = self._replace_tags(current, new_tags)
+        self._tag_search.search()
 
     def _add_tag(self) -> None:
         if self._form is None:
@@ -298,6 +365,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             return
         self.draft = self._replace_tags(current, (*current.tags, tag))
         self.tag_draft = ""
+        self._tag_search.search()
 
     @staticmethod
     def _replace_tags(model: NoteModel, tags: tuple[str, ...]) -> NoteModel:
@@ -328,6 +396,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
             persister=self._persist,
             hub=self._hub,
             strict=True,
+            validators={
+                "title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None
+            },
         )
         form.on_approved.subscribe(on_next=self._handle_approved)
         self._form = form
@@ -386,6 +457,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
                     f"Saved “{self._form.snapshot.title}”",
                 )
             )
+        await self.refresh_tag_suggestions_async()
 
     def _handle_approved(self, model: NoteModel) -> None:
         self._emit_draft_changes()
@@ -399,6 +471,20 @@ class NoteFormVM(ComponentVM, IReconstructable):
     async def _persist(self, note: NoteModel) -> None:
         await self._repo.save_note(note)
 
+    async def refresh_tag_suggestions_async(self) -> None:
+        try:
+            _notebooks, notes = await self._repo.load_all()
+            seen: dict[str, str] = {}
+            for note in notes:
+                for raw in note.tags:
+                    tag = raw.strip()
+                    if tag:
+                        seen.setdefault(tag.lower(), tag)
+            self._tag_catalog = tuple(sorted(seen.values(), key=str.lower))
+        except Exception:
+            self._tag_catalog = ()
+        self._tag_search.search()
+
     def _approve_fire_and_forget(self) -> None:
         try:
             loop = asyncio.get_running_loop()
@@ -406,6 +492,18 @@ class NoteFormVM(ComponentVM, IReconstructable):
             task.add_done_callback(lambda t: t.exception())
         except RuntimeError:
             asyncio.run(self.approve_async())
+
+    def _tag_matches(self, tag: str, term: str) -> bool:
+        normalized = term.strip().lower()
+        if not normalized:
+            return False
+        if normalized not in tag.lower():
+            return False
+        return all(existing.lower() != tag.lower() for existing in self.draft.tags)
+
+    def _set_tag_suggestions(self, suggestions: list[str]) -> None:
+        self._tag_suggestions = tuple(suggestions)
+        self._emit_tag_suggestion_changes()
 
     def _emit_draft_changes(self) -> None:
         self._self_subject.on_next(self)
@@ -421,13 +519,33 @@ class NoteFormVM(ComponentVM, IReconstructable):
             "snapshot",
             "is_dirty",
             "is_valid",
+            "title_error",
             "title",
             "body",
             "starred",
             "tags",
+            "tag_suggestions",
+            "tag_suggestions_text",
             "approve_command",
             "deny_command",
         ):
+            self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
+            self._raise_property_changed(prop)
+
+    def _emit_editor_mode_changes(self) -> None:
+        for prop in (
+            "editor_mode",
+            "is_preview_mode",
+            "is_edit_mode",
+            "show_edit_mode_command",
+            "show_preview_mode_command",
+        ):
+            self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
+            self._raise_property_changed(prop)
+        self._self_subject.on_next(self)
+
+    def _emit_tag_suggestion_changes(self) -> None:
+        for prop in ("tag_suggestions", "tag_suggestions_text"):
             self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
             self._raise_property_changed(prop)
 
@@ -439,6 +557,12 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._add_tag_command.dispose()
         self._remove_tag_command.dispose()
         self._deny_command.dispose()
+        self._show_edit_mode_command.dispose()
+        self._show_preview_mode_command.dispose()
+        self._editor_mode_subscription.dispose()
+        self._editor_mode.dispose()
+        self._tag_search_subscription.dispose()
+        self._tag_search.dispose()
         self._on_saved.on_completed()
         self._on_saved.dispose()
         self._is_dirty.dispose()

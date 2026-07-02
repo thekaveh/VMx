@@ -98,13 +98,17 @@ def parse_spec_version(repo_root: Path) -> str:
 
 
 def parse_csharp_versions(csproj_path: Path) -> dict[str, str]:
-    """Extract ``<Version>`` and ``<MinSpecVersion>`` from a ``.csproj`` file."""
+    """Extract package version metadata from a ``.csproj`` file."""
     text = csproj_path.read_text(encoding="utf-8")
     ver_m = re.search(r"<Version>([^<]+)</Version>", text)
     msv_m = re.search(r"<MinSpecVersion>([^<]+)</MinSpecVersion>", text)
+    pkg_m = re.search(r"<PackageId>([^<]+)</PackageId>", text)
     return {
+        "package_id": pkg_m.group(1).strip() if pkg_m else csproj_path.stem,
         "version": ver_m.group(1).strip() if ver_m else "",
         "min_spec_version": msv_m.group(1).strip() if msv_m else "",
+        "tag_prefix": "csharp",
+        "require_current_spec": "true" if csproj_path.stem == "VMx" else "false",
     }
 
 
@@ -148,22 +152,38 @@ def collect_manifests(repo_root: Path) -> dict[str, dict[str, str]]:
     """Collect version info from every flavor manifest that is present."""
     manifests: dict[str, dict[str, str]] = {}
 
-    csproj = repo_root / "langs" / "csharp" / "src" / "VMx" / "VMx.csproj"
-    if csproj.is_file():
-        manifests["csharp"] = parse_csharp_versions(csproj)
+    csharp_src = repo_root / "langs" / "csharp" / "src"
+    if csharp_src.is_dir():
+        for csproj in sorted(csharp_src.glob("*/*.csproj")):
+            info = parse_csharp_versions(csproj)
+            package_id = info.get("package_id") or csproj.stem
+            key = "csharp" if package_id == "VMx" else f"csharp/{package_id}"
+            manifests[key] = info
 
     about = repo_root / "langs" / "python" / "src" / "vmx" / "__about__.py"
     if about.is_file():
-        manifests["python"] = parse_python_versions(about)
+        manifests["python"] = {
+            **parse_python_versions(about),
+            "tag_prefix": "python",
+            "require_current_spec": "true",
+        }
 
     pkg = repo_root / "langs" / "typescript" / "package.json"
     ts_src = repo_root / "langs" / "typescript" / "src"
     if pkg.is_file():
-        manifests["typescript"] = parse_typescript_versions(pkg, ts_src)
+        manifests["typescript"] = {
+            **parse_typescript_versions(pkg, ts_src),
+            "tag_prefix": "typescript",
+            "require_current_spec": "true",
+        }
 
     swift_ver = repo_root / "langs" / "swift" / "Sources" / "VMx" / "Version.swift"
     if swift_ver.is_file():
-        manifests["swift"] = parse_swift_versions(swift_ver)
+        manifests["swift"] = {
+            **parse_swift_versions(swift_ver),
+            "tag_prefix": "swift",
+            "require_current_spec": "true",
+        }
 
     return manifests
 
@@ -262,6 +282,8 @@ def check_min_spec_versions(
     """Return one issue string per flavor whose ``minSpecVersion`` != ``spec/VERSION``."""
     issues: list[str] = []
     for flavor, info in sorted(manifests.items()):
+        if info.get("require_current_spec", "true") == "false":
+            continue
         msv = info.get("min_spec_version", "")
         if msv != spec_version:
             issues.append(f"  {flavor}: minSpecVersion={msv!r} but spec/VERSION={spec_version!r}")
@@ -297,7 +319,8 @@ def find_missing_tags(
     for flavor, info in sorted(manifests.items()):
         ver = info.get("version", "")
         if ver:
-            _want(f"{flavor}-v{ver}", f"{flavor} manifest version={ver!r}")
+            tag_prefix = info.get("tag_prefix") or flavor.split("/", 1)[0]
+            _want(f"{tag_prefix}-v{ver}", f"{flavor} manifest version={ver!r}")
 
     # From matrix rows
     for row in matrix_rows:

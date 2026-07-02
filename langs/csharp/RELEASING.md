@@ -36,23 +36,23 @@ tagging, verify:
 grep -r "PackageProjectUrl\|RepositoryUrl" langs/csharp/src/**/*.csproj
 ```
 
-Check each URL is reachable. Also confirm `<PackageVersion>` matches the
-intended tag version.
+Check each URL is reachable. Also confirm `<Version>` matches the intended tag
+version in every package project you plan to release.
 
 ### 1.3 Companion package versioning
 
 `VMx.Notifications` and `VMx.Extensions.DependencyInjection` version
-independently from `VMx` (per ADR-0009 / ADR-0013). The `csharp-v*` tag and
-the NuGet push cover all packages in `VMx.sln` — update each companion
-package's `<PackageVersion>` in its own `.csproj` only when it has changes to
-ship.
+independently from `VMx` (per ADR-0009 / ADR-0013). The release workflow finds
+all C# package projects whose `<Version>` equals the `csharp-v*` tag version
+and packs only those projects. Update a companion package's `<Version>` only
+when it has changes to ship.
 
 ## 2. Cutting a release
 
 ### 2.1 Routine release (manual)
 
 1. Land all intended changes on `main`.
-2. Update `<PackageVersion>` in the relevant `.csproj` file(s) under
+2. Update `<Version>` in the relevant `.csproj` file(s) under
    `langs/csharp/src/`.
 3. Update `MinSpecVersion` in the same area if the spec version also bumped.
 4. Add a `## [X.Y.Z] — YYYY-MM-DD` section to `langs/csharp/CHANGELOG.md`.
@@ -62,31 +62,32 @@ ship.
    ```bash
    git checkout main
    git pull --ff-only origin main
-   grep '<PackageVersion>' langs/csharp/src/VMx/VMx.csproj   # confirm version
+   grep '<Version>' langs/csharp/src/VMx/VMx.csproj   # confirm version
    git tag csharp-v2.6.1
    git push origin csharp-v2.6.1
    ```
 
 7. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> —
    the publish pipeline fires on the tag.
-8. If `NUGET_API_KEY` is set, the `Push to NuGet` step runs automatically (no
-   manual approval gate — unlike Python's pypi-python environment gate). If it
-   is not set, the step is skipped silently; check the Actions log.
-
+8. The workflow verifies the tag commit is reachable from `origin/main` before
+   it builds. If `NUGET_API_KEY` is missing, the job fails before publish rather
+   than green-skipping the release.
 ### 2.2 What the pipeline does
 
 The `csharp` job in `release.yml` runs only when the tag starts with
 `csharp-v`. It:
 
-1. Checks out the repository.
+1. Checks out the repository and verifies the tag commit is reachable from
+   `origin/main`.
 2. Sets up .NET 8.0.x and 9.0.x, restoring from the packages lockfile.
 3. Runs `dotnet restore VMx.sln --locked-mode`.
 4. Runs `dotnet build VMx.sln -c Release`.
 5. Runs `dotnet test VMx.sln -c Release` (full test suite incl. conformance).
-6. Runs `dotnet pack VMx.sln -c Release -o /tmp/nupkgs` (produces `.nupkg`
-   and `.snupkg` symbol packages for all projects in the solution).
-7. Runs `dotnet nuget push /tmp/nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json`
-   with `--skip-duplicate` (only if `NUGET_API_KEY` is present).
+6. Finds package projects under `langs/csharp/src/*/*.csproj` whose `<Version>`
+   matches the tag and runs `dotnet pack` for those projects only.
+7. Fails if `NUGET_API_KEY` is absent.
+8. Runs `dotnet nuget push /tmp/nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json`
+   with `--skip-duplicate`.
 
 There is no separate verify-published or release-notes job for C# yet;
 add them alongside adoption of release-please.
@@ -95,7 +96,7 @@ add them alongside adoption of release-please.
 
 Use NuGet pre-release SemVer segments in the `.csproj`:
 
-- `<PackageVersion>2.7.0-alpha.1</PackageVersion>` → `dotnet nuget push`
+- `<Version>2.7.0-alpha.1</Version>` → `dotnet nuget push`
   will push a pre-release package. `dotnet add package VMx` (no version pin)
   will NOT pick it up by default; users must pin or pass `--prerelease`.
 
@@ -110,7 +111,7 @@ curl -s "https://api.nuget.org/v3-flatcontainer/vmx/index.json" \
 mkdir /tmp/vmx-cs-verify && cd /tmp/vmx-cs-verify
 dotnet new classlib -n Verify
 cd Verify
-dotnet add package VMx --version 2.6.0
+dotnet add package VMx --version X.Y.Z
 ```
 
 ## 4. Failure modes
@@ -123,9 +124,9 @@ cut a new tag with a bumped patch version.
 
 ### 4.2 `NUGET_API_KEY` not set / expired
 
-The push step is guarded by `if: env.NUGET_API_KEY != ''` and silently skips
-when the secret is absent. Regenerate the API key on NuGet, update the
-`NUGET_API_KEY` Actions secret, and re-push the tag:
+The job fails before publish when the secret is absent or expired. Regenerate
+the API key on NuGet, update the `NUGET_API_KEY` Actions secret, and re-run the
+failed workflow. If the tag itself was wrong, delete and recreate it on `main`:
 
 ```bash
 git push origin --delete csharp-v2.6.1
@@ -151,11 +152,10 @@ the Python, TypeScript, or Swift jobs. See `langs/python/RELEASING.md` §5
 for the multi-flavor scheme overview.
 
 The companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`)
-are packed and pushed alongside `VMx` in the same job because they are part of
-`VMx.sln`. If a companion package needs a hotfix without bumping the core
-package, push a `csharp-v*` tag for the companion's version only — but note
-that the push pushes ALL nupkgs, and `--skip-duplicate` will skip the already-
-published ones.
+share the `csharp-v<X.Y.Z>` tag prefix but version independently. If a companion
+package needs a hotfix without bumping the core package, update only that
+project's `<Version>` and push `csharp-v<X.Y.Z>` for the companion version; the
+workflow packs the matching project and does not repack unrelated C# packages.
 
 ## 6. Spec compatibility
 

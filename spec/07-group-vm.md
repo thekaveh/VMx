@@ -28,6 +28,10 @@ The `GroupVM` itself retains `SelectCommand` and `DeselectCommand` from the
 its parent (if any), not on the children. `SelectNextCommand` and
 `SelectPreviousCommand` are likewise inherited but their predicates always
 return `false`, since a group has no internal navigation slot to advance.
+Children added to a `GroupVM` are peers: their inherited `can_select` /
+`CanSelect` / `canSelect` predicate MUST return `false` while the parent is the
+group, and their inherited select command MUST be disabled. Calling `select()` /
+`Select()` on such a child is a no-op.
 
 ## 2. Children construction orchestration
 
@@ -72,7 +76,8 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 
 ## 7. Conformance
 
-`GRP-001` through `GRP-006` and `GRP-007` through `GRP-010` in `12-conformance.md` cover:
+`GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, and `GRP-011`
+in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - absence of `Current`
@@ -80,3 +85,4 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 - destruction waits for all children
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
+- group children are peers whose inherited select command is disabled

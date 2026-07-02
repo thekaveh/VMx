@@ -222,4 +222,21 @@ public class NotificationsConformanceTests
         hub.Resolve(new Notification(NotificationType.Notification, "ghost"), NotificationReaction.Approve);
         hub.Dispose();
     }
+
+    [Fact]
+    public async Task Duplicate_Same_Instance_Post_Returns_Existing_Waiter()
+    {
+        var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "same");
+
+        var first = hub.Post(notification);
+        var second = hub.Post(notification);
+
+        second.Should().BeSameAs(first, "duplicate same-instance posts share the in-flight waiter");
+
+        hub.Resolve(notification, NotificationReaction.Approve);
+
+        (await first).Should().Be(NotificationReaction.Approve);
+        (await second).Should().Be(NotificationReaction.Approve);
+    }
 }

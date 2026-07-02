@@ -5,10 +5,19 @@
   "description": "Minimal Node script demonstrating the VMx TypeScript library.",
   "type": "module",
   "scripts": {
-    "start": "npx tsx index.ts"
+    "build:vmx": "npm --prefix ../../../../langs/typescript ci && npm --prefix ../../../../langs/typescript run build",
+    "prestart": "npm run build:vmx",
+    "start": "tsx index.ts",
+    "pretypecheck": "npm run build:vmx",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@thekaveh/vmx": "file:../../../../langs/typescript"
+    "@thekaveh/vmx": "file:../../../../langs/typescript",
+    "rxjs": "^7.8.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=20"

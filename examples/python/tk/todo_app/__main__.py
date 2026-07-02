@@ -22,6 +22,8 @@ from __future__ import annotations
 import tkinter as tk
 from dataclasses import dataclass, replace
 
+from reactivex.subject import Subject
+
 from vmx.commands.relay_command import RelayCommand
 from vmx.components.component_vm import ComponentVMOf
 from vmx.composites.composite_vm import CompositeVM
@@ -120,6 +122,7 @@ class MainWindowViewModel:
     def __init__(self) -> None:
         self._hub: MessageHub[Message] = MessageHub()
         self._dispatcher = RxDispatcher.immediate()
+        self._new_item_title_changed: Subject[None] = Subject()
 
         # Non-modeled composite — children are added imperatively.
         # ``children(lambda: ())`` declares "no initial children" explicitly per
@@ -134,13 +137,14 @@ class MainWindowViewModel:
         self._composite.construct()
 
         # Mutable UI state (mirrors WPF's NewItemTitle two-way binding).
-        self.new_item_title: str = ""
+        self._new_item_title: str = ""
 
         # Commands wired to UI buttons.
         self.add_command: RelayCommand = (
             RelayCommand.builder()
             .predicate(lambda: bool(self.new_item_title.strip()))
             .task(self._do_add)
+            .triggers(self._new_item_title_changed)
             .build()
         )
         self.remove_command: RelayCommand = (
@@ -156,6 +160,17 @@ class MainWindowViewModel:
             self._add_item(title)
 
     # ── Public API ────────────────────────────────────────────────────────
+
+    @property
+    def new_item_title(self) -> str:
+        return self._new_item_title
+
+    @new_item_title.setter
+    def new_item_title(self, value: str) -> None:
+        if self._new_item_title == value:
+            return
+        self._new_item_title = value
+        self._new_item_title_changed.on_next(None)
 
     @property
     def items(self) -> list[TodoItemVM]:
@@ -185,6 +200,8 @@ class MainWindowViewModel:
         self._composite.dispose()
         self.add_command.dispose()
         self.remove_command.dispose()
+        self._new_item_title_changed.on_completed()
+        self._new_item_title_changed.dispose()
         self._hub.dispose()
 
     # ── Private helpers ───────────────────────────────────────────────────
@@ -248,6 +265,10 @@ class MainWindow:
         self._hub_sub = self._vm.hub.messages.subscribe(
             on_next=lambda _: self._refresh_list()
         )
+        self._add_command_sub = self._vm.add_command.can_execute_changed.subscribe(
+            on_next=lambda _: self._refresh_add_button_state()
+        )
+        self._refresh_add_button_state()
 
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -305,9 +326,6 @@ class MainWindow:
 
     def _on_entry_changed(self, *_: object) -> None:
         self._vm.new_item_title = self._entry_var.get()
-        self._add_btn.config(
-            state=tk.NORMAL if self._vm.add_command.can_execute() else tk.DISABLED
-        )
 
     def _on_listbox_select(self, _event: object) -> None:
         sel = self._listbox.curselection()
@@ -330,6 +348,7 @@ class MainWindow:
     def _on_close(self) -> None:
         self._collection_sub.dispose()
         self._hub_sub.dispose()
+        self._add_command_sub.dispose()
         self._vm.shutdown()
         self._root.destroy()
 
@@ -366,6 +385,11 @@ class MainWindow:
         state = tk.NORMAL if has_selection else tk.DISABLED
         self._toggle_btn.config(state=state)
         self._remove_btn.config(state=state)
+
+    def _refresh_add_button_state(self) -> None:
+        self._add_btn.config(
+            state=tk.NORMAL if self._vm.add_command.can_execute() else tk.DISABLED
+        )
 
 
 # ---------------------------------------------------------------------------

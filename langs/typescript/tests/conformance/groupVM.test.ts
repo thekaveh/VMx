@@ -78,6 +78,27 @@ describe("GRP-002", () => {
 });
 
 // ---------------------------------------------------------------------------
+// GRP-011
+// ---------------------------------------------------------------------------
+
+describe("GRP-011", () => {
+  it("Group children are peers and their inherited select command is disabled", () => {
+    const hub = makeHub();
+    const child = makeChild(hub, "child");
+    const group = GroupVM.builder<ComponentVM>()
+      .name("g")
+      .services(hub, makeDisp())
+      .children(() => [child])
+      .build();
+
+    group.construct();
+
+    expect(child.canSelect()).toBe(false);
+    expect(child.selectCommand.canExecute()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GRP-003
 // ---------------------------------------------------------------------------
 

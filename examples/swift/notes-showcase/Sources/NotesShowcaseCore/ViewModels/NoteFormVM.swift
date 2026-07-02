@@ -18,6 +18,7 @@ import VMx
 /// `form.setModel` then fires property-changed signals for every derived
 /// property so two-way UI bindings stay in sync.
 public final class NoteFormVM: ComponentVMBase {
+    private static let titleRequired = "Title is required."
 
     // ── Private state ──────────────────────────────────────────────────────
 
@@ -26,6 +27,12 @@ public final class NoteFormVM: ComponentVMBase {
     private var _form: FormVM<NoteModel>?
     private var _tagDraft: String = ""
     private var _approvedCancellable: AnyCancellable?
+    private let _editorMode = DiscriminatorVM<String>(initial: "edit")
+    private var _editorModeCancellable: AnyCancellable?
+    private var _tagCatalog: [String] = []
+    private var _tagSuggestions: [String] = []
+    private var _tagSearch: SearchableState<String>?
+    private var _tagSearchCancellable: AnyCancellable?
 
     // ── Reactive channels ──────────────────────────────────────────────────
 
@@ -50,6 +57,12 @@ public final class NoteFormVM: ComponentVMBase {
 
     /// Remove the given tag from the draft tag list.
     public private(set) var removeTagCommand: RelayCommandOf<String>
+
+    /// Switches the editor body to the editable text area.
+    public private(set) var showEditModeCommand: RelayCommand
+
+    /// Switches the editor body to the read-only preview pane.
+    public private(set) var showPreviewModeCommand: RelayCommand
 
     // ── Empty sentinel ─────────────────────────────────────────────────────
 
@@ -116,6 +129,8 @@ public final class NoteFormVM: ComponentVMBase {
             _tagDraft = newValue
             hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "tagDraft"))
             _raisePropertyChanged("tagDraft")
+            _tagSearch?.searchTerm = newValue
+            _tagSearch?.search()
             _canExecuteTrigger.send(())
         }
     }
@@ -123,10 +138,26 @@ public final class NoteFormVM: ComponentVMBase {
     /// `true` when the draft differs from the snapshot.
     public var isDirty: Bool { _form?.isDirty ?? false }
 
-    /// `true` when the draft has a non-empty (non-whitespace) title.
-    public var isValid: Bool {
-        !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    /// `true` when the draft passes FormVM validation.
+    public var isValid: Bool { _form?.isValid ?? false }
+
+    /// Field-level validation error for `title`, if any.
+    public var titleError: String? { _form?.fieldError("title") }
+
+    /// Workspace tag suggestions matching `tagDraft`.
+    public var tagSuggestions: [String] { _tagSuggestions }
+
+    /// Comma-joined tag suggestions for simple view bindings.
+    public var tagSuggestionsText: String { _tagSuggestions.joined(separator: ", ") }
+
+    /// Active editor panel, backed by `DiscriminatorVM`.
+    public var editorMode: String { _editorMode.activeKey }
+
+    /// `true` when the body preview pane is active.
+    public var isPreviewMode: Bool { _editorMode.isActive("preview") }
+
+    /// `true` when the editable body pane is active.
+    public var isEditMode: Bool { _editorMode.isActive("edit") }
 
     /// Emits the persisted note after each successful approve.
     public var onSaved: AnyPublisher<NoteModel, Never> {
@@ -151,9 +182,22 @@ public final class NoteFormVM: ComponentVMBase {
         approveCommand = placeholder
         denyCommand = placeholder
         addTagCommand = placeholder
+        showEditModeCommand = placeholder
+        showPreviewModeCommand = placeholder
         removeTagCommand = RelayCommandOf<String>(task: nil, predicate: nil, triggers: [])
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
+
+        _tagSearch = SearchableState<String>(
+            items: { [weak self] in self?._tagCatalog ?? [] },
+            predicate: { [weak self] tag, term in self?.tagMatches(tag, term) ?? false },
+            debounce: .seconds(0)
+        )
+        _tagSearchCancellable = _tagSearch?.filtered
+            .sink { [weak self] suggestions in
+                self?._tagSuggestions = suggestions
+                self?.emitTagSuggestionChanges()
+            }
 
         // Phase 2: rewire with real self-capturing closures.
         //
@@ -201,6 +245,27 @@ public final class NoteFormVM: ComponentVMBase {
             })
             .task({ [weak self] tag in self?.removeTag(tag) })
             .build()
+
+        showEditModeCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return !self.isEditMode
+            })
+            .task({ [weak self] in self?._editorMode.setActiveKey("edit") })
+            .triggers(trigger)
+            .build()
+
+        showPreviewModeCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return !self.isPreviewMode
+            })
+            .task({ [weak self] in self?._editorMode.setActiveKey("preview") })
+            .triggers(trigger)
+            .build()
+
+        _editorModeCancellable = _editorMode.activeChanged
+            .sink { [weak self] _ in self?.emitEditorModeChanges() }
     }
 
     // ── Binding lifecycle ──────────────────────────────────────────────────
@@ -220,7 +285,14 @@ public final class NoteFormVM: ComponentVMBase {
                 try await self._repo.saveNote(n)
             },
             hub: hub,
-            strict: true
+            strict: true,
+            validators: [
+                "title": { model in
+                    model.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? Self.titleRequired
+                        : nil
+                }
+            ]
         )
         _form = form
         _approvedCancellable = form.onApproved
@@ -269,6 +341,7 @@ public final class NoteFormVM: ComponentVMBase {
                 }
             }
         }
+        await refreshTagSuggestions()
     }
 
     // ── Private helpers ────────────────────────────────────────────────────
@@ -287,12 +360,41 @@ public final class NoteFormVM: ComponentVMBase {
         guard !current.contains(where: { $0.lowercased() == trimmed.lowercased() }) else { return }
         setDraft(draft.with(tags: current + [trimmed]))
         tagDraft = ""
+        _tagSearch?.search()
     }
 
     private func removeTag(_ tag: String) {
         guard !tag.isEmpty else { return }
         let filtered = draft.tags.filter { $0.lowercased() != tag.lowercased() }
         setDraft(draft.with(tags: filtered))
+        _tagSearch?.search()
+    }
+
+    /// Refreshes autocomplete tags from the repository snapshot.
+    public func refreshTagSuggestions() async {
+        do {
+            let snapshot = try await _repo.loadAll()
+            var seen: [String: String] = [:]
+            for note in snapshot.notes {
+                for raw in note.tags {
+                    let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !tag.isEmpty {
+                        seen[tag.lowercased()] = seen[tag.lowercased()] ?? tag
+                    }
+                }
+            }
+            _tagCatalog = seen.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        } catch {
+            _tagCatalog = []
+        }
+        _tagSearch?.search()
+    }
+
+    private func tagMatches(_ tag: String, _ term: String) -> Bool {
+        let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return false }
+        guard tag.localizedCaseInsensitiveContains(normalized) else { return false }
+        return !draft.tags.contains { $0.lowercased() == tag.lowercased() }
     }
 
     /// Broadcasts property-changed signals for every surface affected by a
@@ -300,8 +402,32 @@ public final class NoteFormVM: ComponentVMBase {
     private func emitDraftChanges() {
         let props: [String] = [
             "draft", "snapshot", "isDirty", "isValid",
+            "titleError",
             "title", "body", "starred", "tags", "tagsText",
+            "tagSuggestions", "tagSuggestionsText",
             "approveCommand", "denyCommand"
+        ]
+        for prop in props {
+            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
+            _raisePropertyChanged(prop)
+        }
+        _canExecuteTrigger.send(())
+    }
+
+    /// Broadcasts autocomplete suggestion changes.
+    private func emitTagSuggestionChanges() {
+        let props = ["tagSuggestions", "tagSuggestionsText"]
+        for prop in props {
+            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
+            _raisePropertyChanged(prop)
+        }
+    }
+
+    /// Broadcasts the active body editor mode and refreshes mode commands.
+    private func emitEditorModeChanges() {
+        let props: [String] = [
+            "editorMode", "isPreviewMode", "isEditMode",
+            "showEditModeCommand", "showPreviewModeCommand"
         ]
         for prop in props {
             hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
@@ -321,6 +447,15 @@ public final class NoteFormVM: ComponentVMBase {
         denyCommand.dispose()
         addTagCommand.dispose()
         removeTagCommand.dispose()
+        showEditModeCommand.dispose()
+        showPreviewModeCommand.dispose()
+        _editorModeCancellable?.cancel()
+        _editorModeCancellable = nil
+        _editorMode.dispose()
+        _tagSearchCancellable?.cancel()
+        _tagSearchCancellable = nil
+        _tagSearch?.dispose()
+        _tagSearch = nil
         _canExecuteTrigger.send(completion: .finished)
         _onSaved.send(completion: .finished)
         super._onDispose()

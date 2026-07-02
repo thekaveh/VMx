@@ -6,7 +6,7 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [3.1.0] — 2026-07-01
 
-Implements `spec-v3.1.0` and keeps Python at full library parity: 279/279
+Implements `spec-v3.1.0` and keeps Python at full library parity: 281/281
 conformance IDs covered.
 
 ### Added
@@ -20,6 +20,19 @@ conformance IDs covered.
 
 - Clarified serviced collection ownership and per-instance property-change
   surfaces in docs/spec comments.
+- Pinned existing common options-factory behavior (`BLD-006`) and group-child
+  non-selection behavior (`GRP-011`) in conformance coverage.
+
+### Fixed
+
+- Lifecycle operation entry now serializes the status read, in-flight claim, and
+  first transient status write under the per-VM lock, preventing a racing
+  `dispose()` from winning before `construct()`/`destruct()` enters its hook.
+- `AsyncRelayCommand` is now inert after disposal and no longer emits
+  `can_execute_changed` into a disposed Rx subject when an in-flight task
+  completes after disposal.
+- `TokenPagedComposition` skips in-flight load/refresh mutation and notifications
+  if it is disposed before the fetch completes.
 
 ## [3.0.0] — 2026-06-28
 

@@ -21,6 +21,8 @@ struct NotesListView: View {
     @StateObject private var prevPageCmd: BindableCommand
     @StateObject private var nextPageCmd: BindableCommand
     @StateObject private var lastPageCmd: BindableCommand
+    @StateObject private var isEmpty: BindableDerived<Bool>
+    @StateObject private var pageLabel: BindableDerived<String>
     @EnvironmentObject private var theme: ThemeAdapter
 
     init(vm: NotesViewVM) {
@@ -29,6 +31,8 @@ struct NotesListView: View {
         _prevPageCmd  = StateObject(wrappedValue: BindableCommand(vm.moveToPreviousPageCommand))
         _nextPageCmd  = StateObject(wrappedValue: BindableCommand(vm.moveToNextPageCommand))
         _lastPageCmd  = StateObject(wrappedValue: BindableCommand(vm.moveToLastPageCommand))
+        _isEmpty      = StateObject(wrappedValue: BindableDerived(vm.isEmptyDerived))
+        _pageLabel    = StateObject(wrappedValue: BindableDerived(vm.pageLabelDerived))
     }
 
     var body: some View {
@@ -51,7 +55,7 @@ struct NotesListView: View {
             Divider()
 
             // ── Notes list ────────────────────────────────────────────────
-            if bound.vm.isEmpty {
+            if isEmpty.value ?? bound.vm.isEmpty {
                 Spacer()
                 Text("No notes")
                     .foregroundColor(theme.textDim)
@@ -61,15 +65,18 @@ struct NotesListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(bound.vm.visibleItems, id: \.noteId) { noteVM in
-                            NoteRowView(
-                                noteVM: noteVM,
-                                isSelected: noteVM === bound.vm.current,
-                                theme: theme
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
+                            Button {
                                 bound.vm.current = noteVM
+                            } label: {
+                                NoteRowView(
+                                    noteVM: noteVM,
+                                    isSelected: noteVM === bound.vm.current,
+                                    theme: theme
+                                )
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(noteVM.title)
+                            .accessibilityAddTraits(noteVM === bound.vm.current ? [.isSelected] : [])
                         }
                     }
                 }
@@ -81,16 +88,20 @@ struct NotesListView: View {
             HStack(spacing: 6) {
                 Button("⏮") { firstPageCmd.execute() }
                     .disabled(!firstPageCmd.canExecute)
+                    .accessibilityLabel("First page")
                 Button("◀") { prevPageCmd.execute() }
                     .disabled(!prevPageCmd.canExecute)
-                Text(bound.vm.pageLabel)
+                    .accessibilityLabel("Previous page")
+                Text(pageLabel.value ?? bound.vm.pageLabel)
                     .font(.caption)
                     .foregroundColor(theme.textDim)
                     .frame(minWidth: 80, alignment: .center)
                 Button("▶") { nextPageCmd.execute() }
                     .disabled(!nextPageCmd.canExecute)
+                    .accessibilityLabel("Next page")
                 Button("⏭") { lastPageCmd.execute() }
                     .disabled(!lastPageCmd.canExecute)
+                    .accessibilityLabel("Last page")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

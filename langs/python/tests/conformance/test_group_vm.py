@@ -1,4 +1,4 @@
-"""Conformance tests: GRP-001..GRP-006.
+"""Conformance tests: GRP-001..GRP-006 and GRP-011.
 
 GRP-001 — Add emits CollectionChanged(action=Add)
 GRP-002 — Group lacks child-navigation and child-selection members
@@ -6,6 +6,7 @@ GRP-003 — Construct waits until all children reach Constructed
 GRP-004 — Destruct waits until all children reach Destructed
 GRP-005 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
 GRP-006 — BatchUpdate suppresses per-mutation events and emits one Reset (spec v1.1)
+GRP-011 — Group children are peers; inherited child select command is disabled
 """
 
 from __future__ import annotations
@@ -115,6 +116,22 @@ def test_GRP_002_group_lacks_navigation_and_selection_members() -> None:
     assert grp.select_previous_command.can_execute() is False, (
         "select_previous_command.can_execute() must always be False for GroupVM"
     )
+
+
+@pytest.mark.conformance("GRP-011")
+def test_GRP_011_group_children_are_not_selectable() -> None:
+    """GRP-011: a group child has a parent but no selectable current slot."""
+    h = _hub()
+    d = _dispatcher()
+    child = ComponentVMBuilder().name("child").services(h, d).build()
+    grp: GroupVM[object] = (
+        GroupVMBuilder().name("g").services(h, d).children(lambda: (child,)).build()
+    )
+
+    grp.construct()
+
+    assert child.can_select() is False
+    assert child.select_command.can_execute() is False
 
 
 # ===========================================================================

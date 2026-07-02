@@ -47,6 +47,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         set => SetCurrent(value, async: _asyncSelection);
     }
 
+    bool IParentCompositeVM.SupportsChildSelection => true;
+
     // ── IList<VM> ─────────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
@@ -305,7 +307,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     /// <summary>Constructs all current children sequentially.</summary>
     protected void ConstructChildren()
     {
-        foreach (var child in _children)
+        foreach (var child in _children.ToArray())
             child.Construct();
     }
 
@@ -324,7 +326,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         if (_current is not null)
             SetCurrent(null, async: false);
 
-        foreach (var child in _children)
+        foreach (var child in _children.ToArray())
             child.Destruct();
 
         base.OnDestruct(); // invoke user's onDestruct callback if any
@@ -336,7 +338,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     public override void Dispose()
     {
         // Depth-first: dispose each child before self.
-        foreach (var child in _children)
+        foreach (var child in _children.ToArray())
             child.Dispose();
 
         base.Dispose();

@@ -48,6 +48,29 @@ public class COL_024_to_031_TokenPagedCompositionTests
         calls.Should().Equal(null, "two");
     }
 
+    [Fact]
+    public async Task LoadMore_Does_Not_Mutate_Or_Notify_When_Disposed_During_Fetch()
+    {
+        var page = new TaskCompletionSource<TokenPage<int, string>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sut = new TokenPagedComposition<int, string>(_ => page.Task);
+        var collectionEvents = 0;
+        var propertyEvents = 0;
+        sut.CollectionChanged += (_, _) => collectionEvents++;
+        sut.PropertyChanged += (_, _) => propertyEvents++;
+
+        var load = sut.LoadMoreCommand.ExecuteAsync();
+        sut.Dispose();
+        page.SetResult(new TokenPage<int, string>([1, 2], "next"));
+        await load;
+
+        sut.Items.Should().BeEmpty();
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeTrue();
+        collectionEvents.Should().Be(0);
+        propertyEvents.Should().Be(0);
+    }
+
     [Fact, Trait("Conformance", "COL-026")]
     public async Task COL_026_TerminalTokenDisablesLoadMore()
     {
@@ -79,6 +102,29 @@ public class COL_024_to_031_TokenPagedCompositionTests
         sut.Items.Should().Equal(9);
         sut.CurrentToken.Should().BeNull();
         sut.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Refresh_Does_Not_Mutate_Or_Notify_When_Disposed_During_Fetch()
+    {
+        var page = new TaskCompletionSource<TokenPage<int, string>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sut = new TokenPagedComposition<int, string>(_ => page.Task);
+        var collectionEvents = 0;
+        var propertyEvents = 0;
+        sut.CollectionChanged += (_, _) => collectionEvents++;
+        sut.PropertyChanged += (_, _) => propertyEvents++;
+
+        var refresh = sut.RefreshCommand.ExecuteAsync();
+        sut.Dispose();
+        page.SetResult(new TokenPage<int, string>([9], null));
+        await refresh;
+
+        sut.Items.Should().BeEmpty();
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeTrue();
+        collectionEvents.Should().Be(0);
+        propertyEvents.Should().Be(0);
     }
 
     [Fact, Trait("Conformance", "COL-028")]

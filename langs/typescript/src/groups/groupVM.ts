@@ -20,6 +20,7 @@ import type { CollectionChangedEvent, IBatchable } from "../collections/index.js
 
 /** GroupVM parent adaptor — no selection concept. */
 class GroupParent implements IParentVM {
+  readonly supportsChildSelection = false;
   readonly currentChild = null;
   selectChild(_vm: ComponentVMBase): void { /* no-op */ }
   deselectChild(_vm: ComponentVMBase): void { /* no-op */ }

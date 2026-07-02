@@ -4,10 +4,10 @@
 **Spec version:** 3.0.0
 **Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
-divergence catalogue), [ADR-0014](0014-searchable-state.md) (SearchableState),
+divergence catalogue), [ADR-0014](0014-search-and-filter.md) (SearchableState),
 [ADR-0016](0016-modeled-crud-commands.md) (ModeledCrudCommands),
 [ADR-0030](0030-form-vm.md) (FormVM), [ADR-0037](0037-v2.5-maintenance-clarifications.md)
-(Swift subset origin), [ADR-0053](0053-v3-throwing-convergence.md)
+(Swift subset origin), [ADR-0053](0053-swift-converge-illegal-transition-and-non-child-current-to-throw.md)
 (Swift throwing-convergence, CompositeMembershipError),
 [ADR-0059](0059-swift-leaf-area-divergences.md) (Swift Phase-3 Inc-1 divergences),
 [ADR-0060](0060-swift-collections-divergences.md) (Swift Phase-3 Inc-2 divergences),

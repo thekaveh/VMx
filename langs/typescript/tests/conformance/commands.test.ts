@@ -163,6 +163,21 @@ describe("CMD-013", () => {
     expect(cmd.canExecute(42)).toBe(false);
     expect(fn).not.toHaveBeenCalled();
   });
+
+  it("disposed AsyncRelayCommand instances are inert", async () => {
+    const fn = vi.fn();
+    const cmd = AsyncRelayCommand.builder().task(() => {
+      fn();
+      return Promise.resolve();
+    }).build();
+
+    cmd.dispose();
+    cmd.execute();
+    await cmd.executeAsync();
+
+    expect(cmd.canExecute()).toBe(false);
+    expect(fn).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -237,6 +252,74 @@ describe("CMD-012", () => {
     cmd.cancel();
 
     await expect(run).rejects.toBeDefined();
+    expect(cmd.isExecuting).toBe(false);
+    cmd.dispose();
+  });
+
+  it("execute() does not route command cancellation to errors when throwOnCancel is set", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => {
+      startedResolve = r;
+    });
+    const errors: unknown[] = [];
+
+    const cmd = AsyncRelayCommand.builder()
+      .throwOnCancel()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener(
+              "abort",
+              () => {
+                const reason =
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new DOMException("Aborted", "AbortError");
+                reject(reason);
+              },
+              { once: true },
+            );
+          }),
+      )
+      .build();
+    cmd.errors.subscribe((err) => errors.push(err));
+
+    cmd.execute();
+    await started;
+    cmd.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([]);
+    expect(cmd.isExecuting).toBe(false);
+    cmd.dispose();
+  });
+
+  it("execute() still routes non-cancellation faults after cancel() to errors", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => {
+      startedResolve = r;
+    });
+    const failure = new Error("late fault");
+    const errors: unknown[] = [];
+
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener("abort", () => reject(failure), { once: true });
+          }),
+      )
+      .build();
+    cmd.errors.subscribe((err) => errors.push(err));
+
+    cmd.execute();
+    await started;
+    cmd.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([failure]);
     expect(cmd.isExecuting).toBe(false);
     cmd.dispose();
   });

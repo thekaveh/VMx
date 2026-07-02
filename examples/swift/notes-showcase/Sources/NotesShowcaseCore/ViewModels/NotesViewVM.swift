@@ -48,8 +48,12 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     private var _filteredItems: [NoteVM] = []
     private let _paged: PagedComposition<NoteVM>
     private let _search: SearchableState<NoteVM>
+    private let _filteredState: CurrentValueSubject<[NoteVM], Never>
+    private let _pageLabelState: CurrentValueSubject<String, Never>
+    private let _pageCommandTrigger = PassthroughSubject<Void, Never>()
 
     private var _showStarredOnly: Bool = false
+    private var _currentNotebookIsReadonly: Bool = false
     private var _filter: ((NoteVM) -> Bool)?
     private var _current: NoteVM?
 
@@ -77,6 +81,9 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     public private(set) var moveToNextPageCommand: RelayCommand
     public private(set) var moveToLastPageCommand: RelayCommand
 
+    public let isEmptyDerived: DerivedProperty<Bool>
+    public let pageLabelDerived: DerivedProperty<String>
+
     // MARK: - Public read surface
 
     /// The inner composite storing all loaded notes (unfiltered).
@@ -90,6 +97,17 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
 
     /// The notebook id this view is currently bound to (or `nil`).
     public private(set) var boundNotebookId: String?
+
+    /// Readonly flag of the currently-bound notebook, supplied by the host.
+    public var currentNotebookIsReadonly: Bool {
+        get { _currentNotebookIsReadonly }
+        set {
+            guard _currentNotebookIsReadonly != newValue else { return }
+            _currentNotebookIsReadonly = newValue
+            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "currentNotebookIsReadonly"))
+            _raisePropertyChanged("currentNotebookIsReadonly")
+        }
+    }
 
     // MARK: - Current selection
 
@@ -216,6 +234,14 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
             debounce: searchDebounce,
             scheduler: searchScheduler ?? .main
         )
+        _filteredState = CurrentValueSubject<[NoteVM], Never>([])
+        _pageLabelState = CurrentValueSubject<String, Never>("Page 1 of 1")
+        isEmptyDerived = DerivedProperty<Bool>.from(
+            _filteredState.eraseToAnyPublisher()
+        ) { $0.isEmpty }
+        pageLabelDerived = DerivedProperty<String>.from(
+            _pageLabelState.eraseToAnyPublisher()
+        ) { $0 }
 
         // Phase 1: placeholder commands (required before `super.init`).
         let placeholder = RelayCommand(task: nil, predicate: nil, triggers: [])
@@ -228,16 +254,36 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
 
         // Phase 2: rewire commands with real self-capturing closures.
         moveToFirstPageCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return self.currentPageIndex > 0
+            })
             .task({ [weak self] in self?.moveToFirstPage() })
+            .triggers(_pageCommandTrigger.eraseToAnyPublisher())
             .build()
         moveToPreviousPageCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return self.currentPageIndex > 0
+            })
             .task({ [weak self] in self?.moveToPreviousPage() })
+            .triggers(_pageCommandTrigger.eraseToAnyPublisher())
             .build()
         moveToNextPageCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return self.currentPageIndex < self.pageCount - 1
+            })
             .task({ [weak self] in self?.moveToNextPage() })
+            .triggers(_pageCommandTrigger.eraseToAnyPublisher())
             .build()
         moveToLastPageCommand = RelayCommand.builder()
+            .predicate({ [weak self] in
+                guard let self else { return false }
+                return self.currentPageIndex < self.pageCount - 1
+            })
             .task({ [weak self] in self?.moveToLastPage() })
+            .triggers(_pageCommandTrigger.eraseToAnyPublisher())
             .build()
 
         // Re-broadcast PagedComposition property changes through our own INPC + hub
@@ -258,6 +304,8 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
                 self.hub.send(PropertyChangedMessage(
                     sender: self, senderName: self.name, propertyName: "visibleItems"
                 ))
+                self._pageLabelState.send(self.pageLabel)
+                self._pageCommandTrigger.send(())
             }
         }
 
@@ -432,6 +480,9 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         }
         _filteredItems = filtered
         _paged.setSource(_filteredItems)
+        _filteredState.send(_filteredItems)
+        _pageLabelState.send(pageLabel)
+        _pageCommandTrigger.send(())
 
         for propName in ["filteredItems", "isEmpty", "visibleItems", "pageLabel"] {
             hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: propName))
@@ -462,6 +513,8 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         _searchCancellable?.cancel()
         _searchCancellable = nil
         _search.dispose()
+        isEmptyDerived.dispose()
+        pageLabelDerived.dispose()
         _inner.dispose()
         moveToFirstPageCommand.dispose()
         moveToPreviousPageCommand.dispose()

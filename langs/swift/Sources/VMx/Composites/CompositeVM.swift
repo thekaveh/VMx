@@ -2,13 +2,52 @@
 // CompositeVM<VM> — homogeneous-child container with a `current`
 // selection slot.
 //
-// See spec/06-composite-vm.md. This is the skeleton flavor: it covers
-// add / remove / select / current and the lifecycle cascade. Batch
-// updates, async selection, and the full CollectionChanged event surface
-// land in a follow-up PR.
+// See spec/06-composite-vm.md. The Swift flavor is at full library parity as
+// of v3.1.0; this type covers child mutation, selection, lifecycle cascade,
+// batch updates, async selection, and CollectionChanged events.
 //
 import Foundation
 import Combine
+
+public struct CompositeVMOptions<Child: ComponentVMBase> {
+    public var name: String?
+    public var hint: String
+    public var hub: MessageHubProtocol?
+    public var dispatcher: Dispatcher?
+    public var children: (() -> [Child])?
+    public var current: (([Child]) -> Child?)?
+    public var onCurrentChanged: ((Child?) -> Void)?
+    public var onConstruct: (() -> Void)?
+    public var onDestruct: (() -> Void)?
+    public var autoConstructOnAdd: Bool
+    public var asyncSelection: Bool
+
+    public init(
+        name: String? = nil,
+        hint: String = "",
+        hub: MessageHubProtocol? = nil,
+        dispatcher: Dispatcher? = nil,
+        children: (() -> [Child])? = nil,
+        current: (([Child]) -> Child?)? = nil,
+        onCurrentChanged: ((Child?) -> Void)? = nil,
+        onConstruct: (() -> Void)? = nil,
+        onDestruct: (() -> Void)? = nil,
+        autoConstructOnAdd: Bool = false,
+        asyncSelection: Bool = false
+    ) {
+        self.name = name
+        self.hint = hint
+        self.hub = hub
+        self.dispatcher = dispatcher
+        self.children = children
+        self.current = current
+        self.onCurrentChanged = onCurrentChanged
+        self.onConstruct = onConstruct
+        self.onDestruct = onDestruct
+        self.autoConstructOnAdd = autoConstructOnAdd
+        self.asyncSelection = asyncSelection
+    }
+}
 
 open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batchable {
     private var children: [Child] = []
@@ -84,6 +123,8 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
     open override var type: ViewModelType { .composite }
 
     // ── ParentVM ────────────────────────────────────────────────────────
+
+    public var supportsChildSelection: Bool { true }
 
     public var currentChild: ComponentVMBase? { _current }
 
@@ -243,9 +284,11 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
             }
         }
         // A child's throwing `construct()` (ADR-0053) propagates up through this
-        // hook to the composite's originating `construct()` call — parity with
-        // the C#/Python/TypeScript cascade.
-        for child in children { try child.construct() }
+        // hook to the composite's originating `construct()` call. Snapshot first
+        // so child hooks can mutate the composite without perturbing the active
+        // lifecycle iteration.
+        let snapshot = children
+        for child in snapshot { try child.construct() }
         if let selector = currentSelector,
            let initial = selector(children),
            children.contains(where: { $0 === initial }) {
@@ -260,13 +303,15 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         // Bypass asyncSelection for teardown: destruct is synchronous and must
         // clear the current slot before children are destructed.
         if _current != nil { _applyCurrentChange(nil) }
-        for child in children { try child.destruct() }
+        let snapshot = children
+        for child in snapshot { try child.destruct() }
         try super._onDestruct()
     }
 
     open override func dispose() {
         // LIFE-013: depth-first dispose children, then self.
-        for child in children { child.dispose() }
+        let snapshot = children
+        for child in snapshot { child.dispose() }
         super.dispose()
     }
 
@@ -274,6 +319,23 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
 
     public static func builder() -> CompositeVMBuilder<Child> {
         CompositeVMBuilder<Child>()
+    }
+
+    public static func create(_ options: CompositeVMOptions<Child>) throws -> CompositeVM<Child> {
+        var b = CompositeVM<Child>.builder()
+            .hint(options.hint)
+            .autoConstructOnAdd(options.autoConstructOnAdd)
+            .asyncSelection(options.asyncSelection)
+        if let name = options.name { b = b.name(name) }
+        if let hub = options.hub, let dispatcher = options.dispatcher {
+            b = b.services(hub: hub, dispatcher: dispatcher)
+        }
+        if let children = options.children { b = b.children(children) }
+        if let current = options.current { b = b.current(current) }
+        if let onCurrentChanged = options.onCurrentChanged { b = b.onCurrentChanged(onCurrentChanged) }
+        if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
+        if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }
+        return try b.build()
     }
 
     // ── Internal ────────────────────────────────────────────────────────

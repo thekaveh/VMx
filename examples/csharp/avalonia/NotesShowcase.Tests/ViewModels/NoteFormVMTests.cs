@@ -106,6 +106,27 @@ public sealed class NoteFormVMTests
         var (form, _) = Build();
         form.BindTo(SampleNote(""));
         Assert.False(form.IsValid);
+        Assert.Equal("Title is required.", form.TitleError);
+        form.Title = "Now valid";
+        Assert.True(form.IsValid);
+        Assert.Null(form.TitleError);
+    }
+
+    [Fact]
+    public void EditorMode_defaults_to_edit_and_switches_to_preview()
+    {
+        var (form, _) = Build();
+
+        Assert.Equal("edit", form.EditorMode);
+        Assert.True(form.IsEditMode);
+        Assert.False(form.IsPreviewMode);
+
+        form.ShowPreviewModeCommand.Execute(null);
+        Assert.Equal("preview", form.EditorMode);
+        Assert.True(form.IsPreviewMode);
+
+        form.ShowEditModeCommand.Execute(null);
+        Assert.Equal("edit", form.EditorMode);
     }
 
     [Fact]
@@ -131,6 +152,32 @@ public sealed class NoteFormVMTests
         form.RemoveTagCommand.Execute("a");
         Assert.DoesNotContain("a", form.Draft.Tags);
         Assert.Contains("b", form.Draft.Tags);
+    }
+
+    [Fact]
+    public async Task TagSuggestions_filter_workspace_tag_catalog_through_SearchableState()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote() with { Tags = Array.Empty<string>() });
+        await form.RefreshTagSuggestionsAsync();
+
+        form.TagDraft = "sec";
+
+        Assert.Equal(new[] { "security" }, form.TagSuggestions);
+        Assert.Equal("security", form.TagSuggestionsText);
+    }
+
+    [Fact]
+    public async Task TagSuggestions_omit_tags_already_on_draft()
+    {
+        var (form, _) = Build();
+        form.BindTo(SampleNote() with { Tags = new[] { "security" } });
+        await form.RefreshTagSuggestionsAsync();
+
+        form.TagDraft = "sec";
+
+        Assert.Empty(form.TagSuggestions);
+        Assert.Equal(string.Empty, form.TagSuggestionsText);
     }
 
     // ── Phase 5.a binding gap #1: two-way scalar setters ──────────────────

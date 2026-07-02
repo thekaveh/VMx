@@ -55,9 +55,8 @@ swift test --parallel
 
 Swift requires the toolchain shipped with a current Xcode (5.9+) and a
 macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
-is not available on Linux. See `langs/swift/README.md` §5 for the in /
-deferred conformance matrix; the v2.6.0 release ships a documented
-41-ID subset rather than full spec parity.
+is not available on Linux. See `langs/swift/README.md` §5 for the full
+conformance matrix; v3.1.0 is at full library parity.
 
 ### 2.5 Cross-cutting checks (conformance + example-app contracts)
 
@@ -65,13 +64,14 @@ Two CI-only workflows enforce repo-wide invariants. To run the same
 checks locally before pushing:
 
 ```bash
-# Cross-language conformance coverage (csharp / python / typescript).
+# Cross-language conformance coverage (csharp / python / typescript / swift).
 # Mirrors .github/workflows/conformance.yml. THEME-001..005 live in
 # example apps, not language libraries, so they're intentionally excluded.
 uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript
+    --require csharp --require python --require typescript --require swift
 
-# Pure-VM contract + flagship example-app parity (Avalonia / Textual / React).
+# Pure-VM contract + flagship example-app parity
+# (Avalonia / Textual / React / SwiftUI).
 # Mirrors .github/workflows/examples-contract-checks.yml.
 python3 tools/check-axaml-codebehind.py
 python3 tools/check-textual-views.py
@@ -93,8 +93,9 @@ Behavior changes start in `spec/`. The rules are:
 - A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
   in **every** active language flavor in the same PR. The CI check looks for
   `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`
-  (C#), and `describe("XXX-NNN", ...)` (TypeScript) — comment stubs do not satisfy
-  the check.
+  (C#), `describe("XXX-NNN", ...)` (TypeScript), and Swift doc / line comments
+  where the ID is the first token after the marker (for example
+  `/// XXX-NNN - ...`) in `langs/swift/Tests/VMxTests`.
 
 ### 3.1 Bypass
 

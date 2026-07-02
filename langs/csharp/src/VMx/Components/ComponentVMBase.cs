@@ -18,6 +18,9 @@ namespace VMx.Components;
 /// </summary>
 internal interface IParentCompositeVM
 {
+    /// <summary>True when children can select/deselect into a parent-owned current slot.</summary>
+    bool SupportsChildSelection { get; }
+
     /// <summary>The currently selected child, or null.</summary>
     IComponentVM? CurrentChild { get; }
 
@@ -255,22 +258,26 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Construct()
     {
-        // Idempotent: already Constructed → no-op (no message).
-        if (_status == ConstructionStatus.Constructed) return;
+        lock (_gate)
+        {
+            // Idempotent: already Constructed → no-op (no message).
+            if (_status == ConstructionStatus.Constructed) return;
 
-        // Validate the transition (will throw for illegal states like Disposed).
-        LifecycleTransitionValidator.Require(_status, "construct");
+            // Validate the transition (will throw for illegal states like Disposed).
+            LifecycleTransitionValidator.Require(_status, "construct");
 
-        // Concurrency guard: cannot re-enter while in-flight.
-        if (_inFlight)
-            throw new StatusTransitionException(_status, "construct");
-        _inFlight = true;
+            // Concurrency guard: cannot re-enter while in-flight.
+            if (_inFlight)
+                throw new StatusTransitionException(_status, "construct");
+            _inFlight = true;
+
+            // Emit Constructing synchronously so subscribers immediately observe the
+            // transition starting; then run the actual work on the selected scheduler.
+            SetStatus(ConstructionStatus.Constructing);
+        }
 
         if (_background)
         {
-            // Emit Constructing synchronously so subscribers immediately observe the
-            // transition starting; then schedule the actual work on the background scheduler.
-            SetStatus(ConstructionStatus.Constructing);
             _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
             {
                 // Dispose() may have run between scheduling and execution.
@@ -278,7 +285,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 // (spec/02 invariant 3): no OnConstruct(), no marshalled emission.
                 if (IsDisposed())
                 {
-                    _inFlight = false;
+                    ClearInFlight();
                     return Disposable.Empty;
                 }
 
@@ -304,7 +311,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         }
                         finally
                         {
-                            _inFlight = false;
+                            ClearInFlight();
                         }
                         return Disposable.Empty;
                     });
@@ -326,7 +333,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     }
                     finally
                     {
-                        _inFlight = false;
+                        ClearInFlight();
                     }
                     return Disposable.Empty;
                 });
@@ -338,7 +345,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             try
             {
-                SetStatus(ConstructionStatus.Constructing);
                 try
                 {
                     OnConstruct();
@@ -357,7 +363,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
             finally
             {
-                _inFlight = false;
+                ClearInFlight();
             }
         }
     }
@@ -378,6 +384,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 .OfType<IConstructionStatusChangedMessage>()
                 .Where(m => ReferenceEquals(m.SenderObject, this) &&
                             (m.Status == ConstructionStatus.Constructed ||
+                             m.Status == ConstructionStatus.Destructed ||
                              m.Status == ConstructionStatus.Disposed))
                 .Take(1)
                 .Subscribe(_ => tcs.TrySetResult(true));
@@ -406,20 +413,23 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Destruct()
     {
-        if (_status == ConstructionStatus.Destructed) return;
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Destructed) return;
 
-        LifecycleTransitionValidator.Require(_status, "destruct");
+            LifecycleTransitionValidator.Require(_status, "destruct");
 
-        if (_inFlight)
-            throw new StatusTransitionException(_status, "destruct");
-        _inFlight = true;
+            if (_inFlight)
+                throw new StatusTransitionException(_status, "destruct");
+            _inFlight = true;
+
+            // Emit Destructing synchronously so subscribers see the transition start;
+            // the actual OnDestruct runs on the selected scheduler.
+            SetStatus(ConstructionStatus.Destructing);
+        }
 
         if (_background)
         {
-            // Emit Destructing synchronously so subscribers see the transition start;
-            // the actual OnDestruct runs on the background scheduler and the caller does
-            // not wait for it.
-            SetStatus(ConstructionStatus.Destructing);
             _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
             {
                 // Dispose() may have run between scheduling and execution.
@@ -427,7 +437,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 // (spec/02 invariant 3): no OnDestruct(), no marshalled emission.
                 if (IsDisposed())
                 {
-                    _inFlight = false;
+                    ClearInFlight();
                     return Disposable.Empty;
                 }
 
@@ -450,7 +460,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         }
                         finally
                         {
-                            _inFlight = false;
+                            ClearInFlight();
                         }
                         return Disposable.Empty;
                     });
@@ -472,7 +482,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     }
                     finally
                     {
-                        _inFlight = false;
+                        ClearInFlight();
                     }
                     return Disposable.Empty;
                 });
@@ -483,7 +493,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             try
             {
-                SetStatus(ConstructionStatus.Destructing);
                 try
                 {
                     OnDestruct();
@@ -500,7 +509,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
             finally
             {
-                _inFlight = false;
+                ClearInFlight();
             }
         }
     }
@@ -521,6 +530,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 .OfType<IConstructionStatusChangedMessage>()
                 .Where(m => ReferenceEquals(m.SenderObject, this) &&
                             (m.Status == ConstructionStatus.Destructed ||
+                             m.Status == ConstructionStatus.Constructed ||
                              m.Status == ConstructionStatus.Disposed))
                 .Take(1)
                 .Subscribe(_ => tcs.TrySetResult(true));
@@ -547,15 +557,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Reconstruct()
     {
-        LifecycleTransitionValidator.Require(_status, "reconstruct");
+        lock (_gate)
+        {
+            LifecycleTransitionValidator.Require(_status, "reconstruct");
 
-        if (_inFlight)
-            throw new StatusTransitionException(_status, "reconstruct");
-        _inFlight = true;
+            if (_inFlight)
+                throw new StatusTransitionException(_status, "reconstruct");
+            _inFlight = true;
+
+            SetStatus(ConstructionStatus.Destructing);
+        }
 
         try
         {
-            SetStatus(ConstructionStatus.Destructing);
             try
             {
                 OnDestruct();
@@ -585,7 +599,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         finally
         {
-            _inFlight = false;
+            ClearInFlight();
         }
     }
 
@@ -600,9 +614,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public virtual void Dispose()
     {
-        if (_status == ConstructionStatus.Disposed) return;
-
-        SetStatus(ConstructionStatus.Disposed);
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed) return;
+            SetStatus(ConstructionStatus.Disposed);
+        }
 
         // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
         // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
@@ -637,6 +653,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public bool CanSelect() =>
         Parent is not null &&
+        Parent.SupportsChildSelection &&
         !ReferenceEquals(Parent.CurrentChild, this) &&
         _status == ConstructionStatus.Constructed;
 
@@ -669,6 +686,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         lock (_gate)
         {
             return _status == ConstructionStatus.Disposed;
+        }
+    }
+
+    private void ClearInFlight()
+    {
+        lock (_gate)
+        {
+            _inFlight = false;
         }
     }
 

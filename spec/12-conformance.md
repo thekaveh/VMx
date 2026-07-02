@@ -378,8 +378,8 @@ and `CanExecute` returns `true`
 **And** while the task was in flight `CanExecute` returned `false` (the command
 cannot double-run)
 
-> Spec: `04-commands.md §10`, ADR-0056. Full-parity (C#/Python/TypeScript) only —
-> Swift does not ship `AsyncRelayCommand` (ADR-0037 subset).
+> Spec: `04-commands.md §10`, ADR-0056, ADR-0076. Full-parity
+> (C#/Python/TypeScript/Swift).
 
 ### CMD-013 — disposed relay commands are inert
 
@@ -740,6 +740,17 @@ the VM class
 **And** the order matches insertion order (`o1` precedes `o2`)
 **And** other (non-additive) setters such as `Name` and `Task` continue to overwrite
 on repeated calls per BLD-001's standard semantics
+
+### BLD-006 — Common VM options factories match builder semantics
+
+**Given** the common VM types `ComponentVM`, modeled `ComponentVM<M>`,
+`CompositeVM<VM>`, and `GroupVM<VM>`
+**When** each type is constructed through its additive positional-options form
+(`Create`, `create`, `create(options)`, or Swift `create(_:)`)
+**Then** the produced VM has the same observable defaults and field values as the
+equivalent fluent builder path
+**And** missing required fields are validated through the same
+`BuilderValidationError` / `BuilderValidationException` path as `Build()`
 
 ______________________________________________________________________
 
@@ -1204,8 +1215,7 @@ no extra predicate)
 ### CMDD-010 — ConfirmationDecoratorCommand surfaces fire-and-forget errors on `errors`
 
 Per spec/04-commands.md §8.3.1 and ADR-0049. Full-parity in every flavor that
-ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript); Swift does not
-ship the command decorators.
+ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift).
 
 **Given** a `ConfirmationDecoratorCommand` wrapping `inner`, and a subscriber to its
 `errors` observable
@@ -1591,6 +1601,15 @@ window elapses
 **When** `SearchTerm` is set and `search()` is called
 **Then** the filtered snapshot reflects the custom predicate's matches
 
+### GRP-011 — Group children are not selectable peers
+
+**Given** a constructed `GroupVM<VM>` containing `child`
+**And** `child` has reached `Constructed`
+**When** `child.can_select` / `child.CanSelect()` / `child.canSelect()` is queried
+**Then** the result is `false`
+**And** the inherited child select command's predicate is disabled
+**And** calling `child.select()` / `child.Select()` does not make the child current
+
 ______________________________________________________________________
 
 ## 22. Expand / collapse (`EXP-NNN`) — spec v2.0
@@ -1945,7 +1964,7 @@ count-preserving mutations (e.g., only replace operations)
 (using per-flavor recursive-constraint idiom per ADR-0028 §3 item 2)
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
-**And** per-flavor idiomatic naming applies (C#/Python/TS conventions per ADR-0006)
+**And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift conventions per ADR-0006)
 
 ### HIER-002 — `Parent` is null for root, non-null for non-root
 
@@ -2293,15 +2312,16 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 **When** `Model` is updated to a value `m2` that differs from `m0` in at least one field
 **Then** `IsDirty == true`
 
-**Note** (v3, ADR-0048; supersedes the ADR-0037 caveat): structural equality is
-evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals` (C#),
-`__eq__` (Python), and an injectable structural deep-equal (TypeScript, default).
+**Note** (v3, ADR-0048/ADR-0077; supersedes the ADR-0037 caveat): structural
+equality is evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals`
+(C#), `__eq__` (Python), TypeScript's default structural deep-equal, and Swift's
+`==` for `Equatable` models (with injectable `equals` for custom semantics).
 The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references, so the equal-values
-guarantee now holds unconditionally in all three flavors. Consumers needing
-field-subset or reference semantics inject a custom `equals` (TypeScript) or define
-their model's own equality (C#/Python).
+guarantee now holds for value-equality-capable models in all four flavors.
+Consumers needing field-subset or reference semantics inject a custom `equals`
+(TypeScript/Swift) or define their model's own equality (C#/Python).
 
 ### FORM-004 — `DenyCommand` reverts `Model` to `Snapshot`
 
@@ -2408,7 +2428,7 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
 **When** `.Build()` is called
 **Then** `form.Hub == NullMessageHub` (singleton equivalent for the flavor)
-**And** `form.Snapshot == m0` (the default snapshotter deep-copies — chapter 20 §3)
+**And** `form.Snapshot == m0` (the flavor default snapshotter is applied — chapter 20 §3)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
 

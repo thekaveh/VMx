@@ -4,11 +4,11 @@
 - **Date:** 2026-06-30
 - **Flavor:** Swift only (example app; no spec change, no library-conformance change)
 
-## Context
+## 1. Context
 
 Three flavors ship a flagship notes-showcase example app hosting the `THEME-001..005` scenario conformance IDs: C#/Avalonia (`examples/csharp/avalonia/NotesShowcase`), Python/Textual, TypeScript/React. Swift reached full **library** parity (237/237) in Phase 3 (ADRs 0059–0065) but shipped no flagship, so the five `THEME-00x` scenario IDs — which live in the example apps, not the library catalog — remained the only gap before **total** parity. `tools/check-showcase-parity.py` recognized only three flavors.
 
-## Decision
+## 2. Decision
 
 Ship a fourth flagship: a macOS-SwiftUI notes-showcase at `examples/swift/notes-showcase/`, a faithful port of the canonical C#/Avalonia app, built entirely on the now-complete VMx Swift library.
 
@@ -19,14 +19,14 @@ Ship a fourth flagship: a macOS-SwiftUI notes-showcase at `examples/swift/notes-
 - **Determinism:** the showcase uses `ImmediateDispatcher` + zero repo delays in tests; async VM mutations marshal their emits via `dispatcher.scheduleForeground` (the foreground-scheduler analogue of the C# `_dispatcher.Foreground.Schedule`).
 - **Tooling + CI:** `tools/check-showcase-parity.py` gains a `swift` flavor (`<Pascal>Tests.swift` stems, same convention as C#) — now "11 slugs x 4 flavors"; `.github/workflows/swift.yml` gains an `examples (notes-showcase)` job (macos-latest — SwiftUI/Combine are Apple-only) that builds the package and runs the XCTests, plus an `examples/swift/**` path trigger.
 
-## Consequences
+## 3. Consequences
 
 - **Swift reaches total parity: 237 library conformance IDs + the 5 `THEME-00x` scenario IDs = 242**, at parity with C#/Python/TypeScript. The Phase-3 Swift parity effort is complete.
 - `THEME-001..005` are exercised by `ThemeVMTests.swift` in the flagship; per spec/tool convention they carry no scraped conformance marker (the library coverage gate excludes `THEME`), and are validated behaviorally by the passing `examples` CI job + the showcase-parity file-existence check.
 - The example CI runs only on macOS (SwiftUI/Combine), consistent with the library's macos-latest-only policy; `swift test` and the SwiftUI target cannot be built on a CommandLineTools-only host, so they are CI-gated.
 - Several latent issues surfaced and were fixed while wiring the flagship (each caught by the `examples` CI job the library-only build could not exercise): the cross-module-subclassing library gap (ADR-0066); a cross-executor `Array` data race in the notes-view delete path; `Task.yield()` being an unreliable drain for nested cooperative-pool chains on CI runners (replaced with real-time `Task.sleep` in tests); and missing hub `PropertyChangedMessage` emits on notebook-tree mutations.
 
-## Alternatives considered
+## 4. Alternatives considered
 
 - **Minimal THEME-only example (a standalone `ThemeVM` + 5 tests, no SwiftUI app).** Rejected in favor of a faithful flagship peer to the other three (the maintainer chose the full flagship); the THEME-only path would close the conformance gap but not give Swift a runnable showcase or `check-showcase-parity` recognition.
 - **A SwiftUI bridge in the library.** Rejected: ADR-0036 keeps theming/showcase concerns out of the core (`no new core types`); the bridge is an example-app concern and lives in the app target.

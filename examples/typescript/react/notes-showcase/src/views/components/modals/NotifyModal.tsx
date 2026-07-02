@@ -9,7 +9,12 @@ import type React from "react";
 import type { DialogRequest } from "../../adapter/ReactDialogService.js";
 
 export const NotifyModal: React.FC<{ request: DialogRequest }> = ({ request }) => (
-  <div className="dialog-backdrop" role="alertdialog" aria-modal="true">
+  <div
+    className="dialog-backdrop"
+    role="alertdialog"
+    aria-modal="true"
+    aria-label={request.title ?? request.message}
+  >
     <div className="dialog-window">
       {request.title !== null && <div className="dialog-title">{request.title}</div>}
       <p>{request.message}</p>

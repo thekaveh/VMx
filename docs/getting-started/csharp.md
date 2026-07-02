@@ -12,6 +12,9 @@ ______________________________________________________________________
 
 ## 1. Install
 
+The source tree currently implements v3.1.0. The NuGet package is not published
+yet; use the package command after a `csharp-v*` release publishes it.
+
 ```bash
 dotnet add package VMx
 ```

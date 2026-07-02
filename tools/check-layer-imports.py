@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 6 cross-layer import check (all three notes-showcase flavors).
+"""Phase 6 cross-layer import check (C#, Python, and TypeScript showcases).
 
 Enforces the Pure-VM layering of spec §6.1:
 
@@ -22,6 +22,8 @@ To stay symmetric *and* faithful to the Pure-VM contract, the adapter
 sub-layer (``Views.Adapter`` / ``views.adapter`` / ``views/adapter``) is
 treated as a peer of the VM layer for import purposes. Plain Views (and
 Views.Modals, etc.) are still off-limits.
+
+Swift is enforced by SwiftPM target boundaries instead of this text-import scan.
 
 Run from repo root:
 

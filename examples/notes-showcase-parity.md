@@ -1,7 +1,7 @@
 # Notes Workspace — cross-flavor parity matrix
 
 The Notes Workspace is the VMx flagship example portfolio: one scenario
-(`spec/proposals/2026-05-29-notes-showcase-scenario.md`), three idiomatic
+(`spec/proposals/2026-05-29-notes-showcase-scenario.md`), four idiomatic
 implementations sharing one language-neutral VM API. This document is the
 single-page proof that every spec feature in scope is exercised by every
 flavor.
@@ -9,8 +9,8 @@ flavor.
 ## 1. VM hierarchy
 
 The diagram below is the canonical visual of the example's VM tree —
-derived from the scenario contract, so it applies identically to all three
-flavor implementations (names appear in their language-neutral form per
+derived from the scenario contract, so it applies identically to all four
+flagship implementations (names appear in their language-neutral form per
 ADR-0006). The same diagram is linked from each flavor's NotesShowcase
 README.
 
@@ -19,7 +19,14 @@ README.
 The diagram source is at
 [`assets/notes-showcase-vm-hierarchy.svg`](assets/notes-showcase-vm-hierarchy.svg);
 a browsable HTML version with summary cards is at
-[`assets/notes-showcase-vm-hierarchy.html`](assets/notes-showcase-vm-hierarchy.html).
+[`assets/notes-showcase-vm-hierarchy.html`](assets/notes-showcase-vm-hierarchy.html),
+and a high-resolution PNG export is at
+[`assets/notes-showcase-vm-hierarchy.png`](assets/notes-showcase-vm-hierarchy.png).
+
+The companion VMx component map shows which framework primitive each example
+VM composes: [`assets/notes-showcase-vmx-components.svg`](assets/notes-showcase-vmx-components.svg),
+[`assets/notes-showcase-vmx-components.html`](assets/notes-showcase-vmx-components.html),
+and [`assets/notes-showcase-vmx-components.png`](assets/notes-showcase-vmx-components.png).
 
 ## 2. Flavors
 
@@ -28,21 +35,21 @@ a browsable HTML version with summary cards is at
 - **TypeScript / React 18 + Vite** — `examples/typescript/react/notes-showcase/`
 - **Swift / SwiftUI + Combine (macOS)** — `examples/swift/notes-showcase/` (ADR-0067)
 
-Each column reports whether the indicated flavor exercises the indicated VMx
-spec feature inside its `viewmodels/` layer and surfaces it through its
-`views/` layer (including the bridge adapter under `views/adapter/`). A `✓`
-means the feature is wired end-to-end — VM emits, adapter forwards, view
-renders, headless smoke covers it.
+Each column reports whether the indicated flavor implements the VM/spec surface
+and wires it into the flagship host. A `✓` means the feature is represented in
+the flavor's VM/model tests and host integration; view-purity enforcement is
+covered by the dedicated C#, Python, and React tooling, while Swift's core/view
+split is enforced by SwiftPM target boundaries.
 
 | #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React | Swift / SwiftUI |
 | --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ | --------------- |
 | 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  | ✓               |
 | 2   | `CompositeVM.Current` (ch. 6) — notes selection       | ✓             | ✓                | ✓                  | ✓               |
 | 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  | ✓               |
-| 4   | `FormVM` snapshot/revert (ch. 20) — note editor       | ✓             | ✓                | ✓                  | ✓               |
+| 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | ✓ | ✓ | ✓ | ✓ |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  | ✓               |
 | 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | ✓ | ✓         | ✓                  | ✓               |
-| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5–14.6) — title search + starred filter | ✓ | ✓ | ✓               | ✓               |
+| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5-14.6) — title search + starred filter | ✓ | ✓ | ✓ | ✓ |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  | ✓               |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  | ✓               |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save | ✓ | ✓ | ✓        | ✓               |
@@ -52,32 +59,26 @@ renders, headless smoke covers it.
 | 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | ✓     | ✓                | ✓                  | ✓               |
 | 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  | ✓               |
 | 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ | ✓ |
+| 17  | `TokenPagedComposition` (ch. 21) — global all-notes search with forward tokens | ✓ | ✓ | ✓ | ✓ |
+| 18  | `DiscriminatorVM` (ch. 22) — edit/preview note editor mode | ✓ | ✓ | ✓ | ✓ |
+| 19  | `SearchableState<string>` — workspace tag autocomplete in `NoteFormVM` | ✓ | ✓ | ✓ | ✓ |
 
-[^theme]: ThemeVM ships in v2.4.0 as a standalone scenario VM in each flavor's
-    `viewmodels/` (plus a per-framework `ThemeAdapter` in `views/adapter/`).
-    Composition into `WorkspaceVM` as a 7th aggregate child is **deferred to a
-    follow-up release** pending the `AggregateVM7` core-library extension — see
+[^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
+    `ThemeAdapter` in `views/adapter/`. `WorkspaceVM` owns the `ThemeVM` as a
+    sibling of its six aggregate children, and the host binds the adapter to that
+    workspace-owned instance. Composition as a 7th aggregate child remains
+    **deferred** pending an `AggregateVM7` core-library extension — see
     `spec/proposals/2026-06-02-theme-vm-scenario.md` §8 and ADR-0036 §2.C / §4
-    decision #3. No host page is wired to the theme seam yet — consumers
-    exercising it construct a `ThemeVM` (+ per-framework `ThemeAdapter`)
-    directly, as the THEME tests do. The `THEME-001..005` scenario IDs are tested in
+    decision #3. The `THEME-001..005` scenario IDs are tested in
     `examples/<lang>/.../tests/` (not in `langs/<flavor>/tests/conformance/`)
     and are exempt from the library-coverage gate via the `_SCENARIO_PREFIXES`
     set in `tools/check-conformance-coverage.py`.
 
 [^readonly]: The core capability action bar (CRUD capability dispatch +
-    `DerivedProperty`-driven enablement) ships in all four flavors. The Python
-    and TypeScript `CapabilityActionsVM` additionally expose a host-gated
-    **add-note command** (`add_note_command` / `addNoteCommand`, fed by
-    `can_add_note`/`add_note_action` builder hooks) backed by a
-    `NotebookModel.is_readonly` / `isReadonly` flag, with dedicated unit tests.
-    The C#/Avalonia and Swift/SwiftUI flavors do **not** ship this sub-feature
-    yet. It is dormant in every flavor — no seed notebook is marked read-only
-    and no host UI renders the add-note command — so there is no user-visible
-    behavioral difference today; the gap is a VM-surface/test asymmetry only.
-    Bringing C# and Swift to parity (model flag + gated command + `WorkspaceVM`
-    wiring + tests) is **deferred to a follow-up PR** rather than handled in the
-    maintenance loop, since it is feature work on the example app.
+    `DerivedProperty`-driven enablement) ships in all four flavors. Each
+    `CapabilityActionsVM` also exposes the host-gated add-note command backed by
+    the notebook read-only flag, with seed coverage and VM tests so the command
+    disables consistently when the focused notebook is read-only.
 
 ## 3. Reading the matrix
 
@@ -99,7 +100,7 @@ renders, headless smoke covers it.
   CommandLineTools-buildable; the `NotesShowcase` and `NotesShowcaseTests`
   targets require macOS + Xcode.
 - **Screenshots.** Reference screenshots are owner-driven and pending. Once
-  captured they will live under `examples/assets/notes-showcase/` — one PNG per
+  captured they will live under `assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.
 
 [^hier]: All four flavors implement an equivalent flat-collection +

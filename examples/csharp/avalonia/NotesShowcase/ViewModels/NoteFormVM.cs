@@ -9,6 +9,7 @@ using VMx.Components;
 using VMx.Forms;
 using VMx.Messages;
 using VMx.Services;
+using VMx.State;
 using VMx.Notifications;
 using NotesShowcase.Models;
 
@@ -27,6 +28,7 @@ namespace NotesShowcase.ViewModels;
 /// </summary>
 public sealed class NoteFormVM : ComponentVMBase, IReconstructable
 {
+    private const string TitleRequired = "Title is required.";
     private readonly INoteRepository _repo;
     private readonly INotificationHub? _notificationHub;
     private FormVM<NoteModel>? _form;
@@ -36,7 +38,13 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private readonly Subject<System.Reactive.Unit> _canExecuteTrigger = new();
     private readonly Subject<NoteModel> _onSaved = new();
     private readonly IDispatcher _dispatcher;
+    private readonly DiscriminatorVM<string> _editorMode = new("edit");
+    private readonly IDisposable _editorModeSub;
+    private readonly SearchableState<string> _tagSearch;
+    private readonly IDisposable _tagSearchSub;
     private IDisposable? _approvedSub;
+    private IReadOnlyList<string> _tagCatalog = Array.Empty<string>();
+    private IReadOnlyList<string> _tagSuggestions = Array.Empty<string>();
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -118,8 +126,11 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <summary>True when the draft differs from the snapshot.</summary>
     public bool IsDirty => _form?.IsDirty ?? false;
 
-    /// <summary>True when the draft passes validation (non-empty title).</summary>
-    public bool IsValid => !string.IsNullOrWhiteSpace(Draft.Title);
+    /// <summary>True when the draft passes FormVM validation.</summary>
+    public bool IsValid => _form?.IsValid ?? false;
+
+    /// <summary>Field-level validation error for <see cref="Title"/>, if any.</summary>
+    public string? TitleError => _form?.FieldError(nameof(Title));
 
     /// <summary>Approve = persist via repo + publish "Saved" notification.</summary>
     public ICommand ApproveCommand { get; }
@@ -152,6 +163,8 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             _tagDraft = value;
             Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagDraft)));
             RaisePropertyChanged(nameof(TagDraft));
+            _tagSearch.SearchTerm = value;
+            _tagSearch.Search();
             _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
         }
     }
@@ -161,6 +174,30 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
 
     /// <summary>Remove a tag from the draft's tag list.</summary>
     public ICommand RemoveTagCommand { get; }
+
+    /// <summary>Workspace tag suggestions matching <see cref="TagDraft"/>.</summary>
+    public IReadOnlyList<string> TagSuggestions => _tagSuggestions;
+
+    /// <summary>Comma-joined tag suggestions for simple view bindings.</summary>
+    public string TagSuggestionsText => string.Join(", ", _tagSuggestions);
+
+    /// <summary>True when autocomplete has at least one visible suggestion.</summary>
+    public bool HasTagSuggestions => _tagSuggestions.Count > 0;
+
+    /// <summary>Current editor mode: <c>edit</c> or <c>preview</c>.</summary>
+    public string EditorMode => _editorMode.ActiveKey;
+
+    /// <summary>True when body preview is active.</summary>
+    public bool IsPreviewMode => _editorMode.IsActive("preview");
+
+    /// <summary>True when editable body mode is active.</summary>
+    public bool IsEditMode => _editorMode.IsActive("edit");
+
+    /// <summary>Switches to body edit mode.</summary>
+    public ICommand ShowEditModeCommand { get; }
+
+    /// <summary>Switches to body preview mode.</summary>
+    public ICommand ShowPreviewModeCommand { get; }
 
     /// <summary>
     /// Binds the form to <paramref name="note"/> (creates / replaces the inner
@@ -175,7 +212,11 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             initial: note,
             persister: PersistAsync,
             hub: Hub,
-            strict: true);
+            strict: true,
+            validators: new Dictionary<string, Func<NoteModel, string?>>
+            {
+                [nameof(Title)] = note => string.IsNullOrWhiteSpace(note.Title) ? TitleRequired : null
+            });
         _approvedSub = _form.OnApproved.Subscribe(m => _onSaved.OnNext(m));
         EmitDraftChanges();
     }
@@ -234,6 +275,28 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
                     $"Saved “{Snapshot.Title}”"));
             }
         });
+        await RefreshTagSuggestionsAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Refreshes autocomplete tags from the repository snapshot.</summary>
+    public async Task RefreshTagSuggestionsAsync()
+    {
+        try
+        {
+            var (_, notes) = await _repo.LoadAllAsync().ConfigureAwait(false);
+            _tagCatalog = notes
+                .SelectMany(n => n.Tags)
+                .Select(t => t.Trim())
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            _tagCatalog = Array.Empty<string>();
+        }
+        _tagSearch.Search();
     }
 
     private async Task PersistAsync(NoteModel note)
@@ -248,12 +311,14 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         if (Draft.Tags.Contains(trimmed, StringComparer.OrdinalIgnoreCase)) return;
         Draft = Draft with { Tags = Draft.Tags.Concat(new[] { trimmed }).ToArray() };
         TagDraft = string.Empty;
+        _tagSearch.Search();
     }
 
     private void RemoveTag(string? tag)
     {
         if (string.IsNullOrEmpty(tag)) return;
         Draft = Draft with { Tags = Draft.Tags.Where(t => !string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)).ToArray() };
+        _tagSearch.Search();
     }
 
     private void EmitDraftChanges()
@@ -265,11 +330,15 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Snapshot)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsDirty)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsValid)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TitleError)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Title)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Body)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Tags)));
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagsText)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestions)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestionsText)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(HasTagSuggestions)));
         // Round-3 Important B-I2: both commands are stable objects now, but
         // consumers that re-resolve on change notifications still expect the
         // signal on rebinds (cross-flavor parity).
@@ -279,11 +348,15 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         RaisePropertyChanged(nameof(Snapshot));
         RaisePropertyChanged(nameof(IsDirty));
         RaisePropertyChanged(nameof(IsValid));
+        RaisePropertyChanged(nameof(TitleError));
         RaisePropertyChanged(nameof(Title));
         RaisePropertyChanged(nameof(Body));
         RaisePropertyChanged(nameof(Starred));
         RaisePropertyChanged(nameof(Tags));
         RaisePropertyChanged(nameof(TagsText));
+        RaisePropertyChanged(nameof(TagSuggestions));
+        RaisePropertyChanged(nameof(TagSuggestionsText));
+        RaisePropertyChanged(nameof(HasTagSuggestions));
         RaisePropertyChanged(nameof(ApproveCommand));
         RaisePropertyChanged(nameof(DenyCommand));
         _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
@@ -301,6 +374,22 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         _repo = repo;
         _notificationHub = notificationHub;
         _dispatcher = dispatcher;
+        _tagSearch = new SearchableState<string>(
+            items: () => _tagCatalog,
+            predicate: (tag, term) =>
+            {
+                var normalized = term.Trim();
+                if (normalized.Length == 0) return false;
+                if (!tag.Contains(normalized, StringComparison.OrdinalIgnoreCase)) return false;
+                return !Draft.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase);
+            },
+            debounce: TimeSpan.Zero,
+            scheduler: dispatcher.Foreground);
+        _tagSearchSub = _tagSearch.Filtered.Subscribe(suggestions =>
+        {
+            _tagSuggestions = suggestions;
+            EmitTagSuggestionChanges();
+        });
         // Phase 5.a binding gap #1: draft mutation must flip
         // ApproveCommand.CanExecute reactively for Avalonia buttons. Wire the
         // ``_canExecuteTrigger`` subject through .Triggers(...) so each
@@ -326,6 +415,36 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             .Predicate(t => HasBoundNote && !string.IsNullOrEmpty(t))
             .Task(RemoveTag)
             .Build();
+        ShowEditModeCommand = RelayCommand.Builder()
+            .Predicate(() => !IsEditMode)
+            .Task(() => _editorMode.SetActiveKey("edit"))
+            .Triggers(_canExecuteTrigger)
+            .Build();
+        ShowPreviewModeCommand = RelayCommand.Builder()
+            .Predicate(() => !IsPreviewMode)
+            .Task(() => _editorMode.SetActiveKey("preview"))
+            .Triggers(_canExecuteTrigger)
+            .Build();
+        _editorModeSub = _editorMode.ActiveChanged.Subscribe(_ =>
+        {
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(EditorMode)));
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsPreviewMode)));
+            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsEditMode)));
+            RaisePropertyChanged(nameof(EditorMode));
+            RaisePropertyChanged(nameof(IsPreviewMode));
+            RaisePropertyChanged(nameof(IsEditMode));
+            _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
+        });
+    }
+
+    private void EmitTagSuggestionChanges()
+    {
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestions)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestionsText)));
+        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(HasTagSuggestions)));
+        RaisePropertyChanged(nameof(TagSuggestions));
+        RaisePropertyChanged(nameof(TagSuggestionsText));
+        RaisePropertyChanged(nameof(HasTagSuggestions));
     }
 
     private static readonly NoteModel Empty = new(
@@ -349,6 +468,12 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         (DenyCommand as IDisposable)?.Dispose();
         (AddTagCommand as IDisposable)?.Dispose();
         (RemoveTagCommand as IDisposable)?.Dispose();
+        (ShowEditModeCommand as IDisposable)?.Dispose();
+        (ShowPreviewModeCommand as IDisposable)?.Dispose();
+        _editorModeSub.Dispose();
+        _editorMode.Dispose();
+        _tagSearchSub.Dispose();
+        _tagSearch.Dispose();
         _canExecuteTrigger.OnCompleted();
         _canExecuteTrigger.Dispose();
         _onSaved.OnCompleted();

@@ -78,6 +78,7 @@ public final class WorkspaceVM {
         StatusBarVM, NotificationsVM, CapabilityActionsVM
     >
     private let _theme: ThemeVM
+    private let _globalSearch: GlobalSearchVM
 
     /// Indirect focus cell — allows CapabilityActionsVM's getter to be wired
     /// before `self` is fully initialised.
@@ -133,6 +134,9 @@ public final class WorkspaceVM {
     /// Capability-action projection (Component6).
     public var capabilityActions: CapabilityActionsVM { _capabilities }
 
+    /// Token-paged all-notes search.
+    public var globalSearch: GlobalSearchVM { _globalSearch }
+
     /// Theme seam — workspace-owned, not an aggregate child (VMX-129).
     public var theme: ThemeVM { _theme }
 
@@ -156,7 +160,7 @@ public final class WorkspaceVM {
     /// pushes the command trigger so command predicates re-evaluate.
     ///
     /// Reference-equality guarded: setting the same object is a no-op.
-    private func trackFocus(_ focused: AnyObject) {
+    private func trackFocus(_ focused: AnyObject?) {
         guard _focusCell.focused !== focused else { return }
         _focusCell.focused = focused
         _capabilities.recomputeActions()
@@ -232,6 +236,28 @@ public final class WorkspaceVM {
             .name("capabilities")
             .services(hub: hub, dispatcher: dispatcher)
             .focusedGetter({ [weak focusCell] in focusCell?.focused })
+            .canAddNote({ [weak notesView, weak notebooks] in
+                guard let notesView, let notebooks else { return false }
+                return notebooks.current != nil && !notesView.currentNotebookIsReadonly
+            })
+            .addNoteAction({ [weak notesView, weak notebooks, repo] in
+                guard let nb = notebooks?.current else { return }
+                let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+                let note = NoteModel(
+                    id: "note-\(uuid.prefix(5))",
+                    notebookId: nb.model.id,
+                    title: "Untitled",
+                    tags: [],
+                    body: "",
+                    starred: false,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+                Task {
+                    try? await repo.saveNote(note)
+                    await notesView?.bindTo(notebookId: nb.model.id)
+                }
+            })
             .build()
 
         // Assign children to stored properties.
@@ -264,6 +290,13 @@ public final class WorkspaceVM {
         _theme = try! ThemeVM.builder()
             .name("theme")
             .services(hub: hub, dispatcher: dispatcher)
+            .build()
+        _globalSearch = try! GlobalSearchVM.builder()
+            .name("global-search")
+            .services(hub: hub, dispatcher: dispatcher)
+            .repository(repo)
+            .pageSize(5)
+            .searchDebounce(.milliseconds(150))
             .build()
 
         // Command trigger (used below in phase 2 and later in trackFocus /
@@ -332,8 +365,10 @@ public final class WorkspaceVM {
                     guard let self else { return }
                     if let current = self._notesView.current {
                         self._noteForm.bindTo(current.model)
+                        self.trackFocus(current)
                     } else {
                         self._noteForm.unbind()
+                        self.trackFocus(self._notebooks.current)
                     }
                 }
             }
@@ -352,6 +387,7 @@ public final class WorkspaceVM {
                 self._dispatcher.scheduleForeground { [weak self] in
                     guard let self else { return }
                     guard let nb = self._notebooks.current else { return }
+                    self._notesView.currentNotebookIsReadonly = nb.model.isReadonly
                     self.trackFocus(nb)
                     self._commandTrigger.send(())
                     guard self._requestedNotebookId != nb.model.id else { return }
@@ -432,6 +468,7 @@ public final class WorkspaceVM {
     public func construct() throws {
         try _agg.construct()
         try _theme.construct()
+        try _globalSearch.construct()
     }
 
     /// Async construct: builds the aggregate + theme, populates notebooks,
@@ -442,6 +479,7 @@ public final class WorkspaceVM {
     public func constructAsync() async throws {
         try _agg.construct()
         try _theme.construct()
+        try _globalSearch.construct()
         try await _notebooks.populate()
         let first = _notebooks.roots.first
         if let first = first {
@@ -449,9 +487,11 @@ public final class WorkspaceVM {
             // (which fires on Current assignment below) sees it and skips.
             _requestedNotebookId = first.model.id
             await _notesView.bindTo(notebookId: first.model.id)
+            await _noteForm.refreshTagSuggestions()
             _dispatcher.scheduleForeground { [weak self, first] in
                 guard let self, !self._disposed else { return }
                 self._notebooks.current = first
+                self._notesView.currentNotebookIsReadonly = first.model.isReadonly
                 self.trackFocus(first)
                 self._commandTrigger.send(())
             }
@@ -473,6 +513,7 @@ public final class WorkspaceVM {
     /// Destructs the theme seam and the aggregate (cascades to all six children).
     public func destruct() throws {
         try _theme.destruct()
+        try _globalSearch.destruct()
         try _agg.destruct()
     }
 
@@ -491,6 +532,7 @@ public final class WorkspaceVM {
         newNoteCommand.dispose()
         exportCommand.dispose()
         _theme.dispose()
+        _globalSearch.dispose()
         _agg.dispose()
     }
 

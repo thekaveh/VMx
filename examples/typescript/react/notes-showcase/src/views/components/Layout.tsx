@@ -18,6 +18,7 @@ import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
 import { useHotkeys } from "../hooks/useHotkeys.js";
 import { CapabilityActions } from "./CapabilityActions.js";
 import { DialogOverlay } from "./DialogOverlay.js";
+import { GlobalSearch } from "./GlobalSearch.js";
 import { NoteForm } from "./NoteForm.js";
 import { NotebooksTree } from "./NotebooksTree.js";
 import { NotesList } from "./NotesList.js";
@@ -88,6 +89,7 @@ export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
           </div>
         </section>
       </div>
+      <GlobalSearch ws={ws} />
       <CapabilityActions ws={ws} />
       <StatusBar ws={ws} />
       <Notifications ws={ws} />

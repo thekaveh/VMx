@@ -42,6 +42,7 @@ from notes_showcase.viewmodels.dialog_service import (
     NULL_DIALOG_SERVICE,
     IDialogService,
 )
+from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.viewmodels.notebooks_root_vm import NotebooksRootVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
@@ -144,6 +145,15 @@ class WorkspaceVM:
             .add_note_action(self._fire_new_note)
             .build()
         )
+        global_search = (
+            GlobalSearchVM.builder()
+            .name("global-search")
+            .services(hub, dispatcher)
+            .repository(repository)
+            .page_size(5)
+            .search_debounce_seconds(0.150)
+            .build()
+        )
 
         self._agg: AggregateVM6[
             NotebooksRootVM,
@@ -174,6 +184,7 @@ class WorkspaceVM:
         self._theme: ThemeVM = (
             ThemeVM.builder().name("theme").services(hub, dispatcher).build()
         )
+        self._global_search: GlobalSearchVM = global_search
 
         # Round-3 Critical-2: rebind note_form whenever notes_view.current
         # changes (e.g. user clicks a different note in the list). Without
@@ -201,8 +212,10 @@ class WorkspaceVM:
             current = notes_view.current
             if current is not None:
                 note_form.bind_to(current.model)
+                self.set_focus(current)
             else:
                 note_form.unbind()
+                self.set_focus(notebooks.current)
 
         self._current_note_subscription: DisposableBase = (
             when_property_changed(notes_view.hub, notes_view, "current")
@@ -308,6 +321,10 @@ class WorkspaceVM:
         return self._agg.component_6
 
     @property
+    def global_search(self) -> GlobalSearchVM:
+        return self._global_search
+
+    @property
     def theme(self) -> ThemeVM:
         """Theme seam (THEME-001..005). Workspace-owned, not an aggregate
         child — ``views.app`` binds the Textual ``theme_adapter`` to it so the
@@ -359,11 +376,13 @@ class WorkspaceVM:
         """Synchronous construct cascade (per ADR-0034)."""
         self._agg.construct()
         self._theme.construct()
+        self._global_search.construct()
 
     async def construct_async(self) -> None:
         """Async construct: build aggregate, populate notebooks, bind notes view."""
         self._agg.construct()
         self._theme.construct()
+        self._global_search.construct()
         await self.notebooks_root.populate()
         first = next(iter(self.notebooks_root.roots), None)
         if first is not None:
@@ -377,11 +396,13 @@ class WorkspaceVM:
             # awaited one; with the notes view already bound the queued task
             # dedupes on bound_notebook_id and exits.
             await self.notes_view.bind_to_async(first.model.id)
+            await self.note_form.refresh_tag_suggestions_async()
             self.notebooks_root.current = first
             self.set_focus(first)
 
     def destruct(self) -> None:
         self._theme.destruct()
+        self._global_search.destruct()
         self._agg.destruct()
 
     def dispose(self) -> None:
@@ -392,6 +413,7 @@ class WorkspaceVM:
         self._new_note_command.dispose()
         self._export_command.dispose()
         self._theme.dispose()
+        self._global_search.dispose()
         self._agg.dispose()
 
     # ── Command fire-and-forget wrappers ───────────────────────────────────

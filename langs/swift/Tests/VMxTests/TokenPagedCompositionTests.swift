@@ -48,6 +48,33 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(calls.count, 2)
     }
 
+    func testLoadMoreDoesNotMutateOrNotifyWhenDisposedDuringFetch() async throws {
+        var continuation: CheckedContinuation<([Int], String?), Error>?
+        let fetchStarted = expectation(description: "loadMore fetch started")
+        let sut = TokenPagedComposition<Int, String>(fetchNext: { _ in
+            try await withCheckedThrowingContinuation { cont in
+                continuation = cont
+                fetchStarted.fulfill()
+            }
+        })
+        var collectionEvents = 0
+        var propertyEvents = 0
+        sut.collectionChanged.sink { _ in collectionEvents += 1 }.store(in: &cancellables)
+        sut.propertyChanged.sink { _ in propertyEvents += 1 }.store(in: &cancellables)
+
+        let run = Task { try await sut.loadMoreCommand.executeAsync() }
+        await fulfillment(of: [fetchStarted], timeout: 2.0)
+        sut.dispose()
+        continuation?.resume(returning: ([1, 2], "next"))
+        try await run.value
+
+        XCTAssertEqual(sut.items, [])
+        XCTAssertNil(sut.currentToken)
+        XCTAssertTrue(sut.hasMore)
+        XCTAssertEqual(collectionEvents, 0)
+        XCTAssertEqual(propertyEvents, 0)
+    }
+
     /// COL-026 — terminal token disables loadMore.
     func testCOL026TerminalTokenDisablesLoadMore() async throws {
         let sut = TokenPagedComposition<Int, String>(
@@ -74,6 +101,33 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(sut.items, [9])
         XCTAssertNil(sut.currentToken)
         XCTAssertFalse(sut.hasMore)
+    }
+
+    func testRefreshDoesNotMutateOrNotifyWhenDisposedDuringFetch() async throws {
+        var continuation: CheckedContinuation<([Int], String?), Error>?
+        let fetchStarted = expectation(description: "refresh fetch started")
+        let sut = TokenPagedComposition<Int, String>(fetchNext: { _ in
+            try await withCheckedThrowingContinuation { cont in
+                continuation = cont
+                fetchStarted.fulfill()
+            }
+        })
+        var collectionEvents = 0
+        var propertyEvents = 0
+        sut.collectionChanged.sink { _ in collectionEvents += 1 }.store(in: &cancellables)
+        sut.propertyChanged.sink { _ in propertyEvents += 1 }.store(in: &cancellables)
+
+        let run = Task { try await sut.refreshCommand.executeAsync() }
+        await fulfillment(of: [fetchStarted], timeout: 2.0)
+        sut.dispose()
+        continuation?.resume(returning: ([9], nil))
+        try await run.value
+
+        XCTAssertEqual(sut.items, [])
+        XCTAssertNil(sut.currentToken)
+        XCTAssertTrue(sut.hasMore)
+        XCTAssertEqual(collectionEvents, 0)
+        XCTAssertEqual(propertyEvents, 0)
     }
 
     /// COL-028 — refresh dedup guard suppresses redundant mutation.

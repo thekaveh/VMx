@@ -13,15 +13,24 @@ import NotesShowcaseCore
 
 struct CapabilityActionsView: View {
     @StateObject private var actionsBound: BindableDerived<[ActionVM]>
+    @StateObject private var addNoteCmd: BindableCommand
     @EnvironmentObject private var theme: ThemeAdapter
 
     init(vm: CapabilityActionsVM) {
         _actionsBound = StateObject(wrappedValue: BindableDerived(vm.actions))
+        _addNoteCmd = StateObject(wrappedValue: BindableCommand(vm.addNoteCommand))
     }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                Button("+ Note") {
+                    addNoteCmd.execute()
+                }
+                .disabled(!addNoteCmd.canExecute)
+                .buttonStyle(.bordered)
+                .font(.caption)
+                .accessibilityLabel("Add note")
                 let actions = actionsBound.value ?? []
                 if actions.isEmpty {
                     Text("No actions")

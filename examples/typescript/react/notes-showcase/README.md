@@ -2,11 +2,13 @@
 
 VMx flagship example — Notes Workspace, the TypeScript / React flavor. A
 single-page web app on React 18 + Vite that drives a single `WorkspaceVM`
-exercising 16 distinct VMx features (see the
+exercising 19 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full table, and
 the
 [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
-for the canonical visual of how the VMs compose). The canonical scenario
+plus
+[VMx component map](../../../assets/notes-showcase-vmx-components.svg)
+for the canonical visuals of how the VMs compose). The canonical scenario
 contract lives at
 [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../../../spec/proposals/2026-05-29-notes-showcase-scenario.md);
 this README documents how the React implementation maps onto it.
@@ -16,28 +18,28 @@ The app is strictly partitioned into `src/models/`, `src/viewmodels/`,
 ESLint's `no-restricted-imports` rule enforces that under
 `src/views/components/**`.
 
-## Run
+## 1. Run
 
 ```bash
 cd examples/typescript/react/notes-showcase
-npm install
-npm run dev         # http://localhost:5173
+npm ci
+npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 
 Production build:
 
 ```bash
-npm run build       # static bundle in dist/
+npm run build       # builds local VMx, then writes static bundle to dist/
 ```
 
 Tests (vitest + jsdom + @testing-library/react):
 
 ```bash
-npm test
-npm run typecheck
+npm test            # builds local VMx first
+npm run typecheck   # builds local VMx first
 ```
 
-## Project layout
+## 2. Project layout
 
 ```
 examples/typescript/react/notes-showcase/
@@ -72,17 +74,17 @@ examples/typescript/react/notes-showcase/
 └── tests/{models,viewmodels,views}/
 ```
 
-## Feature traceability
+## 3. Feature traceability
 
 | #   | Feature                          | Where                                                                                       |
 | --- | -------------------------------- | ------------------------------------------------------------------------------------------- |
 | 1   | `HierarchicalVM`                 | `viewmodels/notebooksRootVM.ts` (composes `NotebookVM` children, emits `TreeStructureChangedMessage`) |
 | 2   | `CompositeVM.current`            | `viewmodels/notesViewVM.ts` (`current` two-way binding)                                     |
 | 3   | `ComponentVMOf<M>` modeled       | `viewmodels/noteVM.ts`, `viewmodels/notebookVM.ts`                                          |
-| 4   | `FormVM` snapshot / revert       | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                              |
+| 4   | `FormVM` snapshot / revert / validation       | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                              |
 | 5   | `DerivedProperty`                | `viewmodels/statusBarVM.ts`, `noteFormVM.isDirty`, `capabilityActionsVM.actions`             |
 | 6   | `RelayCommand` reactive          | `noteFormVM.approveCommand` / `denyCommand`, `noteVM.deleteCommand`                          |
-| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`)                    |
+| 7   | `SearchableState` + `IFilterable<TItem>`| `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`); `noteFormVM` tag suggestions                    |
 | 8   | `IPageable` + `PagedComposition` | `viewmodels/notesViewVM.ts` (page size 5, paging commands delegate to inner `PagedComposition`) |
 | 9   | `INotificationHub` + `NotificationVM` | `viewmodels/notificationsVM.ts`, `views/components/Notifications.tsx`                   |
 | 10  | Async `construct()` + dispatcher | `viewmodels/workspaceVM.ts` (`construct()`), `views/adapter/ReactDispatcher.ts`              |
@@ -91,9 +93,12 @@ examples/typescript/react/notes-showcase/
 | 13  | `IDialogService`                 | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/` |
 | 14  | Capability-aware UI              | `viewmodels/capabilityActionsVM.ts` + `views/components/CapabilityActions.tsx`               |
 | 15  | `AggregateVM6` (spec 2.2.0)      | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                 |
-| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (host-side palette / accent / font scale / high-contrast as a VM; standalone, not wired into `WorkspaceVM` until `AggregateVM7` lands) |
+| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (workspace-owned `ThemeVM` sibling bound through the React adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
+| 17  | `TokenPagedComposition`          | `viewmodels/globalSearchVM.ts` + repository token-paged `searchNotes`                        |
+| 18  | `DiscriminatorVM`                | `viewmodels/noteFormVM.ts` edit/preview editor mode                                          |
+| 19  | Tag autocomplete                 | `viewmodels/noteFormVM.ts` composes `SearchableState<string>` over workspace tags            |
 
-## Keyboard shortcuts
+## 4. Keyboard shortcuts
 
 | Binding         | Action                                |
 | --------------- | ------------------------------------- |
@@ -107,7 +112,7 @@ examples/typescript/react/notes-showcase/
 command's `execute()` once the matching `canExecute` predicate is truthy,
 keeping the Pure-VM contract intact.
 
-## References
+## 5. References
 
 - Scenario contract: [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 - Cross-flavor parity: [`examples/notes-showcase-parity.md`](../../../notes-showcase-parity.md)

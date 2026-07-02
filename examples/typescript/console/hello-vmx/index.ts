@@ -8,7 +8,7 @@
  *   4. The equality guard: setting the same model value emits no hub message.
  *
  * Run with:
- *   npx tsx index.ts      (from this directory, with vmx installed)
+ *   npm ci && npm start   (from this directory)
  */
 
 import {

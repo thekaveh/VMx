@@ -33,7 +33,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # check-version-consistency.py reconciles the compatibility matrix
           # against git tags; the default shallow checkout fetches no tags, so
@@ -77,11 +77,14 @@ jobs:
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
         run: uv --project langs/python run python tools/check-version-consistency.py
 
+      - name: Check Python fixture sync
+        run: uv --project langs/python run python tools/check-python-fixture-sync.py
+
       - name: mdformat check (spec/ + docs/)
         # CI backstop for the pre-commit mdformat hook — contributors without
         # hooks installed could otherwise land mis-formatted markdown. Pinned
-        # to the same 0.7.x + plugins as .pre-commit-config.yaml (mdformat 1.0
-        # is incompatible with mdformat-gfm). Tracked files only, matching the
+        # to the same 0.7.x + pinned plugins as .pre-commit-config.yaml.
+        # Tracked files only, matching the
         # hook's ^(spec|docs)/.*\.md$ scope.
         # Git pathspec `*` crosses directory separators, so these two globs
         # cover top-level AND nested files; `**/*.md` would MISS top-level
@@ -89,12 +92,12 @@ jobs:
         run: |
           git ls-files 'spec/*.md' 'docs/*.md' \
             | xargs uv --project langs/python run \
-                --with "mdformat==0.7.22" --with mdformat-gfm --with mdformat-tables \
+                --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
                 mdformat --check
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift)
         # All four flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 237-ID library catalog. The swift flavor
+        # 100% coverage of the full 281-ID library catalog. The swift flavor
         # reached full library parity in Phase 3 (ADR-0065 retired its subset
         # manifest), so it is now required against the full catalog exactly like
         # the others, via the tool's registered swift scraper, which only reads

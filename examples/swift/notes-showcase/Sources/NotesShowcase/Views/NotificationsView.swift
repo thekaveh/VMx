@@ -53,6 +53,7 @@ private struct NotificationToastView: View {
             }
             .buttonStyle(.plain)
             .font(.callout)
+            .accessibilityLabel("Dismiss notification")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

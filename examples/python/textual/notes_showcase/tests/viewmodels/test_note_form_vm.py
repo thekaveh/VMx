@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 
 import pytest
@@ -89,6 +90,22 @@ def test_empty_title_is_not_valid() -> None:
     vm, _ = _build_vm()
     vm.bind_to(_sample_note(title="   "))
     assert vm.is_valid.value is False
+    assert vm.title_error == "Title is required."
+    vm.title = "Now valid"
+    assert vm.is_valid.value is True
+    assert vm.title_error is None
+
+
+def test_editor_mode_defaults_to_edit_and_switches_to_preview() -> None:
+    vm, _ = _build_vm()
+    assert vm.editor_mode == "edit"
+    assert vm.is_edit_mode is True
+    assert vm.is_preview_mode is False
+    vm.show_preview_mode_command.execute()
+    assert vm.editor_mode == "preview"
+    assert vm.is_preview_mode is True
+    vm.show_edit_mode_command.execute()
+    assert vm.editor_mode == "edit"
 
 
 def test_approve_command_can_execute_requires_is_dirty_and_is_valid() -> None:
@@ -161,6 +178,32 @@ def test_remove_tag_drops_tag_case_insensitively() -> None:
     assert "alpha" in vm.draft.tags
     vm.remove_tag("ALPHA")
     assert "alpha" not in vm.draft.tags
+
+
+async def test_tag_suggestions_filter_workspace_tag_catalog_through_searchable_state() -> (
+    None
+):
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    vm.draft = dataclasses.replace(vm.draft, tags=())
+    await vm.refresh_tag_suggestions_async()
+
+    vm.tag_draft = "sec"
+
+    assert vm.tag_suggestions == ("security",)
+    assert vm.tag_suggestions_text == "security"
+
+
+async def test_tag_suggestions_omit_tags_already_on_draft() -> None:
+    vm, _ = _build_vm()
+    vm.bind_to(_sample_note())
+    vm.draft = dataclasses.replace(vm.draft, tags=("security",))
+    await vm.refresh_tag_suggestions_async()
+
+    vm.tag_draft = "sec"
+
+    assert vm.tag_suggestions == ()
+    assert vm.tag_suggestions_text == ""
 
 
 def test_tag_draft_setter_is_no_op_on_equal_value() -> None:

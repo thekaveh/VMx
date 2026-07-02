@@ -87,11 +87,19 @@ final class NotesViewVMTests: XCTestCase {
     func testPagination_no_op_at_boundaries() async throws {
         let (vm, _) = try await buildAndBind(notebookId: "nb-reviews")
         let first = vm.currentPageIndex
+        XCTAssertFalse(vm.moveToFirstPageCommand.canExecute())
+        XCTAssertFalse(vm.moveToPreviousPageCommand.canExecute())
+        XCTAssertTrue(vm.moveToNextPageCommand.canExecute())
+        XCTAssertTrue(vm.moveToLastPageCommand.canExecute())
         vm.moveToFirstPageCommand.execute()  // already at page 0
         XCTAssertEqual(first, vm.currentPageIndex)
 
         vm.moveToLastPageCommand.execute()
         let last = vm.currentPageIndex
+        XCTAssertTrue(vm.moveToFirstPageCommand.canExecute())
+        XCTAssertTrue(vm.moveToPreviousPageCommand.canExecute())
+        XCTAssertFalse(vm.moveToNextPageCommand.canExecute())
+        XCTAssertFalse(vm.moveToLastPageCommand.canExecute())
         vm.moveToNextPageCommand.execute()   // already at last page
         XCTAssertEqual(last, vm.currentPageIndex)
     }
@@ -108,8 +116,10 @@ final class NotesViewVMTests: XCTestCase {
     func testPageLabel_reflects_current_page_and_count() async throws {
         let (vm, _) = try await buildAndBind(notebookId: "nb-reviews", pageSize: 5)
         XCTAssertEqual("Page 1 of 2", vm.pageLabel)
+        XCTAssertEqual("Page 1 of 2", try vm.pageLabelDerived.value)
         vm.moveToNextPageCommand.execute()
         XCTAssertEqual("Page 2 of 2", vm.pageLabel)
+        XCTAssertEqual("Page 2 of 2", try vm.pageLabelDerived.value)
     }
 
     // MARK: - Starred filter
@@ -149,8 +159,10 @@ final class NotesViewVMTests: XCTestCase {
 
     func testIsEmpty_true_when_filter_excludes_everything() async throws {
         let (vm, _) = try await buildAndBind(notebookId: "nb-reviews")
+        XCTAssertFalse(try vm.isEmptyDerived.value)
         vm.filter = { _ in false }
         XCTAssertTrue(vm.isEmpty)
+        XCTAssertTrue(try vm.isEmptyDerived.value)
         XCTAssertTrue(vm.visibleItems.isEmpty)
     }
 
@@ -268,5 +280,53 @@ final class NotesViewVMTests: XCTestCase {
         await vm.bindTo(notebookId: "nb-reviews")
         XCTAssertEqual(before, vm.filteredItems.count,
                        "Rebind after reconstruct should restore the same item count")
+    }
+
+    // MARK: - Global search token paging
+
+    func testRepositorySearchNotes_returnsTokenPagesOverAllNotes() async throws {
+        let repo = makeRepo(loadNotesDelay: 0)
+
+        let first = try await repo.searchNotes(term: "review", token: nil, pageSize: 2)
+
+        XCTAssertEqual(2, first.items.count)
+        XCTAssertEqual("2", first.nextToken)
+        XCTAssertTrue(first.items.allSatisfy {
+            "\($0.title) \($0.body) \($0.tags.joined(separator: " "))"
+                .lowercased()
+                .contains("review")
+        })
+
+        let second = try await repo.searchNotes(
+            term: "review",
+            token: first.nextToken,
+            pageSize: 2
+        )
+        XCTAssertFalse(second.items.isEmpty)
+        XCTAssertNotEqual(first.items[0].id, second.items[0].id)
+    }
+
+    func testGlobalSearchVM_refreshes_resetsTerms_andLoadsMore() async throws {
+        let repo = makeRepo(loadNotesDelay: 0)
+        let vm = try GlobalSearchVM.builder()
+            .name("global-search")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .repository(repo)
+            .pageSize(2)
+            .searchDebounce(.milliseconds(0))
+            .build()
+
+        vm.searchTerm = "review"
+        try await vm.refreshCommand.executeAsync()
+        XCTAssertEqual(2, vm.results.count)
+        XCTAssertTrue(vm.hasMore)
+
+        try await vm.loadMoreCommand.executeAsync()
+        XCTAssertGreaterThan(vm.results.count, 2)
+
+        vm.searchTerm = "travel"
+        try await vm.refreshCommand.executeAsync()
+        XCTAssertTrue(vm.results.allSatisfy { $0.model.notebookId == "nb-personal" })
+        vm.dispose()
     }
 }

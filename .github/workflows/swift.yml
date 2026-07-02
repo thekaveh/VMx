@@ -32,7 +32,7 @@ jobs:
         # would re-enable ubuntu-latest in a follow-up PR.
         os: [macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       # Toolchain policy: latest-only — the job builds with whatever Swift the
       # current macos-latest image ships (displayed below for forensics). The
       # Package.swift floor (swift-tools-version 5.9) is declared but not
@@ -51,7 +51,7 @@ jobs:
     name: examples (notes-showcase)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Show Swift version
         run: swift --version
       # The flagship example is a separate SwiftPM package depending on the

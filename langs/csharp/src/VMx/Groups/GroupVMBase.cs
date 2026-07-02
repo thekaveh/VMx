@@ -55,6 +55,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCo
     // ── IParentCompositeVM (non-generic; children may call Select/Deselect) ────
     // GroupVM has no selection concept; these are deliberate no-ops.
 
+    bool IParentCompositeVM.SupportsChildSelection => false;
     IComponentVM? IParentCompositeVM.CurrentChild => null;
     void IParentCompositeVM.SelectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     void IParentCompositeVM.DeselectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
@@ -228,7 +229,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCo
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
         PopulateChildren();
-        foreach (var child in _children)
+        foreach (var child in _children.ToArray())
             child.Construct();
     }
 
@@ -244,7 +245,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCo
     /// </summary>
     protected override void OnDestruct()
     {
-        foreach (var child in _children)
+        foreach (var child in _children.ToArray())
             child.Destruct();
 
         base.OnDestruct(); // invoke user's onDestruct callback if any

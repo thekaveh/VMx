@@ -247,6 +247,57 @@ final class WorkspaceVMTests: XCTestCase {
         XCTAssertTrue(ws.newNoteCommand.canExecute())
     }
 
+    func testNotebookModel_defaultIsNotReadonly() {
+        let nb = NotebookModel(id: "nb", name: "Notebook", parentId: nil)
+
+        XCTAssertFalse(nb.isReadonly)
+    }
+
+    func testCapabilityAddNote_isDisabledForReadonlyNotebook() async throws {
+        let repo = InMemoryNoteRepository(
+            seed: (
+                notebooks: [
+                    NotebookModel(
+                        id: "nb-readonly",
+                        name: "Archive",
+                        parentId: nil,
+                        isReadonly: true
+                    )
+                ],
+                notes: []
+            ),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0
+        )
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+
+        XCTAssertTrue(ws.notesView.currentNotebookIsReadonly)
+        XCTAssertFalse(ws.capabilityActions.addNoteCommand.canExecute())
+    }
+
+    func testCapabilityAddNote_isEnabledForWritableNotebook() async throws {
+        let repo = InMemoryNoteRepository(
+            seed: (
+                notebooks: [
+                    NotebookModel(id: "nb-rw", name: "Drafts", parentId: nil)
+                ],
+                notes: []
+            ),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0
+        )
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+
+        XCTAssertFalse(ws.notesView.currentNotebookIsReadonly)
+        XCTAssertTrue(ws.capabilityActions.addNoteCommand.canExecute())
+    }
+
     func testConstruct_withNoNotebooks_stillEnablesNewNotebookButton() async throws {
         let repo = InMemoryNoteRepository(
             seed: (notebooks: [], notes: []),
@@ -285,6 +336,29 @@ final class WorkspaceVMTests: XCTestCase {
         let labels = try ws.capabilityActions.actions.value.map(\.label)
         XCTAssertTrue(labels.contains("Close"))
         XCTAssertFalse(labels.contains("Expand"))
+    }
+
+    func testSelectingNote_updatesCapabilityFocus() async throws {
+        let ws = try buildWorkspace()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+
+        guard let noteVM = ws.notesView.filteredItems.first else {
+            XCTFail("Expected seeded note")
+            return
+        }
+
+        ws.notesView.current = noteVM
+
+        var labels = try ws.capabilityActions.actions.value.map(\.label)
+        XCTAssertTrue(labels.contains("Close"))
+        XCTAssertTrue(labels.contains("Save"))
+        XCTAssertFalse(labels.contains("Expand"))
+
+        ws.notesView.current = nil
+        labels = try ws.capabilityActions.actions.value.map(\.label)
+        XCTAssertTrue(labels.contains("Expand"))
+        XCTAssertFalse(labels.contains("Save"))
     }
 
     // MARK: - Deny / revert

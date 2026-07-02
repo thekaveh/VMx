@@ -83,6 +83,7 @@ export class TokenPagedComposition<TVM, TToken> {
 
   async #loadMore(): Promise<void> {
     const page = await this.#fetchNext(this.#currentToken);
+    if (this.#disposed) return;
     this.#items.push(...page.items);
     this.#constructIfNeeded(page.items);
     this.#currentToken = page.nextToken;
@@ -92,6 +93,7 @@ export class TokenPagedComposition<TVM, TToken> {
 
   async #refresh(): Promise<void> {
     const page = await this.#fetchNext(null);
+    if (this.#disposed) return;
     const head = this.#items.slice(0, page.items.length);
     if (this.#pagesEqual(page.items, head)) {
       this.#currentToken = page.nextToken;

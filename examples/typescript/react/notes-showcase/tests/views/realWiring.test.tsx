@@ -141,7 +141,7 @@ describe("real wiring", () => {
 
     // Seeded "Work" notebook fits on one page (pageSize 5) — every move
     // command must render disabled (the mirror was previously vacuous).
-    for (const name of ["⏮", "◀", "▶", "⏭"]) {
+    for (const name of ["First page", "Previous page", "Next page", "Last page"]) {
       const btn = screen.getByRole("button", { name });
       expect((btn as HTMLButtonElement).disabled).toBe(true);
     }
@@ -177,8 +177,6 @@ describe("real wiring", () => {
     const current = workspace.notesView.current;
     expect(current).not.toBeNull();
 
-    // Focus the note VM the way the list does, then drive the bar.
-    workspace.setFocus(current);
     const bar = await screen.findByRole("toolbar", { name: /actions/i });
     fireEvent.click(within(bar).getByRole("button", { name: "Save" }));
     await waitFor(() => {

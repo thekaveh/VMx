@@ -296,6 +296,39 @@ public class GroupVMTests
     }
 
     [Fact]
+    public void Construct_Cascade_Snapshots_Children_When_Hook_Mutates_Group()
+    {
+        GroupVM<ComponentVM<string>>? group = null;
+        ComponentVM<string>? sibling = null;
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var mutating = ComponentVM<string>.Builder()
+            .Name("mutating")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() => group!.Remove(sibling!))
+            .Build();
+        sibling = ComponentVM<string>.Builder()
+            .Name("sibling")
+            .Services(hub, dispatcher)
+            .Model("s")
+            .Build();
+        group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("g")
+            .Services(hub, dispatcher)
+            .Children(() => new[] { mutating, sibling })
+            .Build();
+
+        var act = () => group.Construct();
+
+        act.Should().NotThrow();
+        mutating.Status.Should().Be(ConstructionStatus.Constructed);
+        sibling.Status.Should().Be(ConstructionStatus.Constructed,
+            "the construct cascade uses the entry snapshot even if a hook removes a peer");
+        group.Count.Should().Be(1);
+    }
+
+    [Fact]
     public void DeselectCommand_Is_Present()
     {
         var (group, _, _) = BuildGroup();

@@ -5,9 +5,9 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.1.0 — total parity.** Covers **all 279 of 279** library conformance IDs
+**v3.1.0 — total parity.** Covers **all 281 of 281** library conformance IDs
 from `spec-v3.1.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **284 total**, at
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **286 total**, at
 full parity with C#, Python, and TypeScript. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -41,11 +41,14 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
+The source tree currently implements v3.1.0. SwiftPM consumes VMx from git
+tags; use the versioned dependency after a `swift-v*` release publishes it.
+
 Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "3.1.0")
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "X.Y.Z")
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
@@ -55,6 +58,14 @@ targets: [
 ```
 
 Or in Xcode: **File → Add Package Dependencies → enter the repo URL**.
+
+For local development from a checked-out clone:
+
+```swift
+dependencies: [
+    .package(path: "/path/to/VMx/langs/swift")
+]
+```
 
 ## 3. Quick start
 
@@ -148,9 +159,9 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
-## 5. Conformance — total parity (284)
+## 5. Conformance — total parity (286)
 
-This flavor implements **all 279 library conformance IDs** from the
+This flavor implements **all 281 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -173,9 +184,10 @@ COMP-012/013    autoConstructOnAdd + BatchUpdateHandle (Inc-2 — ADR-0060;
                 assertionFailure on construct failure; explicit dispose() safety net)
 GRP-001..004    group surface contract + lifecycle cascades + CollectionChanged (Inc-2)
 GRP-005/006     autoConstructOnAdd + BatchUpdateHandle on GroupVM (Inc-2 — ADR-0060)
+GRP-011         group children are non-selectable peers (ADR-0079)
 AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
 CMD-001..004, 006   RelayCommand task + predicate + triggers (Inc-0)
-BLD-001..005    builders immutable + validation + defaults
+BLD-001..006    builders immutable + validation + defaults + options factories
 PROP-001..004   hub property-change accessors
 NULL-001..003   NullMessageHub + NullDispatcher null-object contracts
 LOC-001..003    Localizer protocol + NullLocalizer null-object (no I-prefix — ADR-0006)
@@ -353,7 +365,7 @@ DISC-001..006   DiscriminatorVM active key + modal stack coordinator (ADR-0075)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 279 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (284) with C#, Python, and TypeScript.**
+**All 281 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (286) with C#, Python, and TypeScript.**
 
 Run the suite:
 

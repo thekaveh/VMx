@@ -284,7 +284,8 @@ See ADR-0023.
    contract, so every call is legal. (Scoped in v2.5.0 via ADR-0038.)
 1. **Per-language idiom.** Capability interfaces follow the per-language
    identifier convention from ADR-0006 (PascalCase in C#, snake_case in
-   Python, camelCase in TypeScript). The conceptual surface is identical.
+   Python, camelCase in TypeScript and Swift). The conceptual surface is
+   identical.
 1. **Capabilities do not subscribe to the hub on their own.** Capability
    interfaces define member contracts only. Any change-notification side
    effects (e.g., `PropertyChangedMessage` when `SearchTerm` mutates) come

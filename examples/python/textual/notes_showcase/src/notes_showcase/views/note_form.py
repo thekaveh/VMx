@@ -26,6 +26,7 @@ from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.views.adapter import (
     bind_command,
     bind_derived_property,
+    bind_property,
     bind_property_two_way,
 )
 
@@ -36,6 +37,9 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
         # Two-way scalar bindings (binding-gap #1 fix).
         bind_property_two_way(
             view.query_one("#form_title", Input), "value", vm, "title"
+        ),
+        bind_property(
+            view.query_one("#form_title_error", Static), "renderable", vm, "title_error"
         ),
         bind_property_two_way(
             view.query_one("#form_starred", Checkbox), "value", vm, "starred"
@@ -48,8 +52,37 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
             view.query_one("#form_tag_draft", Input), "value", vm, "tag_draft"
         ),
         bind_command(view.query_one("#form_add_tag", Button), vm.add_tag_command),
+        bind_command(
+            view.query_one("#form_mode_edit", Button), vm.show_edit_mode_command
+        ),
+        bind_command(
+            view.query_one("#form_mode_preview", Button), vm.show_preview_mode_command
+        ),
         bind_command(view.query_one("#form_save", Button), vm.approve_command),
         bind_command(view.query_one("#form_revert", Button), vm.deny_command),
+        bind_property(
+            view.query_one("#form_body", TextArea), "display", vm, "is_edit_mode"
+        ),
+        bind_property(
+            view.query_one("#form_body_preview", Static),
+            "display",
+            vm,
+            "is_preview_mode",
+        ),
+        bind_property(
+            view.query_one("#form_body_preview", Static),
+            "renderable",
+            vm,
+            "body",
+            transform=lambda value: str(value) if str(value) else "No body.",
+        ),
+        bind_property(
+            view.query_one("#form_tag_suggestions", Static),
+            "renderable",
+            vm,
+            "tag_suggestions_text",
+            transform=lambda value: f"Suggestions: {value}" if str(value) else "",
+        ),
         # Tag chip strip — one-way bound to the ``tags_text``
         # DerivedProperty[str] so the rendered string is "alpha, beta"
         # (Round-3 Important C-I1; bound through bind_derived_property so it
@@ -77,14 +110,22 @@ class NoteFormView(Vertical):
     def compose(self) -> ComposeResult:
         yield Static("Note", classes="pane_title")
         yield Input(placeholder="Title", id="form_title")
+        yield Static("", id="form_title_error")
         yield Checkbox("Starred", id="form_starred")
         yield Horizontal(
             Input(placeholder="add tag", id="form_tag_draft"),
-            Button("+", id="form_add_tag"),
+            Button("Add tag", id="form_add_tag"),
             id="tag_chip_row",
         )
+        yield Static("", id="form_tag_suggestions")
         yield Static("", id="form_tag_chips")
+        yield Horizontal(
+            Button("Edit", id="form_mode_edit"),
+            Button("Preview", id="form_mode_preview"),
+            id="form_mode_row",
+        )
         yield TextArea("", id="form_body")
+        yield Static("", id="form_body_preview")
         yield Static("", id="form_status")
         yield Horizontal(
             Button("Save", id="form_save", variant="primary"),

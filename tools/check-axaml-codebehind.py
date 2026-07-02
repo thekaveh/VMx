@@ -88,14 +88,35 @@ def check(path: Path) -> list[str]:
 
     # Find every brace-delimited body (method or constructor bodies). The
     # showcase's view code-behind has no nested braces inside method bodies,
-    # so a non-greedy `\{[^{}]*\}` match catches each leaf body cleanly.
-    for body in re.findall(r"\{([^{}]*)\}", src_after_expr):
+    # so a non-greedy `\{[^{}]*\}` match catches each leaf body cleanly. Strip
+    # each validated body afterward so a second pass can inspect class-level
+    # statements that live in non-leaf braces.
+    def _validate_body(match: re.Match[str]) -> str:
+        body = match.group(1)
         for line in body.splitlines():
             stmt = line.strip()
             if not stmt:
                 continue
             if not _ALLOWED_STMT.match(stmt):
                 violations.append(f"{path}: disallowed statement in code-behind body: {stmt}")
+        return "{}"
+
+    src_after_bodies = re.sub(r"\{([^{}]*)\}", _validate_body, src_after_expr)
+
+    for line in src_after_bodies.splitlines():
+        stmt = line.strip()
+        if not stmt or stmt in {"{", "}"}:
+            continue
+        if (
+            stmt.startswith("using ")
+            or stmt.startswith("namespace ")
+            or stmt.startswith("[")
+            or " class " in f" {stmt} "
+            or stmt.endswith("{")
+        ):
+            continue
+        if ";" in stmt:
+            violations.append(f"{path}: disallowed class-level code-behind statement: {stmt}")
 
     return violations
 

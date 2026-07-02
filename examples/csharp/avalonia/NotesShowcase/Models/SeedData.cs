@@ -22,7 +22,7 @@ public static class SeedData
             new("nb-specs",    "Specs",    "nb-work"),
             new("nb-reviews",  "Reviews",  null),
             new("nb-personal", "Personal", null),
-            new("nb-archive",  "Archive",  null),
+            new("nb-archive",  "Archive",  null, IsReadOnly: true),
         };
 
         var notes = new List<NoteModel>();

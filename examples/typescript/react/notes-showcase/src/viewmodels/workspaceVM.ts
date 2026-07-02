@@ -33,6 +33,7 @@ import type { NotebookVM } from "./notebookVM.js";
 import type { INoteRepository } from "../models/noteRepository.js";
 import { CapabilityActionsVM } from "./capabilityActionsVM.js";
 import { type IDialogService, NullDialogService } from "./dialogService.js";
+import { GlobalSearchVM } from "./globalSearchVM.js";
 import { NoteFormVM } from "./noteFormVM.js";
 import { NotebooksRootVM } from "./notebooksRootVM.js";
 import { NotesViewVM } from "./notesViewVM.js";
@@ -52,6 +53,7 @@ export class WorkspaceVM {
   readonly #statusBar: StatusBarVM;
   readonly #notifications: NotificationsVM;
   readonly #capabilityActions: CapabilityActionsVM;
+  readonly #globalSearch: GlobalSearchVM;
   // VMX-129: the theme seam is a workspace-owned sibling of the six aggregate
   // children (an AggregateVM7 was declined in ADR-0058). Lifecycle is driven
   // alongside the aggregate; the React `useThemeAdapter` hook binds to it.
@@ -149,6 +151,13 @@ export class WorkspaceVM {
         void this.#addNewNoteToCurrentAsync();
       })
       .build();
+    this.#globalSearch = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(opts.hub, opts.dispatcher)
+      .repository(opts.repository)
+      .pageSize(5)
+      .searchDebounceMs(150)
+      .build();
 
     this.#aggregate = AggregateVM6.builder<
       NotebooksRootVM,
@@ -214,8 +223,10 @@ export class WorkspaceVM {
         const current = notesViewRef.current;
         if (current !== null) {
           noteFormRef.bindTo(current.model);
+          this.setFocus(current);
         } else {
           noteFormRef.unbind();
+          this.setFocus(this.#notebooks.current);
         }
       });
 
@@ -292,6 +303,10 @@ export class WorkspaceVM {
     return this.#capabilityActions;
   }
 
+  get globalSearch(): GlobalSearchVM {
+    return this.#globalSearch;
+  }
+
   /**
    * Theme seam (THEME-001..005). Workspace-owned, not an aggregate child —
    * the React `useThemeAdapter` hook binds to it so the scenario is exercised
@@ -340,6 +355,7 @@ export class WorkspaceVM {
   construct(): void {
     this.#aggregate.construct();
     this.#theme.construct();
+    this.#globalSearch.construct();
   }
 
   /**
@@ -349,6 +365,7 @@ export class WorkspaceVM {
   async constructAsync(): Promise<void> {
     this.#aggregate.construct();
     this.#theme.construct();
+    this.#globalSearch.construct();
     await this.#notebooks.populateAsync();
     const [first] = this.#notebooks.roots;
     if (first !== undefined) {
@@ -360,12 +377,14 @@ export class WorkspaceVM {
       this.#notesView.currentNotebookIsReadonly =
         first.model.isReadonly ?? false;
       await this.#notesView.bindToAsync(first.model.id);
+      await this.#noteForm.refreshTagSuggestionsAsync();
     }
     this.#commandTrigger.next();
   }
 
   destruct(): void {
     this.#theme.destruct();
+    this.#globalSearch.destruct();
     this.#aggregate.destruct();
   }
 
@@ -379,6 +398,7 @@ export class WorkspaceVM {
     this.#newNoteCommand.dispose();
     this.#exportCommand.dispose();
     this.#theme.dispose();
+    this.#globalSearch.dispose();
     this.#aggregate.dispose();
   }
 

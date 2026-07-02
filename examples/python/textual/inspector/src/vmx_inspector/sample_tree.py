@@ -22,6 +22,10 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
         │   ├── editor (ComponentVMOf[str])
         │   ├── terminal (ComponentVM)
         │   └── inspector (ReadonlyComponentVMOf[int])
+        ├── state-lab (GroupVM)
+        │   ├── form-vm (ComponentVMOf[str])
+        │   ├── discriminator-vm (ComponentVMOf[str])
+        │   └── token-paged-composition (ComponentVMOf[str])
         └── sidebar (CompositeVMOf[str, ComponentVMOf[str]])
     """
     hub: MessageHub[Message] = MessageHub()
@@ -94,12 +98,39 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
         .build(),
     )
 
+    def lab_node(name: str, model: str) -> ComponentVMOf[str]:
+        return cast(
+            "ComponentVMOf[str]",
+            ComponentVMOf.builder()
+            .name(name)
+            .services(hub, dispatcher)
+            .model(model)
+            .build(),
+        )
+
+    state_lab = cast(
+        "GroupVM[Any]",
+        GroupVMBuilder()
+        .name("state-lab")
+        .services(hub, dispatcher)
+        .children(
+            lambda: [
+                lab_node("form-vm", "FormVM strict validation"),
+                lab_node("discriminator-vm", "DiscriminatorVM edit/preview active key"),
+                lab_node(
+                    "token-paged-composition", "TokenPagedComposition forward paging"
+                ),
+            ]
+        )
+        .build(),
+    )
+
     root = cast(
         "CompositeVM[Any]",
         CompositeVM.builder()
         .name("app")
         .services(hub, dispatcher)
-        .children(lambda: [header, workspace, sidebar])
+        .children(lambda: [header, workspace, state_lab, sidebar])
         .build(),
     )
 

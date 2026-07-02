@@ -9,7 +9,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for GroupVM covering GRP-001..004.
+/// Conformance tests for GroupVM covering GRP-001..006 and GRP-011.
 /// See spec/07-group-vm.md and spec/12-conformance.md.
 /// </summary>
 public class GroupVMConformanceTests
@@ -104,6 +104,24 @@ public class GroupVMConformanceTests
         group.SelectPreviousCommand.Should().NotBeNull("SelectPreviousCommand must be present (IComponentVM baseline)");
         group.SelectPreviousCommand.CanExecute(null).Should()
             .BeFalse("SelectPreviousCommand must be always-disabled for GroupVM");
+    }
+
+    /// <summary>
+    /// GRP-011: children of a GroupVM are peers, so the inherited SelectCommand
+    /// on a child remains disabled even after the child is constructed.
+    /// </summary>
+    [Fact, Trait("Conformance", "GRP-011")]
+    public void GRP_011_Group_Children_Are_Not_Selectable()
+    {
+        var (group, hub, dispatcher) = BuildGroup();
+        var child = BuildChild(hub, dispatcher, "child");
+        group.Add(child);
+
+        group.Construct();
+
+        child.CanSelect().Should().BeFalse(
+            "a group has no current-child slot for peers to select into");
+        child.SelectCommand.CanExecute(null).Should().BeFalse();
     }
 
     // ── GRP-003 — Construct waits until all children reach Constructed ────────

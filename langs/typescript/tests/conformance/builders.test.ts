@@ -4,9 +4,12 @@ import {
   RxDispatcher,
   ComponentVM,
   ComponentVMOf,
+  CompositeVM,
+  GroupVM,
   ReadonlyComponentVMOf,
   NullMessageHub,
   NullDispatcher,
+  ConstructionStatus,
   ViewModelType,
 } from "../../src/index.js";
 
@@ -141,6 +144,46 @@ describe("BLD-005", () => {
       .withNullServices()
       .build();
     expect(vm.name, "name() must overwrite, not accumulate").toBe("second");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BLD-006 — options factories match builder semantics
+// ---------------------------------------------------------------------------
+
+describe("BLD-006", () => {
+  it("Common VM create(options) factories delegate to builder validation and defaults", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+
+    const component = ComponentVM.create({ name: "component", hint: "h", hub, dispatcher: disp });
+    expect(component.name).toBe("component");
+    expect(component.hint).toBe("h");
+    expect(component.type).toBe(ViewModelType.Component);
+
+    const modeled = ComponentVMOf.create<string>({ name: "modeled", model: "m", hub, dispatcher: disp });
+    expect(modeled.model).toBe("m");
+
+    const child = ComponentVM.create({ name: "child", hub, dispatcher: disp });
+    const composite = CompositeVM.create<ComponentVM>({
+      name: "composite",
+      hub,
+      dispatcher: disp,
+      children: () => [child],
+    });
+    composite.construct();
+    expect(composite.status).toBe(ConstructionStatus.Constructed);
+    expect(composite.count).toBe(1);
+
+    const group = GroupVM.create<ComponentVM>({
+      name: "group",
+      hub,
+      dispatcher: disp,
+      children: () => [],
+    });
+    expect(group.type).toBe(ViewModelType.Group);
+
+    expect(() => ComponentVM.create({ hub, dispatcher: disp } as never)).toThrow(/name/);
   });
 });
 

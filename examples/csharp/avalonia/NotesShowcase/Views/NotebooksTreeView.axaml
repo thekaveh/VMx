@@ -20,6 +20,7 @@
                    Text="Notebooks" />
         <TreeView Grid.Row="1"
                   x:Name="NotebooksTree"
+                  AutomationProperties.Name="Notebooks"
                   Background="Transparent"
                   Foreground="{StaticResource TextBrush}"
                   ItemsSource="{Binding Roots}"

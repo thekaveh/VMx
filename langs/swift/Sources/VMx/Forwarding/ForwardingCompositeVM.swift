@@ -69,6 +69,7 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     open override func deselect() { _wrapped.deselect() }
 
     // ── ParentVM ────────────────────────────────────────────────────────
+    open override var supportsChildSelection: Bool { _wrapped.supportsChildSelection }
     open override var currentChild: ComponentVMBase? { _wrapped.currentChild }
     open override func selectChild(_ vm: ComponentVMBase) { _wrapped.selectChild(vm) }
     open override func deselectChild(_ vm: ComponentVMBase) { _wrapped.deselectChild(vm) }

@@ -118,6 +118,28 @@ describe("NoteFormVM", () => {
     expect(vm.draft.tags).toEqual(["b"]);
   });
 
+  it("tag suggestions filter the workspace tag catalog through SearchableState", async () => {
+    const { vm } = makeForm();
+    vm.bindTo(aNote({ tags: [] }));
+    await vm.refreshTagSuggestionsAsync();
+
+    vm.tagDraft = "sec";
+
+    expect(vm.tagSuggestions).toEqual(["security"]);
+    expect(vm.tagSuggestionsText).toBe("security");
+  });
+
+  it("tag suggestions omit tags already on the draft", async () => {
+    const { vm } = makeForm();
+    vm.bindTo(aNote({ tags: ["security"] }));
+    await vm.refreshTagSuggestionsAsync();
+
+    vm.tagDraft = "sec";
+
+    expect(vm.tagSuggestions).toEqual([]);
+    expect(vm.tagSuggestionsText).toBe("");
+  });
+
   it("publishes a 'Saved' notification on approve", async () => {
     const { vm, notifs } = makeForm();
     const titles: string[] = [];
@@ -148,8 +170,32 @@ describe("NoteFormVM", () => {
     const { vm } = makeForm();
     vm.bindTo(aNote({ title: "" }));
     expect(vm.isValid).toBe(false);
+    expect(vm.titleError).toBe("Title is required.");
     vm.draft = { ...vm.draft, title: "Now valid" };
     expect(vm.isValid).toBe(true);
+    expect(vm.titleError).toBeNull();
+  });
+
+  it("editor mode defaults to edit and switches through DiscriminatorVM", () => {
+    const { vm } = makeForm();
+    expect(vm.editorMode).toBe("edit");
+    expect(vm.isEditMode).toBe(true);
+    expect(vm.isPreviewMode).toBe(false);
+    expect(vm.showEditModeCommand.canExecute()).toBe(false);
+    expect(vm.showPreviewModeCommand.canExecute()).toBe(true);
+
+    vm.showPreviewModeCommand.execute();
+
+    expect(vm.editorMode).toBe("preview");
+    expect(vm.isEditMode).toBe(false);
+    expect(vm.isPreviewMode).toBe(true);
+    expect(vm.showEditModeCommand.canExecute()).toBe(true);
+    expect(vm.showPreviewModeCommand.canExecute()).toBe(false);
+
+    vm.showEditModeCommand.execute();
+
+    expect(vm.editorMode).toBe("edit");
+    expect(vm.isEditMode).toBe(true);
   });
 
   it("builder validates required fields", () => {

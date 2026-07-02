@@ -4,12 +4,8 @@ Self-contained demos of the [VMx TypeScript package](../../langs/typescript/).
 
 ## 1. Setup
 
-Examples here use [tsx](https://github.com/privatenumber/tsx) to run
-TypeScript directly without a separate compile step. Install once:
-
-```bash
-npm install -g tsx
-```
+Examples here use each example's checked-in `package-lock.json` and local npm
+scripts. Run `npm ci` in the example directory before starting it.
 
 ---
 
@@ -24,25 +20,12 @@ Minimal console demo. Demonstrates:
 4. The equality guard: setting the same model value emits **no** hub
    message.
 
-**Run against the published package:**
-
-```bash
-npm install @thekaveh/vmx
-npx tsx console/hello-vmx/index.ts
-```
-
 **Run against the local source build (from a clone of this repo):**
 
 ```bash
-# From the repo root: build the library first
-cd langs/typescript
+cd examples/typescript/console/hello-vmx
 npm ci
-npm run build
-# Then run the example — its package.json already pins
-# "@thekaveh/vmx": "file:../../../../langs/typescript"
-cd ../../examples/typescript/console/hello-vmx
-npm install
-npm start
+npm start          # runs the local VMx build first
 ```
 
 ---
@@ -50,9 +33,10 @@ npm start
 ## 3. Example 2 — `react/notes-showcase/` (React 18 + Vite, flagship)
 
 The Notes Workspace flagship app — a single-page web app on React 18 + Vite
-that exercises **16 distinct VMx features** in one cohesive scenario
+that exercises **19 distinct VMx features** in one cohesive scenario
 (notebooks tree, paged + filterable notes list, FormVM editor,
 capability-aware action bar, notifications, async lifecycle, dialogs,
+token-paged global search, edit/preview state, tag autocomplete,
 `AggregateVM6` root, and the v2.4.0 `ThemeVM` scenario contract).
 Pure-VM contract enforced via ESLint's
 `no-restricted-imports` rule — view components never call `useState` /
@@ -62,15 +46,15 @@ Pure-VM contract enforced via ESLint's
 
 ```bash
 cd react/notes-showcase
-npm install
-npm run dev         # http://localhost:5173
+npm ci
+npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 
 **Production build:**
 
 ```bash
 cd react/notes-showcase
-npm run build       # static bundle in dist/
+npm run build       # builds local VMx, then writes static bundle to dist/
 ```
 
 See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for

@@ -4,9 +4,12 @@ The language-neutral specification of VMx. Source of truth for every language fl
 
 This directory is the contract. Every published package declares the spec
 version it implements; see [`compatibility-matrix.md`](../compatibility-matrix.md)
-for current per-flavor versions. Conformance tests under
-`langs/<lang>/tests/conformance/` re-implement the catalog at
-`12-conformance.md` and must pass before any flavor releases a stable
+for current per-flavor versions. Each flavor's registered conformance suite
+re-implements the catalog at `12-conformance.md`: C# under
+`langs/csharp/tests/VMx.Conformance.Tests`, Python under
+`langs/python/tests/conformance`, TypeScript under
+`langs/typescript/tests/conformance`, and Swift under
+`langs/swift/Tests/VMxTests`. These must pass before any flavor releases a stable
 version.
 
 ## 1. Contents
@@ -25,7 +28,7 @@ version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (284 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (286 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -167,13 +170,14 @@ consumers continue to work unchanged.
 
 ### 1.9 v2.6.x → v3.0.0 changes
 
-v3.0.0 is a **breaking** major bump: the framework overhaul hardens the
-lifecycle/dispose concurrency path and reconciles the spec with it (see ADR-0047
-and `docs/audit/2026-06-27-vmx-merged-critique.md`). `spec/VERSION` is `3.0.0`
-and every active flavor bumps to `3.0.0` in lockstep (per the README §6.1 SemVer
-policy: a spec major triggers a major in every flavor). The entries below
-describe the spec-level changes; the per-flavor public-surface breaks are
-catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
+v3.0.0 was a **breaking** major bump: the framework overhaul hardened the
+lifecycle/dispose concurrency path and reconciled the spec with it (see ADR-0047
+and `docs/audit/2026-06-27-vmx-merged-critique.md`). For that release,
+`spec/VERSION` was `3.0.0` and every active flavor bumped to `3.0.0` in lockstep
+(per the README §6.1 SemVer policy: a spec major triggers a major in every
+flavor). The entries below describe the spec-level changes; the per-flavor
+public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
+`CHANGELOG.md`.
 
 - **ADR-0047** — v3 lifecycle/threading semantics: status transitions are atomic
   and dispose-safe behind a per-VM guard (`02 §2.3`); background lifecycle
@@ -286,7 +290,7 @@ catalogued in ADRs 0052/0053/0054 and each flavor's `CHANGELOG.md`.
 
 v3.1.0 is an additive minor bump driven by upstream consumer adoption feedback.
 It keeps the four flavors at total parity and raises the conformance catalog
-from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
+from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
 
 - **ADR-0068** — disposed `RelayCommand` instances are inert (`CMD-013`).
 - **ADR-0069** — token/cursor pagination via `TokenPagedComposition`
@@ -303,12 +307,18 @@ from 242 to 284 total IDs (279 library + 5 THEME scenario IDs).
   ownership and per-instance property-change surfaces.
 - **ADR-0075** — `DiscriminatorVM` active-key/modal stack coordinator
   (`DISC-001..006`) and new chapter `22-discriminator-vm.md`.
+- **ADR-0076** — Swift `AsyncRelayCommand` parity documentation correction.
+- **ADR-0077** — Swift `FormVM` snapshot default documentation correction.
+- **ADR-0078** — `TokenPagedComposition` post-dispose load/refresh completion
+  clarification.
+- **ADR-0079** — Swift options-value factories and non-selectable group
+  children add `BLD-006` and `GRP-011`.
 
 ### 1.11 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0075); see
+- `ADRs/` — Architecture Decision Records (0001-0079); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

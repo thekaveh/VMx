@@ -117,11 +117,11 @@ class NotesListView(Vertical):
         yield Checkbox("Starred only", id="starred_filter")
         yield ListView(id="notes_list")
         yield Horizontal(
-            Button("«", id="page_first"),
-            Button("‹", id="page_prev"),
+            Button("First", id="page_first"),
+            Button("Prev", id="page_prev"),
             Static("", id="page_label"),
-            Button("›", id="page_next"),
-            Button("»", id="page_last"),
+            Button("Next", id="page_next"),
+            Button("Last", id="page_last"),
             id="pagination_row",
         )
 

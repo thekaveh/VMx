@@ -106,8 +106,8 @@ Each flavor exposes the form idiomatically:
   (`ComponentVMOf.create(name=…, hub=…, dispatcher=…, model=…)`).
 - **TypeScript** — a static `create(options)` factory taking an options object
   (`ComponentVMOf.create({ name, hub, dispatcher, model })`).
-- **Swift** — deferred (Phase 3, tracked with the rest of the Swift full-parity
-  work in ADR-0037 / the v3 critique).
+- **Swift** — a static `create(_:)` factory taking an options value
+  (`ComponentVMOf.create(ComponentVMOfOptions(name: ..., model: ..., hub: ..., dispatcher: ...))`).
 
 The form is **semantically identical** to the builder: implementations MUST route
 it through the same builder (or shared validation) so that

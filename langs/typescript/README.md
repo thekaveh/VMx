@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v3.1.0** — implements `spec-v3.1.0` end-to-end. 279/279 library conformance IDs
+**v3.1.0** — implements `spec-v3.1.0` end-to-end. 281/281 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -17,6 +17,10 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 > source-compatible.
 
 ## 2. Install
+
+The source tree currently implements v3.1.0. The scoped npm package has not
+been published yet; use a local workspace/package reference until a
+`typescript-v*` release tag publishes it.
 
 ```bash
 npm install @thekaveh/vmx rxjs
@@ -109,7 +113,7 @@ VMx-TS is browser-safe and works out of the box with all modern bundlers —
 contains no runtime imports of `node:fs`, `node:path`, or `node:url`; the
 lifecycle-transitions fixture is bundled in at build time.
 
-Minimal Vite/SvelteKit/Next.js install:
+Minimal Vite/SvelteKit/Next.js install, after the npm package is published:
 
 ```bash
 npm install @thekaveh/vmx rxjs
@@ -194,7 +198,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 279 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 281 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -212,7 +216,7 @@ v2.5   HIER-018       NOTIF-017     FORM-014
 v2.6   COMP-025..026
 v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
 v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
-       DIA-009..013   HIER-019..022 DISC-001..006
+       DIA-009..013   HIER-019..022 DISC-001..006 BLD-006 GRP-011
 ```
 
 Run the suite:
