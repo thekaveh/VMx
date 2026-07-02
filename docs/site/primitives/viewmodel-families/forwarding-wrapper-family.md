@@ -6,6 +6,16 @@ Use forwarding wrappers when you need to instrument, adapt, or selectively
 override a shipped VM without rewriting its whole surface. Logging, policy
 checks, caching, and host-specific decoration are the common cases.
 
+<img src="../../../assets/diagrams/forwarding-wrapper-family.svg" alt="Forwarding Wrapper Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../../assets/diagrams/forwarding-wrapper-family.html">HTML</a>
+  &middot;
+  <a href="../../../assets/diagrams/forwarding-wrapper-family.svg">SVG</a>
+  &middot;
+  <a href="../../../assets/diagrams/forwarding-wrapper-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 VMx ships two forwarding families:

@@ -55,6 +55,42 @@ standalone HTML pages for zoomable browsing and the PNG exports for sharing.
   <a href="../../assets/diagrams/viewmodel-families.png">PNG</a>
 </p>
 
+### Component Family Map
+
+<img src="../../assets/diagrams/component-family.svg" alt="Component Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/component-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/component-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/component-family.png">PNG</a>
+</p>
+
+### Aggregate Family Map
+
+<img src="../../assets/diagrams/aggregate-family.svg" alt="Aggregate Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/aggregate-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/aggregate-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/aggregate-family.png">PNG</a>
+</p>
+
+### Group Family Map
+
+<img src="../../assets/diagrams/group-family.svg" alt="Group Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/group-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/group-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/group-family.png">PNG</a>
+</p>
+
 ### Composite Family Deep Dive
 
 <img src="../../assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
@@ -65,6 +101,42 @@ standalone HTML pages for zoomable browsing and the PNG exports for sharing.
   <a href="../../assets/diagrams/composite-family.svg">SVG</a>
   &middot;
   <a href="../../assets/diagrams/composite-family.png">PNG</a>
+</p>
+
+### Hierarchical Family Map
+
+<img src="../../assets/diagrams/hierarchical-family.svg" alt="Hierarchical Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/hierarchical-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/hierarchical-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/hierarchical-family.png">PNG</a>
+</p>
+
+### Forwarding Wrapper Family Map
+
+<img src="../../assets/diagrams/forwarding-wrapper-family.svg" alt="Forwarding Wrapper Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/forwarding-wrapper-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/forwarding-wrapper-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/forwarding-wrapper-family.png">PNG</a>
+</p>
+
+### Specialized ViewModel Coordinator Map
+
+<img src="../../assets/diagrams/specialized-vm-family.svg" alt="Specialized ViewModel Coordinator Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/specialized-vm-family.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/specialized-vm-family.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/specialized-vm-family.png">PNG</a>
 </p>
 
 ### Commands And Capabilities Map

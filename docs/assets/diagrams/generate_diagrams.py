@@ -26,22 +26,22 @@ CONFORMANCE_PATH = REPO_ROOT / "spec" / "12-conformance.md"
 CAPABILITIES_PATH = REPO_ROOT / "spec" / "14-capabilities.md"
 PNG_WIDTH = 3200
 SVG_FONT_STACK = (
-    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
+    "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
     "'Liberation Mono', 'Courier New', monospace"
 )
 HTML_FONT_STACK = (
-    "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "
-    "'Segoe UI', sans-serif"
+    "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
+    "'Liberation Mono', 'Courier New', monospace"
 )
 
 COLORS = {
-    "frontend": ("rgba(102, 170, 226, 0.16)", "#2f6fa3"),
-    "backend": ("rgba(102, 183, 142, 0.16)", "#2e7d59"),
-    "database": ("rgba(174, 161, 231, 0.16)", "#7862c9"),
-    "cloud": ("rgba(236, 190, 104, 0.18)", "#b87a1f"),
-    "security": ("rgba(220, 145, 179, 0.16)", "#b55479"),
-    "bus": ("rgba(239, 174, 104, 0.18)", "#c77729"),
-    "generic": ("rgba(170, 184, 201, 0.18)", "#6a7c91"),
+    "frontend": ("rgba(8, 51, 68, 0.4)", "#22d3ee"),
+    "backend": ("rgba(6, 78, 59, 0.4)", "#34d399"),
+    "database": ("rgba(76, 29, 149, 0.4)", "#a78bfa"),
+    "cloud": ("rgba(120, 53, 15, 0.3)", "#fbbf24"),
+    "security": ("rgba(136, 19, 55, 0.4)", "#fb7185"),
+    "bus": ("rgba(251, 146, 60, 0.3)", "#fb923c"),
+    "generic": ("rgba(30, 41, 59, 0.5)", "#94a3b8"),
 }
 
 RELATION_STYLES = {
@@ -54,17 +54,17 @@ RELATION_STYLES = {
 }
 
 SVG_THEME = {
-    "bg": "#f3f7fb",
-    "grid": "#d7e1ec",
-    "panel_mask": "#ffffff",
-    "panel_fill": "rgba(255, 255, 255, 0.86)",
-    "note_mask": "#f8fbff",
-    "note_fill": "rgba(255, 255, 255, 0.94)",
-    "boundary_fill": "rgba(255, 255, 255, 0.48)",
-    "chip_fill": "#ffffff",
-    "title": "#0f172a",
-    "body": "#516273",
-    "muted": "#64748b",
+    "bg": "#020617",
+    "grid": "#1e293b",
+    "panel_mask": "#0f172a",
+    "panel_fill": "rgba(15, 23, 42, 0.88)",
+    "note_mask": "#0f172a",
+    "note_fill": "rgba(15, 23, 42, 0.94)",
+    "boundary_fill": "rgba(2, 6, 23, 0.12)",
+    "chip_fill": "#0f172a",
+    "title": "#f8fafc",
+    "body": "#cbd5e1",
+    "muted": "#94a3b8",
 }
 
 
@@ -396,6 +396,24 @@ def draw_polyline(line: Polyline) -> str:
     return "\n".join(parts)
 
 
+def draw_polyline_path(line: Polyline) -> str:
+    return draw_polyline(
+        Polyline(
+            points=line.points,
+            color=line.color,
+            width=line.width,
+            dash=line.dash,
+            marker=line.marker,
+        )
+    )
+
+
+def draw_polyline_label(line: Polyline) -> str:
+    if line.label and line.label_xy:
+        return draw_label_chip(line.label_xy[0], line.label_xy[1], line.label, line.color)
+    return ""
+
+
 def draw_label_chip(x: int, y: int, label: str, color: str) -> str:
     width = max(54, len(label) * 7 + 18)
     left = x - width // 2
@@ -420,6 +438,23 @@ def draw_relationship(rel: Relationship) -> str:
             label_xy=rel.label_xy,
         )
     )
+
+
+def draw_relationship_path(rel: Relationship) -> str:
+    style = RELATION_STYLES[rel.kind]
+    return draw_polyline_path(
+        Polyline(
+            points=rel.points,
+            color=style["color"],
+            width=style["width"],
+            dash=style["dash"] or None,
+        )
+    )
+
+
+def draw_relationship_label(rel: Relationship) -> str:
+    style = RELATION_STYLES[rel.kind]
+    return draw_label_chip(rel.label_xy[0], rel.label_xy[1], rel.kind, style["color"])
 
 
 def relationship_legend(x: int, y: int) -> str:
@@ -451,13 +486,19 @@ def relationship_legend(x: int, y: int) -> str:
 
 def svg_doc(diagram: Diagram) -> str:
     body_parts: list[str] = []
-    body_parts.extend(draw_relationship(rel) for rel in diagram.relationships)
-    body_parts.extend(draw_polyline(line) for line in diagram.lines)
+    body_parts.extend(draw_relationship_path(rel) for rel in diagram.relationships)
+    body_parts.extend(draw_polyline_path(line) for line in diagram.lines)
     body_parts.extend(draw_boundary(boundary) for boundary in diagram.boundaries)
     body_parts.extend(draw_box(box) for box in diagram.boxes)
     body_parts.extend(draw_note(note) for note in diagram.notes)
+    body_parts.extend(
+        label for rel in diagram.relationships if (label := draw_relationship_label(rel))
+    )
+    body_parts.extend(
+        label for line in diagram.lines if (label := draw_polyline_label(line))
+    )
     if diagram.diagram_id == "class-architecture":
-        body_parts.append(relationship_legend(diagram.width - 300, diagram.height - 230))
+        body_parts.append(relationship_legend(diagram.width - 300, 1110))
     body = "\n".join(body_parts)
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{diagram.width}" height="{diagram.height}" viewBox="0 0 {diagram.width} {diagram.height}" style="font-family: {SVG_FONT_STACK};">
   <defs>
@@ -481,6 +522,8 @@ def svg_doc(diagram: Diagram) -> str:
 
 
 def html_doc(diagram: Diagram, svg_name: str) -> str:
+    del svg_name
+    inline_svg = svg_doc(diagram)
     cards = "\n".join(
         f"""      <section class="card">
         <div class="card-header">
@@ -498,32 +541,22 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{escape(diagram.title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; }}
     :root {{
-      color-scheme: light dark;
-      --page-bg: #edf3fa;
-      --page-accent: rgba(34, 211, 238, 0.1);
-      --surface: rgba(255, 255, 255, 0.88);
-      --surface-strong: #ffffff;
-      --surface-border: #c9d4e2;
-      --text-primary: #0f172a;
-      --text-secondary: #475569;
-      --text-tertiary: #64748b;
-      --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
-    }}
-    @media (prefers-color-scheme: dark) {{
-      :root {{
-        --page-bg: #020617;
-        --page-accent: rgba(56, 189, 248, 0.08);
-        --surface: rgba(15, 23, 42, 0.82);
-        --surface-strong: rgba(16, 27, 38, 0.94);
-        --surface-border: #273542;
-        --text-primary: #f8fafc;
-        --text-secondary: #cbd5e1;
-        --text-tertiary: #94a3b8;
-        --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
-      }}
+      color-scheme: dark;
+      --page-bg: #020617;
+      --page-accent: rgba(56, 189, 248, 0.08);
+      --surface: rgba(15, 23, 42, 0.82);
+      --surface-strong: rgba(16, 27, 38, 0.94);
+      --surface-border: #273542;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
     }}
     body {{
       margin: 0;
@@ -532,7 +565,7 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       background: var(--page-bg);
       background-image:
         radial-gradient(circle at top left, var(--page-accent), transparent 28%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 18rem);
+        linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent 18rem);
       color: var(--text-primary);
       font-family: {HTML_FONT_STACK};
     }}
@@ -557,7 +590,8 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       background: var(--surface);
       box-shadow: var(--shadow);
     }}
-    object {{ display: block; width: 100%; min-width: 1180px; }}
+    .svg-frame {{ min-width: 1180px; }}
+    .svg-frame svg {{ display: block; width: 100%; height: auto; }}
     .diagram-caption {{
       margin: 12px 4px 0;
       color: var(--text-secondary);
@@ -594,8 +628,10 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       <p class="subtitle">{escape(diagram.subtitle)}</p>
     </header>
     <div class="diagram">
-      <object data="{escape(svg_name)}" type="image/svg+xml" aria-label="{escape(diagram.title)}"></object>
-      <p class="diagram-caption">Embedded SVG stays high-contrast for portability while the page chrome adapts to your color scheme.</p>
+      <div class="svg-frame" role="img" aria-label="{escape(diagram.title)}">
+{inline_svg}
+      </div>
+      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
 {cards}
@@ -710,7 +746,7 @@ def class_architecture() -> Diagram:
         title="Class Architecture Map",
         subtitle="lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source",
         width=1800,
-        height=1320,
+        height=1370,
         boundaries=(
             Boundary(60, 118, 1680, 204, "Core VM lineage", "#22d3ee"),
             Boundary(60, 352, 1680, 322, "Wrappers and specialized companions", "#34d399"),
@@ -746,21 +782,21 @@ def class_architecture() -> Diagram:
             Box(1510, 916, 180, 96, "Confirm delegate", ("() -> Task<bool>", "Approve means proceed"), "generic"),
         ),
         relationships=(
-            Relationship("extends", ((500, 202), (330, 202)), (414, 186)),
-            Relationship("extends", ((780, 202), (330, 202)), (626, 186)),
-            Relationship("extends", ((1060, 202), (330, 202)), (894, 186)),
-            Relationship("extends", ((1340, 202), (330, 202)), (1170, 186)),
-            Relationship("extends", ((1620, 202), (330, 202)), (1450, 186)),
+            Relationship("extends", ((500, 202), (330, 202)), (365, 130)),
+            Relationship("extends", ((780, 202), (330, 202)), (635, 130)),
+            Relationship("extends", ((1060, 202), (330, 202)), (920, 130)),
+            Relationship("extends", ((1340, 202), (330, 202)), (1195, 130)),
+            Relationship("extends", ((1620, 202), (330, 202)), (1480, 130)),
             Relationship("implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)),
             Relationship("implements", ((780, 262), (780, 330), (800, 330), (800, 402)), (828, 350)),
             Relationship("wraps", ((360, 450), (310, 450)), (336, 434)),
             Relationship("wraps", ((960, 450), (910, 450)), (936, 434)),
-            Relationship("owns", ((340, 616), (390, 616)), (364, 600)),
-            Relationship("owns", ((340, 642), (650, 642)), (494, 626)),
-            Relationship("extends", ((1270, 616), (1210, 616)), (1240, 600)),
+            Relationship("owns", ((340, 616), (390, 616)), (365, 535)),
+            Relationship("owns", ((340, 642), (650, 642)), (515, 535)),
+            Relationship("extends", ((1270, 616), (1210, 616)), (1240, 535)),
             Relationship("implements", ((465, 744), (465, 700), (195, 700), (195, 852)), (310, 718)),
-            Relationship("decorates", ((630, 804), (300, 804)), (464, 788)),
-            Relationship("decorates", ((920, 804), (300, 804)), (628, 836)),
+            Relationship("decorates", ((630, 804), (300, 804)), (464, 722)),
+            Relationship("decorates", ((920, 804), (300, 804)), (628, 722)),
             Relationship("owns", ((1055, 864), (1055, 900), (1600, 900), (1600, 916)), (1340, 884)),
             Relationship("implements", ((465, 904), (465, 872), (195, 872), (195, 916)), (314, 892)),
             Relationship("adapts", ((1450, 964), (1510, 964)), (1480, 948)),
@@ -780,7 +816,7 @@ def class_architecture() -> Diagram:
             ),
             Note(
                 80,
-                1234,
+                1274,
                 1640,
                 70,
                 "Reading hint",
@@ -1021,9 +1057,9 @@ def composite_family() -> Diagram:
             Box(450, 170, 290, 168, "GroupVM", ("same IList surface", "peer children only", "group child select command stays disabled", "good for notification stacks"), "frontend"),
             Box(790, 170, 300, 168, "AggregateVM1..6", ("heterogeneous fixed slots", "Component1..6 accessors", "factories invoked on construct()", "best for shells and workspaces"), "frontend"),
             Box(1140, 170, 420, 168, "HierarchicalVM", ("recursive nodes with Parent / Depth / Path", "lazy or eager child materialization", "TreeStructureChangedMessage on structure changes", "walk / walk_expanded integrate naturally"), "frontend"),
-            Box(150, 398, 280, 162, "Selection semantics", ("CompositeVM.Current must be null or a contained child", "children update IsCurrent on transitions", "AsyncSelection is opt-in per builder"), "security"),
-            Box(490, 398, 280, 162, "Collection semantics", ("Add / Remove / Insert / Clear publish collection change", "BatchUpdate collapses granular events to one Reset"), "database"),
-            Box(830, 398, 280, 162, "Construction semantics", ("container reaches Constructed after children settle", "reference implementations visit children sequentially"), "backend"),
+            Box(150, 398, 280, 162, "Selection semantics", ("Current is null or contained", "children update IsCurrent", "AsyncSelection is opt-in"), "security"),
+            Box(490, 398, 280, 162, "Collection semantics", ("Add / Remove / Insert / Clear", "publish collection changes", "BatchUpdate emits one Reset"), "database"),
+            Box(830, 398, 280, 162, "Construction semantics", ("Constructed after children settle", "reference implementations", "visit children sequentially"), "backend"),
             Box(1170, 398, 360, 162, "Tree semantics", ("HierarchicalVM rejects ancestor cycles", "InvalidateChildren refreshes the child cache", "lazy boundaries stay explicit"), "security"),
             Box(180, 810, 290, 120, "SearchableState", ("filter first", "debounced SearchTerm", "filtered view source"), "database"),
             Box(540, 810, 290, 120, "PagedComposition", ("finite page slice", "implements IPageable", "decorates iterable source"), "database"),
@@ -1031,27 +1067,28 @@ def composite_family() -> Diagram:
             Box(1280, 810, 290, 120, "ForwardingCompositeVM", ("wraps ICompositeVM<VM>", "override single behaviors", "still forwards disposal"), "frontend"),
         ),
         lines=(
-            Polyline(((400, 250), (450, 250)), color="#94a3b8", label="same IList minus Current", label_xy=(432, 236)),
-            Polyline(((740, 250), (790, 250)), color="#94a3b8", label="fixed heterogeneity", label_xy=(762, 236)),
-            Polyline(((1090, 250), (1140, 250)), color="#94a3b8", label="recursive domain", label_xy=(1116, 236)),
+            Polyline(((400, 250), (450, 250)), color="#94a3b8", label="same IList minus Current", label_xy=(432, 150)),
+            Polyline(((740, 250), (790, 250)), color="#94a3b8", label="fixed heterogeneity", label_xy=(762, 150)),
+            Polyline(((1090, 250), (1140, 250)), color="#94a3b8", label="recursive domain", label_xy=(1116, 150)),
             Polyline(((255, 338), (255, 398)), color="#fbbf24", label="selection", label_xy=(300, 370)),
             Polyline(((595, 338), (630, 398)), color="#a78bfa", label="events", label_xy=(650, 370)),
             Polyline(((940, 338), (970, 398)), color="#34d399", label="lifecycle", label_xy=(1000, 370)),
             Polyline(((1350, 338), (1350, 398)), color="#fb7185", label="structure", label_xy=(1400, 370)),
             Polyline(((325, 560), (325, 680), (685, 680), (685, 810)), color="#a78bfa", label="filter -> page", label_xy=(520, 664)),
-            Polyline(((685, 930), (900, 930)), color="#94a3b8", label="finite vs token", label_xy=(794, 914)),
+            Polyline(((685, 930), (900, 930)), color="#94a3b8", label="finite vs token", label_xy=(794, 955)),
             Polyline(((1210, 870), (1280, 870)), color="#fb923c", label="wraps", label_xy=(1246, 854)),
         ),
         notes=(
             Note(
-                1120,
+                1040,
                 596,
-                500,
+                610,
                 112,
                 "Why separate primitives",
                 (
-                    "CompositeVM handles current selection, GroupVM represents peers, AggregateVM encodes fixed heterogeneity, and HierarchicalVM owns recursive structure.",
-                    "Paging helpers sit beside those containers instead of pretending to be new container subclasses.",
+                    "CompositeVM handles Current; GroupVM represents peers.",
+                    "AggregateVM owns fixed slots; HierarchicalVM owns trees.",
+                    "Paging helpers sit beside containers, not under them.",
                 ),
                 "#fb923c",
             ),
@@ -1079,6 +1116,480 @@ def composite_family() -> Diagram:
                     "This diagram is the bridge between the family map and the Notes Workspace example.",
                     "It explains why the framework kept several focused container types instead of flattening them.",
                     "It also answers the common question about where paging belongs in the architecture.",
+                ),
+            ),
+        ),
+    )
+
+
+def component_family() -> Diagram:
+    return Diagram(
+        diagram_id="component-family",
+        title="Component Family Map",
+        subtitle="leaf viewmodels, modeled payloads, readonly projections, and the uniform lifecycle surface",
+        width=1680,
+        height=980,
+        boundaries=(
+            Boundary(70, 118, 1540, 266, "Leaf lineage", "#22d3ee"),
+            Boundary(70, 414, 1540, 242, "Leaf behavior surface", "#34d399"),
+            Boundary(70, 686, 1540, 166, "Host and parent seams", "#a78bfa"),
+        ),
+        boxes=(
+            Box(120, 164, 260, 112, "ComponentVMBase", ("lifecycle state", "hub + dispatcher", "construct/destruct hooks"), "backend"),
+            Box(450, 164, 260, 112, "ComponentVM", ("plain leaf", "no model payload", "addressable VM surface"), "frontend"),
+            Box(780, 164, 300, 112, "ComponentVM<M>", ("mutable model payload", "ModeledHint recomputes", "model change notifications"), "frontend"),
+            Box(1150, 164, 300, 112, "ReadonlyComponentVM<M>", ("immutable projection", "assignment rejected", "safe display leaf"), "frontend"),
+            Box(150, 462, 260, 112, "Selection commands", ("Select / Deselect", "Toggle selection", "next/previous inert on leaf"), "bus"),
+            Box(470, 462, 260, 112, "Parent back-reference", ("owned by container", "drives can_select()", "cleared on removal"), "security"),
+            Box(790, 462, 260, 112, "Property messages", ("Model", "ModeledHint", "IsCurrent / status"), "bus"),
+            Box(1110, 462, 310, 112, "Per-instance binding", ("propertyChanged stream", "view adapter subscribes once", "same VMx semantics"), "frontend"),
+            Box(170, 724, 320, 94, "Used by containers", ("CompositeVM rows", "GroupVM peers", "AggregateVM slots"), "generic"),
+            Box(590, 724, 320, 94, "Used by examples", ("NoteVM", "NotebookVM", "Status panels"), "generic"),
+            Box(1010, 724, 360, 94, "Wrapped when needed", ("ForwardingComponentVM", "instrumentation without copying", "policy and host adapters"), "generic"),
+        ),
+        lines=(
+            Polyline(((380, 220), (450, 220)), color="#22d3ee", label="extends", label_xy=(416, 204)),
+            Polyline(((710, 220), (780, 220)), color="#22d3ee", label="modeled", label_xy=(746, 204)),
+            Polyline(((1080, 220), (1150, 220)), color="#22d3ee", label="readonly", label_xy=(1116, 204)),
+            Polyline(((580, 276), (280, 462)), color="#fb923c", label="commands", label_xy=(398, 366)),
+            Polyline(((580, 276), (600, 462)), color="#34d399", label="parent context", label_xy=(668, 366)),
+            Polyline(((930, 276), (920, 462)), color="#fb923c", label="publishes", label_xy=(982, 366)),
+            Polyline(((1300, 276), (1265, 462)), color="#a78bfa", label="binds", label_xy=(1328, 366)),
+            Polyline(((300, 574), (300, 724)), color="#64748b"),
+            Polyline(((920, 574), (750, 724)), color="#64748b", label="example leaves", label_xy=(812, 650)),
+            Polyline(((1265, 574), (1190, 724)), color="#fb923c", label="wraps", label_xy=(1250, 650)),
+        ),
+        notes=(
+            Note(
+                120,
+                876,
+                1420,
+                68,
+                "Decision rule",
+                (
+                    "Start with ComponentVM for a single addressable thing; move to a container only when the VM owns children.",
+                ),
+                "#22d3ee",
+            ),
+        ),
+        cards=(
+            (
+                "Leaf ownership",
+                (
+                    "ComponentVM owns one addressable surface and no children.",
+                    "Modeled variants add payload semantics without changing the lifecycle contract.",
+                    "Readonly modeled leaves are projections for immutable state.",
+                ),
+            ),
+            (
+                "Uniform behavior",
+                (
+                    "Leaf VMs still expose lifecycle, selection, property, and command surfaces.",
+                    "Selection is parent-aware, so a standalone leaf cannot accidentally select itself.",
+                    "Model and hint updates are observable through hub and per-instance binding streams.",
+                ),
+            ),
+            (
+                "Best fit",
+                (
+                    "Use leaves for rows, panels, action bars, status blocks, and render-ready projections.",
+                    "Wrap leaves with forwarding decorators when adapting behavior is cleaner than subclassing.",
+                    "Promote to Composite, Group, Aggregate, or Hierarchical only when child ownership appears.",
+                ),
+            ),
+        ),
+    )
+
+
+def aggregate_family() -> Diagram:
+    return Diagram(
+        diagram_id="aggregate-family",
+        title="Aggregate Family Map",
+        subtitle="fixed heterogeneous slots with lazy construction and stable semantic child roles",
+        width=1700,
+        height=1000,
+        boundaries=(
+            Boundary(70, 118, 1560, 292, "Arity and slot contract", "#22d3ee"),
+            Boundary(70, 438, 1560, 244, "Construction and messaging", "#34d399"),
+            Boundary(70, 710, 1560, 168, "Best-fit composition roots", "#fb923c"),
+        ),
+        boxes=(
+            Box(120, 166, 300, 118, "AggregateVM1..6", ("component-shaped parent", "fixed arity", "heterogeneous child roles"), "frontend"),
+            Box(500, 166, 250, 118, "Slot factories", ("Component1(...) through Component6(...)", "invoked during construct()", "stable semantic names"), "cloud"),
+            Box(830, 166, 250, 118, "Typed slots", ("Component1..6", "property per slot", "no list indexing"), "frontend"),
+            Box(1160, 166, 330, 118, "Compile-time contract", ("arity is explicit", "portable across four flavors", "no variadic escape hatch"), "security"),
+            Box(150, 486, 300, 112, "Construct cascade", ("populate slot", "construct child", "aggregate settles last"), "backend"),
+            Box(520, 486, 300, 112, "Destruct cascade", ("children first", "parent settles after slots", "dispose remains terminal"), "backend"),
+            Box(890, 486, 300, 112, "Property messages", ("slot property changed", "lifecycle status", "per-flavor casing"), "bus"),
+            Box(1260, 486, 280, 112, "No collection surface", ("fixed children", "no Current", "no add/remove API"), "generic"),
+            Box(160, 748, 330, 96, "Workspace shell", ("Notes Workspace root", "named panes and coordinators"), "generic"),
+            Box(610, 748, 330, 96, "Dashboard root", ("heterogeneous panels", "stable layout contract"), "generic"),
+            Box(1060, 748, 330, 96, "Service bundle", ("typed child VMs", "host adapter entry point"), "generic"),
+        ),
+        lines=(
+            Polyline(((420, 225), (500, 225)), color="#fbbf24", label="configured by", label_xy=(462, 208)),
+            Polyline(((750, 225), (830, 225)), color="#22d3ee", label="creates", label_xy=(792, 208)),
+            Polyline(((1080, 225), (1160, 225)), color="#fb7185", label="preserves", label_xy=(1122, 208)),
+            Polyline(((270, 284), (300, 486)), color="#34d399", label="construct()", label_xy=(352, 388)),
+            Polyline(((625, 284), (670, 486)), color="#34d399"),
+            Polyline(((955, 284), (1040, 486)), color="#fb923c", label="publish", label_xy=(1040, 388)),
+            Polyline(((1325, 284), (1400, 486)), color="#94a3b8", label="not a list", label_xy=(1400, 388)),
+            Polyline(((300, 598), (325, 748)), color="#64748b"),
+            Polyline(((1040, 598), (775, 748)), color="#64748b", label="slot state drives UI", label_xy=(852, 684)),
+            Polyline(((1400, 598), (1225, 748)), color="#64748b"),
+        ),
+        notes=(
+            Note(
+                130,
+                902,
+                1460,
+                62,
+                "Decision rule",
+                (
+                    "Choose AggregateVM when the parent contract names each child role; choose CompositeVM or GroupVM when the child set is list-like.",
+                ),
+                "#fb923c",
+            ),
+        ),
+        cards=(
+            (
+                "Fixed roles",
+                (
+                    "AggregateVM1..6 encode semantic child slots instead of collection membership.",
+                    "The arity appears in the type so cross-language examples stay honest.",
+                    "Each child may have a different VM type.",
+                ),
+            ),
+            (
+                "Lifecycle",
+                (
+                    "Slot factories run during construction.",
+                    "The aggregate reaches Constructed only after populated children settle.",
+                    "Slot property changes are observable with idiomatic per-flavor names.",
+                ),
+            ),
+            (
+                "Best fit",
+                (
+                    "Use aggregates for workspace roots, dashboards, and composition shells.",
+                    "Do not use aggregates as a substitute for variable-length child lists.",
+                    "Wrap an aggregate in an app-specific VM when the host needs a narrower facade.",
+                ),
+            ),
+        ),
+    )
+
+
+def group_family() -> Diagram:
+    return Diagram(
+        diagram_id="group-family",
+        title="Group Family Map",
+        subtitle="ordered homogeneous peer ownership without current-selection semantics",
+        width=1680,
+        height=980,
+        boundaries=(
+            Boundary(70, 118, 1540, 268, "Peer collection shape", "#22d3ee"),
+            Boundary(70, 416, 1540, 246, "Mutation and lifecycle semantics", "#34d399"),
+            Boundary(70, 692, 1540, 166, "Use cases", "#a78bfa"),
+        ),
+        boxes=(
+            Box(120, 166, 300, 120, "GroupVM<VM>", ("homogeneous children", "ordered list surface", "parent is selectable"), "frontend"),
+            Box(500, 166, 280, 120, "Peer children", ("no Current", "child select command disabled", "selection lives elsewhere"), "security"),
+            Box(860, 166, 280, 120, "Collection API", ("add / insert / remove", "clear / batch update", "enumeration surface"), "database"),
+            Box(1220, 166, 270, 120, "Collection messages", ("granular events", "BatchUpdate -> Reset", "hot hub delivery"), "bus"),
+            Box(150, 466, 300, 112, "Construct children", ("wait for all children", "auto-construct on add is opt-in", "sequential reference flow"), "backend"),
+            Box(520, 466, 300, 112, "Destruct children", ("wait for children", "clear parent context", "parent settles last"), "backend"),
+            Box(890, 466, 300, 112, "Toolbar/action rows", ("capability action lists", "button groups", "visible peers"), "frontend"),
+            Box(1260, 466, 280, 112, "Notification stacks", ("visible toast VMs", "no selected toast", "bounded peer set"), "security"),
+            Box(170, 730, 330, 94, "Choose over Composite", ("when Current would lie", "peer list is enough"), "generic"),
+            Box(610, 730, 330, 94, "Choose over Aggregate", ("child count varies", "roles are equivalent"), "generic"),
+            Box(1050, 730, 330, 94, "Host adapter fit", ("renders repeaters", "stable collection bridge"), "generic"),
+        ),
+        lines=(
+            Polyline(((420, 226), (500, 226)), color="#22d3ee", label="owns", label_xy=(462, 210)),
+            Polyline(((780, 226), (860, 226)), color="#a78bfa", label="mutates", label_xy=(822, 210)),
+            Polyline(((1140, 226), (1220, 226)), color="#fb923c", label="publishes", label_xy=(1182, 210)),
+            Polyline(((270, 286), (300, 466)), color="#34d399", label="construct()", label_xy=(346, 376)),
+            Polyline(((640, 286), (670, 466)), color="#34d399"),
+            Polyline(((1000, 286), (1040, 466)), color="#64748b", label="render peers", label_xy=(1094, 376)),
+            Polyline(((1360, 286), (1400, 466)), color="#fb7185"),
+            Polyline(((1040, 578), (335, 730)), color="#64748b", label="selection avoided", label_xy=(676, 646)),
+            Polyline(((1040, 578), (775, 730)), color="#64748b"),
+            Polyline(((1040, 578), (1215, 730)), color="#64748b"),
+        ),
+        notes=(
+            Note(
+                130,
+                882,
+                1420,
+                62,
+                "Decision rule",
+                (
+                    "Use GroupVM when the parent owns children but no child should be treated as current.",
+                ),
+                "#22d3ee",
+            ),
+        ),
+        cards=(
+            (
+                "Peer shape",
+                (
+                    "GroupVM preserves homogeneous collection behavior without Current.",
+                    "Children are still owned and lifecycle-managed by the group.",
+                    "The group itself may be selected by its own parent.",
+                ),
+            ),
+            (
+                "Events",
+                (
+                    "Collection mutations publish the same collection-change contract as list-like containers.",
+                    "Batch updates collapse many mutations to one Reset.",
+                    "Lifecycle orchestration matches CompositeVM without selection work.",
+                ),
+            ),
+            (
+                "Best fit",
+                (
+                    "Use groups for toolbars, notification stacks, peer panels, and capability rows.",
+                    "Use CompositeVM when current selection matters.",
+                    "Use AggregateVM when child roles are fixed and heterogeneous.",
+                ),
+            ),
+        ),
+    )
+
+
+def hierarchical_family() -> Diagram:
+    return Diagram(
+        diagram_id="hierarchical-family",
+        title="Hierarchical Family Map",
+        subtitle="recursive model ownership with parent/depth/path metadata and tree mutation messages",
+        width=1720,
+        height=1040,
+        boundaries=(
+            Boundary(70, 118, 1580, 286, "Recursive node contract", "#22d3ee"),
+            Boundary(70, 434, 1580, 258, "Materialization and mutation", "#34d399"),
+            Boundary(70, 722, 1580, 176, "Traversal and host rendering", "#a78bfa"),
+        ),
+        boxes=(
+            Box(120, 166, 300, 122, "HierarchicalVM<TModel, TVM>", ("modeled recursive node", "children are same VM family", "root and leaf semantics"), "frontend"),
+            Box(500, 166, 250, 122, "Structural metadata", ("Parent", "Depth / Path", "IsRoot / IsLeaf"), "database"),
+            Box(830, 166, 250, 122, "Children cache", ("lazy by default", "eager option", "invalidate subtree"), "database"),
+            Box(1160, 166, 330, 122, "Cycle protection", ("reject ancestor cycles", "stable parent links", "safe tree mutation"), "security"),
+            Box(150, 482, 300, 116, "Materialize children", ("factory resolves child models", "TVM node projection", "lazy boundary stays explicit"), "backend"),
+            Box(520, 482, 300, 116, "TreeStructureChangedMessage", ("add/remove/move", "invalidate children", "recursive observers"), "bus"),
+            Box(890, 482, 300, 116, "ExpandableState", ("expanded/collapsed view state", "walk_expanded()", "view-owned display shape"), "frontend"),
+            Box(1260, 482, 280, 116, "Lifecycle cascade", ("eager subtree participates", "lazy subtree waits", "disposed nodes stop mutating"), "backend"),
+            Box(180, 762, 330, 98, "Explorer trees", ("folders", "notebooks", "taxonomies"), "generic"),
+            Box(620, 762, 330, 98, "Walk utilities", ("walk()", "walk_expanded()", "flattened views"), "generic"),
+            Box(1060, 762, 330, 98, "Adapters", ("tree widgets", "outline views", "virtualized renderers"), "generic"),
+        ),
+        lines=(
+            Polyline(((420, 226), (500, 226)), color="#22d3ee", label="exposes", label_xy=(462, 210)),
+            Polyline(((750, 226), (830, 226)), color="#a78bfa", label="owns", label_xy=(792, 210)),
+            Polyline(((1080, 226), (1160, 226)), color="#fb7185", label="guards", label_xy=(1122, 210)),
+            Polyline(((270, 288), (300, 482)), color="#34d399", label="materialize", label_xy=(354, 384)),
+            Polyline(((955, 288), (670, 482)), color="#fb923c", label="publish structure", label_xy=(760, 384)),
+            Polyline(((955, 288), (1040, 482)), color="#22d3ee", label="view state", label_xy=(1034, 384)),
+            Polyline(((1325, 288), (1400, 482)), color="#34d399", label="cascade", label_xy=(1440, 384)),
+            Polyline(((300, 598), (345, 762)), color="#64748b"),
+            Polyline(((670, 598), (785, 762)), color="#64748b", label="flatten", label_xy=(760, 682)),
+            Polyline(((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)),
+        ),
+        notes=(
+            Note(
+                130,
+                920,
+                1460,
+                68,
+                "Decision rule",
+                (
+                    "Use HierarchicalVM when recursive structure is part of the VM contract; avoid rebuilding tree metadata with nested composites.",
+                ),
+                "#a78bfa",
+            ),
+        ),
+        cards=(
+            (
+                "Recursive contract",
+                (
+                    "Each node owns its model and same-family child nodes.",
+                    "Parent, depth, path, root, and leaf facts are built into the primitive.",
+                    "Cycle protection keeps tree mutation safe.",
+                ),
+            ),
+            (
+                "Materialization",
+                (
+                    "Children are lazy unless eager construction is requested.",
+                    "Invalidation and structural changes publish explicit tree messages.",
+                    "Lazy subtrees do not participate in lifecycle until materialized.",
+                ),
+            ),
+            (
+                "Best fit",
+                (
+                    "Use it for explorer trees, notebooks, outlines, and taxonomies.",
+                    "Pair with ExpandableState and walk utilities for renderable flattened views.",
+                    "Use CompositeVM only when the domain is a list, not a recursive tree.",
+                ),
+            ),
+        ),
+    )
+
+
+def forwarding_wrapper_family() -> Diagram:
+    return Diagram(
+        diagram_id="forwarding-wrapper-family",
+        title="Forwarding Wrapper Family Map",
+        subtitle="composition-first decorators for instrumentation, policy, and host adaptation",
+        width=1700,
+        height=1000,
+        boundaries=(
+            Boundary(70, 118, 1560, 282, "Wrapper contracts", "#22d3ee"),
+            Boundary(70, 428, 1560, 250, "Override seams", "#34d399"),
+            Boundary(70, 706, 1560, 168, "Best-fit wrapper use cases", "#fb923c"),
+        ),
+        boxes=(
+            Box(120, 166, 300, 120, "ForwardingComponentVM<M>", ("wraps component contract", "delegates by default", "override selected members"), "frontend"),
+            Box(500, 166, 300, 120, "ForwardingCompositeVM<VM>", ("wraps composite contract", "forwards Current + iteration", "decorates child access"), "frontend"),
+            Box(880, 166, 270, 120, "Inner VM", ("canonical implementation", "owns real state", "publishes real messages"), "backend"),
+            Box(1230, 166, 280, 120, "Public facade", ("same conceptual surface", "narrow host policy", "no copied VM logic"), "security"),
+            Box(150, 476, 280, 112, "Lifecycle forwarding", ("construct/destruct/dispose", "usually delegate", "ownership remains explicit"), "backend"),
+            Box(500, 476, 280, 112, "Property forwarding", ("model/current/name/hint", "per-instance propertyChanged", "hub messages unchanged"), "bus"),
+            Box(850, 476, 280, 112, "Command wrapping", ("gate existing command", "log or meter execution", "policy before delegate"), "bus"),
+            Box(1200, 476, 300, 112, "Selective override", ("small behavior patch", "adapter-specific shape", "test seam without fork"), "database"),
+            Box(180, 744, 320, 96, "Instrumentation", ("logging", "metrics", "diagnostic traces"), "generic"),
+            Box(610, 744, 320, 96, "Policy", ("authorization", "feature flags", "confirmation gates"), "generic"),
+            Box(1040, 744, 320, 96, "Host adaptation", ("framework bridge", "narrow facade", "legacy integration"), "generic"),
+        ),
+        lines=(
+            Polyline(((420, 226), (500, 226)), color="#22d3ee", label="same pattern", label_xy=(462, 210)),
+            Polyline(((800, 226), (880, 226)), color="#fb923c", label="wraps", label_xy=(842, 210)),
+            Polyline(((1150, 226), (1230, 226)), color="#34d399", label="exposes", label_xy=(1192, 210)),
+            Polyline(((270, 286), (290, 476)), color="#34d399", label="delegate", label_xy=(340, 384)),
+            Polyline(((650, 286), (640, 476)), color="#fb923c", label="mirror", label_xy=(704, 384)),
+            Polyline(((1015, 286), (990, 476)), color="#fb923c", label="wrap calls", label_xy=(1060, 384)),
+            Polyline(((1370, 286), (1350, 476)), color="#a78bfa", label="override", label_xy=(1420, 384)),
+            Polyline(((290, 588), (340, 744)), color="#64748b"),
+            Polyline(((990, 588), (770, 744)), color="#64748b", label="policy hooks", label_xy=(850, 674)),
+            Polyline(((1350, 588), (1200, 744)), color="#64748b", label="host seam", label_xy=(1300, 674)),
+        ),
+        notes=(
+            Note(
+                130,
+                900,
+                1460,
+                64,
+                "Decision rule",
+                (
+                    "Use forwarding wrappers when composition can adapt one behavior without re-implementing a shipped VM family.",
+                ),
+                "#fb923c",
+            ),
+        ),
+        cards=(
+            (
+                "Composition first",
+                (
+                    "Wrappers hold an inner VM and delegate by default.",
+                    "The inner VM remains the source of state and messages.",
+                    "Overrides stay local to the behavior being adapted.",
+                ),
+            ),
+            (
+                "Two contracts",
+                (
+                    "ForwardingComponentVM decorates component-shaped surfaces.",
+                    "ForwardingCompositeVM decorates child-list and Current-selection surfaces.",
+                    "Both preserve lifecycle ownership when dispose forwards.",
+                ),
+            ),
+            (
+                "Best fit",
+                (
+                    "Use wrappers for logging, policy, host adaptation, and compatibility seams.",
+                    "Do not copy VM internals just to intercept one property or command.",
+                    "Prefer a specialized VM only when the workflow is reusable in its own right.",
+                ),
+            ),
+        ),
+    )
+
+
+def specialized_vm_family() -> Diagram:
+    return Diagram(
+        diagram_id="specialized-vm-family",
+        title="Specialized ViewModel Coordinator Map",
+        subtitle="workflow-specific VMs that compose with the core hierarchy instead of replacing it",
+        width=1740,
+        height=1040,
+        boundaries=(
+            Boundary(70, 118, 1600, 286, "Workflow primitives", "#22d3ee"),
+            Boundary(70, 434, 1600, 258, "Coordinator services and messages", "#34d399"),
+            Boundary(70, 722, 1600, 176, "Host-facing use cases", "#fb923c"),
+        ),
+        boxes=(
+            Box(120, 166, 270, 122, "FormVM", ("snapshot + dirty state", "validation + approval", "deny restores model"), "frontend"),
+            Box(460, 166, 270, 122, "DiscriminatorVM", ("ActiveKey", "case registry", "mode/pane coordination"), "frontend"),
+            Box(800, 166, 270, 122, "NotificationVM", ("render-ready notification", "dismiss command", "auto-resolve by lifespan"), "security"),
+            Box(1140, 166, 270, 122, "ConfirmationVM", ("inherits NotificationVM", "approve/reject commands", "no timeout auto-resolve"), "security"),
+            Box(150, 482, 300, 116, "ModalVM", ("presented VM workflow", "completion state", "host dialog bridge"), "frontend"),
+            Box(520, 482, 300, 116, "IDialogService", ("confirm / notify / pick file", "VM-backed modal seam", "safe null service"), "security"),
+            Box(890, 482, 300, 116, "INotificationHub", ("post / resolve", "pending snapshot", "await user reaction"), "security"),
+            Box(1260, 482, 300, 116, "Command adapters", ("ConfirmationDecoratorCommand", "make_confirm helper", "approve/deny wiring"), "bus"),
+            Box(180, 762, 330, 98, "Editor workflows", ("FormVM + DiscriminatorVM", "edit/preview modes"), "generic"),
+            Box(620, 762, 330, 98, "User decisions", ("dialog confirmations", "notification-backed confirms"), "generic"),
+            Box(1060, 762, 330, 98, "Notification regions", ("toast lists", "queued actions", "host render VMs"), "generic"),
+        ),
+        lines=(
+            Polyline(((390, 226), (460, 226)), color="#22d3ee", label="coordinates modes", label_xy=(426, 210)),
+            Polyline(((1070, 226), (1140, 226)), color="#22d3ee", label="extends", label_xy=(1106, 210)),
+            Polyline(((255, 288), (300, 482)), color="#fb923c", label="modal edit", label_xy=(360, 384)),
+            Polyline(((595, 288), (670, 482)), color="#fbbf24", label="host decision", label_xy=(724, 384)),
+            Polyline(((935, 288), (1040, 482)), color="#fb7185", label="posts", label_xy=(1010, 384)),
+            Polyline(((1275, 288), (1410, 482)), color="#fb923c", label="commands", label_xy=(1404, 384)),
+            Polyline(((300, 598), (345, 762)), color="#64748b"),
+            Polyline(((670, 598), (785, 762)), color="#64748b", label="await", label_xy=(760, 682)),
+            Polyline(((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)),
+            Polyline(((1410, 598), (785, 762)), color="#64748b"),
+        ),
+        notes=(
+            Note(
+                130,
+                920,
+                1480,
+                68,
+                "Decision rule",
+                (
+                    "Choose a specialized VM when the workflow is reusable; otherwise compose commands, capabilities, and core VMs directly.",
+                ),
+                "#fb923c",
+            ),
+        ),
+        cards=(
+            (
+                "Workflow ownership",
+                (
+                    "FormVM owns edit lifecycle rather than container membership.",
+                    "DiscriminatorVM coordinates active cases without becoming a child-list primitive.",
+                    "ModalVM bridges a presented VM to host completion semantics.",
+                ),
+            ),
+            (
+                "Notification flow",
+                (
+                    "NotificationVM and ConfirmationVM render hub-posted notifications.",
+                    "INotificationHub owns post/resolve and pending snapshot behavior.",
+                    "Confirmation helpers adapt hub reactions to command confirmation delegates.",
+                ),
+            ),
+            (
+                "Best fit",
+                (
+                    "Use these primitives for recurring app workflows: forms, modes, modals, confirms, and toasts.",
+                    "Keep leaf/container hierarchy choices separate from workflow coordination.",
+                    "The Notes Workspace examples combine these with Aggregate, Composite, and Component families.",
                 ),
             ),
         ),
@@ -1349,7 +1860,13 @@ def build_diagrams() -> dict[str, Diagram]:
         "class-architecture": class_architecture(),
         "viewmodel-families": viewmodel_families(),
         "lifecycle-messaging": lifecycle_messaging(),
+        "component-family": component_family(),
+        "aggregate-family": aggregate_family(),
+        "group-family": group_family(),
         "composite-family": composite_family(),
+        "hierarchical-family": hierarchical_family(),
+        "forwarding-wrapper-family": forwarding_wrapper_family(),
+        "specialized-vm-family": specialized_vm_family(),
         "commands-capabilities": commands_capabilities(),
         "forms-dialogs-notifications": forms_dialogs_notifications(),
         "examples-vm-layer": examples_vm_layer(),

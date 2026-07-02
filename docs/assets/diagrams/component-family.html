@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Component Family Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: dark;
+      --page-bg: #020617;
+      --page-accent: rgba(56, 189, 248, 0.08);
+      --surface: rgba(15, 23, 42, 0.82);
+      --surface-strong: rgba(16, 27, 38, 0.94);
+      --surface-border: #273542;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: var(--page-bg);
+      background-image:
+        radial-gradient(circle at top left, var(--page-accent), transparent 28%),
+        linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent 18rem);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px 14px 10px;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .svg-frame { min-width: 1180px; }
+    .svg-frame svg { display: block; width: 100%; height: auto; }
+    .diagram-caption {
+      margin: 12px 4px 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--surface-strong);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>Component Family Map</h1></div>
+      <p class="subtitle">leaf viewmodels, modeled payloads, readonly projections, and the uniform lifecycle surface</p>
+    </header>
+    <div class="diagram">
+      <div class="svg-frame" role="img" aria-label="Component Family Map">
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="980" viewBox="0 0 1680 980" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <defs>
+    <style>
+      text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.8"/>
+    </pattern>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Component Family Map</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">leaf viewmodels, modeled payloads, readonly projections, and the uniform lifecycle surface</text>
+  <polyline points="380,220 450,220" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="710,220 780,220" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1080,220 1150,220" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="580,276 280,462" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="580,276 600,462" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="930,276 920,462" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1300,276 1265,462" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="300,574 300,724" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="920,574 750,724" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1265,574 1190,724" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="70" y="118" width="1540" height="266" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Leaf lineage</text>
+<rect x="70" y="414" width="1540" height="242" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="436" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Leaf behavior surface</text>
+<rect x="70" y="686" width="1540" height="166" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="708" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Host and parent seams</text>
+<rect x="120" y="164" width="260" height="112" rx="8" fill="#0f172a"/>
+<rect x="120" y="164" width="260" height="112" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
+<text x="250" y="192" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ComponentVMBase</text>
+<text x="250" y="218" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lifecycle state</text>
+<text x="250" y="237" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hub + dispatcher</text>
+<text x="250" y="256" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">construct/destruct hooks</text>
+<rect x="450" y="164" width="260" height="112" rx="8" fill="#0f172a"/>
+<rect x="450" y="164" width="260" height="112" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="580" y="192" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ComponentVM</text>
+<text x="580" y="218" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">plain leaf</text>
+<text x="580" y="237" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no model payload</text>
+<text x="580" y="256" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">addressable VM surface</text>
+<rect x="780" y="164" width="300" height="112" rx="8" fill="#0f172a"/>
+<rect x="780" y="164" width="300" height="112" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="930" y="192" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ComponentVM&lt;M&gt;</text>
+<text x="930" y="218" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">mutable model payload</text>
+<text x="930" y="237" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ModeledHint recomputes</text>
+<text x="930" y="256" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">model change notifications</text>
+<rect x="1150" y="164" width="300" height="112" rx="8" fill="#0f172a"/>
+<rect x="1150" y="164" width="300" height="112" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1300" y="192" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ReadonlyComponentVM&lt;M&gt;</text>
+<text x="1300" y="218" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">immutable projection</text>
+<text x="1300" y="237" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">assignment rejected</text>
+<text x="1300" y="256" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">safe display leaf</text>
+<rect x="150" y="462" width="260" height="112" rx="8" fill="#0f172a"/>
+<rect x="150" y="462" width="260" height="112" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="280" y="490" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Selection commands</text>
+<text x="280" y="516" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Select / Deselect</text>
+<text x="280" y="535" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Toggle selection</text>
+<text x="280" y="554" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">next/previous inert on leaf</text>
+<rect x="470" y="462" width="260" height="112" rx="8" fill="#0f172a"/>
+<rect x="470" y="462" width="260" height="112" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="600" y="490" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Parent back-reference</text>
+<text x="600" y="516" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">owned by container</text>
+<text x="600" y="535" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">drives can_select()</text>
+<text x="600" y="554" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">cleared on removal</text>
+<rect x="790" y="462" width="260" height="112" rx="8" fill="#0f172a"/>
+<rect x="790" y="462" width="260" height="112" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="920" y="490" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Property messages</text>
+<text x="920" y="516" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Model</text>
+<text x="920" y="535" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ModeledHint</text>
+<text x="920" y="554" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsCurrent / status</text>
+<rect x="1110" y="462" width="310" height="112" rx="8" fill="#0f172a"/>
+<rect x="1110" y="462" width="310" height="112" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1265" y="490" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Per-instance binding</text>
+<text x="1265" y="516" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">propertyChanged stream</text>
+<text x="1265" y="535" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">view adapter subscribes once</text>
+<text x="1265" y="554" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same VMx semantics</text>
+<rect x="170" y="724" width="320" height="94" rx="8" fill="#0f172a"/>
+<rect x="170" y="724" width="320" height="94" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="330" y="752" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Used by containers</text>
+<text x="330" y="778" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CompositeVM rows</text>
+<text x="330" y="797" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">GroupVM peers</text>
+<text x="330" y="816" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">AggregateVM slots</text>
+<rect x="590" y="724" width="320" height="94" rx="8" fill="#0f172a"/>
+<rect x="590" y="724" width="320" height="94" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="750" y="752" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Used by examples</text>
+<text x="750" y="778" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NoteVM</text>
+<text x="750" y="797" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NotebookVM</text>
+<text x="750" y="816" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Status panels</text>
+<rect x="1010" y="724" width="360" height="94" rx="8" fill="#0f172a"/>
+<rect x="1010" y="724" width="360" height="94" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="1190" y="752" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Wrapped when needed</text>
+<text x="1190" y="778" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ForwardingComponentVM</text>
+<text x="1190" y="797" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">instrumentation without copying</text>
+<text x="1190" y="816" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">policy and host adapters</text>
+<rect x="120" y="876" width="1420" height="68" rx="8" fill="#0f172a"/>
+<rect x="120" y="876" width="1420" height="68" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#22d3ee" stroke-width="1.2"/>
+<text x="136" y="900" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Decision rule</text>
+<text x="136" y="922" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Start with ComponentVM for a single addressable thing; move to a container only when the VM owns children.</text>
+<rect x="383" y="192" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="416" y="206" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="713" y="192" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="746" y="206" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">modeled</text>
+<rect x="1079" y="192" width="74" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1116" y="206" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">readonly</text>
+<rect x="361" y="354" width="74" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="398" y="368" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">commands</text>
+<rect x="610" y="354" width="116" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="668" y="368" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">parent context</text>
+<rect x="942" y="354" width="81" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="982" y="368" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">publishes</text>
+<rect x="1301" y="354" width="54" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="1328" y="368" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">binds</text>
+<rect x="754" y="638" width="116" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
+<text x="812" y="652" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">example leaves</text>
+<rect x="1223" y="638" width="54" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="1250" y="652" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
+</svg>
+
+      </div>
+      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
+    </div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>Leaf ownership</h2>
+        </div>
+        <ul><li>ComponentVM owns one addressable surface and no children.</li><li>Modeled variants add payload semantics without changing the lifecycle contract.</li><li>Readonly modeled leaves are projections for immutable state.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Uniform behavior</h2>
+        </div>
+        <ul><li>Leaf VMs still expose lifecycle, selection, property, and command surfaces.</li><li>Selection is parent-aware, so a standalone leaf cannot accidentally select itself.</li><li>Model and hint updates are observable through hub and per-instance binding streams.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Best fit</h2>
+        </div>
+        <ul><li>Use leaves for rows, panels, action bars, status blocks, and render-ready projections.</li><li>Wrap leaves with forwarding decorators when adapting behavior is cleaner than subclassing.</li><li>Promote to Composite, Group, Aggregate, or Hierarchical only when child ownership appears.</li></ul>
+      </section>
+    </div>
+    <footer>Generated from repo-derived facts for VMx spec 3.1.0.</footer>
+  </main>
+</body>
+</html>

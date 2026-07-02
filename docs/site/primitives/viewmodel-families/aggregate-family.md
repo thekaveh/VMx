@@ -9,6 +9,16 @@ shells, multi-pane roots, dashboards, or status bundles.
 This is the right primitive when "component 1" and "component 2" mean different
 things and variable-length child lists would weaken the contract.
 
+<img src="../../../assets/diagrams/aggregate-family.svg" alt="Aggregate Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../../assets/diagrams/aggregate-family.html">HTML</a>
+  &middot;
+  <a href="../../../assets/diagrams/aggregate-family.svg">SVG</a>
+  &middot;
+  <a href="../../../assets/diagrams/aggregate-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 An aggregate is a component-shaped parent with named child slots:

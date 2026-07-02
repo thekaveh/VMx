@@ -44,6 +44,39 @@
     ]
   },
   {
+    "id": "component-family",
+    "title": "Component Family Map",
+    "html": "component-family.html",
+    "svg": "component-family.svg",
+    "png": "component-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/component-family.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Component-Family.md"
+    ]
+  },
+  {
+    "id": "aggregate-family",
+    "title": "Aggregate Family Map",
+    "html": "aggregate-family.html",
+    "svg": "aggregate-family.svg",
+    "png": "aggregate-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/aggregate-family.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Aggregate-Family.md"
+    ]
+  },
+  {
+    "id": "group-family",
+    "title": "Group Family Map",
+    "html": "group-family.html",
+    "svg": "group-family.svg",
+    "png": "group-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/group-family.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Group-Family.md"
+    ]
+  },
+  {
     "id": "composite-family",
     "title": "Composite Family Deep Dive",
     "html": "composite-family.html",
@@ -52,6 +85,39 @@
     "referencedBy": [
       "docs/site/primitives/viewmodel-families/composite-family.md",
       "docs/wiki/Framework-Primitives/ViewModel-Families/Composite-Family.md"
+    ]
+  },
+  {
+    "id": "hierarchical-family",
+    "title": "Hierarchical Family Map",
+    "html": "hierarchical-family.html",
+    "svg": "hierarchical-family.svg",
+    "png": "hierarchical-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/hierarchical-family.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Hierarchical-Family.md"
+    ]
+  },
+  {
+    "id": "forwarding-wrapper-family",
+    "title": "Forwarding Wrapper Family Map",
+    "html": "forwarding-wrapper-family.html",
+    "svg": "forwarding-wrapper-family.svg",
+    "png": "forwarding-wrapper-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/forwarding-wrapper-family.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Forwarding-and-Wrapper-Family.md"
+    ]
+  },
+  {
+    "id": "specialized-vm-family",
+    "title": "Specialized ViewModel Coordinator Map",
+    "html": "specialized-vm-family.html",
+    "svg": "specialized-vm-family.svg",
+    "png": "specialized-vm-family.png",
+    "referencedBy": [
+      "docs/site/primitives/viewmodel-families/specialized/index.md",
+      "docs/wiki/Framework-Primitives/ViewModel-Families/Specialized/Specialized-ViewModels-and-Coordinators.md"
     ]
   },
   {

@@ -6,6 +6,16 @@ Use `GroupVM<VM>` for an ordered collection of peer children when the parent
 owns the children but does not own a selected child. Toolbars, capability rows,
 stacked panels, and other peer lists usually belong here.
 
+<img src="../../../assets/diagrams/group-family.svg" alt="Group Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../../assets/diagrams/group-family.html">HTML</a>
+  &middot;
+  <a href="../../../assets/diagrams/group-family.svg">SVG</a>
+  &middot;
+  <a href="../../../assets/diagrams/group-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 `GroupVM` mirrors the list-management surface of `CompositeVM` without the

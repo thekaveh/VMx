@@ -9,6 +9,16 @@ capability bars, and other single-node surfaces.
 Reach for the modeled variant when the VM owns a domain payload, and the
 readonly variant when the payload should be fixed after construction.
 
+<img src="../../../assets/diagrams/component-family.svg" alt="Component Family Map" class="vmx-diagram" />
+
+<p>
+  <a href="../../../assets/diagrams/component-family.html">HTML</a>
+  &middot;
+  <a href="../../../assets/diagrams/component-family.svg">SVG</a>
+  &middot;
+  <a href="../../../assets/diagrams/component-family.png">PNG</a>
+</p>
+
 ## Shape And Ownership
 
 The component family has three shipped variants:

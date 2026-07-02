@@ -62,24 +62,27 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertEqual(facts.notes_feature_count, notes_feature_count)
         self.assertEqual(facts.registry_ids, tuple(item["id"] for item in registry))
 
-    def test_html_shell_uses_local_fonts_and_light_first_theme(self) -> None:
+    def test_html_shell_uses_jetbrains_mono_and_dark_theme(self) -> None:
         html = self.generator.html_doc(
             self.generator.system_architecture(),
             "system-architecture.svg",
         )
 
-        self.assertNotIn("fonts.googleapis.com", html)
-        self.assertIn("color-scheme: light dark;", html)
-        self.assertIn("@media (prefers-color-scheme: dark)", html)
+        self.assertIn("fonts.googleapis.com", html)
+        self.assertIn("JetBrains Mono", html)
+        self.assertIn("color-scheme: dark;", html)
+        self.assertNotIn("@media (prefers-color-scheme: dark)", html)
         self.assertIn("background: var(--page-bg);", html)
-        self.assertIn("Embedded SVG stays high-contrast for portability", html)
+        self.assertIn("Dark SVG source uses the VMx architecture palette", html)
+        self.assertIn("<svg", html)
 
-    def test_svg_output_is_light_first_and_cool_neutral(self) -> None:
+    def test_svg_output_is_dark_and_uses_architecture_palette(self) -> None:
         svg = self.generator.svg_doc(self.generator.system_architecture())
 
-        self.assertIn('fill="#f3f7fb"', svg)
-        self.assertIn('stroke="#d7e1ec"', svg)
-        self.assertNotIn('fill="#020617"', svg)
+        self.assertIn('fill="#020617"', svg)
+        self.assertIn('stroke="#1e293b"', svg)
+        self.assertIn('stroke="#22d3ee"', svg)
+        self.assertNotIn('fill="#f3f7fb"', svg)
 
     def test_class_architecture_uses_explicit_helper_boxes(self) -> None:
         diagram = self.generator.class_architecture()
