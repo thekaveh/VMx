@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1080" viewBox="0 0 1760 1080">
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1080" viewBox="0 0 1760 1080" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
   <defs>
+    <style>
+      text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
     </pattern>

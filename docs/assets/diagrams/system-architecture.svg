@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1040" viewBox="0 0 1700 1040">
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1040" viewBox="0 0 1700 1040" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
   <defs>
+    <style>
+      text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
     </pattern>
@@ -59,17 +62,19 @@
 <text x="175" y="180" fill="white" font-size="18" font-weight="700" text-anchor="middle">spec/</text>
 <text x="175" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">23 chapters</text>
 <text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">79 ADRs</text>
-<text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION</text>
+<text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.1.0</text>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="#0f172a"/>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.34)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="365" y="180" fill="white" font-size="18" font-weight="700" text-anchor="middle">fixtures</text>
-<text x="365" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lifecycle</text>
-<text x="365" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">messages</text>
-<text x="365" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">commands</text>
-<rect x="90" y="270" width="360" height="84" rx="8" fill="#0f172a"/>
-<rect x="90" y="270" width="360" height="84" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="365" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">4 shared JSON fixtures</text>
+<text x="365" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lifecycle / messages</text>
+<text x="365" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">commands / derived</text>
+<rect x="90" y="270" width="360" height="100" rx="8" fill="#0f172a"/>
+<rect x="90" y="270" width="360" height="100" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="270" y="298" fill="white" font-size="18" font-weight="700" text-anchor="middle">12-conformance</text>
-<text x="270" y="324" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">281 library IDs + 5 THEME scenario IDs</text>
+<text x="270" y="324" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">281 library IDs</text>
+<text x="270" y="343" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">5 THEME scenario IDs</text>
+<text x="270" y="362" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">286 total</text>
 <rect x="550" y="152" width="220" height="110" rx="8" fill="#0f172a"/>
 <rect x="550" y="152" width="220" height="110" rx="8" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="1.8"/>
 <text x="660" y="180" fill="white" font-size="18" font-weight="700" text-anchor="middle">Lifecycle base</text>

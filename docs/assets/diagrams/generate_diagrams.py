@@ -8,6 +8,7 @@ docs-site branch can evolve the diagram triplets without touching shared tooling
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import subprocess
 from dataclasses import dataclass, field
@@ -17,8 +18,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DIAGRAM_DIR = Path(__file__).resolve().parent
 REGISTRY_PATH = DIAGRAM_DIR / "diagram-registry.json"
-SPEC_VERSION = (REPO_ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip()
+README_PATH = REPO_ROOT / "README.md"
+SPEC_README_PATH = REPO_ROOT / "spec" / "README.md"
+NOTES_PARITY_PATH = REPO_ROOT / "examples" / "notes-showcase-parity.md"
+SPEC_VERSION_PATH = REPO_ROOT / "spec" / "VERSION"
+CONFORMANCE_PATH = REPO_ROOT / "spec" / "12-conformance.md"
+CAPABILITIES_PATH = REPO_ROOT / "spec" / "14-capabilities.md"
 PNG_WIDTH = 3200
+SVG_FONT_STACK = (
+    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
+    "'Liberation Mono', 'Courier New', monospace"
+)
+HTML_FONT_STACK = (
+    "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "
+    "'Segoe UI', sans-serif"
+)
 
 COLORS = {
     "frontend": ("rgba(8, 51, 68, 0.42)", "#22d3ee"),
@@ -38,6 +52,138 @@ RELATION_STYLES = {
     "decorates": {"color": "#fb7185", "dash": "8 6 2 6", "width": 3.0},
     "adapts": {"color": "#a78bfa", "dash": "3 6", "width": 3.0},
 }
+
+
+@dataclass(frozen=True)
+class SourceFacts:
+    spec_version: str
+    spec_chapter_count: int
+    adr_count: int
+    fixture_count: int
+    library_conformance_count: int
+    theme_conformance_count: int
+    total_conformance_count: int
+    capability_count: int
+    notes_feature_count: int
+    notes_flavor_labels: tuple[str, ...]
+    registry_ids: tuple[str, ...]
+    registry_titles: tuple[tuple[str, str], ...]
+
+    def title_for(self, diagram_id: str) -> str:
+        for key, value in self.registry_titles:
+            if key == diagram_id:
+                return value
+        raise KeyError(f"unknown diagram id: {diagram_id}")
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def require_match(text: str, pattern: str, description: str) -> re.Match[str]:
+    match = re.search(pattern, text, re.MULTILINE)
+    if match is None:
+        raise ValueError(f"unable to find {description}")
+    return match
+
+
+def load_source_facts() -> SourceFacts:
+    repo_readme = read_text(README_PATH)
+    spec_readme = read_text(SPEC_README_PATH)
+    notes_parity = read_text(NOTES_PARITY_PATH)
+    conformance = read_text(CONFORMANCE_PATH)
+    capabilities = read_text(CAPABILITIES_PATH)
+    registry = json.loads(read_text(REGISTRY_PATH))
+    if not isinstance(registry, list):
+        raise ValueError("diagram-registry.json must contain a JSON array")
+
+    spec_version = read_text(SPEC_VERSION_PATH).strip()
+    spec_chapter_count = len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md")))
+    adr_count = len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md")))
+    fixture_count = len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json")))
+    conformance_ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
+    theme_conformance_count = sum(1 for item in conformance_ids if item.startswith("THEME-"))
+    total_conformance_count = len(conformance_ids)
+    library_conformance_count = total_conformance_count - theme_conformance_count
+    capability_count = int(
+        require_match(
+            capabilities,
+            r"lists the (\d+) capability interfaces",
+            "capability count in spec/14-capabilities.md",
+        ).group(1)
+    )
+    notes_feature_count = len(
+        re.findall(r"^\| \d+\s+\|", notes_parity, re.MULTILINE)
+    )
+    notes_flavor_labels = tuple(
+        re.findall(r"^- \*\*(.+?)\*\* \u2014 ", notes_parity, re.MULTILINE)
+    )
+
+    readme_conformance = require_match(
+        repo_readme,
+        r"(\d+)\s+library conformance IDs\s+\+\s+(\d+)\s+THEME scenario IDs\s+=\s+\*\*(\d+)\s+total\*\*",
+        "README conformance summary",
+    )
+    if (
+        int(readme_conformance.group(1)) != library_conformance_count
+        or int(readme_conformance.group(2)) != theme_conformance_count
+        or int(readme_conformance.group(3)) != total_conformance_count
+    ):
+        raise ValueError("README.md conformance summary drifted from spec/12-conformance.md")
+
+    spec_readme_total = int(
+        require_match(
+            spec_readme,
+            r"12-conformance\.md.*\((\d+) IDs\)",
+            "spec/README.md conformance total",
+        ).group(1)
+    )
+    if spec_readme_total != total_conformance_count:
+        raise ValueError("spec/README.md conformance total drifted from spec/12-conformance.md")
+
+    readme_notes_feature_count = int(
+        require_match(
+            repo_readme,
+            r"\*\*(\d+)\s+distinct VMx features\*\*",
+            "README.md Notes Workspace feature count",
+        ).group(1)
+    )
+    if readme_notes_feature_count != notes_feature_count:
+        raise ValueError("README.md Notes Workspace feature count drifted from examples parity doc")
+
+    if len(notes_flavor_labels) != 4:
+        raise ValueError("expected four Notes Workspace flavor labels")
+
+    registry_ids: list[str] = []
+    registry_titles: list[tuple[str, str]] = []
+    for item in registry:
+        if not isinstance(item, dict):
+            raise ValueError("diagram-registry.json rows must be objects")
+        diagram_id = item.get("id")
+        title = item.get("title")
+        if not isinstance(diagram_id, str) or not isinstance(title, str):
+            raise ValueError("diagram-registry.json rows need string id/title values")
+        registry_ids.append(diagram_id)
+        registry_titles.append((diagram_id, title))
+
+    return SourceFacts(
+        spec_version=spec_version,
+        spec_chapter_count=spec_chapter_count,
+        adr_count=adr_count,
+        fixture_count=fixture_count,
+        library_conformance_count=library_conformance_count,
+        theme_conformance_count=theme_conformance_count,
+        total_conformance_count=total_conformance_count,
+        capability_count=capability_count,
+        notes_feature_count=notes_feature_count,
+        notes_flavor_labels=notes_flavor_labels,
+        registry_ids=tuple(registry_ids),
+        registry_titles=tuple(registry_titles),
+    )
+
+
+SOURCE_FACTS = load_source_facts()
+SPEC_VERSION = SOURCE_FACTS.spec_version
 
 
 @dataclass(frozen=True)
@@ -289,8 +435,11 @@ def svg_doc(diagram: Diagram) -> str:
     if diagram.diagram_id == "class-architecture":
         body_parts.append(relationship_legend(diagram.width - 300, diagram.height - 230))
     body = "\n".join(body_parts)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{diagram.width}" height="{diagram.height}" viewBox="0 0 {diagram.width} {diagram.height}">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{diagram.width}" height="{diagram.height}" viewBox="0 0 {diagram.width} {diagram.height}" style="font-family: {SVG_FONT_STACK};">
   <defs>
+    <style>
+      text {{ font-family: {SVG_FONT_STACK}; }}
+    </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
     </pattern>
@@ -318,23 +467,50 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       </section>"""
         for index, (title, items) in enumerate(diagram.cards)
     )
-    footer = diagram.footer or f"Generated for VMx spec {SPEC_VERSION} documentation."
+    footer = diagram.footer or f"Generated from repo-derived facts for VMx spec {SPEC_VERSION}."
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{escape(diagram.title)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; }}
+    :root {{
+      color-scheme: light dark;
+      --page-bg: #edf3fa;
+      --page-accent: rgba(34, 211, 238, 0.1);
+      --surface: rgba(255, 255, 255, 0.88);
+      --surface-strong: #ffffff;
+      --surface-border: #c9d4e2;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-tertiary: #64748b;
+      --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --page-bg: #020617;
+        --page-accent: rgba(56, 189, 248, 0.08);
+        --surface: rgba(15, 23, 42, 0.82);
+        --surface-strong: rgba(16, 27, 38, 0.94);
+        --surface-border: #273542;
+        --text-primary: #f8fafc;
+        --text-secondary: #cbd5e1;
+        --text-tertiary: #94a3b8;
+        --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
+      }}
+    }}
     body {{
       margin: 0;
       min-height: 100vh;
       padding: 32px;
-      background: #020617;
-      color: white;
-      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--page-bg);
+      background-image:
+        radial-gradient(circle at top left, var(--page-accent), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 18rem);
+      color: var(--text-primary);
+      font-family: {HTML_FONT_STACK};
     }}
     main {{ max-width: 1600px; margin: 0 auto; }}
     header {{ margin-bottom: 20px; }}
@@ -348,15 +524,22 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
     }}
     @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.45; }} }}
     h1 {{ margin: 0; font-size: 26px; line-height: 1.25; }}
-    .subtitle {{ margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }}
+    .subtitle {{ margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }}
     .diagram {{
       overflow-x: auto;
-      padding: 14px;
-      border: 1px solid #273542;
+      padding: 14px 14px 10px;
+      border: 1px solid var(--surface-border);
       border-radius: 8px;
-      background: rgba(16, 27, 38, 0.72);
+      background: var(--surface);
+      box-shadow: var(--shadow);
     }}
     object {{ display: block; width: 100%; min-width: 1180px; }}
+    .diagram-caption {{
+      margin: 12px 4px 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.45;
+    }}
     .cards {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -364,10 +547,11 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       margin-top: 22px;
     }}
     .card {{
-      border: 1px solid #273542;
+      border: 1px solid var(--surface-border);
       border-radius: 8px;
-      background: rgba(16, 27, 38, 0.72);
+      background: var(--surface-strong);
       padding: 16px;
+      box-shadow: var(--shadow);
     }}
     .card-header {{ display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }}
     .card-dot {{ width: 8px; height: 8px; border-radius: 50%; }}
@@ -375,8 +559,8 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
     .card-dot.emerald {{ background: #34d399; }}
     .card-dot.violet {{ background: #a78bfa; }}
     .card h2 {{ margin: 0; font-size: 14px; }}
-    .card ul {{ margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }}
-    footer {{ margin-top: 22px; text-align: center; color: #64748b; font-size: 12px; }}
+    .card ul {{ margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }}
+    footer {{ margin-top: 22px; text-align: center; color: var(--text-tertiary); font-size: 12px; }}
   </style>
 </head>
 <body>
@@ -385,7 +569,10 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       <div class="header-row"><div class="pulse-dot"></div><h1>{escape(diagram.title)}</h1></div>
       <p class="subtitle">{escape(diagram.subtitle)}</p>
     </header>
-    <div class="diagram"><object data="{escape(svg_name)}" type="image/svg+xml" aria-label="{escape(diagram.title)}"></object></div>
+    <div class="diagram">
+      <object data="{escape(svg_name)}" type="image/svg+xml" aria-label="{escape(diagram.title)}"></object>
+      <p class="diagram-caption">Embedded SVG stays high-contrast for portability while the page chrome adapts to your color scheme.</p>
+    </div>
     <div class="cards">
 {cards}
     </div>
@@ -401,10 +588,11 @@ def dot_class(index: int) -> str:
 
 
 def system_architecture() -> Diagram:
+    facts = SOURCE_FACTS
     return Diagram(
         diagram_id="system-architecture",
         title="VMx System Architecture",
-        subtitle=f"spec {SPEC_VERSION} source of truth -> parity flavors -> host examples",
+        subtitle=f"spec {facts.spec_version} source of truth -> parity flavors -> host examples",
         width=1700,
         height=1040,
         boundaries=(
@@ -415,13 +603,13 @@ def system_architecture() -> Diagram:
             Boundary(260, 788, 1180, 172, "Example and validation loop", "#fb923c"),
         ),
         boxes=(
-            Box(90, 152, 170, 96, "spec/", ("23 chapters", "79 ADRs", "VERSION"), "cloud"),
-            Box(280, 152, 170, 96, "fixtures", ("lifecycle", "messages", "commands"), "cloud"),
-            Box(90, 270, 360, 84, "12-conformance", ("281 library IDs + 5 THEME scenario IDs",), "bus"),
+            Box(90, 152, 170, 96, "spec/", (f"{facts.spec_chapter_count} chapters", f"{facts.adr_count} ADRs", f"VERSION {facts.spec_version}"), "cloud"),
+            Box(280, 152, 170, 96, "fixtures", (f"{facts.fixture_count} shared JSON fixtures", "lifecycle / messages", "commands / derived"), "cloud"),
+            Box(90, 270, 360, 100, "12-conformance", (f"{facts.library_conformance_count} library IDs", f"{facts.theme_conformance_count} THEME scenario IDs", f"{facts.total_conformance_count} total"), "bus"),
             Box(550, 152, 220, 110, "Lifecycle base", ("ComponentVMBase", "guarded transitions", "dispose cascade"), "backend"),
             Box(790, 152, 250, 110, "VM families", ("component", "composite / group / aggregate", "hierarchical + forwarding"), "frontend"),
             Box(550, 288, 220, 110, "Commands", ("RelayCommand", "decorators", "ModeledCrudCommands"), "bus"),
-            Box(790, 288, 250, 110, "Capabilities", ("22 micro-interfaces", "selection / CRUD / paging", "opt-in behavior"), "security"),
+            Box(790, 288, 250, 110, "Capabilities", (f"{facts.capability_count} micro-interfaces", "selection / CRUD / paging", "opt-in behavior"), "security"),
             Box(1150, 152, 220, 110, "Services", ("MessageHub", "Dispatcher", "IDialogService", "ILocalizer"), "security"),
             Box(1390, 152, 220, 110, "Collections + state", ("ObservableList", "DerivedProperty", "SearchableState"), "database"),
             Box(1150, 288, 220, 110, "Paging primitives", ("PagedComposition", "TokenPagedComposition", "filtered ordering"), "database"),
@@ -472,7 +660,7 @@ def system_architecture() -> Diagram:
             (
                 "Examples and gates",
                 (
-                    "The flagship Notes Workspace exercises 19 framework features plus THEME scenarios.",
+                    f"The flagship Notes Workspace exercises {facts.notes_feature_count} framework features plus THEME scenarios.",
                     "Coverage, spec discipline, and example checks keep docs claims tied to repository state.",
                     "Compatibility and release surfaces are versioned per flavor but tracked against the spec.",
                 ),
@@ -847,10 +1035,11 @@ def composite_family() -> Diagram:
 
 
 def commands_capabilities() -> Diagram:
+    facts = SOURCE_FACTS
     return Diagram(
         diagram_id="commands-capabilities",
         title="Commands And Capabilities Map",
-        subtitle="reactive ICommand primitives and the 22 opt-in behavior contracts",
+        subtitle=f"reactive ICommand primitives and the {facts.capability_count} opt-in behavior contracts",
         width=1780,
         height=1100,
         boundaries=(
@@ -1013,6 +1202,7 @@ def forms_dialogs_notifications() -> Diagram:
 
 
 def examples_vm_layer() -> Diagram:
+    facts = SOURCE_FACTS
     return Diagram(
         diagram_id="examples-vm-layer",
         title="Examples VM Layer Map",
@@ -1066,7 +1256,7 @@ def examples_vm_layer() -> Diagram:
                 138,
                 "Cross-flavor parity facts",
                 (
-                    "The Notes Workspace portfolio exercises 19 VMx features in every flagship host.",
+                    f"The Notes Workspace portfolio exercises {facts.notes_feature_count} VMx features in every flagship host.",
                     "ThemeVM remains a workspace-owned sibling rather than an AggregateVM7 child, while GlobalSearchVM demonstrates TokenPagedComposition.",
                     "Views stay thin; adapter code owns the framework-native property, command, collection, dialog, and dispatcher bridges.",
                 ),
@@ -1155,13 +1345,20 @@ def write_triplet(diagram: Diagram, html_name: str, svg_name: str, png_name: str
 def main() -> None:
     registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     diagrams = build_diagrams()
-    missing = {item["id"] for item in registry} - diagrams.keys()
-    extra = diagrams.keys() - {item["id"] for item in registry}
+    registry_ids = set(SOURCE_FACTS.registry_ids)
+    missing = registry_ids - diagrams.keys()
+    extra = diagrams.keys() - registry_ids
     if missing or extra:
         raise SystemExit(
             f"registry mismatch: missing={sorted(missing)} extra={sorted(extra)}"
         )
     for item in registry:
+        expected_title = SOURCE_FACTS.title_for(item["id"])
+        if diagrams[item["id"]].title != expected_title:
+            raise SystemExit(
+                f"title mismatch for {item['id']}: "
+                f"{diagrams[item['id']].title!r} != {expected_title!r}"
+            )
         write_triplet(
             diagrams[item["id"]],
             item["html"],
