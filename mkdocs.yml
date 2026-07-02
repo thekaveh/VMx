@@ -67,3 +67,7 @@ plugins:
 
 exclude_docs: |
   superpowers/
+  assets/diagrams/README.md
+  assets/diagrams/generate_diagrams.py
+  assets/diagrams/test_generate_diagrams.py
+  assets/diagrams/__pycache__/

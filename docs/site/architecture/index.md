@@ -3,12 +3,12 @@
 VMx is organized as a small runtime core plus a family of viewmodel,
 command, collection, and helper layers that repeat across all four flavors.
 
-<img src="../assets/diagrams/system-architecture.svg" alt="VMx System Architecture" class="vmx-diagram" />
+<img src="/assets/diagrams/system-architecture.svg" alt="VMx System Architecture" class="vmx-diagram" />
 
 <p>
-  <a href="../assets/diagrams/system-architecture.html">Open standalone diagram</a>
+  <a href="/assets/diagrams/system-architecture.html">Open standalone diagram</a>
   &middot;
-  <a href="../assets/diagrams/system-architecture.png">PNG</a>
+  <a href="/assets/diagrams/system-architecture.png">PNG</a>
 </p>
 
 ## Read This Section In Order
