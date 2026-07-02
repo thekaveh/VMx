@@ -55,43 +55,35 @@ host dialog verb.
 
 === "C#"
 
-````
-```csharp
-var modal = new ModalVM<string>("cancel");
-modal.Dismiss("save");
-var result = await modal.Completion;
-```
-````
+    ```csharp
+    var modal = new ModalVM<string>("cancel");
+    modal.Dismiss("save");
+    var result = await modal.Completion;
+    ```
 
 === "Python"
 
-````
-```python
-modal = ModalVM[str]("cancel")
-modal.dismiss("save")
-result = await modal.wait_result()
-```
-````
+    ```python
+    modal = ModalVM[str]("cancel")
+    modal.dismiss("save")
+    result = await modal.wait_result()
+    ```
 
 === "TypeScript"
 
-````
-```ts
-const modal = new ModalVM("cancel");
-modal.dismiss("save");
-const result = await modal.completion;
-```
-````
+    ```ts
+    const modal = new ModalVM("cancel");
+    modal.dismiss("save");
+    const result = await modal.completion;
+    ```
 
 === "Swift"
 
-````
-```swift
-let modal = BasicModalVM<String>(cancellationResult: "cancel")
-modal.dismiss("save")
-let result = await modal.waitResult()
-```
-````
+    ```swift
+    let modal = BasicModalVM<String>(cancellationResult: "cancel")
+    modal.dismiss("save")
+    let result = await modal.waitResult()
+    ```
 
 ## Common Pitfalls
 

@@ -54,49 +54,41 @@ spreading active-mode booleans across unrelated properties.
 
 === "C#"
 
-````
-```csharp
-private readonly DiscriminatorVM<string> _editorMode = new("edit");
-public string EditorMode => _editorMode.ActiveKey;
-public bool IsPreviewMode => _editorMode.IsActive("preview");
-```
-````
+    ```csharp
+    private readonly DiscriminatorVM<string> _editorMode = new("edit");
+    public string EditorMode => _editorMode.ActiveKey;
+    public bool IsPreviewMode => _editorMode.IsActive("preview");
+    ```
 
 === "Python"
 
-````
-```python
-self._editor_mode: DiscriminatorVM[str] = DiscriminatorVM("edit")
+    ```python
+    self._editor_mode: DiscriminatorVM[str] = DiscriminatorVM("edit")
 
-@property
-def is_preview_mode(self) -> bool:
-    return self._editor_mode.is_active("preview")
-```
-````
+    @property
+    def is_preview_mode(self) -> bool:
+        return self._editor_mode.is_active("preview")
+    ```
 
 === "TypeScript"
 
-````
-```ts
-readonly #editorMode = new DiscriminatorVM<EditorMode>("edit");
+    ```ts
+    readonly #editorMode = new DiscriminatorVM<EditorMode>("edit");
 
-get isPreviewMode(): boolean {
-  return this.#editorMode.isActive("preview");
-}
-```
-````
+    get isPreviewMode(): boolean {
+      return this.#editorMode.isActive("preview");
+    }
+    ```
 
 === "Swift"
 
-````
-```swift
-private let _editorMode = DiscriminatorVM<String>(initial: "edit")
+    ```swift
+    private let _editorMode = DiscriminatorVM<String>(initial: "edit")
 
-public var isPreviewMode: Bool {
-    _editorMode.isActive("preview")
-}
-```
-````
+    public var isPreviewMode: Bool {
+        _editorMode.isActive("preview")
+    }
+    ```
 
 ## Common Pitfalls
 
