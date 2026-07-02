@@ -4,127 +4,127 @@
       text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
     </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#d7e1ec" stroke-width="0.8"/>
     </pattern>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
     </marker>
   </defs>
-  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="#f3f7fb"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
-  <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">Composite Family Deep Dive</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">selection containers, peer groups, fixed aggregates, recursive trees, and paging companions</text>
+  <text x="40" y="54" fill="#0f172a" font-size="28" font-weight="700" text-anchor="start">Composite Family Deep Dive</text>
+  <text x="40" y="82" fill="#64748b" font-size="15" font-weight="400" text-anchor="start">selection containers, peer groups, fixed aggregates, recursive trees, and paging companions</text>
   <polyline points="400,250 450,250" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="339" y="224" width="186" height="20" rx="10" fill="#0b1420" stroke="#94a3b8" stroke-width="1"/>
+<rect x="339" y="224" width="186" height="20" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1"/>
 <text x="432" y="238" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">same IList minus Current</text>
 <polyline points="740,250 790,250" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="687" y="224" width="151" height="20" rx="10" fill="#0b1420" stroke="#94a3b8" stroke-width="1"/>
+<rect x="687" y="224" width="151" height="20" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1"/>
 <text x="762" y="238" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">fixed heterogeneity</text>
 <polyline points="1090,250 1140,250" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="1051" y="224" width="130" height="20" rx="10" fill="#0b1420" stroke="#94a3b8" stroke-width="1"/>
+<rect x="1051" y="224" width="130" height="20" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1"/>
 <text x="1116" y="238" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">recursive domain</text>
 <polyline points="255,338 255,398" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="260" y="358" width="81" height="20" rx="10" fill="#0b1420" stroke="#fbbf24" stroke-width="1"/>
+<rect x="260" y="358" width="81" height="20" rx="10" fill="#ffffff" stroke="#fbbf24" stroke-width="1"/>
 <text x="300" y="372" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">selection</text>
 <polyline points="595,338 630,398" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="620" y="358" width="60" height="20" rx="10" fill="#0b1420" stroke="#a78bfa" stroke-width="1"/>
+<rect x="620" y="358" width="60" height="20" rx="10" fill="#ffffff" stroke="#a78bfa" stroke-width="1"/>
 <text x="650" y="372" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">events</text>
 <polyline points="940,338 970,398" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="960" y="358" width="81" height="20" rx="10" fill="#0b1420" stroke="#34d399" stroke-width="1"/>
+<rect x="960" y="358" width="81" height="20" rx="10" fill="#ffffff" stroke="#34d399" stroke-width="1"/>
 <text x="1000" y="372" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">lifecycle</text>
 <polyline points="1350,338 1350,398" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="1360" y="358" width="81" height="20" rx="10" fill="#0b1420" stroke="#fb7185" stroke-width="1"/>
+<rect x="1360" y="358" width="81" height="20" rx="10" fill="#ffffff" stroke="#fb7185" stroke-width="1"/>
 <text x="1400" y="372" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">structure</text>
 <polyline points="325,560 325,680 685,680 685,810" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="462" y="652" width="116" height="20" rx="10" fill="#0b1420" stroke="#a78bfa" stroke-width="1"/>
+<rect x="462" y="652" width="116" height="20" rx="10" fill="#ffffff" stroke="#a78bfa" stroke-width="1"/>
 <text x="520" y="666" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">filter -&gt; page</text>
 <polyline points="685,930 900,930" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="733" y="902" width="123" height="20" rx="10" fill="#0b1420" stroke="#94a3b8" stroke-width="1"/>
+<rect x="733" y="902" width="123" height="20" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1"/>
 <text x="794" y="916" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">finite vs token</text>
 <polyline points="1210,870 1280,870" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="1219" y="842" width="54" height="20" rx="10" fill="#0b1420" stroke="#fb923c" stroke-width="1"/>
+<rect x="1219" y="842" width="54" height="20" rx="10" fill="#ffffff" stroke="#fb923c" stroke-width="1"/>
 <text x="1246" y="856" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
-<rect x="70" y="118" width="1620" height="620" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<rect x="70" y="118" width="1620" height="620" rx="12" fill="rgba(255, 255, 255, 0.48)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Container primitives</text>
-<rect x="70" y="768" width="1620" height="210" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
+<rect x="70" y="768" width="1620" height="210" rx="12" fill="rgba(255, 255, 255, 0.48)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="790" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Composition helpers around containers</text>
-<rect x="110" y="170" width="290" height="168" rx="8" fill="#0f172a"/>
-<rect x="110" y="170" width="290" height="168" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="255" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>
-<text x="255" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ordered homogeneous children</text>
-<text x="255" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current designates one selected child</text>
-<text x="255" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">select_component / deselect_component</text>
-<text x="255" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ModeledCrudCommands can bind to Current</text>
-<rect x="450" y="170" width="290" height="168" rx="8" fill="#0f172a"/>
-<rect x="450" y="170" width="290" height="168" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="595" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">GroupVM</text>
-<text x="595" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same IList surface</text>
-<text x="595" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">peer children only</text>
-<text x="595" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">group child select command stays disabled</text>
-<text x="595" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">good for notification stacks</text>
-<rect x="790" y="170" width="300" height="168" rx="8" fill="#0f172a"/>
-<rect x="790" y="170" width="300" height="168" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="940" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">AggregateVM1..6</text>
-<text x="940" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">heterogeneous fixed slots</text>
-<text x="940" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Component1..6 accessors</text>
-<text x="940" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">factories invoked on construct()</text>
-<text x="940" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">best for shells and workspaces</text>
-<rect x="1140" y="170" width="420" height="168" rx="8" fill="#0f172a"/>
-<rect x="1140" y="170" width="420" height="168" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1350" y="198" fill="white" font-size="18" font-weight="700" text-anchor="middle">HierarchicalVM</text>
-<text x="1350" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">recursive nodes with Parent / Depth / Path</text>
-<text x="1350" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lazy or eager child materialization</text>
-<text x="1350" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TreeStructureChangedMessage on structure changes</text>
-<text x="1350" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">walk / walk_expanded integrate naturally</text>
-<rect x="150" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
-<rect x="150" y="398" width="280" height="162" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="290" y="426" fill="white" font-size="18" font-weight="700" text-anchor="middle">Selection semantics</text>
-<text x="290" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CompositeVM.Current must be null or a contained child</text>
-<text x="290" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">children update IsCurrent on transitions</text>
-<text x="290" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">AsyncSelection is opt-in per builder</text>
-<rect x="490" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
-<rect x="490" y="398" width="280" height="162" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="630" y="426" fill="white" font-size="18" font-weight="700" text-anchor="middle">Collection semantics</text>
-<text x="630" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Add / Remove / Insert / Clear publish collection change</text>
-<text x="630" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">BatchUpdate collapses granular events to one Reset</text>
-<rect x="830" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
-<rect x="830" y="398" width="280" height="162" rx="8" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="1.8"/>
-<text x="970" y="426" fill="white" font-size="18" font-weight="700" text-anchor="middle">Construction semantics</text>
-<text x="970" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">container reaches Constructed after children settle</text>
-<text x="970" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reference implementations visit children sequentially</text>
-<rect x="1170" y="398" width="360" height="162" rx="8" fill="#0f172a"/>
-<rect x="1170" y="398" width="360" height="162" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1350" y="426" fill="white" font-size="18" font-weight="700" text-anchor="middle">Tree semantics</text>
-<text x="1350" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">HierarchicalVM rejects ancestor cycles</text>
-<text x="1350" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">InvalidateChildren refreshes the child cache</text>
-<text x="1350" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lazy boundaries stay explicit</text>
-<rect x="180" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
-<rect x="180" y="810" width="290" height="120" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="325" y="838" fill="white" font-size="18" font-weight="700" text-anchor="middle">SearchableState</text>
-<text x="325" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">filter first</text>
-<text x="325" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">debounced SearchTerm</text>
-<text x="325" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">filtered view source</text>
-<rect x="540" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
-<rect x="540" y="810" width="290" height="120" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="685" y="838" fill="white" font-size="18" font-weight="700" text-anchor="middle">PagedComposition</text>
-<text x="685" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">finite page slice</text>
-<text x="685" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">implements IPageable</text>
-<text x="685" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">decorates iterable source</text>
-<rect x="900" y="810" width="310" height="120" rx="8" fill="#0f172a"/>
-<rect x="900" y="810" width="310" height="120" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="1055" y="838" fill="white" font-size="18" font-weight="700" text-anchor="middle">TokenPagedComposition</text>
-<text x="1055" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">forward-only fetch_next(token)</text>
-<text x="1055" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">LoadMore / Refresh</text>
-<text x="1055" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">accumulated Items + HasMore</text>
-<rect x="1280" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
-<rect x="1280" y="810" width="290" height="120" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1425" y="838" fill="white" font-size="18" font-weight="700" text-anchor="middle">ForwardingCompositeVM</text>
-<text x="1425" y="864" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps ICompositeVM&lt;VM&gt;</text>
-<text x="1425" y="883" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">override single behaviors</text>
-<text x="1425" y="902" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">still forwards disposal</text>
-<rect x="1120" y="596" width="500" height="112" rx="8" fill="#111c2a"/>
-<rect x="1120" y="596" width="500" height="112" rx="8" fill="rgba(15, 23, 42, 0.68)" stroke="#fb923c" stroke-width="1.2"/>
-<text x="1136" y="620" fill="white" font-size="13" font-weight="700" text-anchor="start">Why separate primitives</text>
-<text x="1136" y="642" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">CompositeVM handles current selection, GroupVM represents peers, AggregateVM encodes fixed heterogeneity, and HierarchicalVM owns recursive structure.</text>
-<text x="1136" y="660" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Paging helpers sit beside those containers instead of pretending to be new container subclasses.</text>
+<rect x="110" y="170" width="290" height="168" rx="8" fill="#ffffff"/>
+<rect x="110" y="170" width="290" height="168" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="255" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>
+<text x="255" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ordered homogeneous children</text>
+<text x="255" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Current designates one selected child</text>
+<text x="255" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">select_component / deselect_component</text>
+<text x="255" y="281" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ModeledCrudCommands can bind to Current</text>
+<rect x="450" y="170" width="290" height="168" rx="8" fill="#ffffff"/>
+<rect x="450" y="170" width="290" height="168" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="595" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">GroupVM</text>
+<text x="595" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">same IList surface</text>
+<text x="595" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">peer children only</text>
+<text x="595" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">group child select command stays disabled</text>
+<text x="595" y="281" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">good for notification stacks</text>
+<rect x="790" y="170" width="300" height="168" rx="8" fill="#ffffff"/>
+<rect x="790" y="170" width="300" height="168" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="940" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">AggregateVM1..6</text>
+<text x="940" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">heterogeneous fixed slots</text>
+<text x="940" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Component1..6 accessors</text>
+<text x="940" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">factories invoked on construct()</text>
+<text x="940" y="281" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">best for shells and workspaces</text>
+<rect x="1140" y="170" width="420" height="168" rx="8" fill="#ffffff"/>
+<rect x="1140" y="170" width="420" height="168" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1350" y="198" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">HierarchicalVM</text>
+<text x="1350" y="224" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">recursive nodes with Parent / Depth / Path</text>
+<text x="1350" y="243" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">lazy or eager child materialization</text>
+<text x="1350" y="262" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">TreeStructureChangedMessage on structure changes</text>
+<text x="1350" y="281" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">walk / walk_expanded integrate naturally</text>
+<rect x="150" y="398" width="280" height="162" rx="8" fill="#ffffff"/>
+<rect x="150" y="398" width="280" height="162" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="290" y="426" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Selection semantics</text>
+<text x="290" y="452" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CompositeVM.Current must be null or a contained child</text>
+<text x="290" y="471" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">children update IsCurrent on transitions</text>
+<text x="290" y="490" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">AsyncSelection is opt-in per builder</text>
+<rect x="490" y="398" width="280" height="162" rx="8" fill="#ffffff"/>
+<rect x="490" y="398" width="280" height="162" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
+<text x="630" y="426" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Collection semantics</text>
+<text x="630" y="452" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Add / Remove / Insert / Clear publish collection change</text>
+<text x="630" y="471" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">BatchUpdate collapses granular events to one Reset</text>
+<rect x="830" y="398" width="280" height="162" rx="8" fill="#ffffff"/>
+<rect x="830" y="398" width="280" height="162" rx="8" fill="rgba(102, 183, 142, 0.16)" stroke="#2e7d59" stroke-width="1.8"/>
+<text x="970" y="426" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Construction semantics</text>
+<text x="970" y="452" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">container reaches Constructed after children settle</text>
+<text x="970" y="471" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">reference implementations visit children sequentially</text>
+<rect x="1170" y="398" width="360" height="162" rx="8" fill="#ffffff"/>
+<rect x="1170" y="398" width="360" height="162" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="1350" y="426" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Tree semantics</text>
+<text x="1350" y="452" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">HierarchicalVM rejects ancestor cycles</text>
+<text x="1350" y="471" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">InvalidateChildren refreshes the child cache</text>
+<text x="1350" y="490" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">lazy boundaries stay explicit</text>
+<rect x="180" y="810" width="290" height="120" rx="8" fill="#ffffff"/>
+<rect x="180" y="810" width="290" height="120" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
+<text x="325" y="838" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">SearchableState</text>
+<text x="325" y="864" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">filter first</text>
+<text x="325" y="883" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">debounced SearchTerm</text>
+<text x="325" y="902" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">filtered view source</text>
+<rect x="540" y="810" width="290" height="120" rx="8" fill="#ffffff"/>
+<rect x="540" y="810" width="290" height="120" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
+<text x="685" y="838" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">PagedComposition</text>
+<text x="685" y="864" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">finite page slice</text>
+<text x="685" y="883" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">implements IPageable</text>
+<text x="685" y="902" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">decorates iterable source</text>
+<rect x="900" y="810" width="310" height="120" rx="8" fill="#ffffff"/>
+<rect x="900" y="810" width="310" height="120" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
+<text x="1055" y="838" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">TokenPagedComposition</text>
+<text x="1055" y="864" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">forward-only fetch_next(token)</text>
+<text x="1055" y="883" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">LoadMore / Refresh</text>
+<text x="1055" y="902" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">accumulated Items + HasMore</text>
+<rect x="1280" y="810" width="290" height="120" rx="8" fill="#ffffff"/>
+<rect x="1280" y="810" width="290" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1425" y="838" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ForwardingCompositeVM</text>
+<text x="1425" y="864" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">wraps ICompositeVM&lt;VM&gt;</text>
+<text x="1425" y="883" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">override single behaviors</text>
+<text x="1425" y="902" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">still forwards disposal</text>
+<rect x="1120" y="596" width="500" height="112" rx="8" fill="#f8fbff"/>
+<rect x="1120" y="596" width="500" height="112" rx="8" fill="rgba(255, 255, 255, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="1136" y="620" fill="#0f172a" font-size="13" font-weight="700" text-anchor="start">Why separate primitives</text>
+<text x="1136" y="642" fill="#516273" font-size="12" font-weight="400" text-anchor="start">CompositeVM handles current selection, GroupVM represents peers, AggregateVM encodes fixed heterogeneity, and HierarchicalVM owns recursive structure.</text>
+<text x="1136" y="660" fill="#516273" font-size="12" font-weight="400" text-anchor="start">Paging helpers sit beside those containers instead of pretending to be new container subclasses.</text>
 </svg>

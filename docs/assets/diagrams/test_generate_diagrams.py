@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -33,16 +34,32 @@ class GenerateDiagramsTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        conformance = (REPO_ROOT / "spec" / "12-conformance.md").read_text(encoding="utf-8")
+        capability_spec = (REPO_ROOT / "spec" / "14-capabilities.md").read_text(encoding="utf-8")
+        notes_parity = (
+            REPO_ROOT / "examples" / "notes-showcase-parity.md"
+        ).read_text(encoding="utf-8")
+        conformance_ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
+        theme_count = sum(1 for item in conformance_ids if item.startswith("THEME-"))
+        total_count = len(conformance_ids)
+        capability_count = int(
+            re.search(
+                r"lists the (\d+) capability interfaces",
+                capability_spec,
+                re.MULTILINE,
+            ).group(1)
+        )
+        notes_feature_count = len(re.findall(r"^\| \d+\s+\|", notes_parity, re.MULTILINE))
 
         self.assertEqual(facts.spec_version, (REPO_ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip())
         self.assertEqual(facts.spec_chapter_count, len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md"))))
         self.assertEqual(facts.adr_count, len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md"))))
         self.assertEqual(facts.fixture_count, len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json"))))
-        self.assertEqual(facts.total_conformance_count, 286)
-        self.assertEqual(facts.library_conformance_count, 281)
-        self.assertEqual(facts.theme_conformance_count, 5)
-        self.assertEqual(facts.capability_count, 22)
-        self.assertEqual(facts.notes_feature_count, 19)
+        self.assertEqual(facts.total_conformance_count, total_count)
+        self.assertEqual(facts.library_conformance_count, total_count - theme_count)
+        self.assertEqual(facts.theme_conformance_count, theme_count)
+        self.assertEqual(facts.capability_count, capability_count)
+        self.assertEqual(facts.notes_feature_count, notes_feature_count)
         self.assertEqual(facts.registry_ids, tuple(item["id"] for item in registry))
 
     def test_html_shell_uses_local_fonts_and_light_first_theme(self) -> None:
@@ -56,6 +73,33 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertIn("@media (prefers-color-scheme: dark)", html)
         self.assertIn("background: var(--page-bg);", html)
         self.assertIn("Embedded SVG stays high-contrast for portability", html)
+
+    def test_svg_output_is_light_first_and_cool_neutral(self) -> None:
+        svg = self.generator.svg_doc(self.generator.system_architecture())
+
+        self.assertIn('fill="#f3f7fb"', svg)
+        self.assertIn('stroke="#d7e1ec"', svg)
+        self.assertNotIn('fill="#020617"', svg)
+
+    def test_class_architecture_uses_explicit_helper_boxes(self) -> None:
+        diagram = self.generator.class_architecture()
+        titles = {box.title for box in diagram.boxes}
+        viewmodel_families = self.generator.viewmodel_families()
+        capability_box = next(box for box in viewmodel_families.boxes if box.title == "Capability overlays")
+
+        self.assertIn("IComponentVM<M>", titles)
+        self.assertIn("ICompositeVM<VM>", titles)
+        self.assertIn("ICommand", titles)
+        self.assertIn("IPageable", titles)
+        self.assertIn("Confirm delegate", titles)
+        self.assertIn(
+            "PagedComposition and TokenPagedComposition are composition/paging primitives, not CompositeVM subclasses.",
+            diagram.notes[0].lines[0],
+        )
+        self.assertIn(
+            f"{self.generator.SOURCE_FACTS.capability_count} micro-interfaces",
+            capability_box.lines,
+        )
 
 
 if __name__ == "__main__":

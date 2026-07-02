@@ -35,13 +35,13 @@ HTML_FONT_STACK = (
 )
 
 COLORS = {
-    "frontend": ("rgba(8, 51, 68, 0.42)", "#22d3ee"),
-    "backend": ("rgba(6, 78, 59, 0.42)", "#34d399"),
-    "database": ("rgba(76, 29, 149, 0.42)", "#a78bfa"),
-    "cloud": ("rgba(120, 53, 15, 0.34)", "#fbbf24"),
-    "security": ("rgba(136, 19, 55, 0.42)", "#fb7185"),
-    "bus": ("rgba(251, 146, 60, 0.34)", "#fb923c"),
-    "generic": ("rgba(30, 41, 59, 0.56)", "#94a3b8"),
+    "frontend": ("rgba(102, 170, 226, 0.16)", "#2f6fa3"),
+    "backend": ("rgba(102, 183, 142, 0.16)", "#2e7d59"),
+    "database": ("rgba(174, 161, 231, 0.16)", "#7862c9"),
+    "cloud": ("rgba(236, 190, 104, 0.18)", "#b87a1f"),
+    "security": ("rgba(220, 145, 179, 0.16)", "#b55479"),
+    "bus": ("rgba(239, 174, 104, 0.18)", "#c77729"),
+    "generic": ("rgba(170, 184, 201, 0.18)", "#6a7c91"),
 }
 
 RELATION_STYLES = {
@@ -51,6 +51,20 @@ RELATION_STYLES = {
     "wraps": {"color": "#fb923c", "dash": "14 4", "width": 3.0},
     "decorates": {"color": "#fb7185", "dash": "8 6 2 6", "width": 3.0},
     "adapts": {"color": "#a78bfa", "dash": "3 6", "width": 3.0},
+}
+
+SVG_THEME = {
+    "bg": "#f3f7fb",
+    "grid": "#d7e1ec",
+    "panel_mask": "#ffffff",
+    "panel_fill": "rgba(255, 255, 255, 0.86)",
+    "note_mask": "#f8fbff",
+    "note_fill": "rgba(255, 255, 255, 0.94)",
+    "boundary_fill": "rgba(255, 255, 255, 0.48)",
+    "chip_fill": "#ffffff",
+    "title": "#0f172a",
+    "body": "#516273",
+    "muted": "#64748b",
 }
 
 
@@ -298,7 +312,7 @@ def draw_box(box: Box) -> str:
     body_anchor = "middle" if box.align == "middle" else "start"
     return "\n".join(
         [
-            f'<rect x="{box.x}" y="{box.y}" width="{box.w}" height="{box.h}" rx="8" fill="#0f172a"/>',
+            f'<rect x="{box.x}" y="{box.y}" width="{box.w}" height="{box.h}" rx="8" fill="{SVG_THEME["panel_mask"]}"/>',
             f'<rect x="{box.x}" y="{box.y}" width="{box.w}" height="{box.h}" rx="8" '
             f'fill="{fill}" stroke="{stroke}" stroke-width="1.8"{dash}/>',
             svg_text(
@@ -306,7 +320,7 @@ def draw_box(box: Box) -> str:
                 box.y + 28,
                 box.title,
                 size=box.title_size,
-                color="white",
+                color=SVG_THEME["title"],
                 weight="700",
                 anchor=title_anchor,
             ),
@@ -315,7 +329,7 @@ def draw_box(box: Box) -> str:
                 box.y + 54,
                 box.lines,
                 size=box.line_size,
-                color="#cbd5e1",
+                color=SVG_THEME["body"],
                 anchor=body_anchor,
                 line_height=max(18, box.line_size + 6),
             ),
@@ -327,7 +341,7 @@ def draw_boundary(boundary: Boundary) -> str:
     return "\n".join(
         [
             f'<rect x="{boundary.x}" y="{boundary.y}" width="{boundary.w}" height="{boundary.h}" '
-            f'rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="{boundary.color}" stroke-width="1.2" '
+            f'rx="12" fill="{SVG_THEME["boundary_fill"]}" stroke="{boundary.color}" stroke-width="1.2" '
             f'stroke-dasharray="{boundary.dash}"/>',
             svg_text(
                 boundary.x + 14,
@@ -345,15 +359,15 @@ def draw_boundary(boundary: Boundary) -> str:
 def draw_note(note: Note) -> str:
     return "\n".join(
         [
-            f'<rect x="{note.x}" y="{note.y}" width="{note.w}" height="{note.h}" rx="8" fill="#111c2a"/>',
+            f'<rect x="{note.x}" y="{note.y}" width="{note.w}" height="{note.h}" rx="8" fill="{SVG_THEME["note_mask"]}"/>',
             f'<rect x="{note.x}" y="{note.y}" width="{note.w}" height="{note.h}" rx="8" '
-            f'fill="rgba(15, 23, 42, 0.68)" stroke="{note.color}" stroke-width="1.2"/>',
+            f'fill="{SVG_THEME["note_fill"]}" stroke="{note.color}" stroke-width="1.2"/>',
             svg_text(
                 note.x + 16,
                 note.y + 24,
                 note.title,
                 size=13,
-                color="white",
+                color=SVG_THEME["title"],
                 weight="700",
                 anchor="start",
             ),
@@ -362,7 +376,7 @@ def draw_note(note: Note) -> str:
                 note.y + 46,
                 note.lines,
                 size=12,
-                color="#cbd5e1",
+                color=SVG_THEME["body"],
                 anchor="start",
                 line_height=18,
             ),
@@ -388,7 +402,7 @@ def draw_label_chip(x: int, y: int, label: str, color: str) -> str:
     top = y - 12
     return "\n".join(
         [
-            f'<rect x="{left}" y="{top}" width="{width}" height="20" rx="10" fill="#0b1420" stroke="{color}" stroke-width="1"/>',
+            f'<rect x="{left}" y="{top}" width="{width}" height="20" rx="10" fill="{SVG_THEME["chip_fill"]}" stroke="{color}" stroke-width="1"/>',
             svg_text(x, y + 2, label, size=11, color=color, weight="700"),
         ]
     )
@@ -410,7 +424,15 @@ def draw_relationship(rel: Relationship) -> str:
 
 def relationship_legend(x: int, y: int) -> str:
     parts = [
-        svg_text(x, y, "Relationship legend", size=13, color="white", weight="700", anchor="start")
+        svg_text(
+            x,
+            y,
+            "Relationship legend",
+            size=13,
+            color=SVG_THEME["title"],
+            weight="700",
+            anchor="start",
+        )
     ]
     order = ("extends", "implements", "owns", "wraps", "decorates", "adapts")
     for index, kind in enumerate(order):
@@ -421,7 +443,9 @@ def relationship_legend(x: int, y: int) -> str:
             f'<line x1="{x}" y1="{row_y}" x2="{x + 54}" y2="{row_y}" stroke="{style["color"]}" '
             f'stroke-width="{style["width"]}"{dash} marker-end="url(#arrowhead)"/>'
         )
-        parts.append(svg_text(x + 72, row_y + 4, kind, size=12, color="#cbd5e1", anchor="start"))
+        parts.append(
+            svg_text(x + 72, row_y + 4, kind, size=12, color=SVG_THEME["body"], anchor="start")
+        )
     return "\n".join(parts)
 
 
@@ -441,16 +465,16 @@ def svg_doc(diagram: Diagram) -> str:
       text {{ font-family: {SVG_FONT_STACK}; }}
     </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="{SVG_THEME["grid"]}" stroke-width="0.8"/>
     </pattern>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
     </marker>
   </defs>
-  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="{SVG_THEME["bg"]}"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
-  {svg_text(40, 54, diagram.title, size=28, color="white", weight="700", anchor="start")}
-  {svg_text(40, 82, diagram.subtitle, size=15, color="#94a3b8", anchor="start")}
+  {svg_text(40, 54, diagram.title, size=28, color=SVG_THEME["title"], weight="700", anchor="start")}
+  {svg_text(40, 82, diagram.subtitle, size=15, color=SVG_THEME["muted"], anchor="start")}
   {body}
 </svg>
 """
@@ -619,7 +643,18 @@ def system_architecture() -> Diagram:
             Box(720, 536, 250, 136, "TypeScript", ("camelCase surface", "rxjs", "dual ESM/CJS"), "frontend"),
             Box(1000, 536, 250, 136, "Swift", ("camelCase surface", "Combine", "SwiftPM resources"), "frontend"),
             Box(1280, 536, 270, 136, "Compatibility matrix", ("independent package versions", "manual spec mapping", "major bumps track spec majors"), "generic"),
-            Box(300, 820, 300, 108, "Flagship examples", ("Notes Workspace across four hosts", "19 feature rows + THEME-001..005"), "generic"),
+            Box(
+                300,
+                820,
+                300,
+                108,
+                "Flagship examples",
+                (
+                    "Notes Workspace across four hosts",
+                    f"{facts.notes_feature_count} feature rows + THEME-001..005",
+                ),
+                "generic",
+            ),
             Box(700, 820, 300, 108, "CI gates", ("spec-discipline", "coverage tool", "examples contract checks"), "bus"),
             Box(1100, 820, 300, 108, "Release posture", ("same conceptual shape", "idiomatic per language", "repo facts drive docs"), "cloud"),
         ),
@@ -673,66 +708,69 @@ def class_architecture() -> Diagram:
     return Diagram(
         diagram_id="class-architecture",
         title="Class Architecture Map",
-        subtitle="clustered library families with explicit relationship kinds",
+        subtitle="lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source",
         width=1800,
-        height=1180,
+        height=1320,
         boundaries=(
-            Boundary(60, 118, 1680, 214, "Core VM lineage", "#22d3ee"),
-            Boundary(60, 360, 1680, 248, "Containers, decorators, and capabilities", "#34d399"),
-            Boundary(60, 638, 1680, 240, "Commands, services, and helper primitives", "#a78bfa"),
+            Boundary(60, 118, 1680, 204, "Core VM lineage", "#22d3ee"),
+            Boundary(60, 352, 1680, 322, "Wrappers and specialized companions", "#34d399"),
+            Boundary(60, 704, 1680, 352, "Commands, paging, and notification adapters", "#a78bfa"),
         ),
         boxes=(
-            Box(100, 160, 210, 104, "ComponentVMBase", ("status machine", "hub + dispatcher", "protected hooks"), "backend"),
-            Box(360, 150, 220, 116, "ComponentVM", ("leaf VM", "modeled + readonly variants", "propertyChanged surface"), "frontend"),
-            Box(620, 150, 220, 116, "CompositeVM", ("children list", "Current slot", "select_component"), "frontend"),
-            Box(880, 150, 220, 116, "GroupVM", ("peer children", "no Current", "batch updates"), "frontend"),
-            Box(1140, 150, 240, 116, "AggregateVM1..6", ("fixed arity", "Component1..6 accessors", "heterogeneous slots"), "frontend"),
-            Box(1420, 150, 260, 116, "HierarchicalVM", ("recursive nodes", "Parent / Depth / Path", "TreeStructureChangedMessage"), "frontend"),
-            Box(100, 400, 230, 116, "ForwardingComponentVM", ("delegates IComponentVM<M>", "override selected members"), "frontend"),
-            Box(360, 400, 230, 116, "ForwardingCompositeVM", ("delegates ICompositeVM<VM>", "forwards Current + iteration"), "frontend"),
-            Box(620, 390, 230, 128, "FormVM", ("snapshot + IsDirty", "ApproveCommand / DenyCommand", "validation + errors"), "frontend"),
-            Box(890, 390, 230, 128, "NotificationVM", ("wraps Notification", "lifespan / opacity", "DismissCommand"), "security"),
-            Box(1160, 390, 230, 128, "ConfirmationVM", ("ApproveCommand", "RejectCommand", "longer prompt lifetime"), "security"),
-            Box(1430, 390, 230, 128, "DiscriminatorVM", ("ActiveKey", "modal precedence stack", "single-active slot"), "frontend"),
-            Box(100, 680, 230, 118, "RelayCommand", ("predicate + task", "reactive triggers", "disposal makes inert"), "bus"),
-            Box(370, 680, 230, 118, "DecoratorCommand", ("pre/post actions", "extra gate", "single inner command"), "bus"),
-            Box(640, 680, 230, 118, "ConfirmationDecoratorCommand", ("async confirm gate", "errors observable", "fire-and-forget Execute"), "bus"),
-            Box(910, 680, 230, 118, "ModeledCrudCommands", ("CreateNew / UpdateCurrent / DeleteCurrent", "optional confirm delegates"), "bus"),
-            Box(1180, 680, 230, 118, "PagedComposition", ("implements IPageable", "decorates iterable source", "current page slice"), "database"),
-            Box(1450, 680, 230, 118, "TokenPagedComposition", ("forward-only fetch_next", "Items accumulator", "LoadMore + Refresh"), "database"),
-            Box(100, 836, 230, 118, "ExpandableState", ("implements expansion triple", "delegates to VMs", "observable IsExpanded"), "database"),
-            Box(370, 836, 230, 118, "SearchableState", ("debounced SearchTerm", "predicate-driven filtering", "filtered view"), "database"),
-            Box(640, 836, 230, 118, "ConfirmHelper", ("make_confirm", "adapts INotificationHub", "returns async bool delegate"), "security"),
-            Box(910, 836, 230, 118, "MessageHub + messages", ("PropertyChangedMessage", "ConstructionStatusChangedMessage", "hot FIFO stream"), "security"),
-            Box(1180, 836, 230, 118, "IDialogService", ("PickFile*", "Confirm / Notify", "Present modal VM"), "security"),
-            Box(1450, 836, 230, 118, "INotificationHub", ("Post / Resolve", "Pending snapshot stream", "NullNotificationHub"), "security"),
+            Box(90, 150, 240, 108, "ComponentVMBase", ("lifecycle state machine", "hub + dispatcher", "protected hooks"), "backend"),
+            Box(390, 142, 220, 120, "ComponentVM", ("leaf VM family", "modeled + readonly variants", "propertyChanged surface"), "frontend"),
+            Box(670, 142, 220, 120, "CompositeVM", ("children list", "Current slot", "select_component"), "frontend"),
+            Box(950, 142, 220, 120, "GroupVM", ("peer children", "no Current", "batch updates"), "frontend"),
+            Box(1230, 142, 220, 120, "AggregateVM1..6", ("fixed arity", "Component1..6 accessors", "heterogeneous slots"), "frontend"),
+            Box(1510, 142, 220, 120, "HierarchicalVM", ("recursive nodes", "Parent / Depth / Path", "tree change messages"), "frontend"),
+            Box(90, 402, 220, 96, "IComponentVM<M>", ("name / hint / model", "selection + lifecycle verbs"), "generic"),
+            Box(360, 390, 260, 120, "ForwardingComponentVM", ("wraps IComponentVM<M>", "default delegation", "override selected members"), "frontend"),
+            Box(690, 402, 220, 96, "ICompositeVM<VM>", ("IList surface + Current", "child selection helpers"), "generic"),
+            Box(960, 390, 280, 120, "ForwardingCompositeVM", ("wraps ICompositeVM<VM>", "forwards Current + iteration", "subclass overrides stay surgical"), "frontend"),
+            Box(1300, 390, 220, 120, "DiscriminatorVM", ("ActiveKey", "modal precedence stack", "single-active slot"), "frontend"),
+            Box(90, 550, 250, 132, "FormVM", ("snapshot + IsDirty", "approve_async + errors", "validation-aware persist flow"), "frontend"),
+            Box(390, 560, 210, 112, "Approve + Deny commands", ("ICommand pair", "approve is fire-and-forget", "deny reverts Model"), "bus"),
+            Box(650, 550, 260, 132, "Persister + validation", ("persister / snapshotter", "validators + equality", "hub messages on deny"), "security"),
+            Box(980, 560, 230, 112, "NotificationVM", ("lifespan / opacity", "DismissCommand", "auto-resolve at expiry"), "security"),
+            Box(1270, 550, 250, 112, "ConfirmationVM", ("ApproveCommand", "RejectCommand", "no auto-resolve at expiry"), "security"),
+            Box(90, 756, 210, 96, "ICommand", ("CanExecute / Execute", "CanExecuteChanged"), "generic"),
+            Box(350, 744, 230, 120, "RelayCommand", ("implements ICommand", "predicate + task", "reactive triggers"), "bus"),
+            Box(630, 744, 240, 120, "DecoratorCommand", ("single inner command", "pre/post actions", "extra gate"), "bus"),
+            Box(920, 732, 270, 132, "ConfirmationDecoratorCommand", ("confirm delegate gate", "errors observable", "fire-and-forget + async entry"), "bus"),
+            Box(1240, 732, 250, 132, "ModeledCrudCommands", ("CreateNew / UpdateCurrent / DeleteCurrent", "optional confirm delegates", "selection trigger re-evaluates"), "bus"),
+            Box(90, 916, 210, 96, "IPageable", ("page size / page count", "current page navigation"), "generic"),
+            Box(350, 904, 230, 120, "PagedComposition", ("implements IPageable", "wraps iterable source", "current page slice"), "database"),
+            Box(630, 904, 260, 120, "TokenPagedComposition", ("forward-only fetch_next", "load_more + refresh", "items accumulator + token"), "database"),
+            Box(960, 916, 220, 96, "INotificationHub", ("Post / Resolve", "Pending stream", "NullNotificationHub"), "security"),
+            Box(1230, 904, 220, 120, "ConfirmHelper", ("make_confirm", "awaits Post/Resolve flow", "returns async bool delegate"), "security"),
+            Box(1510, 916, 180, 96, "Confirm delegate", ("() -> Task<bool>", "Approve means proceed"), "generic"),
         ),
         relationships=(
-            Relationship("extends", ((310, 212), (360, 212)), (336, 194)),
-            Relationship("extends", ((580, 212), (620, 212)), (600, 194)),
-            Relationship("extends", ((580, 238), (880, 238)), (730, 224)),
-            Relationship("extends", ((580, 264), (1140, 264)), (860, 250)),
-            Relationship("extends", ((580, 290), (1420, 290)), (1000, 276)),
-            Relationship("extends", ((850, 454), (620, 454)), (734, 438)),
-            Relationship("extends", ((1120, 454), (890, 454)), (1004, 438)),
-            Relationship("implements", ((1295, 798), (1295, 836)), (1336, 814)),
-            Relationship("implements", ((215, 836), (215, 798), (215, 640), (215, 518)), (250, 744)),
-            Relationship("implements", ((485, 836), (485, 798), (485, 640), (1025, 640), (1025, 518)), (610, 780)),
-            Relationship("wraps", ((330, 458), (360, 458)), (346, 442)),
-            Relationship("wraps", ((590, 458), (620, 458)), (606, 442)),
-            Relationship("wraps", ((1005, 454), (1005, 518), (1005, 600), (1005, 640), (1055, 640)), (1030, 620)),
-            Relationship("decorates", ((600, 740), (640, 740)), (620, 724)),
-            Relationship("decorates", ((870, 740), (910, 740)), (890, 724)),
-            Relationship("adapts", ((870, 894), (910, 894), (910, 758), (640, 758)), (830, 816)),
-            Relationship("owns", ((730, 266), (730, 320), (1025, 320), (1025, 390)), (902, 338)),
-            Relationship("owns", ((1260, 266), (1260, 320), (1565, 320), (1565, 390)), (1420, 338)),
+            Relationship("extends", ((500, 202), (330, 202)), (414, 186)),
+            Relationship("extends", ((780, 202), (330, 202)), (626, 186)),
+            Relationship("extends", ((1060, 202), (330, 202)), (894, 186)),
+            Relationship("extends", ((1340, 202), (330, 202)), (1170, 186)),
+            Relationship("extends", ((1620, 202), (330, 202)), (1450, 186)),
+            Relationship("implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)),
+            Relationship("implements", ((780, 262), (780, 330), (800, 330), (800, 402)), (828, 350)),
+            Relationship("wraps", ((360, 450), (310, 450)), (336, 434)),
+            Relationship("wraps", ((960, 450), (910, 450)), (936, 434)),
+            Relationship("owns", ((340, 616), (390, 616)), (364, 600)),
+            Relationship("owns", ((340, 642), (650, 642)), (494, 626)),
+            Relationship("extends", ((1270, 616), (1210, 616)), (1240, 600)),
+            Relationship("implements", ((465, 744), (465, 700), (195, 700), (195, 852)), (310, 718)),
+            Relationship("decorates", ((630, 804), (300, 804)), (464, 788)),
+            Relationship("decorates", ((920, 804), (300, 804)), (628, 836)),
+            Relationship("owns", ((1055, 864), (1055, 900), (1600, 900), (1600, 916)), (1340, 884)),
+            Relationship("implements", ((465, 904), (465, 872), (195, 872), (195, 916)), (314, 892)),
+            Relationship("adapts", ((1450, 964), (1510, 964)), (1480, 948)),
         ),
         notes=(
             Note(
                 80,
-                992,
-                1140,
-                112,
+                1110,
+                1160,
+                104,
                 "Assertion",
                 (
                     "PagedComposition and TokenPagedComposition are composition/paging primitives, not CompositeVM subclasses.",
@@ -741,14 +779,14 @@ def class_architecture() -> Diagram:
                 "#fb923c",
             ),
             Note(
-                1260,
-                992,
-                460,
-                112,
+                80,
+                1234,
+                1640,
+                70,
                 "Reading hint",
                 (
-                    "Boxes are cluster-level families rather than exhaustive member lists.",
-                    "Relationship styles are deliberately distinct so the docs can explain lineage vs composition clearly.",
+                    "Helper boxes make interface and delegate endpoints explicit so wraps/decorates/adapts stay literal.",
+                    "The map is cluster-level, but every visible arrow endpoint names a real surface from spec or shipped code.",
                 ),
                 "#94a3b8",
             ),
@@ -757,25 +795,25 @@ def class_architecture() -> Diagram:
             (
                 "Lineage",
                 (
-                    "ComponentVMBase underpins every core VM family, while specialized VMs extend or compose around that runtime.",
-                    "CompositeVM, GroupVM, AggregateVM, and HierarchicalVM are separate containers rather than one mutable mega-type.",
-                    "Forwarding decorators stay wrappers: they delegate the wrapped interface by default.",
+                    "The base-type story is narrow on purpose: the core VM families extend ComponentVMBase, while FormVM and paging helpers do not.",
+                    "CompositeVM, GroupVM, AggregateVM, and HierarchicalVM stay separate container families instead of one mutable mega-type.",
+                    "Forwarding decorators remain wrappers around canonical interfaces, matching chapter 09.",
                 ),
             ),
             (
                 "Composition helpers",
                 (
-                    "FormVM adds an edit lifecycle on top of model-bearing leaves.",
-                    "PagedComposition and TokenPagedComposition stay outside the VM inheritance tree and layer paging behavior onto sources.",
-                    "SearchableState and ExpandableState provide opt-in behavior through capability contracts.",
+                    "FormVM owns its command pair and persister/validation collaborators rather than inheriting from the component tree.",
+                    "PagedComposition implements IPageable over a wrapped source; TokenPagedComposition owns an accumulator and next-token flow.",
+                    "ConfirmationVM extends NotificationVM because the shipped notifications package and ADR-0031 say it does.",
                 ),
             ),
             (
                 "Command and service seams",
                 (
-                    "DecoratorCommand and ConfirmationDecoratorCommand layer behavior on ICommand without changing callers.",
-                    "ConfirmHelper bridges NotificationHub flows into confirmation delegates.",
-                    "IDialogService and INotificationHub stay orthogonal: modal request/response vs toast-style async posting.",
+                    "RelayCommand is the plain ICommand implementation; DecoratorCommand and ConfirmationDecoratorCommand layer behavior onto an inner ICommand.",
+                    "ConfirmHelper adapts INotificationHub into the async bool delegate used by confirmation decorators.",
+                    "ModeledCrudCommands packages a command set around selection-driven actions without changing the composite type itself.",
                 ),
             ),
         ),
@@ -783,6 +821,7 @@ def class_architecture() -> Diagram:
 
 
 def viewmodel_families() -> Diagram:
+    facts = SOURCE_FACTS
     return Diagram(
         diagram_id="viewmodel-families",
         title="ViewModel Families Map",
@@ -801,7 +840,19 @@ def viewmodel_families() -> Diagram:
             Box(680, 336, 240, 116, "Recursive container", ("HierarchicalVM<TModel,TVM>", "Parent / Depth / Path", "structural messages"), "frontend"),
             Box(970, 170, 240, 132, "Forwarding decorators", ("ForwardingComponentVM", "ForwardingCompositeVM", "instrumentation / overrides"), "frontend"),
             Box(1260, 170, 260, 132, "Specialized VMs", ("FormVM", "NotificationVM", "ConfirmationVM", "DiscriminatorVM"), "security"),
-            Box(390, 514, 240, 128, "Capability overlays", ("selection / expansion", "CRUD / dialog / paging", "22 micro-interfaces"), "security"),
+            Box(
+                390,
+                514,
+                240,
+                128,
+                "Capability overlays",
+                (
+                    "selection / expansion",
+                    "CRUD / dialog / paging",
+                    f"{facts.capability_count} micro-interfaces",
+                ),
+                "security",
+            ),
             Box(680, 514, 240, 128, "State helpers", ("DerivedProperty", "ExpandableState", "SearchableState"), "database"),
             Box(970, 514, 240, 128, "Paging helpers", ("PagedComposition", "TokenPagedComposition", "filtered/scored views"), "database"),
             Box(1260, 514, 260, 128, "Services + messages", ("MessageHub", "IDialogService", "INotificationHub", "PropertyChangedMessage"), "bus"),

@@ -1,241 +1,257 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1320" viewBox="0 0 1800 1320" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
   <defs>
     <style>
       text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
     </style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/>
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#d7e1ec" stroke-width="0.8"/>
     </pattern>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
     </marker>
   </defs>
-  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="#f3f7fb"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
-  <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">Class Architecture Map</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">clustered library families with explicit relationship kinds</text>
-  <polyline points="310,212 360,212" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="303" y="182" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="336" y="196" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="580,212 620,212" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="567" y="182" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="600" y="196" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="580,238 880,238" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="697" y="212" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="730" y="226" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="580,264 1140,264" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="827" y="238" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="860" y="252" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="580,290 1420,290" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="967" y="264" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="1000" y="278" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="850,454 620,454" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="701" y="426" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="734" y="440" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="1120,454 890,454" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="971" y="426" width="67" height="20" rx="10" fill="#0b1420" stroke="#22d3ee" stroke-width="1"/>
-<text x="1004" y="440" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<polyline points="1295,798 1295,836" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
-<rect x="1292" y="802" width="88" height="20" rx="10" fill="#0b1420" stroke="#34d399" stroke-width="1"/>
-<text x="1336" y="816" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
-<polyline points="215,836 215,798 215,640 215,518" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
-<rect x="206" y="732" width="88" height="20" rx="10" fill="#0b1420" stroke="#34d399" stroke-width="1"/>
-<text x="250" y="746" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
-<polyline points="485,836 485,798 485,640 1025,640 1025,518" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
-<rect x="566" y="768" width="88" height="20" rx="10" fill="#0b1420" stroke="#34d399" stroke-width="1"/>
-<text x="610" y="782" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
-<polyline points="330,458 360,458" fill="none" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
-<rect x="319" y="430" width="54" height="20" rx="10" fill="#0b1420" stroke="#fb923c" stroke-width="1"/>
-<text x="346" y="444" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
-<polyline points="590,458 620,458" fill="none" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
-<rect x="579" y="430" width="54" height="20" rx="10" fill="#0b1420" stroke="#fb923c" stroke-width="1"/>
-<text x="606" y="444" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
-<polyline points="1005,454 1005,518 1005,600 1005,640 1055,640" fill="none" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
-<rect x="1003" y="608" width="54" height="20" rx="10" fill="#0b1420" stroke="#fb923c" stroke-width="1"/>
-<text x="1030" y="622" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
-<polyline points="600,740 640,740" fill="none" stroke="#fb7185" stroke-width="3.0" stroke-dasharray="8 6 2 6" marker-end="url(#arrowhead)"/>
-<rect x="580" y="712" width="81" height="20" rx="10" fill="#0b1420" stroke="#fb7185" stroke-width="1"/>
-<text x="620" y="726" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">decorates</text>
-<polyline points="870,740 910,740" fill="none" stroke="#fb7185" stroke-width="3.0" stroke-dasharray="8 6 2 6" marker-end="url(#arrowhead)"/>
-<rect x="850" y="712" width="81" height="20" rx="10" fill="#0b1420" stroke="#fb7185" stroke-width="1"/>
-<text x="890" y="726" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">decorates</text>
-<polyline points="870,894 910,894 910,758 640,758" fill="none" stroke="#a78bfa" stroke-width="3.0" stroke-dasharray="3 6" marker-end="url(#arrowhead)"/>
-<rect x="800" y="804" width="60" height="20" rx="10" fill="#0b1420" stroke="#a78bfa" stroke-width="1"/>
-<text x="830" y="818" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">adapts</text>
-<polyline points="730,266 730,320 1025,320 1025,390" fill="none" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="875" y="326" width="54" height="20" rx="10" fill="#0b1420" stroke="#fbbf24" stroke-width="1"/>
-<text x="902" y="340" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
-<polyline points="1260,266 1260,320 1565,320 1565,390" fill="none" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<rect x="1393" y="326" width="54" height="20" rx="10" fill="#0b1420" stroke="#fbbf24" stroke-width="1"/>
-<text x="1420" y="340" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
-<rect x="60" y="118" width="1680" height="214" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+  <text x="40" y="54" fill="#0f172a" font-size="28" font-weight="700" text-anchor="start">Class Architecture Map</text>
+  <text x="40" y="82" fill="#64748b" font-size="15" font-weight="400" text-anchor="start">lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source</text>
+  <polyline points="500,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="381" y="174" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
+<text x="414" y="188" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<polyline points="780,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="593" y="174" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
+<text x="626" y="188" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<polyline points="1060,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="861" y="174" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
+<text x="894" y="188" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<polyline points="1340,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="1137" y="174" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
+<text x="1170" y="188" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<polyline points="1620,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="1417" y="174" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
+<text x="1450" y="188" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<polyline points="500,262 500,330 200,330 200,402" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
+<rect x="286" y="338" width="88" height="20" rx="10" fill="#ffffff" stroke="#34d399" stroke-width="1"/>
+<text x="330" y="352" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
+<polyline points="780,262 780,330 800,330 800,402" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
+<rect x="784" y="338" width="88" height="20" rx="10" fill="#ffffff" stroke="#34d399" stroke-width="1"/>
+<text x="828" y="352" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
+<polyline points="360,450 310,450" fill="none" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
+<rect x="309" y="422" width="54" height="20" rx="10" fill="#ffffff" stroke="#fb923c" stroke-width="1"/>
+<text x="336" y="436" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
+<polyline points="960,450 910,450" fill="none" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
+<rect x="909" y="422" width="54" height="20" rx="10" fill="#ffffff" stroke="#fb923c" stroke-width="1"/>
+<text x="936" y="436" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wraps</text>
+<polyline points="340,616 390,616" fill="none" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="337" y="588" width="54" height="20" rx="10" fill="#ffffff" stroke="#fbbf24" stroke-width="1"/>
+<text x="364" y="602" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
+<polyline points="340,642 650,642" fill="none" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="467" y="614" width="54" height="20" rx="10" fill="#ffffff" stroke="#fbbf24" stroke-width="1"/>
+<text x="494" y="628" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
+<polyline points="1270,616 1210,616" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="1207" y="588" width="67" height="20" rx="10" fill="#ffffff" stroke="#22d3ee" stroke-width="1"/>
+<text x="1240" y="602" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<polyline points="465,744 465,700 195,700 195,852" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
+<rect x="266" y="706" width="88" height="20" rx="10" fill="#ffffff" stroke="#34d399" stroke-width="1"/>
+<text x="310" y="720" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
+<polyline points="630,804 300,804" fill="none" stroke="#fb7185" stroke-width="3.0" stroke-dasharray="8 6 2 6" marker-end="url(#arrowhead)"/>
+<rect x="424" y="776" width="81" height="20" rx="10" fill="#ffffff" stroke="#fb7185" stroke-width="1"/>
+<text x="464" y="790" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">decorates</text>
+<polyline points="920,804 300,804" fill="none" stroke="#fb7185" stroke-width="3.0" stroke-dasharray="8 6 2 6" marker-end="url(#arrowhead)"/>
+<rect x="588" y="824" width="81" height="20" rx="10" fill="#ffffff" stroke="#fb7185" stroke-width="1"/>
+<text x="628" y="838" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">decorates</text>
+<polyline points="1055,864 1055,900 1600,900 1600,916" fill="none" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<rect x="1313" y="872" width="54" height="20" rx="10" fill="#ffffff" stroke="#fbbf24" stroke-width="1"/>
+<text x="1340" y="886" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
+<polyline points="465,904 465,872 195,872 195,916" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
+<rect x="270" y="880" width="88" height="20" rx="10" fill="#ffffff" stroke="#34d399" stroke-width="1"/>
+<text x="314" y="894" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
+<polyline points="1450,964 1510,964" fill="none" stroke="#a78bfa" stroke-width="3.0" stroke-dasharray="3 6" marker-end="url(#arrowhead)"/>
+<rect x="1450" y="936" width="60" height="20" rx="10" fill="#ffffff" stroke="#a78bfa" stroke-width="1"/>
+<text x="1480" y="950" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">adapts</text>
+<rect x="60" y="118" width="1680" height="204" rx="12" fill="rgba(255, 255, 255, 0.48)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="74" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Core VM lineage</text>
-<rect x="60" y="360" width="1680" height="248" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
-<text x="74" y="382" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Containers, decorators, and capabilities</text>
-<rect x="60" y="638" width="1680" height="240" rx="12" fill="rgba(15, 23, 42, 0.04)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
-<text x="74" y="660" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Commands, services, and helper primitives</text>
-<rect x="100" y="160" width="210" height="104" rx="8" fill="#0f172a"/>
-<rect x="100" y="160" width="210" height="104" rx="8" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="1.8"/>
-<text x="205" y="188" fill="white" font-size="18" font-weight="700" text-anchor="middle">ComponentVMBase</text>
-<text x="205" y="214" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">status machine</text>
-<text x="205" y="233" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hub + dispatcher</text>
-<text x="205" y="252" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">protected hooks</text>
-<rect x="360" y="150" width="220" height="116" rx="8" fill="#0f172a"/>
-<rect x="360" y="150" width="220" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="470" y="178" fill="white" font-size="18" font-weight="700" text-anchor="middle">ComponentVM</text>
-<text x="470" y="204" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">leaf VM</text>
-<text x="470" y="223" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">modeled + readonly variants</text>
-<text x="470" y="242" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">propertyChanged surface</text>
-<rect x="620" y="150" width="220" height="116" rx="8" fill="#0f172a"/>
-<rect x="620" y="150" width="220" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="730" y="178" fill="white" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>
-<text x="730" y="204" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">children list</text>
-<text x="730" y="223" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current slot</text>
-<text x="730" y="242" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">select_component</text>
-<rect x="880" y="150" width="220" height="116" rx="8" fill="#0f172a"/>
-<rect x="880" y="150" width="220" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="990" y="178" fill="white" font-size="18" font-weight="700" text-anchor="middle">GroupVM</text>
-<text x="990" y="204" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">peer children</text>
-<text x="990" y="223" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no Current</text>
-<text x="990" y="242" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">batch updates</text>
-<rect x="1140" y="150" width="240" height="116" rx="8" fill="#0f172a"/>
-<rect x="1140" y="150" width="240" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1260" y="178" fill="white" font-size="18" font-weight="700" text-anchor="middle">AggregateVM1..6</text>
-<text x="1260" y="204" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fixed arity</text>
-<text x="1260" y="223" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Component1..6 accessors</text>
-<text x="1260" y="242" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">heterogeneous slots</text>
-<rect x="1420" y="150" width="260" height="116" rx="8" fill="#0f172a"/>
-<rect x="1420" y="150" width="260" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1550" y="178" fill="white" font-size="18" font-weight="700" text-anchor="middle">HierarchicalVM</text>
-<text x="1550" y="204" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">recursive nodes</text>
-<text x="1550" y="223" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Parent / Depth / Path</text>
-<text x="1550" y="242" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TreeStructureChangedMessage</text>
-<rect x="100" y="400" width="230" height="116" rx="8" fill="#0f172a"/>
-<rect x="100" y="400" width="230" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="215" y="428" fill="white" font-size="18" font-weight="700" text-anchor="middle">ForwardingComponentVM</text>
-<text x="215" y="454" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">delegates IComponentVM&lt;M&gt;</text>
-<text x="215" y="473" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">override selected members</text>
-<rect x="360" y="400" width="230" height="116" rx="8" fill="#0f172a"/>
-<rect x="360" y="400" width="230" height="116" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="475" y="428" fill="white" font-size="18" font-weight="700" text-anchor="middle">ForwardingCompositeVM</text>
-<text x="475" y="454" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">delegates ICompositeVM&lt;VM&gt;</text>
-<text x="475" y="473" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">forwards Current + iteration</text>
-<rect x="620" y="390" width="230" height="128" rx="8" fill="#0f172a"/>
-<rect x="620" y="390" width="230" height="128" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="735" y="418" fill="white" font-size="18" font-weight="700" text-anchor="middle">FormVM</text>
-<text x="735" y="444" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">snapshot + IsDirty</text>
-<text x="735" y="463" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ApproveCommand / DenyCommand</text>
-<text x="735" y="482" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">validation + errors</text>
-<rect x="890" y="390" width="230" height="128" rx="8" fill="#0f172a"/>
-<rect x="890" y="390" width="230" height="128" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1005" y="418" fill="white" font-size="18" font-weight="700" text-anchor="middle">NotificationVM</text>
-<text x="1005" y="444" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps Notification</text>
-<text x="1005" y="463" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lifespan / opacity</text>
-<text x="1005" y="482" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DismissCommand</text>
-<rect x="1160" y="390" width="230" height="128" rx="8" fill="#0f172a"/>
-<rect x="1160" y="390" width="230" height="128" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1275" y="418" fill="white" font-size="18" font-weight="700" text-anchor="middle">ConfirmationVM</text>
-<text x="1275" y="444" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ApproveCommand</text>
-<text x="1275" y="463" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">RejectCommand</text>
-<text x="1275" y="482" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">longer prompt lifetime</text>
-<rect x="1430" y="390" width="230" height="128" rx="8" fill="#0f172a"/>
-<rect x="1430" y="390" width="230" height="128" rx="8" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1545" y="418" fill="white" font-size="18" font-weight="700" text-anchor="middle">DiscriminatorVM</text>
-<text x="1545" y="444" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ActiveKey</text>
-<text x="1545" y="463" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">modal precedence stack</text>
-<text x="1545" y="482" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">single-active slot</text>
-<rect x="100" y="680" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="100" y="680" width="230" height="118" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="215" y="708" fill="white" font-size="18" font-weight="700" text-anchor="middle">RelayCommand</text>
-<text x="215" y="734" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">predicate + task</text>
-<text x="215" y="753" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reactive triggers</text>
-<text x="215" y="772" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">disposal makes inert</text>
-<rect x="370" y="680" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="370" y="680" width="230" height="118" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="485" y="708" fill="white" font-size="18" font-weight="700" text-anchor="middle">DecoratorCommand</text>
-<text x="485" y="734" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">pre/post actions</text>
-<text x="485" y="753" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">extra gate</text>
-<text x="485" y="772" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">single inner command</text>
-<rect x="640" y="680" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="640" y="680" width="230" height="118" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="755" y="708" fill="white" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
-<text x="755" y="734" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">async confirm gate</text>
-<text x="755" y="753" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">errors observable</text>
-<text x="755" y="772" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fire-and-forget Execute</text>
-<rect x="910" y="680" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="910" y="680" width="230" height="118" rx="8" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="1025" y="708" fill="white" font-size="18" font-weight="700" text-anchor="middle">ModeledCrudCommands</text>
-<text x="1025" y="734" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CreateNew / UpdateCurrent / DeleteCurrent</text>
-<text x="1025" y="753" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional confirm delegates</text>
-<rect x="1180" y="680" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="1180" y="680" width="230" height="118" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="1295" y="708" fill="white" font-size="18" font-weight="700" text-anchor="middle">PagedComposition</text>
-<text x="1295" y="734" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">implements IPageable</text>
-<text x="1295" y="753" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">decorates iterable source</text>
-<text x="1295" y="772" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">current page slice</text>
-<rect x="1450" y="680" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="1450" y="680" width="230" height="118" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="1565" y="708" fill="white" font-size="18" font-weight="700" text-anchor="middle">TokenPagedComposition</text>
-<text x="1565" y="734" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">forward-only fetch_next</text>
-<text x="1565" y="753" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Items accumulator</text>
-<text x="1565" y="772" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">LoadMore + Refresh</text>
-<rect x="100" y="836" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="100" y="836" width="230" height="118" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="215" y="864" fill="white" font-size="18" font-weight="700" text-anchor="middle">ExpandableState</text>
-<text x="215" y="890" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">implements expansion triple</text>
-<text x="215" y="909" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">delegates to VMs</text>
-<text x="215" y="928" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">observable IsExpanded</text>
-<rect x="370" y="836" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="370" y="836" width="230" height="118" rx="8" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="485" y="864" fill="white" font-size="18" font-weight="700" text-anchor="middle">SearchableState</text>
-<text x="485" y="890" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">debounced SearchTerm</text>
-<text x="485" y="909" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">predicate-driven filtering</text>
-<text x="485" y="928" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">filtered view</text>
-<rect x="640" y="836" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="640" y="836" width="230" height="118" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="755" y="864" fill="white" font-size="18" font-weight="700" text-anchor="middle">ConfirmHelper</text>
-<text x="755" y="890" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">make_confirm</text>
-<text x="755" y="909" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">adapts INotificationHub</text>
-<text x="755" y="928" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">returns async bool delegate</text>
-<rect x="910" y="836" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="910" y="836" width="230" height="118" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1025" y="864" fill="white" font-size="18" font-weight="700" text-anchor="middle">MessageHub + messages</text>
-<text x="1025" y="890" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PropertyChangedMessage</text>
-<text x="1025" y="909" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ConstructionStatusChangedMessage</text>
-<text x="1025" y="928" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hot FIFO stream</text>
-<rect x="1180" y="836" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="1180" y="836" width="230" height="118" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1295" y="864" fill="white" font-size="18" font-weight="700" text-anchor="middle">IDialogService</text>
-<text x="1295" y="890" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PickFile*</text>
-<text x="1295" y="909" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Confirm / Notify</text>
-<text x="1295" y="928" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Present modal VM</text>
-<rect x="1450" y="836" width="230" height="118" rx="8" fill="#0f172a"/>
-<rect x="1450" y="836" width="230" height="118" rx="8" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1565" y="864" fill="white" font-size="18" font-weight="700" text-anchor="middle">INotificationHub</text>
-<text x="1565" y="890" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Post / Resolve</text>
-<text x="1565" y="909" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Pending snapshot stream</text>
-<text x="1565" y="928" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NullNotificationHub</text>
-<rect x="80" y="992" width="1140" height="112" rx="8" fill="#111c2a"/>
-<rect x="80" y="992" width="1140" height="112" rx="8" fill="rgba(15, 23, 42, 0.68)" stroke="#fb923c" stroke-width="1.2"/>
-<text x="96" y="1016" fill="white" font-size="13" font-weight="700" text-anchor="start">Assertion</text>
-<text x="96" y="1038" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">PagedComposition and TokenPagedComposition are composition/paging primitives, not CompositeVM subclasses.</text>
-<text x="96" y="1056" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Use them beside CompositeVM or a filtered source; they do not alter the container hierarchy.</text>
-<rect x="1260" y="992" width="460" height="112" rx="8" fill="#111c2a"/>
-<rect x="1260" y="992" width="460" height="112" rx="8" fill="rgba(15, 23, 42, 0.68)" stroke="#94a3b8" stroke-width="1.2"/>
-<text x="1276" y="1016" fill="white" font-size="13" font-weight="700" text-anchor="start">Reading hint</text>
-<text x="1276" y="1038" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Boxes are cluster-level families rather than exhaustive member lists.</text>
-<text x="1276" y="1056" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Relationship styles are deliberately distinct so the docs can explain lineage vs composition clearly.</text>
-<text x="1500" y="950" fill="white" font-size="13" font-weight="700" text-anchor="start">Relationship legend</text>
-<line x1="1500" y1="972" x2="1554" y2="972" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<text x="1572" y="976" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">extends</text>
-<line x1="1500" y1="996" x2="1554" y2="996" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
-<text x="1572" y="1000" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">implements</text>
-<line x1="1500" y1="1020" x2="1554" y2="1020" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<text x="1572" y="1024" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">owns</text>
-<line x1="1500" y1="1044" x2="1554" y2="1044" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
-<text x="1572" y="1048" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">wraps</text>
-<line x1="1500" y1="1068" x2="1554" y2="1068" stroke="#fb7185" stroke-width="3.0" stroke-dasharray="8 6 2 6" marker-end="url(#arrowhead)"/>
-<text x="1572" y="1072" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">decorates</text>
-<line x1="1500" y1="1092" x2="1554" y2="1092" stroke="#a78bfa" stroke-width="3.0" stroke-dasharray="3 6" marker-end="url(#arrowhead)"/>
-<text x="1572" y="1096" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">adapts</text>
+<rect x="60" y="352" width="1680" height="322" rx="12" fill="rgba(255, 255, 255, 0.48)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="74" y="374" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Wrappers and specialized companions</text>
+<rect x="60" y="704" width="1680" height="352" rx="12" fill="rgba(255, 255, 255, 0.48)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="74" y="726" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Commands, paging, and notification adapters</text>
+<rect x="90" y="150" width="240" height="108" rx="8" fill="#ffffff"/>
+<rect x="90" y="150" width="240" height="108" rx="8" fill="rgba(102, 183, 142, 0.16)" stroke="#2e7d59" stroke-width="1.8"/>
+<text x="210" y="178" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ComponentVMBase</text>
+<text x="210" y="204" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">lifecycle state machine</text>
+<text x="210" y="223" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">hub + dispatcher</text>
+<text x="210" y="242" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">protected hooks</text>
+<rect x="390" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="390" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="500" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ComponentVM</text>
+<text x="500" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">leaf VM family</text>
+<text x="500" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">modeled + readonly variants</text>
+<text x="500" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">propertyChanged surface</text>
+<rect x="670" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="670" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="780" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>
+<text x="780" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">children list</text>
+<text x="780" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Current slot</text>
+<text x="780" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">select_component</text>
+<rect x="950" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="950" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1060" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">GroupVM</text>
+<text x="1060" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">peer children</text>
+<text x="1060" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">no Current</text>
+<text x="1060" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">batch updates</text>
+<rect x="1230" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="1230" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1340" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">AggregateVM1..6</text>
+<text x="1340" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">fixed arity</text>
+<text x="1340" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Component1..6 accessors</text>
+<text x="1340" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">heterogeneous slots</text>
+<rect x="1510" y="142" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="1510" y="142" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1620" y="170" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">HierarchicalVM</text>
+<text x="1620" y="196" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">recursive nodes</text>
+<text x="1620" y="215" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Parent / Depth / Path</text>
+<text x="1620" y="234" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">tree change messages</text>
+<rect x="90" y="402" width="220" height="96" rx="8" fill="#ffffff"/>
+<rect x="90" y="402" width="220" height="96" rx="8" fill="rgba(170, 184, 201, 0.18)" stroke="#6a7c91" stroke-width="1.8"/>
+<text x="200" y="430" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">IComponentVM&lt;M&gt;</text>
+<text x="200" y="456" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">name / hint / model</text>
+<text x="200" y="475" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">selection + lifecycle verbs</text>
+<rect x="360" y="390" width="260" height="120" rx="8" fill="#ffffff"/>
+<rect x="360" y="390" width="260" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="490" y="418" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ForwardingComponentVM</text>
+<text x="490" y="444" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">wraps IComponentVM&lt;M&gt;</text>
+<text x="490" y="463" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">default delegation</text>
+<text x="490" y="482" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">override selected members</text>
+<rect x="690" y="402" width="220" height="96" rx="8" fill="#ffffff"/>
+<rect x="690" y="402" width="220" height="96" rx="8" fill="rgba(170, 184, 201, 0.18)" stroke="#6a7c91" stroke-width="1.8"/>
+<text x="800" y="430" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ICompositeVM&lt;VM&gt;</text>
+<text x="800" y="456" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">IList surface + Current</text>
+<text x="800" y="475" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">child selection helpers</text>
+<rect x="960" y="390" width="280" height="120" rx="8" fill="#ffffff"/>
+<rect x="960" y="390" width="280" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1100" y="418" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ForwardingCompositeVM</text>
+<text x="1100" y="444" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">wraps ICompositeVM&lt;VM&gt;</text>
+<text x="1100" y="463" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">forwards Current + iteration</text>
+<text x="1100" y="482" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">subclass overrides stay surgical</text>
+<rect x="1300" y="390" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="1300" y="390" width="220" height="120" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="1410" y="418" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">DiscriminatorVM</text>
+<text x="1410" y="444" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ActiveKey</text>
+<text x="1410" y="463" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">modal precedence stack</text>
+<text x="1410" y="482" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">single-active slot</text>
+<rect x="90" y="550" width="250" height="132" rx="8" fill="#ffffff"/>
+<rect x="90" y="550" width="250" height="132" rx="8" fill="rgba(102, 170, 226, 0.16)" stroke="#2f6fa3" stroke-width="1.8"/>
+<text x="215" y="578" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">FormVM</text>
+<text x="215" y="604" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">snapshot + IsDirty</text>
+<text x="215" y="623" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">approve_async + errors</text>
+<text x="215" y="642" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">validation-aware persist flow</text>
+<rect x="390" y="560" width="210" height="112" rx="8" fill="#ffffff"/>
+<rect x="390" y="560" width="210" height="112" rx="8" fill="rgba(239, 174, 104, 0.18)" stroke="#c77729" stroke-width="1.8"/>
+<text x="495" y="588" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Approve + Deny commands</text>
+<text x="495" y="614" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ICommand pair</text>
+<text x="495" y="633" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">approve is fire-and-forget</text>
+<text x="495" y="652" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">deny reverts Model</text>
+<rect x="650" y="550" width="260" height="132" rx="8" fill="#ffffff"/>
+<rect x="650" y="550" width="260" height="132" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="780" y="578" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Persister + validation</text>
+<text x="780" y="604" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">persister / snapshotter</text>
+<text x="780" y="623" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">validators + equality</text>
+<text x="780" y="642" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">hub messages on deny</text>
+<rect x="980" y="560" width="230" height="112" rx="8" fill="#ffffff"/>
+<rect x="980" y="560" width="230" height="112" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="1095" y="588" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">NotificationVM</text>
+<text x="1095" y="614" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">lifespan / opacity</text>
+<text x="1095" y="633" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">DismissCommand</text>
+<text x="1095" y="652" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">auto-resolve at expiry</text>
+<rect x="1270" y="550" width="250" height="112" rx="8" fill="#ffffff"/>
+<rect x="1270" y="550" width="250" height="112" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="1395" y="578" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ConfirmationVM</text>
+<text x="1395" y="604" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">ApproveCommand</text>
+<text x="1395" y="623" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">RejectCommand</text>
+<text x="1395" y="642" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">no auto-resolve at expiry</text>
+<rect x="90" y="756" width="210" height="96" rx="8" fill="#ffffff"/>
+<rect x="90" y="756" width="210" height="96" rx="8" fill="rgba(170, 184, 201, 0.18)" stroke="#6a7c91" stroke-width="1.8"/>
+<text x="195" y="784" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ICommand</text>
+<text x="195" y="810" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CanExecute / Execute</text>
+<text x="195" y="829" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CanExecuteChanged</text>
+<rect x="350" y="744" width="230" height="120" rx="8" fill="#ffffff"/>
+<rect x="350" y="744" width="230" height="120" rx="8" fill="rgba(239, 174, 104, 0.18)" stroke="#c77729" stroke-width="1.8"/>
+<text x="465" y="772" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">RelayCommand</text>
+<text x="465" y="798" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">implements ICommand</text>
+<text x="465" y="817" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">predicate + task</text>
+<text x="465" y="836" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">reactive triggers</text>
+<rect x="630" y="744" width="240" height="120" rx="8" fill="#ffffff"/>
+<rect x="630" y="744" width="240" height="120" rx="8" fill="rgba(239, 174, 104, 0.18)" stroke="#c77729" stroke-width="1.8"/>
+<text x="750" y="772" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">DecoratorCommand</text>
+<text x="750" y="798" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">single inner command</text>
+<text x="750" y="817" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">pre/post actions</text>
+<text x="750" y="836" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">extra gate</text>
+<rect x="920" y="732" width="270" height="132" rx="8" fill="#ffffff"/>
+<rect x="920" y="732" width="270" height="132" rx="8" fill="rgba(239, 174, 104, 0.18)" stroke="#c77729" stroke-width="1.8"/>
+<text x="1055" y="760" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
+<text x="1055" y="786" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">confirm delegate gate</text>
+<text x="1055" y="805" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">errors observable</text>
+<text x="1055" y="824" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">fire-and-forget + async entry</text>
+<rect x="1240" y="732" width="250" height="132" rx="8" fill="#ffffff"/>
+<rect x="1240" y="732" width="250" height="132" rx="8" fill="rgba(239, 174, 104, 0.18)" stroke="#c77729" stroke-width="1.8"/>
+<text x="1365" y="760" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ModeledCrudCommands</text>
+<text x="1365" y="786" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">CreateNew / UpdateCurrent / DeleteCurrent</text>
+<text x="1365" y="805" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">optional confirm delegates</text>
+<text x="1365" y="824" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">selection trigger re-evaluates</text>
+<rect x="90" y="916" width="210" height="96" rx="8" fill="#ffffff"/>
+<rect x="90" y="916" width="210" height="96" rx="8" fill="rgba(170, 184, 201, 0.18)" stroke="#6a7c91" stroke-width="1.8"/>
+<text x="195" y="944" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">IPageable</text>
+<text x="195" y="970" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">page size / page count</text>
+<text x="195" y="989" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">current page navigation</text>
+<rect x="350" y="904" width="230" height="120" rx="8" fill="#ffffff"/>
+<rect x="350" y="904" width="230" height="120" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
+<text x="465" y="932" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">PagedComposition</text>
+<text x="465" y="958" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">implements IPageable</text>
+<text x="465" y="977" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">wraps iterable source</text>
+<text x="465" y="996" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">current page slice</text>
+<rect x="630" y="904" width="260" height="120" rx="8" fill="#ffffff"/>
+<rect x="630" y="904" width="260" height="120" rx="8" fill="rgba(174, 161, 231, 0.16)" stroke="#7862c9" stroke-width="1.8"/>
+<text x="760" y="932" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">TokenPagedComposition</text>
+<text x="760" y="958" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">forward-only fetch_next</text>
+<text x="760" y="977" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">load_more + refresh</text>
+<text x="760" y="996" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">items accumulator + token</text>
+<rect x="960" y="916" width="220" height="96" rx="8" fill="#ffffff"/>
+<rect x="960" y="916" width="220" height="96" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="1070" y="944" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">INotificationHub</text>
+<text x="1070" y="970" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Post / Resolve</text>
+<text x="1070" y="989" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Pending stream</text>
+<text x="1070" y="1008" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">NullNotificationHub</text>
+<rect x="1230" y="904" width="220" height="120" rx="8" fill="#ffffff"/>
+<rect x="1230" y="904" width="220" height="120" rx="8" fill="rgba(220, 145, 179, 0.16)" stroke="#b55479" stroke-width="1.8"/>
+<text x="1340" y="932" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">ConfirmHelper</text>
+<text x="1340" y="958" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">make_confirm</text>
+<text x="1340" y="977" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">awaits Post/Resolve flow</text>
+<text x="1340" y="996" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">returns async bool delegate</text>
+<rect x="1510" y="916" width="180" height="96" rx="8" fill="#ffffff"/>
+<rect x="1510" y="916" width="180" height="96" rx="8" fill="rgba(170, 184, 201, 0.18)" stroke="#6a7c91" stroke-width="1.8"/>
+<text x="1600" y="944" fill="#0f172a" font-size="18" font-weight="700" text-anchor="middle">Confirm delegate</text>
+<text x="1600" y="970" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">() -&gt; Task&lt;bool&gt;</text>
+<text x="1600" y="989" fill="#516273" font-size="13" font-weight="400" text-anchor="middle">Approve means proceed</text>
+<rect x="80" y="1110" width="1160" height="104" rx="8" fill="#f8fbff"/>
+<rect x="80" y="1110" width="1160" height="104" rx="8" fill="rgba(255, 255, 255, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="96" y="1134" fill="#0f172a" font-size="13" font-weight="700" text-anchor="start">Assertion</text>
+<text x="96" y="1156" fill="#516273" font-size="12" font-weight="400" text-anchor="start">PagedComposition and TokenPagedComposition are composition/paging primitives, not CompositeVM subclasses.</text>
+<text x="96" y="1174" fill="#516273" font-size="12" font-weight="400" text-anchor="start">Use them beside CompositeVM or a filtered source; they do not alter the container hierarchy.</text>
+<rect x="80" y="1234" width="1640" height="70" rx="8" fill="#f8fbff"/>
+<rect x="80" y="1234" width="1640" height="70" rx="8" fill="rgba(255, 255, 255, 0.94)" stroke="#94a3b8" stroke-width="1.2"/>
+<text x="96" y="1258" fill="#0f172a" font-size="13" font-weight="700" text-anchor="start">Reading hint</text>
+<text x="96" y="1280" fill="#516273" font-size="12" font-weight="400" text-anchor="start">Helper boxes make interface and delegate endpoints explicit so wraps/decorates/adapts stay literal.</text>
+<text x="96" y="1298" fill="#516273" font-size="12" font-weight="400" text-anchor="start">The map is cluster-level, but every visible arrow endpoint names a real surface from spec or shipped code.</text>
+<text x="1500" y="1090" fill="#0f172a" font-size="13" font-weight="700" text-anchor="start">Relationship legend</text>
+<line x1="1500" y1="1112" x2="1554" y2="1112" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<text x="1572" y="1116" fill="#516273" font-size="12" font-weight="400" text-anchor="start">extends</text>
+<line x1="1500" y1="1136" x2="1554" y2="1136" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
+<text x="1572" y="1140" fill="#516273" font-size="12" font-weight="400" text-anchor="start">implements</text>
+<line x1="1500" y1="1160" x2="1554" y2="1160" stroke="#fbbf24" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<text x="1572" y="1164" fill="#516273" font-size="12" font-weight="400" text-anchor="start">owns</text>
+<line x1="1500" y1="1184" x2="1554" y2="1184" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
+<text x="1572" y="1188" fill="#516273" font-size="12" font-weight="400" text-anchor="start">wraps</text>
+<line x1="1500" y1="1208" x2="1554" y2="1208" stroke="#fb7185" stroke-width="3.0" stroke-dasharray="8 6 2 6" marker-end="url(#arrowhead)"/>
+<text x="1572" y="1212" fill="#516273" font-size="12" font-weight="400" text-anchor="start">decorates</text>
+<line x1="1500" y1="1232" x2="1554" y2="1232" stroke="#a78bfa" stroke-width="3.0" stroke-dasharray="3 6" marker-end="url(#arrowhead)"/>
+<text x="1572" y="1236" fill="#516273" font-size="12" font-weight="400" text-anchor="start">adapts</text>
 </svg>

@@ -97,7 +97,7 @@
   <main>
     <header>
       <div class="header-row"><div class="pulse-dot"></div><h1>Class Architecture Map</h1></div>
-      <p class="subtitle">clustered library families with explicit relationship kinds</p>
+      <p class="subtitle">lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source</p>
     </header>
     <div class="diagram">
       <object data="class-architecture.svg" type="image/svg+xml" aria-label="Class Architecture Map"></object>
@@ -109,21 +109,21 @@
           <div class="card-dot cyan"></div>
           <h2>Lineage</h2>
         </div>
-        <ul><li>ComponentVMBase underpins every core VM family, while specialized VMs extend or compose around that runtime.</li><li>CompositeVM, GroupVM, AggregateVM, and HierarchicalVM are separate containers rather than one mutable mega-type.</li><li>Forwarding decorators stay wrappers: they delegate the wrapped interface by default.</li></ul>
+        <ul><li>The base-type story is narrow on purpose: the core VM families extend ComponentVMBase, while FormVM and paging helpers do not.</li><li>CompositeVM, GroupVM, AggregateVM, and HierarchicalVM stay separate container families instead of one mutable mega-type.</li><li>Forwarding decorators remain wrappers around canonical interfaces, matching chapter 09.</li></ul>
       </section>
       <section class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
           <h2>Composition helpers</h2>
         </div>
-        <ul><li>FormVM adds an edit lifecycle on top of model-bearing leaves.</li><li>PagedComposition and TokenPagedComposition stay outside the VM inheritance tree and layer paging behavior onto sources.</li><li>SearchableState and ExpandableState provide opt-in behavior through capability contracts.</li></ul>
+        <ul><li>FormVM owns its command pair and persister/validation collaborators rather than inheriting from the component tree.</li><li>PagedComposition implements IPageable over a wrapped source; TokenPagedComposition owns an accumulator and next-token flow.</li><li>ConfirmationVM extends NotificationVM because the shipped notifications package and ADR-0031 say it does.</li></ul>
       </section>
       <section class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
           <h2>Command and service seams</h2>
         </div>
-        <ul><li>DecoratorCommand and ConfirmationDecoratorCommand layer behavior on ICommand without changing callers.</li><li>ConfirmHelper bridges NotificationHub flows into confirmation delegates.</li><li>IDialogService and INotificationHub stay orthogonal: modal request/response vs toast-style async posting.</li></ul>
+        <ul><li>RelayCommand is the plain ICommand implementation; DecoratorCommand and ConfirmationDecoratorCommand layer behavior onto an inner ICommand.</li><li>ConfirmHelper adapts INotificationHub into the async bool delegate used by confirmation decorators.</li><li>ModeledCrudCommands packages a command set around selection-driven actions without changing the composite type itself.</li></ul>
       </section>
     </div>
     <footer>Generated from repo-derived facts for VMx spec 3.1.0.</footer>
