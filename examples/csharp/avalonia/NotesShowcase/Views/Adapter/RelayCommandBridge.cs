@@ -9,10 +9,11 @@ namespace NotesShowcase.Views.Adapter;
 ///
 /// <para>
 /// VMx's <see cref="VMx.Commands.RelayCommand"/> already implements
-/// <see cref="ICommand"/>, but the wrapping bridge is the documented
-/// integration seam (scenario §7.3): every Avalonia XAML binding to a
-/// command goes through a <see cref="RelayCommandBridge"/> so that lifetime
-/// and re-raise behaviour are owned by the adapter layer, not the VM.
+/// <see cref="ICommand"/>, so the showcase binds commands directly. This bridge
+/// is the documented integration seam (scenario §7.3) a host MAY route command
+/// bindings through when it wants command lifetime and re-raise behaviour owned
+/// by the adapter layer rather than the VM; it is exercised by the adapter unit
+/// tests as a reference pattern.
 /// </para>
 ///
 /// <para>
