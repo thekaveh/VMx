@@ -67,10 +67,12 @@ plus `Sequence` conformance that forwards iteration to the wrapped children.
 It does **not** expose `insert`/`setAt`/`clear`, because `CompositeVM<VM>` in
 Swift does not have those members. (`collectionChanged`/`batchUpdate` were added
 to `CompositeVM<VM>` in Increment 2 — ADR-0060 — so the earlier "deferred" note
-for those two is superseded; the forwarding wrapper still omits them by design.)
-The `insert`/`setAt`/`clear` canonical container mutators remain a known deferred
-API-surface gap in Swift's `CompositeVM`/`GroupVM` — see ADR-0009's known-gaps
-list.
+for those two is superseded; `ForwardingCompositeVM` now forwards them, and the
+typed `canSelectComponent`/`selectComponent`/`deselectComponent` surface, to the
+wrapped composite — an is-a decorator cannot omit inherited members without
+leaving live-but-wrong ones.) The `insert`/`setAt`/`clear` canonical container
+mutators remain a known deferred API-surface gap in Swift's `CompositeVM`/`GroupVM`
+— see ADR-0009's known-gaps list.
 
 ### 2.2 DerivedProperty — `DPROP-001..012`
 

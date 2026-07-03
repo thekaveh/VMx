@@ -383,8 +383,14 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         // ManualDispatcher a test can prove the emission is buffered until
         // flushForeground() is called.
         if let prev = previous {
-            dispatcher.scheduleForeground { [weak prev] in
-                prev?._setIsCurrent(false)
+            dispatcher.scheduleForeground { [weak self, weak prev] in
+                // COMP-006: only clear the previous child's isCurrent if it is
+                // still not current when this deferred emit fires. Under a
+                // deferring dispatcher an A→B→A sequence before flush re-selects
+                // `prev`; clearing it unconditionally would leave `_current === prev`
+                // yet `prev.isCurrent == false`, violating spec/06 §3.
+                guard let prev, self?._current !== prev else { return }
+                prev._setIsCurrent(false)
             }
         }
         value?._setIsCurrent(true)
