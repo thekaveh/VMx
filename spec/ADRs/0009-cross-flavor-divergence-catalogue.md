@@ -346,6 +346,14 @@ here so audits don't reopen them prematurely:
   change deferred to the **next TypeScript major** (the conformance subclasses
   currently spread `hub`/`dispatcher` conditionally). Documented here so audits
   don't re-flag it as accidental drift.
+- **Swift `CompositeVM`/`GroupVM` canonical mutators `insert`/`setAt`/`clear`.**
+  Spec ch06/ch07 list these alongside `add`/`remove`/`removeAt` as the canonical
+  container surface; C#/Python/TypeScript ship all of them, Swift ships only
+  `add`/`remove` (+`removeAt` on `CompositeVM`). ADR-0059 originally deferred them
+  to "Increment 2", which shipped `collectionChanged`/`batchUpdate` (ADR-0060) but
+  not these mutators. No conformance ID isolates them, so Swift's "total library
+  parity" (ADR-0064/0065) — which is **conformance-ID** parity — holds. Adding the
+  three mutators (with tests) to Swift is a deferred API-surface follow-up.
 
 ### Command property declared types
 

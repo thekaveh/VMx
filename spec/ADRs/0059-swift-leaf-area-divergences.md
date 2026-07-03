@@ -64,9 +64,13 @@ own construction state, not the wrapped component's.
 `canSetCurrent`, `currentChild`, `selectChild`, `deselectChild`, `add`,
 `remove`, `removeAt`, `construct`, `destruct`, `dispose`, status, name/hint),
 plus `Sequence` conformance that forwards iteration to the wrapped children.
-It does **not** expose `insert`/`setAt`/`clear`/`collectionChanged`/`batchUpdate`,
-because `CompositeVM<VM>` in Swift does not have those members (they are
-deferred to Increment 2's collections work).
+It does **not** expose `insert`/`setAt`/`clear`, because `CompositeVM<VM>` in
+Swift does not have those members. (`collectionChanged`/`batchUpdate` were added
+to `CompositeVM<VM>` in Increment 2 — ADR-0060 — so the earlier "deferred" note
+for those two is superseded; the forwarding wrapper still omits them by design.)
+The `insert`/`setAt`/`clear` canonical container mutators remain a known deferred
+API-surface gap in Swift's `CompositeVM`/`GroupVM` — see ADR-0009's known-gaps
+list.
 
 ### 2.2 DerivedProperty — `DPROP-001..012`
 
