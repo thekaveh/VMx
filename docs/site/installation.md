@@ -7,7 +7,7 @@ tree; check the flavor README and registry before pinning a release.
 | Flavor     | Source tree | Public package status           |
 | ---------- | ----------- | ------------------------------- |
 | C#         | v3.1.0      | NuGet package not published yet |
-| Python     | v3.1.0      | `vmx` latest published: 2.6.1   |
+| Python     | v3.1.0      | `vmx` latest published: 3.1.0   |
 | TypeScript | v3.1.0      | npm package not published yet   |
 | Swift      | v3.1.0      | SwiftPM tag not published yet   |
 

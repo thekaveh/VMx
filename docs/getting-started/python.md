@@ -323,7 +323,7 @@ hub.dispose()
 ```
 
 > See `spec/02-lifecycle.md` for the full transition table and the
-> `StatusTransitionError` rules (LIFE-001 through LIFE-013).
+> `StatusTransitionError` rules (LIFE-001 through LIFE-014).
 
 ______________________________________________________________________
 

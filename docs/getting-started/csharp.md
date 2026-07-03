@@ -272,7 +272,7 @@ tabs.Dispose();
 ```
 
 > See `spec/02-lifecycle.md` for the transition table and the
-> `StatusTransitionException` rules (LIFE-001 through LIFE-013).
+> `StatusTransitionException` rules (LIFE-001 through LIFE-014).
 
 ______________________________________________________________________
 

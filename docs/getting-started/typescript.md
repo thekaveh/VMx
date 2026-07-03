@@ -267,7 +267,7 @@ tabs.dispose();
 hub.dispose();
 ```
 
-> See `spec/02-lifecycle.md` for the full transition table (LIFE-001..013).
+> See `spec/02-lifecycle.md` for the full transition table (LIFE-001..014).
 
 ______________________________________________________________________
 
