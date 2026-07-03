@@ -15,8 +15,8 @@ IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 —
 ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25
 notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063; +19 composite/group
-IDs via Phase-3 Inc-6 — ADR-0064; +42 v3.1 upstream-consumer IDs via
-ADR-0068..ADR-0075): the lifecycle state machine, the modeled
+IDs via Phase-3 Inc-6 — ADR-0064; +44 v3.1 upstream-consumer IDs via
+ADR-0068..ADR-0079): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
 `CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`,
@@ -168,7 +168,7 @@ Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 Inc-4: +40 forms/commands/hub IDs per ADR-0062;
 Inc-5: +25 notifications/dialogs IDs per ADR-0063;
 Inc-6: +19 composite/group IDs per ADR-0064;
-Inc-7: +42 v3.1 upstream-consumer IDs per ADR-0068..ADR-0075). The covered IDs are:
+Inc-7: +44 v3.1 upstream-consumer IDs per ADR-0068..ADR-0079). The covered IDs are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table

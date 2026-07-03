@@ -44,8 +44,8 @@ sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 +40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
-ADR-0063; +19 composite/group IDs per ADR-0064; +42 v3.1 library IDs per
-ADR-0068..ADR-0075; THEME-001..005 covered by the
+ADR-0063; +19 composite/group IDs per ADR-0064; +44 v3.1 library IDs per
+ADR-0068..ADR-0079; THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, and TypeScript. See `langs/swift/README.md` §5.
 
