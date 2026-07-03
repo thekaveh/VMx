@@ -132,7 +132,7 @@ public func walk(_ root: ComponentVMBase) -> [ComponentVMBase] {
 /// DFS pre-order like `walk`, but does NOT descend into the children of a node
 /// that is `Expandable` and currently collapsed (`isExpanded == false`). A node
 /// that is not `Expandable` is always descended (EXP-005). Materialized array,
-/// consistent with `walk`/`find` (ADR-0060).
+/// consistent with `walk`/`find` (ADR-0059 §2.5).
 public func walkExpanded(_ root: ComponentVMBase) -> [ComponentVMBase] {
     var out: [ComponentVMBase] = [root]
     let collapsed = (root as? Expandable).map { !$0.isExpanded } ?? false

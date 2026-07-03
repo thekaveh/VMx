@@ -157,8 +157,12 @@ identical for non-infinite trees, which is the only supported case.
 The utilities descend via an internal `_TreeContainer` **protocol**, conformed
 by `CompositeVM`/`GroupVM` (through their public `count` + `at(_:)`) and
 `AggregateVM1..6` (through their per-slot accessors, skipping empty/nil slots).
-`walkExpanded` (expansion-gated traversal) is **not** part of this increment —
-it depends on the expand/collapse `EXP-*` area and is deferred to Increment 3.
+`walkExpanded` (expansion-gated traversal) depends on the expand/collapse
+`EXP-*` area and was deferred from this increment to Increment 3 (ADR-0061),
+where it was added. Like `walk`/`find`, it returns a materialized
+`[ComponentVMBase]` array (same rationale as above), and `EXP-005` covers it.
+Swift source comments cite this section (§2.5) for the materialized-array
+decision.
 
 ### 2.6 Bundle layout for conformance fixtures
 

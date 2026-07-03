@@ -177,7 +177,8 @@ see the new count if they query `Count` inside the handler.
 Bulk clears follow the same rule (clarified in v2.5.0 via ADR-0037): a
 `Clear()` on a non-empty list emits `PropertyChanged("Count")` **after** the
 `Reset` event, mirroring the batch-exit rule in §3.5. Clearing an empty list
-changes nothing and emits no `Count` notification.
+changes nothing and emits nothing — neither the `Reset` event nor the `Count`
+notification (ADR-0037 §2.2, matching the empty-batch case).
 
 ### 3.4 Platform compatibility
 
