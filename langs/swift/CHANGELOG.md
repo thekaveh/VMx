@@ -17,6 +17,10 @@ conformance IDs covered.
   invalidation, and `DiscriminatorVM`.
 - Options-value `create(_:)` factories for the common `ComponentVM`,
   `ComponentVMOf`, `CompositeVM`, and `GroupVM` types (`BLD-006`).
+- Collection + message-hub surface parity: value-based `remove(_:)` on
+  `ObservableList` / `ServicedObservableCollection`, strict-insert
+  `add(_:_:_:)` on `ObservableDictionary`, and the `whenPropertyChanged` /
+  `propertyValueChangedMessagesFor` hub helpers (spec/03 §7, spec/21).
 
 ### Changed
 
