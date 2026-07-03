@@ -1315,9 +1315,9 @@ yields `false`
 
 ### NOTIF-012 — `NotificationVM` auto-dismisses (resolves Approve) when `RemainingTime` reaches 0 — spec v2.1
 
-**Given** a `NotificationVM` with `Lifespan = 5 s` under a `TestScheduler`
+**Given** a `NotificationVM` with `Lifespan = 10 s` under a `TestScheduler`
 **And** the notification has been posted to a `NotificationHub`
-**When** the scheduler is advanced by 5 s
+**When** the scheduler is advanced by 10 s
 **Then** `IsResolved` is `true`
 **And** the hub notification is resolved with `NotificationReaction.Approve`
 
