@@ -122,6 +122,14 @@ public class GroupVMConformanceTests
         child.CanSelect().Should().BeFalse(
             "a group has no current-child slot for peers to select into");
         child.SelectCommand.CanExecute(null).Should().BeFalse();
+
+        // Normative GRP-011 clause (parity with the Swift test): calling Select()
+        // on a group child is a no-op — it does not make the child current.
+        child.Select();
+
+        child.IsCurrent.Should().BeFalse(
+            "Select() on a group child is a no-op — it does not become current");
+        child.CanDeselect().Should().BeFalse();
     }
 
     // ── GRP-003 — Construct waits until all children reach Constructed ────────

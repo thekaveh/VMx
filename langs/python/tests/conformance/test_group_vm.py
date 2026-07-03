@@ -133,6 +133,13 @@ def test_GRP_011_group_children_are_not_selectable() -> None:
     assert child.can_select() is False
     assert child.select_command.can_execute() is False
 
+    # Normative GRP-011 clause (parity with the Swift test): calling select()
+    # on a group child is a no-op — it does not make the child current.
+    child.select()
+
+    assert child.is_current is False
+    assert child.can_deselect() is False
+
 
 # ===========================================================================
 # GRP-003 — Construct waits until all children reach Constructed
