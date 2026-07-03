@@ -3,11 +3,11 @@
 Use `CompositeVM` for an ordered homogeneous child collection with one current
 selection.
 
-![Composite Family Deep Dive](../../assets/diagrams/composite-family.png)
+![Composite Family Deep Dive](../../../assets/diagrams/composite-family.png)
 
-Support links: [HTML](../../assets/diagrams/composite-family.html),
-[SVG](../../assets/diagrams/composite-family.svg),
-[PNG](../../assets/diagrams/composite-family.png)
+Support links: [HTML](../../../assets/diagrams/composite-family.html),
+[SVG](../../../assets/diagrams/composite-family.svg),
+[PNG](../../../assets/diagrams/composite-family.png)
 
 ## What It Owns
 

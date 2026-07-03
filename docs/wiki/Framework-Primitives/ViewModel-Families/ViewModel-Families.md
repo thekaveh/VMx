@@ -3,11 +3,11 @@
 Most VMx design choices reduce to one question: what ownership and navigation
 relationship does this VM have with its children, if any?
 
-![ViewModel Families Map](../../assets/diagrams/viewmodel-families.png)
+![ViewModel Families Map](../../../assets/diagrams/viewmodel-families.png)
 
-Support links: [HTML](../../assets/diagrams/viewmodel-families.html),
-[SVG](../../assets/diagrams/viewmodel-families.svg),
-[PNG](../../assets/diagrams/viewmodel-families.png)
+Support links: [HTML](../../../assets/diagrams/viewmodel-families.html),
+[SVG](../../../assets/diagrams/viewmodel-families.svg),
+[PNG](../../../assets/diagrams/viewmodel-families.png)
 
 ## Family Map
 
