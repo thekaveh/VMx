@@ -422,22 +422,33 @@ final class LifecycleTests: XCTestCase {
     func testLife014ThrowingHookRollsBackStatus() throws {
         struct HookError: Error {}
 
-        // Failed construct → rolls back to Destructed, and a retry can succeed.
+        // Failed construct → rolls back to Destructed; then a retry with a
+        // non-throwing hook reaches Constructed (recoverable, not wedged).
+        var failConstruct = true
         let onC = ComponentVM(
             name: "life014c", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE,
-            onConstruct: { throw HookError() }
+            onConstruct: { if failConstruct { throw HookError() } }
         )
         XCTAssertThrowsError(try onC.construct()) { XCTAssertTrue($0 is HookError) }
         XCTAssertEqual(onC.status, .destructed, "failed construct must roll back to Destructed")
+        failConstruct = false
+        try onC.construct()
+        XCTAssertEqual(onC.status, .constructed,
+            "a retry with a non-throwing construct hook reaches Constructed")
 
-        // Failed destruct → rolls back to Constructed.
+        // Failed destruct → rolls back to Constructed; then a retry reaches Destructed.
+        var failDestruct = true
         let onD = ComponentVM(
             name: "life014d", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE,
-            onDestruct: { throw HookError() }
+            onDestruct: { if failDestruct { throw HookError() } }
         )
         try onD.construct()
         XCTAssertThrowsError(try onD.destruct()) { XCTAssertTrue($0 is HookError) }
         XCTAssertEqual(onD.status, .constructed, "failed destruct must roll back to Constructed")
+        failDestruct = false
+        try onD.destruct()
+        XCTAssertEqual(onD.status, .destructed,
+            "a retry with a non-throwing destruct hook reaches Destructed")
     }
 
     func testReconstructDestructHookFailureRollsBackToConstructed() throws {

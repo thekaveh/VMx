@@ -56,16 +56,21 @@ final class GroupVMTests: XCTestCase {
         try g.construct()
         XCTAssertEqual(a.status, .constructed)
         XCTAssertEqual(b.status, .constructed)
+        // Catalog GRP-003: the group itself is also Constructed.
+        XCTAssertEqual(g.status, .constructed)
     }
 
     /// GRP-004 — destruct cascades to peers.
     func testGrp004DestructCascades() throws {
-        let a = leaf("a")
+        let a = leaf("a"); let b = leaf("b")
         let g = try! GroupVM<ComponentVM>.builder()
-            .name("g").withNullServices().children { [a] }.build()
+            .name("g").withNullServices().children { [a, b] }.build()
         try g.construct()
         try g.destruct()
         XCTAssertEqual(a.status, .destructed)
+        XCTAssertEqual(b.status, .destructed)
+        // Catalog GRP-004: the group itself is also Destructed.
+        XCTAssertEqual(g.status, .destructed)
     }
 
     /// GRP-011 — a group child is a peer, so its inherited select command is

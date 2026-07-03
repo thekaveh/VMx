@@ -45,7 +45,9 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(sut.items, [1, 2, 3])
         XCTAssertNil(sut.currentToken)
         XCTAssertFalse(sut.hasMore)
-        XCTAssertEqual(calls.count, 2)
+        // Catalog COL-025: the later load passes the advanced token to fetchNext
+        // (not merely "fetch ran twice").
+        XCTAssertEqual(calls, [nil, "two"])
     }
 
     func testLoadMoreDoesNotMutateOrNotifyWhenDisposedDuringFetch() async throws {

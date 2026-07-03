@@ -41,19 +41,38 @@ final class TreeUtilitiesTests: XCTestCase {
     }
 
     /// UTIL-002 — walk skips nil aggregate slots; only populated components appear.
+    /// Uses AggregateVM3 so multiple slots are exercised. Swift aggregate slots
+    /// are `private(set)` (like the TS flavor), so a single null *middle* slot
+    /// can't be forced from a test; the pre-construct all-null state exercises the
+    /// same declaration-order null-filter the catalog scenario targets.
     func testUtil002AggregateNilSlotsSkipped() throws {
-        let c1 = makeLeaf("c1")
-        let agg = try AggregateVM1<ComponentVM>.builder()
+        let c1 = makeLeaf("c1"); let c2 = makeLeaf("c2"); let c3 = makeLeaf("c3")
+        let agg = try AggregateVM3<ComponentVM, ComponentVM, ComponentVM>.builder()
             .name("agg").withNullServices()
-            .component1 { c1 }
+            .component1 { c1 }.component2 { c2 }.component3 { c3 }
             .build()
 
-        // Before construct: component1 slot is nil — walk yields only the aggregate root.
+        // Before construct: all three slots are nil — walk yields only the root.
         XCTAssertEqual(walk(agg).map(\.name), ["agg"])
 
-        // After construct: slot is populated — c1 appears in the traversal.
+        // After construct: every populated slot appears in declaration order.
         try agg.construct()
-        XCTAssertEqual(walk(agg).map(\.name), ["agg", "c1"])
+        XCTAssertEqual(walk(agg).map(\.name), ["agg", "c1", "c2", "c3"])
+    }
+
+    /// UTIL-002 — an AggregateVM6's sixth slot is reachable by walk (parity with
+    /// C#/Python/TS, each of which carries this AggregateVM6 reachability guard).
+    func testUtil002AggregateVM6SlotSixReachable() throws {
+        let leaves = (1...6).map { makeLeaf("c\($0)") }
+        let agg = try AggregateVM6<
+            ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+        >.builder()
+            .name("agg6").withNullServices()
+            .component1 { leaves[0] }.component2 { leaves[1] }.component3 { leaves[2] }
+            .component4 { leaves[3] }.component5 { leaves[4] }.component6 { leaves[5] }
+            .build()
+        try agg.construct()
+        XCTAssertEqual(walk(agg).map(\.name), ["agg6", "c1", "c2", "c3", "c4", "c5", "c6"])
     }
 
     /// UTIL-003 — find returns the first matching node and short-circuits.
