@@ -371,47 +371,121 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// LIFE-011 — the lifecycle state machine matches every row of the canonical
-    /// `lifecycle-transitions.json` fixture: legal rows reach `to_final`; illegal
-    /// rows raise `StatusTransitionError`.
+    /// LIFE-011 — the lifecycle state machine matches EVERY row of the canonical
+    /// `lifecycle-transitions.json` fixture (all 20): legal rows reach `to_final`;
+    /// illegal rows raise a catchable `StatusTransitionError` (ADR-0053). The
+    /// mid-transition source rows (`Constructing` / `Destructing`) are reached the
+    /// way the catalog's `When` allows — "via a test scheduler or controllable
+    /// hook" — by holding a background VM on a deferred dispatcher that parks the
+    /// completion, the same device `LifecycleRaceTests` and LIFE-008 use. Parity
+    /// with C# `LifecycleConformanceTests.DriveTransition`, which drives all 20.
     func testLife011StateMachineMatchesFixtureTable() throws {
         struct Row: Decodable {
             let from: String, via: String, toFinal: String?, legal: Bool
-            enum CodingKeys: String, CodingKey { case from, via, legal; case toFinal = "to_final" }
+            enum CodingKeys: String, CodingKey {
+                case from, via, legal
+                case toFinal = "to_final"
+            }
         }
         struct Fixture: Decodable { let transitions: [Row] }
-        let url = try XCTUnwrap(Bundle.module.url(forResource: "lifecycle-transitions", withExtension: "json"))
+
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: "lifecycle-transitions", withExtension: "json")
+        )
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
 
-        // Drive a fresh VM to `row.from`, then attempt `row.via`.
-        func makeAt(_ state: String) throws -> ComponentVM {
-            let vm = ComponentVM(name: "life011", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
-            switch state {
-            case "Destructed": break
-            case "Constructed": try vm.construct()
-            case "Disposed": vm.dispose()
-            default: throw XCTSkip("transient source state \(state) not directly reachable")
-            }
-            return vm
-        }
-        for row in fixture.transitions where ["construct", "destruct", "reconstruct"].contains(row.via) {
-            let vm: ComponentVM
-            do { vm = try makeAt(row.from) } catch is XCTSkip { continue } catch { throw error }
+        // Guard against a filtered/partial sweep silently under-covering the
+        // table again (the previous revision exercised only 9 of 20 rows).
+        XCTAssertEqual(
+            fixture.transitions.count, 20,
+            "LIFE-011 must drive every fixture row, including dispose and transient sources"
+        )
+
+        for row in fixture.transitions {
+            let (error, final) = driveTransition(from: row.from, via: row.via)
             if row.legal {
-                switch row.via {
-                case "construct": try vm.construct()
-                case "destruct": try vm.destruct()
-                case "reconstruct": try vm.reconstruct()
-                default: break
-                }
-                XCTAssertEqual(vm.status.name, row.toFinal, "\(row.from)/\(row.via) → expected \(row.toFinal ?? "nil")")
+                XCTAssertNil(
+                    error,
+                    "\(row.from)/\(row.via) is legal and must not throw (got \(String(describing: error)))"
+                )
+                XCTAssertEqual(
+                    final.name, row.toFinal,
+                    "\(row.from)/\(row.via) → expected \(row.toFinal ?? "nil"), got \(final.name)"
+                )
             } else {
-                XCTAssertThrowsError(try { switch row.via {
-                    case "construct": try vm.construct()
-                    case "destruct": try vm.destruct()
-                    default: try vm.reconstruct()
-                } }()) { XCTAssertTrue($0 is StatusTransitionError) }
+                XCTAssertTrue(
+                    error is StatusTransitionError,
+                    "\(row.from)/\(row.via) is illegal and must throw StatusTransitionError (got \(String(describing: error)))"
+                )
             }
+        }
+    }
+
+    /// Drives one fixture row: parks a fresh VM in `from` (transient states via a
+    /// deferred/background dispatcher), attempts `via`, and returns any catchable
+    /// error plus the settled status. Mirrors C# `DriveTransition`.
+    private func driveTransition(from: String, via: String)
+        -> (error: Error?, final: ConstructionStatus)
+    {
+        // Transient sources (`Constructing`/`Destructing`) need a dispatcher that
+        // PARKS the background completion so the VM is observably mid-transition;
+        // settled sources run inline on `ImmediateDispatcher`.
+        let transient = (from == "Constructing" || from == "Destructing")
+        let deferred = DeferredLifecycleDispatcher()
+        let dispatcher: Dispatcher = transient ? deferred : ImmediateDispatcher.INSTANCE
+
+        let vm = try! ComponentVM.builder()
+            .name("life011")
+            .services(hub: MessageHub(), dispatcher: dispatcher)
+            .background(transient)
+            .build()
+
+        // Put the VM into `from`. Transient rows are held parked mid-transition.
+        switch from {
+        case "Destructed":
+            break                                   // freshly built
+        case "Constructed":
+            try! vm.construct()
+        case "Disposed":
+            vm.dispose()
+        case "Constructing":
+            try! vm.construct()                     // emits .constructing; parked
+        case "Destructing":
+            try! vm.construct(); deferred.flush()   // settle to .constructed
+            try! vm.destruct()                      // emits .destructing; parked
+        default:
+            XCTFail("unhandled from-state \(from)")
+        }
+
+        // Attempt `via`, capturing any catchable StatusTransitionError (ADR-0053).
+        var captured: Error?
+        do {
+            switch via {
+            case "construct":   try vm.construct()
+            case "destruct":    try vm.destruct()
+            case "reconstruct": try vm.reconstruct()
+            case "dispose":     vm.dispose()
+            default: XCTFail("unhandled via \(via)")
+            }
+        } catch {
+            captured = error
+        }
+
+        return (captured, vm.status)
+    }
+
+    /// Deterministically parks background lifecycle work so a source VM can be
+    /// held mid-transition (`.constructing` / `.destructing`). Identical to
+    /// `LifecycleRaceTests.DeferredDispatcher` — the proven mechanism LIFE-008
+    /// relies on. `flush()` drains the parked work on the calling thread.
+    private final class DeferredLifecycleDispatcher: Dispatcher {
+        private var pending: [() -> Void] = []
+        func scheduleForeground(_ work: @escaping () -> Void) { work() }
+        func scheduleBackground(_ work: @escaping () -> Void) { pending.append(work) }
+        func flush() {
+            let work = pending
+            pending = []
+            for run in work { run() }
         }
     }
 
