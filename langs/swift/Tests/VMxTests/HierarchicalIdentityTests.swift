@@ -88,10 +88,12 @@ final class HierarchicalIdentityTests: XCTestCase {
         XCTAssertEqual(grandchild.depth, 2)
     }
 
-    /// HIER-004 — path returns a root-first snapshot and is identity-stable on
-    /// re-read (the cached array yields the same element references). Swift
-    /// arrays are value types, so the contract is element identity, not array
-    /// reference identity.
+    /// HIER-004 — path returns a root-first snapshot; is identity-stable on
+    /// re-read without a structural change (the cached array yields the same
+    /// element references — Swift arrays are value types, so the contract is
+    /// element identity, not array reference identity); and after the grandchild
+    /// is reparented, the next read of path returns the updated sequence
+    /// (parity with C#/Python/TS, which reparent via addChild).
     func testHier004PathCachedIdentityStable() {
         let hub = MessageHub()
         let grandchild = leafNode(hub)
@@ -101,18 +103,28 @@ final class HierarchicalIdentityTests: XCTestCase {
         _ = root.children
         _ = child.children
 
+        // 1. Path is root-first: [root, child, grandchild].
         let path = grandchild.path
         XCTAssertEqual(path.count, 3)
         XCTAssertTrue(path[0] === root)
         XCTAssertTrue(path[1] === child)
         XCTAssertTrue(path[2] === grandchild)
 
-        // Re-read returns the same cached elements.
+        // 2. Re-read without a structural change returns the same cached elements.
         let path2 = grandchild.path
         XCTAssertEqual(path2.count, 3)
         XCTAssertTrue(path2[0] === root)
         XCTAssertTrue(path2[1] === child)
         XCTAssertTrue(path2[2] === grandchild)
+
+        // 3. After the grandchild is reparented under a new root, the next read
+        // of path returns the updated sequence [newRoot, grandchild].
+        let newRoot = leafNode(hub, name: "new-root")
+        newRoot.addChild(grandchild) // grandchild gains a new parent; path cache invalidated
+        let newPath = grandchild.path
+        XCTAssertEqual(newPath.count, 2)
+        XCTAssertTrue(newPath[0] === newRoot)
+        XCTAssertTrue(newPath[1] === grandchild)
     }
 
     /// HIER-005 — isLeaf / isRoot derivation matches parent/children state.
