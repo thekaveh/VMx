@@ -1,8 +1,8 @@
 //
 // GroupVM<Child> — homogeneous peer-child container (no selection slot).
 //
-// See spec/07-group-vm.md. Skeleton coverage: add / remove / iteration /
-// cascading lifecycle. Batch updates land in a follow-up PR.
+// See spec/07-group-vm.md. Coverage: add / remove / iteration / cascading
+// lifecycle / batch updates (`batchUpdate()`, GRP-006).
 //
 import Foundation
 import Combine

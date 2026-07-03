@@ -58,7 +58,10 @@ public protocol NotificationHubProtocol: AnyObject {
 public final class NotificationHub: NotificationHubProtocol {
     private let subject = CurrentValueSubject<[Notification], Never>([])
     private var pendingList: [Notification] = []
-    private var waiters: [ObjectIdentifier: CheckedContinuation<NotificationReaction, Never>] = [:]
+    // A LIST of continuations per notification: re-posting the same still-pending
+    // instance attaches another awaiter rather than overwriting (and leaking) the
+    // first continuation (double-post SHOULD, ADR-0020 §2.3).
+    private var waiters: [ObjectIdentifier: [CheckedContinuation<NotificationReaction, Never>]] = [:]
     private var disposed = false
     private let lock = NSLock()
 
@@ -84,8 +87,18 @@ public final class NotificationHub: NotificationHubProtocol {
                 continuation.resume(returning: .pending)
                 return
             }
+            let key = ObjectIdentifier(n)
+            if waiters[key] != nil {
+                // Re-post of a still-pending notification: attach this awaiter to
+                // the existing waiter list so it resolves together with the first,
+                // instead of overwriting and leaking that continuation. Do not
+                // re-enqueue into pendingList.
+                waiters[key]!.append(continuation)
+                lock.unlock()
+                return
+            }
             pendingList.append(n)
-            waiters[ObjectIdentifier(n)] = continuation  // stored before the snapshot is emitted
+            waiters[key] = [continuation]  // stored before the snapshot is emitted
             let snapshot = pendingList
             lock.unlock()
             subject.send(snapshot)  // emitted outside the lock (no sink re-entrancy)
@@ -96,7 +109,7 @@ public final class NotificationHub: NotificationHubProtocol {
     /// No-op after dispose (NOTIF-017).
     /// The continuation is resumed *after* releasing the lock.
     public func resolve(_ n: Notification, _ reaction: NotificationReaction) {
-        let continuation: CheckedContinuation<NotificationReaction, Never>?
+        let continuations: [CheckedContinuation<NotificationReaction, Never>]?
         var snapshot: [Notification]?
         lock.lock()
         guard !disposed else {
@@ -104,8 +117,8 @@ public final class NotificationHub: NotificationHubProtocol {
             return
         }
         let key = ObjectIdentifier(n)
-        continuation = waiters.removeValue(forKey: key)
-        if continuation != nil {
+        continuations = waiters.removeValue(forKey: key)
+        if continuations != nil {
             pendingList.removeAll { ObjectIdentifier($0) == key }
             snapshot = pendingList
         }
@@ -113,7 +126,9 @@ public final class NotificationHub: NotificationHubProtocol {
         // Emit + resume outside the lock so a synchronous re-entrant
         // post/resolve from a subscriber or the continuation body cannot deadlock.
         if let snapshot { subject.send(snapshot) }
-        continuation?.resume(returning: reaction)
+        for continuation in continuations ?? [] {
+            continuation.resume(returning: reaction)
+        }
     }
 
     /// Resolve all in-flight waiters with `.pending`, complete `pending`,
@@ -125,7 +140,7 @@ public final class NotificationHub: NotificationHubProtocol {
             return
         }
         disposed = true
-        let capturedWaiters = Array(waiters.values)
+        let capturedWaiters = waiters.values.flatMap { $0 }
         waiters.removeAll()
         pendingList.removeAll()
         lock.unlock()
