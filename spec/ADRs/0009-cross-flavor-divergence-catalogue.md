@@ -335,22 +335,6 @@ here so audits don't reopen them prematurely:
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
 
-### `FormVM.OnApproved` emitted value
-
-- **C#**: emits the **pre-await captured** model snapshot
-  (`_onApproved.OnNext(current)` in `FormVM<TM>.ApproveAsync`).
-- **Python / TypeScript**: emit the **live** `self._model` / `this.#model`
-  after the persister await completes.
-- **Rationale**: spec FORM-006 asserts that `OnApproved` fires with a value
-  equal to the model that was persisted, and all three flavors' conformance
-  tests assert that exact equality. Absent concurrent `SetModel` between
-  the persister start and end, the pre-await capture equals the live
-  post-await `Model`, so both forms pass FORM-006. The divergence only
-  becomes observable under concurrent re-mutation during the await —
-  C# emits the value actually persisted; Python and TS emit whatever
-  `Model` is at emission time. Both are defensible reads of the spec;
-  aligning the three flavors is deferred to a future release.
-
 ### Command property declared types
 
 - **C#**: command properties on `ComponentVMBase`, `FormVM`, `NotificationVM`,
@@ -384,6 +368,18 @@ here so audits don't reopen them prematurely:
   field-name section above.
 - C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
   on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+
+### 2.2 Historical: divergences resolved in v3.0.0
+
+- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
+  captured model snapshot while Python and TypeScript emitted the live model
+  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
+  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
+  that was actually persisted even under a concurrent `SetModel` during the
+  await. No longer a divergence — the three flavors match (C#
+  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
+  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
+  `this.#onApproved.next(current)`).
 
 ## 3. Rationale
 
