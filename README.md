@@ -138,7 +138,7 @@ Each flavor implements the same conceptual stack:
 | Flavor     | Source status               | Public package status                                      | Reactive primitive |
 | ---------- | --------------------------- | ---------------------------------------------------------- | ------------------ |
 | C#         | v3.1.0 in source            | NuGet package not published yet                            | System.Reactive    |
-| Python     | v3.1.0 in source            | [`vmx`](https://pypi.org/project/vmx/) latest published: 2.6.1 | reactivex       |
+| Python     | v3.1.0 in source            | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex       |
 | TypeScript | v3.1.0 in source            | npm package not published yet                              | rxjs               |
 | Swift      | v3.1.0 in source            | SwiftPM tag not published yet; no central registry         | Combine            |
 

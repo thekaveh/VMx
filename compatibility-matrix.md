@@ -49,8 +49,12 @@ ADR-0068..ADR-0075; THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, and TypeScript. See `langs/swift/README.md` §5.
 
-[^current]: 3.1.0 — current development line; the matching
-    `spec-v3.1.0` / `v3.1.0` / `<flavor>-v3.1.0` tags are created at release.
+[^current]: 3.1.0 — current development line. `spec-v3.1.0`, `v3.1.0`, and
+    `python-v3.1.0` are tagged, and `vmx` 3.1.0 is published on PyPI. The
+    `csharp-v3.1.0`, `typescript-v3.1.0`, and `swift-v3.1.0` tags are not yet
+    created: C#/TypeScript/Swift 3.1.0 live in source and publish once their
+    registry credentials are configured (the C#/TS release jobs deliberately
+    refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`).
 
 ## 3. C# companion packages
 
@@ -65,4 +69,8 @@ version it implements.
 
 > **Note:** Companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`) version
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
-> a divergence from the spec — it is the companion package's own version counter.
+> a divergence from the spec — it is the companion package's own version counter. The **Spec**
+> column is the spec revision each companion's own feature surface implements; it is not the core
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.1.0 core project, so a
+> published companion would carry a `VMx >= 3.1.0` NuGet dependency — the raised floor to record in
+> the C# `CHANGELOG.md` when the first C# packages are cut.
