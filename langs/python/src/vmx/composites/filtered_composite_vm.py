@@ -67,6 +67,8 @@ class FilteredCompositeVM(Generic[VM]):
         self._recompute()
 
     def set_current(self, item: VM | None) -> None:
+        if self._disposed:
+            return
         if item is not None and item not in self._visible:
             raise ValueError("current must be None or a visible item")
         if self._current is item:
@@ -98,6 +100,8 @@ class FilteredCompositeVM(Generic[VM]):
         return [item for item in self._source if self._predicate(item)]
 
     def _recompute(self) -> None:
+        if self._disposed:
+            return
         self._visible = self._ordered_visible()
         if self._current not in self._visible:
             if self._cursor_policy in (

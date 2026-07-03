@@ -6,6 +6,7 @@ See spec/05-component-vm.md §IExpandable integration and ADR-0015.
 from __future__ import annotations
 
 from reactivex import Observable
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.capabilities.expansion import (
@@ -30,7 +31,7 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
 
     @property
     def is_expanded_changed(self) -> Observable[bool]:
-        return self._changes
+        return self._changes.pipe(ops.as_observable())
 
     def can_expand(self) -> bool:
         return not self._is_expanded

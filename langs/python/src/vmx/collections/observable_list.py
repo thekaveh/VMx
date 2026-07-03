@@ -172,7 +172,7 @@ class ObservableList(Generic[T]):
         self._on_reset()
         # spec/21 §3.3: PropertyChanged("Count") fires after every mutation
         # that changes Count. Inside a batch the batch-exit path emits it.
-        if count_changed and self._batch_depth == 0:
+        if count_changed and self._batch_depth == 0 and not self._disposed:
             self._prop_changed_subject.on_next("Count")
 
     # ── Batch update ──────────────────────────────────────────────────────────
@@ -192,7 +192,7 @@ class ObservableList(Generic[T]):
             yield
         finally:
             self._batch_depth -= 1
-            if self._batch_depth == 0 and self._mutated_in_batch:
+            if self._batch_depth == 0 and self._mutated_in_batch and not self._disposed:
                 final_count = len(self._items)
                 self._mutated_in_batch = False
                 self._reset_subject.on_next(None)
@@ -224,6 +224,8 @@ class ObservableList(Generic[T]):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _on_added(self, item: T, index: int) -> None:
+        if self._disposed:
+            return
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return
@@ -231,6 +233,8 @@ class ObservableList(Generic[T]):
         self._prop_changed_subject.on_next("Count")
 
     def _on_removed(self, item: T, index: int) -> None:
+        if self._disposed:
+            return
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return
@@ -238,6 +242,8 @@ class ObservableList(Generic[T]):
         self._prop_changed_subject.on_next("Count")
 
     def _on_replaced(self, new_item: T, old_item: T, index: int) -> None:
+        if self._disposed:
+            return
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return
@@ -245,6 +251,8 @@ class ObservableList(Generic[T]):
         # Count does not change on replace — no PropertyChanged("Count")
 
     def _on_reset(self) -> None:
+        if self._disposed:
+            return
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return

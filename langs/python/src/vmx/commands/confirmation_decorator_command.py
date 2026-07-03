@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from reactivex import Observable
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.commands.protocols import Command
@@ -44,7 +45,7 @@ class ConfirmationDecoratorCommand:
         swallowing it, the error is emitted here (VMX-009). Await
         :meth:`execute_async` to observe it inline. Completes on :meth:`dispose`.
         """
-        return self._errors
+        return self._errors.pipe(ops.as_observable())
 
     def can_execute(self, parameter: Any = None) -> bool:
         return self._inner.can_execute(parameter)
