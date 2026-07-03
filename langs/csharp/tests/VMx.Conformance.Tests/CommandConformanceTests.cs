@@ -174,7 +174,7 @@ public class CommandConformanceTests
     }
 
     // CMD-012 — cancel() cancels an in-flight async command task; the command returns
-    // to a non-executing state; no exception surfaces by default (spec §11, ADR-0056).
+    // to a non-executing state; no exception surfaces by default (spec §10, ADR-0056).
     [Fact, Trait("Conformance", "CMD-012")]
     public async Task CMD_012_Cancel_Cancels_InFlight_Async_Task_NonThrowing()
     {
@@ -214,7 +214,7 @@ public class CommandConformanceTests
     }
 
     // CMD-012 (opt-in throwing variant) — ThrowOnCancel() surfaces the cancellation to
-    // the awaiter instead of completing normally (spec §11 opt-in clause, ADR-0056).
+    // the awaiter instead of completing normally (spec §10 opt-in clause, ADR-0056).
     [Fact, Trait("Conformance", "CMD-012")]
     public async Task CMD_012_ThrowOnCancel_Surfaces_OperationCanceledException()
     {

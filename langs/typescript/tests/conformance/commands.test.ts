@@ -181,7 +181,7 @@ describe("CMD-013", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CMD-012 — async command cancellation (spec/04-commands.md §11, ADR-0056)
+// CMD-012 — async command cancellation (spec/04-commands.md §10, ADR-0056)
 // ---------------------------------------------------------------------------
 
 describe("CMD-012", () => {
