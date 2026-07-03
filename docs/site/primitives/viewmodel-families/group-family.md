@@ -43,18 +43,18 @@ while the group is their parent.
 
 ## Cross-Language Surface
 
-| Concept         | C#                      | Python                  | TypeScript              | Swift                   |
-| --------------- | ----------------------- | ----------------------- | ----------------------- | ----------------------- |
-| Type            | `GroupVM<VM>`           | `GroupVM[VM]`           | `GroupVM<VM>`           | `GroupVM<VM>`           |
-| Builder entry   | `GroupVM<VM>.Builder()` | `GroupVM[VM].builder()` | `GroupVM.builder<VM>()` | `GroupVM<VM>.builder()` |
-| Children setter | `Children(...)`         | `children(...)`         | `children(...)`         | `children { ... }`      |
+| Concept         | C#                      | Python                 | TypeScript              | Swift                   |
+| --------------- | ----------------------- | ---------------------- | ----------------------- | ----------------------- |
+| Type            | `GroupVM<VM>`           | `GroupVM[VM]`          | `GroupVM<VM>`           | `GroupVM<VM>`           |
+| Builder entry   | `GroupVM<VM>.Builder()` | `GroupVMBuilder[VM]()` | `GroupVM.builder<VM>()` | `GroupVM<VM>.builder()` |
+| Children setter | `Children(...)`         | `children(...)`        | `children(...)`         | `children { ... }`      |
 
 ## Example
 
 Representative build shape:
 
 - `C#`: `GroupVM<IComponentVM>.Builder().Name("actions").Services(hub, dispatcher).Children(() => new[] { save, delete }).Build()`
-- `Python`: `GroupVM[ComponentVMProto].builder().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
+- `Python`: `GroupVMBuilder[ComponentVMProto]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
 - `TypeScript`: `GroupVM.builder<ComponentVMBase>().name("actions").services(hub, dispatcher).children(() => [save, delete]).build()`
 - `Swift`: `try GroupVM<ComponentVMBase>.builder().name("actions").services(hub: hub, dispatcher: dispatcher).children { [save, delete] }.build()`
 
