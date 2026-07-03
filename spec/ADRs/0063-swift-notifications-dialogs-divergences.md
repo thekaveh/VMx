@@ -122,8 +122,11 @@ making `ObjectIdentifier`-based keying impossible.
 
 **`post` suspends via `withCheckedContinuation`:** `NotificationHub.post(_:)`
 stores the caller's `CheckedContinuation<NotificationReaction, Never>` in a
-`[ObjectIdentifier: CheckedContinuation<NotificationReaction, Never>]` dictionary
-(protected by `NSLock`) before emitting the updated pending snapshot. The
+`[ObjectIdentifier: [CheckedContinuation<NotificationReaction, Never>]]` dictionary
+— a *list* of continuations per key — (protected by `NSLock`) before emitting the
+updated pending snapshot. Re-posting a still-pending instance appends another awaiter
+to the list rather than overwriting (and leaking) the first, so every double-post
+caller resolves with the same reaction (double-post SHOULD, ADR-0020 §2.3). The
 store-then-emit ordering guarantees that a subscriber that calls `resolve` in
 response to the `pending` snapshot always finds the waiter registered.
 
