@@ -21,17 +21,25 @@ shares one across all trees).
 
 Each language flavor ships an `RxDispatcher` whose defaults are:
 
-| Language   | Foreground                                                                               | Background                                    |
-| ---------- | ---------------------------------------------------------------------------------------- | --------------------------------------------- |
-| C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default`                   |
-| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                       |
-| TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asapScheduler`                               |
-| Swift      | host-provided Combine `Scheduler` (e.g. `DispatchQueue.main`) — see note                 | host-provided (e.g. `DispatchQueue.global()`) |
+| Language   | Foreground                                                                               | Background                                  |
+| ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
+| C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default`                 |
+| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                     |
+| TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asyncScheduler` (macrotask)                |
+| Swift      | `DefaultDispatcher` → main queue (run inline if already on main) — see note              | `DispatchQueue.global(qos: .userInitiated)` |
 
-> **Swift:** the Swift flavor ships no `RxDispatcher.default()` equivalent yet —
-> the host supplies the Combine foreground/background schedulers explicitly. The
-> shipped presets / `default()` factory are a tracked follow-up (ADR-0036 §2.E,
-> ADR-0037; VMX-118).
+> **TypeScript:** `RxDispatcher.default()` uses `asyncScheduler` (a genuine
+> macrotask) for background. An earlier `asapScheduler` (Promise microtask) was
+> replaced because it drains before the next macrotask and can starve the event
+> loop, contradicting the "background" intent (VMX-087).
+
+> **Swift:** Swift's `Dispatcher` protocol is closure-based
+> (`scheduleForeground` / `scheduleBackground` over `DispatchQueue`, **not** Combine
+> `Scheduler` properties). The shipped `DefaultDispatcher` preset — main-queue
+> foreground (run inline when already on the main thread) and a `.userInitiated`
+> global background queue — is the Swift equivalent of `RxDispatcher.default()`
+> (shipped since v2.4.0). ADR-0061 §4 rejected adding `Scheduler`-typed
+> foreground/background properties, making the closure shape final.
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.
