@@ -45,6 +45,7 @@ export class ExpandableState
   }
 
   expand(): void {
+    if (this.#disposed) return;
     if (this.#expanded) return;
     this.#expanded = true;
     this.#changes.next(true);
@@ -55,6 +56,7 @@ export class ExpandableState
   }
 
   collapse(): void {
+    if (this.#disposed) return;
     if (!this.#expanded) return;
     this.#expanded = false;
     this.#changes.next(false);
