@@ -35,7 +35,7 @@ cd examples/python/textual/notes_showcase
 uv run pytest
 ```
 
-The package coverage gate is ≥ 90 % on `viewmodels/` + `views/adapter/`.
+The package coverage gate is ≥ 90 % on `models/`, `viewmodels/`, and `views/`.
 
 ## 2. Project layout
 

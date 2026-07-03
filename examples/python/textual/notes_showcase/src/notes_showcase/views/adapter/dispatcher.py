@@ -32,8 +32,14 @@ class TextualDispatcher:
 
     Satisfied structurally — no inheritance required. Construct with the
     running :class:`textual.app.App` after it has acquired an event loop
-    (typically inside ``App.on_mount``); call
-    ``self._dispatcher = TextualDispatcher(self)``.
+    (typically inside ``App.on_mount``): ``TextualDispatcher(app)``.
+
+    Reference adapter: it demonstrates the ``IDispatcher`` contract against a
+    Textual event loop and is exercised by the adapter unit tests. The showcase
+    composition root (:mod:`notes_showcase.__main__`) runs the VM tree on the
+    synchronous immediate dispatcher so ``construct_async`` completes before the
+    first paint (see the ``notes-showcase-parity.md`` row-10 footnote); wire this
+    adapter instead when you want foreground work marshalled onto the App loop.
     """
 
     def __init__(self, app: App[object]) -> None:
