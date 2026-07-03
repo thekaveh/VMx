@@ -334,6 +334,18 @@ here so audits don't reopen them prematurely:
   hatch — a non-leaf VM (e.g. an aggregate) that internally uses
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
+- **`HierarchicalVM` optional `hub`/`dispatcher` (TypeScript).** ADR-0052
+  (VMX-080) made these **required** in Python — and C#/Swift require them too —
+  so a tree can never silently fabricate an isolated hub/dispatcher. The
+  TypeScript `HierarchicalVMOptions` still marks them optional and defaults to a
+  fresh `MessageHub()` / `RxDispatcher.immediate()` when omitted, so a
+  raw-constructor subclass built without services gets an isolated subtree
+  (structural/property messages never reach the app hub). The builder path
+  (`HierarchicalVMBuilder`) always supplies services, so normal usage is safe;
+  tightening the raw constructor to required is a source-breaking signature
+  change deferred to the **next TypeScript major** (the conformance subclasses
+  currently spread `hub`/`dispatcher` conditionally). Documented here so audits
+  don't re-flag it as accidental drift.
 
 ### Command property declared types
 
