@@ -399,6 +399,19 @@ here so audits don't reopen them prematurely:
   and the flavors aligned — most likely gating Python/TS on `Constructed` so a
   destructed member cannot become current. Recorded here so audits don't re-flag
   it as accidental drift.
+- **`model` set on an already-`Disposed` modeled `ComponentVM`.** Swift suppresses
+  the hub publish / `PropertyChanged` raise / hint recompute / callback (the model
+  *field* still updates so the getter reflects the value — guarded since v3.0.0,
+  VMX-102), while C#/Python/TypeScript update the field **and** publish
+  `PropertyChangedMessage("model"/"Model")` on the still-live injected hub. spec/02
+  invariant 3 scopes the post-dispose no-emit to `IsCurrent` **selection** only
+  ("distinguishing it from the lifecycle operations"), so model-set-after-dispose is
+  **unspecified** — neither behavior violates the spec. Note C#/Python/TS are
+  internally inconsistent here: their own `IsCurrent` setter *is* post-dispose-guarded
+  (VMX-006). Reachable only by mutating an already-disposed VM (a caller error).
+  Recorded so audits don't re-flag it; converging the three flavors to Swift's inert
+  behavior (extending invariant 3 to `model`) is a reasonable future spec decision for
+  the maintainer.
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical
