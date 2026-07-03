@@ -95,14 +95,35 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// </summary>
     public void Execute(object? parameter) =>
         _ = ExecuteAsync(parameter).ContinueWith(
-            t =>
-            {
-                if (_disposed) return;
-                _errors.OnNext(t.Exception!.GetBaseException());
-            },
+            t => EmitError(t.Exception!.GetBaseException()),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+
+    // Routes a fire-and-forget fault to the Errors channel. The disposed check
+    // is taken under _gate — the continuation runs on TaskScheduler.Default,
+    // concurrently with a possible Dispose() (whose _disposed write is gated).
+    // Reading _disposed off-gate was a data race on a non-volatile field. The
+    // try/catch closes the residual window where Dispose() completes+disposes
+    // _errors between the gated check and the emit: System.Reactive's
+    // Subject.OnNext throws ObjectDisposedException post-dispose, whereas the
+    // other flavors' subjects no-op — dropping the fault here restores parity
+    // rather than surfacing an unobserved task exception.
+    private void EmitError(Exception error)
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+        }
+        try
+        {
+            _errors.OnNext(error);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Concurrent Dispose() tore down the error subject; drop the fault.
+        }
+    }
 
     /// <inheritdoc/>
     public async Task ExecuteAsync(object? parameter = null, CancellationToken cancellationToken = default)
