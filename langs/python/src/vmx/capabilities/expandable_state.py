@@ -37,6 +37,8 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
         return not self._is_expanded
 
     def expand(self) -> None:
+        if self._disposed:
+            return
         if self._is_expanded:
             return
         self._is_expanded = True
@@ -46,6 +48,8 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
         return self._is_expanded
 
     def collapse(self) -> None:
+        if self._disposed:
+            return
         if not self._is_expanded:
             return
         self._is_expanded = False
