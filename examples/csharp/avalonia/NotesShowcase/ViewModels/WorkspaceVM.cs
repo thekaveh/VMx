@@ -147,7 +147,11 @@ public sealed class WorkspaceVM : IDisposable
             .Build();
         var notesView = NotesViewVM.Builder()
             .Name("notes").Services(hub, dispatcher).Repository(repo).PageSize(5)
-            .SearchScheduler(TaskPoolScheduler.Default)
+            // Debounce search on the dispatcher's background scheduler (the live
+            // AvaloniaDispatcher.Background is TaskPoolScheduler.Default, so app
+            // behavior is unchanged) — this makes the search pipeline deterministic
+            // under a test/immediate dispatcher instead of a real thread pool.
+            .SearchScheduler(dispatcher.Background)
             .DialogService(dialogService)
             .NotificationHub(notificationHub)
             .Build();

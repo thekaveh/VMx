@@ -369,6 +369,9 @@ public sealed class NotesViewVM
 
     private void RecomputeFiltered()
     {
+        // Inert after dispose: the debounced search subscription can fire during
+        // teardown, and Hub.Send / _stateSubject.OnNext on disposed subjects throw.
+        if (_ownDisposed) return;
         var term = _search.SearchTerm;
         _filtered.Clear();
         foreach (var n in _inner)
@@ -430,8 +433,12 @@ public sealed class NotesViewVM
             debounce: searchDebounce,
             scheduler: _searchScheduler);
         // Whenever the debounced search term updates the filtered snapshot,
-        // run our combined filter pipeline.
-        _search.Filtered.Subscribe(_ => RecomputeFiltered());
+        // run our combined filter pipeline — marshalled onto the dispatcher
+        // foreground so the UI-bound `_filtered` ObservableCollection is only ever
+        // mutated on the foreground thread. SearchableState throttles on a
+        // background scheduler, so without this ObserveOn `RecomputeFiltered`
+        // (Clear + re-add) would run off the UI thread and race UI/reads.
+        _search.Filtered.ObserveOn(_dispatcher.Foreground).Subscribe(_ => RecomputeFiltered());
 
         IsEmptyDerived = DerivedProperty.From(
             _stateSubject,
