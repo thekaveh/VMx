@@ -152,11 +152,13 @@ can_deselect() returns true iff:
 
 `Parent.Current` denotes the container's `Current` slot, which only a `CompositeVM`
 owns. A `GroupVM` has no selection slot; its `Current` is conceptually always empty,
-so `Parent.Current != this` holds for every group child. (The Python flavor adds a
-"parent supports child selection" guard that additionally reports a group child's
-`can_select` / `can_deselect` as `false`; C# and TypeScript leave the predicate at
-the three clauses above. This pre-existing per-flavor nuance is unaffected by the
-`Parent` declaration here.)
+so `Parent.Current != this` holds for every group child. (All four flavors add a
+"parent supports child selection" guard — `Parent.SupportsChildSelection` /
+`supports_child_selection`, which a `GroupVM` reports as `false` and a `CompositeVM`
+as `true` — so a group child's `can_select` / `can_deselect` is `false` in every
+flavor. That uniform guard is precisely why chapter 07 §1's requirement — a group
+child's inherited `can_select` MUST return `false` while the parent is the group —
+holds everywhere. The guard is unaffected by the `Parent` declaration here.)
 
 ### 6.1 The `Parent` back-reference
 
