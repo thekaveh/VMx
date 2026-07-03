@@ -93,9 +93,11 @@ faulted task / unhandled rejection. This reuses the pattern ADR-0049 set for
   `AsyncRelayCommandBuilder`; Python `AsyncRelayCommand` / `AsyncRelayCommandBuilder`
   (exported from `vmx.commands` and top-level `vmx`); TypeScript `IAsyncCommand` /
   `AsyncRelayCommand` / `AsyncRelayCommandBuilder`.
-- Swift remains the documented subset (ADR-0037): it ships neither the command
-  decorators nor `AsyncRelayCommand`, so `CMD-012` is a full-parity ID only and the
-  `--require swift` subset manifest is unaffected.
+- At the time of this ADR Swift was the documented subset (ADR-0037) and shipped
+  neither the command decorators nor `AsyncRelayCommand`. **Superseded by ADR-0065**
+  (2026-06-30, subset manifest retired) and **ADR-0076** (async-command doc
+  reconciliation): Swift now ships `AsyncRelayCommand`, both command decorators, and
+  `ModeledCrudCommands`, and `CMD-012` is a full-parity ID covered in all four flavors.
 - The coordinated `spec/VERSION` bump to 3.0.0 and per-flavor package version bumps
   are handled by the v3 release task, not here (consistent with ADR-0049); this
   ADR's "Spec version: 3.0.0" records the line the change belongs to.

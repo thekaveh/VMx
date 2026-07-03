@@ -70,11 +70,15 @@ a normal field/parameter (C# `Model` defaults to `default(M)`; Python/TS require
 in the options type). The builder's "you must call `Model(...)`" step is a
 fluent-path concern; every other required field is validated identically.
 
-### 2.4 Swift deferred (Phase 3)
+### 2.4 Swift deferred (Phase 3) — subsequently shipped
 
-Swift does **not** gain the options form in this change. It is folded into the
-tracked Swift full-parity work (ADR-0037 §2.6 / the v3 critique's Phase 3). The
-Swift builders are unaffected.
+Swift did **not** gain the options form in this change; it was folded into the
+tracked Swift full-parity work (ADR-0037 §2.6 / Phase 3). **Subsequently shipped:**
+Phase 3 added the positional-options `create(_:)` factory to all four common Swift
+VMs (`ComponentVMOf.create(ComponentVMOfOptions)`, and the `ComponentVM` /
+`CompositeVM` / `GroupVM` options structs + factories); this equivalence is pinned by
+`BLD-006` (ADR-0079). No conformance ID gated it originally, so the parity cutover
+left this note stale.
 
 ### 2.5 Spec and conformance
 

@@ -31,10 +31,10 @@ asynchronously, the operation completes when the final state is reached.
 The async invocation form is C#-only (`ConstructAsync` / `DestructAsync` /
 `ReconstructAsync` on `IComponentVM`) per ADR-0008; Python and TypeScript
 expose only the synchronous form (catalogued as a row in the ADR-0009
-divergence table). Swift v2.4 also exposes only the synchronous form
-(documented in `langs/swift/README.md` §5 — `THR-*` deferred; the
-ADR-0009 catalogue table predates the Swift flavor and has not been
-widened yet).
+divergence table). Swift likewise exposes only the synchronous form (the
+async `ConstructAsync` shape is C#-only per ADR-0008); Swift covers the
+`THR-*` threading IDs at full parity (ADR-0061), and the ADR-0009 async-form
+row applies to all three non-C# flavors.
 Subscribers to the message hub observe two `ConstructionStatusChangedMessage`
 emissions per non-trivial transition: one for the intermediate state and one
 for the final state.

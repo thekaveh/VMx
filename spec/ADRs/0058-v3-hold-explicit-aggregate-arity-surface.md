@@ -88,7 +88,7 @@ Verdict: **reject** the full rewrite. Hold the explicit classes.
 
 Swift's package floor is `swift-tools-version: 5.9`, so value/type **parameter
 packs are available**. A variadic `AggregateVM<each C>` is technically the most
-feasible single-class rewrite of the four. But Swift is the **documented subset
+feasible single-class rewrite of the four. But Swift was then the **documented subset
 flavor**; rewriting only Swift to a pack-based aggregate while C#/Python/TS keep
 explicit arities would **break the ADR-0006 symmetric-shape goal** and the
 cross-flavor parity that lets the conformance fixtures describe one shape. A

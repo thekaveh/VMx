@@ -116,10 +116,11 @@ still leave the VM un-`construct()`-able without a recovery operation.
   (`LIFE-008`/`LIFE-004`/`THR-*`, `ComponentVMLifecycleRaceTests`) to avoid stub
   churn. Catalog library total: 232 → 233 (237 → 238 including the 5 THEME
   scenario IDs).
-- Swift remains the documented subset (ADR-0037): it traps on illegal transitions,
-  its actor/lock atomicity and full `LIFE-014` coverage are Phase-3 items; the
-  subset manifest is unchanged, so the coverage tool's `--require swift` subset
-  check is unaffected.
+- At the time of this ADR Swift was the documented subset (ADR-0037): it trapped on
+  illegal transitions and its atomicity + `LIFE-014` coverage were Phase-3 items.
+  **Superseded by ADR-0053** (Swift converges to a *catchable* `StatusTransitionError`
+  — it no longer traps on illegal transitions) and **ADR-0065** (subset manifest
+  retired): Swift now covers `LIFE-014` at full parity in all four flavors.
 - The coordinated `spec/VERSION` bump to 3.0.0, the per-flavor package version
   bumps, and the per-flavor README count reconciliation are handled by the v3
   release task, not here; this ADR's "Spec version: 3.0.0" records the line the
