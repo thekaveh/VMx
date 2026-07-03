@@ -55,6 +55,8 @@ examples/python/textual/notes_showcase/
 │   │   ├── note_form_vm.py          ← FormVM wrapper
 │   │   ├── status_bar_vm.py, notifications_vm.py
 │   │   ├── capability_actions_vm.py, action_vm.py
+│   │   ├── global_search_vm.py       ← TokenPagedComposition (row 17)
+│   │   ├── theme_vm.py               ← ThemeVM (row 16)
 │   │   └── dialog_service.py        ← VM-side port
 │   └── views/
 │       ├── app.py                   ← NotesShowcaseApp (Textual App)
