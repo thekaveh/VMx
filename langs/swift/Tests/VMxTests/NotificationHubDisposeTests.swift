@@ -87,6 +87,13 @@ final class NotificationHubDisposeTests: XCTestCase {
         let lateReaction = await hub.post(late)
         XCTAssertEqual(lateReaction, .pending,
                        "NOTIF-017: post after dispose must return .pending immediately")
+        // Immediacy note (NOTIF-017 parity): Python `late.done()` / C#
+        // `late.IsCompleted` assert the returned future is settled *before*
+        // awaiting. Swift's `post` is `async` and yields its value directly with
+        // no inspectable Task/Future handle, so "already settled before await" is
+        // not expressible. Reaching this assertion is the equivalent proof: a post
+        // that enqueued an unresolved waiter would suspend forever and fail by
+        // test timeout. See NotificationHub.post disposed branch + ADR-0037 §2.4.
 
         // Resolve after dispose must be a no-op (no crash).
         let ghost = Notif(type: .notification, message: "ghost")

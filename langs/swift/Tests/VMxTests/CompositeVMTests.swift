@@ -335,6 +335,32 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(observed.count, 2)
         XCTAssertTrue(observed[0] === b)
         XCTAssertNil(observed[1])
+
+        // Combined current(first) + onCurrentChanged: the initial-selector
+        // assignment fires the hook exactly once with the first child during
+        // construct — parity with the C#/Python/TypeScript COMP-026 second
+        // composite (CompositeVMConformanceTests.cs, test_composite_vm.py,
+        // compositeVM.test.ts).
+        let hub2 = MessageHub()
+        let a2 = try ComponentVM.builder()
+            .name("a").services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let b2 = try ComponentVM.builder()
+            .name("b").services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        var observed2: [ComponentVM?] = []
+
+        let composite2 = try CompositeVM<ComponentVM>.builder()
+            .name("composite2")
+            .services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a2, b2] }
+            .current { children in Array(children).first }
+            .onCurrentChanged { vm in observed2.append(vm) }
+            .build()
+        try composite2.construct()
+
+        XCTAssertEqual(observed2.count, 1,
+                       "the initial-selector assignment fires onCurrentChanged exactly once")
+        XCTAssertTrue(observed2[0] === a2,
+                      "the construct-time hook receives the selected first child")
     }
 
     /// VMX-098 — `selectChild` gates on Constructed, mirroring C#

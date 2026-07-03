@@ -276,25 +276,74 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// LIFE-013 — dispose on a parent disposes every child depth-first.
+    /// LIFE-013 — dispose on a parent disposes every descendant depth-first:
+    /// grandchildren before their parent composite, children before the root.
+    ///
+    ///     root (CompositeVM)
+    ///       ├── child-a (CompositeVM) ── gc-a1, gc-a2 (ComponentVM)
+    ///       └── child-b (CompositeVM) ── gc-b1, gc-b2 (ComponentVM)
+    ///
+    /// The dispose order is observed via ConstructionStatusChangedMessage(.disposed)
+    /// on a shared hub — parity with the C#/Python/TypeScript LIFE-013 corpus
+    /// (CompositeVMConformanceTests.cs, test_composite_vm.py, lifecycle.test.ts).
     func testLife013DisposeCascadesDepthFirst() throws {
         let hub = MessageHub()
-        let leaf1 = makeVM(name: "leaf1", hub: hub)
-        let leaf2 = makeVM(name: "leaf2", hub: hub)
-        let composite = try! CompositeVM<ComponentVM>.builder()
-            .name("comp")
-            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
-            .children { [leaf1, leaf2] }
-            .build()
-        try composite.construct()
-        XCTAssertEqual(leaf1.status, .constructed)
-        XCTAssertEqual(leaf2.status, .constructed)
+        let disp = ImmediateDispatcher.INSTANCE
 
-        composite.dispose()
+        let gcA1 = makeVM(name: "gc-a1", hub: hub)
+        let gcA2 = makeVM(name: "gc-a2", hub: hub)
+        let gcB1 = makeVM(name: "gc-b1", hub: hub)
+        let gcB2 = makeVM(name: "gc-b2", hub: hub)
 
-        XCTAssertEqual(leaf1.status, .disposed)
-        XCTAssertEqual(leaf2.status, .disposed)
-        XCTAssertEqual(composite.status, .disposed)
+        let childA = try CompositeVM<ComponentVM>.builder()
+            .name("child-a").services(hub: hub, dispatcher: disp)
+            .children { [gcA1, gcA2] }.build()
+        let childB = try CompositeVM<ComponentVM>.builder()
+            .name("child-b").services(hub: hub, dispatcher: disp)
+            .children { [gcB1, gcB2] }.build()
+
+        let root = try CompositeVM<CompositeVM<ComponentVM>>.builder()
+            .name("root").services(hub: hub, dispatcher: disp)
+            .children { [childA, childB] }.build()
+
+        try root.construct()
+        XCTAssertEqual(gcA1.status, .constructed)
+        XCTAssertEqual(childA.status, .constructed)
+        XCTAssertEqual(root.status, .constructed)
+
+        // Record dispose order. Subscribe after construct so only dispose-phase
+        // messages are seen; filter defensively on .disposed.
+        var disposeOrder: [String] = []
+        let cancel = hub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .sink { if $0.status == .disposed { disposeOrder.append($0.senderName) } }
+
+        root.dispose()
+
+        // Every node reaches .disposed.
+        for vm in [gcA1, gcA2, gcB1, gcB2] {
+            XCTAssertEqual(vm.status, .disposed)
+        }
+        XCTAssertEqual(childA.status, .disposed)
+        XCTAssertEqual(childB.status, .disposed)
+        XCTAssertEqual(root.status, .disposed)
+
+        // Depth-first: grandchildren before their parent composite; children
+        // before the root.
+        func idx(_ name: String) -> Int {
+            guard let i = disposeOrder.firstIndex(of: name) else {
+                XCTFail("\(name) must emit a .disposed message"); return .max
+            }
+            return i
+        }
+        XCTAssertLessThan(idx("gc-a1"), idx("child-a"), "gc-a1 disposes before child-a")
+        XCTAssertLessThan(idx("gc-a2"), idx("child-a"), "gc-a2 disposes before child-a")
+        XCTAssertLessThan(idx("gc-b1"), idx("child-b"), "gc-b1 disposes before child-b")
+        XCTAssertLessThan(idx("gc-b2"), idx("child-b"), "gc-b2 disposes before child-b")
+        XCTAssertLessThan(idx("child-a"), idx("root"), "child-a disposes before root")
+        XCTAssertLessThan(idx("child-b"), idx("root"), "child-b disposes before root")
+
+        cancel.cancel()
     }
 
     /// Background lifecycle on the synchronous ImmediateDispatcher runs the
