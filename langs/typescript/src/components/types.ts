@@ -47,8 +47,12 @@ export interface IComponentVM {
   readonly propertyChanged: Observable<string>;
 }
 
-/** Modeled variant adds a typed Model property. */
+/**
+ * Modeled variant adds a typed Model property. Per spec/09-forwarding.md §1 the
+ * modeled component's `model` is settable (read-only only on the readonly
+ * component); the forwarding decorator must therefore delegate the setter too.
+ */
 export interface IComponentVMOf<M> extends IComponentVM {
-  readonly model: M;
+  model: M;
   readonly modeledHint: string;
 }
