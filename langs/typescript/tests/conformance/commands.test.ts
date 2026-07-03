@@ -226,6 +226,37 @@ describe("CMD-012", () => {
     cmd.dispose();
   });
 
+  it("re-raises a cancellation originating from the caller's supplied AbortSignal", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => {
+      startedResolve = r;
+    });
+    const external = new AbortController();
+
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener("abort", () => reject(signal.reason as Error), {
+              once: true,
+            });
+          }),
+      )
+      .build();
+
+    const run = cmd.executeAsync(external.signal);
+    await started;
+
+    external.abort(); // the caller's signal — NOT cmd.cancel()
+
+    // spec §10.3: an externally-originated cancellation is re-raised, not swallowed
+    // by the non-throwing default (which covers only our own cancel()/dispose()).
+    await expect(run).rejects.toBeDefined();
+    expect(cmd.isExecuting).toBe(false);
+    cmd.dispose();
+  });
+
   it("throwOnCancel() surfaces the cancellation to the awaiter", async () => {
     let startedResolve!: () => void;
     const started = new Promise<void>((r) => {

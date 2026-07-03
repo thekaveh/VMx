@@ -237,6 +237,33 @@ public class CommandConformanceTests
         cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state when throwing");
     }
 
+    // CMD-012 (external-token variant) — a cancellation originating from the caller's
+    // supplied token is re-raised (not swallowed), so the caller's cancellation
+    // semantics are preserved (spec §10.3; parity with Python/Swift). The default
+    // non-throwing mode swallows only cancellation via the command's own Cancel()/Dispose().
+    [Fact, Trait("Conformance", "CMD-012")]
+    public async Task CMD_012_External_Token_Cancellation_Is_ReRaised()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var external = new CancellationTokenSource();
+
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async ct =>
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+            })
+            .Build();
+
+        var run = cmd.ExecuteAsync(null, external.Token);
+        await started.Task;
+
+        external.Cancel(); // the caller's token — NOT cmd.Cancel()
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
+        cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state");
+    }
+
     [Fact, Trait("Conformance", "CMD-012")]
     public async Task CMD_012_FireAndForget_Cancel_Does_Not_Emit_Error_When_ThrowOnCancel_Is_Set()
     {

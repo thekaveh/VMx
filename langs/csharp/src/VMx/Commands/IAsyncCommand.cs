@@ -25,8 +25,12 @@ public interface IAsyncCommand : ICommand
     /// <summary>
     /// Runs the command's async task if (and only if) <see cref="ICommand.CanExecute"/>
     /// returns true, flowing <paramref name="cancellationToken"/> into the task. By
-    /// default a cancellation (via <see cref="Cancel"/> or the supplied token)
-    /// completes the returned task normally rather than throwing.
+    /// default a cancellation requested through the command's own channel (via
+    /// <see cref="Cancel"/> or <see cref="IDisposable.Dispose"/>) completes the
+    /// returned task normally; a cancellation originating from the supplied
+    /// <paramref name="cancellationToken"/> is re-raised so the caller's cancellation
+    /// semantics are preserved (spec/04 §10.3). Opt into throwing on our own cancel
+    /// via the builder's ThrowOnCancel().
     /// </summary>
     Task ExecuteAsync(object? parameter = null, CancellationToken cancellationToken = default);
 

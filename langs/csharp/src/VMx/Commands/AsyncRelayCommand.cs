@@ -36,6 +36,10 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     private CancellationTokenSource? _cts;
     private bool _isExecuting;
     private bool _disposed;
+    // Set by Cancel()/Dispose() so the catch block swallows only a cancellation we
+    // requested through the command's own channel; an externally-supplied token's
+    // cancellation (flag unset) is re-raised per spec/04 §10.3.
+    private volatile bool _cancelRequested;
 
     internal AsyncRelayCommand(
         Func<CancellationToken, Task>? task,
@@ -136,10 +140,13 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         {
             await _task(cts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!_throwOnCancel && cts.IsCancellationRequested)
+        catch (OperationCanceledException) when (!_throwOnCancel && _cancelRequested)
         {
             // Non-throwing cancellation (DIA-007 alignment): the cancel was requested
-            // through this command's channel, so complete normally instead of throwing.
+            // through this command's own channel (Cancel()/Dispose()), so complete
+            // normally. An externally-supplied token's cancellation leaves
+            // _cancelRequested false and is re-raised (spec/04 §10.3, parity with
+            // Python/Swift).
         }
         finally
         {
@@ -160,6 +167,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         CancellationTokenSource? cts;
         lock (_gate)
         {
+            _cancelRequested = true;
             cts = _cts;
         }
         cts?.Cancel();
@@ -176,6 +184,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            _cancelRequested = true;
             cts = _cts;
         }
         cts?.Cancel();
@@ -199,6 +208,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
 
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _cts = cts;
+            _cancelRequested = false;
             _isExecuting = true;
             return cts;
         }
