@@ -25,8 +25,9 @@ XAML loader call (`AvaloniaXamlLoader.Load(this)`), enforced by
 dotnet run --project examples/csharp/avalonia/NotesShowcase
 ```
 
-The app boots, awaits the simulated ~300 ms repository load, populates four
-seed notebooks, and selects the first one. Headless smoke tests live under
+The app boots, awaits the simulated ~300 ms repository load, populates five
+seed notebooks (four root + one nested), and selects the first one. Headless
+smoke tests live under
 [`examples/csharp/avalonia/NotesShowcase.Tests/`](../NotesShowcase.Tests/)
 and run via `dotnet test`.
 
@@ -47,7 +48,9 @@ examples/csharp/avalonia/NotesShowcase/
 │   ├── NotesViewVM.cs, NoteVM.cs
 │   ├── NoteFormVM.cs              ← FormVM wrapper
 │   ├── StatusBarVM.cs, NotificationsVM.cs
-│   └── CapabilityActionsVM.cs, ActionVM.cs
+│   ├── CapabilityActionsVM.cs, ActionVM.cs
+│   ├── GlobalSearchVM.cs           ← TokenPagedComposition (row 17)
+│   └── ThemeVM.cs                  ← ThemeVM scenario (row 16)
 │   (`IDialogService` itself ships in the VMx library at
 │    `langs/csharp/src/VMx/Dialogs/IDialogService.cs`.)
 └── Views/
@@ -57,7 +60,7 @@ examples/csharp/avalonia/NotesShowcase/
     │   ├── AvaloniaDispatcher.cs, AvaloniaDialogService.cs
     ├── Theme/DarkTheme.axaml
     ├── MainWindow.axaml(.cs)
-    ├── NotebooksTreeView, NotesListView, NoteFormView,
+    ├── NotebooksTreeView, NotesListView, NoteFormView, GlobalSearchView,
     │   StatusBarView, NotificationsView, CapabilityActionsView (axaml + .axaml.cs)
     └── Modals/ConfirmDialog.axaml(.cs)
 ```

@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "pretypecheck": "npm run build:vmx",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
     "pretest": "npm run build:vmx",
     "test": "vitest run --coverage",
     "test:watch": "vitest"

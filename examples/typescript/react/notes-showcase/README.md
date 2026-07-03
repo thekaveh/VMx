@@ -57,6 +57,8 @@ examples/typescript/react/notes-showcase/
 │   │   ├── noteFormVM.ts            ← FormVM wrapper
 │   │   ├── statusBarVM.ts, notificationsVM.ts
 │   │   ├── capabilityActionsVM.ts, actionVM.ts
+│   │   ├── globalSearchVM.ts        ← TokenPagedComposition (row 17)
+│   │   ├── themeVM.ts               ← ThemeVM scenario (row 16)
 │   │   └── dialogService.ts         ← VM-side port
 │   └── views/
 │       ├── App.tsx, theme.css
@@ -64,11 +66,12 @@ examples/typescript/react/notes-showcase/
 │       │   ├── useVm.ts, useCommand.ts, useVmCollection.ts,
 │       │   │   useDerivedProperty.ts, useDialogOverlay.ts
 │       │   ├── ReactDispatcher.ts, ReactDialogService.tsx
+│       │   ├── themeAdapter.ts      ← ThemeVM → CSS variables
 │       │   └── _hubAccessor.ts
 │       ├── components/
 │       │   ├── Layout.tsx, NotebooksTree.tsx, NotesList.tsx,
 │       │   │   NoteForm.tsx, StatusBar.tsx, Notifications.tsx,
-│       │   │   CapabilityActions.tsx, DialogOverlay.tsx
+│       │   │   CapabilityActions.tsx, GlobalSearch.tsx, DialogOverlay.tsx
 │       │   └── modals/{ConfirmModal,SaveFileModal,NotifyModal}.tsx
 │       └── hooks/useHotkeys.ts
 └── tests/{models,viewmodels,views}/
