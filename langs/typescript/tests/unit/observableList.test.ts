@@ -524,13 +524,17 @@ describe("ObservableList – clear emits Count", () => {
     expect(events).toEqual(["reset", "Count"]);
   });
 
-  it("does not fire Count when clearing an empty list", () => {
+  it("does not fire Count or Reset when clearing an empty list", () => {
     const sut = new ObservableList<number>();
     const events: string[] = [];
+    let resetCount = 0;
     sut.propertyChanged.subscribe((name) => events.push(name));
+    sut.reset.subscribe(() => resetCount++);
 
     sut.clear();
 
+    // ADR-0037 §2.2: clearing an empty list changes nothing and emits nothing.
     expect(events).not.toContain("Count");
+    expect(resetCount).toBe(0);
   });
 });

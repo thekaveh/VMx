@@ -158,7 +158,11 @@ public final class ObservableList<T> {
     public func clear() {
         let countChanged = !items.isEmpty
         items.removeAll()
-        onReset()
+        // Clearing an empty list is a no-op: emit neither Reset nor Count
+        // (ADR-0037 §2.2, mirroring the empty-batch precedent).
+        if countChanged {
+            onReset()
+        }
         if countChanged && batchDepth == 0 {
             propertyChangedSubject.send("Count")
         }

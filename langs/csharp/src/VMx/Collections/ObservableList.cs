@@ -172,7 +172,10 @@ public sealed class ObservableList<T> :
     {
         bool countChanged = _items.Count > 0;
         _items.Clear();
-        OnReset();
+        // Clearing an empty list is a no-op: emit neither Reset nor Count
+        // (ADR-0037 §2.2, mirroring the empty-batch precedent).
+        if (countChanged)
+            OnReset();
         // spec/21 §3.3: PropertyChanged("Count") fires after every mutation
         // that changes Count. Inside a batch the batch-exit path emits it.
         if (countChanged && _batchDepth == 0)

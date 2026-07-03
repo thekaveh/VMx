@@ -223,14 +223,17 @@ def test_clear_fires_count_changed_after_reset() -> None:
 
 
 def test_clear_on_empty_list_does_not_fire_count_changed() -> None:
-    """Clearing an empty list does not change Count, so no notification."""
+    """Clearing an empty list changes nothing: no Reset and no Count (ADR-0037 §2.2)."""
     sut: ObservableList[int] = ObservableList()
     prop_events: list[str] = []
+    resets: list[None] = []
     sut.on_property_changed.subscribe(prop_events.append)
+    sut.on_reset.subscribe(resets.append)
 
     sut.clear()
 
     assert "Count" not in prop_events
+    assert resets == []
 
 
 # ---------------------------------------------------------------------------

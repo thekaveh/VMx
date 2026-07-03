@@ -166,10 +166,14 @@ class ObservableList(Generic[T]):
         self._on_replaced(new_item, old_item, index)
 
     def clear(self) -> None:
-        """Remove all items and emit Reset (and ``Count`` when it changed)."""
+        """Remove all items, emitting Reset then ``Count`` — but only when the
+        list was non-empty. Clearing an already-empty list changes nothing and
+        emits nothing (ADR-0037 §2.2, mirroring the empty-batch precedent)."""
         count_changed = bool(self._items)
         self._items.clear()
-        self._on_reset()
+        # Clearing an empty list is a no-op: emit neither Reset nor Count.
+        if count_changed:
+            self._on_reset()
         # spec/21 §3.3: PropertyChanged("Count") fires after every mutation
         # that changes Count. Inside a batch the batch-exit path emits it.
         if count_changed and self._batch_depth == 0 and not self._disposed:

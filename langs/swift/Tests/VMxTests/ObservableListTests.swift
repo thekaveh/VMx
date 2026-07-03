@@ -183,6 +183,20 @@ final class ObservableListTests: XCTestCase {
         XCTAssertEqual(events, [])
     }
 
+    /// Clearing an already-empty list emits neither reset nor
+    /// propertyChanged("Count") — ADR-0037 §2.2, mirroring the empty-batch case.
+    func testClearOnEmptyListEmitsNothing() {
+        let sut = ObservableList<Int>()
+
+        var events: [String] = []
+        sut.reset.sink { events.append("reset") }.store(in: &cancellables)
+        sut.propertyChanged.sink { name in events.append("pc:\(name)") }.store(in: &cancellables)
+
+        sut.clear()
+
+        XCTAssertEqual(events, [])
+    }
+
     /// COL-023 — Count-preserving batch (replace only) emits reset but NOT propertyChanged("Count").
     func testCOL023CountPreservingBatchEmitsResetButNotCount() {
         let sut = ObservableList<Int>()
