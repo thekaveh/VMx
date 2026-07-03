@@ -370,6 +370,32 @@ here so audits don't reopen them prematurely:
   and the flavors aligned — most likely gating Python/TS on `Constructed` so a
   destructed member cannot become current. Recorded here so audits don't re-flag
   it as accidental drift.
+- **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
+  `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
+  synthesize a universal equality — so a redundant `refresh()` of a byte-identical
+  head page always emits a coarse `.reset` instead of deduplicating (`COL-028`). The
+  other flavors default to a meaningful comparer (Python value-equality, C#
+  `EqualityComparer<TVM>.Default`, TypeScript `Object.is`). Safe: the collections
+  spec delegates dedup to "the flavor's equality/comparer hook", and a "never equal"
+  hook never corrupts the accumulator — but the *default* behaviour diverges (the
+  Swift `COL-028` test passes an explicit comparer, so conformance never exercises
+  the default). To reconcile, apply the ADR-0059 §2.2 `DerivedProperty` pattern: an
+  `Equatable`-constrained convenience initializer defaulting `pagesEqual` to `==`,
+  keeping the `{ _, _ in false }` default only on the fully-unconstrained designated
+  init. Recorded here so audits don't re-flag it as accidental drift.
+- **Python `.builder()` classmethod entry on `GroupVM` / `AggregateVM1..6`.** Python
+  exposes the `.builder()` classmethod convenience on `ComponentVM`/`ComponentVMOf`,
+  `CompositeVM`/`CompositeVMOf`, `FormVM`, `ReadonlyComponentVMOf`, and the command
+  types, but not on `GroupVM` or `AggregateVM1..6` — those are entered via their
+  standalone builder classes (`GroupVMBuilder`, `AggregateVMNBuilder`) or the
+  `create(...)` factory (ADR-0055). C#/TypeScript/Swift expose `.builder()` /
+  `.Builder()` on all of these, and the spec canonical entry (`10-builders.md`) is
+  `<Type>.Builder()`. Purely an API-surface convenience asymmetry — the standalone
+  builders and `create()` cover the full construction surface (the mkdocs primitives
+  tables document `GroupVMBuilder[VM]()` / `AggregateVM6Builder[...]()`). To
+  reconcile, add a `@staticmethod builder()` to the Python `GroupVM`/`AggregateVMn`
+  classes with a bottom-of-module import to break the builder↔VM circular dependency,
+  matching `CompositeVM`. Recorded here so audits don't re-flag it as accidental drift.
 
 ### Command property declared types
 
