@@ -263,7 +263,13 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         let item = children.remove(at: index)
         item._parent = nil
         if _current === item {
-            _setCurrent(nil)
+            // Structural removal: the current child is no longer a member, so the
+            // clear MUST be synchronous (spec/06 §3 — a non-nil `current` must be a
+            // member). Bypass `asyncSelection` like `_onDestruct` does, rather than
+            // deferring via `_setCurrent(nil)` and transiently leaving `current`
+            // pointing at the removed item. Parity with C#/Python/TypeScript
+            // (`SetCurrent(null, async: false)`).
+            _applyCurrentChange(nil)
         }
         // Emit AFTER the child has been removed and parent cleared.
         if _batchLevel > 0 {

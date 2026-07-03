@@ -97,7 +97,7 @@ final class FilteredCompositeVMTests: XCTestCase {
 
     /// COMP-037 — scored filter recomputes order when scores change.
     func testCOMP037ScoredFilterRecomputesOrderWhenScoresChange() throws {
-        var weights = ["alpha": 1, "bee": 2]
+        var weights: [String: Double] = ["alpha": 1, "bee": 2]
         let sut = try ScoredFilteredCompositeVM(source("alpha", "bee")) { weights[$0.name] }
         XCTAssertEqual(sut.visible.map(\.name), ["bee", "alpha"])
         weights["alpha"] = 3
