@@ -256,8 +256,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCo
     /// </summary>
     public override void Dispose()
     {
-        // Depth-first: dispose each child before self.
-        foreach (var child in _children)
+        // Depth-first: dispose each child before self. Snapshot with ToArray so a
+        // child whose Dispose() reentrantly removes a sibling cannot invalidate the
+        // enumerator (parity with OnConstruct/OnDestruct and CompositeVMBase.Dispose).
+        foreach (var child in _children.ToArray())
             child.Dispose();
 
         base.Dispose();

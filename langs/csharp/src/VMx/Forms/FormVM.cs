@@ -212,6 +212,10 @@ public sealed class FormVM<TM> : IDisposable
     /// </summary>
     public void SetModel(TM model)
     {
+        // Inert after Dispose (like ApproveAsync/Deny): a post-dispose call would
+        // otherwise emit on the disposed Revalidate subjects and throw
+        // ObjectDisposedException (parity with the TS/Swift no-op).
+        if (_disposed) return;
         ThrowHelper.ThrowIfNull(model, nameof(model));
         var wasDirty = IsDirty;
         var wasValid = IsValid;
