@@ -15,6 +15,7 @@
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
 //
 import XCTest
+import Combine
 @testable import VMx
 
 final class CompositeVMTests: XCTestCase {
@@ -235,18 +236,76 @@ final class CompositeVMTests: XCTestCase {
     // ── Conformance — COMP-025 / COMP-026 ───────────────────────────────
 
     /// COMP-025 — `current(selector)` builder hook drives initial selection
-    /// during construct.
+    /// during construct. Three clauses (spec/12 COMP-025, parity with the
+    /// Python/C# conformance tests):
+    ///   1. the selector's return value becomes `current`;
+    ///   2. the selector runs EXACTLY ONCE — after every child reached
+    ///      `.constructed` and before the composite itself reaches
+    ///      `.constructed`;
+    ///   3. a null-returning selector leaves `current` nil AND publishes no
+    ///      `PropertyChangedMessage("current")`.
     func testCOMP025CurrentSelectorDrivesInitialSelection() throws {
-        let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
+        let hub = MessageHub()
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let b = try ComponentVM.builder()
+            .name("b").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let cChild = try ComponentVM.builder()
+            .name("c").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+
+        var selectorCalls = 0
+        var allChildrenConstructedAtSelector = false
+        var compositeStatusAtSelector: ConstructionStatus?
+        weak var compositeRef: CompositeVM<ComponentVM>?
+
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
-            .withNullServices()
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
             .children { [a, b, cChild] }
-            .current { children in Array(children)[1] }
+            .current { children in
+                selectorCalls += 1
+                allChildrenConstructedAtSelector = children.allSatisfy { $0.status == .constructed }
+                compositeStatusAtSelector = compositeRef?.status
+                return Array(children)[1]
+            }
             .build()
+        compositeRef = composite
+
         try composite.construct()
 
+        // Clause 1 — the selector's pick (b) becomes current.
         XCTAssertTrue(composite.current === b)
+        // Clause 2 — exactly one selector call, after every child reached
+        // Constructed and while the composite is still Constructing.
+        XCTAssertEqual(selectorCalls, 1, "the selector must run exactly once during construct")
+        XCTAssertTrue(allChildrenConstructedAtSelector,
+                      "the selector must run after every child reached Constructed")
+        XCTAssertEqual(compositeStatusAtSelector, .constructing,
+                       "the selector must run before the composite itself reaches Constructed")
+
+        // Clause 3 — a null-returning selector leaves current nil and publishes
+        // no PropertyChangedMessage("current") on the hub.
+        let hub2 = MessageHub()
+        let a2 = try ComponentVM.builder()
+            .name("a").services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        var propertyNames: [String] = []
+        let cancel = hub2.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .sink { propertyNames.append($0.propertyName) }
+
+        let composite2 = try CompositeVM<ComponentVM>.builder()
+            .name("composite2")
+            .services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a2] }
+            .current { _ in nil }
+            .build()
+        try composite2.construct()
+
+        XCTAssertNil(composite2.current)
+        XCTAssertFalse(propertyNames.contains("current"),
+                       "a null-returning current selector must publish no "
+                       + "PropertyChangedMessage(\"current\")")
+        cancel.cancel()
     }
 
     /// COMP-026 — `onCurrentChanged(callback)` fires synchronously after

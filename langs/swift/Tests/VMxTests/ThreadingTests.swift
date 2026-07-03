@@ -72,10 +72,15 @@ final class ThreadingTests: XCTestCase {
 
     // ── THR-002 ──────────────────────────────────────────────────────────
 
-    /// THR-002 — Background construct returns synchronously in `.constructing`
-    /// and completes the `.constructed` transition only after the background
-    /// scheduler advances.
-    func testTHR002BackgroundConstructDefersConstructedUntilBackgroundFlush() throws {
+    /// THR-002 — Background construct is a THREE-phase transition (spec/11 §4,
+    /// VMX-025), matching the C#/Python THR-002 3-phase assertions:
+    ///   1. the intermediate `.constructing` emission is synchronous on the
+    ///      calling thread;
+    ///   2. the `_onConstruct` hook runs on `IDispatcher.Background`;
+    ///   3. the TERMINAL `.constructed` transition is marshalled onto
+    ///      `IDispatcher.Foreground` — so it lands only after the FOREGROUND
+    ///      scheduler advances, not the background one.
+    func testTHR002BackgroundConstructDefersConstructedUntilForegroundFlush() throws {
         let hub = MessageHub()
         let manual = ManualDispatcher()
 
@@ -88,16 +93,29 @@ final class ThreadingTests: XCTestCase {
 
         try vm.construct()
 
-        // construct() returns immediately mid-transition: the synchronous
-        // `.constructing` emission has happened, but the `_onConstruct` hook and
-        // terminal `.constructed` transition are buffered on the background queue.
+        // Phase 1: construct() returns immediately mid-transition — only the
+        // synchronous `.constructing` emission has happened. The `_onConstruct`
+        // hook and the terminal `.constructed` transition are still pending.
         XCTAssertEqual(vm.status, .constructing,
                        "background construct emits only Constructing synchronously")
 
+        // Phase 2: advancing the BACKGROUND scheduler runs the hook and queues
+        // the terminal transition onto the FOREGROUND scheduler — but does NOT
+        // itself complete it (VMX-025 marshals the terminal emission onto the
+        // foreground thread), so the VM is still Constructing.
         manual.flushBackground()
 
+        XCTAssertEqual(vm.status, .constructing,
+                       "the terminal Constructed transition is marshalled onto the foreground "
+                       + "scheduler (VMX-025); flushing only the background scheduler leaves the "
+                       + "VM in Constructing")
+
+        // Phase 3: advancing the FOREGROUND scheduler delivers the terminal
+        // transition — the VM reaches Constructed.
+        manual.flushForeground()
+
         XCTAssertEqual(vm.status, .constructed,
-                       "after the background scheduler advances the transition completes")
+                       "after the foreground scheduler advances the terminal transition completes")
     }
 
     // ── THR-003 ──────────────────────────────────────────────────────────

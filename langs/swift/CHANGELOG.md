@@ -36,6 +36,12 @@ conformance IDs covered.
   against concurrent disposal.
 - Group children no longer report enabled child selection into a group, and
   composite/group lifecycle cascades snapshot children before invoking hooks.
+- Background-form lifecycle now marshals the terminal `Constructed` /
+  `Destructed` transition onto `IDispatcher.Foreground` (`VMX-025`, spec/11 §4),
+  matching C#/Python: SwiftUI subscribers observe lifecycle completion on the
+  main thread instead of the background pool thread. `THR-002` now asserts the
+  three-phase behavior (background flush leaves the VM `Constructing`; the
+  terminal transition lands only after the foreground flush).
 
 ## [3.0.0] — 2026-06-28
 
