@@ -231,3 +231,20 @@ public final class ObservableList<T> {
         resetSubject.send(())
     }
 }
+
+// MARK: - Value-based removal (requires Equatable)
+
+public extension ObservableList where T: Equatable {
+    /// Remove the first occurrence of `item`, emitting `itemRemoved` (and `Count`
+    /// when it changed) exactly as `removeAt(_:)` does. Returns `true` when the item
+    /// was found and removed, `false` otherwise — parity with the canonical
+    /// `Remove(item): Bool` (spec/21 §3.1). Offered on an `Equatable`-constrained
+    /// extension because the designated `ObservableList<T>` is unconstrained
+    /// (mirroring the ADR-0059 §2.2 pattern the ADR-0009 catalogue prescribes).
+    @discardableResult
+    func remove(_ item: T) -> Bool {
+        guard let index = toArray().firstIndex(of: item) else { return false }
+        removeAt(index)
+        return true
+    }
+}

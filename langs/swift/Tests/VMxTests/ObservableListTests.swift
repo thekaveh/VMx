@@ -59,6 +59,28 @@ final class ObservableListTests: XCTestCase {
         XCTAssertEqual(received[0].index, 1) // index before removal
     }
 
+    /// remove(_:) removes the first occurrence by value (Equatable convenience,
+    /// spec/21 §3.1): emits itemRemoved with the index-before-removal and returns
+    /// whether the item was found.
+    func testRemoveByValueEmitsAndReturnsFound() {
+        let sut = ObservableList<String>()
+        sut.append("x")
+        sut.append("y")
+        sut.append("z")
+
+        var received: [ItemRemovedEvent<String>] = []
+        sut.itemRemoved.sink { received.append($0) }.store(in: &cancellables)
+
+        XCTAssertTrue(sut.remove("y"))
+        XCTAssertEqual(sut.toArray(), ["x", "z"])
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received[0].item, "y")
+        XCTAssertEqual(received[0].index, 1)
+
+        XCTAssertFalse(sut.remove("absent")) // not found -> false, no further event
+        XCTAssertEqual(received.count, 1)
+    }
+
     // ── COL-007 ──────────────────────────────────────────────────────────────
 
     /// COL-007 — ObservableList ItemReplaced emits (newItem, oldItem, index) on replace.

@@ -396,6 +396,17 @@ here so audits don't reopen them prematurely:
   reconcile, add a `@staticmethod builder()` to the Python `GroupVM`/`AggregateVMn`
   classes with a bottom-of-module import to break the builder↔VM circular dependency,
   matching `CompositeVM`. Recorded here so audits don't re-flag it as accidental drift.
+- **Swift `CompositeVM`/`GroupVM` native iteration (`Sequence` conformance).** The
+  spec lists `iterator` on the composite/group surface (`spec/06`/`spec/07`), and
+  C#/Python/TypeScript expose native iteration (`GetEnumerator` / `__iter__` /
+  `[Symbol.iterator]`). Swift instead exposes `count` + `at(_:)` and does **not**
+  conform `CompositeVM` or `GroupVM` to `Sequence` (only the `ForwardingCompositeVM`
+  decorator adds `Sequence`, to forward the wrapped's iteration for `FWD-003`). This
+  is a uniform Swift choice across both container types (not a `GroupVM`-only gap),
+  so `count`/`at(_:)` is the idiomatic access surface today. To reconcile, add
+  `Sequence` conformance (a `makeIterator()` over `0..<count` yielding `at(_:)`) to
+  both `CompositeVM` and `GroupVM` in Swift — a deferred API-surface follow-up.
+  Recorded here so audits don't re-flag it as accidental drift.
 
 ### Command property declared types
 
