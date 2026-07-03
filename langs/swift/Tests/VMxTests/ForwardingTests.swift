@@ -179,4 +179,31 @@ final class ForwardingTests: XCTestCase {
         XCTAssertTrue(fwd.at(0) === vm1)
         XCTAssertTrue(fwd.at(1) === vm2)
     }
+
+    /// ForwardingCompositeVM forwards the typed component-selection surface to
+    /// the wrapped composite. Regression: the decorator's own (empty) base
+    /// children previously made canSelectComponent → false and selectComponent /
+    /// deselectComponent throw CompositeMembershipError for every legitimate
+    /// wrapped child (parity with Python/C#/TS, which forward these).
+    func testForwardingCompositeForwardsComponentSelection() throws {
+        let vm1 = leaf("vm1")
+        let vm2 = leaf("vm2")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .children { [vm1, vm2] }
+            .build()
+        try composite.construct()
+
+        let fwd = NoopForwardingComposite(composite)
+
+        XCTAssertTrue(fwd.canSelectComponent(vm1),
+                      "a constructed wrapped child is selectable through the decorator")
+        try fwd.selectComponent(vm1)
+        XCTAssertTrue(composite.current === vm1, "selectComponent forwards to the wrapped")
+        XCTAssertTrue(fwd.current === vm1)
+
+        try fwd.deselectComponent(vm1)
+        XCTAssertNil(composite.current, "deselectComponent forwards to the wrapped")
+    }
 }
