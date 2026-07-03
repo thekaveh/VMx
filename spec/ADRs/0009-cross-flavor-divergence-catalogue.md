@@ -177,6 +177,8 @@ ADR-0006 and require no further action:
   emitting an `ItemRemoved` event.
 - **C# / Python**: no equivalent; consumers use `RemoveAt(Count - 1)` /
   `del list[-1]` instead.
+- **Swift**: ships `removeLast() -> T?` with the same pop semantics (`nil` on an
+  empty list, emits `ItemRemoved`) under the Swift-idiomatic name.
 - **Rationale**: JavaScript code reads `list.pop()` idiomatically. The additive
   method is fully consistent with the spec's `ItemRemoved` event semantics and
   does not alter observable behavior for callers that do not use it. Not
@@ -191,6 +193,33 @@ ADR-0006 and require no further action:
 - **Rationale**: JS idiomatic helpers. Event emission follows spec semantics:
   single-item operations emit `Added`/`Removed`/`Replaced`; multi-item splice
   emits `Reset`. Not normative; the spec does not enumerate these methods.
+
+### `ServicedObservableCollection.remove` return shape (Python)
+
+- **C#**: inherits `ObservableCollection<T>.Remove(item) -> bool` (`false` when absent).
+- **Swift**: `remove(_ item:) -> Bool` on an `Equatable` extension (`false` when absent).
+- **Python**: `remove(value) -> None`, and **raises `ValueError` when the item is
+  absent** — the `collections.abc.MutableSequence.remove` contract (enforced by
+  `mypy --strict`) that the Python collections subclass.
+- **TypeScript**: no by-value `remove`; consumers use `splice` / `pop`.
+- **Rationale**: the spec's `Remove(item): bool` (spec/21 §2.1) is honored by C#/Swift;
+  Python follows its standard-library `MutableSequence` idiom (raise-on-absent,
+  `-> None`), consistent with its own `ObservableList.remove`. A return-shape idiom
+  (ADR-0006), not a behavioral defect.
+
+### `DiscriminatorVM` key equality (TypeScript referential vs structural)
+
+- **C# / Python / Swift**: same-key detection uses **structural** equality
+  (`EqualityComparer<TKey>.Default` / `==` / `Equatable`), so `setActiveKey` with a
+  structurally-equal but distinct value-object instance is a no-op (DISC-003).
+- **TypeScript**: uses `Object.is(a, b) || a === b` (**referential** for objects), so
+  a structurally-equal but distinct object key reassigns and emits a spurious
+  `activeChanged`.
+- **Rationale**: the same idiomatic equality-operator split already catalogued for
+  `DerivedProperty` distinct-emit — JavaScript has no built-in structural equality
+  for objects. String/enum/number keys (the common case and the conformance
+  fixtures) converge in all four flavors; a caller with value-object keys can pass an
+  explicit comparer if strict parity is required. Non-normative (ADR-0006).
 
 ### `ObservableDictionary` remove/delete naming
 

@@ -219,8 +219,9 @@ Behavior:
   RECOMMENDED whenever the commands are bound to UI; omitting it leaves
   `CanExecute` correct on demand but non-reactive. Exposing the optional
   `current_changed` parameter is, per ADR-0049, a clarification first realized in
-  C# (VMX-011); the other flavors compose the same reactivity through the base
-  `Triggers` mechanism (chapter 04 §4.2).
+  C# (VMX-011) and also exposed by Swift's `ModeledCrudCommands`; Python and
+  TypeScript compose the same reactivity through the base `Triggers` mechanism
+  (chapter 04 §4.2).
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 
