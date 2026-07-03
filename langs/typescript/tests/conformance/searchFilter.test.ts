@@ -195,3 +195,24 @@ describe("SearchableState.searchTerm setter equality guard", () => {
     expect(sink.length).toBe(afterFirst);
   });
 });
+
+describe("SearchableState dispose", () => {
+  it("is inert after dispose: searchTerm reads empty and the setter/search no-op", () => {
+    const items = ["apple", "banana"];
+    const s = new SearchableState<string>({
+      items: () => items,
+      predicate: ciSubstr,
+      debounceMs: 0,
+    });
+    s.searchTerm = "app";
+    s.dispose();
+
+    // Parity with C#/Python: after dispose the getter returns "" and the setter
+    // is inert (rxjs BehaviorSubject would otherwise retain a post-dispose value).
+    expect(s.searchTerm).toBe("");
+    s.searchTerm = "changed";
+    expect(s.searchTerm).toBe("");
+    // search() after dispose is a no-op (does not throw).
+    expect(() => s.search()).not.toThrow();
+  });
+});
