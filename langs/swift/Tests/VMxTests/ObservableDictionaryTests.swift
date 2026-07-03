@@ -320,4 +320,26 @@ final class ObservableDictionaryTests: XCTestCase {
         // Reached here without trapping → null-hub fallback holds.
         XCTAssertEqual(sut.size, 0)
     }
+
+    /// add(_:_:_:) strict-inserts and throws duplicateKey on an existing pair
+    /// (unlike set, which upserts) — spec/21 §4.1, parity with C#/Python/TS.
+    func testStrictAddInsertsAndThrowsOnDuplicate() throws {
+        let sut = ObservableDictionary<String, Int, Double>()
+        var added: [DictionaryItemAddedEvent<String, Int, Double>] = []
+        sut.itemAdded.sink { added.append($0) }.store(in: &cancellables)
+
+        try sut.add("alpha", 1, 3.14)
+        XCTAssertTrue(sut.has("alpha", 1))
+        XCTAssertEqual(sut.get("alpha", 1) ?? .nan, 3.14, accuracy: 1e-9)
+        XCTAssertEqual(added.count, 1)
+
+        XCTAssertThrowsError(try sut.add("alpha", 1, 9.99)) { error in
+            guard case ObservableDictionaryError.duplicateKey = error else {
+                return XCTFail("expected duplicateKey, got \(error)")
+            }
+        }
+        // Value unchanged, no second add event.
+        XCTAssertEqual(sut.get("alpha", 1) ?? .nan, 3.14, accuracy: 1e-9)
+        XCTAssertEqual(added.count, 1)
+    }
 }

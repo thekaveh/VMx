@@ -50,7 +50,7 @@ sibling helper's precedent.
 
 Per-flavor entry points: `IMessageHub.WhenPropertyChanged` (C#),
 `vmx.messages.when_property_changed` (Python), `whenPropertyChanged` from
-`src/messages` (TypeScript).
+`src/messages` (TypeScript), and `MessageHubProtocol.whenPropertyChanged` (Swift).
 
 ### 2.2 Declare the `Parent` member (VMX-040)
 

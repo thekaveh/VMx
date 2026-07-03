@@ -155,4 +155,23 @@ final class ServicedObservableCollectionTests: XCTestCase {
         // Hub handler must have run BEFORE append() returned (COL-004).
         XCTAssertEqual(callOrder, ["hub", "after-append"])
     }
+
+    /// remove(_:) removes the first occurrence by value, emits a granular remove,
+    /// and returns whether it was found (Equatable convenience, spec/21 §2.1).
+    func testRemoveByValueEmitsAndReturnsFound() {
+        let sut = ServicedObservableCollection<String>(hub: MessageHub())
+        sut.append("x")
+        sut.append("y")
+        sut.append("z")
+
+        var localEvents: [CollectionChangedMessage<String>] = []
+        sut.collectionChanged.sink { localEvents.append($0) }.store(in: &cancellables)
+
+        XCTAssertTrue(sut.remove("y"))
+        XCTAssertEqual(sut.toArray(), ["x", "z"])
+        XCTAssertEqual(localEvents.count, 1)
+
+        XCTAssertFalse(sut.remove("absent")) // not found -> false, no further event
+        XCTAssertEqual(localEvents.count, 1)
+    }
 }
