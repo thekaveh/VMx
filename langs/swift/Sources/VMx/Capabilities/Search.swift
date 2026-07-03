@@ -73,10 +73,17 @@ public final class SearchableState<T>: Searchable {
             }
     }
 
-    /// The current search term.
+    /// The current search term. Reads empty once disposed — parity with
+    /// C#/Python/TypeScript, whose getters return "" after dispose rather than the
+    /// frozen last value (Combine's `CurrentValueSubject.value` retains it).
     public var searchTerm: String {
-        get { termSubject.value }
+        get {
+            guard !disposed else { return "" }
+            return termSubject.value
+        }
         set {
+            // Inert once disposed (parity with the other flavors' guarded setters).
+            guard !disposed else { return }
             // Spec wording is "emission on a new value" — guard against no-op
             // re-sets so the debounce + recompute don't fire when unchanged.
             guard newValue != termSubject.value else { return }
@@ -97,6 +104,7 @@ public final class SearchableState<T>: Searchable {
 
     /// Force an immediate recompute against the current term (bypasses debounce).
     public func search() {
+        guard !disposed else { return }
         forceSearchSubject.send(())
     }
 
