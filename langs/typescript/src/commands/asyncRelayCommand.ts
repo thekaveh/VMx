@@ -1,7 +1,7 @@
 /**
  * AsyncRelayCommand — a cancellable async ICommand implementation.
  *
- * See spec/04-commands.md §11 (async command cancellation), ADR-0056.
+ * See spec/04-commands.md §10 (async command cancellation), ADR-0056.
  *
  * Behavior contract:
  * - The task receives an `AbortSignal` linked to both `cancel()` (an internal

@@ -1,5 +1,5 @@
 // HIER-018 conformance test — reparentChild rejects self- and
-// ancestor-reparenting. See spec/18-hierarchical-vm.md §5 and ADR-0037 §2.3.
+// ancestor-reparenting. See spec/18-hierarchical-vm.md §6 and ADR-0037 §2.3.
 
 import { describe, expect, it } from "vitest";
 import {

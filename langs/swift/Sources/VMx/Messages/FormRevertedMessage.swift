@@ -1,7 +1,7 @@
 //
 // FormRevertedMessage — emitted when a FormVM reverts its model to snapshot.
 //
-// See spec/20-form-vm.md §7 — Hub messages.
+// See spec/20-form-vm.md §8 — Hub messages.
 //
 import Foundation
 

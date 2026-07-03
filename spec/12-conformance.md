@@ -1374,7 +1374,7 @@ virtual time 0
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..026`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..037`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
 see ADR-0016), and builder hooks (COMP-025..026, see ADR-0042) additions to
@@ -1568,7 +1568,7 @@ because `c` no longer has a `Parent` to delegate to
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..010`)
+## 21. GroupVM v2.0 additions (`GRP-007..011`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context

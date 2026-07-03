@@ -12,7 +12,7 @@ the merged framework critique (`docs/audit/2026-06-27-vmx-merged-critique.md`).
 `IAsyncCommand`**. The base `RelayCommand` task (chapter 04 §3) is a synchronous
 `Action`/`Callable[[], None]`/`() => void`; a long-running async operation kicked
 off by a command therefore has **no cancellation channel**. This is asymmetric:
-`IDialogService` already defines a cancellation contract (chapter 19 §6, `DIA-007`)
+`IDialogService` already defines a cancellation contract (chapter 19 §7, `DIA-007`)
 whose defining property is that a cancelled pending call **completes with the safe
 default rather than throwing** unless the implementation opts into a throwing mode.
 A command's long-running task had no equivalent.
@@ -62,7 +62,7 @@ lifecycle, so a bound control's enabled state tracks the run.
 `Cancel()` cancels the in-flight task. By default the awaited `ExecuteAsync`
 **completes normally** rather than surfacing the flavor's cancellation exception
 (`OperationCanceledException` / `asyncio.CancelledError` / `AbortError`) — exactly
-the `DIA-007` rule (chapter 19 §6): cancellation completes with the safe default,
+the `DIA-007` rule (chapter 19 §7): cancellation completes with the safe default,
 not a throw. A flavor MAY opt into a throwing mode via the builder's
 `ThrowOnCancel()`, mirroring the `DIA-007` opt-in clause. Either way the command
 returns to the non-executing state (`IsExecuting == false`).

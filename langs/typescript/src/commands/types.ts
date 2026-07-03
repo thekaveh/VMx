@@ -20,13 +20,13 @@ export interface ICommandOf<T> {
 /**
  * An ICommand whose work is asynchronous and cancellable.
  *
- * See spec/04-commands.md §11 (async command cancellation), ADR-0056.
+ * See spec/04-commands.md §10 (async command cancellation), ADR-0056.
  *
  * `executeAsync` flows an `AbortSignal` into the task; `cancel()` aborts the
  * in-flight execution via an internal `AbortController`. Cancellation is
  * non-throwing to the caller by default — the awaited `executeAsync` resolves
  * on cancel rather than rejecting — mirroring the dialog cancellation contract
- * (spec/19-dialogs.md §6, DIA-007). While an execution is in flight `canExecute`
+ * (spec/19-dialogs.md §7, DIA-007). While an execution is in flight `canExecute`
  * returns `false`, so the command cannot double-run.
  */
 export interface IAsyncCommand extends ICommand {

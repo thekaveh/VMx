@@ -9,7 +9,7 @@ namespace VMx.Commands;
 /// <summary>
 /// Concrete cancellable async <see cref="IAsyncCommand"/> implementation.
 ///
-/// Spec: spec/04-commands.md §11, ADR-0056.
+/// Spec: spec/04-commands.md §10, ADR-0056.
 /// - Task receives a <see cref="CancellationToken"/> linked to both the in-flight
 ///   <see cref="Cancel"/> source and any token supplied to <see cref="ExecuteAsync"/>.
 /// - Predicate null → <see cref="CanExecute"/> returns true when idle.

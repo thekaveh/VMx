@@ -55,7 +55,7 @@ in multiple language flavors with semantically equivalent behavior.
 - **v2.5 additions**. Maintenance-pass clarifications (ADR-0037) — Swift
   conformance subset accurately recounted 53 → 39 (corrects ADR-0036 §2.E);
   three new normative IDs added — `HIER-018` (`HierarchicalVM` reparent guard
-  against self/ancestor cycles, chapter 18 §5), `NOTIF-017` (`NotificationHub`
+  against self/ancestor cycles, chapter 18 §6), `NOTIF-017` (`NotificationHub`
   dispose semantics, chapter 16 §9), and `FORM-014` ("disposed form is inert",
   ADR-0038, chapter 20). Catalog total grows 232 → 235 (230 library + 5 THEME).
 - **v2.6 additions**. Absorption-audit follow-up — `CompositeVMBuilder` gains

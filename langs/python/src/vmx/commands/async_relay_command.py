@@ -1,6 +1,6 @@
 """AsyncRelayCommand — a cancellable async command.
 
-Spec: spec/04-commands.md §11 (async command cancellation), ADR-0056.
+Spec: spec/04-commands.md §10 (async command cancellation), ADR-0056.
 
 Behavior contract:
 - ``task`` is a coroutine function (``() -> Awaitable[None]``). asyncio delivers

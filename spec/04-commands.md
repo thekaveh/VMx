@@ -291,7 +291,7 @@ yields a semantically transparent decorator (no extra gate, no pre/post hooks).
 
 The base `RelayCommand` task (§3) is synchronous and uncancellable. A
 long-running async task therefore had **no cancellation channel**, even though
-`IDialogService` already defines one (chapter 19 §6, `DIA-007`). Spec v3 adds an
+`IDialogService` already defines one (chapter 19 §7, `DIA-007`). Spec v3 adds an
 **async, cancellable command** so an in-flight operation can be cancelled, with
 semantics aligned to the dialog cancellation contract.
 
@@ -337,7 +337,7 @@ flavor has an explicit caller-supplied token.
 
 `Cancel()` requests cancellation of the in-flight task. By default this is
 **non-throwing to the caller**, matching `IDialogService` cancellation
-(`DIA-007`, chapter 19 §6): the awaited `ExecuteAsync` **completes normally** on
+(`DIA-007`, chapter 19 §7): the awaited `ExecuteAsync` **completes normally** on
 cancel rather than surfacing an `OperationCanceledException` /
 `asyncio.CancelledError` / `AbortError`. After a cancel the command returns to a
 non-executing state (`IsExecuting == false`, `CanExecute == true` once any

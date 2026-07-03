@@ -9,7 +9,7 @@ namespace VMx.Conformance.Tests;
 
 /// <summary>
 /// HIER-018: ReparentChild rejects self- and ancestor-reparenting.
-/// See spec/18-hierarchical-vm.md §5 and ADR-0037 §2.3.
+/// See spec/18-hierarchical-vm.md §6 and ADR-0037 §2.3.
 /// </summary>
 public class HIER_018_ReparentGuard_Tests
 {

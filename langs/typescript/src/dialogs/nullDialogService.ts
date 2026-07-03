@@ -7,7 +7,7 @@
  * - `notify` → no-op
  *
  * Stateless — safe to share via {@link NullDialogService.INSTANCE}.
- * See spec/19-dialogs.md §3 and ADR-0017.
+ * See spec/19-dialogs.md §4 and ADR-0017.
  */
 import type { FileFilter, IModalDialogService, NotificationSeverity } from "./dialogService.js";
 import type { ModalVM } from "./modalVM.js";

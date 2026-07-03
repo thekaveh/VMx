@@ -1,6 +1,6 @@
 """FormRevertedMessage — emitted when a FormVM reverts its Model to Snapshot.
 
-See spec/20-form-vm.md §7 — Hub messages.
+See spec/20-form-vm.md §8 — Hub messages.
 """
 
 from __future__ import annotations
