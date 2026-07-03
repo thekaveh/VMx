@@ -2,9 +2,10 @@
 // GroupVM conformance tests.
 //
 // Claimed IDs: GRP-002, GRP-003, GRP-004, GRP-011 (plus the group path of
-// LIFE-013). GRP-001 (CollectionChanged on add), GRP-005
-// (AutoConstructOnAdd), and GRP-006 (BatchUpdate) are NOT claimed —
-// those behaviors are not implemented by this flavor yet (ADR-0037).
+// LIFE-013). GRP-001 (CollectionChanged on add), GRP-005 (AutoConstructOnAdd),
+// and GRP-006 (BatchUpdate) are claimed in sibling files at total parity
+// (ADR-0065): GRP-001 in CompositeCollectionChangedTests.swift, GRP-005 in
+// AutoConstructOnAddTests.swift, GRP-006 in BatchUpdateTests.swift.
 //
 import XCTest
 @testable import VMx

@@ -69,7 +69,7 @@ describe("FORM-002", () => {
 // ---------------------------------------------------------------------------
 
 describe("FORM-003", () => {
-  it("IsDirty uses structural inequality (JSON.stringify)", () => {
+  it("IsDirty uses structural deep-equality", () => {
     const initial = makeModel("Alice", 1);
     const sut = makeFormVM(initial);
 
