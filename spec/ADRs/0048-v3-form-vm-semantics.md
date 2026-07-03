@@ -127,9 +127,9 @@ TypeScript were aligned to it), resolving the ADR-0009 `OnApproved` divergence n
   added unit-test coverage; no new IDs are minted for them. `FORM-006`'s note is
   amended for the `OnApproved` persisted-value semantics (VMX-047). Catalog library
   total: 233 → 234 (238 → 239 including the 5 THEME scenario IDs).
-- Swift remains the documented subset (ADR-0037): its `FormVM` is outside the
-  shipped Swift subset, so the `--require swift` subset manifest is unaffected and
-  `FORM-015` is a full-parity (C#/Python/TypeScript) ID only.
+- At the time of this ADR Swift was the documented subset (ADR-0037) and its
+  `FormVM` was outside the shipped subset. **Superseded by ADR-0062/ADR-0065**: Swift
+  now ships `FormVM`, and `FORM-015` is a full-parity ID covered in all four flavors.
 - The coordinated `spec/VERSION` bump to 3.0.0, per-flavor package version bumps, and
   per-flavor README count reconciliation are handled by the v3 release task, not
   here; this ADR's "Spec version: 3.0.0" records the line the change belongs to.

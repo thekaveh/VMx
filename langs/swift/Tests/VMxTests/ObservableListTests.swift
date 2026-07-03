@@ -59,6 +59,28 @@ final class ObservableListTests: XCTestCase {
         XCTAssertEqual(received[0].index, 1) // index before removal
     }
 
+    /// remove(_:) removes the first occurrence by value (Equatable convenience,
+    /// spec/21 §3.1): emits itemRemoved with the index-before-removal and returns
+    /// whether the item was found.
+    func testRemoveByValueEmitsAndReturnsFound() {
+        let sut = ObservableList<String>()
+        sut.append("x")
+        sut.append("y")
+        sut.append("z")
+
+        var received: [ItemRemovedEvent<String>] = []
+        sut.itemRemoved.sink { received.append($0) }.store(in: &cancellables)
+
+        XCTAssertTrue(sut.remove("y"))
+        XCTAssertEqual(sut.toArray(), ["x", "z"])
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received[0].item, "y")
+        XCTAssertEqual(received[0].index, 1)
+
+        XCTAssertFalse(sut.remove("absent")) // not found -> false, no further event
+        XCTAssertEqual(received.count, 1)
+    }
+
     // ── COL-007 ──────────────────────────────────────────────────────────────
 
     /// COL-007 — ObservableList ItemReplaced emits (newItem, oldItem, index) on replace.
@@ -179,6 +201,20 @@ final class ObservableListTests: XCTestCase {
         sut.propertyChanged.sink { name in events.append("pc:\(name)") }.store(in: &cancellables)
 
         sut.withBatch { /* nothing */ }
+
+        XCTAssertEqual(events, [])
+    }
+
+    /// Clearing an already-empty list emits neither reset nor
+    /// propertyChanged("Count") — ADR-0037 §2.2, mirroring the empty-batch case.
+    func testClearOnEmptyListEmitsNothing() {
+        let sut = ObservableList<Int>()
+
+        var events: [String] = []
+        sut.reset.sink { events.append("reset") }.store(in: &cancellables)
+        sut.propertyChanged.sink { name in events.append("pc:\(name)") }.store(in: &cancellables)
+
+        sut.clear()
 
         XCTAssertEqual(events, [])
     }

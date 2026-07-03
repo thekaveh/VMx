@@ -410,8 +410,8 @@ jobs:
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           version="${tag#swift-v}"
-          # `--generate-notes` falls back gracefully when there's no prior
-          # release on the same tag prefix.
+          # Static release notes pointing at the CHANGELOG entry (deliberately
+          # not `--generate-notes`, which would depend on prior-release history).
           gh release create "$tag" \
             --title "Swift v${version} (SwiftPM)" \
             --notes "VMx Swift flavor — see \`langs/swift/CHANGELOG.md\` for the entry." \

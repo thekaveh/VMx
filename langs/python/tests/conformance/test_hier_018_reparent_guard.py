@@ -1,6 +1,6 @@
 """HIER-018 conformance test — ReparentChild rejects self- and ancestor-reparenting.
 
-See spec/18-hierarchical-vm.md §5 and ADR-0037 §2.3.
+See spec/18-hierarchical-vm.md §6 and ADR-0037 §2.3.
 """
 
 from __future__ import annotations

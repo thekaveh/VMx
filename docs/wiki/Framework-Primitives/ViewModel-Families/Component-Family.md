@@ -2,11 +2,11 @@
 
 Use `ComponentVM` for an addressable leaf VM that is not itself a container.
 
-![Component Family Map](../../assets/diagrams/component-family.png)
+![Component Family Map](../../../assets/diagrams/component-family.png)
 
-Support links: [HTML](../../assets/diagrams/component-family.html),
-[SVG](../../assets/diagrams/component-family.svg),
-[PNG](../../assets/diagrams/component-family.png)
+Support links: [HTML](../../../assets/diagrams/component-family.html),
+[SVG](../../../assets/diagrams/component-family.svg),
+[PNG](../../../assets/diagrams/component-family.png)
 
 ## Variants
 

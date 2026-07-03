@@ -56,8 +56,12 @@ Properties:
 | C#         | `VMx.Tree` | `IEnumerable<IComponentVM>` (lazy)   | `IComponentVM?`        |
 | Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator) | `IComponentVM \| None` |
 | TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator) | `IComponentVM \| null` |
+| Swift      | `VMx`      | `[ComponentVMBase]` (materialized)   | `ComponentVMBase?`     |
 
 `walk_expanded` (spec v2.0) shares the same return shape as `walk` per flavor.
+Swift returns materialized `[ComponentVMBase]` arrays rather than lazy sequences
+(idiomatic per ADR-0059 §2.5; `find` still short-circuits, and the result is
+identical for the finite trees this API supports).
 
 ## 5. Expand-aware traversal (spec v2.0)
 

@@ -79,9 +79,12 @@ non-recursive generic does not require the CRTP relaxation applied to
 
 - **`selectComponent(_ vm: Child) throws`:** guards on `canSelectComponent(vm)`;
   throws `CompositeMembershipError(memberName:compositeName:)` when the guard
-  fails; calls `_setCurrent(vm)` on success. `selectChild` / `deselectChild`
-  (the no-op `ParentVM` stubs used by the COMP-027 parent-link delegation) are
-  unchanged.
+  fails; calls `_setCurrent(vm)` on success. `selectChild` / `deselectChild` (the
+  `ParentVM` methods a child invokes on its parent via COMP-027 parent-link
+  delegation) delegate to the same current-child machinery on a `CompositeVM` —
+  `selectChild` selects a member-and-Constructed child, `deselectChild` clears a
+  current child — and are genuine no-ops only on a `GroupVM` (no selection slot).
+  They are unchanged by this ADR.
 
 - **`deselectComponent(_ vm: Child) throws`:** guards that `_current === vm`;
   throws `CompositeMembershipError` when `vm` is not the current selection;

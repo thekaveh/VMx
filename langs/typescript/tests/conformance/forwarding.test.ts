@@ -72,6 +72,29 @@ describe("FWD-001", () => {
     fwd.dispose();
     expect(inner.status).toBe(ConstructionStatus.Disposed);
   });
+
+  it("forwards the model setter write-through to the wrapped VM", () => {
+    const hub = makeHub();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("before")
+      .services(hub, makeDisp())
+      .build();
+
+    class NoopForwarding extends ForwardingComponentVM<string> {
+      constructor() {
+        super(inner);
+      }
+    }
+    const fwd = new NoopForwarding();
+
+    // Setting the decorator's model delegates to the wrapped instance
+    // (spec/09-forwarding.md §1: the modeled component's model is settable and
+    // the decorator forwards every member). Parity with C#/Python/Swift.
+    fwd.model = "after";
+    expect(inner.model).toBe("after");
+    expect(fwd.model).toBe("after");
+  });
 });
 
 // ---------------------------------------------------------------------------

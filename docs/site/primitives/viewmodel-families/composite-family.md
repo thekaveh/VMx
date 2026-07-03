@@ -45,7 +45,7 @@ The composite owns both child lifecycle and selection messaging:
 | Concept               | C#                   | Python                 | TypeScript             | Swift                  |
 | --------------------- | -------------------- | ---------------------- | ---------------------- | ---------------------- |
 | Type                  | `CompositeVM<VM>`    | `CompositeVM[VM]`      | `CompositeVM<VM>`      | `CompositeVM<VM>`      |
-| Modeled type          | `CompositeVM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` |
+| Modeled type          | `CompositeVMOfM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` |
 | Selection slot        | `Current`            | `current`              | `current`              | `current`              |
 | Initial selector hook | `Current(selector)`  | `current(selector)`    | `current(selector)`    | `current(selector)`    |
 

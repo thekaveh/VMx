@@ -3,12 +3,12 @@
 //
 
 public final class ScoredFilteredCompositeVM<Child: ComponentVMBase>: FilteredCompositeVM<Child> {
-    private let scorer: (Child) -> Int?
+    private let scorer: (Child) -> Double?
 
     public init(
         _ source: CompositeVM<Child>,
         cursorPolicy: FilteredCursorPolicy = .snapToFirst,
-        scorer: @escaping (Child) -> Int?
+        scorer: @escaping (Child) -> Double?
     ) {
         self.scorer = scorer
         super.init(

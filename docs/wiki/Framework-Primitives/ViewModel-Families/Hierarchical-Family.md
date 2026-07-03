@@ -2,11 +2,11 @@
 
 Use `HierarchicalVM` when the recursive VM tree is itself the right model.
 
-![Hierarchical Family Map](../../assets/diagrams/hierarchical-family.png)
+![Hierarchical Family Map](../../../assets/diagrams/hierarchical-family.png)
 
-Support links: [HTML](../../assets/diagrams/hierarchical-family.html),
-[SVG](../../assets/diagrams/hierarchical-family.svg),
-[PNG](../../assets/diagrams/hierarchical-family.png)
+Support links: [HTML](../../../assets/diagrams/hierarchical-family.html),
+[SVG](../../../assets/diagrams/hierarchical-family.svg),
+[PNG](../../../assets/diagrams/hierarchical-family.png)
 
 ## Best Fit
 

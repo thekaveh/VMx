@@ -3,7 +3,7 @@ namespace NotesShowcase.Models;
 /// <summary>
 /// Domain model for a single note.
 ///
-/// See spec/proposals/2026-05-29-notes-showcase-scenario.md §3.2.
+/// See spec/proposals/2026-05-29-notes-showcase-scenario.md §5.3.
 /// Pure data — no behavior, no VMx dependencies.
 ///
 /// VMx v3 (ADR-0048 §2.1): <c>FormVM&lt;NoteModel&gt;.IsDirty</c> derives from the

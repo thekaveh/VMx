@@ -2,9 +2,10 @@
 // GroupVM conformance tests.
 //
 // Claimed IDs: GRP-002, GRP-003, GRP-004, GRP-011 (plus the group path of
-// LIFE-013). GRP-001 (CollectionChanged on add), GRP-005
-// (AutoConstructOnAdd), and GRP-006 (BatchUpdate) are NOT claimed —
-// those behaviors are not implemented by this flavor yet (ADR-0037).
+// LIFE-013). GRP-001 (CollectionChanged on add), GRP-005 (AutoConstructOnAdd),
+// and GRP-006 (BatchUpdate) are claimed in sibling files at total parity
+// (ADR-0065): GRP-001 in CompositeCollectionChangedTests.swift, GRP-005 in
+// AutoConstructOnAddTests.swift, GRP-006 in BatchUpdateTests.swift.
 //
 import XCTest
 @testable import VMx
@@ -55,16 +56,21 @@ final class GroupVMTests: XCTestCase {
         try g.construct()
         XCTAssertEqual(a.status, .constructed)
         XCTAssertEqual(b.status, .constructed)
+        // Catalog GRP-003: the group itself is also Constructed.
+        XCTAssertEqual(g.status, .constructed)
     }
 
     /// GRP-004 — destruct cascades to peers.
     func testGrp004DestructCascades() throws {
-        let a = leaf("a")
+        let a = leaf("a"); let b = leaf("b")
         let g = try! GroupVM<ComponentVM>.builder()
-            .name("g").withNullServices().children { [a] }.build()
+            .name("g").withNullServices().children { [a, b] }.build()
         try g.construct()
         try g.destruct()
         XCTAssertEqual(a.status, .destructed)
+        XCTAssertEqual(b.status, .destructed)
+        // Catalog GRP-004: the group itself is also Destructed.
+        XCTAssertEqual(g.status, .destructed)
     }
 
     /// GRP-011 — a group child is a peer, so its inherited select command is

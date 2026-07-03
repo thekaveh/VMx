@@ -1,7 +1,7 @@
 //
 // DialogReentrancyTests — DIA-006, DIA-007, DIA-008: reentrancy/cancellation/command integration.
 //
-// See spec/19-dialogs.md §5/§6/§7 and ADR-0056.
+// See spec/19-dialogs.md §6/§7/§8 and ADR-0056.
 // Ports langs/typescript/tests/conformance/dia-001-to-008-dialog-service.test.ts (DIA-006..008).
 //
 // DIA-006 and DIA-007 helpers are test-only DialogService implementations.

@@ -2,7 +2,7 @@ import Foundation
 
 /// Domain model for a single note.
 ///
-/// See spec/proposals/2026-05-29-notes-showcase-scenario.md §3.2.
+/// See spec/proposals/2026-05-29-notes-showcase-scenario.md §5.3.
 /// Pure data — no behavior, no VMx dependencies.
 ///
 /// Custom `Equatable` compares `tags` element-wise so that

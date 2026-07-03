@@ -48,7 +48,7 @@ split is enforced by SwiftPM target boundaries.
 | #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React | Swift / SwiftUI |
 | --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ | --------------- |
 | 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  | ✓               |
-| 2   | `CompositeVM.Current` (ch. 6) — notes selection       | ✓             | ✓                | ✓                  | ✓               |
+| 2   | `CompositeVM.Current` (ch. 6) — notes selection[^current] | ✓         | ✓                | ✓                  | ✓               |
 | 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  | ✓               |
 | 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | ✓ | ✓ | ✓ | ✓ |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  | ✓               |
@@ -56,7 +56,7 @@ split is enforced by SwiftPM target boundaries.
 | 7   | `SearchableState` + `IFilterable<TItem>` (§14.5-14.6) — title search + starred filter | ✓ | ✓ | ✓ | ✓ |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  | ✓               |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  | ✓               |
-| 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save | ✓ | ✓ | ✓        | ✓               |
+| 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save[^dispatcher] | ✓ | ✓ | ✓ | ✓ |
 | 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | ✓ | ✓             | ✓                  | ✓               |
 | 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | ✓           | ✓                | ✓                  | ✓               |
 | 13  | `IDialogService` (ch. 19) — export → save-file dialog | ✓             | ✓                | ✓                  | ✓               |
@@ -84,13 +84,37 @@ split is enforced by SwiftPM target boundaries.
     the notebook read-only flag, with seed coverage and VM tests so the command
     disables consistently when the focused notebook is read-only.
 
+[^current]: The four flagships store their notes list differently and drive
+    selection through an app-owned `current` slot rather than literally through
+    `CompositeVM.Current`: C# and Swift keep notes in a `CompositeVM<NoteVM>`
+    used as storage, Python over an `ObservableList`, TypeScript over a plain
+    array; each exposes its own `current`/`Current` property plus a selection
+    command. The observable selection contract (single current, change
+    notification, clear-on-delete) is identical across flavors and covered by the
+    `tests/viewmodels/` suites; the `CompositeVM.Current` primitive itself is
+    exercised directly by the library conformance corpus (COMP-006/010/025).
+
+[^dispatcher]: The async-`construct()` marshalling half of this row is wired to a
+    live UI dispatcher only in C# (`AvaloniaDispatcher`, Avalonia's global UI
+    thread) and Swift (`MainQueueDispatcher`). The React and Textual flagships
+    ship a purpose-built adapter (`ReactDispatcher` asap-microtask,
+    `TextualDispatcher` AsyncIO) exercised by the `views/adapter/` unit tests, but
+    their composition roots build the VM tree on the synchronous immediate
+    dispatcher so `constructAsync()` completes before the first paint (avoiding a
+    render-before-construct flicker). Wire the shipped adapter when foreground
+    marshalling onto the framework loop is desired.
+
 ## 3. Reading the matrix
 
-- **Parity is enforced.** Each flavor ships a `tests/views/` headless smoke
-  test that boots the app and asserts the main view rendered, plus per-VM
-  unit tests under `tests/viewmodels/` mirroring the VM API. The Pure-VM
-  contract checks (`tools/check-*-views.*`) keep view code declarative so
-  these `✓` marks are not load-bearing on incidental view-side state.
+- **Parity is enforced.** The C#, Python, and TypeScript flagships each ship a
+  `tests/views/` headless smoke test that boots the app and asserts the main
+  view rendered; Swift enforces the same core/view split via SwiftPM target
+  boundaries instead (its SwiftUI `NotesShowcase` target needs Xcode, so it has
+  no headless view smoke test — see §2). All four ship per-VM unit tests under
+  `tests/viewmodels/` (Swift: `Tests/NotesShowcaseTests/`) mirroring the VM API.
+  The Pure-VM contract checks (`tools/check-*-views.*`) keep view code
+  declarative so these `✓` marks are not load-bearing on incidental view-side
+  state.
 - **`AggregateVM6` (row 15)** is the spec extension this portfolio drove —
   added via ADR-0034 as a non-breaking minor bump (`spec-v2.2.0`) so that
   `WorkspaceVM` could compose its six heterogeneous children without a

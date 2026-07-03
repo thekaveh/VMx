@@ -4,7 +4,7 @@ namespace VMx.Dialogs;
 /// Null-object implementation of <see cref="IDialogService"/> per ADR-0017.
 /// All methods return the safest default: file pickers return <c>null</c>,
 /// <see cref="Confirm"/> returns <c>false</c>, <see cref="Notify"/> is a no-op.
-/// Stateless and safe to share. See spec/19-dialogs.md §3.
+/// Stateless and safe to share. See spec/19-dialogs.md §4.
 /// </summary>
 public sealed class NullDialogService : IModalDialogService
 {

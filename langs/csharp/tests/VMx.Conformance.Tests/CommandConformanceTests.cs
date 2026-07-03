@@ -174,7 +174,7 @@ public class CommandConformanceTests
     }
 
     // CMD-012 — cancel() cancels an in-flight async command task; the command returns
-    // to a non-executing state; no exception surfaces by default (spec §11, ADR-0056).
+    // to a non-executing state; no exception surfaces by default (spec §10, ADR-0056).
     [Fact, Trait("Conformance", "CMD-012")]
     public async Task CMD_012_Cancel_Cancels_InFlight_Async_Task_NonThrowing()
     {
@@ -214,7 +214,7 @@ public class CommandConformanceTests
     }
 
     // CMD-012 (opt-in throwing variant) — ThrowOnCancel() surfaces the cancellation to
-    // the awaiter instead of completing normally (spec §11 opt-in clause, ADR-0056).
+    // the awaiter instead of completing normally (spec §10 opt-in clause, ADR-0056).
     [Fact, Trait("Conformance", "CMD-012")]
     public async Task CMD_012_ThrowOnCancel_Surfaces_OperationCanceledException()
     {
@@ -235,6 +235,33 @@ public class CommandConformanceTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
         cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state when throwing");
+    }
+
+    // CMD-012 (external-token variant) — a cancellation originating from the caller's
+    // supplied token is re-raised (not swallowed), so the caller's cancellation
+    // semantics are preserved (spec §10.3; parity with Python/Swift). The default
+    // non-throwing mode swallows only cancellation via the command's own Cancel()/Dispose().
+    [Fact, Trait("Conformance", "CMD-012")]
+    public async Task CMD_012_External_Token_Cancellation_Is_ReRaised()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var external = new CancellationTokenSource();
+
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async ct =>
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+            })
+            .Build();
+
+        var run = cmd.ExecuteAsync(null, external.Token);
+        await started.Task;
+
+        external.Cancel(); // the caller's token — NOT cmd.Cancel()
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
+        cmd.IsExecuting.Should().BeFalse("the command still returns to a non-executing state");
     }
 
     [Fact, Trait("Conformance", "CMD-012")]

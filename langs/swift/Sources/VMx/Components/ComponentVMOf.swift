@@ -121,10 +121,13 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     func _setModel(_ value: Model) {
         if modelEquals(_model, value) { return }
         _model = value
-        // spec/02 invariant 3: a disposed VM publishes nothing further. The
-        // model *field* is still updated above (so the getter reflects the
-        // latest value — parity with C#, whose field write is unconditional);
-        // only the hub send / property-changed raise / callback side is gated.
+        // Inert-disposed-VM principle extended to the model setter: a disposed VM
+        // publishes nothing further. NOTE spec/02 invariant 3 specifies this only
+        // for `IsCurrent` selection, not `model`, so model-set-after-dispose is
+        // UNSPECIFIED and divergent cross-flavor — C#/Python/TS publish here
+        // (ADR-0009). The model *field* is still updated above (so the getter
+        // reflects the latest value — parity with C#, whose field write is
+        // unconditional); only the hub send / raise / hint / callback is gated.
         guard status != .disposed else { return }
 
         hub.send(PropertyChangedMessage(

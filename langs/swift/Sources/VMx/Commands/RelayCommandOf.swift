@@ -57,6 +57,10 @@ public final class RelayCommandOf<T> {
     public func dispose() {
         guard !disposed else { return }
         disposed = true
+        // Terminal "re-evaluate — now disabled" nudge before completion, matching
+        // RelayCommand + the C#/Python/TypeScript relay commands (7 of 8 sync relay
+        // dispose paths emit this; this variant was the lone omission).
+        canExecuteChangedSubject.send(())
         cancellables.removeAll()
         canExecuteChangedSubject.send(completion: .finished)
     }

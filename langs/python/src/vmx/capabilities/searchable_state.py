@@ -63,10 +63,16 @@ class SearchableState(ISearchable, Generic[T]):
 
     @property
     def search_term(self) -> str:
+        # After dispose the BehaviorSubject's value is None; keep the declared
+        # str contract by reporting an empty term.
+        if self._disposed:
+            return ""
         return self._term_subject.value
 
     @search_term.setter
     def search_term(self, value: str) -> None:
+        if self._disposed:
+            return
         # Spec wording is "emission on a new value" — guard against no-op
         # re-sets so debounce + recompute don't fire when nothing changed.
         if value == self._term_subject.value:
@@ -88,6 +94,8 @@ class SearchableState(ISearchable, Generic[T]):
         return next(iter(self._items_source()), _NO_ITEM) is not _NO_ITEM
 
     def search(self) -> None:
+        if self._disposed:
+            return
         self._force_search.on_next(None)
 
     def _apply_filter(self, term: str) -> list[T]:

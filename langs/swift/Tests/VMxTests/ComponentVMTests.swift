@@ -36,7 +36,10 @@ final class ComponentVMTests: XCTestCase {
 
         try vm.construct()
 
-        XCTAssertTrue(seen.contains(.constructed))
+        // Catalog CVM-001: exactly [Constructing, Constructed] in order, and the
+        // VM reports isConstructed (not merely "contains Constructed").
+        XCTAssertEqual(seen, [.constructing, .constructed])
+        XCTAssertTrue(vm.isConstructed)
         cancel.cancel()
     }
 
@@ -80,18 +83,36 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertEqual(vm.model.title, "service-updated")
     }
 
-    /// CVM-004 — `modeledHint` is recomputed when the model changes.
+    /// CVM-004 — `modeledHint` is recomputed when the model changes AND a
+    /// PropertyChangedMessage("modeledHint") is emitted on the hub (both catalog
+    /// clauses; the prior test built with null services so the hub clause was
+    /// unobservable).
     func testCvm004ModeledHintRecomputed() throws {
+        let hub = MessageHub()
         let vm = try ComponentVMOf<Tab>.builder()
             .name("tab")
             .model(Tab(title: "home"))
             .modeledHinter { $0.title.uppercased() }
             .modelEquals(==)
-            .withNullServices()
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
             .build()
         XCTAssertEqual(vm.modeledHint, "HOME")
+
+        var hintMessages: [String] = []
+        let cancel = hub.messages
+            .compactMap { msg -> String? in
+                guard let pcm = msg as? PropertyChangedMessage, pcm.sender === vm,
+                      pcm.propertyName == "modeledHint" else { return nil }
+                return pcm.propertyName
+            }
+            .sink { hintMessages.append($0) }
+
         vm.model = Tab(title: "settings")
+
         XCTAssertEqual(vm.modeledHint, "SETTINGS")
+        XCTAssertEqual(hintMessages.count, 1,
+            "exactly one PropertyChangedMessage(modeledHint) on model change")
+        cancel.cancel()
     }
 
     /// CVM-005 — Name and Hint are immutable post-construction. In Swift

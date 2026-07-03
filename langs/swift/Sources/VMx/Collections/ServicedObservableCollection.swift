@@ -111,3 +111,20 @@ public final class ServicedObservableCollection<T> {
         hub?.send(message)
     }
 }
+
+// MARK: - Value-based removal (requires Equatable)
+
+public extension ServicedObservableCollection where T: Equatable {
+    /// Remove the first occurrence of `item`, emitting a granular remove (local
+    /// then hub, COL-001/002 ordering) exactly like the other mutators. Returns
+    /// `true` when the item was found and removed, `false` otherwise — parity with
+    /// the canonical `Remove(item): Bool` (spec/21 §2.1). Offered on an
+    /// `Equatable`-constrained extension because the element type is unconstrained.
+    @discardableResult
+    func remove(_ item: T) -> Bool {
+        guard let index = items.firstIndex(of: item) else { return false }
+        items.remove(at: index)
+        emit(.forRemove(sender: self, senderName: typeName, item: item, index: index))
+        return true
+    }
+}

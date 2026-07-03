@@ -5,7 +5,7 @@ import {
   ComponentVM,
   CompositeVM,
   AggregateVM2,
-  AggregateVM1,
+  AggregateVM3,
   AggregateVM6,
   ComponentVMBase,
   ViewModelType,
@@ -67,21 +67,28 @@ describe("UTIL-002", () => {
     const disp = makeDisp();
 
     const c1 = makeChild(hub, "c1");
-    // AggregateVM1 has only one slot; no component2..5 populated.
-    const agg = AggregateVM1.builder<ComponentVM>()
+    const c2 = makeChild(hub, "c2");
+    const c3 = makeChild(hub, "c3");
+    // TS aggregate slots are truly-private (#componentN) and `_onConstruct` fills
+    // every slot non-optionally, so — unlike Python's settable `_component2` — a
+    // single null *middle* slot cannot be forced from a test. Before `construct()`
+    // ALL slots are null, which exercises the same declaration-order null-filter
+    // (`_children` skips null slots) the catalog scenario targets.
+    const agg = AggregateVM3.builder<ComponentVM, ComponentVM, ComponentVM>()
       .name("agg")
       .services(hub, disp)
       .component1(() => c1)
+      .component2(() => c2)
+      .component3(() => c3)
       .build();
+
+    // Pre-construct: all three slots are null → walk skips them and yields only
+    // the aggregate (no undefined/null entries).
+    expect([...walk(agg)].map((n) => n.name)).toEqual(["agg"]);
+
+    // Post-construct: every populated slot is reachable in declaration order.
     agg.construct();
-
-    const visited: string[] = [];
-    for (const node of walk(agg)) {
-      visited.push(node.name);
-    }
-
-    // Only agg + c1, no undefined/null slots.
-    expect(visited).toEqual(["agg", "c1"]);
+    expect([...walk(agg)].map((n) => n.name)).toEqual(["agg", "c1", "c2", "c3"]);
   });
 });
 

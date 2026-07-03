@@ -35,7 +35,7 @@ cd examples/python/textual/notes_showcase
 uv run pytest
 ```
 
-The package coverage gate is ≥ 90 % on `viewmodels/` + `views/adapter/`.
+The package coverage gate is ≥ 90 % on `models/`, `viewmodels/`, and `views/`.
 
 ## 2. Project layout
 
@@ -55,6 +55,8 @@ examples/python/textual/notes_showcase/
 │   │   ├── note_form_vm.py          ← FormVM wrapper
 │   │   ├── status_bar_vm.py, notifications_vm.py
 │   │   ├── capability_actions_vm.py, action_vm.py
+│   │   ├── global_search_vm.py       ← TokenPagedComposition (row 17)
+│   │   ├── theme_vm.py               ← ThemeVM (row 16)
 │   │   └── dialog_service.py        ← VM-side port
 │   └── views/
 │       ├── app.py                   ← NotesShowcaseApp (Textual App)

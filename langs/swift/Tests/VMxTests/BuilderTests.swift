@@ -81,6 +81,8 @@ final class BuilderTests: XCTestCase {
         XCTAssertFalse(vm1 === vm2)
         XCTAssertEqual(vm1.name, vm2.name)
         XCTAssertEqual(vm1.hint, vm2.hint)
+        // Catalog BLD-003: vmA.Type == vmB.Type.
+        XCTAssertEqual(vm1.type, vm2.type)
     }
 
     /// BLD-004 — field defaults applied when not set: `hint` defaults to
@@ -92,6 +94,8 @@ final class BuilderTests: XCTestCase {
             .withNullServices()
             .build()
         XCTAssertEqual(vm.hint, "")
+        // Catalog BLD-004: Type is the type derived from the VM class.
+        XCTAssertEqual(vm.type, .component)
         XCTAssertEqual(vm.status, .destructed)
         // Constructing succeeds via the null hub & dispatcher.
         try vm.construct()

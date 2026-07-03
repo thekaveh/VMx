@@ -550,10 +550,14 @@ public class ObservableListTests
     {
         var sut = new ObservableList<string>();
         var propEvents = new List<string?>();
+        var resetCount = 0;
         ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) => propEvents.Add(e.PropertyName);
+        sut.Reset += (_, _) => resetCount++;
 
         sut.Clear();
 
+        // ADR-0037 §2.2: clearing an empty list changes nothing and emits nothing.
         propEvents.Should().NotContain("Count");
+        resetCount.Should().Be(0);
     }
 }

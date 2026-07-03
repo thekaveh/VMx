@@ -181,6 +181,7 @@ Per-flavor names and shapes:
 | C#         | `PropertyValueChangedMessagesFor`     | Extension method on `IMessageHub`       |
 | Python     | `property_value_changed_messages_for` | Module-level function in `vmx.messages` |
 | TypeScript | `propertyValueChangedMessagesFor`     | Named export from `src/messages`        |
+| Swift      | `propertyValueChangedMessagesFor`     | Method on `MessageHubProtocol`          |
 
 See ADR-0032 for the rationale and full per-flavor signature table.
 
@@ -212,11 +213,12 @@ Per-flavor names and shapes:
 | C#         | `WhenPropertyChanged`   | Extension method on `IMessageHub`       |
 | Python     | `when_property_changed` | Module-level function in `vmx.messages` |
 | TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        |
+| Swift      | `whenPropertyChanged`   | Method on `MessageHubProtocol`          |
 
 Like §7.1 the helper is informative (no conformance ID); each full-parity flavor
 covers it with a unit test (`WhenPropertyChangedTests` /
-`test_when_property_changed` / `whenPropertyChanged.test.ts`). See ADR-0050 for the
-rationale.
+`test_when_property_changed` / `whenPropertyChanged.test.ts` / `PropertyChangedTests`
+in Swift). See ADR-0050 for the rationale.
 
 ## 8. Conformance
 

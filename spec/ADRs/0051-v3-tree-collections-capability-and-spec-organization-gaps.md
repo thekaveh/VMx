@@ -31,7 +31,7 @@ conformance IDs are introduced. The findings reconciled, grouped by cluster:
 ### 2.1 `walk_expanded` descends aggregate slots (VMX-112)
 
 `13-tree-utilities.md` §5 previously wrote `if root has children`, which read as
-composite/group descent only. All three full-parity implementations (and Swift)
+composite/group descent only. All four full-parity implementations
 already share **one** descent helper between `walk` and `walk_expanded`, so an
 `AggregateVMN`'s non-null `Component1, Component2, …` slots are traversed by
 `walk_expanded` exactly as by `walk`, gated only by the `IExpandable` check. The

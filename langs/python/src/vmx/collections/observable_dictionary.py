@@ -299,6 +299,8 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
             self._hub.send(msg)
 
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+        if self._disposed:
+            return
         # 1. Local granular event first.
         self._added_subject.on_next((key1, key2, value))
         # 2. Publish to hub (if present).
@@ -307,12 +309,16 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         )
 
     def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+        if self._disposed:
+            return
         # 1. Local granular event first.
         self._removed_subject.on_next((key1, key2, value))
         # 2. Publish to hub (if present).
         self._publish_to_hub(CollectionChangedMessage.for_remove(self, (key1, key2, value), -1))
 
     def _on_replaced(self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue) -> None:
+        if self._disposed:
+            return
         # 1. Local granular event first.
         self._replaced_subject.on_next((key1, key2, new_value, old_value))
         # 2. Publish to hub (if present).
@@ -323,6 +329,8 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         )
 
     def _on_reset(self) -> None:
+        if self._disposed:
+            return
         # 1. Local event first.
         self._reset_subject.on_next(None)
         # 2. Publish to hub (if present).

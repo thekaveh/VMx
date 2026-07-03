@@ -361,6 +361,7 @@ class NotesViewVM(
                     .model(n)
                     .on_close(lambda _vm: self._clear_current())
                     .on_delete(self._delete_note)
+                    .on_save(self._save_note)
                 )
 
                 # Read the dialog service at confirm time, not at NoteVM
@@ -402,7 +403,7 @@ class NotesViewVM(
         """
         for vm in self._inner:
             if vm.model.id == note.id:
-                vm._set_model(note)
+                vm.model = note
                 break
         else:
             return
@@ -437,6 +438,28 @@ class NotesViewVM(
                 self._raise_property_changed("current")
             self._recompute_filtered()
             note.dispose()
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(run())
+        except RuntimeError:
+            asyncio.run(run())
+
+    def _save_note(self, note: NoteVM) -> None:
+        """Persist ``note``'s current model via the repo.
+
+        Fire-and-forget: schedules the async save and returns, mirroring the
+        C#/TS/Swift showcases (``.OnSave``/``.onSave``). Without this wiring the
+        capability bar's Save action was a silent no-op in Python only
+        (real-wiring audit — the other three flavors wired it in pass 6).
+        """
+        import asyncio
+
+        async def run() -> None:
+            try:
+                await self._repo.save_note(note.model)
+            except Exception:  # pragma: no cover — surfaced via hub in prod
+                return
 
         try:
             loop = asyncio.get_running_loop()

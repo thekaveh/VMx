@@ -89,6 +89,12 @@ class NotificationHub:
             if self._disposed:
                 future.set_result(NotificationReaction.PENDING)
                 return future
+            # Re-posting the same still-pending notification returns the existing
+            # awaitable rather than orphaning the first waiter (spec/16 §
+            # double-post SHOULD, ADR-0020 §2.3; mirrors the C# hub).
+            existing = self._waiters.get(notification)
+            if existing is not None:
+                return existing
             self._pending.append(notification)
             self._waiters[notification] = future
             # Emit inside the lock (NOTIF-017 discipline, mirroring the C#

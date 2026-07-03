@@ -53,7 +53,7 @@ slot (`Component1`, `component_1`, `component1`, and so on).
 ## Example
 
 - `C#`: `AggregateVM6<...>.Builder().Name("workspace").Services(hub, dispatcher).Component1(() => notebooks).Component2(() => notes).Build()`
-- `Python`: `AggregateVM6[...].builder().name("workspace").services(hub, dispatcher).component_1(lambda: notebooks).component_2(lambda: notes).build()`
+- `Python`: `AggregateVM6Builder[...]().name("workspace").services(hub, dispatcher).component_1(lambda: notebooks).component_2(lambda: notes).build()`
 - `TypeScript`: `AggregateVM6.builder<...>().name("workspace").services(hub, dispatcher).component1(() => notebooks).component2(() => notes).build()`
 - `Swift`: `try AggregateVM6<...>.builder().name("workspace").services(hub: hub, dispatcher: dispatcher).component1 { notebooks }.component2 { notes }.build()`
 

@@ -83,6 +83,32 @@ public class COL_024_to_031_TokenPagedCompositionTests
         sut.LoadMoreCommand.CanExecute(null).Should().BeFalse();
     }
 
+    // A change driven by one command must re-raise the OTHER command's
+    // CanExecuteChanged (parity with Python/TS/Swift, which share a command-changed
+    // trigger): a Refresh that flips HasMore back to true re-enables LoadMore.
+    [Fact]
+    public async Task Refresh_ReSignals_LoadMore_CanExecuteChanged()
+    {
+        var pages = new Queue<TokenPage<int, string>>([
+            new([1], null),    // first LoadMore → terminal token, HasMore = false
+            new([2], "more"),  // Refresh refetch → non-null token, HasMore = true
+        ]);
+        var sut = new TokenPagedComposition<int, string>(_ => Task.FromResult(pages.Dequeue()));
+
+        await sut.LoadMoreCommand.ExecuteAsync();
+        sut.LoadMoreCommand.CanExecute(null).Should().BeFalse("terminal token disabled LoadMore");
+
+        var loadMoreRequeries = 0;
+        sut.LoadMoreCommand.CanExecuteChanged += (_, _) => loadMoreRequeries++;
+
+        await sut.RefreshCommand.ExecuteAsync();
+
+        sut.HasMore.Should().BeTrue("refresh refetched a page with a non-null token");
+        loadMoreRequeries.Should().BeGreaterThan(0,
+            "a Refresh re-enabling LoadMore must re-raise LoadMore's CanExecuteChanged");
+        sut.LoadMoreCommand.CanExecute(null).Should().BeTrue();
+    }
+
     [Fact, Trait("Conformance", "COL-027")]
     public async Task COL_027_RefreshClearsAndRefetchesFirstPage()
     {

@@ -197,7 +197,7 @@ async def test_CMD_013_disposed_async_relay_command_is_inert() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CMD-012 — async command cancellation (spec/04-commands.md §11, ADR-0056)
+# CMD-012 — async command cancellation (spec/04-commands.md §10, ADR-0056)
 # ---------------------------------------------------------------------------
 
 
@@ -239,7 +239,7 @@ async def test_CMD_012_cancel_cancels_inflight_async_task_nonthrowing() -> None:
 @pytest.mark.conformance("CMD-012")
 async def test_CMD_012_throw_on_cancel_reraises() -> None:
     """The opt-in throwing mode re-raises CancelledError to the awaiter while still
-    returning the command to a non-executing state (spec §11 opt-in clause).
+    returning the command to a non-executing state (spec §10 opt-in clause).
     """
     started = asyncio.Event()
 

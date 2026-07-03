@@ -81,6 +81,8 @@ class PagedComposition(Pageable, Generic[TVM]):
 
     @page_size.setter
     def page_size(self, value: int) -> None:
+        if self._disposed:
+            return
         clamped = max(0, value)
         if self._page_size == clamped:
             return
@@ -98,6 +100,8 @@ class PagedComposition(Pageable, Generic[TVM]):
 
     @current_page_index.setter
     def current_page_index(self, value: int) -> None:
+        if self._disposed:
+            return
         clamped = self._clamp_index(value)
         if self._current_page_index == clamped:
             return
@@ -120,6 +124,8 @@ class PagedComposition(Pageable, Generic[TVM]):
         return self._page_size > 0
 
     def move_to_first_page(self) -> None:
+        if self._disposed:
+            return
         if self._current_page_index == 0:
             return
         self._current_page_index = 0
@@ -127,6 +133,8 @@ class PagedComposition(Pageable, Generic[TVM]):
         self._prop_changed.on_next("items")
 
     def move_to_previous_page(self) -> None:
+        if self._disposed:
+            return
         if self._current_page_index <= 0:
             return
         self._current_page_index -= 1
@@ -134,6 +142,8 @@ class PagedComposition(Pageable, Generic[TVM]):
         self._prop_changed.on_next("items")
 
     def move_to_next_page(self) -> None:
+        if self._disposed:
+            return
         max_idx = self.page_count - 1
         if self._current_page_index >= max_idx:
             return
@@ -142,6 +152,8 @@ class PagedComposition(Pageable, Generic[TVM]):
         self._prop_changed.on_next("items")
 
     def move_to_last_page(self) -> None:
+        if self._disposed:
+            return
         last = self.page_count - 1
         if self._current_page_index >= last:
             return

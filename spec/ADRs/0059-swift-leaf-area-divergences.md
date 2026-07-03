@@ -64,9 +64,15 @@ own construction state, not the wrapped component's.
 `canSetCurrent`, `currentChild`, `selectChild`, `deselectChild`, `add`,
 `remove`, `removeAt`, `construct`, `destruct`, `dispose`, status, name/hint),
 plus `Sequence` conformance that forwards iteration to the wrapped children.
-It does **not** expose `insert`/`setAt`/`clear`/`collectionChanged`/`batchUpdate`,
-because `CompositeVM<VM>` in Swift does not have those members (they are
-deferred to Increment 2's collections work).
+It does **not** expose `insert`/`setAt`/`clear`, because `CompositeVM<VM>` in
+Swift does not have those members. (`collectionChanged`/`batchUpdate` were added
+to `CompositeVM<VM>` in Increment 2 — ADR-0060 — so the earlier "deferred" note
+for those two is superseded; `ForwardingCompositeVM` now forwards them, and the
+typed `canSelectComponent`/`selectComponent`/`deselectComponent` surface, to the
+wrapped composite — an is-a decorator cannot omit inherited members without
+leaving live-but-wrong ones.) The `insert`/`setAt`/`clear` canonical container
+mutators remain a known deferred API-surface gap in Swift's `CompositeVM`/`GroupVM`
+— see ADR-0009's known-gaps list.
 
 ### 2.2 DerivedProperty — `DPROP-001..012`
 
@@ -151,8 +157,12 @@ identical for non-infinite trees, which is the only supported case.
 The utilities descend via an internal `_TreeContainer` **protocol**, conformed
 by `CompositeVM`/`GroupVM` (through their public `count` + `at(_:)`) and
 `AggregateVM1..6` (through their per-slot accessors, skipping empty/nil slots).
-`walkExpanded` (expansion-gated traversal) is **not** part of this increment —
-it depends on the expand/collapse `EXP-*` area and is deferred to Increment 3.
+`walkExpanded` (expansion-gated traversal) depends on the expand/collapse
+`EXP-*` area and was deferred from this increment to Increment 3 (ADR-0061),
+where it was added. Like `walk`/`find`, it returns a materialized
+`[ComponentVMBase]` array (same rationale as above), and `EXP-005` covers it.
+Swift source comments cite this section (§2.5) for the materialized-array
+decision.
 
 ### 2.6 Bundle layout for conformance fixtures
 

@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 import reactivex as rx
+from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.commands.relay_command import RelayCommand
@@ -148,7 +149,7 @@ class FormVM(Generic[TM]):
     @property
     def on_approved(self) -> rx.Observable[TM]:
         """Observable that emits the current model after each successful persist."""
-        return self._on_approved
+        return self._on_approved.pipe(ops.as_observable())
 
     @property
     def approve_errors(self) -> rx.Observable[BaseException]:
@@ -160,12 +161,12 @@ class FormVM(Generic[TM]):
         raising behavior — ``await`` it directly to handle the error inline.
         Completes on :meth:`dispose`.
         """
-        return self._approve_errors
+        return self._approve_errors.pipe(ops.as_observable())
 
     @property
     def errors_changed(self) -> rx.Observable[dict[str, str]]:
         """Observable that emits when the effective validation error map changes."""
-        return self._errors_changed
+        return self._errors_changed.pipe(ops.as_observable())
 
     def field_error(self, field: str) -> str | None:
         """Return the current validation error for ``field``, if any."""
@@ -177,7 +178,12 @@ class FormVM(Generic[TM]):
         """Replace the current model.
 
         If in strict mode and ``is_dirty`` changes, fires ``can_execute_changed``.
+        Inert after :meth:`dispose` (like :meth:`approve_async`/:meth:`deny`): a
+        post-dispose call would otherwise ``on_next`` a disposed reactivex Subject
+        via ``_revalidate`` and raise (parity with the TS/Swift no-op).
         """
+        if self._disposed:
+            return
         if model is None:
             raise ValueError("model must not be None")
         was_dirty = self.is_dirty

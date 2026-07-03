@@ -58,10 +58,17 @@ export class SearchableState<T> implements ISearchable {
   }
 
   get searchTerm(): string {
+    // Inert after dispose: return "" like C#/Python (rxjs BehaviorSubject keeps
+    // its last value post-complete, so an explicit guard is required for parity).
+    if (this.#disposed) return "";
     return this.#termSubject.value;
   }
 
   set searchTerm(value: string) {
+    // Inert after dispose (parity with C#/Python + this module's own dispose
+    // discipline): a post-dispose set would otherwise mutate the BehaviorSubject's
+    // retained value even though nothing recomputes.
+    if (this.#disposed) return;
     // Spec wording is "emission on a new value" — guard against no-op
     // re-sets so debounce + recompute don't fire when nothing changed.
     if (value === this.#termSubject.value) return;
@@ -88,6 +95,7 @@ export class SearchableState<T> implements ISearchable {
   }
 
   search(): void {
+    if (this.#disposed) return;
     this.#forceSearchSubject.next();
   }
 

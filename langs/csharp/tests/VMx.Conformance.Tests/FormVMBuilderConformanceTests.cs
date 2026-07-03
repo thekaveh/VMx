@@ -96,7 +96,7 @@ public class FormVMBuilderConformanceTests
     /// <summary>
     /// FORM-013: Field defaults applied when not set —
     /// Hub defaults to NullMessageHub.Instance,
-    /// Snapshotter defaults to shallow-copy (Snapshot == initial value),
+    /// Snapshotter defaults to a deep clone (Snapshot == initial value),
     /// Strict defaults to false (ApproveCommand.CanExecute() == true even when
     /// IsDirty == false).
     /// </summary>
@@ -111,9 +111,10 @@ public class FormVMBuilderConformanceTests
             .Persister(_ => Task.CompletedTask)
             .Build();
 
-        // Snapshotter default: shallow-copy ⇒ structurally equal to initial.
+        // Snapshotter default: deep clone (System.Text.Json round-trip per
+        // ADR-0048 §2.2) ⇒ structurally equal to initial.
         form.Snapshot.Should().Be(m0,
-            "default Snapshotter shallow-copies, so Snapshot equals initial");
+            "default Snapshotter deep-clones, so Snapshot equals initial");
         form.IsDirty.Should().BeFalse("not dirty immediately after construct");
 
         // Strict default: false ⇒ ApproveCommand.CanExecute is true even when not dirty.

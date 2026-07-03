@@ -58,9 +58,10 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     /// <inheritdoc/>
     public string SearchTerm
     {
-        get => _termSubject.Value;
+        get => _disposed ? string.Empty : _termSubject.Value;
         set
         {
+            if (_disposed) return;
             // Spec wording is "emission on a new value" — guard against no-op
             // re-sets so debounce + recompute don't fire when nothing changed.
             if (string.Equals(_termSubject.Value, value, StringComparison.Ordinal)) return;
@@ -75,7 +76,11 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     public bool CanSearch() => _itemsSource().Any();
 
     /// <inheritdoc/>
-    public void Search() => _forceSearchSubject.OnNext(Unit.Default);
+    public void Search()
+    {
+        if (_disposed) return;
+        _forceSearchSubject.OnNext(Unit.Default);
+    }
 
     private List<TItem> ApplyFilter(string term)
     {

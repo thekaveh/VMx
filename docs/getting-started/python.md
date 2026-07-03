@@ -145,8 +145,8 @@ user_vm.construct()
 # Update the model — triggers on_model_changed and publishes
 # PropertyChangedMessage for "model" (and "modeled_hint" if it changed).
 user_vm.model = UserModel("Alice Smith", "asmith@example.com")
-# stdout: "Model updated → Alice Smith"
 # stdout: "Property 'model' changed on user-card"
+# stdout: "Model updated → Alice Smith"
 
 print(user_vm.modeled_hint)  # "Alice Smith"  (modeled_hinter result)
 print(user_vm.status)        # ConstructionStatus.CONSTRUCTED
@@ -323,7 +323,7 @@ hub.dispose()
 ```
 
 > See `spec/02-lifecycle.md` for the full transition table and the
-> `StatusTransitionError` rules (LIFE-001 through LIFE-013).
+> `StatusTransitionError` rules (LIFE-001 through LIFE-014).
 
 ______________________________________________________________________
 

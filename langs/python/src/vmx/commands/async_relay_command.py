@@ -1,6 +1,6 @@
 """AsyncRelayCommand — a cancellable async command.
 
-Spec: spec/04-commands.md §11 (async command cancellation), ADR-0056.
+Spec: spec/04-commands.md §10 (async command cancellation), ADR-0056.
 
 Behavior contract:
 - ``task`` is a coroutine function (``() -> Awaitable[None]``). asyncio delivers
@@ -10,7 +10,7 @@ Behavior contract:
   cannot double-run; it fires ``can_execute_changed`` when the in-flight state
   flips on start and on completion.
 - ``cancel()`` cancels the in-flight task. Cancellation is NON-THROWING by default
-  (alignment with the dialog cancellation contract, DIA-007 / spec ch.19 §6):
+  (alignment with the dialog cancellation contract, DIA-007 / spec ch.19 §7):
   the awaited ``execute_async`` returns normally on cancel. Opt into the throwing
   mode with ``throw_on_cancel=True``.
 - A faulting task (non-cancellation) propagates to the awaiter of

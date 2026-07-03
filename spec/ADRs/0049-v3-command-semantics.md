@@ -73,9 +73,9 @@ The C# `ConfirmationDecoratorCommand.Execute` previously discarded the faulted t
 (`_ = ExecuteAsync(parameter)`). It now attaches an `OnlyOnFaulted` continuation that
 routes the base exception to a `Subject<Exception>` exposed as
 `IObservable<Exception> Errors`, completed and disposed in `Dispose()`. With this,
-the `errors` channel is normative in **every flavor that ships the decorator** —
-C#, Python, and TypeScript — keeping ADR-0006 parity. Swift does not ship the command
-decorators and is out of scope.
+the `errors` channel is normative in **every flavor** — C#, Python, TypeScript, and
+Swift, which reached full library parity (shipping both decorators) when ADR-0065
+(2026-06-30) retired the Swift subset manifest — keeping ADR-0006 parity.
 
 ### 2.3 `ModeledCrudCommands` can-execute reacts to current-selection change (chapter 04 §4.2, chapter 06 §7)
 
@@ -87,7 +87,8 @@ source on the Update and Delete commands, so each `CanExecute` is re-evaluated a
 `CanExecuteChanged` fires the moment the selection changes. Supplying the trigger is
 RECOMMENDED whenever the commands are bound to UI; omitting it leaves `CanExecute`
 correct on demand but non-reactive. The optional parameter is first realized in C#
-(VMX-011); the other flavors compose the same reactivity through the base `Triggers`
+(VMX-011) and is also exposed by Swift's `ModeledCrudCommands` (`currentChanged`);
+Python and TypeScript compose the same reactivity through the base `Triggers`
 mechanism (chapter 04 §4.2).
 
 ## 3. Consequences
@@ -106,10 +107,11 @@ mechanism (chapter 04 §4.2).
   predicate-value assertions are unchanged); the fix commit added C# unit coverage,
   so no new CRUD ID is minted. Catalog library total: 234 → 235 (239 → 240 including
   the 5 THEME scenario IDs).
-- Swift remains the documented subset (ADR-0037): it ships neither
-  `ConfirmationDecoratorCommand` nor `ModeledCrudCommands`, so the `--require swift`
-  subset manifest is unaffected and `CMDD-010` is a full-parity (C#/Python/TypeScript)
-  ID only.
+- At the time of this ADR Swift was the documented subset (ADR-0037) and shipped
+  neither `ConfirmationDecoratorCommand` nor `ModeledCrudCommands`, so `CMDD-010` was
+  a C#/Python/TypeScript-only ID. **Superseded by ADR-0065** (2026-06-30), which
+  retired the Swift subset manifest and brought Swift to full library parity: Swift
+  now ships both decorators and `--require swift` grades against the full catalog.
 - The coordinated `spec/VERSION` bump to 3.0.0, per-flavor package version bumps, and
   per-flavor README count reconciliation are handled by the v3 release task, not here;
   this ADR's "Spec version: 3.0.0" records the line the change belongs to.

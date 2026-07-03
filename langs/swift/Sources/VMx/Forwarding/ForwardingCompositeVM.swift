@@ -10,10 +10,13 @@
 // `Sequence` conformance forwards iteration to the wrapped's children in order
 // (FWD-003), so `Array(fwd)` / `for c in fwd` yield the wrapped children.
 //
-// Swift port note: Swift's `CompositeVM` is the skeleton flavor — it has no
-// `insert`/`setAt`/`clear`/`collectionChanged`/`batchUpdate` surface, so this
-// decorator mirrors only the real members (the TS decorator forwards more).
-// `name`/`hint` are `let` (see ForwardingComponentVM) — copied at init.
+// Swift port note: this decorator forwards `collectionChanged`/`batchUpdate` and
+// the typed component-selection surface (`canSelectComponent`/`selectComponent`/
+// `deselectComponent`) to `_wrapped` — as an is-a subclass it cannot simply omit
+// inherited members without leaving live-but-wrong ones. It cannot forward
+// `insert`/`setAt`/`clear`, which are absent on Swift `CompositeVM` (a deferred
+// API-surface gap — see ADR-0009 known-gaps). `name`/`hint` are `let` (see
+// ForwardingComponentVM) — copied at init.
 //
 // See spec/09-forwarding.md.
 //
@@ -74,6 +77,14 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     open override func selectChild(_ vm: ComponentVMBase) { _wrapped.selectChild(vm) }
     open override func deselectChild(_ vm: ComponentVMBase) { _wrapped.deselectChild(vm) }
 
+    // Typed component-selection surface: forward to the wrapped composite.
+    // Without these, the decorator's own (empty) base children would make
+    // canSelectComponent → false and selectComponent/deselectComponent throw
+    // CompositeMembershipError for every legitimate wrapped child.
+    open override func canSelectComponent(_ vm: Child) -> Bool { _wrapped.canSelectComponent(vm) }
+    open override func selectComponent(_ vm: Child) throws { try _wrapped.selectComponent(vm) }
+    open override func deselectComponent(_ vm: Child) throws { try _wrapped.deselectComponent(vm) }
+
     // ── Collection surface ──────────────────────────────────────────────
     open override var count: Int { _wrapped.count }
     open override func at(_ index: Int) -> Child { _wrapped.at(index) }
@@ -92,6 +103,16 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     open override func add(_ child: Child) { _wrapped.add(child) }
     open override func remove(_ child: Child) -> Bool { _wrapped.remove(child) }
     open override func removeAt(_ index: Int) { _wrapped.removeAt(index) }
+
+    // Forward the collection-changed stream and batch coalescing to the wrapped
+    // composite. As an is-a subclass the decorator inherits its own (never-fed)
+    // subject / batch counter; without these overrides subscribers to
+    // `decorator.collectionChanged` would silently receive no events and
+    // `decorator.batchUpdate()` would coalesce nothing (see ADR-0059 §2.1).
+    open override var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
+        _wrapped.collectionChanged
+    }
+    open override func batchUpdate() -> BatchUpdateHandle { _wrapped.batchUpdate() }
 }
 
 // ── Iteration forwarding (FWD-003) ──────────────────────────────────────

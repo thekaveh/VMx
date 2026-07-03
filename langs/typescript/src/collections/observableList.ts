@@ -175,7 +175,9 @@ export class ObservableList<T> {
   clear(): void {
     const countChanged = this.#items.length > 0;
     this.#items.length = 0;
-    this.#onReset();
+    // Clearing an empty list is a no-op: emit neither Reset nor Count
+    // (ADR-0037 §2.2, mirroring the empty-batch precedent).
+    if (countChanged) this.#onReset();
     // spec/21 §3.3: PropertyChanged("Count") fires after every mutation
     // that changes Count. Inside a batch the batch-exit path emits it.
     if (countChanged && this.#batchDepth === 0) {

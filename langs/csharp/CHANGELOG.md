@@ -33,6 +33,13 @@ conformance IDs covered.
   if it is disposed before the fetch completes.
 - Group children no longer report enabled child selection into a group, and
   composite/group lifecycle cascades snapshot children before invoking hooks.
+- `AsyncRelayCommand.Execute` fire-and-forget fault routing no longer reads the
+  disposed flag off-lock: a concurrent `Dispose()` can no longer make the
+  faulted continuation emit on a disposed `Errors` subject (which
+  `System.Reactive` throws on) and surface as an unobserved task exception.
+- `TokenPagedComposition` now re-raises both commands' `CanExecuteChanged` when a
+  change driven by one command (e.g. `RefreshCommand` restoring `HasMore`) should
+  re-enable the other, matching Python/TypeScript/Swift.
 
 ## [3.0.0] — 2026-06-28
 

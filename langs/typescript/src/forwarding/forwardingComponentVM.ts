@@ -25,6 +25,10 @@ export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
   get isConstructed(): boolean { return this._wrapped.isConstructed; }
   get status(): ConstructionStatus { return this._wrapped.status; }
   get model(): M { return this._wrapped.model; }
+  // Delegate the model setter too (spec/09-forwarding.md §1 — the decorator
+  // forwards every member; the modeled component's `model` is settable). Matches
+  // C#/Python/Swift ForwardingComponentVM and TS ForwardingCompositeVM.set current.
+  set model(value: M) { this._wrapped.model = value; }
   get modeledHint(): string { return this._wrapped.modeledHint; }
   get propertyChanged(): Observable<string> { return this._wrapped.propertyChanged; }
   get selectCommand(): ICommand { return this._wrapped.selectCommand; }

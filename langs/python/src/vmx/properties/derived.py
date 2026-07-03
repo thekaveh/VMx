@@ -51,7 +51,7 @@ class DerivedProperty(Generic[TValue]):
 
     @property
     def value_changed(self) -> Observable[TValue]:
-        return self._changes
+        return self._changes.pipe(ops.as_observable())
 
     def can_set(self, value: TValue) -> bool:
         return self._can_set(value) if self._can_set is not None else False

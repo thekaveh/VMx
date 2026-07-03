@@ -5,10 +5,13 @@
 //   `Selectable`, `Deselectable`, `Expandable`, `Collapsible`,
 //   `ExpansionTogglable`, `Reconstructable`.
 //
-// Implemented as a direct `ComponentVMBase` subclass (not `ComponentVM<M>`)
-// so the capability mix-ins can be layered without the sealed generic wrapper.
-// Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on the base class.
+// Implemented as a direct `ComponentVMBase` subclass (not `ComponentVMOf<M>`)
+// for cross-flavor leaf-VM parity: C#, TypeScript, and Swift all subclass the
+// non-modeled base and expose a hand-rolled `model`, so the capability mix-ins
+// layer uniformly across flavors. (`ComponentVMOf<M>` is an `open class`, so
+// subclassing it is possible — the base is chosen for parity, not because the
+// wrapper is sealed.) Cross-module subclassing enabled by ADR-0066: `hub`,
+// `dispatcher`, and `_raisePropertyChanged` are `public` on the base class.
 //
 import Foundation
 import Combine

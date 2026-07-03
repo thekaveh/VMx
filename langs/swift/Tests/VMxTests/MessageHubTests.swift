@@ -33,21 +33,27 @@ final class MessageHubTests: XCTestCase {
         struct SubError: Error {}
         let hub = MessageHub()
         var firstReceived = 0
-        var secondReceived = 0
-
+        var secondSeen: [String] = []
         let c1 = hub.subscribe { _ in
             firstReceived += 1
             throw SubError()           // this subscriber always throws
         }
-        let c2 = hub.subscribe { _ in
-            secondReceived += 1        // ...the other must still receive
+        let c2 = hub.subscribe { message in
+            // Record content + order (not just a count), matching the
+            // Python/C#/TypeScript HUB-007 corpus: a throwing subscriber must
+            // not drop, reorder, or duplicate messages for the healthy one.
+            if let pc = message as? PropertyChangedMessage {
+                secondSeen.append(pc.propertyName)
+            }
         }
 
         hub.send(msg("x"))
         hub.send(msg("y"))
 
         XCTAssertEqual(firstReceived, 2, "throwing subscriber keeps receiving")
-        XCTAssertEqual(secondReceived, 2, "other subscriber is unaffected by the thrower")
+        XCTAssertEqual(secondSeen, ["x", "y"],
+                       "the healthy subscriber receives both messages, by value and in "
+                       + "order, unaffected by the thrower")
         c1.cancel()
         c2.cancel()
     }

@@ -17,6 +17,7 @@ export interface INotificationHub {
 
 interface Waiter {
   resolve: (reaction: NotificationReaction) => void;
+  promise: Promise<NotificationReaction>;
 }
 
 export class NotificationHub implements INotificationHub {
@@ -33,11 +34,19 @@ export class NotificationHub implements INotificationHub {
     // Post after dispose resolves Pending and does not enqueue, matching
     // dispose()'s shutdown semantics (NOTIF-017).
     if (this.#disposed) return Promise.resolve(NotificationReaction.Pending);
-    return new Promise<NotificationReaction>((resolve) => {
-      this.#pending.push(notification);
-      this.#waiters.set(notification, { resolve });
-      this.#subject.next([...this.#pending]);
+    // Re-posting the same still-pending notification returns the existing
+    // awaitable rather than orphaning the first waiter (double-post SHOULD,
+    // ADR-0020 §2.3; mirrors the C# hub).
+    const existing = this.#waiters.get(notification);
+    if (existing) return existing.promise;
+    let resolve!: (reaction: NotificationReaction) => void;
+    const promise = new Promise<NotificationReaction>((res) => {
+      resolve = res;
     });
+    this.#pending.push(notification);
+    this.#waiters.set(notification, { resolve, promise });
+    this.#subject.next([...this.#pending]);
+    return promise;
   }
 
   resolve(

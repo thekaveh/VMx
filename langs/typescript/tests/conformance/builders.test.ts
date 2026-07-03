@@ -183,7 +183,15 @@ describe("BLD-006", () => {
     });
     expect(group.type).toBe(ViewModelType.Group);
 
-    expect(() => ComponentVM.create({ hub, dispatcher: disp } as never)).toThrow(/name/);
+    // BLD-006: the missing-required-field error identifies the field via its
+    // structured `missingField` property (parity with C#/Python/Swift, which
+    // assert the field, not just that the message contains "name").
+    try {
+      ComponentVM.create({ hub, dispatcher: disp } as never);
+      throw new Error("expected a BuilderValidationError for the missing name");
+    } catch (e) {
+      expect((e as { missingField?: string }).missingField).toBe("name");
+    }
   });
 });
 

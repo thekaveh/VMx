@@ -80,7 +80,7 @@ etc.) but DISTINCT instances. Builders themselves are reusable.
 
 ## 6. Conformance
 
-`BLD-001` through `BLD-005` in `12-conformance.md` cover:
+`BLD-001` through `BLD-006` in `12-conformance.md` cover:
 
 - setter returns a new builder instance
 - required fields validated on `Build()`
@@ -88,6 +88,9 @@ etc.) but DISTINCT instances. Builders themselves are reusable.
 - field defaults applied when not set
 - additive setters (e.g., `Triggers` on `RelayCommand`) retain prior values across
   repeated calls (cumulative, not overwriting)
+- common VM options factories (`Create` / `create(options)` / Swift `create(_:)`)
+  match the fluent builder's defaults, field values, and required-field validation
+  (`BLD-006`, ADR-0079)
 
 ## 7. Additional construction form — positional options (additive)
 
@@ -125,5 +128,6 @@ call `Model(...)`" requirement is a fluent-path concern); all other required
 fields are validated identically to the builder.
 
 This is a public-surface addition only (ADR-0055 / VMX-020). No behaviour of the
-existing builders changes, and the equivalence above is covered by per-flavor
-construction-equivalence tests rather than a new conformance ID.
+existing builders changes, and the equivalence above is pinned by the `BLD-006`
+conformance ID (added in ADR-0079; it was originally left to per-flavor
+construction-equivalence tests before Swift parity required an explicit catalog ID).

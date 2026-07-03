@@ -60,11 +60,11 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   the item template — illustrates the composition pattern when you need
   view-only properties that aren't part of the model.
 - `MainWindowViewModel` holding an `ObservableCollection<TodoItemVM>`
-  bound to the ListBox plus a public `AddItem(string)` method invoked
-  from the Add button's click handler. (The Python `tk/todo_app`
-  example uses `CompositeVM<TodoItemVM>` + `RelayCommand` for the same
-  shape — both patterns are idiomatic; this one shows the lighter
-  WPF-flavoured wiring.)
+  bound to the ListBox plus a VMx `RelayCommand` (`AddCommand`) whose task
+  calls the internal `AddItem(string)`; the Add button binds
+  `Command="{Binding AddCommand}"`. (The Python `tk/todo_app` example uses a
+  `CompositeVM<TodoItemVM>` for its collection — both flavors drive the add
+  through a VMx `RelayCommand`, each idiomatic for its UI toolkit.)
 - `MainWindow.xaml` — pure view; XAML data binding against
   `TodoItemVM`'s `INotifyPropertyChanged` surface (the outer wrapper
   forwards the inner `ComponentVM<TodoItem>`'s hub-published

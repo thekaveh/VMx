@@ -48,4 +48,21 @@ final class RelayCommandOfTests: XCTestCase {
         XCTAssertFalse(cmd.canExecute(42))
         XCTAssertEqual(recorder, [])
     }
+
+    /// Disposing emits one terminal `canExecuteChanged` value before completion —
+    /// parity with `RelayCommand` + the C#/Python/TypeScript relay commands (7 of 8
+    /// sync relay dispose paths emit this; this variant was the lone omission).
+    func testDisposeEmitsTerminalCanExecuteChanged() {
+        let cmd = RelayCommandOf<Int>.builder()
+            .task { _ in }
+            .build()
+
+        var emissions = 0
+        let c = cmd.canExecuteChanged.sink { emissions += 1 }
+
+        cmd.dispose()
+
+        XCTAssertEqual(emissions, 1, "dispose must emit one terminal canExecuteChanged")
+        c.cancel()
+    }
 }

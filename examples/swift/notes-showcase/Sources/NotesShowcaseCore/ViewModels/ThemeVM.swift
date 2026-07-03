@@ -2,7 +2,7 @@
 // ThemeVM — Theme-as-a-VM for the Notes-Showcase Swift flagship.
 //
 // Scenario contract: spec/proposals/2026-06-02-theme-vm-scenario.md §4.
-// THEME-001..005 conformance IDs — see spec/12-conformance.md §28.
+// THEME-001..005 conformance IDs — see spec/12-conformance.md §29.
 //
 // Architecture notes:
 // - Extends `ComponentVMBase` from the VMx Swift library, publishing on the

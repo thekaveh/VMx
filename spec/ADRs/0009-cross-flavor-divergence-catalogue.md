@@ -177,6 +177,8 @@ ADR-0006 and require no further action:
   emitting an `ItemRemoved` event.
 - **C# / Python**: no equivalent; consumers use `RemoveAt(Count - 1)` /
   `del list[-1]` instead.
+- **Swift**: ships `removeLast() -> T?` with the same pop semantics (`nil` on an
+  empty list, emits `ItemRemoved`) under the Swift-idiomatic name.
 - **Rationale**: JavaScript code reads `list.pop()` idiomatically. The additive
   method is fully consistent with the spec's `ItemRemoved` event semantics and
   does not alter observable behavior for callers that do not use it. Not
@@ -191,6 +193,33 @@ ADR-0006 and require no further action:
 - **Rationale**: JS idiomatic helpers. Event emission follows spec semantics:
   single-item operations emit `Added`/`Removed`/`Replaced`; multi-item splice
   emits `Reset`. Not normative; the spec does not enumerate these methods.
+
+### `ServicedObservableCollection.remove` return shape (Python)
+
+- **C#**: inherits `ObservableCollection<T>.Remove(item) -> bool` (`false` when absent).
+- **Swift**: `remove(_ item:) -> Bool` on an `Equatable` extension (`false` when absent).
+- **Python**: `remove(value) -> None`, and **raises `ValueError` when the item is
+  absent** — the `collections.abc.MutableSequence.remove` contract (enforced by
+  `mypy --strict`) that the Python collections subclass.
+- **TypeScript**: no by-value `remove`; consumers use `splice` / `pop`.
+- **Rationale**: the spec's `Remove(item): bool` (spec/21 §2.1) is honored by C#/Swift;
+  Python follows its standard-library `MutableSequence` idiom (raise-on-absent,
+  `-> None`), consistent with its own `ObservableList.remove`. A return-shape idiom
+  (ADR-0006), not a behavioral defect.
+
+### `DiscriminatorVM` key equality (TypeScript referential vs structural)
+
+- **C# / Python / Swift**: same-key detection uses **structural** equality
+  (`EqualityComparer<TKey>.Default` / `==` / `Equatable`), so `setActiveKey` with a
+  structurally-equal but distinct value-object instance is a no-op (DISC-003).
+- **TypeScript**: uses `Object.is(a, b) || a === b` (**referential** for objects), so
+  a structurally-equal but distinct object key reassigns and emits a spurious
+  `activeChanged`.
+- **Rationale**: the same idiomatic equality-operator split already catalogued for
+  `DerivedProperty` distinct-emit — JavaScript has no built-in structural equality
+  for objects. String/enum/number keys (the common case and the conformance
+  fixtures) converge in all four flavors; a caller with value-object keys can pass an
+  explicit comparer if strict parity is required. Non-normative (ADR-0006).
 
 ### `ObservableDictionary` remove/delete naming
 
@@ -227,20 +256,37 @@ ADR-0006 and require no further action:
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
 
+### `ObservableDictionary` key-axis view mutability (Python read-only)
+
+- **C# / TypeScript / Swift**: `Keys1`/`Keys2` return the live **mutable**
+  `ObservableList<TKey>` — spec-literal (spec/21 §4.1 declares
+  `Keys1 : ObservableList<TKey1>`, "live view").
+- **Python**: `keys1`/`keys2` return a `ReadOnlyObservableList` facade over the same
+  live key axis — identical read + subscribe surface, but no mutators (VMX-014), so a
+  caller cannot desync the view from the entries.
+- **Rationale**: the documented use (spec/21 §4.2 — bind to `Keys1`/`Keys2` for
+  category-view UIs) is read/subscribe-only, which the facade serves fully. Directly
+  mutating the view in the spec-literal flavors (e.g. `Keys1.Clear()`) desyncs it from
+  the entries — an unsupported footgun Python structurally prevents. Every
+  event/order/count thread is identical across all four. Converging the three mutable
+  flavors to a read-only view (and tightening spec/21 §4.1's declared type) is a
+  reasonable future spec decision for the maintainer.
+
 ### `ServicedObservableCollection` append method
 
 - **C#**: `Add(item)` (inherited from `ObservableCollection<T>`)
 - **Python**: `append(item)`
 - **TypeScript**: `push(item)`
+- **Swift**: `append(item)`
 - **Rationale**: Same idiomatic-array rationale as the `ObservableList` `push`
   divergence catalogued above.
 
-### `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript only)
+### `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript and Swift)
 
-- **TypeScript**: adds `at(index: number): T | undefined` and `toArray(): T[]` on
-  both `ObservableList` and `ServicedObservableCollection`.
+- **TypeScript / Swift**: both add `at(index) -> T?` and `toArray() -> [T]` on
+  `ObservableList` and `ServicedObservableCollection`.
 - **C# / Python**: absent; consumers use the indexer and iteration directly.
-- **Rationale**: `Array.prototype.at` and spread/slice patterns are the JS idiomatic
+- **Rationale**: `Array.prototype.at` / Swift `Array` idioms are the natural local
   equivalents. Additive; does not alter spec-observable behavior for callers that
   do not use them.
 
@@ -250,9 +296,10 @@ ADR-0006 and require no further action:
   additional Rx observable is exposed on the public surface.
 - **Python**: `on_collection_changed: Observable[CollectionChangedMessage[T]]`
 - **TypeScript**: `collectionChanged: Observable<CollectionChangedMessage<T>>`
+- **Swift**: `collectionChanged: AnyPublisher<CollectionChangedMessage<T>, Never>`
 - **Rationale**: C# uses the .NET-standard event surface expected by WPF/MAUI/Avalonia
-  data-binding. Python/TS expose a first-class Rx observable directly (same rationale
-  as the `CollectionChanged` row in the table above).
+  data-binding. Python/TS/Swift expose a first-class reactive observable directly
+  (same rationale as the `CollectionChanged` row in the table above).
 
 ### `PagedComposition` property-changed shape
 
@@ -334,22 +381,90 @@ here so audits don't reopen them prematurely:
   hatch — a non-leaf VM (e.g. an aggregate) that internally uses
   `ComponentVMOf<M>` can declare its actual role via this setter. Documented
   here so future audits don't re-flag it as vestigial.
-
-### `FormVM.OnApproved` emitted value
-
-- **C#**: emits the **pre-await captured** model snapshot
-  (`_onApproved.OnNext(current)` in `FormVM<TM>.ApproveAsync`).
-- **Python / TypeScript**: emit the **live** `self._model` / `this.#model`
-  after the persister await completes.
-- **Rationale**: spec FORM-006 asserts that `OnApproved` fires with a value
-  equal to the model that was persisted, and all three flavors' conformance
-  tests assert that exact equality. Absent concurrent `SetModel` between
-  the persister start and end, the pre-await capture equals the live
-  post-await `Model`, so both forms pass FORM-006. The divergence only
-  becomes observable under concurrent re-mutation during the await —
-  C# emits the value actually persisted; Python and TS emit whatever
-  `Model` is at emission time. Both are defensible reads of the spec;
-  aligning the three flavors is deferred to a future release.
+- **`HierarchicalVM` optional `hub`/`dispatcher` (TypeScript).** ADR-0052
+  (VMX-080) made these **required** in Python — and C#/Swift require them too —
+  so a tree can never silently fabricate an isolated hub/dispatcher. The
+  TypeScript `HierarchicalVMOptions` still marks them optional and defaults to a
+  fresh `MessageHub()` / `RxDispatcher.immediate()` when omitted, so a
+  raw-constructor subclass built without services gets an isolated subtree
+  (structural/property messages never reach the app hub). The builder path
+  (`HierarchicalVMBuilder`) always supplies services, so normal usage is safe;
+  tightening the raw constructor to required is a source-breaking signature
+  change deferred to the **next TypeScript major** (the conformance subclasses
+  currently spread `hub`/`dispatcher` conditionally). Documented here so audits
+  don't re-flag it as accidental drift.
+- **Swift `CompositeVM`/`GroupVM` canonical mutators `insert`/`setAt`/`clear`.**
+  Spec ch06/ch07 list these alongside `add`/`remove`/`removeAt` as the canonical
+  container surface; C#/Python/TypeScript ship all of them, Swift ships only
+  `add`/`remove` (+`removeAt` on `CompositeVM`). ADR-0059 originally deferred them
+  to "Increment 2", which shipped `collectionChanged`/`batchUpdate` (ADR-0060) but
+  not these mutators. No conformance ID isolates them, so Swift's "total library
+  parity" (ADR-0064/0065) — which is **conformance-ID** parity — holds. Adding the
+  three mutators (with tests) to Swift is a deferred API-surface follow-up.
+- **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
+  The construct-time `Current(selector)` path is a non-raising validated assignment
+  (spec/06 §5.4, ADR-0050), but the RUNTIME select path (`child.select()` →
+  `parent.select_child`) for a child that is a member yet not `Constructed`
+  diverges: C# `SelectChild`→`SelectComponent` **throws** `InvalidOperationException`,
+  Swift **no-ops** (gates on `.constructed`; tracked vs C#'s throw in ADR-0037),
+  while Python/TypeScript have no `Constructed` gate and **select the destructed
+  member** as current. `deselect` of a non-current child likewise throws in C# and
+  no-ops in the other three. This edge (reachable only by a direct `select()`/
+  `deselect()` that bypasses `can_select()`) is unspecified; the canonical rule
+  (no-op vs throw vs select) should be pinned in a spec chapter + conformance ID
+  and the flavors aligned — most likely gating Python/TS on `Constructed` so a
+  destructed member cannot become current. Recorded here so audits don't re-flag
+  it as accidental drift.
+- **`model` set on an already-`Disposed` modeled `ComponentVM`.** Swift suppresses
+  the hub publish / `PropertyChanged` raise / hint recompute / callback (the model
+  *field* still updates so the getter reflects the value — guarded since v3.0.0,
+  VMX-102), while C#/Python/TypeScript update the field **and** publish
+  `PropertyChangedMessage("model"/"Model")` on the still-live injected hub. spec/02
+  invariant 3 scopes the post-dispose no-emit to `IsCurrent` **selection** only
+  ("distinguishing it from the lifecycle operations"), so model-set-after-dispose is
+  **unspecified** — neither behavior violates the spec. Note C#/Python/TS are
+  internally inconsistent here: their own `IsCurrent` setter *is* post-dispose-guarded
+  (VMX-006). Reachable only by mutating an already-disposed VM (a caller error).
+  Recorded so audits don't re-flag it; converging the three flavors to Swift's inert
+  behavior (extending invariant 3 to `model`) is a reasonable future spec decision for
+  the maintainer.
+- **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
+  `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
+  synthesize a universal equality — so a redundant `refresh()` of a byte-identical
+  head page always emits a coarse `.reset` instead of deduplicating (`COL-028`). The
+  other flavors default to a meaningful comparer (Python value-equality, C#
+  `EqualityComparer<TVM>.Default`, TypeScript `Object.is`). Safe: the collections
+  spec delegates dedup to "the flavor's equality/comparer hook", and a "never equal"
+  hook never corrupts the accumulator — but the *default* behaviour diverges (the
+  Swift `COL-028` test passes an explicit comparer, so conformance never exercises
+  the default). To reconcile, apply the ADR-0059 §2.2 `DerivedProperty` pattern: an
+  `Equatable`-constrained convenience initializer defaulting `pagesEqual` to `==`,
+  keeping the `{ _, _ in false }` default only on the fully-unconstrained designated
+  init. Recorded here so audits don't re-flag it as accidental drift.
+- **Python `.builder()` classmethod entry on `GroupVM` / `AggregateVM1..6`.** Python
+  exposes the `.builder()` classmethod convenience on `ComponentVM`/`ComponentVMOf`,
+  `CompositeVM`/`CompositeVMOf`, `FormVM`, `ReadonlyComponentVMOf`, and the command
+  types, but not on `GroupVM` or `AggregateVM1..6` — those are entered via their
+  standalone builder classes (`GroupVMBuilder`, `AggregateVMNBuilder`) or the
+  `create(...)` factory (ADR-0055). C#/TypeScript/Swift expose `.builder()` /
+  `.Builder()` on all of these, and the spec canonical entry (`10-builders.md`) is
+  `<Type>.Builder()`. Purely an API-surface convenience asymmetry — the standalone
+  builders and `create()` cover the full construction surface (the mkdocs primitives
+  tables document `GroupVMBuilder[VM]()` / `AggregateVM6Builder[...]()`). To
+  reconcile, add a `@staticmethod builder()` to the Python `GroupVM`/`AggregateVMn`
+  classes with a bottom-of-module import to break the builder↔VM circular dependency,
+  matching `CompositeVM`. Recorded here so audits don't re-flag it as accidental drift.
+- **Swift `CompositeVM`/`GroupVM` native iteration (`Sequence` conformance).** The
+  spec lists `iterator` on the composite/group surface (`spec/06`/`spec/07`), and
+  C#/Python/TypeScript expose native iteration (`GetEnumerator` / `__iter__` /
+  `[Symbol.iterator]`). Swift instead exposes `count` + `at(_:)` and does **not**
+  conform `CompositeVM` or `GroupVM` to `Sequence` (only the `ForwardingCompositeVM`
+  decorator adds `Sequence`, to forward the wrapped's iteration for `FWD-003`). This
+  is a uniform Swift choice across both container types (not a `GroupVM`-only gap),
+  so `count`/`at(_:)` is the idiomatic access surface today. To reconcile, add
+  `Sequence` conformance (a `makeIterator()` over `0..<count` yielding `at(_:)`) to
+  both `CompositeVM` and `GroupVM` in Swift — a deferred API-surface follow-up.
+  Recorded here so audits don't re-flag it as accidental drift.
 
 ### Command property declared types
 
@@ -384,6 +499,18 @@ here so audits don't reopen them prematurely:
   field-name section above.
 - C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
   on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+
+### 2.2 Historical: divergences resolved in v3.0.0
+
+- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
+  captured model snapshot while Python and TypeScript emitted the live model
+  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
+  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
+  that was actually persisted even under a concurrent `SetModel` during the
+  await. No longer a divergence — the three flavors match (C#
+  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
+  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
+  `this.#onApproved.next(current)`).
 
 ## 3. Rationale
 

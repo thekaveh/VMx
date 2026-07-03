@@ -33,6 +33,7 @@ public sealed class ExpandableState : IExpandable, ICollapsible, IExpansionToggl
     /// <inheritdoc/>
     public void Expand()
     {
+        if (_disposed) return;
         if (_isExpanded) return;
         _isExpanded = true;
         _changes.OnNext(true);
@@ -44,6 +45,7 @@ public sealed class ExpandableState : IExpandable, ICollapsible, IExpansionToggl
     /// <inheritdoc/>
     public void Collapse()
     {
+        if (_disposed) return;
         if (!_isExpanded) return;
         _isExpanded = false;
         _changes.OnNext(false);

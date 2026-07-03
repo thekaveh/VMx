@@ -15,6 +15,7 @@
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
 //
 import XCTest
+import Combine
 @testable import VMx
 
 final class CompositeVMTests: XCTestCase {
@@ -54,6 +55,8 @@ final class CompositeVMTests: XCTestCase {
         try c.construct()
         XCTAssertEqual(a.status, .constructed)
         XCTAssertEqual(b.status, .constructed)
+        // Catalog COMP-004: the composite itself must also be Constructed.
+        XCTAssertEqual(c.status, .constructed)
     }
 
     /// COMP-005 — destruct cascades to (waits on) children, clears `current`,
@@ -127,15 +130,40 @@ final class CompositeVMTests: XCTestCase {
     }
 
     /// COMP-003 — selecting through the child (`select()` delegates to the
-    /// parent's select-child path) sets the parent's `current` slot.
+    /// parent's select-child path) sets the parent's `current` slot, flips the
+    /// child's `isCurrent`, and emits both PropertyChangedMessage("current") on
+    /// the composite and PropertyChangedMessage("isCurrent") with sender === the
+    /// child (all four catalog clauses; the prior test built with null services
+    /// so the two hub clauses were unobservable).
     func testComp003SelectThroughChildSetsCurrent() throws {
-        let a = leaf("a")
-        let c = try! CompositeVM<ComponentVM>.builder()
-            .name("c").withNullServices().children { [a] }.build()
+        let hub = MessageHub()
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let c = try CompositeVM<ComponentVM>.builder()
+            .name("c").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a] }.build()
         try c.construct()
+
+        // Subscribe after construct so only the select() messages are captured.
+        var propNames: [String] = []
+        var isCurrentSenders: [ObjectIdentifier] = []
+        let cancel = hub.messages.sink { msg in
+            guard let pcm = msg as? PropertyChangedMessage else { return }
+            propNames.append(pcm.propertyName)
+            if pcm.propertyName == "isCurrent" {
+                isCurrentSenders.append(ObjectIdentifier(pcm.sender))
+            }
+        }
+
         a.select()
+
         XCTAssertTrue(c.current === a)
-        XCTAssertTrue(a.isCurrent)   // child's own isCurrent flag flips
+        XCTAssertTrue(a.isCurrent)
+        XCTAssertTrue(propNames.contains("current"),
+            "PropertyChangedMessage(current) emitted on the composite")
+        XCTAssertEqual(isCurrentSenders, [ObjectIdentifier(a)],
+            "exactly one isCurrent PropertyChangedMessage, sender === a")
+        cancel.cancel()
     }
 
     // ── current(_:) builder hook (COMP-025) ─────────────────────────────
@@ -235,18 +263,76 @@ final class CompositeVMTests: XCTestCase {
     // ── Conformance — COMP-025 / COMP-026 ───────────────────────────────
 
     /// COMP-025 — `current(selector)` builder hook drives initial selection
-    /// during construct.
+    /// during construct. Three clauses (spec/12 COMP-025, parity with the
+    /// Python/C# conformance tests):
+    ///   1. the selector's return value becomes `current`;
+    ///   2. the selector runs EXACTLY ONCE — after every child reached
+    ///      `.constructed` and before the composite itself reaches
+    ///      `.constructed`;
+    ///   3. a null-returning selector leaves `current` nil AND publishes no
+    ///      `PropertyChangedMessage("current")`.
     func testCOMP025CurrentSelectorDrivesInitialSelection() throws {
-        let a = leaf("a"); let b = leaf("b"); let cChild = leaf("c")
+        let hub = MessageHub()
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let b = try ComponentVM.builder()
+            .name("b").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let cChild = try ComponentVM.builder()
+            .name("c").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+
+        var selectorCalls = 0
+        var allChildrenConstructedAtSelector = false
+        var compositeStatusAtSelector: ConstructionStatus?
+        weak var compositeRef: CompositeVM<ComponentVM>?
+
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
-            .withNullServices()
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
             .children { [a, b, cChild] }
-            .current { children in Array(children)[1] }
+            .current { children in
+                selectorCalls += 1
+                allChildrenConstructedAtSelector = children.allSatisfy { $0.status == .constructed }
+                compositeStatusAtSelector = compositeRef?.status
+                return Array(children)[1]
+            }
             .build()
+        compositeRef = composite
+
         try composite.construct()
 
+        // Clause 1 — the selector's pick (b) becomes current.
         XCTAssertTrue(composite.current === b)
+        // Clause 2 — exactly one selector call, after every child reached
+        // Constructed and while the composite is still Constructing.
+        XCTAssertEqual(selectorCalls, 1, "the selector must run exactly once during construct")
+        XCTAssertTrue(allChildrenConstructedAtSelector,
+                      "the selector must run after every child reached Constructed")
+        XCTAssertEqual(compositeStatusAtSelector, .constructing,
+                       "the selector must run before the composite itself reaches Constructed")
+
+        // Clause 3 — a null-returning selector leaves current nil and publishes
+        // no PropertyChangedMessage("current") on the hub.
+        let hub2 = MessageHub()
+        let a2 = try ComponentVM.builder()
+            .name("a").services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        var propertyNames: [String] = []
+        let cancel = hub2.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .sink { propertyNames.append($0.propertyName) }
+
+        let composite2 = try CompositeVM<ComponentVM>.builder()
+            .name("composite2")
+            .services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a2] }
+            .current { _ in nil }
+            .build()
+        try composite2.construct()
+
+        XCTAssertNil(composite2.current)
+        XCTAssertFalse(propertyNames.contains("current"),
+                       "a null-returning current selector must publish no "
+                       + "PropertyChangedMessage(\"current\")")
+        cancel.cancel()
     }
 
     /// COMP-026 — `onCurrentChanged(callback)` fires synchronously after
@@ -276,6 +362,32 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(observed.count, 2)
         XCTAssertTrue(observed[0] === b)
         XCTAssertNil(observed[1])
+
+        // Combined current(first) + onCurrentChanged: the initial-selector
+        // assignment fires the hook exactly once with the first child during
+        // construct — parity with the C#/Python/TypeScript COMP-026 second
+        // composite (CompositeVMConformanceTests.cs, test_composite_vm.py,
+        // compositeVM.test.ts).
+        let hub2 = MessageHub()
+        let a2 = try ComponentVM.builder()
+            .name("a").services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let b2 = try ComponentVM.builder()
+            .name("b").services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        var observed2: [ComponentVM?] = []
+
+        let composite2 = try CompositeVM<ComponentVM>.builder()
+            .name("composite2")
+            .services(hub: hub2, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a2, b2] }
+            .current { children in Array(children).first }
+            .onCurrentChanged { vm in observed2.append(vm) }
+            .build()
+        try composite2.construct()
+
+        XCTAssertEqual(observed2.count, 1,
+                       "the initial-selector assignment fires onCurrentChanged exactly once")
+        XCTAssertTrue(observed2[0] === a2,
+                      "the construct-time hook receives the selected first child")
     }
 
     /// VMX-098 — `selectChild` gates on Constructed, mirroring C#

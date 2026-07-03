@@ -23,6 +23,8 @@ final class FormVMValidationTests: XCTestCase {
             validators: ["name": { $0.name.isEmpty ? "required" : nil }]
         )
         XCTAssertEqual(sut.fieldError("name"), "required")
+        // Catalog FORM-016: Errors[f] contains the same error.
+        XCTAssertEqual(sut.errors["name"], "required")
     }
 
     /// FORM-017 — model validator populates errors.
@@ -92,6 +94,10 @@ final class FormVMValidationTests: XCTestCase {
         let withValidator = base.validator("name") { _ in "required" }
         let sut = try withValidator.build()
         XCTAssertEqual(sut.fieldError("name"), "required")
+        // Catalog FORM-022: the original builder is unchanged — a form built from
+        // `base` (before .validator was chained) has no validator, so no error.
+        let baseForm = try base.build()
+        XCTAssertNil(baseForm.fieldError("name"))
     }
 
     /// FORM-023 — clearing errors enables approval when other gates pass.

@@ -194,4 +194,21 @@ final class SearchableStateConformanceTests: XCTestCase {
 
         sut.dispose()
     }
+
+    /// Once disposed, `searchTerm` reads empty (parity with C#/Python/TypeScript,
+    /// which guard the getter rather than returning the frozen last value), and the
+    /// setter + search() are inert.
+    func testSearchTermReadsEmptyAfterDispose() {
+        let items = ["apple", "banana", "cherry"]
+        let sut = SearchableState<String>(items: { items }, predicate: ciSubstr)
+        sut.searchTerm = "an"
+        XCTAssertEqual(sut.searchTerm, "an")
+
+        sut.dispose()
+
+        XCTAssertEqual(sut.searchTerm, "", "getter reads empty after dispose")
+        sut.searchTerm = "xyz" // inert
+        XCTAssertEqual(sut.searchTerm, "", "setter is a no-op after dispose")
+        sut.search() // inert, no crash
+    }
 }

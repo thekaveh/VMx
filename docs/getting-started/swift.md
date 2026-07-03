@@ -116,7 +116,7 @@ let userVM = try ComponentVMOf<UserModel>.builder()
     .build()
 
 // construct() transitions destructed → constructing → constructed.
-userVM.construct()
+try userVM.construct()
 // stdout: "user-card constructed"
 
 // Update the model.
@@ -205,7 +205,7 @@ let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
     .children { [tab1, tab2] }
     .build()
 
-tabs.construct()
+try tabs.construct()
 
 tabs.current = tab2
 print(tabs.current?.model.title ?? "(none)")  // "Settings"
@@ -213,7 +213,7 @@ print(tabs.current?.model.title ?? "(none)")  // "Settings"
 tabs.current = tab1
 print(tabs.current?.model.title ?? "(none)")  // "Home"
 
-print((0..<tabs.count).map { tabs.at($0).name })  // ["home-tab", "settings-tab"]
+print((0..<tabs.count).compactMap { tabs.at($0).name })  // ["home-tab", "settings-tab"]
 ```
 
 > See `spec/06-composite-vm.md` for the full `CompositeVM` contract.
@@ -229,11 +229,11 @@ plus the terminal `disposed`.
 ```swift
 print(userVM.status)            // ConstructionStatus.constructed
 
-userVM.reconstruct()            // destruct + construct in one call — only valid
+try userVM.reconstruct()            // destruct + construct in one call — only valid
                                 // from .constructed; round-trips back to it
 print(userVM.status)            // ConstructionStatus.constructed
 
-userVM.destruct()
+try userVM.destruct()
 print(userVM.status)            // ConstructionStatus.destructed
 
 userVM.dispose()                // idempotent + terminal
@@ -243,14 +243,16 @@ tabs.dispose()                  // disposes children, then itself
 hub.dispose()
 ```
 
-An illegal transition (e.g. calling `construct()` on a disposed VM) is a
-programming error: the Swift flavor **traps** via `preconditionFailure`
-(Swift's API-misuse convention, ADR-0037) rather than throwing — gate with
-`canConstruct()` / `canDestruct()` if a state is uncertain. A
-`BuilderValidationError` *is* thrown when a builder is missing a required
-field at `build()` time (hence the `try` on builder chains above).
+An illegal transition (e.g. calling `construct()` on a disposed VM) surfaces a
+**catchable** `StatusTransitionError` under the v3 lifecycle convergence
+(ADR-0053) — `construct()` / `destruct()` / `reconstruct()` are `throws` (hence
+the `try` above), so wrap them in `do`/`catch`, or gate with `canConstruct()` /
+`canDestruct()` if a state is uncertain. (Swift still **traps** only where a
+setter cannot throw — e.g. assigning a non-child to `CompositeVM.current`; see
+ADR-0009/ADR-0037.) A `BuilderValidationError` is likewise thrown when a builder
+is missing a required field at `build()` time.
 
-> See `spec/02-lifecycle.md` for the full transition table (LIFE-001..013).
+> See `spec/02-lifecycle.md` for the full transition table (LIFE-001..014).
 
 ______________________________________________________________________
 

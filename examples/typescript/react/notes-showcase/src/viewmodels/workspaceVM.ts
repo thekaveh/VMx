@@ -8,8 +8,10 @@
  * aggregate — the cascade rules of ADR-0034 still apply, via composition.
  *
  * Adds the toolbar commands (`newNotebookCommand`, `newNoteCommand`,
- * `exportCommand`) and the `focusedVM` derivation (which feeds
- * `CapabilityActionsVM`).
+ * `exportCommand`) and a `focusedVM` derivation — a reactive projection of the
+ * currently-focused child. `CapabilityActionsVM` reads the focused VM through a
+ * `focusedGetter` callback (see the builder wiring below), not through this
+ * derivation.
  */
 import { BehaviorSubject, Subject, observeOn, type Subscription } from "rxjs";
 import {

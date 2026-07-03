@@ -253,6 +253,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018). On
     ///   rejection the tree is completely unchanged and no message is published.
     public func reparentChild(_ child: TVM) throws {
+        // Already our child → no-op (parity with C#/Python/TS): re-appending would
+        // reorder the sibling list and emit a spurious `.reparented` message.
+        if node(child).parent === selfNode { return }
         // HIER-018: child is self or one of self's ancestors → cycle.
         if path.contains(where: { $0 === child }) {
             throw HierarchyError.invalidReparent

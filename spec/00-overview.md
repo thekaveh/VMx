@@ -45,8 +45,9 @@ in multiple language flavors with semantically equivalent behavior.
   bring the two latest VM kinds into the immutable-builder discipline (ADR-0035);
   conformance gains `FORM-011..013`, `HIER-015..017`, and additive `BLD-005`
   for builder-`Triggers` semantics.
-- **v2.4 additions**. New Swift flavor implementing a subset of the spec
-  (`langs/swift/` — see langs/swift/README.md §5 for the in/deferred matrix);
+- **v2.4 additions**. New Swift flavor, initially implementing a subset of the spec
+  (`langs/swift/` — subsequently brought to full library parity in v3.1.0; see
+  langs/swift/README.md §5);
   `ThemeVM` cross-flavor scenario contract (`THEME-001..005`, ADR-0036 §2.C);
   publication-readiness pass (TS npm rename `vmx` → `@thekaveh/vmx`, ADR-0036
   §2.A) and example-app edge-case coverage backfill (ADR-0036 §2.D). No new
@@ -55,7 +56,7 @@ in multiple language flavors with semantically equivalent behavior.
 - **v2.5 additions**. Maintenance-pass clarifications (ADR-0037) — Swift
   conformance subset accurately recounted 53 → 39 (corrects ADR-0036 §2.E);
   three new normative IDs added — `HIER-018` (`HierarchicalVM` reparent guard
-  against self/ancestor cycles, chapter 18 §5), `NOTIF-017` (`NotificationHub`
+  against self/ancestor cycles, chapter 18 §6), `NOTIF-017` (`NotificationHub`
   dispose semantics, chapter 16 §9), and `FORM-014` ("disposed form is inert",
   ADR-0038, chapter 20). Catalog total grows 232 → 235 (230 library + 5 THEME).
 - **v2.6 additions**. Absorption-audit follow-up — `CompositeVMBuilder` gains
@@ -63,8 +64,8 @@ in multiple language flavors with semantically equivalent behavior.
   initial-current selection during construct, and `OnCurrentChanged(callback)`
   (`COMP-026`) for synchronous post-change selection callback (chapter 06 §3.2,
   ADR-0042). Both hooks ship on the non-modeled and modeled composite builders
-  in C#/Python/TypeScript; Swift covers the non-modeled builder per the
-  documented subset (ADR-0037). Catalog total grows 235 → 237 (232 library + 5
+  in all four flavors — Swift's modeled `CompositeVMOfBuilder` gained `current(...)`
+  and `onCurrentChanged(...)` at full parity (ADR-0064). Catalog total grows 235 → 237 (232 library + 5
   THEME). Three teaching ADRs formalize prior-art rejections: ADR-0039
   (`INotifyPropertyChanging` not supported), ADR-0040 (`IProperty<T>` reactive
   backing-field not adopted), ADR-0041 (single disposable lifecycle, no

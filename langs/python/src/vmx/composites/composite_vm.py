@@ -296,11 +296,19 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def _exit_batch(self) -> None:
         self._batch_depth -= 1
-        if self._batch_depth == 0 and self._batch_dirty:
+        if (
+            self._batch_depth == 0
+            and self._batch_dirty
+            and not self._collection_changed_subject.is_disposed
+        ):
             self._batch_dirty = False
             self._collection_changed_subject.on_next(CollectionChangedEvent(action="reset"))
 
     def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
+        # reactivex raises on post-dispose on_next (rxjs/Combine no-op); a
+        # collection mutation after dispose must be inert, not throw.
+        if self._collection_changed_subject.is_disposed:
+            return
         if self._batch_depth > 0:
             self._batch_dirty = True
             return

@@ -95,6 +95,13 @@ describe("GRP-011", () => {
 
     expect(child.canSelect()).toBe(false);
     expect(child.selectCommand.canExecute()).toBe(false);
+
+    // Normative GRP-011 clause (parity with the Swift test): calling select()
+    // on a group child is a no-op — it does not make the child current.
+    child.select();
+
+    expect(child.isCurrent).toBe(false);
+    expect(child.canDeselect()).toBe(false);
   });
 });
 

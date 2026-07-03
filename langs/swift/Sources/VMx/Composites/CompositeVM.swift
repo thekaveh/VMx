@@ -263,7 +263,13 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         let item = children.remove(at: index)
         item._parent = nil
         if _current === item {
-            _setCurrent(nil)
+            // Structural removal: the current child is no longer a member, so the
+            // clear MUST be synchronous (spec/06 §3 — a non-nil `current` must be a
+            // member). Bypass `asyncSelection` like `_onDestruct` does, rather than
+            // deferring via `_setCurrent(nil)` and transiently leaving `current`
+            // pointing at the removed item. Parity with C#/Python/TypeScript
+            // (`SetCurrent(null, async: false)`).
+            _applyCurrentChange(nil)
         }
         // Emit AFTER the child has been removed and parent cleared.
         if _batchLevel > 0 {
@@ -383,8 +389,14 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         // ManualDispatcher a test can prove the emission is buffered until
         // flushForeground() is called.
         if let prev = previous {
-            dispatcher.scheduleForeground { [weak prev] in
-                prev?._setIsCurrent(false)
+            dispatcher.scheduleForeground { [weak self, weak prev] in
+                // COMP-006: only clear the previous child's isCurrent if it is
+                // still not current when this deferred emit fires. Under a
+                // deferring dispatcher an A→B→A sequence before flush re-selects
+                // `prev`; clearing it unconditionally would leave `_current === prev`
+                // yet `prev.isCurrent == false`, violating spec/06 §3.
+                guard let prev, self?._current !== prev else { return }
+                prev._setIsCurrent(false)
             }
         }
         value?._setIsCurrent(true)

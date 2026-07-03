@@ -36,8 +36,9 @@ ADR records the helper's intent and per-flavor shape but adds no normative confo
 | C#         | `PropertyValueChangedMessagesFor`     | `IMessageHub.PropertyValueChangedMessagesFor<TSource, TProperty>(source, expr)` (extension method) |
 | Python     | `property_value_changed_messages_for` | `property_value_changed_messages_for(hub, source, property_name)` (module-level function)          |
 | TypeScript | `propertyValueChangedMessagesFor`     | `propertyValueChangedMessagesFor(hub, source, propertyName)` (named export)                        |
+| Swift      | `propertyValueChangedMessagesFor`     | `MessageHubProtocol.propertyValueChangedMessagesFor(source, propertyName, getter:)` (extension)    |
 
-All three: filter the hub's `messages` stream to matching `PropertyChangedMessage`
+All four: filter the hub's `messages` stream to matching `PropertyChangedMessage`
 instances (identity check on sender), then snapshot the current property value from
 the sender at delivery time.
 

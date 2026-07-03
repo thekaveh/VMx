@@ -1315,9 +1315,9 @@ yields `false`
 
 ### NOTIF-012 — `NotificationVM` auto-dismisses (resolves Approve) when `RemainingTime` reaches 0 — spec v2.1
 
-**Given** a `NotificationVM` with `Lifespan = 5 s` under a `TestScheduler`
+**Given** a `NotificationVM` with `Lifespan = 10 s` under a `TestScheduler`
 **And** the notification has been posted to a `NotificationHub`
-**When** the scheduler is advanced by 5 s
+**When** the scheduler is advanced by 10 s
 **Then** `IsResolved` is `true`
 **And** the hub notification is resolved with `NotificationReaction.Approve`
 
@@ -1374,7 +1374,7 @@ virtual time 0
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..026`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..037`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
 see ADR-0016), and builder hooks (COMP-025..026, see ADR-0042) additions to
@@ -1568,7 +1568,7 @@ because `c` no longer has a `Parent` to delegate to
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..010`)
+## 21. GroupVM v2.0 additions (`GRP-007..011`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -2347,7 +2347,7 @@ Consumers needing field-subset or reference semantics inject a custom `equals`
 **And** `Model` has been updated to `m1`
 **When** `ApproveAsync()` is awaited and the persister succeeds
 **Then** `OnApproved` fires exactly once with the persisted value — the model
-captured before the persister await (`m1`), uniform across flavors (chapter 20 §7;
+captured before the persister await (`m1`), uniform across flavors (chapter 20 §8.2;
 a `SetModel` racing the in-flight persist does not change the emitted value —
 ADR-0048)
 

@@ -87,6 +87,20 @@ public struct DictionaryEntry<TKey1, TKey2, TValue> {
 /// `ObservableList` views of the distinct key values, refcount-maintained so a
 /// distinct key drops from its view only when its last entry is removed
 /// (COL-013).
+/// Error thrown by ``ObservableDictionary/add(_:_:_:)`` when a strict insert
+/// targets a key pair that already exists — parity with C#/Python/TS, which throw
+/// on a duplicate (`set(_:_:_:)` upserts instead).
+public enum ObservableDictionaryError: Error, CustomStringConvertible {
+    case duplicateKey(key1: String, key2: String)
+
+    public var description: String {
+        switch self {
+        case let .duplicateKey(key1, key2):
+            return "ObservableDictionary: key (\(key1), \(key2)) already exists."
+        }
+    }
+}
+
 public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue> {
 
     /// Composite map key combining both axes. Synthesised `Hashable` because
@@ -212,6 +226,20 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         } else {
             internalAdd(key, key1: key1, key2: key2, value: value)
         }
+    }
+
+    /// Strict insert: add `value` under `(key1, key2)`, throwing
+    /// ``ObservableDictionaryError/duplicateKey(key1:key2:)`` when the pair is
+    /// already present (unlike ``set(_:_:_:)``, which upserts). Emits `itemAdded`
+    /// (local then hub) on success — parity with the canonical
+    /// `Add(key1, key2, value)` (spec/21 §4.1), which throws on a duplicate in the
+    /// other flavors.
+    public func add(_ key1: TKey1, _ key2: TKey2, _ value: TValue) throws {
+        let key = CompositeKey(k1: key1, k2: key2)
+        guard data[key] == nil else {
+            throw ObservableDictionaryError.duplicateKey(key1: "\(key1)", key2: "\(key2)")
+        }
+        internalAdd(key, key1: key1, key2: key2, value: value)
     }
 
     /// Remove the entry for `(key1, key2)`.

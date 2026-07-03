@@ -8,8 +8,7 @@ reach for, what it owns, how it participates in lifecycle and messaging, and
 where the flagship Notes Workspace examples use it.
 
 Use this overview when you are choosing a starting area rather than looking up a
-single API. It is the top-level index for the primitive families introduced in
-Task 6.
+single API. It is the top-level index for the primitive families.
 
 ## Shape And Ownership
 

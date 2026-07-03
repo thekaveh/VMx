@@ -107,4 +107,39 @@ final class PropertyChangedTests: XCTestCase {
                        "senderName must equal the VM's name")
         cancel.cancel()
     }
+
+    /// whenPropertyChanged filters the hub for a given (sender, propertyName) — the
+    /// canonical cross-VM subscription primitive (spec/03 §7.2, ADR-0050).
+    func testWhenPropertyChangedFiltersSenderAndName() throws {
+        let hub = MessageHub()
+        let vm = try makeVM(hub: hub, initial: Item(id: 1, label: "a"))
+        let other = try makeVM(hub: hub, initial: Item(id: 9, label: "z"))
+
+        var seen: [String] = []
+        let cancel = hub.whenPropertyChanged(vm, "model").sink { seen.append($0.propertyName) }
+
+        vm.model = Item(id: 2, label: "b")     // vm → PropertyChanged("model")
+        other.model = Item(id: 3, label: "c")  // other → must NOT match vm's filter
+
+        XCTAssertEqual(seen, ["model"])
+        cancel.cancel()
+    }
+
+    /// propertyValueChangedMessagesFor emits the current value each time the named
+    /// property changes on the hub (spec/03 §7.1, ADR-0050).
+    func testPropertyValueChangedMessagesForEmitsCurrentValue() throws {
+        let hub = MessageHub()
+        let vm = try makeVM(hub: hub, initial: Item(id: 1, label: "a"))
+
+        var labels: [String] = []
+        let cancel = hub
+            .propertyValueChangedMessagesFor(vm, "model", getter: { vm.model.label })
+            .sink { labels.append($0) }
+
+        vm.model = Item(id: 2, label: "b")
+        vm.model = Item(id: 3, label: "c")
+
+        XCTAssertEqual(labels, ["b", "c"])
+        cancel.cancel()
+    }
 }

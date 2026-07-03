@@ -1,5 +1,7 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Reactive;
+using System.Reactive.Subjects;
 using VMx.Commands;
 using VMx.Components;
 
@@ -21,6 +23,10 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     private readonly Func<IReadOnlyList<TVM>, IReadOnlyList<TVM>, bool> _pagesEqual;
     private readonly object _gate = new();
     private readonly List<TVM> _items = [];
+    // Shared re-signal for BOTH commands: a change driven by one command (e.g.
+    // RefreshCommand flipping HasMore) must re-raise the other's CanExecuteChanged,
+    // matching Python/TypeScript/Swift (a bound "Load More" re-enables immediately).
+    private readonly Subject<Unit> _commandChanged = new();
     private TToken? _currentToken;
     private bool _loadedOnce;
     private bool _disposed;
@@ -39,10 +45,12 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         LoadMoreCommand = AsyncRelayCommand.Builder()
             .Predicate(() => HasMore && !_disposed)
             .Task(_ => LoadMoreAsync())
+            .Triggers(_commandChanged)
             .Build();
         RefreshCommand = AsyncRelayCommand.Builder()
             .Predicate(() => !_disposed)
             .Task(_ => RefreshAsync())
+            .Triggers(_commandChanged)
             .Build();
     }
 
@@ -128,6 +136,8 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         OnPropertyChanged(nameof(Items));
         OnPropertyChanged(nameof(CurrentToken));
         OnPropertyChanged(nameof(HasMore));
+        // Re-signal both commands' CanExecuteChanged (parity with Python/TS/Swift).
+        _commandChanged.OnNext(Unit.Default);
     }
 
     private void OnPropertyChanged(string name) =>
@@ -146,5 +156,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         }
         LoadMoreCommand.Dispose();
         RefreshCommand.Dispose();
+        _commandChanged.OnCompleted();
+        _commandChanged.Dispose();
     }
 }

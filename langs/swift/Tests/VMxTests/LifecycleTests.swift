@@ -276,25 +276,74 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// LIFE-013 — dispose on a parent disposes every child depth-first.
+    /// LIFE-013 — dispose on a parent disposes every descendant depth-first:
+    /// grandchildren before their parent composite, children before the root.
+    ///
+    ///     root (CompositeVM)
+    ///       ├── child-a (CompositeVM) ── gc-a1, gc-a2 (ComponentVM)
+    ///       └── child-b (CompositeVM) ── gc-b1, gc-b2 (ComponentVM)
+    ///
+    /// The dispose order is observed via ConstructionStatusChangedMessage(.disposed)
+    /// on a shared hub — parity with the C#/Python/TypeScript LIFE-013 corpus
+    /// (CompositeVMConformanceTests.cs, test_composite_vm.py, lifecycle.test.ts).
     func testLife013DisposeCascadesDepthFirst() throws {
         let hub = MessageHub()
-        let leaf1 = makeVM(name: "leaf1", hub: hub)
-        let leaf2 = makeVM(name: "leaf2", hub: hub)
-        let composite = try! CompositeVM<ComponentVM>.builder()
-            .name("comp")
-            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
-            .children { [leaf1, leaf2] }
-            .build()
-        try composite.construct()
-        XCTAssertEqual(leaf1.status, .constructed)
-        XCTAssertEqual(leaf2.status, .constructed)
+        let disp = ImmediateDispatcher.INSTANCE
 
-        composite.dispose()
+        let gcA1 = makeVM(name: "gc-a1", hub: hub)
+        let gcA2 = makeVM(name: "gc-a2", hub: hub)
+        let gcB1 = makeVM(name: "gc-b1", hub: hub)
+        let gcB2 = makeVM(name: "gc-b2", hub: hub)
 
-        XCTAssertEqual(leaf1.status, .disposed)
-        XCTAssertEqual(leaf2.status, .disposed)
-        XCTAssertEqual(composite.status, .disposed)
+        let childA = try CompositeVM<ComponentVM>.builder()
+            .name("child-a").services(hub: hub, dispatcher: disp)
+            .children { [gcA1, gcA2] }.build()
+        let childB = try CompositeVM<ComponentVM>.builder()
+            .name("child-b").services(hub: hub, dispatcher: disp)
+            .children { [gcB1, gcB2] }.build()
+
+        let root = try CompositeVM<CompositeVM<ComponentVM>>.builder()
+            .name("root").services(hub: hub, dispatcher: disp)
+            .children { [childA, childB] }.build()
+
+        try root.construct()
+        XCTAssertEqual(gcA1.status, .constructed)
+        XCTAssertEqual(childA.status, .constructed)
+        XCTAssertEqual(root.status, .constructed)
+
+        // Record dispose order. Subscribe after construct so only dispose-phase
+        // messages are seen; filter defensively on .disposed.
+        var disposeOrder: [String] = []
+        let cancel = hub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .sink { if $0.status == .disposed { disposeOrder.append($0.senderName) } }
+
+        root.dispose()
+
+        // Every node reaches .disposed.
+        for vm in [gcA1, gcA2, gcB1, gcB2] {
+            XCTAssertEqual(vm.status, .disposed)
+        }
+        XCTAssertEqual(childA.status, .disposed)
+        XCTAssertEqual(childB.status, .disposed)
+        XCTAssertEqual(root.status, .disposed)
+
+        // Depth-first: grandchildren before their parent composite; children
+        // before the root.
+        func idx(_ name: String) -> Int {
+            guard let i = disposeOrder.firstIndex(of: name) else {
+                XCTFail("\(name) must emit a .disposed message"); return .max
+            }
+            return i
+        }
+        XCTAssertLessThan(idx("gc-a1"), idx("child-a"), "gc-a1 disposes before child-a")
+        XCTAssertLessThan(idx("gc-a2"), idx("child-a"), "gc-a2 disposes before child-a")
+        XCTAssertLessThan(idx("gc-b1"), idx("child-b"), "gc-b1 disposes before child-b")
+        XCTAssertLessThan(idx("gc-b2"), idx("child-b"), "gc-b2 disposes before child-b")
+        XCTAssertLessThan(idx("child-a"), idx("root"), "child-a disposes before root")
+        XCTAssertLessThan(idx("child-b"), idx("root"), "child-b disposes before root")
+
+        cancel.cancel()
     }
 
     /// Background lifecycle on the synchronous ImmediateDispatcher runs the
@@ -322,47 +371,121 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
-    /// LIFE-011 — the lifecycle state machine matches every row of the canonical
-    /// `lifecycle-transitions.json` fixture: legal rows reach `to_final`; illegal
-    /// rows raise `StatusTransitionError`.
+    /// LIFE-011 — the lifecycle state machine matches EVERY row of the canonical
+    /// `lifecycle-transitions.json` fixture (all 20): legal rows reach `to_final`;
+    /// illegal rows raise a catchable `StatusTransitionError` (ADR-0053). The
+    /// mid-transition source rows (`Constructing` / `Destructing`) are reached the
+    /// way the catalog's `When` allows — "via a test scheduler or controllable
+    /// hook" — by holding a background VM on a deferred dispatcher that parks the
+    /// completion, the same device `LifecycleRaceTests` and LIFE-008 use. Parity
+    /// with C# `LifecycleConformanceTests.DriveTransition`, which drives all 20.
     func testLife011StateMachineMatchesFixtureTable() throws {
         struct Row: Decodable {
             let from: String, via: String, toFinal: String?, legal: Bool
-            enum CodingKeys: String, CodingKey { case from, via, legal; case toFinal = "to_final" }
+            enum CodingKeys: String, CodingKey {
+                case from, via, legal
+                case toFinal = "to_final"
+            }
         }
         struct Fixture: Decodable { let transitions: [Row] }
-        let url = try XCTUnwrap(Bundle.module.url(forResource: "lifecycle-transitions", withExtension: "json"))
+
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: "lifecycle-transitions", withExtension: "json")
+        )
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
 
-        // Drive a fresh VM to `row.from`, then attempt `row.via`.
-        func makeAt(_ state: String) throws -> ComponentVM {
-            let vm = ComponentVM(name: "life011", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
-            switch state {
-            case "Destructed": break
-            case "Constructed": try vm.construct()
-            case "Disposed": vm.dispose()
-            default: throw XCTSkip("transient source state \(state) not directly reachable")
-            }
-            return vm
-        }
-        for row in fixture.transitions where ["construct", "destruct", "reconstruct"].contains(row.via) {
-            let vm: ComponentVM
-            do { vm = try makeAt(row.from) } catch is XCTSkip { continue } catch { throw error }
+        // Guard against a filtered/partial sweep silently under-covering the
+        // table again (the previous revision exercised only 9 of 20 rows).
+        XCTAssertEqual(
+            fixture.transitions.count, 20,
+            "LIFE-011 must drive every fixture row, including dispose and transient sources"
+        )
+
+        for row in fixture.transitions {
+            let (error, final) = driveTransition(from: row.from, via: row.via)
             if row.legal {
-                switch row.via {
-                case "construct": try vm.construct()
-                case "destruct": try vm.destruct()
-                case "reconstruct": try vm.reconstruct()
-                default: break
-                }
-                XCTAssertEqual(vm.status.name, row.toFinal, "\(row.from)/\(row.via) → expected \(row.toFinal ?? "nil")")
+                XCTAssertNil(
+                    error,
+                    "\(row.from)/\(row.via) is legal and must not throw (got \(String(describing: error)))"
+                )
+                XCTAssertEqual(
+                    final.name, row.toFinal,
+                    "\(row.from)/\(row.via) → expected \(row.toFinal ?? "nil"), got \(final.name)"
+                )
             } else {
-                XCTAssertThrowsError(try { switch row.via {
-                    case "construct": try vm.construct()
-                    case "destruct": try vm.destruct()
-                    default: try vm.reconstruct()
-                } }()) { XCTAssertTrue($0 is StatusTransitionError) }
+                XCTAssertTrue(
+                    error is StatusTransitionError,
+                    "\(row.from)/\(row.via) is illegal and must throw StatusTransitionError (got \(String(describing: error)))"
+                )
             }
+        }
+    }
+
+    /// Drives one fixture row: parks a fresh VM in `from` (transient states via a
+    /// deferred/background dispatcher), attempts `via`, and returns any catchable
+    /// error plus the settled status. Mirrors C# `DriveTransition`.
+    private func driveTransition(from: String, via: String)
+        -> (error: Error?, final: ConstructionStatus)
+    {
+        // Transient sources (`Constructing`/`Destructing`) need a dispatcher that
+        // PARKS the background completion so the VM is observably mid-transition;
+        // settled sources run inline on `ImmediateDispatcher`.
+        let transient = (from == "Constructing" || from == "Destructing")
+        let deferred = DeferredLifecycleDispatcher()
+        let dispatcher: Dispatcher = transient ? deferred : ImmediateDispatcher.INSTANCE
+
+        let vm = try! ComponentVM.builder()
+            .name("life011")
+            .services(hub: MessageHub(), dispatcher: dispatcher)
+            .background(transient)
+            .build()
+
+        // Put the VM into `from`. Transient rows are held parked mid-transition.
+        switch from {
+        case "Destructed":
+            break                                   // freshly built
+        case "Constructed":
+            try! vm.construct()
+        case "Disposed":
+            vm.dispose()
+        case "Constructing":
+            try! vm.construct()                     // emits .constructing; parked
+        case "Destructing":
+            try! vm.construct(); deferred.flush()   // settle to .constructed
+            try! vm.destruct()                      // emits .destructing; parked
+        default:
+            XCTFail("unhandled from-state \(from)")
+        }
+
+        // Attempt `via`, capturing any catchable StatusTransitionError (ADR-0053).
+        var captured: Error?
+        do {
+            switch via {
+            case "construct":   try vm.construct()
+            case "destruct":    try vm.destruct()
+            case "reconstruct": try vm.reconstruct()
+            case "dispose":     vm.dispose()
+            default: XCTFail("unhandled via \(via)")
+            }
+        } catch {
+            captured = error
+        }
+
+        return (captured, vm.status)
+    }
+
+    /// Deterministically parks background lifecycle work so a source VM can be
+    /// held mid-transition (`.constructing` / `.destructing`). Identical to
+    /// `LifecycleRaceTests.DeferredDispatcher` — the proven mechanism LIFE-008
+    /// relies on. `flush()` drains the parked work on the calling thread.
+    private final class DeferredLifecycleDispatcher: Dispatcher {
+        private var pending: [() -> Void] = []
+        func scheduleForeground(_ work: @escaping () -> Void) { work() }
+        func scheduleBackground(_ work: @escaping () -> Void) { pending.append(work) }
+        func flush() {
+            let work = pending
+            pending = []
+            for run in work { run() }
         }
     }
 
@@ -373,22 +496,33 @@ final class LifecycleTests: XCTestCase {
     func testLife014ThrowingHookRollsBackStatus() throws {
         struct HookError: Error {}
 
-        // Failed construct → rolls back to Destructed, and a retry can succeed.
+        // Failed construct → rolls back to Destructed; then a retry with a
+        // non-throwing hook reaches Constructed (recoverable, not wedged).
+        var failConstruct = true
         let onC = ComponentVM(
             name: "life014c", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE,
-            onConstruct: { throw HookError() }
+            onConstruct: { if failConstruct { throw HookError() } }
         )
         XCTAssertThrowsError(try onC.construct()) { XCTAssertTrue($0 is HookError) }
         XCTAssertEqual(onC.status, .destructed, "failed construct must roll back to Destructed")
+        failConstruct = false
+        try onC.construct()
+        XCTAssertEqual(onC.status, .constructed,
+            "a retry with a non-throwing construct hook reaches Constructed")
 
-        // Failed destruct → rolls back to Constructed.
+        // Failed destruct → rolls back to Constructed; then a retry reaches Destructed.
+        var failDestruct = true
         let onD = ComponentVM(
             name: "life014d", hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE,
-            onDestruct: { throw HookError() }
+            onDestruct: { if failDestruct { throw HookError() } }
         )
         try onD.construct()
         XCTAssertThrowsError(try onD.destruct()) { XCTAssertTrue($0 is HookError) }
         XCTAssertEqual(onD.status, .constructed, "failed destruct must roll back to Constructed")
+        failDestruct = false
+        try onD.destruct()
+        XCTAssertEqual(onD.status, .destructed,
+            "a retry with a non-throwing destruct hook reaches Destructed")
     }
 
     func testReconstructDestructHookFailureRollsBackToConstructed() throws {

@@ -283,6 +283,52 @@ async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -
     assert any("Note deleted" in n.message for n in observed)
 
 
+async def test_capability_save_persists_the_focused_note() -> None:
+    """The capability-bar Save action (``NoteVM.save_command``) persists the
+    note's current model through the repo.
+
+    Regression guard: Python previously omitted the ``.on_save`` wiring on the
+    per-note builder, so ``NoteVM.save()`` early-returned and the action-bar
+    Save was a silent no-op — while C#/TS/Swift all wired it (real-wiring
+    audit). The existing capability-actions test only asserted the "Save"
+    label was present, not that pressing it persisted.
+    """
+    import asyncio
+    from dataclasses import replace
+
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+    )
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(
+        foreground=ImmediateScheduler(), background=ImmediateScheduler()
+    )
+    vm = (
+        NotesViewVM.builder()
+        .name("notes")
+        .services(hub, dispatcher)
+        .repository(repo)
+        .build()
+    )
+    vm.construct()
+    await vm.bind_to_async("nb-personal")
+    target = vm.inner[0]
+    original = target.model
+    target.model = replace(original, title="Saved by capability bar")
+
+    target.save_command.execute()
+    await asyncio.sleep(0.05)  # drain the fire-and-forget save
+
+    persisted = await repo.load_notes(original.notebook_id)
+    assert any(
+        n.id == original.id and n.title == "Saved by capability bar"
+        for n in persisted
+    )
+
+
 async def test_repository_search_notes_returns_token_pages_over_all_notes() -> None:
     repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
 

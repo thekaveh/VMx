@@ -277,21 +277,43 @@ open class ComponentVMBase {
                 // `_onConstruct()` runs cannot complete the Constructed
                 // transition — no resurrection, no post-dispose publish, no
                 // send on a finished Combine subject (VMX-002).
-                if !self._isDisposed() {
-                    // The background path has no completion/error future in this
-                    // flavor (VMX-049, deferred): a throwing hook / child
-                    // transition cannot be redelivered to the already-returned
-                    // caller, so it is caught here. The foreground form — the
-                    // common path — propagates via `throws`.
-                    do {
-                        try self._onConstruct()
-                        self._setStatus(.constructed)
-                    } catch {
-                        self._setStatus(priorStatus)  // LIFE-014: roll back to entry state
-                        // swallowed: no async error channel on the bg path yet.
-                    }
+                guard !self._isDisposed() else {
+                    // Disposed before the hook ran: there is no terminal
+                    // transition to emit. Release the in-flight guard inline —
+                    // the VM is terminal, so no construct/destruct can succeed
+                    // (LIFE-008 is moot post-dispose).
+                    self._setInFlight(false)
+                    return
                 }
-                self._setInFlight(false)
+                // The background path has no completion/error future in this
+                // flavor (VMX-049, deferred): a throwing hook / child
+                // transition cannot be redelivered to the already-returned
+                // caller, so it is caught here. The foreground form — the
+                // common path — propagates via `throws`.
+                let terminal: ConstructionStatus
+                do {
+                    try self._onConstruct()
+                    terminal = .constructed
+                } catch {
+                    terminal = priorStatus         // LIFE-014: roll back to entry state
+                    // swallowed: no async error channel on the bg path yet.
+                }
+                // spec/11 §4 step 3 (VMX-025): the TERMINAL transition — the
+                // Constructed emission on success or the LIFE-014 rollback to
+                // `priorStatus` on failure — is marshalled onto
+                // IDispatcher.Foreground so subscribers observe the completion on
+                // the foreground thread, not the pool thread. `_setInFlight(false)`
+                // runs INSIDE this closure, AFTER the terminal emit, so the
+                // LIFE-008 in-flight guard is not released until the transition
+                // has fully settled. `_setStatus` still re-checks `.disposed`
+                // under `lifecycleLock`, so a dispose() landing between the hook
+                // and this foreground task cannot resurrect the VM. If `self` is
+                // deallocated before this runs, the reset is moot (object gone).
+                self.dispatcher.scheduleForeground { [weak self] in
+                    guard let self else { return }
+                    self._setStatus(terminal)
+                    self._setInFlight(false)
+                }
             }
         } else {
             defer { _setInFlight(false) }
@@ -344,17 +366,33 @@ open class ComponentVMBase {
                 // `_onDestruct()` runs cannot complete the Destructed
                 // transition — no resurrection, no post-dispose publish, no
                 // send on a finished Combine subject (VMX-002).
-                if !self._isDisposed() {
-                    // Background path has no error channel yet (see construct()).
-                    do {
-                        try self._onDestruct()
-                        self._setStatus(.destructed)
-                    } catch {
-                        self._setStatus(priorStatus)  // LIFE-014: roll back to entry state
-                        // swallowed: no async error channel on the bg path yet.
-                    }
+                guard !self._isDisposed() else {
+                    // Disposed before the hook ran: no terminal transition to
+                    // emit. Release the in-flight guard inline — the VM is
+                    // terminal (LIFE-008 is moot post-dispose).
+                    self._setInFlight(false)
+                    return
                 }
-                self._setInFlight(false)
+                // Background path has no error channel yet (see construct()).
+                let terminal: ConstructionStatus
+                do {
+                    try self._onDestruct()
+                    terminal = .destructed
+                } catch {
+                    terminal = priorStatus         // LIFE-014: roll back to entry state
+                    // swallowed: no async error channel on the bg path yet.
+                }
+                // spec/11 §4 step 3 (VMX-025): marshal the TERMINAL transition
+                // (Destructed on success, or the LIFE-014 rollback to
+                // `priorStatus`) onto IDispatcher.Foreground; release the
+                // in-flight guard INSIDE the foreground closure, AFTER the
+                // terminal emit. `_setStatus` re-checks `.disposed` under the
+                // lock, so a racing dispose() cannot resurrect the VM.
+                self.dispatcher.scheduleForeground { [weak self] in
+                    guard let self else { return }
+                    self._setStatus(terminal)
+                    self._setInFlight(false)
+                }
             }
         } else {
             defer { _setInFlight(false) }

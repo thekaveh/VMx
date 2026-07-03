@@ -1,7 +1,7 @@
 /**
  * AsyncRelayCommand — a cancellable async ICommand implementation.
  *
- * See spec/04-commands.md §11 (async command cancellation), ADR-0056.
+ * See spec/04-commands.md §10 (async command cancellation), ADR-0056.
  *
  * Behavior contract:
  * - The task receives an `AbortSignal` linked to both `cancel()` (an internal
@@ -35,6 +35,10 @@ export class AsyncRelayCommand implements IAsyncCommand {
   #controller: AbortController | null = null;
   #isExecuting = false;
   #disposed = false;
+  // Set by cancel()/dispose() so the catch swallows only a cancellation we
+  // requested through the command's own channel; a cancellation from the
+  // externally-supplied AbortSignal (flag unset) is re-raised per spec/04 §10.3.
+  #cancelRequested = false;
 
   constructor(
     task: AsyncTask | null,
@@ -90,6 +94,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
 
   async executeAsync(externalSignal?: AbortSignal): Promise<void> {
     if (!this.canExecute()) return;
+    this.#cancelRequested = false;
 
     const controller = new AbortController();
     this.#controller = controller;
@@ -110,10 +115,16 @@ export class AsyncRelayCommand implements IAsyncCommand {
     try {
       await this.#task(controller.signal);
     } catch (err) {
-      // Non-throwing default (DIA-007 alignment): command-originated
-      // cancellation resolves quietly unless throwing is opted in. Arbitrary
-      // task faults after abort still propagate.
-      if (controller.signal.aborted && isCancellationError(err)) {
+      // Non-throwing default (DIA-007 alignment): swallow only a cancellation we
+      // requested through the command's own channel (cancel()/dispose()) unless
+      // throwing is opted in. A cancellation from the externally-supplied signal
+      // (#cancelRequested false) is re-raised per spec/04 §10.3; arbitrary task
+      // faults after abort still propagate.
+      // #cancelRequested is flipped true by cancel()/dispose() DURING the awaited
+      // task above, so the control-flow narrowing to `false` from the start-of-method
+      // reset does not hold here.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (this.#cancelRequested && isCancellationError(err)) {
         if (this.#throwOnCancel) {
           throw err;
         }
@@ -128,6 +139,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
   }
 
   cancel(): void {
+    this.#cancelRequested = true;
     this.#controller?.abort();
   }
 
@@ -135,6 +147,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#cancelRequested = true;
     this.#controller?.abort();
     this.#canExecuteChangedSubject.complete();
     this.#errorsSubject.complete();
