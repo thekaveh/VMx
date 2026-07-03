@@ -2347,7 +2347,7 @@ Consumers needing field-subset or reference semantics inject a custom `equals`
 **And** `Model` has been updated to `m1`
 **When** `ApproveAsync()` is awaited and the persister succeeds
 **Then** `OnApproved` fires exactly once with the persisted value — the model
-captured before the persister await (`m1`), uniform across flavors (chapter 20 §7;
+captured before the persister await (`m1`), uniform across flavors (chapter 20 §8.2;
 a `SetModel` racing the in-flight persist does not change the emitted value —
 ADR-0048)
 
