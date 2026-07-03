@@ -232,15 +232,16 @@ ADR-0006 and require no further action:
 - **C#**: `Add(item)` (inherited from `ObservableCollection<T>`)
 - **Python**: `append(item)`
 - **TypeScript**: `push(item)`
+- **Swift**: `append(item)`
 - **Rationale**: Same idiomatic-array rationale as the `ObservableList` `push`
   divergence catalogued above.
 
-### `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript only)
+### `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript and Swift)
 
-- **TypeScript**: adds `at(index: number): T | undefined` and `toArray(): T[]` on
-  both `ObservableList` and `ServicedObservableCollection`.
+- **TypeScript / Swift**: both add `at(index) -> T?` and `toArray() -> [T]` on
+  `ObservableList` and `ServicedObservableCollection`.
 - **C# / Python**: absent; consumers use the indexer and iteration directly.
-- **Rationale**: `Array.prototype.at` and spread/slice patterns are the JS idiomatic
+- **Rationale**: `Array.prototype.at` / Swift `Array` idioms are the natural local
   equivalents. Additive; does not alter spec-observable behavior for callers that
   do not use them.
 
@@ -250,9 +251,10 @@ ADR-0006 and require no further action:
   additional Rx observable is exposed on the public surface.
 - **Python**: `on_collection_changed: Observable[CollectionChangedMessage[T]]`
 - **TypeScript**: `collectionChanged: Observable<CollectionChangedMessage<T>>`
+- **Swift**: `collectionChanged: AnyPublisher<CollectionChangedMessage<T>, Never>`
 - **Rationale**: C# uses the .NET-standard event surface expected by WPF/MAUI/Avalonia
-  data-binding. Python/TS expose a first-class Rx observable directly (same rationale
-  as the `CollectionChanged` row in the table above).
+  data-binding. Python/TS/Swift expose a first-class reactive observable directly
+  (same rationale as the `CollectionChanged` row in the table above).
 
 ### `PagedComposition` property-changed shape
 
@@ -354,6 +356,20 @@ here so audits don't reopen them prematurely:
   not these mutators. No conformance ID isolates them, so Swift's "total library
   parity" (ADR-0064/0065) — which is **conformance-ID** parity — holds. Adding the
   three mutators (with tests) to Swift is a deferred API-surface follow-up.
+- **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
+  The construct-time `Current(selector)` path is a non-raising validated assignment
+  (spec/06 §5.4, ADR-0050), but the RUNTIME select path (`child.select()` →
+  `parent.select_child`) for a child that is a member yet not `Constructed`
+  diverges: C# `SelectChild`→`SelectComponent` **throws** `InvalidOperationException`,
+  Swift **no-ops** (gates on `.constructed`; tracked vs C#'s throw in ADR-0037),
+  while Python/TypeScript have no `Constructed` gate and **select the destructed
+  member** as current. `deselect` of a non-current child likewise throws in C# and
+  no-ops in the other three. This edge (reachable only by a direct `select()`/
+  `deselect()` that bypasses `can_select()`) is unspecified; the canonical rule
+  (no-op vs throw vs select) should be pinned in a spec chapter + conformance ID
+  and the flavors aligned — most likely gating Python/TS on `Constructed` so a
+  destructed member cannot become current. Recorded here so audits don't re-flag
+  it as accidental drift.
 
 ### Command property declared types
 
