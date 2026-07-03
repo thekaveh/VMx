@@ -55,6 +55,8 @@ final class CompositeVMTests: XCTestCase {
         try c.construct()
         XCTAssertEqual(a.status, .constructed)
         XCTAssertEqual(b.status, .constructed)
+        // Catalog COMP-004: the composite itself must also be Constructed.
+        XCTAssertEqual(c.status, .constructed)
     }
 
     /// COMP-005 — destruct cascades to (waits on) children, clears `current`,
@@ -128,15 +130,40 @@ final class CompositeVMTests: XCTestCase {
     }
 
     /// COMP-003 — selecting through the child (`select()` delegates to the
-    /// parent's select-child path) sets the parent's `current` slot.
+    /// parent's select-child path) sets the parent's `current` slot, flips the
+    /// child's `isCurrent`, and emits both PropertyChangedMessage("current") on
+    /// the composite and PropertyChangedMessage("isCurrent") with sender === the
+    /// child (all four catalog clauses; the prior test built with null services
+    /// so the two hub clauses were unobservable).
     func testComp003SelectThroughChildSetsCurrent() throws {
-        let a = leaf("a")
-        let c = try! CompositeVM<ComponentVM>.builder()
-            .name("c").withNullServices().children { [a] }.build()
+        let hub = MessageHub()
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let c = try CompositeVM<ComponentVM>.builder()
+            .name("c").services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a] }.build()
         try c.construct()
+
+        // Subscribe after construct so only the select() messages are captured.
+        var propNames: [String] = []
+        var isCurrentSenders: [ObjectIdentifier] = []
+        let cancel = hub.messages.sink { msg in
+            guard let pcm = msg as? PropertyChangedMessage else { return }
+            propNames.append(pcm.propertyName)
+            if pcm.propertyName == "isCurrent" {
+                isCurrentSenders.append(ObjectIdentifier(pcm.sender))
+            }
+        }
+
         a.select()
+
         XCTAssertTrue(c.current === a)
-        XCTAssertTrue(a.isCurrent)   // child's own isCurrent flag flips
+        XCTAssertTrue(a.isCurrent)
+        XCTAssertTrue(propNames.contains("current"),
+            "PropertyChangedMessage(current) emitted on the composite")
+        XCTAssertEqual(isCurrentSenders, [ObjectIdentifier(a)],
+            "exactly one isCurrent PropertyChangedMessage, sender === a")
+        cancel.cancel()
     }
 
     // ── current(_:) builder hook (COMP-025) ─────────────────────────────
