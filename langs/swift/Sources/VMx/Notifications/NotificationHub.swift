@@ -107,7 +107,8 @@ public final class NotificationHub: NotificationHubProtocol {
 
     /// Resolve `n` with `reaction`. No-op if `n` is not pending (NOTIF-008).
     /// No-op after dispose (NOTIF-017).
-    /// The continuation is resumed *after* releasing the lock.
+    /// All continuations awaiting `n` (including double-post re-posters) are
+    /// resumed with `reaction` *after* releasing the lock.
     public func resolve(_ n: Notification, _ reaction: NotificationReaction) {
         let continuations: [CheckedContinuation<NotificationReaction, Never>]?
         var snapshot: [Notification]?
