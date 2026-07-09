@@ -321,6 +321,16 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     }
 }
 
+pub trait TreeNode: VmNode {
+    fn children_nodes(&self) -> Vec<Self> {
+        Vec::new()
+    }
+
+    fn is_expanded_for_walk(&self) -> bool {
+        true
+    }
+}
+
 type Hook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
 type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 
@@ -751,6 +761,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
 
     fn is_current(&self) -> bool {
         self.core.is_selected()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> TreeNode for ComponentVm<M, D> {
+    fn is_expanded_for_walk(&self) -> bool {
+        self.is_expanded()
     }
 }
 
@@ -1919,6 +1935,22 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 
     fn is_current(&self) -> bool {
         self.core.is_selected()
+    }
+}
+
+impl<T: TreeNode, D: Dispatcher> TreeNode for CompositeVm<T, D> {
+    fn children_nodes(&self) -> Vec<Self> {
+        Vec::new()
+    }
+}
+
+impl<T: TreeNode, D: Dispatcher> CompositeVm<T, D> {
+    pub fn child_nodes(&self) -> Vec<T> {
+        self.items()
+    }
+
+    pub fn is_expanded_for_walk(&self) -> bool {
+        self.core.is_expanded()
     }
 }
 
@@ -3409,84 +3441,403 @@ impl<K: Clone + Eq + Hash + Send + 'static> DiscriminatorVm<K> {
     }
 }
 
+type HierChildrenFactory<M> =
+    Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;
+
 #[derive(Clone)]
-pub struct HierarchicalVm<M: Clone + PartialEq + Send + 'static> {
+pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     component: ComponentVm<M>,
-    children: Arc<Mutex<Vec<Self>>>,
+    children: Arc<Mutex<Option<Vec<Self>>>>,
+    parent: Arc<Mutex<Option<Self>>>,
+    children_factory: HierChildrenFactory<M>,
+    eager_children: Arc<Mutex<bool>>,
+    expanded_for_walk: Arc<Mutex<bool>>,
+    hub: MessageHub,
 }
 
-impl<M: Clone + PartialEq + Send + 'static> HierarchicalVm<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     pub fn new(name: impl Into<String>, model: M) -> Self {
+        Self::with_children_factory(name, model, |_| Vec::new(), false, MessageHub::new())
+    }
+
+    pub fn with_children_factory<F>(
+        name: impl Into<String>,
+        model: M,
+        children_factory: F,
+        eager_children: bool,
+        hub: MessageHub,
+    ) -> Self
+    where
+        F: Fn(&Self) -> Vec<Self> + Send + Sync + 'static,
+    {
         Self {
-            component: ComponentVm::with_model(
-                name,
-                model,
-                MessageHub::new(),
-                NullDispatcher::new(),
-            ),
-            children: Arc::new(Mutex::new(Vec::new())),
+            component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
+            children: Arc::new(Mutex::new(None)),
+            parent: Arc::new(Mutex::new(None)),
+            children_factory: Arc::new(children_factory),
+            eager_children: Arc::new(Mutex::new(eager_children)),
+            expanded_for_walk: Arc::new(Mutex::new(true)),
+            hub,
         }
+    }
+
+    pub fn builder() -> HierarchicalVmBuilder<M> {
+        HierarchicalVmBuilder::new()
     }
 
     pub fn id(&self) -> usize {
         self.component.id()
     }
 
+    pub fn name(&self) -> String {
+        self.component.name()
+    }
+
+    pub fn model(&self) -> M {
+        self.component.model()
+    }
+
+    pub fn hint(&self) -> Option<String> {
+        self.component.hint()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.hub.clone()
+    }
+
+    pub fn parent(&self) -> Option<Self> {
+        lock(&self.parent).clone()
+    }
+
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
-        if child.id() == self.id() || child.contains_descendant(self.id()) {
-            return Err(VmxError::InvalidArgument(
-                "cannot reparent self or ancestor".to_string(),
-            ));
+        self.ensure_not_reparenting_cycle(&child)?;
+        child.set_parent(Some(self.clone()));
+        let mut children = lock(&self.children);
+        children.get_or_insert_with(Vec::new).push(child);
+        drop(children);
+        self.hub
+            .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
+                sender_id: self.id(),
+            }));
+        Ok(())
+    }
+
+    pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
+        let removed = {
+            let mut children = lock(&self.children);
+            let children = children.get_or_insert_with(Vec::new);
+            children
+                .iter()
+                .position(|candidate| candidate == child)
+                .map(|index| children.remove(index))
         }
-        child.component.core.set_parent_id(Some(self.id()));
-        lock(&self.children).push(child);
+        .ok_or(VmxError::NonChild)?;
+        removed.set_parent(None);
+        self.hub
+            .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
+                sender_id: self.id(),
+            }));
+        Ok(())
+    }
+
+    pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
+        self.ensure_not_reparenting_cycle(child)?;
+        if let Some(parent) = child.parent() {
+            parent.remove_child(child)?;
+        }
+        child.set_parent(Some(self.clone()));
+        lock(&self.children)
+            .get_or_insert_with(Vec::new)
+            .push(child.clone());
+        self.hub
+            .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
+                sender_id: self.id(),
+            }));
         Ok(())
     }
 
     pub fn children(&self) -> Vec<Self> {
-        lock(&self.children).clone()
+        self.materialize_children()
+    }
+
+    pub fn is_children_materialized(&self) -> bool {
+        lock(&self.children).is_some()
     }
 
     pub fn is_root(&self) -> bool {
-        self.component.parent_id().is_none()
+        self.parent().is_none()
     }
 
     pub fn is_leaf(&self) -> bool {
-        lock(&self.children).is_empty()
+        self.children().is_empty()
     }
 
     pub fn depth(&self) -> usize {
-        0
+        self.parent().map(|parent| parent.depth() + 1).unwrap_or(0)
     }
 
-    fn contains_descendant(&self, id: usize) -> bool {
-        self.children()
-            .iter()
-            .any(|child| child.id() == id || child.contains_descendant(id))
+    pub fn path(&self) -> Vec<Self> {
+        let mut path = self
+            .parent()
+            .map(|parent| parent.path())
+            .unwrap_or_default();
+        path.push(self.clone());
+        path
+    }
+
+    pub fn is_first(&self) -> bool {
+        self.parent()
+            .and_then(|parent| parent.children().first().cloned())
+            .map(|first| first == *self)
+            .unwrap_or(false)
+    }
+
+    pub fn is_last(&self) -> bool {
+        self.parent()
+            .and_then(|parent| parent.children().last().cloned())
+            .map(|last| last == *self)
+            .unwrap_or(false)
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        if *lock(&self.eager_children) {
+            for child in self.children() {
+                child.construct()?;
+            }
+        }
+        self.component.construct()
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.component.status()
+    }
+
+    pub fn invalidate_children(&self) {
+        let was_materialized = lock(&self.children).is_some();
+        if was_materialized {
+            *lock(&self.children) = None;
+            self.hub
+                .send(Message::PropertyChanged(PropertyChangedMessage {
+                    sender_id: self.id(),
+                    property_name: "children".to_string(),
+                }));
+        }
+    }
+
+    pub fn invalidate_subtree(&self) {
+        let materialized_children = lock(&self.children).clone();
+        if let Some(children) = materialized_children {
+            for child in children {
+                child.invalidate_subtree();
+            }
+            self.invalidate_children();
+        }
+    }
+
+    pub fn set_expanded_for_walk(&self, expanded: bool) {
+        *lock(&self.expanded_for_walk) = expanded;
+    }
+
+    fn materialize_children(&self) -> Vec<Self> {
+        if let Some(children) = lock(&self.children).clone() {
+            return children;
+        }
+        let children = (self.children_factory)(self)
+            .into_iter()
+            .inspect(|child| {
+                child.set_parent(Some(self.clone()));
+            })
+            .collect::<Vec<_>>();
+        *lock(&self.children) = Some(children.clone());
+        children
+    }
+
+    fn set_parent(&self, parent: Option<Self>) {
+        *lock(&self.parent) = parent.clone();
+        self.component
+            .core
+            .set_parent_id(parent.as_ref().map(|parent| parent.id()));
+        self.hub
+            .send(Message::PropertyChanged(PropertyChangedMessage {
+                sender_id: self.id(),
+                property_name: "Parent".to_string(),
+            }));
+    }
+
+    fn ensure_not_reparenting_cycle(&self, child: &Self) -> VmxResult<()> {
+        if child.id() == self.id() || self.path().iter().any(|ancestor| ancestor == child) {
+            return Err(VmxError::InvalidArgument(
+                "cannot reparent self or ancestor".to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static> PartialEq for HierarchicalVm<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static> PartialEq for HierarchicalVm<M> {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static> Eq for HierarchicalVm<M> {}
+impl<M: Clone + PartialEq + Send + Sync + 'static> Eq for HierarchicalVm<M> {}
 
-pub fn walk<T: VmNode>(root: &T) -> Vec<T> {
-    vec![root.clone()]
+impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> {
+    fn id(&self) -> usize {
+        HierarchicalVm::id(self)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        HierarchicalVm::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        self.component.destruct()
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        self.component.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        HierarchicalVm::status(self)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.component.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.component.parent_id()
+    }
 }
 
-pub fn find<T: VmNode, F>(root: &T, predicate: F) -> Option<T>
+impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
+    fn children_nodes(&self) -> Vec<Self> {
+        self.children()
+    }
+
+    fn is_expanded_for_walk(&self) -> bool {
+        *lock(&self.expanded_for_walk)
+    }
+}
+
+#[derive(Clone)]
+pub struct HierarchicalVmBuilder<M: Clone + PartialEq + Send + Sync + 'static> {
+    model: Option<M>,
+    children_factory: Option<HierChildrenFactory<M>>,
+    services: Option<(MessageHub, NullDispatcher)>,
+    hint: Option<String>,
+    eager_children: bool,
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static> Default for HierarchicalVmBuilder<M> {
+    fn default() -> Self {
+        Self {
+            model: None,
+            children_factory: None,
+            services: None,
+            hint: None,
+            eager_children: false,
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn model(mut self, model: M) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    pub fn children_factory<F>(mut self, factory: F) -> Self
+    where
+        F: Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync + 'static,
+    {
+        self.children_factory = Some(Arc::new(factory));
+        self
+    }
+
+    pub fn services(mut self, hub: MessageHub, dispatcher: NullDispatcher) -> Self {
+        self.services = Some((hub, dispatcher));
+        self
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn eager_children(mut self, eager: bool) -> Self {
+        self.eager_children = eager;
+        self
+    }
+
+    pub fn build(self) -> VmxResult<HierarchicalVm<M>> {
+        let model = self
+            .model
+            .ok_or_else(|| VmxError::BuilderValidation("model is required".to_string()))?;
+        let factory = self.children_factory.ok_or_else(|| {
+            VmxError::BuilderValidation("children_factory is required".to_string())
+        })?;
+        let (hub, _dispatcher) = self
+            .services
+            .ok_or_else(|| VmxError::BuilderValidation("services are required".to_string()))?;
+        let node = HierarchicalVm::with_children_factory(
+            "HierarchicalVm",
+            model,
+            move |parent| factory(parent),
+            self.eager_children,
+            hub,
+        );
+        if let Some(hint) = self.hint {
+            node.component.set_hint(Some(hint));
+        }
+        Ok(node)
+    }
+}
+
+pub fn walk<T: TreeNode>(root: &T) -> Vec<T> {
+    let mut nodes = vec![root.clone()];
+    for child in root.children_nodes() {
+        nodes.extend(walk(&child));
+    }
+    nodes
+}
+
+pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> Option<T>
+where
+    F: Fn(&T) -> bool,
+{
+    find_inner(root, &predicate)
+}
+
+fn find_inner<T: TreeNode, F>(root: &T, predicate: &F) -> Option<T>
 where
     F: Fn(&T) -> bool,
 {
     if predicate(root) {
-        Some(root.clone())
-    } else {
-        None
+        return Some(root.clone());
     }
+    for child in root.children_nodes() {
+        if let Some(found) = find_inner(&child, predicate) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
+    let mut nodes = vec![root.clone()];
+    if root.is_expanded_for_walk() {
+        for child in root.children_nodes() {
+            nodes.extend(walk_expanded(&child));
+        }
+    }
+    nodes
 }
 
 pub fn lifecycle_transition_fixture() -> &'static str {
@@ -3604,6 +3955,64 @@ pub trait Pageable {
     fn page_index(&self) -> usize;
     fn page_count(&self) -> usize;
     fn set_page_index(&mut self, index: usize);
+}
+
+#[derive(Clone, Default)]
+pub struct ExpandableState {
+    expanded: Arc<Mutex<bool>>,
+    expanded_changed: MessageHub,
+}
+
+impl ExpandableState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_expanded(&self) -> bool {
+        *lock(&self.expanded)
+    }
+
+    pub fn can_expand(&self) -> bool {
+        !self.is_expanded()
+    }
+
+    pub fn can_collapse(&self) -> bool {
+        self.is_expanded()
+    }
+
+    pub fn expand(&self) {
+        self.set_expanded(true);
+    }
+
+    pub fn collapse(&self) {
+        self.set_expanded(false);
+    }
+
+    pub fn toggle_expansion(&self) {
+        self.set_expanded(!self.is_expanded());
+    }
+
+    pub fn expanded_changed(&self) -> MessageHub {
+        self.expanded_changed.clone()
+    }
+
+    fn set_expanded(&self, expanded: bool) {
+        let changed = {
+            let mut current = lock(&self.expanded);
+            if *current == expanded {
+                false
+            } else {
+                *current = expanded;
+                true
+            }
+        };
+        if changed {
+            self.expanded_changed.send(Message::Custom {
+                sender_id: 0,
+                name: expanded.to_string(),
+            });
+        }
+    }
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Selectable for ComponentVm<M, D> {

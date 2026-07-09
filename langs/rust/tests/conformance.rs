@@ -10,9 +10,11 @@ mod conformance {
     mod derived_properties;
     mod dialogs;
     mod discriminator;
+    mod expandable;
     mod forms;
     mod forwarding;
     mod group_vm;
+    mod hierarchical;
     mod lifecycle;
     mod localization;
     mod message_hub;
@@ -21,4 +23,5 @@ mod conformance {
     mod null_services;
     mod property_change;
     mod search_filter;
+    mod tree_utils;
 }
