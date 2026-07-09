@@ -2748,10 +2748,36 @@ pub struct Notification {
     pub message: String,
 }
 
+impl Notification {
+    pub fn new(kind: NotificationType, message: impl Into<String>) -> Self {
+        static NEXT_NOTIFICATION_ID: AtomicU64 = AtomicU64::new(1);
+        Self {
+            id: NEXT_NOTIFICATION_ID.fetch_add(1, Ordering::Relaxed),
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct NotificationWaiter {
+    hub: NotificationHub,
+    notification_id: u64,
+}
+
+impl NotificationWaiter {
+    pub fn wait(&self) -> NotificationReaction {
+        self.hub.reaction(self.notification_id)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct NotificationHub {
     pending: Arc<Mutex<BTreeMap<u64, Notification>>>,
     reactions: Arc<Mutex<HashMap<u64, NotificationReaction>>>,
+    pending_snapshots: Arc<Mutex<Vec<Vec<Notification>>>>,
+    pending_changed: MessageHub,
+    disposed: Arc<Mutex<bool>>,
 }
 
 impl NotificationHub {
@@ -2759,25 +2785,57 @@ impl NotificationHub {
         Self::default()
     }
 
-    pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> Notification {
-        static NEXT_NOTIFICATION_ID: AtomicU64 = AtomicU64::new(1);
-        let notification = Notification {
-            id: NEXT_NOTIFICATION_ID.fetch_add(1, Ordering::Relaxed),
-            kind,
-            message: message.into(),
-        };
+    pub fn post_notification(&self, notification: Notification) -> NotificationWaiter {
+        if *lock(&self.disposed) {
+            lock(&self.reactions).insert(notification.id, NotificationReaction::Pending);
+            return NotificationWaiter {
+                hub: self.clone(),
+                notification_id: notification.id,
+            };
+        }
         lock(&self.pending).insert(notification.id, notification.clone());
         lock(&self.reactions).insert(notification.id, NotificationReaction::Pending);
+        self.publish_pending();
+        NotificationWaiter {
+            hub: self.clone(),
+            notification_id: notification.id,
+        }
+    }
+
+    pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> Notification {
+        let notification = Notification::new(kind, message);
+        self.post_notification(notification.clone());
         notification
     }
 
+    pub fn post_with_waiter(
+        &self,
+        kind: NotificationType,
+        message: impl Into<String>,
+    ) -> (Notification, NotificationWaiter) {
+        let notification = Notification::new(kind, message);
+        let waiter = self.post_notification(notification.clone());
+        (notification, waiter)
+    }
+
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
-        lock(&self.pending).remove(&notification_id);
-        lock(&self.reactions).insert(notification_id, reaction);
+        let removed = lock(&self.pending).remove(&notification_id).is_some();
+        if removed {
+            lock(&self.reactions).insert(notification_id, reaction);
+            self.publish_pending();
+        }
     }
 
     pub fn pending(&self) -> Vec<Notification> {
         lock(&self.pending).values().cloned().collect()
+    }
+
+    pub fn pending_changed(&self) -> MessageHub {
+        self.pending_changed.clone()
+    }
+
+    pub fn pending_snapshots(&self) -> Vec<Vec<Notification>> {
+        lock(&self.pending_snapshots).clone()
     }
 
     pub fn reaction(&self, notification_id: u64) -> NotificationReaction {
@@ -2786,17 +2844,62 @@ impl NotificationHub {
             .copied()
             .unwrap_or(NotificationReaction::Pending)
     }
+
+    pub fn dispose(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
+        *lock(&self.disposed) = true;
+        let pending_ids = lock(&self.pending).keys().copied().collect::<Vec<_>>();
+        for id in pending_ids {
+            lock(&self.reactions).insert(id, NotificationReaction::Pending);
+        }
+        lock(&self.pending).clear();
+        self.publish_pending();
+    }
+
+    fn publish_pending(&self) {
+        let snapshot = self.pending();
+        lock(&self.pending_snapshots).push(snapshot);
+        self.pending_changed.send(Message::Custom {
+            sender_id: 0,
+            name: "pending".to_string(),
+        });
+    }
 }
 
 pub struct NullNotificationHub;
 
 impl NullNotificationHub {
-    pub fn post(message: impl Into<String>) -> Notification {
-        Notification {
+    pub fn post(_notification: Notification) -> NotificationWaiter {
+        let hub = NotificationHub::new();
+        let notification = Notification {
+            id: 0,
+            kind: NotificationType::Notification,
+            message: String::new(),
+        };
+        lock(&hub.reactions).insert(notification.id, NotificationReaction::Approve);
+        NotificationWaiter {
+            hub,
+            notification_id: notification.id,
+        }
+    }
+
+    pub fn post_message(message: impl Into<String>) -> (Notification, NotificationWaiter) {
+        let notification = Notification {
             id: 0,
             kind: NotificationType::Notification,
             message: message.into(),
-        }
+        };
+        let hub = NotificationHub::new();
+        lock(&hub.reactions).insert(notification.id, NotificationReaction::Approve);
+        (
+            notification,
+            NotificationWaiter {
+                hub,
+                notification_id: 0,
+            },
+        )
     }
 }
 
@@ -2813,16 +2916,64 @@ impl Localizer for NullLocalizer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileFilter {
+    pub description: String,
+    pub extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NotificationSeverity {
+    #[default]
+    Info,
+    Warning,
+    Error,
+}
+
 pub trait DialogService: Send + Sync {
-    fn confirm(&self, message: &str) -> bool;
+    fn pick_file_to_open(&self, filter: Option<FileFilter>, title: Option<&str>) -> Option<String>;
+    fn pick_file_to_save(
+        &self,
+        filter: Option<FileFilter>,
+        title: Option<&str>,
+        suggested_name: Option<&str>,
+    ) -> Option<String>;
+    fn confirm(&self, message: &str, title: Option<&str>) -> bool;
+    fn notify(&self, message: &str, title: Option<&str>, severity: NotificationSeverity);
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NullDialogService;
 
 impl DialogService for NullDialogService {
-    fn confirm(&self, _message: &str) -> bool {
+    fn pick_file_to_open(
+        &self,
+        _filter: Option<FileFilter>,
+        _title: Option<&str>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn pick_file_to_save(
+        &self,
+        _filter: Option<FileFilter>,
+        _title: Option<&str>,
+        _suggested_name: Option<&str>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn confirm(&self, _message: &str, _title: Option<&str>) -> bool {
         false
+    }
+
+    fn notify(&self, _message: &str, _title: Option<&str>, _severity: NotificationSeverity) {}
+}
+
+impl NullDialogService {
+    pub fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> T {
+        modal.dispose();
+        modal.completion()
     }
 }
 
@@ -3786,25 +3937,153 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
 }
 
 #[derive(Clone)]
-pub struct TokenPagedComposition<T: Clone + Send + 'static, Token: Clone + Send + 'static> {
+pub struct TokenPagedComposition<
+    T: Clone + PartialEq + Send + 'static,
+    Token: Clone + Send + 'static,
+> {
+    id: usize,
     items: Arc<Mutex<Vec<T>>>,
     next_token: Arc<Mutex<Option<Token>>>,
+    has_more: Arc<Mutex<bool>>,
+    hub: MessageHub,
+    load_more_command: RelayCommand,
+    refresh_command: RelayCommand,
 }
 
-impl<T: Clone + Send + 'static, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
+impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
+    TokenPagedComposition<T, Token>
+{
     pub fn new(initial_token: Option<Token>) -> Self {
+        Self::with_loader(initial_token, |_token| (Vec::new(), None))
+    }
+
+    pub fn with_loader<F>(initial_token: Option<Token>, loader: F) -> Self
+    where
+        F: Fn(Option<Token>) -> (Vec<T>, Option<Token>) + Send + Sync + 'static,
+    {
+        Self::build(initial_token, loader, MessageHub::new())
+    }
+
+    pub fn with_loader_and_hub<F>(initial_token: Option<Token>, loader: F, hub: MessageHub) -> Self
+    where
+        F: Fn(Option<Token>) -> (Vec<T>, Option<Token>) + Send + Sync + 'static,
+    {
+        Self::build(initial_token, loader, hub)
+    }
+
+    fn build<F>(initial_token: Option<Token>, loader: F, hub: MessageHub) -> Self
+    where
+        F: Fn(Option<Token>) -> (Vec<T>, Option<Token>) + Send + Sync + 'static,
+    {
+        let id = next_id();
+        let items = Arc::new(Mutex::new(Vec::new()));
+        let initial_token = Arc::new(Mutex::new(initial_token));
+        let next_token = Arc::new(Mutex::new(None));
+        let has_more = Arc::new(Mutex::new(true));
+        let loader = Arc::new(loader);
+
+        let load_more_items = items.clone();
+        let load_more_token = next_token.clone();
+        let load_more_has_more = has_more.clone();
+        let load_more_loader = loader.clone();
+        let load_more_hub = hub.clone();
+        let load_more_command = RelayCommand::new(move || {
+            let token = lock(&load_more_token).clone();
+            let (page, next) = load_more_loader(token);
+            let mut changed = false;
+            if !page.is_empty() {
+                lock(&load_more_items).extend(page);
+                changed = true;
+            }
+            *lock(&load_more_token) = next.clone();
+            *lock(&load_more_has_more) = next.is_some();
+            if changed {
+                load_more_hub.send(Message::CollectionChanged(CollectionChangedMessage {
+                    sender_id: id,
+                    property_name: "items".to_string(),
+                    action: CollectionChangeAction::Reset,
+                }));
+            }
+        })
+        .with_can_execute({
+            let has_more = has_more.clone();
+            move || *lock(&has_more)
+        });
+
+        let refresh_items = items.clone();
+        let refresh_initial_token = initial_token.clone();
+        let refresh_next_token = next_token.clone();
+        let refresh_has_more = has_more.clone();
+        let refresh_loader = loader.clone();
+        let refresh_hub = hub.clone();
+        let refresh_command = RelayCommand::new(move || {
+            let token = lock(&refresh_initial_token).clone();
+            let (page, next) = refresh_loader(token);
+            let changed = {
+                let mut items = lock(&refresh_items);
+                if items.iter().take(page.len()).eq(page.iter()) {
+                    false
+                } else {
+                    *items = page;
+                    true
+                }
+            };
+            *lock(&refresh_next_token) = next.clone();
+            *lock(&refresh_has_more) = next.is_some();
+            if changed {
+                refresh_hub.send(Message::CollectionChanged(CollectionChangedMessage {
+                    sender_id: id,
+                    property_name: "items".to_string(),
+                    action: CollectionChangeAction::Reset,
+                }));
+            }
+        });
+
         Self {
-            items: Arc::new(Mutex::new(Vec::new())),
-            next_token: Arc::new(Mutex::new(initial_token)),
+            id,
+            items,
+            next_token,
+            has_more,
+            hub,
+            load_more_command,
+            refresh_command,
         }
+    }
+
+    pub fn id(&self) -> usize {
+        self.id
     }
 
     pub fn items(&self) -> Vec<T> {
         lock(&self.items).clone()
     }
 
+    pub fn current_token(&self) -> Option<Token> {
+        lock(&self.next_token).clone()
+    }
+
+    pub fn has_more(&self) -> bool {
+        *lock(&self.has_more)
+    }
+
     pub fn can_load_more(&self) -> bool {
-        lock(&self.next_token).is_some()
+        self.load_more_command.can_execute()
+    }
+
+    pub fn load_more_command(&self) -> RelayCommand {
+        self.load_more_command.clone()
+    }
+
+    pub fn refresh_command(&self) -> RelayCommand {
+        self.refresh_command.clone()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.hub.clone()
+    }
+
+    pub fn refresh(&self) {
+        self.refresh_command.execute();
     }
 
     pub fn load_more<F>(&self, loader: F)
@@ -3813,56 +4092,197 @@ impl<T: Clone + Send + 'static, Token: Clone + Send + 'static> TokenPagedComposi
     {
         let token = lock(&self.next_token).clone();
         let (items, next_token) = loader(token);
-        lock(&self.items).extend(items);
-        *lock(&self.next_token) = next_token;
+        let changed = !items.is_empty();
+        if changed {
+            lock(&self.items).extend(items);
+        }
+        *lock(&self.next_token) = next_token.clone();
+        *lock(&self.has_more) = next_token.is_some();
+        if changed {
+            self.hub
+                .send(Message::CollectionChanged(CollectionChangedMessage {
+                    sender_id: self.id,
+                    property_name: "items".to_string(),
+                    action: CollectionChangeAction::Reset,
+                }));
+        }
+    }
+
+    pub fn load_next(&self) {
+        self.load_more_command.execute();
+    }
+}
+
+impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
+    pub fn with_auto_construct_loader<F>(initial_token: Option<Token>, loader: F) -> Self
+    where
+        F: Fn(Option<Token>) -> (Vec<T>, Option<Token>) + Send + Sync + 'static,
+    {
+        let hub = MessageHub::new();
+        let id = next_id();
+        let items = Arc::new(Mutex::new(Vec::new()));
+        let initial_token = Arc::new(Mutex::new(initial_token));
+        let next_token = Arc::new(Mutex::new(None));
+        let has_more = Arc::new(Mutex::new(true));
+        let loader = Arc::new(loader);
+
+        let load_items = items.clone();
+        let load_token = next_token.clone();
+        let load_has_more = has_more.clone();
+        let load_loader = loader.clone();
+        let load_hub = hub.clone();
+        let load_more_command = RelayCommand::new(move || {
+            let token = lock(&load_token).clone();
+            let (page, next) = load_loader(token);
+            let changed = !page.is_empty();
+            if changed {
+                for item in &page {
+                    let _ = item.construct();
+                }
+                lock(&load_items).extend(page);
+            }
+            *lock(&load_token) = next.clone();
+            *lock(&load_has_more) = next.is_some();
+            if changed {
+                load_hub.send(Message::CollectionChanged(CollectionChangedMessage {
+                    sender_id: id,
+                    property_name: "items".to_string(),
+                    action: CollectionChangeAction::Reset,
+                }));
+            }
+        })
+        .with_can_execute({
+            let has_more = has_more.clone();
+            move || *lock(&has_more)
+        });
+
+        let refresh_items = items.clone();
+        let refresh_initial_token = initial_token.clone();
+        let refresh_next_token = next_token.clone();
+        let refresh_has_more = has_more.clone();
+        let refresh_loader = loader.clone();
+        let refresh_hub = hub.clone();
+        let refresh_command = RelayCommand::new(move || {
+            let token = lock(&refresh_initial_token).clone();
+            let (page, next) = refresh_loader(token);
+            let changed = {
+                let mut items = lock(&refresh_items);
+                if items.iter().take(page.len()).eq(page.iter()) {
+                    false
+                } else {
+                    for item in &page {
+                        let _ = item.construct();
+                    }
+                    *items = page;
+                    true
+                }
+            };
+            *lock(&refresh_next_token) = next.clone();
+            *lock(&refresh_has_more) = next.is_some();
+            if changed {
+                refresh_hub.send(Message::CollectionChanged(CollectionChangedMessage {
+                    sender_id: id,
+                    property_name: "items".to_string(),
+                    action: CollectionChangeAction::Reset,
+                }));
+            }
+        });
+
+        Self {
+            id,
+            items,
+            next_token,
+            has_more,
+            hub,
+            load_more_command,
+            refresh_command,
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct ModalVm<T: Clone + Send + 'static> {
+    cancellation_result: T,
     result: Arc<Mutex<Option<T>>>,
-    is_open: Arc<Mutex<bool>>,
+    dismissed: Arc<Mutex<bool>>,
 }
 
 impl<T: Clone + Send + 'static> ModalVm<T> {
-    pub fn new() -> Self {
+    pub fn new(cancellation_result: T) -> Self {
         Self {
+            cancellation_result,
             result: Arc::new(Mutex::new(None)),
-            is_open: Arc::new(Mutex::new(false)),
+            dismissed: Arc::new(Mutex::new(false)),
         }
     }
 
     pub fn open(&self) {
-        *lock(&self.is_open) = true;
+        *lock(&self.dismissed) = false;
     }
 
     pub fn close(&self, result: Option<T>) {
-        *lock(&self.result) = result;
-        *lock(&self.is_open) = false;
+        self.dismiss(result.unwrap_or_else(|| self.cancellation_result.clone()));
     }
 
     pub fn result(&self) -> Option<T> {
         lock(&self.result).clone()
     }
-}
 
-impl<T: Clone + Send + 'static> Default for ModalVm<T> {
-    fn default() -> Self {
-        Self::new()
+    pub fn cancellation_result(&self) -> T {
+        self.cancellation_result.clone()
+    }
+
+    pub fn is_dismissed(&self) -> bool {
+        *lock(&self.dismissed)
+    }
+
+    pub fn dismiss(&self, result: T) {
+        let should_set = {
+            let mut dismissed = lock(&self.dismissed);
+            if *dismissed {
+                false
+            } else {
+                *dismissed = true;
+                true
+            }
+        };
+        if should_set {
+            *lock(&self.result) = Some(result);
+        }
+    }
+
+    pub fn dispose(&self) {
+        self.dismiss(self.cancellation_result.clone());
+    }
+
+    pub fn completion(&self) -> T {
+        lock(&self.result)
+            .clone()
+            .unwrap_or_else(|| self.cancellation_result.clone())
     }
 }
 
 #[derive(Clone)]
 pub struct NotificationVm {
     notification: Notification,
+    hub: NotificationHub,
     resolved: Arc<Mutex<bool>>,
+    elapsed_ms: Arc<Mutex<u64>>,
+    lifespan_ms: u64,
 }
 
 impl NotificationVm {
     pub fn new(notification: Notification) -> Self {
+        Self::with_hub(notification, NotificationHub::new(), 60_000)
+    }
+
+    pub fn with_hub(notification: Notification, hub: NotificationHub, lifespan_ms: u64) -> Self {
         Self {
             notification,
+            hub,
             resolved: Arc::new(Mutex::new(false)),
+            elapsed_ms: Arc::new(Mutex::new(0)),
+            lifespan_ms,
         }
     }
 
@@ -3871,40 +4291,116 @@ impl NotificationVm {
     }
 
     pub fn dismiss(&self) {
-        *lock(&self.resolved) = true;
+        let should_resolve = {
+            let mut resolved = lock(&self.resolved);
+            if *resolved {
+                false
+            } else {
+                *resolved = true;
+                true
+            }
+        };
+        if should_resolve {
+            self.hub
+                .resolve(self.notification.id, NotificationReaction::Approve);
+        }
     }
 
     pub fn is_resolved(&self) -> bool {
         *lock(&self.resolved)
+            || self.hub.reaction(self.notification.id) != NotificationReaction::Pending
+    }
+
+    pub fn remaining_time_ms(&self) -> u64 {
+        self.lifespan_ms.saturating_sub(*lock(&self.elapsed_ms))
+    }
+
+    pub fn opacity(&self) -> f64 {
+        if self.lifespan_ms == 0 {
+            return 0.0;
+        }
+        self.remaining_time_ms() as f64 / self.lifespan_ms as f64
+    }
+
+    pub fn advance_by_ms(&self, millis: u64) {
+        if self.is_resolved() {
+            return;
+        }
+        let remaining = {
+            let mut elapsed = lock(&self.elapsed_ms);
+            *elapsed = (*elapsed + millis).min(self.lifespan_ms);
+            self.lifespan_ms.saturating_sub(*elapsed)
+        };
+        if remaining == 0 {
+            self.dismiss();
+        }
+    }
+
+    pub fn dismiss_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new(move || vm.dismiss())
     }
 }
 
 #[derive(Clone)]
 pub struct ConfirmationVm {
     notification_vm: NotificationVm,
-    reaction: Arc<Mutex<NotificationReaction>>,
 }
 
 impl ConfirmationVm {
     pub fn new(notification: Notification) -> Self {
+        Self::with_hub(notification, NotificationHub::new())
+    }
+
+    pub fn with_hub(notification: Notification, hub: NotificationHub) -> Self {
         Self {
-            notification_vm: NotificationVm::new(notification),
-            reaction: Arc::new(Mutex::new(NotificationReaction::Pending)),
+            notification_vm: NotificationVm::with_hub(notification, hub, 300_000),
         }
     }
 
     pub fn approve(&self) {
-        *lock(&self.reaction) = NotificationReaction::Approve;
-        self.notification_vm.dismiss();
+        self.resolve(NotificationReaction::Approve);
     }
 
     pub fn reject(&self) {
-        *lock(&self.reaction) = NotificationReaction::Reject;
-        self.notification_vm.dismiss();
+        self.resolve(NotificationReaction::Reject);
     }
 
     pub fn reaction(&self) -> NotificationReaction {
-        *lock(&self.reaction)
+        self.notification_vm
+            .hub
+            .reaction(self.notification_vm.notification.id)
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        self.notification_vm.is_resolved()
+    }
+
+    pub fn approve_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new(move || vm.approve())
+    }
+
+    pub fn reject_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new(move || vm.reject())
+    }
+
+    fn resolve(&self, reaction: NotificationReaction) {
+        let should_resolve = {
+            let mut resolved = lock(&self.notification_vm.resolved);
+            if *resolved {
+                false
+            } else {
+                *resolved = true;
+                true
+            }
+        };
+        if should_resolve {
+            self.notification_vm
+                .hub
+                .resolve(self.notification_vm.notification.id, reaction);
+        }
     }
 }
 
