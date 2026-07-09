@@ -794,6 +794,113 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
     }
 }
 
+#[derive(Clone)]
+pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatcher = NullDispatcher>
+{
+    name: Option<String>,
+    hint: Option<String>,
+    model: Option<M>,
+    hub: Option<MessageHub>,
+    dispatcher: Option<D>,
+    model_hint: Option<ModelHint<M>>,
+}
+
+impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, NullDispatcher> {
+    fn default() -> Self {
+        Self {
+            name: None,
+            hint: Some(String::new()),
+            model: None,
+            hub: None,
+            dispatcher: None,
+            model_hint: None,
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M, D> {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn model(mut self, model: M) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        self.hub = Some(hub);
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn model_hint<F>(mut self, hint: F) -> Self
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        self.model_hint = Some(Arc::new(hint));
+        self
+    }
+
+    pub fn build(self) -> VmxResult<ComponentVm<M, D>> {
+        let name = self
+            .name
+            .ok_or_else(|| VmxError::BuilderValidation("name is required".to_string()))?;
+        let model = self
+            .model
+            .ok_or_else(|| VmxError::BuilderValidation("model is required".to_string()))?;
+        let hub = self
+            .hub
+            .ok_or_else(|| VmxError::BuilderValidation("hub is required".to_string()))?;
+        let dispatcher = self
+            .dispatcher
+            .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
+        let vm = ComponentVm::with_model(name, model, hub, dispatcher);
+        if let Some(hint) = self.hint {
+            vm.set_hint(Some(hint));
+        }
+        if let Some(model_hint) = self.model_hint {
+            Ok(vm.with_model_hint(move |model| model_hint(model)))
+        } else {
+            Ok(vm)
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static> ComponentVm<M, NullDispatcher> {
+    pub fn builder() -> ComponentVmBuilder<M, NullDispatcher> {
+        ComponentVmBuilder::default()
+    }
+
+    pub fn create(options: ComponentVmOptions<M>) -> VmxResult<Self> {
+        let mut builder = Self::builder();
+        if let Some(name) = options.name {
+            builder = builder.name(name);
+        }
+        if let Some(hint) = options.hint {
+            builder = builder.hint(hint);
+        }
+        if let Some(model) = options.model {
+            builder = builder.model(model);
+        }
+        builder.services(options.hub, options.dispatcher).build()
+    }
+}
+
+pub struct ComponentVmOptions<M: Clone + PartialEq + Send + 'static> {
+    pub name: Option<String>,
+    pub hint: Option<String>,
+    pub model: Option<M>,
+    pub hub: MessageHub,
+    pub dispatcher: NullDispatcher,
+}
+
 pub trait Command: Send + Sync {
     fn can_execute(&self) -> bool;
     fn execute(&self);
@@ -816,6 +923,7 @@ pub struct RelayCommand {
     predicate: Option<CommandPredicate>,
     disposed: Arc<Mutex<bool>>,
     can_execute_changed: MessageHub,
+    _trigger_subscriptions: Arc<Vec<Subscription>>,
 }
 
 impl RelayCommand {
@@ -828,6 +936,7 @@ impl RelayCommand {
             predicate: None,
             disposed: Arc::new(Mutex::new(false)),
             can_execute_changed: MessageHub::new(),
+            _trigger_subscriptions: Arc::new(Vec::new()),
         }
     }
 
@@ -837,6 +946,7 @@ impl RelayCommand {
             predicate: None,
             disposed: Arc::new(Mutex::new(false)),
             can_execute_changed: MessageHub::new(),
+            _trigger_subscriptions: Arc::new(Vec::new()),
         }
     }
 
@@ -857,6 +967,10 @@ impl RelayCommand {
 
     pub fn can_execute_changed(&self) -> MessageHub {
         self.can_execute_changed.clone()
+    }
+
+    pub fn builder() -> RelayCommandBuilder {
+        RelayCommandBuilder::default()
     }
 
     pub fn dispose(&self) {
@@ -1108,6 +1222,67 @@ impl AsyncRelayCommand {
 
     pub fn can_execute_changed(&self) -> MessageHub {
         self.can_execute_changed.clone()
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct RelayCommandBuilder {
+    action: Option<CommandAction>,
+    predicate: Option<CommandPredicate>,
+    triggers: Vec<MessageHub>,
+}
+
+impl RelayCommandBuilder {
+    pub fn action<F>(mut self, action: F) -> Self
+    where
+        F: FnMut() + Send + 'static,
+    {
+        self.action = Some(Arc::new(Mutex::new(action)));
+        self
+    }
+
+    pub fn can_execute<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn() -> bool + Send + Sync + 'static,
+    {
+        self.predicate = Some(Arc::new(predicate));
+        self
+    }
+
+    pub fn trigger(mut self, trigger: MessageHub) -> Self {
+        self.triggers.push(trigger);
+        self
+    }
+
+    pub fn trigger_count(&self) -> usize {
+        self.triggers.len()
+    }
+
+    pub fn build(self) -> RelayCommand {
+        let command = RelayCommand {
+            action: self.action,
+            predicate: self.predicate,
+            disposed: Arc::new(Mutex::new(false)),
+            can_execute_changed: MessageHub::new(),
+            _trigger_subscriptions: Arc::new(Vec::new()),
+        };
+        let subscriptions = self
+            .triggers
+            .into_iter()
+            .map(|trigger| {
+                let hub = command.can_execute_changed.clone();
+                trigger.subscribe(move |_| {
+                    hub.send(Message::Custom {
+                        sender_id: 0,
+                        name: "can_execute_changed".to_string(),
+                    });
+                })
+            })
+            .collect::<Vec<_>>();
+        RelayCommand {
+            _trigger_subscriptions: Arc::new(subscriptions),
+            ..command
+        }
     }
 }
 
@@ -1729,6 +1904,118 @@ impl<T: VmNode, D: Dispatcher> PartialEq for CompositeVm<T, D> {
 
 impl<T: VmNode, D: Dispatcher> Eq for CompositeVm<T, D> {}
 
+type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct CompositeVmBuilder<T: VmNode, D: Dispatcher = NullDispatcher> {
+    name: Option<String>,
+    hint: Option<String>,
+    hub: Option<MessageHub>,
+    dispatcher: Option<D>,
+    children: Option<ChildrenFactory<T>>,
+    auto_construct_on_add: bool,
+}
+
+impl<T: VmNode> Default for CompositeVmBuilder<T, NullDispatcher> {
+    fn default() -> Self {
+        Self {
+            name: None,
+            hint: Some(String::new()),
+            hub: None,
+            dispatcher: None,
+            children: None,
+            auto_construct_on_add: false,
+        }
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        self.hub = Some(hub);
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn children<F>(mut self, children: F) -> Self
+    where
+        F: Fn() -> Vec<T> + Send + Sync + 'static,
+    {
+        self.children = Some(Arc::new(children));
+        self
+    }
+
+    pub fn auto_construct_on_add(mut self, enabled: bool) -> Self {
+        self.auto_construct_on_add = enabled;
+        self
+    }
+
+    pub fn build(self) -> VmxResult<CompositeVm<T, D>> {
+        let name = self
+            .name
+            .ok_or_else(|| VmxError::BuilderValidation("name is required".to_string()))?;
+        let children = self
+            .children
+            .ok_or_else(|| VmxError::BuilderValidation("children is required".to_string()))?;
+        let hub = self
+            .hub
+            .ok_or_else(|| VmxError::BuilderValidation("hub is required".to_string()))?;
+        let dispatcher = self
+            .dispatcher
+            .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
+        let vm = CompositeVm::with_services(name, hub, dispatcher);
+        if let Some(hint) = self.hint {
+            vm.core.set_hint(Some(hint));
+        }
+        vm.set_auto_construct_on_add(self.auto_construct_on_add);
+        for child in children() {
+            vm.add(child)?;
+        }
+        Ok(vm)
+    }
+}
+
+impl<T: VmNode> CompositeVm<T, NullDispatcher> {
+    pub fn builder() -> CompositeVmBuilder<T, NullDispatcher> {
+        CompositeVmBuilder::default()
+    }
+
+    pub fn create(options: CompositeVmOptions<T>) -> VmxResult<Self> {
+        let mut builder = Self::builder();
+        if let Some(name) = options.name {
+            builder = builder.name(name);
+        }
+        if let Some(hint) = options.hint {
+            builder = builder.hint(hint);
+        }
+        if let Some(children) = options.children {
+            builder = builder.children(move || children.clone());
+        }
+        builder
+            .services(options.hub, options.dispatcher)
+            .auto_construct_on_add(options.auto_construct_on_add)
+            .build()
+    }
+}
+
+pub struct CompositeVmOptions<T: VmNode> {
+    pub name: Option<String>,
+    pub hint: Option<String>,
+    pub hub: MessageHub,
+    pub dispatcher: NullDispatcher,
+    pub children: Option<Vec<T>>,
+    pub auto_construct_on_add: bool,
+}
+
 #[derive(Clone)]
 pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
@@ -1904,6 +2191,116 @@ impl<T: VmNode, D: Dispatcher> PartialEq for GroupVm<T, D> {
 }
 
 impl<T: VmNode, D: Dispatcher> Eq for GroupVm<T, D> {}
+
+#[derive(Clone)]
+pub struct GroupVmBuilder<T: VmNode, D: Dispatcher = NullDispatcher> {
+    name: Option<String>,
+    hint: Option<String>,
+    hub: Option<MessageHub>,
+    dispatcher: Option<D>,
+    children: Option<ChildrenFactory<T>>,
+    auto_construct_on_add: bool,
+}
+
+impl<T: VmNode> Default for GroupVmBuilder<T, NullDispatcher> {
+    fn default() -> Self {
+        Self {
+            name: None,
+            hint: Some(String::new()),
+            hub: None,
+            dispatcher: None,
+            children: None,
+            auto_construct_on_add: false,
+        }
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        self.hub = Some(hub);
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn children<F>(mut self, children: F) -> Self
+    where
+        F: Fn() -> Vec<T> + Send + Sync + 'static,
+    {
+        self.children = Some(Arc::new(children));
+        self
+    }
+
+    pub fn auto_construct_on_add(mut self, enabled: bool) -> Self {
+        self.auto_construct_on_add = enabled;
+        self
+    }
+
+    pub fn build(self) -> VmxResult<GroupVm<T, D>> {
+        let name = self
+            .name
+            .ok_or_else(|| VmxError::BuilderValidation("name is required".to_string()))?;
+        let children = self
+            .children
+            .ok_or_else(|| VmxError::BuilderValidation("children is required".to_string()))?;
+        let hub = self
+            .hub
+            .ok_or_else(|| VmxError::BuilderValidation("hub is required".to_string()))?;
+        let dispatcher = self
+            .dispatcher
+            .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
+        let vm = GroupVm::with_services(name, hub, dispatcher);
+        if let Some(hint) = self.hint {
+            vm.core.set_hint(Some(hint));
+        }
+        vm.set_auto_construct_on_add(self.auto_construct_on_add);
+        for child in children() {
+            vm.add(child)?;
+        }
+        Ok(vm)
+    }
+}
+
+impl<T: VmNode> GroupVm<T, NullDispatcher> {
+    pub fn builder() -> GroupVmBuilder<T, NullDispatcher> {
+        GroupVmBuilder::default()
+    }
+
+    pub fn create(options: GroupVmOptions<T>) -> VmxResult<Self> {
+        let mut builder = Self::builder();
+        if let Some(name) = options.name {
+            builder = builder.name(name);
+        }
+        if let Some(hint) = options.hint {
+            builder = builder.hint(hint);
+        }
+        if let Some(children) = options.children {
+            builder = builder.children(move || children.clone());
+        }
+        builder
+            .services(options.hub, options.dispatcher)
+            .auto_construct_on_add(options.auto_construct_on_add)
+            .build()
+    }
+}
+
+pub struct GroupVmOptions<T: VmNode> {
+    pub name: Option<String>,
+    pub hint: Option<String>,
+    pub hub: MessageHub,
+    pub dispatcher: NullDispatcher,
+    pub children: Option<Vec<T>>,
+    pub auto_construct_on_add: bool,
+}
 
 #[derive(Clone)]
 pub struct PagedComposition<T: Clone + Send + 'static> {

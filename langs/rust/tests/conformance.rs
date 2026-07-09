@@ -1,5 +1,6 @@
 mod conformance {
     mod aggregate_vm;
+    mod builders;
     mod capabilities;
     mod catalog_markers;
     mod command_decorators;
