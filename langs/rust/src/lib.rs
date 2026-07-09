@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::hash::Hash;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -781,6 +781,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
 pub trait Command: Send + Sync {
     fn can_execute(&self) -> bool;
     fn execute(&self);
+    fn can_execute_changed(&self) -> MessageHub {
+        NullMessageHub::hub()
+    }
+}
+
+pub trait CommandOf<T>: Send + Sync {
+    fn can_execute(&self, parameter: &T) -> bool;
+    fn execute(&self, parameter: T);
 }
 
 type CommandAction = Arc<Mutex<dyn FnMut() + Send + 'static>>;
@@ -882,16 +890,250 @@ impl Command for RelayCommand {
             (lock(action))();
         }
     }
+
+    fn can_execute_changed(&self) -> MessageHub {
+        self.can_execute_changed.clone()
+    }
+}
+
+type ParameterizedCommandAction<T> = Arc<Mutex<dyn FnMut(T) + Send + 'static>>;
+type ParameterizedCommandPredicate<T> = Arc<dyn Fn(&T) -> bool + Send + Sync + 'static>;
+
+#[derive(Clone)]
+pub struct RelayCommandOf<T: Clone + Send + 'static> {
+    action: Option<ParameterizedCommandAction<T>>,
+    predicate: Option<ParameterizedCommandPredicate<T>>,
+    disposed: Arc<Mutex<bool>>,
+    can_execute_changed: MessageHub,
+}
+
+impl<T: Clone + Send + 'static> RelayCommandOf<T> {
+    pub fn new<F>(action: F) -> Self
+    where
+        F: FnMut(T) + Send + 'static,
+    {
+        Self {
+            action: Some(Arc::new(Mutex::new(action))),
+            predicate: None,
+            disposed: Arc::new(Mutex::new(false)),
+            can_execute_changed: MessageHub::new(),
+        }
+    }
+
+    pub fn noop() -> Self {
+        Self {
+            action: None,
+            predicate: None,
+            disposed: Arc::new(Mutex::new(false)),
+            can_execute_changed: MessageHub::new(),
+        }
+    }
+
+    pub fn with_can_execute<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn(&T) -> bool + Send + Sync + 'static,
+    {
+        self.predicate = Some(Arc::new(predicate));
+        self
+    }
+
+    pub fn trigger_can_execute_changed(&self) {
+        self.can_execute_changed.send(Message::Custom {
+            sender_id: 0,
+            name: "can_execute_changed".to_string(),
+        });
+    }
+
+    pub fn can_execute_changed(&self) -> MessageHub {
+        self.can_execute_changed.clone()
+    }
+
+    pub fn dispose(&self) {
+        *lock(&self.disposed) = true;
+    }
+
+    pub fn can_execute(&self, parameter: &T) -> bool {
+        <Self as CommandOf<T>>::can_execute(self, parameter)
+    }
+
+    pub fn execute(&self, parameter: T) {
+        <Self as CommandOf<T>>::execute(self, parameter);
+    }
+}
+
+impl<T: Clone + Send + 'static> CommandOf<T> for RelayCommandOf<T> {
+    fn can_execute(&self, parameter: &T) -> bool {
+        !*lock(&self.disposed)
+            && self
+                .predicate
+                .as_ref()
+                .map(|p| p(parameter))
+                .unwrap_or(true)
+    }
+
+    fn execute(&self, parameter: T) {
+        if !self.can_execute(&parameter) {
+            return;
+        }
+        if let Some(action) = &self.action {
+            (lock(action))(parameter);
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
+type AsyncCommandAction = Arc<dyn Fn(CancellationToken) -> VmxResult<()> + Send + Sync + 'static>;
+type AsyncCommandPredicate = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
+
+#[derive(Clone)]
+pub struct AsyncRelayCommand {
+    action: Option<AsyncCommandAction>,
+    predicate: Option<AsyncCommandPredicate>,
+    disposed: Arc<AtomicBool>,
+    executing: Arc<AtomicBool>,
+    active_token: Arc<Mutex<Option<CancellationToken>>>,
+    can_execute_changed: MessageHub,
+}
+
+impl AsyncRelayCommand {
+    pub fn new<F>(action: F) -> Self
+    where
+        F: Fn(CancellationToken) -> VmxResult<()> + Send + Sync + 'static,
+    {
+        Self {
+            action: Some(Arc::new(action)),
+            predicate: None,
+            disposed: Arc::new(AtomicBool::new(false)),
+            executing: Arc::new(AtomicBool::new(false)),
+            active_token: Arc::new(Mutex::new(None)),
+            can_execute_changed: MessageHub::new(),
+        }
+    }
+
+    pub fn noop() -> Self {
+        Self {
+            action: None,
+            predicate: None,
+            disposed: Arc::new(AtomicBool::new(false)),
+            executing: Arc::new(AtomicBool::new(false)),
+            active_token: Arc::new(Mutex::new(None)),
+            can_execute_changed: MessageHub::new(),
+        }
+    }
+
+    pub fn with_can_execute<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn() -> bool + Send + Sync + 'static,
+    {
+        self.predicate = Some(Arc::new(predicate));
+        self
+    }
+
+    pub fn can_execute(&self) -> bool {
+        !self.disposed.load(Ordering::SeqCst)
+            && !self.executing.load(Ordering::SeqCst)
+            && self.predicate.as_ref().map(|p| p()).unwrap_or(true)
+    }
+
+    pub fn execute(&self) {
+        let _ = self.execute_async();
+    }
+
+    pub fn execute_async(&self) -> std::thread::JoinHandle<VmxResult<()>> {
+        if !self.can_execute() {
+            return std::thread::spawn(|| Ok(()));
+        }
+        self.executing.store(true, Ordering::SeqCst);
+        let token = CancellationToken::new();
+        *lock(&self.active_token) = Some(token.clone());
+        let action = self.action.clone();
+        let executing = self.executing.clone();
+        let active_token = self.active_token.clone();
+        std::thread::spawn(move || {
+            let result = action.map(|action| action(token)).unwrap_or(Ok(()));
+            executing.store(false, Ordering::SeqCst);
+            *lock(&active_token) = None;
+            result
+        })
+    }
+
+    pub fn cancel(&self) {
+        if let Some(token) = lock(&self.active_token).as_ref() {
+            token.cancel();
+        }
+    }
+
+    pub fn is_executing(&self) -> bool {
+        self.executing.load(Ordering::SeqCst)
+    }
+
+    pub fn dispose(&self) {
+        self.disposed.store(true, Ordering::SeqCst);
+        self.cancel();
+    }
+
+    pub fn can_execute_changed(&self) -> MessageHub {
+        self.can_execute_changed.clone()
+    }
 }
 
 #[derive(Clone)]
 pub struct CompositeCommand {
     commands: Vec<Arc<dyn Command>>,
+    can_execute_changed: MessageHub,
+    _subscriptions: Arc<Vec<Subscription>>,
 }
 
 impl CompositeCommand {
     pub fn new(commands: Vec<Arc<dyn Command>>) -> Self {
-        Self { commands }
+        let can_execute_changed = MessageHub::new();
+        let subscriptions = commands
+            .iter()
+            .map(|command| {
+                let hub = can_execute_changed.clone();
+                command.can_execute_changed().subscribe(move |_| {
+                    hub.send(Message::Custom {
+                        sender_id: 0,
+                        name: "can_execute_changed".to_string(),
+                    });
+                })
+            })
+            .collect::<Vec<_>>();
+        Self {
+            commands,
+            can_execute_changed,
+            _subscriptions: Arc::new(subscriptions),
+        }
+    }
+
+    pub fn from_commands<C>(commands: Vec<C>) -> Self
+    where
+        C: Command + Clone + 'static,
+    {
+        Self::new(
+            commands
+                .into_iter()
+                .map(|command| Arc::new(command) as Arc<dyn Command>)
+                .collect(),
+        )
     }
 }
 
@@ -906,6 +1148,10 @@ impl Command for CompositeCommand {
                 command.execute();
             }
         }
+    }
+
+    fn can_execute_changed(&self) -> MessageHub {
+        self.can_execute_changed.clone()
     }
 }
 
@@ -955,6 +1201,10 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
             post();
         }
     }
+
+    fn can_execute_changed(&self) -> MessageHub {
+        self.inner.can_execute_changed()
+    }
 }
 
 #[derive(Clone)]
@@ -988,8 +1238,18 @@ impl<C: Command + Clone> Command for ConfirmationDecoratorCommand<C> {
 
     fn execute(&self) {
         if self.can_execute() && (self.confirm)() {
-            self.inner.execute();
+            let result = catch_unwind(AssertUnwindSafe(|| self.inner.execute()));
+            if result.is_err() {
+                self.errors.send(Message::Custom {
+                    sender_id: 0,
+                    name: "error".to_string(),
+                });
+            }
         }
+    }
+
+    fn can_execute_changed(&self) -> MessageHub {
+        self.inner.can_execute_changed()
     }
 }
 
@@ -1764,42 +2024,183 @@ pub fn lifecycle_transition_fixture() -> &'static str {
 }
 
 pub trait Selectable {
+    fn can_select(&self) -> bool;
     fn select(&self);
 }
 
 pub trait Deselectable {
+    fn can_deselect(&self) -> bool;
     fn deselect(&self);
 }
 
+pub trait SelectionTogglable {
+    fn can_toggle_selection(&self) -> bool;
+    fn toggle_selection(&self);
+}
+
 pub trait Expandable {
+    fn can_expand(&self) -> bool;
     fn expand(&self);
 }
 
 pub trait Collapsible {
+    fn can_collapse(&self) -> bool;
     fn collapse(&self);
 }
 
+pub trait ExpansionTogglable {
+    fn can_toggle_expansion(&self) -> bool;
+    fn toggle_expansion(&self);
+}
+
+pub trait Closable {
+    fn can_close(&self) -> bool;
+    fn close(&self);
+}
+
+pub trait Searchable {
+    fn can_search(&self) -> bool;
+    fn search_term(&self) -> String;
+    fn search(&self);
+}
+
+pub trait Approvable {
+    fn can_approve(&self) -> bool;
+    fn approve(&self);
+}
+
+pub trait Cancelable {
+    fn can_cancel(&self) -> bool;
+    fn cancel(&self);
+}
+
+pub trait Savable<T> {
+    fn can_save(&self, item: &T) -> bool;
+    fn save(&self, item: T);
+}
+
+pub trait Managable<T> {
+    fn can_manage(&self, item: &T) -> bool;
+    fn manage(&self, item: T);
+}
+
+pub trait NewCreatable {
+    fn can_create_new(&self) -> bool;
+    fn create_new(&self);
+}
+
+pub trait Deletable<T> {
+    fn can_delete(&self, item: &T) -> bool;
+    fn delete(&self, item: T);
+}
+
+pub trait Updatable<T> {
+    fn can_update(&self, item: &T) -> bool;
+    fn update(&self, item: T);
+}
+
+pub trait CurrentDeletable {
+    fn can_delete_current(&self) -> bool;
+    fn delete_current(&self);
+}
+
+pub trait CurrentUpdatable {
+    fn can_update_current(&self) -> bool;
+    fn update_current(&self);
+}
+
+pub trait Constructable {
+    fn can_construct(&self) -> bool;
+    fn construct(&self);
+}
+
+pub trait Destructable {
+    fn can_destruct(&self) -> bool;
+    fn destruct(&self);
+}
+
+pub trait Reconstructable {
+    fn can_reconstruct(&self) -> bool;
+    fn reconstruct(&self);
+}
+
+pub trait Filterable<T> {
+    fn filter_term(&self) -> String;
+    fn set_filter_term(&mut self, term: impl Into<String>);
+    fn accepts(&self, item: &T) -> bool;
+}
+
+pub trait Pageable {
+    fn page_index(&self) -> usize;
+    fn page_count(&self) -> usize;
+    fn set_page_index(&mut self, index: usize);
+}
+
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Selectable for ComponentVm<M, D> {
+    fn can_select(&self) -> bool {
+        !self.is_selected()
+    }
+
     fn select(&self) {
         ComponentVm::select(self);
     }
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Deselectable for ComponentVm<M, D> {
+    fn can_deselect(&self) -> bool {
+        self.is_selected()
+    }
+
     fn deselect(&self) {
         ComponentVm::deselect(self);
     }
 }
 
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> SelectionTogglable
+    for ComponentVm<M, D>
+{
+    fn can_toggle_selection(&self) -> bool {
+        true
+    }
+
+    fn toggle_selection(&self) {
+        if self.is_selected() {
+            self.deselect();
+        } else {
+            self.select();
+        }
+    }
+}
+
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Expandable for ComponentVm<M, D> {
+    fn can_expand(&self) -> bool {
+        !self.is_expanded()
+    }
+
     fn expand(&self) {
         ComponentVm::expand(self);
     }
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Collapsible for ComponentVm<M, D> {
+    fn can_collapse(&self) -> bool {
+        self.is_expanded()
+    }
+
     fn collapse(&self) {
         ComponentVm::collapse(self);
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ExpansionTogglable
+    for ComponentVm<M, D>
+{
+    fn can_toggle_expansion(&self) -> bool {
+        true
+    }
+
+    fn toggle_expansion(&self) {
+        ComponentVm::toggle_expansion(self);
     }
 }
 
