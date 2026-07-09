@@ -106,5 +106,11 @@ jobs:
         # non-zero if any required language falls below full catalog coverage.
         run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift
 
+      - name: Report Rust conformance marker coverage
+        # Rust is a planned fifth flavor. It is reported separately until its
+        # behavioral test assertions graduate from catalog markers to stable
+        # full-parity conformance.
+        run: uv --project langs/python run python tools/check-conformance-coverage.py
+
       - name: Check Swift fixture sync
         run: uv --project langs/python run python tools/check-swift-fixture-sync.py

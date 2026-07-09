@@ -27,6 +27,8 @@ The main local check families are:
 - Python: `uv run pytest`, `ruff`, and `mypy --strict`
 - TypeScript: `npm ci`, fixture sync, typecheck, lint, build, and test
 - Swift: `swift build` and `swift test`
+- Rust: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
+  `cargo test`
 - Repo-wide coverage and example-contract tools from `CONTRIBUTING.md`
 
 Use the canonical command list in

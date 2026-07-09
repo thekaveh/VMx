@@ -69,7 +69,8 @@ Canonical relay-command shape:
       .build();
     ```
 
-The same structure appears across all four flavors with only casing changes.
+The same structure appears across all stable flavors with only casing changes;
+Rust preview follows the same conceptual shape with Rust trait-method imports.
 The Notes Workspace editor and delete flows are concrete examples.
 
 ## Common Pitfalls

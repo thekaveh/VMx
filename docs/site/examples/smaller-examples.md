@@ -41,3 +41,11 @@ separate small demo. Use the flavor README and SwiftUI integration recipe as the
 minimum entry points:
 [langs/swift/README.md](https://github.com/thekaveh/VMx/blob/main/langs/swift/README.md),
 [docs/integration/swiftui.md](https://github.com/thekaveh/VMx/blob/main/docs/integration/swiftui.md)
+
+## Rust
+
+- `examples/rust/console/hello-vmx/`:
+  preview Cargo console demo using `ComponentVm` and `RelayCommand`
+
+Source index:
+[examples/rust/README.md](https://github.com/thekaveh/VMx/blob/main/examples/rust/README.md)

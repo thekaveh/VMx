@@ -111,6 +111,17 @@ _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 # beyond the em-dash convention above.
 _SWIFT_COMMENT_MARKER_PATTERN = re.compile(r"(?m)^[ \t]*///?[ \t]+([A-Z]{3,5}-\d{3})\b[^\n—]*—")
 
+# Rust follows the Swift-style doc-comment convention in
+# `langs/rust/tests/conformance/**/*.rs`:
+#
+#   /// LIFE-001 — description
+#   #[test]
+#   fn life_001_constructs() { ... }
+#
+# Markers must attach to a Rust test function so prose-only comments are not
+# counted as conformance coverage.
+_RUST_COMMENT_MARKER_PATTERN = re.compile(r"(?m)^[ \t]*///[ \t]+([A-Z]{3,5}-\d{3})\b[^\n—]*—")
+
 # Prefixes that look like conformance IDs but are NOT — e.g. `VMX-002` is an
 # audit finding-id, which Swift test files legitimately reference in doc comments
 # (`/// VMX-002 regression — ...`). They must not be mistaken for conformance markers.
@@ -210,6 +221,38 @@ def _swift_marker_attaches_to_test(lines: list[str], marker_index: int) -> bool:
     return False
 
 
+def scrape_rust_conformance_ids(directory: Path) -> set[str]:
+    """Scrape Rust conformance IDs from doc-comment markers attached to tests."""
+    ids: set[str] = set()
+    for path in directory.rglob("*.rs"):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            match = _RUST_COMMENT_MARKER_PATTERN.match(line)
+            if match is None or not _rust_marker_attaches_to_test(lines, index):
+                continue
+            ident = match.group(1)
+            if ident.split("-", 1)[0] in _NON_CONFORMANCE_PREFIXES:
+                continue
+            ids.add(ident)
+    return ids
+
+
+def _rust_marker_attaches_to_test(lines: list[str], marker_index: int) -> bool:
+    """Return True when a Rust marker is part of a #[test] function doc block."""
+    saw_test_attribute = False
+    for line in lines[marker_index + 1 :]:
+        stripped = line.strip()
+        if stripped == "#[test]":
+            saw_test_attribute = True
+            continue
+        if saw_test_attribute and stripped.startswith("fn "):
+            return True
+        if stripped.startswith("///") or stripped.startswith("#["):
+            continue
+        return False
+    return False
+
+
 def load_subset_manifest(manifest_path: Path) -> set[str]:
     """Load the sorted list of IDs from a subset manifest file.
 
@@ -278,6 +321,11 @@ _SCRAPERS: dict[str, tuple[str, Callable[[Path], set[str]], str | None]] = {
     "swift": (
         "langs/swift/Tests/VMxTests",
         scrape_swift_conformance_ids,
+        None,
+    ),
+    "rust": (
+        "langs/rust/tests/conformance",
+        scrape_rust_conformance_ids,
         None,
     ),
 }

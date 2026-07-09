@@ -93,6 +93,10 @@ xcuserdata/
 *.xcscmblueprint
 *.xccheckout
 
+# ─── Rust ─────────────────────────────────────────────────────────────
+target/
+Cargo.lock
+
 # ─── Node / TypeScript ────────────────────────────────────────────────
 node_modules/
 *.log

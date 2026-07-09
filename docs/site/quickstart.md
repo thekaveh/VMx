@@ -121,8 +121,44 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
     tabs.current = settingsTab
     ```
 
+=== "Rust"
+
+    ```rust
+    use vmx::{ComponentVm, CompositeVm, MessageHub, NullDispatcher, VmxResult};
+
+    #[derive(Clone, PartialEq)]
+    struct TabModel {
+        title: String,
+    }
+
+    fn main() -> VmxResult<()> {
+        let hub = MessageHub::new();
+        let dispatcher = NullDispatcher::new();
+
+        let home_tab = ComponentVm::with_model(
+            "home-tab",
+            TabModel { title: "Home".to_string() },
+            hub.clone(),
+            dispatcher,
+        );
+        let settings_tab = ComponentVm::with_model(
+            "settings-tab",
+            TabModel { title: "Settings".to_string() },
+            hub.clone(),
+            dispatcher,
+        );
+
+        let tabs = CompositeVm::with_services("tab-bar", hub, dispatcher);
+        tabs.add(home_tab.clone())?;
+        tabs.add(settings_tab.clone())?;
+
+        tabs.construct()?;
+        tabs.select_component(&settings_tab)
+    }
+    ```
+
 ## What This Shows
 
-- One spec, four idiomatic surfaces.
-- Builders stay immutable across flavors.
+- One spec, stable idiomatic surfaces, and Rust preview.
+- Builders/direct construction stay idiomatic per flavor.
 - Construction and selection semantics stay aligned even as naming changes.

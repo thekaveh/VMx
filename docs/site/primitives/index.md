@@ -2,10 +2,11 @@
 
 ## When To Use It
 
-VMx is one language-neutral framework surface expressed through four idiomatic
-flavors. These pages are the practical map of that surface: which primitive to
-reach for, what it owns, how it participates in lifecycle and messaging, and
-where the flagship Notes Workspace examples use it.
+VMx is one language-neutral framework surface expressed through four stable
+idiomatic flavors, with Rust present as a preview flavor. These pages are the
+practical map of that surface: which primitive to reach for, what it owns, how
+it participates in lifecycle and messaging, and where the flagship Notes
+Workspace examples use it.
 
 Use this overview when you are choosing a starting area rather than looking up a
 single API. It is the top-level index for the primitive families.
@@ -43,14 +44,14 @@ invent surface APIs that belong on the concrete primitive pages.
 
 ## Cross-Language Surface
 
-The conceptual shape is identical across C#, Python, TypeScript, and Swift. The
-surface idiom changes:
+The conceptual shape is identical across C#, Python, TypeScript, Swift, and
+Rust preview. The surface idiom changes:
 
-| Concept            | C#                        | Python             | TypeScript                | Swift                     |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- |
-| Casing             | PascalCase                | snake_case         | camelCase                 | camelCase                 |
-| Modeled leaf       | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
+| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
+| Casing             | PascalCase                | snake_case         | camelCase                 | camelCase                 | snake_case methods      |
+| Modeled leaf       | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 The goal of these pages is not to restate the spec chapter by chapter. The goal
 is to help you pick the right primitive quickly and then follow through with the

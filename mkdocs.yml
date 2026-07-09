@@ -1,5 +1,5 @@
 site_name: VMx
-site_description: Language-neutral MVVM viewmodel framework with C#, Python, TypeScript, and Swift parity
+site_description: Language-neutral MVVM viewmodel framework with C#, Python, TypeScript, Swift, and Rust
 site_url: https://thekaveh.github.io/VMx/
 repo_url: https://github.com/thekaveh/VMx
 repo_name: thekaveh/VMx
@@ -75,6 +75,7 @@ nav:
       - Python: flavors/python.md
       - TypeScript: flavors/typescript.md
       - Swift: flavors/swift.md
+      - Rust: flavors/rust.md
       - Cross-Language Naming: flavors/cross-language-naming.md
   - Examples:
       - Overview: examples/index.md

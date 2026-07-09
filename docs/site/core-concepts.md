@@ -1,10 +1,10 @@
 # Core Concepts
 
-## One Spec, Four Flavors
+## One Spec, Stable Flavors Plus Rust Preview
 
 VMx is defined once in `spec/` and implemented idiomatically in C#, Python,
-TypeScript, and Swift. The conceptual model stays aligned even when naming
-changes by flavor.
+TypeScript, and Swift, with Rust now present as a preview flavor. The
+conceptual model stays aligned even when naming changes by flavor.
 
 ## Lifecycle-Aware ViewModels
 
@@ -28,12 +28,13 @@ part of the shared shape.
 
 ## Idiomatic Naming by Flavor
 
-| Flavor     | Naming style |
-| ---------- | ------------ |
-| C#         | PascalCase   |
-| Python     | snake_case   |
-| TypeScript | camelCase    |
-| Swift      | camelCase    |
+| Flavor     | Naming style                              |
+| ---------- | ----------------------------------------- |
+| C#         | PascalCase                                |
+| Python     | snake_case                                |
+| TypeScript | camelCase                                 |
+| Swift      | camelCase                                 |
+| Rust       | snake_case methods, Rust-style type names |
 
 Message payload property names follow the local idiom, with the documented
 `Count` channel exception for collection messages.
