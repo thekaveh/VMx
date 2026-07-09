@@ -2371,24 +2371,35 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     }
 }
 
+type ItemsProvider<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 type SearchPredicate<T> = Arc<dyn Fn(&T, &str) -> bool + Send + Sync>;
 
 #[derive(Clone)]
-pub struct SearchableState<T: Clone + Send + 'static> {
-    source: Arc<Mutex<Vec<T>>>,
+pub struct SearchableState<T: Clone + Send + Sync + 'static> {
+    source: ItemsProvider<T>,
     search_term: Arc<Mutex<String>>,
     predicate: SearchPredicate<T>,
+    filtered_changed: MessageHub,
 }
 
-impl<T: Clone + Send + 'static> SearchableState<T> {
+impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
     pub fn new<F>(source: Vec<T>, predicate: F) -> Self
     where
         F: Fn(&T, &str) -> bool + Send + Sync + 'static,
     {
+        Self::from_items(move || source.clone(), predicate)
+    }
+
+    pub fn from_items<S, F>(source: S, predicate: F) -> Self
+    where
+        S: Fn() -> Vec<T> + Send + Sync + 'static,
+        F: Fn(&T, &str) -> bool + Send + Sync + 'static,
+    {
         Self {
-            source: Arc::new(Mutex::new(source)),
+            source: Arc::new(source),
             search_term: Arc::new(Mutex::new(String::new())),
             predicate: Arc::new(predicate),
+            filtered_changed: MessageHub::new(),
         }
     }
 
@@ -2397,16 +2408,181 @@ impl<T: Clone + Send + 'static> SearchableState<T> {
     }
 
     pub fn set_search_term(&self, term: impl Into<String>) {
-        *lock(&self.search_term) = term.into();
+        let changed = {
+            let mut current = lock(&self.search_term);
+            let next = term.into();
+            if *current == next {
+                false
+            } else {
+                *current = next;
+                true
+            }
+        };
+        if changed {
+            self.filtered_changed.send(Message::Custom {
+                sender_id: 0,
+                name: "filtered".to_string(),
+            });
+        }
     }
 
     pub fn search(&self) -> Vec<T> {
+        self.filtered()
+    }
+
+    pub fn filtered(&self) -> Vec<T> {
         let term = self.search_term();
-        lock(&self.source)
-            .iter()
+        (self.source)()
+            .into_iter()
             .filter(|item| (self.predicate)(item, &term))
-            .cloned()
             .collect()
+    }
+
+    pub fn can_search(&self) -> bool {
+        !(self.source)().is_empty()
+    }
+
+    pub fn filtered_changed(&self) -> MessageHub {
+        self.filtered_changed.clone()
+    }
+}
+
+pub struct ModeledCrudCommands<VM: Clone + Send + 'static> {
+    create_new_command: RelayCommand,
+    update_current_command: RelayCommand,
+    delete_current_command: RelayCommand,
+    _current_changed_subscription: Option<Subscription>,
+    _phantom: std::marker::PhantomData<VM>,
+}
+
+impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
+    pub fn new<C, Create, Update, Delete>(
+        current: C,
+        create_new: Create,
+        update_current: Update,
+        delete_current: Delete,
+    ) -> Self
+    where
+        C: Fn() -> Option<VM> + Send + Sync + 'static,
+        Create: Fn() + Send + Sync + 'static,
+        Update: Fn(VM) + Send + Sync + 'static,
+        Delete: Fn(VM) + Send + Sync + 'static,
+    {
+        Self::with_current_changed(current, create_new, update_current, delete_current, None)
+    }
+
+    pub fn with_current_changed<C, Create, Update, Delete>(
+        current: C,
+        create_new: Create,
+        update_current: Update,
+        delete_current: Delete,
+        current_changed: Option<MessageHub>,
+    ) -> Self
+    where
+        C: Fn() -> Option<VM> + Send + Sync + 'static,
+        Create: Fn() + Send + Sync + 'static,
+        Update: Fn(VM) + Send + Sync + 'static,
+        Delete: Fn(VM) + Send + Sync + 'static,
+    {
+        let current = Arc::new(current);
+        let create_new = Arc::new(create_new);
+        let update_current = Arc::new(update_current);
+        let delete_current = Arc::new(delete_current);
+        Self::build(
+            current,
+            create_new,
+            update_current,
+            delete_current,
+            None,
+            current_changed,
+        )
+    }
+
+    pub fn with_confirm_delete<C, Create, Update, Delete, Confirm>(
+        current: C,
+        create_new: Create,
+        update_current: Update,
+        delete_current: Delete,
+        confirm_delete: Confirm,
+    ) -> Self
+    where
+        C: Fn() -> Option<VM> + Send + Sync + 'static,
+        Create: Fn() + Send + Sync + 'static,
+        Update: Fn(VM) + Send + Sync + 'static,
+        Delete: Fn(VM) + Send + Sync + 'static,
+        Confirm: Fn() -> bool + Send + Sync + 'static,
+    {
+        Self::build(
+            Arc::new(current),
+            Arc::new(create_new),
+            Arc::new(update_current),
+            Arc::new(delete_current),
+            Some(Arc::new(confirm_delete)),
+            None,
+        )
+    }
+
+    fn build(
+        current: Arc<dyn Fn() -> Option<VM> + Send + Sync>,
+        create_new: Arc<dyn Fn() + Send + Sync>,
+        update_current: Arc<dyn Fn(VM) + Send + Sync>,
+        delete_current: Arc<dyn Fn(VM) + Send + Sync>,
+        confirm_delete: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+        current_changed: Option<MessageHub>,
+    ) -> Self {
+        let create_new_command = RelayCommand::new(move || create_new());
+        let update_provider = current.clone();
+        let update_predicate = current.clone();
+        let update_current_command = RelayCommand::new(move || {
+            if let Some(current) = update_provider() {
+                update_current(current);
+            }
+        })
+        .with_can_execute(move || update_predicate().is_some());
+        let delete_provider = current.clone();
+        let delete_predicate = current.clone();
+        let confirm_delete = confirm_delete.unwrap_or_else(|| Arc::new(|| true));
+        let delete_current_command = RelayCommand::new(move || {
+            if confirm_delete() {
+                if let Some(current) = delete_provider() {
+                    delete_current(current);
+                }
+            }
+        })
+        .with_can_execute(move || delete_predicate().is_some());
+        let subscription = current_changed.map(|trigger| {
+            let update_hub = update_current_command.can_execute_changed();
+            let delete_hub = delete_current_command.can_execute_changed();
+            trigger.subscribe(move |_| {
+                update_hub.send(Message::Custom {
+                    sender_id: 0,
+                    name: "can_execute_changed".to_string(),
+                });
+                delete_hub.send(Message::Custom {
+                    sender_id: 0,
+                    name: "can_execute_changed".to_string(),
+                });
+            })
+        });
+        Self {
+            create_new_command,
+            update_current_command,
+            delete_current_command,
+            _current_changed_subscription: subscription,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn create_new_command(&self) -> RelayCommand {
+        self.create_new_command.clone()
+    }
+
+    pub fn update_current_command(&self) -> RelayCommand {
+        self.update_current_command.clone()
+    }
+
+    pub fn delete_current_command(&self) -> RelayCommand {
+        self.delete_current_command.clone()
     }
 }
 

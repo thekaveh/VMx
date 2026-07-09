@@ -10,6 +10,8 @@ mod conformance {
     mod group_vm;
     mod lifecycle;
     mod message_hub;
+    mod modeled_crud;
     mod null_services;
     mod property_change;
+    mod search_filter;
 }
