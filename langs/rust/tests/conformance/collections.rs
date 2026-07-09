@@ -1,6 +1,7 @@
 use vmx::{
     CollectionChangeAction, Command, ComponentVm, ConstructionStatus, Message, MessageHub,
-    ObservableDictionary, ObservableList, PagedComposition, SearchableState, TokenPagedComposition,
+    ObservableDictionary, ObservableList, ObservableMultiDictionary, PagedComposition,
+    SearchableState, TokenPagedComposition,
 };
 
 fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
@@ -23,6 +24,70 @@ fn count_notifications(hub: &MessageHub) -> usize {
             )
         })
         .count()
+}
+
+/// COL-001 — ServicedObservableCollection<T> publishes to hub after local event on add
+#[test]
+fn serviced_collection_add_publishes_to_hub() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+
+    list.push("a");
+
+    assert_eq!(list.to_vec(), vec!["a"]);
+    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+}
+
+/// COL-002 — ServicedObservableCollection<T> publishes Remove/Replace/Reset
+#[test]
+fn serviced_collection_publishes_remove_replace_reset() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push("a");
+    list.replace(0, "b").unwrap();
+    list.remove_at(0);
+    list.push("c");
+    list.clear();
+
+    assert_eq!(
+        collection_actions(&hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Replace,
+            CollectionChangeAction::Remove,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Reset,
+        ]
+    );
+}
+
+/// COL-003 — Null-hub fallback: no hub means no publication, no error
+#[test]
+fn serviced_collection_null_hub_is_safe() {
+    let list = ObservableList::new(1, vmx::NullMessageHub::hub());
+
+    list.push("a");
+    list.replace(0, "b").unwrap();
+    list.remove_at(0);
+
+    assert!(list.is_empty());
+}
+
+/// COL-004 — ServicedObservableCollection<T> does not marshal; fires on caller thread
+#[test]
+fn serviced_collection_hub_delivery_is_synchronous() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    let caller = std::thread::current().id();
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let observed_inner = observed.clone();
+    let _subscription = hub.subscribe(move |_| {
+        *observed_inner.lock().unwrap() = Some(std::thread::current().id());
+    });
+
+    list.push("a");
+
+    assert_eq!(*observed.lock().unwrap(), Some(caller));
 }
 
 /// COL-005 — ObservableList<T> ItemAdded payload shape
@@ -122,6 +187,20 @@ fn observable_dictionary_replace_existing_key() {
     dictionary.insert("a", 2);
 
     assert_eq!(dictionary.get(&"a"), Some(2));
+}
+
+/// COL-013 — ObservableDictionary distinct-key observable views stay in sync
+#[test]
+fn observable_multi_dictionary_distinct_key_views_stay_in_sync() {
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+
+    dictionary.insert("a", 1, "x");
+    dictionary.insert("a", 2, "y");
+    dictionary.remove(&"a", &1);
+
+    assert_eq!(dictionary.keys1(), vec!["a"]);
+    assert_eq!(dictionary.keys2(), vec![2]);
+    assert_eq!(dictionary.count(), 1);
 }
 
 /// COL-014 — ObservableDictionary enumeration order is insertion order

@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use vmx::{
-    CollectionChangeAction, ConstructionStatus, Message, MessageHub, NullDispatcher, VmNode,
-    VmxError,
+    CollectionChangeAction, ConstructionStatus, Dispatcher, ManualDispatcher, Message, MessageHub,
+    NullDispatcher, VmNode, VmxError,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -91,6 +92,71 @@ fn destruct_clears_current_and_destructs_children() {
     assert!(!item.is_current());
 }
 
+/// COMP-006 — IsCurrent change on the previously-Current child dispatches on foreground
+#[test]
+fn previous_current_change_can_be_observed_on_foreground_dispatcher() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let composite = vmx::CompositeVm::<Child, ManualDispatcher>::with_services(
+        "root",
+        hub.clone(),
+        dispatcher.clone(),
+    );
+    let a = Child::with_model("a", "a", hub.clone(), NullDispatcher::new());
+    let b = Child::with_model("b", "b", hub.clone(), NullDispatcher::new());
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    composite.construct().unwrap();
+    composite.select_component(&a).unwrap();
+
+    let observed = Arc::new(Mutex::new(0));
+    let observed_inner = observed.clone();
+    let observer_dispatcher = dispatcher.clone();
+    let a_id = a.id();
+    let _subscription = hub.subscribe(move |message| {
+        if matches!(
+            message,
+            Message::PropertyChanged(change)
+                if change.sender_id == a_id && change.property_name == "is_current"
+        ) {
+            let observed_inner = observed_inner.clone();
+            observer_dispatcher.dispatch(Box::new(move || *observed_inner.lock().unwrap() += 1));
+        }
+    });
+
+    composite.select_component(&b).unwrap();
+
+    assert_eq!(*observed.lock().unwrap(), 0);
+    dispatcher.drain();
+    assert_eq!(*observed.lock().unwrap(), 1);
+}
+
+/// COMP-007 — Modeled composite maps model factory output to children
+#[test]
+fn modeled_composite_maps_model_factory_output_to_children() {
+    let composite =
+        vmx::ModeledCompositeVm::<i32, vmx::ComponentVm<i32>, NullDispatcher>::builder()
+            .name("modeled")
+            .services(MessageHub::new(), NullDispatcher::new())
+            .children_models(|| vec![1, 2])
+            .child_model_to_child_view_model(|model| {
+                vmx::ComponentVm::with_model(
+                    format!("child-{model}"),
+                    model,
+                    MessageHub::new(),
+                    NullDispatcher::new(),
+                )
+            })
+            .build()
+            .unwrap();
+
+    composite.construct().unwrap();
+
+    assert_eq!(composite.len(), 2);
+    assert_eq!(composite.get(0).unwrap().model(), 1);
+    assert_eq!(composite.get(1).unwrap().model(), 2);
+}
+
 /// COMP-008 — can_select_component returns false for non-children
 #[test]
 fn can_select_component_false_for_non_child() {
@@ -111,6 +177,44 @@ fn set_current_rejects_non_child() {
 
     assert_eq!(result, Err(VmxError::NonChild));
     assert_eq!(composite.current(), None);
+}
+
+/// COMP-010 — AsyncSelection dispatches Current change via foreground scheduler
+#[test]
+fn async_selection_dispatches_current_change_via_foreground() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let composite = vmx::CompositeVm::<Child, ManualDispatcher>::with_services(
+        "root",
+        hub.clone(),
+        dispatcher.clone(),
+    );
+    composite.set_async_selection(true);
+    let item = child("a");
+    composite.add(item.clone()).unwrap();
+    item.construct().unwrap();
+    let observed = Arc::new(Mutex::new(0));
+    let observed_inner = observed.clone();
+    let observer_dispatcher = dispatcher.clone();
+    let composite_id = composite.id();
+    let _subscription = hub.subscribe(move |message| {
+        if matches!(
+            message,
+            Message::PropertyChanged(change)
+                if change.sender_id == composite_id && change.property_name == "current"
+        ) {
+            let observed_inner = observed_inner.clone();
+            observer_dispatcher.dispatch(Box::new(move || *observed_inner.lock().unwrap() += 1));
+        }
+    });
+
+    composite.select_component(&item).unwrap();
+
+    assert_eq!(composite.current(), None);
+    assert_eq!(*observed.lock().unwrap(), 0);
+    dispatcher.drain();
+    assert_eq!(composite.current(), Some(item));
+    assert_eq!(*observed.lock().unwrap(), 1);
 }
 
 /// COMP-011 — deselect_component raises when vm is not Current
@@ -164,6 +268,53 @@ fn batch_update_emits_single_reset() {
         collection_actions(&hub),
         vec![CollectionChangeAction::Reset]
     );
+}
+
+/// COMP-025 — `Current(selector)` builder hook drives initial selection during construct
+#[test]
+fn current_selector_builder_hook_drives_initial_selection_during_construct() {
+    let hub = MessageHub::new();
+    let children = vec![child("a"), child("b"), child("c")];
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_inner = calls.clone();
+    let composite = vmx::CompositeVm::<Child>::builder()
+        .name("root")
+        .services(hub, NullDispatcher::new())
+        .children({
+            let children = children.clone();
+            move || children.clone()
+        })
+        .current(move |items| {
+            calls_inner.fetch_add(1, Ordering::SeqCst);
+            assert!(items
+                .iter()
+                .all(|item| item.status() == ConstructionStatus::Constructed));
+            items.get(1).cloned()
+        })
+        .build()
+        .unwrap();
+
+    composite.construct().unwrap();
+
+    assert_eq!(composite.current(), Some(children[1].clone()));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let hub = MessageHub::new();
+    let null_selector = vmx::CompositeVm::<Child>::builder()
+        .name("root")
+        .services(hub.clone(), NullDispatcher::new())
+        .children(|| vec![child("a")])
+        .current(|_| None)
+        .build()
+        .unwrap();
+
+    null_selector.construct().unwrap();
+
+    assert_eq!(null_selector.current(), None);
+    assert!(!hub.history().iter().any(|message| matches!(
+        message,
+        Message::PropertyChanged(change) if change.property_name == "current"
+    )));
 }
 
 /// COMP-026 — OnCurrentChanged(callback) fires synchronously after each Current change

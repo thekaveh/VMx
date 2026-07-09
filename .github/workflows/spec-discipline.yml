@@ -133,6 +133,7 @@ jobs:
           # - C#:     [Trait("Conformance", "XXX-NNN")] (inside attribute brackets)
           # - TypeScript: describe("XXX-NNN", ...)
           # - Swift:  /// XXX-NNN — ... / // XXX-NNN — ...
+          # - Rust:   /// XXX-NNN — ... attached to #[test] functions
           missing_in=()
           for id in $new_ids; do
             # Python stub presence
@@ -159,10 +160,16 @@ jobs:
                 missing_in+=("langs/swift/Tests/VMxTests:${id}")
               fi
             fi
+            # Rust stub presence
+            if [ -d langs/rust/tests/conformance ]; then
+              if ! grep -rE -q "^[[:space:]]*///[[:space:]]+${id}([[:space:](]|$).*(—|-)" langs/rust/tests/conformance; then
+                missing_in+=("langs/rust/tests/conformance:${id}")
+              fi
+            fi
           done
 
           if [ ${#missing_in[@]} -gt 0 ]; then
-            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\"), [Trait(\"Conformance\", \"…\")], describe(\"…\"), or Swift /// XXX-NNN — markers):"
+            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\"), [Trait(\"Conformance\", \"…\")], describe(\"…\"), Swift /// XXX-NNN — markers, or Rust /// XXX-NNN — markers):"
             for item in "${missing_in[@]}"; do
               echo "  - $item"
             done

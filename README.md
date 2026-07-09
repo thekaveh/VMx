@@ -12,10 +12,10 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
-specification, four stable idiomatic language flavors (C# / Python /
-TypeScript / Swift at total parity), plus an in-progress Rust preview flavor.
-The stable flavors cover 281 library conformance IDs + 5 THEME scenario IDs =
-**286 total** verified by path-filtered CI on relevant changes.
+specification with five idiomatic source flavors (C# / Python / TypeScript /
+Swift / Rust). All five source flavors cover the 281 library conformance IDs;
+the flagship example apps cover 5 additional THEME scenario IDs for **286
+total** tracked scenarios.
 
 ## 0. Contents
 
@@ -142,17 +142,18 @@ Each flavor implements the same conceptual stack:
 | Python     | v3.1.0 in source        | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
 | TypeScript | v3.1.0 in source        | npm package not published yet                                  | rxjs                   |
 | Swift      | v3.1.0 in source        | SwiftPM tag not published yet; no central registry             | Combine                |
-| Rust       | 0.1.0 preview in source | crates.io package not published yet                            | VMx facade over rxrust |
+| Rust       | v0.1.0 in source        | crates.io package not published yet                            | VMx facade over rxrust |
 
 `main` may contain an in-development source version before that version is
 published to package registries. Use the compatibility matrix for source-level
 spec parity; use each registry for installable package availability.
 
-The **Swift flavor is at total parity** — all 281 library conformance IDs as
-of v3.1.0 plus the 5 `THEME-00x` scenario IDs covered by the
-`examples/swift/notes-showcase/` flagship (ADR-0067) = **286 total**, matching
-C#, Python, and TypeScript. See [`langs/swift/README.md`](langs/swift/README.md)
-§5 for the full ID matrix. The C# flavor multi-targets `netstandard2.0` and
+All five source flavors implement the 281 library conformance IDs. The flagship
+example apps cover the 5 `THEME-00x` scenario IDs where a full UI host exists
+(Swift via `examples/swift/notes-showcase/`, ADR-0067), bringing stable
+UI-backed flavors to **286 total** tracked scenarios. See
+[`langs/swift/README.md`](langs/swift/README.md) §5 for the Swift ID matrix.
+The C# flavor multi-targets `netstandard2.0` and
 `net8.0` and ships two companion assemblies:
 [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
 (`services.AddVMx(...)`) and
@@ -163,14 +164,14 @@ subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
 in v2.4.0 because the unscoped `vmx` name was unavailable) targets Node
 ≥20, emits dual ESM + CJS bundles, and exposes `@thekaveh/vmx/notifications`
 as a sub-path export. The Rust flavor lives under `langs/rust/` as the
-`vmx-rs` crate with the `vmx` import namespace; it is intentionally marked
-preview until the catalog markers are replaced by full behavioral assertions.
+`vmx-rs` crate with the `vmx` import namespace; it has full library conformance
+coverage in source and is awaiting a crates.io release channel.
 
 ### 3.2 Spec and flavor compatibility
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.1.x | 3.1.0  | 3.1.0  | 3.1.0      | 3.1.0          | 0.1.0-preview |
+| 3.1.x | 3.1.0  | 3.1.0  | 3.1.0      | 3.1.0          | 0.1.0         |
 | 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —             |
 | 2.4.x | 2.4.0  | 2.4.0  | 2.4.0      | 2.4.0 (subset) | —             |
 | 2.3.x | 2.3.0  | 2.3.0  | 2.3.0      | —              | —             |
@@ -199,7 +200,7 @@ uv add vmx
 # TypeScript (after the npm package is published)
 npm install @thekaveh/vmx rxjs
 
-# Rust preview (source-tree path dependency today)
+# Rust (source-tree path dependency today)
 cargo add vmx-rs --path langs/rust
 ```
 
@@ -215,7 +216,7 @@ cargo add vmx-rs --path langs/rust
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
   at total parity as of v3.1.0; see `langs/swift/README.md` §5).
-- [`langs/rust/README.md`](langs/rust/README.md) — preview Rust crate commands
+- [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
   and a minimal `ComponentVm` example.
 
 ### 4.3 Examples
@@ -375,23 +376,22 @@ bump.
 `spec/12-conformance.md` enumerates 286 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`THEME-001`, …) — 281 library IDs plus 5 `THEME` scenario IDs. All four
-flavors (C# / Python / TypeScript / Swift) implement the 281 library IDs under
+`THEME-001`, …) — 281 library IDs plus 5 `THEME` scenario IDs. All five
+flavors (C# / Python / TypeScript / Swift / Rust) implement the 281 library IDs under
 their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
 `langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
-`langs/swift/Tests/VMxTests`), and
-`tools/check-conformance-coverage.py` enforces 100% coverage in CI. Rust
-currently reports 281 catalog markers separately while behavioral assertions
-are expanded. All four stable flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
+`langs/swift/Tests/VMxTests`, and `langs/rust/tests/conformance`), and
+`tools/check-conformance-coverage.py` enforces 100% coverage in CI. Stable
+flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
 example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
 stable flavor is at **total parity: 281 library + 5 THEME = 286**.
 
 ```bash
-# Verify the four stable flavors are at full catalog coverage
+# Verify all full-parity flavors are at full catalog coverage
 uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript --require swift
+    --require csharp --require python --require typescript --require swift --require rust
 
-# Report all registered flavors, including Rust preview markers
+# Report all registered flavors
 python3 tools/check-conformance-coverage.py
 ```
 

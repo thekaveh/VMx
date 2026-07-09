@@ -20,12 +20,12 @@ Examples:
     # Default: parse and report, never fail
     python3 tools/check-conformance-coverage.py
 
-    # Require python and csharp to have full coverage (CI mode)
+    # Require python and csharp to have full coverage
     python3 tools/check-conformance-coverage.py --require python --require csharp
 
-    # Include Swift full-catalog enforcement (Swift reached full library parity
-    # in Phase 3 Inc 6; the subset manifest was retired in Inc 7)
-    python3 tools/check-conformance-coverage.py --require python --require csharp --require swift
+    # CI mode: enforce every full-parity flavor
+    python3 tools/check-conformance-coverage.py \
+        --require python --require csharp --require typescript --require swift --require rust
 """
 
 import argparse

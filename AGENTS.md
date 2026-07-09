@@ -4,14 +4,14 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## 1. Architecture
 
-VMx is **one language-neutral specification with four idiomatic flavors**. The shape is identical across flavors; only the surface idiom changes (PascalCase C#, snake_case Python, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
+VMx is **one language-neutral specification with five idiomatic flavors**. The shape is identical across flavors; only the surface idiom changes (PascalCase C#, snake_case Python and Rust methods, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
 
 - **`spec/` is the source of truth.** 23 numbered markdown chapters (`00-overview.md` … `22-discriminator-vm.md`), 79 ADRs, four JSON fixtures, current version in `spec/VERSION` (3.1.0). Behavior changes start here.
 - **`spec/fixtures/*.json` are consumed by all flavors** for lifecycle, message-ordering, command-truthtable, and derived-property validation. Python tracks `lifecycle-transitions.json` under `langs/python/src/vmx/lifecycle/_data/` for runtime loading, and `tools/check-python-fixture-sync.py` keeps it byte-identical to the spec fixture; the other fixtures are conformance-test inputs. TypeScript copies all fixtures via `npm run sync-fixtures` (auto-run by `prebuild`, `pretest`, and `prepack`). C# embeds `lifecycle-transitions.json` for runtime and copies all fixtures into conformance test output. Swift ships all four JSON resources under `langs/swift/Sources/VMx/Resources`, including `LifecycleTransitionTable.swift` loading `lifecycle-transitions.json` from `Bundle.module`. When editing a fixture, ensure every flavor still loads the relevant runtime/test resource.
-- **`spec/12-conformance.md` enumerates 286 normative test IDs** — 281 library IDs (`LIFE-001`, `HUB-007`, `BLD-006`, `GRP-011`, `HIER-018`, `NOTIF-017`, `COMP-025`, `COMP-026`, `DISC-006`, …) plus 5 `THEME-00x` scenario IDs that live in the flagship example apps. C#, Python, TypeScript, and Swift each implement all 281 library IDs under their conformance test trees. `tools/check-conformance-coverage.py` enforces 100% coverage for all four full-parity flavors in CI.
-- **Each flavor versions independently** but a spec major bump triggers a major bump in every active flavor. Each package declares the spec version it implements: `MinSpecVersion` (C#), `__min_spec_version__` (Python), `__minSpecVersion__` (TypeScript), `VMxVersion.minSpecVersion` (Swift). Compatibility is tracked by hand in `compatibility-matrix.md`.
+- **`spec/12-conformance.md` enumerates 286 normative test IDs** — 281 library IDs (`LIFE-001`, `HUB-007`, `BLD-006`, `GRP-011`, `HIER-018`, `NOTIF-017`, `COMP-025`, `COMP-026`, `DISC-006`, …) plus 5 `THEME-00x` scenario IDs that live in the flagship example apps. C#, Python, TypeScript, Swift, and Rust each implement all 281 library IDs under their conformance test trees. `tools/check-conformance-coverage.py` enforces 100% coverage for all five full-parity flavors in CI.
+- **Each flavor versions independently** but a spec major bump triggers a major bump in every active flavor. Each package declares the spec version it implements: `MinSpecVersion` (C#), `__min_spec_version__` (Python), `__minSpecVersion__` (TypeScript), `VMxVersion.minSpecVersion` (Swift), `MIN_SPEC_VERSION` (Rust). Compatibility is tracked by hand in `compatibility-matrix.md`.
 - **Per-flavor source layout mirrors the spec chapters** — `aggregates/`, `builders/`, `commands/`, `components/`, `composites/`, `forwarding/`, `groups/`, `lifecycle/`, `messages/`, `services/`, `tree/`, `collections/`, `capabilities/`, `properties/` (DerivedProperty), `notifications` (opt-in package/sub-path where applicable), `localization/`, `hierarchical/`, `dialogs/`, `forms/`, and `state/` (DiscriminatorVM). When adding a primitive, add it to the same-named area in every supported flavor that ships the area.
-- **Reactive primitive per flavor**: C# uses `System.Reactive`, Python uses `reactivex`, TypeScript uses `rxjs`, Swift uses `Combine` (macOS-only — no Linux CI for Swift) per ADR-0002/ADR-0036. Don't introduce additional reactive libraries.
+- **Reactive primitive per flavor**: C# uses `System.Reactive`, Python uses `reactivex`, TypeScript uses `rxjs`, Swift uses `Combine` (macOS-only — no Linux CI for Swift), and Rust uses VMx-owned facades over `rxrust` per ADR-0002/ADR-0036/ADR-0080. Don't introduce additional reactive libraries.
 - **Known cross-flavor divergences are documented**, not accidental: Swift still traps where Swift setters cannot throw (for example read-only model assignment), while illegal lifecycle transitions and non-child current selection are catchable throws after the v3 convergence. Reactivex Subjects raise on post-dispose use where rxjs silently no-ops (guards exist where it matters). Check ADR-0009, ADR-0037, and ADR-0053 before "fixing" an apparent divergence.
 
 ## 2. Spec discipline (enforced by CI)
@@ -24,6 +24,7 @@ Two rules in `.github/workflows/spec-discipline.yml` block PRs:
    - C#: `[Trait("Conformance", "XXX-NNN")]`
    - TypeScript: `describe("XXX-NNN", ...)`
    - Swift: doc or line comments where the ID is the first token after the marker, e.g. `/// XXX-NNN — ...`, in `langs/swift/Tests/VMxTests`
+   - Rust: doc comments where the ID is the first token after the marker, e.g. `/// XXX-NNN — ...`, attached to `#[test]` functions in `langs/rust/tests/conformance`
 
 Numbered documentation headings are expected in current-facing docs, with one
 intentional exception: `spec/12-conformance.md` keeps conformance IDs as heading
@@ -92,7 +93,7 @@ python3 tools/check-conformance-coverage.py
 
 # CI mode (matches the conformance workflow)
 uv --project langs/python run python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript --require swift
+    --require csharp --require python --require typescript --require swift --require rust
 
 # The tool's own unit tests
 uv --project langs/python run pytest tools/tests/
@@ -108,7 +109,7 @@ Running ruff on `tools/` requires the project config: `--config langs/python/pyp
 
 1. Update the relevant `spec/NN-*.md` chapter.
 1. Add an ADR in `spec/ADRs/` describing the decision (numbered NNNN-kebab-title.md) and a row in `spec/ADRs/README.md`.
-1. If the change is normative, add an ID to `spec/12-conformance.md`, an entry in the source chapter's `## Conformance` section, and a stub/marker in **all four** full-parity conformance suites (C#, Python, TypeScript, Swift).
+1. If the change is normative, add an ID to `spec/12-conformance.md`, an entry in the source chapter's `## Conformance` section, and a stub/marker in **all five** full-parity conformance suites (C#, Python, TypeScript, Swift, Rust).
 1. Implement in every flavor that ships the area. Keep the public surface idiomatic per ADR-0006; keep the conceptual shape identical. Hub `PropertyChangedMessage` names follow the flavor idiom (`"IsValid"` / `"is_valid"` / `"isValid"`); the collections `"Count"` channel is a spec-literal exception.
 1. If touching `spec/fixtures/`, re-run TS `npm run sync-fixtures` and verify Python, C#, and Swift still load the file where applicable (Python tracked `_data` copy, C# embedded/copy paths, and Swift package resources are configured for these exact filenames).
 1. Bump `spec/VERSION` and each flavor's package version per the SemVer policy in README §6.1. Update `compatibility-matrix.md`, each flavor's `CHANGELOG.md` (bracketed Keep-a-Changelog headings), and the count claims in README/spec/README/flavor READMEs.

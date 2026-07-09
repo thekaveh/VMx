@@ -1,5 +1,6 @@
 use vmx::{
-    CollectionChangeAction, ConstructionStatus, Message, MessageHub, NullDispatcher, VmNode,
+    CollectionChangeAction, Command, ConstructionStatus, Message, MessageHub, NullDispatcher,
+    VmNode,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -27,6 +28,27 @@ fn add_emits_collection_changed_add() {
     group.add(child("a")).unwrap();
 
     assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+}
+
+/// GRP-002 — Group lacks child-navigation and child-selection members
+#[test]
+fn group_has_own_selection_commands_without_child_selection_state() {
+    let group = vmx::GroupVm::<Child>::new("group");
+    let select = group.select_command();
+    let deselect = group.deselect_command();
+
+    assert!(select.can_execute());
+    assert!(!deselect.can_execute());
+
+    select.execute();
+
+    assert!(group.is_selected());
+    assert!(!select.can_execute());
+    assert!(deselect.can_execute());
+
+    deselect.execute();
+
+    assert!(!group.is_selected());
 }
 
 /// GRP-003 — Construct waits until all children reach Constructed

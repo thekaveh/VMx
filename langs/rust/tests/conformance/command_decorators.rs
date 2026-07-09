@@ -164,3 +164,67 @@ fn confirmation_decorator_surfaces_fire_and_forget_errors() {
 
     assert_eq!(errors.load(Ordering::SeqCst), 1);
 }
+
+/// CMD-008 — Confirm(delegate) is equivalent to explicit ConfirmationDecoratorCommand
+#[test]
+fn confirm_fluent_matches_explicit_confirmation_decorator() {
+    let called = Arc::new(Mutex::new(0));
+    let called_inner = called.clone();
+    let command = RelayCommand::new(move || *called_inner.lock().unwrap() += 1);
+
+    let confirmed = command.clone().confirm(|| true);
+    let explicit = ConfirmationDecoratorCommand::new(command, || true);
+
+    assert_eq!(confirmed.can_execute(), explicit.can_execute());
+    confirmed.execute();
+    explicit.execute();
+    assert_eq!(*called.lock().unwrap(), 2);
+}
+
+/// CMD-009 — PrecedeWith(other) is equivalent to CompositeCommand(other, receiver)
+#[test]
+fn precede_with_runs_other_before_receiver() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let left_order = order.clone();
+    let right_order = order.clone();
+    let receiver = RelayCommand::new(move || right_order.lock().unwrap().push("receiver"));
+    let other = RelayCommand::new(move || left_order.lock().unwrap().push("other"));
+
+    receiver.precede_with(other).execute();
+
+    assert_eq!(*order.lock().unwrap(), vec!["other", "receiver"]);
+}
+
+/// CMD-010 — SucceedWith(other) is equivalent to CompositeCommand(receiver, other)
+#[test]
+fn succeed_with_runs_receiver_before_other() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let receiver_order = order.clone();
+    let other_order = order.clone();
+    let receiver = RelayCommand::new(move || receiver_order.lock().unwrap().push("receiver"));
+    let other = RelayCommand::new(move || other_order.lock().unwrap().push("other"));
+
+    receiver.succeed_with(other).execute();
+
+    assert_eq!(*order.lock().unwrap(), vec!["receiver", "other"]);
+}
+
+/// CMD-011 — WrapWith(predicate?, pre?, post?) is equivalent to explicit DecoratorCommand
+#[test]
+fn wrap_with_runs_pre_inner_post_with_predicate() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let inner_order = order.clone();
+    let pre_order = order.clone();
+    let post_order = order.clone();
+    let command = RelayCommand::new(move || inner_order.lock().unwrap().push("inner"));
+
+    command
+        .wrap_with(
+            Some(|| true),
+            Some(move || pre_order.lock().unwrap().push("pre")),
+            Some(move || post_order.lock().unwrap().push("post")),
+        )
+        .execute();
+
+    assert_eq!(*order.lock().unwrap(), vec!["pre", "inner", "post"]);
+}

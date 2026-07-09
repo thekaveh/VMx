@@ -508,6 +508,10 @@ impl<D: Dispatcher> ComponentCore<D> {
             }));
     }
 
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        lock(&self.inner).foreground.dispatch(action);
+    }
+
     fn is_selected(&self) -> bool {
         lock(&self.inner).selected
     }
@@ -638,6 +642,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     pub fn set_model(&self, model: M) {
+        let old_hint = self.hint();
         let changed = {
             let mut current = lock(&self.model);
             if *current == model {
@@ -649,6 +654,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         };
         if changed {
             self.core.property_changed("model");
+            if self.hint() != old_hint {
+                self.core.property_changed("modeled_hint");
+            }
         }
     }
 
@@ -723,6 +731,15 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     pub fn parent_id(&self) -> Option<usize> {
         self.core.parent_id()
+    }
+
+    pub fn select_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new({
+            let vm = vm.clone();
+            move || vm.select()
+        })
+        .with_can_execute(move || !vm.is_selected())
     }
 }
 
@@ -1682,7 +1699,110 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct ObservableMultiDictionary<K1, K2, V>
+where
+    K1: Clone + Eq + Hash + Send + 'static,
+    K2: Clone + Eq + Hash + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    inner: Arc<Mutex<Vec<(K1, K2, V)>>>,
+    hub: MessageHub,
+    owner_id: usize,
+}
+
+impl<K1, K2, V> ObservableMultiDictionary<K1, K2, V>
+where
+    K1: Clone + Eq + Hash + Send + 'static,
+    K2: Clone + Eq + Hash + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    pub fn new(owner_id: usize, hub: MessageHub) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+            hub,
+            owner_id,
+        }
+    }
+
+    pub fn insert(&self, key1: K1, key2: K2, value: V) {
+        let action = {
+            let mut inner = lock(&self.inner);
+            if let Some((_, _, existing)) = inner
+                .iter_mut()
+                .find(|(candidate1, candidate2, _)| *candidate1 == key1 && *candidate2 == key2)
+            {
+                *existing = value;
+                CollectionChangeAction::Replace
+            } else {
+                inner.push((key1, key2, value));
+                CollectionChangeAction::Add
+            }
+        };
+        self.publish(action);
+    }
+
+    pub fn remove(&self, key1: &K1, key2: &K2) -> Option<V> {
+        let removed = {
+            let mut inner = lock(&self.inner);
+            inner
+                .iter()
+                .position(|(candidate1, candidate2, _)| candidate1 == key1 && candidate2 == key2)
+                .map(|index| inner.remove(index).2)
+        };
+        if removed.is_some() {
+            self.publish(CollectionChangeAction::Remove);
+        }
+        removed
+    }
+
+    pub fn get(&self, key1: &K1, key2: &K2) -> Option<V> {
+        lock(&self.inner)
+            .iter()
+            .find(|(candidate1, candidate2, _)| candidate1 == key1 && candidate2 == key2)
+            .map(|(_, _, value)| value.clone())
+    }
+
+    pub fn contains_key(&self, key1: &K1, key2: &K2) -> bool {
+        self.get(key1, key2).is_some()
+    }
+
+    pub fn count(&self) -> usize {
+        lock(&self.inner).len()
+    }
+
+    pub fn keys1(&self) -> Vec<K1> {
+        let mut keys = Vec::new();
+        for (key, _, _) in lock(&self.inner).iter() {
+            if !keys.contains(key) {
+                keys.push(key.clone());
+            }
+        }
+        keys
+    }
+
+    pub fn keys2(&self) -> Vec<K2> {
+        let mut keys = Vec::new();
+        for (_, key, _) in lock(&self.inner).iter() {
+            if !keys.contains(key) {
+                keys.push(key.clone());
+            }
+        }
+        keys
+    }
+
+    fn publish(&self, action: CollectionChangeAction) {
+        self.hub
+            .send(Message::CollectionChanged(CollectionChangedMessage {
+                sender_id: self.owner_id,
+                property_name: "items".to_string(),
+                action,
+            }));
+    }
+}
+
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
+type CurrentSelector<T> = Arc<dyn Fn(Vec<T>) -> Option<T> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
@@ -1690,6 +1810,8 @@ pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     items: ObservableList<T>,
     current: Arc<Mutex<Option<T>>>,
     auto_construct_on_add: Arc<Mutex<bool>>,
+    async_selection: Arc<Mutex<bool>>,
+    current_selector: Arc<Mutex<Option<CurrentSelector<T>>>>,
     on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
 }
 
@@ -1708,6 +1830,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             items,
             current: Arc::new(Mutex::new(None)),
             auto_construct_on_add: Arc::new(Mutex::new(false)),
+            async_selection: Arc::new(Mutex::new(false)),
+            current_selector: Arc::new(Mutex::new(None)),
             on_current_changed: Arc::new(Mutex::new(None)),
         }
     }
@@ -1798,7 +1922,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 return Err(VmxError::NonChild);
             }
         }
-        self.assign_current(item);
+        self.assign_current_maybe_async(item);
         Ok(())
     }
 
@@ -1806,20 +1930,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         if !self.can_select_component(item) {
             return Err(VmxError::NonChild);
         }
-        self.assign_current(Some(item.clone()));
+        self.assign_current_maybe_async(Some(item.clone()));
         Ok(())
     }
 
     pub fn deselect_component(&self, item: &T) -> VmxResult<()> {
-        let mut current = lock(&self.current);
-        if current.as_ref() != Some(item) {
+        if self.current().as_ref() != Some(item) {
             return Err(VmxError::NotCurrent);
         }
-        *current = None;
-        drop(current);
-        item.set_current_flag(false);
-        self.core.property_changed("current");
-        self.invoke_current_changed(None);
+        self.assign_current_maybe_async(None);
         Ok(())
     }
 
@@ -1830,6 +1949,17 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     pub fn set_auto_construct_on_add(&self, enabled: bool) {
         *lock(&self.auto_construct_on_add) = enabled;
+    }
+
+    pub fn set_async_selection(&self, enabled: bool) {
+        *lock(&self.async_selection) = enabled;
+    }
+
+    pub fn set_current_selector<F>(&self, selector: F)
+    where
+        F: Fn(Vec<T>) -> Option<T> + Send + Sync + 'static,
+    {
+        *lock(&self.current_selector) = Some(Arc::new(selector));
     }
 
     pub fn on_current_changed<F>(&self, callback: F)
@@ -1850,6 +1980,13 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core.transition(LifecycleOperation::Construct)?;
         for item in self.items() {
             item.construct()?;
+        }
+        if let Some(selector) = lock(&self.current_selector).clone() {
+            if let Some(selected) = selector(self.items()) {
+                if self.items().contains(&selected) {
+                    self.assign_current(selected.into());
+                }
+            }
         }
         Ok(())
     }
@@ -1891,6 +2028,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         self.core.property_changed("current");
         self.invoke_current_changed(next);
+    }
+
+    fn assign_current_maybe_async(&self, next: Option<T>) {
+        if *lock(&self.async_selection) {
+            let this = self.clone();
+            self.core
+                .dispatch(Box::new(move || this.assign_current(next)));
+        } else {
+            self.assign_current(next);
+        }
     }
 
     fn invoke_current_changed(&self, current: Option<T>) {
@@ -1962,6 +2109,174 @@ impl<T: VmNode, D: Dispatcher> PartialEq for CompositeVm<T, D> {
 
 impl<T: VmNode, D: Dispatcher> Eq for CompositeVm<T, D> {}
 
+type FilterPredicate<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
+type ScorePredicate<T> = Arc<dyn Fn(&T) -> Option<i32> + Send + Sync>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilteredCursorPolicy {
+    Clear,
+    SnapToFirst,
+}
+
+#[derive(Clone)]
+pub struct FilteredCompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
+    source: CompositeVm<T, D>,
+    predicate: Arc<Mutex<FilterPredicate<T>>>,
+    scorer: Arc<Mutex<Option<ScorePredicate<T>>>>,
+    current: Arc<Mutex<Option<T>>>,
+    cursor_policy: Arc<Mutex<FilteredCursorPolicy>>,
+    disposed: Arc<Mutex<bool>>,
+    frozen: Arc<Mutex<Vec<T>>>,
+}
+
+impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
+    pub fn new<F>(source: CompositeVm<T, D>, predicate: F) -> Self
+    where
+        F: Fn(&T) -> bool + Send + Sync + 'static,
+    {
+        Self {
+            source,
+            predicate: Arc::new(Mutex::new(Arc::new(predicate))),
+            scorer: Arc::new(Mutex::new(None)),
+            current: Arc::new(Mutex::new(None)),
+            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::Clear)),
+            disposed: Arc::new(Mutex::new(false)),
+            frozen: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn scored<F>(source: CompositeVm<T, D>, scorer: F) -> Self
+    where
+        F: Fn(&T) -> Option<i32> + Send + Sync + 'static,
+    {
+        Self {
+            source,
+            predicate: Arc::new(Mutex::new(Arc::new(|_| true))),
+            scorer: Arc::new(Mutex::new(Some(Arc::new(scorer)))),
+            current: Arc::new(Mutex::new(None)),
+            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::Clear)),
+            disposed: Arc::new(Mutex::new(false)),
+            frozen: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn visible(&self) -> Vec<T> {
+        if *lock(&self.disposed) {
+            return lock(&self.frozen).clone();
+        }
+        let predicate = lock(&self.predicate).clone();
+        let scorer = lock(&self.scorer).clone();
+        let mut indexed = self
+            .source
+            .items()
+            .into_iter()
+            .enumerate()
+            .filter(|(_, item)| predicate(item))
+            .filter_map(|(index, item)| match &scorer {
+                Some(score) => score(&item).map(|score| (index, Some(score), item)),
+                None => Some((index, None, item)),
+            })
+            .collect::<Vec<_>>();
+        if scorer.is_some() {
+            indexed.sort_by(
+                |(left_index, left_score, _), (right_index, right_score, _)| {
+                    right_score
+                        .cmp(left_score)
+                        .then_with(|| left_index.cmp(right_index))
+                },
+            );
+        }
+        indexed.into_iter().map(|(_, _, item)| item).collect()
+    }
+
+    pub fn visible_count(&self) -> usize {
+        self.visible().len()
+    }
+
+    pub fn current(&self) -> Option<T> {
+        lock(&self.current).clone()
+    }
+
+    pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        if let Some(item) = item.as_ref() {
+            if !self.visible().contains(item) {
+                return Err(VmxError::NonChild);
+            }
+        }
+        *lock(&self.current) = item;
+        Ok(())
+    }
+
+    pub fn set_predicate<F>(&self, predicate: F)
+    where
+        F: Fn(&T) -> bool + Send + Sync + 'static,
+    {
+        *lock(&self.predicate) = Arc::new(predicate);
+        self.reconcile_current();
+    }
+
+    pub fn set_cursor_policy(&self, policy: FilteredCursorPolicy) {
+        *lock(&self.cursor_policy) = policy;
+    }
+
+    pub fn refresh(&self) {
+        self.reconcile_current();
+    }
+
+    pub fn refresh_scores(&self) {
+        self.reconcile_current();
+    }
+
+    pub fn move_next_visible(&self) {
+        let visible = self.visible();
+        if visible.is_empty() {
+            *lock(&self.current) = None;
+            return;
+        }
+        let next_index = self
+            .current()
+            .and_then(|current| visible.iter().position(|item| *item == current))
+            .map(|index| (index + 1).min(visible.len() - 1))
+            .unwrap_or(0);
+        *lock(&self.current) = Some(visible[next_index].clone());
+    }
+
+    pub fn move_previous_visible(&self) {
+        let visible = self.visible();
+        if visible.is_empty() {
+            *lock(&self.current) = None;
+            return;
+        }
+        let previous_index = self
+            .current()
+            .and_then(|current| visible.iter().position(|item| *item == current))
+            .map(|index| index.saturating_sub(1))
+            .unwrap_or(0);
+        *lock(&self.current) = Some(visible[previous_index].clone());
+    }
+
+    pub fn dispose(&self) {
+        *lock(&self.frozen) = self.visible();
+        *lock(&self.disposed) = true;
+    }
+
+    fn reconcile_current(&self) {
+        let visible = self.visible();
+        let current_is_visible = self
+            .current()
+            .map(|current| visible.contains(&current))
+            .unwrap_or(true);
+        if current_is_visible {
+            return;
+        }
+        let next = match *lock(&self.cursor_policy) {
+            FilteredCursorPolicy::Clear => None,
+            FilteredCursorPolicy::SnapToFirst => visible.first().cloned(),
+        };
+        *lock(&self.current) = next;
+    }
+}
+
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 
 #[derive(Clone)]
@@ -1972,6 +2287,8 @@ pub struct CompositeVmBuilder<T: VmNode, D: Dispatcher = NullDispatcher> {
     dispatcher: Option<D>,
     children: Option<ChildrenFactory<T>>,
     auto_construct_on_add: bool,
+    async_selection: bool,
+    current_selector: Option<CurrentSelector<T>>,
 }
 
 impl<T: VmNode> Default for CompositeVmBuilder<T, NullDispatcher> {
@@ -1983,6 +2300,8 @@ impl<T: VmNode> Default for CompositeVmBuilder<T, NullDispatcher> {
             dispatcher: None,
             children: None,
             auto_construct_on_add: false,
+            async_selection: false,
+            current_selector: None,
         }
     }
 }
@@ -2017,6 +2336,19 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
         self
     }
 
+    pub fn async_selection(mut self, enabled: bool) -> Self {
+        self.async_selection = enabled;
+        self
+    }
+
+    pub fn current<F>(mut self, selector: F) -> Self
+    where
+        F: Fn(Vec<T>) -> Option<T> + Send + Sync + 'static,
+    {
+        self.current_selector = Some(Arc::new(selector));
+        self
+    }
+
     pub fn build(self) -> VmxResult<CompositeVm<T, D>> {
         let name = self
             .name
@@ -2035,6 +2367,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
             vm.core.set_hint(Some(hint));
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
+        vm.set_async_selection(self.async_selection);
+        if let Some(selector) = self.current_selector {
+            vm.set_current_selector(move |items| selector(items));
+        }
         for child in children() {
             vm.add(child)?;
         }
@@ -2072,6 +2408,259 @@ pub struct CompositeVmOptions<T: VmNode> {
     pub dispatcher: NullDispatcher,
     pub children: Option<Vec<T>>,
     pub auto_construct_on_add: bool,
+}
+
+type ModelFactory<M> = Arc<dyn Fn() -> Vec<M> + Send + Sync>;
+type ChildModelMapper<M, T> = Arc<dyn Fn(M) -> T + Send + Sync>;
+
+#[derive(Clone)]
+pub struct ModeledCompositeVm<
+    M: Clone + PartialEq + Send + Sync + 'static,
+    T: VmNode,
+    D: Dispatcher = NullDispatcher,
+> {
+    inner: CompositeVm<T, D>,
+    children_models: ModelFactory<M>,
+    child_model_to_child_view_model: ChildModelMapper<M, T>,
+    loaded: Arc<Mutex<bool>>,
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
+    ModeledCompositeVm<M, T, D>
+{
+    pub fn new<F, G>(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        children_models: F,
+        child_model_to_child_view_model: G,
+    ) -> Self
+    where
+        F: Fn() -> Vec<M> + Send + Sync + 'static,
+        G: Fn(M) -> T + Send + Sync + 'static,
+    {
+        Self {
+            inner: CompositeVm::with_services(name, hub, dispatcher),
+            children_models: Arc::new(children_models),
+            child_model_to_child_view_model: Arc::new(child_model_to_child_view_model),
+            loaded: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn builder() -> ModeledCompositeVmBuilder<M, T, D> {
+        ModeledCompositeVmBuilder::default()
+    }
+
+    pub fn items(&self) -> Vec<T> {
+        self.inner.items()
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        self.inner.get(index)
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn current(&self) -> Option<T> {
+        self.inner.current()
+    }
+
+    pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        self.inner.set_current(item)
+    }
+
+    pub fn select_component(&self, item: &T) -> VmxResult<()> {
+        self.inner.select_component(item)
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        let should_load = {
+            let mut loaded = lock(&self.loaded);
+            if *loaded {
+                false
+            } else {
+                *loaded = true;
+                true
+            }
+        };
+        if should_load {
+            for model in (self.children_models)() {
+                self.inner
+                    .add((self.child_model_to_child_view_model)(model))?;
+            }
+        }
+        self.inner.construct()
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmNode
+    for ModeledCompositeVm<M, T, D>
+{
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        ModeledCompositeVm::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.inner.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.inner.is_current()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> PartialEq
+    for ModeledCompositeVm<M, T, D>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Eq
+    for ModeledCompositeVm<M, T, D>
+{
+}
+
+#[derive(Clone)]
+pub struct ModeledCompositeVmBuilder<
+    M: Clone + PartialEq + Send + Sync + 'static,
+    T: VmNode,
+    D: Dispatcher = NullDispatcher,
+> {
+    name: Option<String>,
+    hub: Option<MessageHub>,
+    dispatcher: Option<D>,
+    children_models: Option<ModelFactory<M>>,
+    child_model_to_child_view_model: Option<ChildModelMapper<M, T>>,
+    async_selection: bool,
+    current_selector: Option<CurrentSelector<T>>,
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Default
+    for ModeledCompositeVmBuilder<M, T, D>
+{
+    fn default() -> Self {
+        Self {
+            name: None,
+            hub: None,
+            dispatcher: None,
+            children_models: None,
+            child_model_to_child_view_model: None,
+            async_selection: false,
+            current_selector: None,
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
+    ModeledCompositeVmBuilder<M, T, D>
+{
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        self.hub = Some(hub);
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn children_models<F>(mut self, children_models: F) -> Self
+    where
+        F: Fn() -> Vec<M> + Send + Sync + 'static,
+    {
+        self.children_models = Some(Arc::new(children_models));
+        self
+    }
+
+    pub fn child_model_to_child_view_model<G>(mut self, mapper: G) -> Self
+    where
+        G: Fn(M) -> T + Send + Sync + 'static,
+    {
+        self.child_model_to_child_view_model = Some(Arc::new(mapper));
+        self
+    }
+
+    pub fn async_selection(mut self, enabled: bool) -> Self {
+        self.async_selection = enabled;
+        self
+    }
+
+    pub fn current<F>(mut self, selector: F) -> Self
+    where
+        F: Fn(Vec<T>) -> Option<T> + Send + Sync + 'static,
+    {
+        self.current_selector = Some(Arc::new(selector));
+        self
+    }
+
+    pub fn build(self) -> VmxResult<ModeledCompositeVm<M, T, D>> {
+        let name = self
+            .name
+            .ok_or_else(|| VmxError::BuilderValidation("name is required".to_string()))?;
+        let hub = self
+            .hub
+            .ok_or_else(|| VmxError::BuilderValidation("hub is required".to_string()))?;
+        let dispatcher = self
+            .dispatcher
+            .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
+        let children_models = self.children_models.ok_or_else(|| {
+            VmxError::BuilderValidation("children_models is required".to_string())
+        })?;
+        let child_model_to_child_view_model =
+            self.child_model_to_child_view_model.ok_or_else(|| {
+                VmxError::BuilderValidation(
+                    "child_model_to_child_view_model is required".to_string(),
+                )
+            })?;
+        let vm = ModeledCompositeVm {
+            inner: CompositeVm::with_services(name, hub, dispatcher),
+            children_models,
+            child_model_to_child_view_model,
+            loaded: Arc::new(Mutex::new(false)),
+        };
+        vm.inner.set_async_selection(self.async_selection);
+        if let Some(selector) = self.current_selector {
+            vm.inner.set_current_selector(move |items| selector(items));
+        }
+        Ok(vm)
+    }
 }
 
 #[derive(Clone)]
@@ -2201,6 +2790,36 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     pub fn status(&self) -> ConstructionStatus {
         self.core.status()
+    }
+
+    pub fn select(&self) {
+        self.core.select();
+    }
+
+    pub fn deselect(&self) {
+        self.core.deselect();
+    }
+
+    pub fn is_selected(&self) -> bool {
+        self.core.is_selected()
+    }
+
+    pub fn select_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new({
+            let vm = vm.clone();
+            move || vm.select()
+        })
+        .with_can_execute(move || !vm.is_selected())
+    }
+
+    pub fn deselect_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new({
+            let vm = vm.clone();
+            move || vm.deselect()
+        })
+        .with_can_execute(move || vm.is_selected())
     }
 }
 
