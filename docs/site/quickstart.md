@@ -159,6 +159,6 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
 
 ## What This Shows
 
-- One spec, stable idiomatic surfaces, and Rust preview.
+- One spec and five idiomatic source surfaces.
 - Builders/direct construction stay idiomatic per flavor.
 - Construction and selection semantics stay aligned even as naming changes.

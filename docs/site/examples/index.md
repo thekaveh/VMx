@@ -20,7 +20,7 @@ Workspace portfolio.
 | Python     | Console `hello_vmx`, tkinter Todo, Textual Inspector | Textual Notes Workspace  |
 | TypeScript | Console `hello-vmx`                                  | React Notes Workspace    |
 | Swift      | none beyond the flagship today                       | SwiftUI Notes Workspace  |
-| Rust       | Console `hello-vmx`                                  | preview pending          |
+| Rust       | Console `hello-vmx`                                  | no UI flagship yet       |
 
 ## Reading Strategy
 

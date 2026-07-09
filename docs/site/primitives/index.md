@@ -2,8 +2,8 @@
 
 ## When To Use It
 
-VMx is one language-neutral framework surface expressed through four stable
-idiomatic flavors, with Rust present as a preview flavor. These pages are the
+VMx is one language-neutral framework surface expressed through five idiomatic
+source flavors. These pages are the
 practical map of that surface: which primitive to reach for, what it owns, how
 it participates in lifecycle and messaging, and where the flagship Notes
 Workspace examples use it.
@@ -45,7 +45,7 @@ invent surface APIs that belong on the concrete primitive pages.
 ## Cross-Language Surface
 
 The conceptual shape is identical across C#, Python, TypeScript, Swift, and
-Rust preview. The surface idiom changes:
+Rust. The surface idiom changes:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
 | ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |

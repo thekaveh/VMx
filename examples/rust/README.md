@@ -1,12 +1,14 @@
 # VMx Rust Examples
 
-Preview demos for the [VMx Rust crate](../../langs/rust/).
+Demos for the [VMx Rust crate](../../langs/rust/).
 
 ## 1. Example 1 — `console/hello-vmx`
 
 Minimal Cargo console demo. Demonstrates:
 
-1. Constructing a `ComponentVm` with explicit VMx services.
+1. Constructing modeled `ComponentVm` rows with explicit VMx services.
+1. Owning those rows in a `CompositeVm` with an initial `current(...)` selector.
+1. Projecting a live search result through `FilteredCompositeVm`.
 1. Executing a `RelayCommand`.
 1. Running the lifecycle through `construct()` and `dispose()`.
 
@@ -20,7 +22,9 @@ Expected output:
 
 ```text
 Hello from VMx Rust
-hello-rust constructed: true
+notes constructed with 3 notes
+current: rust-roadmap
+rust search matches: 1
 ```
 
 ## 2. Project Layout

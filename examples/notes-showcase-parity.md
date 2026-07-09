@@ -1,10 +1,10 @@
 # Notes Workspace — cross-flavor parity matrix
 
-The Notes Workspace is the VMx flagship example portfolio: one scenario
-(`spec/proposals/2026-05-29-notes-showcase-scenario.md`), four idiomatic
-implementations sharing one language-neutral VM API. This document is the
+The Notes Workspace is the VMx flagship UI example portfolio: one scenario
+(`spec/proposals/2026-05-29-notes-showcase-scenario.md`), implemented by the
+UI-backed flavors through one language-neutral VM API. This document is the
 single-page proof that every spec feature in scope is exercised by every
-flavor.
+UI-backed flavor.
 
 Published walkthroughs:
 [Notes Workspace](https://thekaveh.github.io/VMx/examples/notes-workspace/),

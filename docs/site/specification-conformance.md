@@ -23,8 +23,7 @@ implementation.
 
 The current catalog contains:
 
-- 281 library IDs implemented by the four stable full-parity flavors
-- 281 Rust preview markers tracked while behavioral assertions are expanded
+- 281 library IDs implemented by all five full-parity source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
 - 286 total IDs in the published catalog
 
@@ -33,12 +32,9 @@ The source overview is here:
 
 ## How The Repo Enforces It
 
-- Each language flavor carries a conformance suite or preview marker suite under
-  its own tree.
+- Each language flavor carries a conformance suite under its own tree.
 - `tools/check-conformance-coverage.py` enforces full library coverage across
-  C#, Python, TypeScript, and Swift.
-- The same tool reports Rust marker coverage separately until Rust graduates to
-  required stable parity.
+  C#, Python, TypeScript, Swift, and Rust.
 - The examples workflows enforce the separate flagship scenario contract.
 
 ## Practical Reading Path

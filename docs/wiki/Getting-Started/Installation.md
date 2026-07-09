@@ -1,8 +1,8 @@
 # Installation
 
 VMx currently ships as a source tree implementing spec v3.1.0 across C#,
-Python, TypeScript, and Swift. Public package availability can lag the source
-tree, so check the flavor README before pinning a release.
+Python, TypeScript, Swift, and Rust. Public package availability can lag the
+source tree, so check the flavor README before pinning a release.
 
 ## At A Glance
 
@@ -12,6 +12,7 @@ tree, so check the flavor README before pinning a release.
 | Python     | `pip install vmx`                | PyPI can trail the repo source tree.                   |
 | TypeScript | `npm install @thekaveh/vmx rxjs` | Package surface is defined; public release is pending. |
 | Swift      | SwiftPM package from repo tags   | Published through repo tags after release.             |
+| Rust       | `vmx-rs = { path = "langs/rust" }` | crates.io release is pending.                         |
 
 ## Related Pages
 

@@ -1,9 +1,8 @@
 # VMx
 
 VMx is a lifecycle-aware MVVM viewmodel framework: one language-neutral
-specification, four stable idiomatic language flavors, an in-progress Rust
-preview, and a conformance catalog that keeps C#, Python, TypeScript, and Swift
-aligned.
+specification, five idiomatic source flavors, and a conformance catalog that
+keeps C#, Python, TypeScript, Swift, and Rust aligned.
 
 <div class="vmx-card-grid">
   <div class="vmx-card">
@@ -12,7 +11,7 @@ aligned.
   </div>
   <div class="vmx-card">
     <h3><a href="quickstart/">Quickstart</a></h3>
-    <p>Build the same component-plus-composite shape across the stable flavors and Rust preview.</p>
+    <p>Build the same component-plus-composite shape across the full-parity flavors.</p>
   </div>
   <div class="vmx-card">
     <h3><a href="architecture/">Architecture Map</a></h3>
@@ -24,9 +23,8 @@ aligned.
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
 - Every flavor keeps the same conceptual shape while following native naming conventions.
-- The conformance catalog keeps 281 library IDs and 5 scenario IDs aligned across full-parity flavors.
-- Rust is tracked separately as a preview flavor until its conformance markers
-  are backed by full behavioral assertions.
+- The conformance catalog keeps 281 library IDs aligned across all five
+  full-parity source flavors, plus 5 scenario IDs for flagship examples.
 
 ## Start Here
 

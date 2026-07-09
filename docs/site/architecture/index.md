@@ -1,7 +1,8 @@
 # Architecture Map
 
 VMx is organized as a small runtime core plus a family of viewmodel,
-command, collection, and helper layers that repeat across all four flavors.
+command, collection, and helper layers that repeat across all five source
+flavors.
 
 <img src="../assets/diagrams/system-architecture.svg" alt="VMx System Architecture" class="vmx-diagram" />
 

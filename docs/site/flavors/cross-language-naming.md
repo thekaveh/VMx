@@ -1,8 +1,7 @@
 # Cross-Language Naming
 
-VMx keeps one conceptual API shape across the stable supported flavors, with
-Rust joining as a preview flavor. The names shift only to match the host
-language idiom.
+VMx keeps one conceptual API shape across the supported source flavors. The
+names shift only to match the host language idiom.
 
 ## Core Translation Table
 
@@ -21,8 +20,7 @@ language idiom.
   distinct `ComponentVMOf` name.
 - Hub `PropertyChangedMessage` property names follow the flavor idiom:
   `"IsValid"` in C#, `"is_valid"` in Python, and `"isValid"` in TypeScript and
-  Swift. Rust uses snake_case strings such as `"is_valid"` as behavioral
-  conformance expands.
+  Swift. Rust uses snake_case strings such as `"is_valid"`.
 - The collections `"Count"` channel is a deliberate spec-literal exception; it
   does not get translated to the local casing style.
 
@@ -32,4 +30,4 @@ language idiom.
 - Confirm the full local surface in the flavor README when the example moves
   beyond the shared core shape.
 - Use [Quickstart](../quickstart.md) when you want same-concept examples across
-  the stable flavors in one place.
+  flavors in one place.

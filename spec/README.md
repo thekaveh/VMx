@@ -9,8 +9,8 @@ re-implements the catalog at `12-conformance.md`: C# under
 `langs/csharp/tests/VMx.Conformance.Tests`, Python under
 `langs/python/tests/conformance`, TypeScript under
 `langs/typescript/tests/conformance`, Swift under `langs/swift/Tests/VMxTests`,
-and Rust preview markers under `langs/rust/tests/conformance`. Behavioral
-conformance must pass before any flavor releases a stable version.
+and Rust under `langs/rust/tests/conformance`. Behavioral conformance must pass
+before any flavor releases a stable version.
 
 ## 1. Contents
 
@@ -289,7 +289,7 @@ public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
 ### 1.10 v3.0.0 → v3.1.0 changes
 
 v3.1.0 is an additive minor bump driven by upstream consumer adoption feedback.
-It keeps the four stable flavors at total parity and raises the conformance
+It keeps the active full-parity flavors at total parity and raises the conformance
 catalog from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
 
 - **ADR-0068** — disposed `RelayCommand` instances are inert (`CMD-013`).
@@ -313,16 +313,17 @@ catalog from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
   clarification.
 - **ADR-0079** — Swift options-value factories and non-selectable group
   children add `BLD-006` and `GRP-011`.
-- **ADR-0080** — accepts Rust as a planned fifth flavor. Rust starts as a
-  source-tree preview crate with 281 conformance catalog markers; it remains
-  marked in-progress until those markers are backed by full behavioral
-  assertions and a crates.io release channel.
+- **ADR-0080** — accepts Rust as the fifth VMx flavor candidate.
+- **ADR-0081** — promotes Rust to full library conformance in source. Rust now
+  carries behavioral tests for all 281 library IDs and is required by the
+  conformance coverage gate; crates.io publication remains a separate release
+  channel task.
 
 ### 1.11 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.1.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0080); see
+- `ADRs/` — Architecture Decision Records (0001-0081); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

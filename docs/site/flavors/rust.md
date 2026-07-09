@@ -1,6 +1,6 @@
 # Rust
 
-Rust is the in-progress fifth VMx flavor. It lives under `langs/rust/` as the
+Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 `vmx-rs` Cargo package while exposing the crate namespace `vmx`.
 
 ## Status
@@ -11,8 +11,7 @@ Rust is the in-progress fifth VMx flavor. It lives under `langs/rust/` as the
 - Reactive primitive: VMx-owned facade over `rxrust`
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: 281 catalog markers are present; behavioral assertions are still
-  being expanded before Rust is marked stable full parity
+- Conformance: all 281 library IDs are covered by behavioral Rust tests
 
 ## Local Use
 
@@ -49,4 +48,5 @@ cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
 ```
 
 Use [ADR-0080](https://github.com/thekaveh/VMx/blob/main/spec/ADRs/0080-rust-flavor-feasibility.md)
-for the adoption decision and the Rust-specific constraints.
+for the adoption decision and [ADR-0081](https://github.com/thekaveh/VMx/blob/main/spec/ADRs/0081-rust-full-parity-cutover.md)
+for the full-conformance cutover.

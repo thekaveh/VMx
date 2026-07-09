@@ -2319,7 +2319,7 @@ equality is evaluated by each flavor's chapter 20 §4 mechanism — `object.Equa
 The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references, so the equal-values
-guarantee now holds for value-equality-capable models in all four flavors.
+guarantee now holds for value-equality-capable models in all full-parity flavors.
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality (C#/Python).
 

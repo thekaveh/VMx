@@ -45,6 +45,7 @@
 - [[Python|Language-Flavors/Python]]
 - [[TypeScript|Language-Flavors/TypeScript]]
 - [[Swift|Language-Flavors/Swift]]
+- [[Rust|Language-Flavors/Rust]]
 
 **Examples**
 

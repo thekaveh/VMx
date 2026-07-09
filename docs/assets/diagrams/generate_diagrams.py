@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 import re
-import tempfile
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
@@ -135,7 +135,11 @@ def load_source_facts() -> SourceFacts:
 
     readme_conformance = require_match(
         repo_readme,
-        r"(\d+)\s+library conformance IDs\s+\+\s+(\d+)\s+THEME scenario IDs\s+=\s+\*\*(\d+)\s+total\*\*",
+        (
+            r"(\d+)\s+library conformance IDs[\s\S]{0,180}?"
+            r"(\d+)\s+(?:additional\s+)?THEME scenario IDs[\s\S]{0,80}?"
+            r"\*\*(\d+)\s+total\*\*"
+        ),
         "README conformance summary",
     )
     if (
@@ -674,11 +678,12 @@ def system_architecture() -> Diagram:
             Box(1390, 152, 220, 110, "Collections + state", ("ObservableList", "DerivedProperty", "SearchableState"), "database"),
             Box(1150, 288, 220, 110, "Paging primitives", ("PagedComposition", "TokenPagedComposition", "filtered ordering"), "database"),
             Box(1390, 288, 220, 110, "Notifications", ("INotificationHub", "NotificationVM", "ConfirmationVM"), "security"),
-            Box(160, 536, 250, 136, "C#", ("PascalCase surface", "System.Reactive", "NuGet packages"), "frontend"),
-            Box(440, 536, 250, 136, "Python", ("snake_case surface", "reactivex", "uv + pytest"), "frontend"),
-            Box(720, 536, 250, 136, "TypeScript", ("camelCase surface", "rxjs", "dual ESM/CJS"), "frontend"),
-            Box(1000, 536, 250, 136, "Swift", ("camelCase surface", "Combine", "SwiftPM resources"), "frontend"),
-            Box(1280, 536, 270, 136, "Compatibility matrix", ("independent package versions", "manual spec mapping", "major bumps track spec majors"), "generic"),
+            Box(150, 536, 210, 136, "C#", ("PascalCase surface", "System.Reactive", "NuGet packages"), "frontend"),
+            Box(390, 536, 210, 136, "Python", ("snake_case surface", "reactivex", "uv + pytest"), "frontend"),
+            Box(630, 536, 210, 136, "TypeScript", ("camelCase surface", "rxjs", "dual ESM/CJS"), "frontend"),
+            Box(870, 536, 210, 136, "Swift", ("camelCase surface", "Combine", "SwiftPM resources"), "frontend"),
+            Box(1110, 536, 210, 136, "Rust", ("Rust type names", "rxrust facade", "Cargo crate"), "frontend"),
+            Box(1350, 536, 220, 136, "Compatibility matrix", ("independent package versions", "manual spec mapping", "major bumps track spec majors"), "generic"),
             Box(
                 300,
                 820,
@@ -702,11 +707,12 @@ def system_architecture() -> Diagram:
             Polyline(((1040, 206), (1150, 206)), color="#34d399", label="injects", label_xy=(1096, 192)),
             Polyline(((1040, 344), (1150, 344)), color="#a78bfa", label="coordinates", label_xy=(1094, 330)),
             Polyline(((1520, 262), (1520, 288)), color="#fb7185"),
-            Polyline(((660, 398), (280, 536)), color="#22d3ee", label="idiomatic APIs", label_xy=(474, 448)),
-            Polyline(((660, 398), (560, 536)), color="#22d3ee"),
-            Polyline(((920, 398), (840, 536)), color="#22d3ee"),
-            Polyline(((920, 398), (1120, 536)), color="#22d3ee"),
-            Polyline(((1270, 398), (1420, 536)), color="#a78bfa", label="versioned separately", label_xy=(1380, 450)),
+            Polyline(((660, 398), (255, 536)), color="#22d3ee", label="idiomatic APIs", label_xy=(474, 448)),
+            Polyline(((660, 398), (495, 536)), color="#22d3ee"),
+            Polyline(((790, 398), (735, 536)), color="#22d3ee"),
+            Polyline(((920, 398), (975, 536)), color="#22d3ee"),
+            Polyline(((1040, 398), (1215, 536)), color="#22d3ee"),
+            Polyline(((1270, 398), (1460, 536)), color="#a78bfa", label="versioned separately", label_xy=(1380, 450)),
             Polyline(((410, 672), (450, 820)), color="#64748b", label="hosts", label_xy=(432, 744)),
             Polyline(((845, 672), (850, 820)), color="#fb923c", label="enforces", label_xy=(872, 742)),
             Polyline(((1400, 672), (1250, 820)), color="#34d399", label="documents", label_xy=(1320, 740)),
@@ -723,8 +729,8 @@ def system_architecture() -> Diagram:
             (
                 "Parity shape",
                 (
-                    "C#, Python, TypeScript, and Swift share one conceptual runtime with idiomatic casing only.",
-                    "Reactive primitives stay native per flavor: System.Reactive, reactivex, rxjs, and Combine.",
+                    "C#, Python, TypeScript, Swift, and Rust share one conceptual runtime with idiomatic casing only.",
+                    "Reactive primitives stay native per flavor: System.Reactive, reactivex, rxjs, Combine, and rxrust facade.",
                     "Runtime helpers such as paging, derived properties, dialogs, and notifications remain consistent.",
                 ),
             ),
@@ -892,7 +898,7 @@ def viewmodel_families() -> Diagram:
             Box(680, 514, 240, 128, "State helpers", ("DerivedProperty", "ExpandableState", "SearchableState"), "database"),
             Box(970, 514, 240, 128, "Paging helpers", ("PagedComposition", "TokenPagedComposition", "filtered/scored views"), "database"),
             Box(1260, 514, 260, 128, "Services + messages", ("MessageHub", "IDialogService", "INotificationHub", "PropertyChangedMessage"), "bus"),
-            Box(240, 694, 1240, 86, "Flavor surface", ("C# PascalCase, Python snake_case, TypeScript and Swift camelCase - same shape, idiomatic surface only."), "generic"),
+            Box(240, 694, 1240, 86, "Flavor surface", ("C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only."), "generic"),
         ),
         lines=(
             Polyline(((230, 276), (230, 320)), color="#22d3ee", label="extends", label_xy=(278, 300)),

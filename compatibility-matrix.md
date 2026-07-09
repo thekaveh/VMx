@@ -4,16 +4,16 @@ Maintained by hand alongside spec releases.
 
 ## 1. Matrix
 
-| spec  | csharp          | python          | typescript      | swift           | rust                 |
-| ----- | --------------- | --------------- | --------------- | --------------- | -------------------- |
-| 3.1.x | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 0.1.0-preview[^rust] |
-| 2.6.x | 2.6.0           | 2.6.1           | 2.6.0           | 2.6.0 (subset)  | —                    |
-| 2.4.x | 2.4.0           | 2.4.0           | 2.4.0           | 2.4.0 (subset)  | —                    |
-| 2.3.x | 2.3.0           | 2.3.0           | 2.3.0           | —               | —                    |
-| 2.2.x | 2.2.0           | 2.2.0           | 2.2.0           | —               | —                    |
-| 2.1.x | 2.1.0           | 2.1.0           | 2.1.0           | —               | —                    |
-| 2.0.x | 2.0.0           | 2.0.0           | 2.0.0           | —               | —                    |
-| 1.0.x | 1.0.0           | 1.0.0           | —               | —               | —                    |
+| spec  | csharp          | python          | typescript      | swift           | rust          |
+| ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
+| 3.1.x | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 0.1.0[^rust] |
+| 2.6.x | 2.6.0           | 2.6.1           | 2.6.0           | 2.6.0 (subset)  | —             |
+| 2.4.x | 2.4.0           | 2.4.0           | 2.4.0           | 2.4.0 (subset)  | —             |
+| 2.3.x | 2.3.0           | 2.3.0           | 2.3.0           | —               | —             |
+| 2.2.x | 2.2.0           | 2.2.0           | 2.2.0           | —               | —             |
+| 2.1.x | 2.1.0           | 2.1.0           | 2.1.0           | —               | —             |
+| 2.0.x | 2.0.0           | 2.0.0           | 2.0.0           | —               | —             |
+| 1.0.x | 1.0.0           | 1.0.0           | —               | —               | —             |
 
 ## 2. Notes
 
@@ -56,10 +56,9 @@ created: C#/TypeScript/Swift 3.1.0 live in source and publish once their
 registry credentials are configured (the C#/TS release jobs deliberately
 refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`).
 
-[^rust]: Rust is a source-tree preview flavor introduced by ADR-0080. It
-declares `MIN_SPEC_VERSION = "3.1.0"` and carries 281 conformance catalog
-markers, but its behavioral assertions are still being expanded before it
-is advertised as stable full parity or published to crates.io.
+[^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
+declares `MIN_SPEC_VERSION = "3.1.0"` and carries behavioral tests for all 281
+library conformance IDs. It has not yet been published to crates.io.
 
 ## 3. C# companion packages
 

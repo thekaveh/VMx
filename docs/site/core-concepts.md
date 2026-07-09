@@ -1,10 +1,10 @@
 # Core Concepts
 
-## One Spec, Stable Flavors Plus Rust Preview
+## One Spec, Five Source Flavors
 
 VMx is defined once in `spec/` and implemented idiomatically in C#, Python,
-TypeScript, and Swift, with Rust now present as a preview flavor. The
-conceptual model stays aligned even when naming changes by flavor.
+TypeScript, Swift, and Rust. The conceptual model stays aligned even when
+naming changes by flavor.
 
 ## Lifecycle-Aware ViewModels
 

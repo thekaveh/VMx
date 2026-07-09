@@ -45,7 +45,8 @@ minimum entry points:
 ## Rust
 
 - `examples/rust/console/hello-vmx/`:
-  preview Cargo console demo using `ComponentVm` and `RelayCommand`
+  Cargo console demo using `ComponentVm`, `CompositeVm`, `FilteredCompositeVm`,
+  and `RelayCommand`
 
 Source index:
 [examples/rust/README.md](https://github.com/thekaveh/VMx/blob/main/examples/rust/README.md)

@@ -110,7 +110,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 79 ADRs,
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 81 ADRs,
   4 JSON fixtures, 286 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -272,7 +272,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0079)
+│   ├── ADRs/              architecture decision records (0001..0081)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
@@ -281,7 +281,7 @@ Smaller per-flavor demos:
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
 │   ├── swift/             VMx Swift Package (v3.1.0, total parity — 281 library + 5 THEME)
-│   └── rust/              vmx-rs preview crate (source-tree only)
+│   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -306,7 +306,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 79 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 81 ADRs,
   4 fixtures, and the 286-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
@@ -314,7 +314,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
   [`langs/swift/README.md`](langs/swift/README.md) (v3.1.0, total parity — 281 library + 5 THEME),
-  [`langs/rust/README.md`](langs/rust/README.md) (preview).
+  [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),

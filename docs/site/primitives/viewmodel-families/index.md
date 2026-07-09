@@ -48,7 +48,7 @@ detail.
 
 ## Cross-Language Surface
 
-The conceptual family map is shared across all four flavors. The main
+The conceptual family map is shared across all five source flavors. The main
 cross-language differences are the usual casing rules and the modeled-type
 spellings called out on each concrete page.
 

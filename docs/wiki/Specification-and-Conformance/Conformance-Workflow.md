@@ -5,7 +5,8 @@ own test suite.
 
 ## Repo Enforcement
 
-- `tools/check-conformance-coverage.py` enforces library ID coverage
+- `tools/check-conformance-coverage.py` enforces library ID coverage across
+  C#, Python, TypeScript, Swift, and Rust
 - spec-discipline automation requires matching stubs when new IDs are added
 - example workflows cover the separate flagship scenario contract
 

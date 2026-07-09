@@ -148,7 +148,7 @@ children:
   child is `Destructed`, the composite transitions to `Destructed`.
 
 The order in which children are visited is unspecified. The reference
-implementations in all four flavors (C# / Python / TypeScript / Swift)
+implementations in the full-parity flavors
 drive them sequentially.
 
 ### 5.1 Add after Constructed
