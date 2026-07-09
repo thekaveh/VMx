@@ -3,6 +3,7 @@ mod conformance {
     mod builders;
     mod capabilities;
     mod catalog_markers;
+    mod collections;
     mod command_decorators;
     mod commands;
     mod composite_vm;

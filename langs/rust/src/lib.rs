@@ -1511,6 +1511,18 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         item
     }
 
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let old = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            std::mem::replace(&mut inner[index], item)
+        };
+        self.publish(CollectionChangeAction::Replace);
+        Ok(old)
+    }
+
     pub fn clear(&self) {
         let changed = {
             let mut inner = lock(&self.inner);
@@ -1554,13 +1566,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
                 property_name: "items".to_string(),
-                action,
+                action: action.clone(),
             }));
-        self.hub
-            .send(Message::PropertyChanged(PropertyChangedMessage {
-                sender_id: self.owner_id,
-                property_name: "Count".to_string(),
-            }));
+        if action != CollectionChangeAction::Replace {
+            self.hub
+                .send(Message::PropertyChanged(PropertyChangedMessage {
+                    sender_id: self.owner_id,
+                    property_name: "Count".to_string(),
+                }));
+        }
     }
 }
 
@@ -1621,6 +1635,18 @@ where
             self.publish(CollectionChangeAction::Remove);
         }
         removed
+    }
+
+    pub fn clear(&self) {
+        let changed = {
+            let mut inner = lock(&self.inner);
+            let changed = !inner.is_empty();
+            inner.clear();
+            changed
+        };
+        if changed {
+            self.publish(CollectionChangeAction::Reset);
+        }
     }
 
     pub fn keys(&self) -> Vec<K> {
@@ -2325,6 +2351,29 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     pub fn set_page_size(&self, page_size: usize) {
         *lock(&self.page_size) = page_size;
         self.clamp();
+    }
+
+    pub fn set_source(&self, source: Vec<T>) {
+        *lock(&self.source) = source;
+        self.clamp();
+    }
+
+    pub fn push(&self, item: T) {
+        lock(&self.source).push(item);
+        self.clamp();
+    }
+
+    pub fn remove_at(&self, index: usize) -> Option<T> {
+        let removed = {
+            let mut source = lock(&self.source);
+            if index >= source.len() {
+                None
+            } else {
+                Some(source.remove(index))
+            }
+        };
+        self.clamp();
+        removed
     }
 
     pub fn page_count(&self) -> usize {
