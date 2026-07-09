@@ -315,6 +315,10 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     fn status(&self) -> ConstructionStatus;
     fn set_parent_id(&self, parent_id: Option<usize>);
     fn parent_id(&self) -> Option<usize>;
+    fn set_current_flag(&self, _is_current: bool) {}
+    fn is_current(&self) -> bool {
+        false
+    }
 }
 
 type Hook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
@@ -477,18 +481,7 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     fn set_parent_id(&self, parent_id: Option<usize>) {
-        let (sender_id, hub) = {
-            let mut inner = lock(&self.inner);
-            if inner.parent_id == parent_id {
-                return;
-            }
-            inner.parent_id = parent_id;
-            (inner.id, inner.hub.clone())
-        };
-        hub.send(Message::PropertyChanged(PropertyChangedMessage {
-            sender_id,
-            property_name: "parent".to_string(),
-        }));
+        lock(&self.inner).parent_id = parent_id;
     }
 
     fn parent_id(&self) -> Option<usize> {
@@ -507,6 +500,21 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     fn is_selected(&self) -> bool {
         lock(&self.inner).selected
+    }
+
+    fn set_current_flag(&self, selected: bool) {
+        let changed = {
+            let mut inner = lock(&self.inner);
+            if inner.selected == selected {
+                false
+            } else {
+                inner.selected = selected;
+                true
+            }
+        };
+        if changed {
+            self.property_changed("is_current");
+        }
     }
 
     fn select(&self) {
@@ -735,6 +743,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
 
     fn parent_id(&self) -> Option<usize> {
         self.core.parent_id()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.core.is_selected()
     }
 }
 
@@ -1259,6 +1275,7 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     hub: MessageHub,
     owner_id: usize,
     batch_depth: Arc<Mutex<usize>>,
+    batch_dirty: Arc<Mutex<bool>>,
 }
 
 impl<T: Clone + Send + 'static> ObservableList<T> {
@@ -1268,6 +1285,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             hub,
             owner_id,
             batch_depth: Arc::new(Mutex::new(0)),
+            batch_dirty: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -1283,9 +1301,24 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         lock(&self.inner).clone()
     }
 
+    pub fn get(&self, index: usize) -> Option<T> {
+        lock(&self.inner).get(index).cloned()
+    }
+
     pub fn push(&self, item: T) {
         lock(&self.inner).push(item);
         self.publish(CollectionChangeAction::Add);
+    }
+
+    pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
+        let mut inner = lock(&self.inner);
+        if index > inner.len() {
+            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        }
+        inner.insert(index, item);
+        drop(inner);
+        self.publish(CollectionChangeAction::Add);
+        Ok(())
     }
 
     pub fn remove_at(&self, index: usize) -> Option<T> {
@@ -1304,8 +1337,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     pub fn clear(&self) {
-        lock(&self.inner).clear();
-        self.publish(CollectionChangeAction::Reset);
+        let changed = {
+            let mut inner = lock(&self.inner);
+            let changed = !inner.is_empty();
+            inner.clear();
+            changed
+        };
+        if changed {
+            self.publish(CollectionChangeAction::Reset);
+        }
     }
 
     pub fn batch_update<F>(&self, action: F)
@@ -1318,12 +1358,21 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         *depth -= 1;
         if *depth == 0 {
             drop(depth);
-            self.publish(CollectionChangeAction::Reset);
+            let changed = {
+                let mut dirty = lock(&self.batch_dirty);
+                let changed = *dirty;
+                *dirty = false;
+                changed
+            };
+            if changed {
+                self.publish(CollectionChangeAction::Reset);
+            }
         }
     }
 
     fn publish(&self, action: CollectionChangeAction) {
         if *lock(&self.batch_depth) > 0 {
+            *lock(&self.batch_dirty) = true;
             return;
         }
         self.hub
@@ -1416,12 +1465,15 @@ where
     }
 }
 
+type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     items: ObservableList<T>,
     current: Arc<Mutex<Option<T>>>,
     auto_construct_on_add: Arc<Mutex<bool>>,
+    on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
 }
 
 impl<T: VmNode> CompositeVm<T, NullDispatcher> {
@@ -1439,6 +1491,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             items,
             current: Arc::new(Mutex::new(None)),
             auto_construct_on_add: Arc::new(Mutex::new(false)),
+            on_current_changed: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1448,6 +1501,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     pub fn items(&self) -> Vec<T> {
         self.items.to_vec()
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        self.items.get(index)
     }
 
     pub fn len(&self) -> usize {
@@ -1462,14 +1519,21 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         item.set_parent_id(Some(self.id()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
-        self.items.push(item.clone());
         if should_construct {
             item.construct()?;
         }
-        if lock(&self.current).is_none() {
-            *lock(&self.current) = Some(item);
-        }
+        self.items.push(item);
         Ok(())
+    }
+
+    pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
+        item.set_parent_id(Some(self.id()));
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        if should_construct {
+            item.construct()?;
+        }
+        self.items.insert(index, item)
     }
 
     pub fn remove(&self, item: &T) -> VmxResult<()> {
@@ -1480,23 +1544,52 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             .ok_or(VmxError::NonChild)?;
         let removed = self.items.remove_at(index).expect("index checked");
         removed.set_parent_id(None);
-        let mut current = lock(&self.current);
-        if current.as_ref() == Some(&removed) {
-            *current = self.items().first().cloned();
+        if lock(&self.current).as_ref() == Some(&removed) {
+            self.assign_current(None);
         }
         Ok(())
+    }
+
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let removed = self
+            .items
+            .remove_at(index)
+            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        removed.set_parent_id(None);
+        if lock(&self.current).as_ref() == Some(&removed) {
+            self.assign_current(None);
+        }
+        Ok(removed)
+    }
+
+    pub fn clear(&self) {
+        for item in self.items() {
+            item.set_parent_id(None);
+            item.set_current_flag(false);
+        }
+        self.assign_current(None);
+        self.items.clear();
     }
 
     pub fn current(&self) -> Option<T> {
         lock(&self.current).clone()
     }
 
+    pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        if let Some(item) = item.as_ref() {
+            if !self.items().iter().any(|candidate| candidate == item) {
+                return Err(VmxError::NonChild);
+            }
+        }
+        self.assign_current(item);
+        Ok(())
+    }
+
     pub fn select_component(&self, item: &T) -> VmxResult<()> {
-        if !self.items().iter().any(|candidate| candidate == item) {
+        if !self.can_select_component(item) {
             return Err(VmxError::NonChild);
         }
-        *lock(&self.current) = Some(item.clone());
-        self.core.property_changed("current");
+        self.assign_current(Some(item.clone()));
         Ok(())
     }
 
@@ -1507,12 +1600,225 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         *current = None;
         drop(current);
+        item.set_current_flag(false);
         self.core.property_changed("current");
+        self.invoke_current_changed(None);
         Ok(())
     }
 
     pub fn can_select_component(&self, item: &T) -> bool {
         self.items().iter().any(|candidate| candidate == item)
+            && item.status() == ConstructionStatus::Constructed
+    }
+
+    pub fn set_auto_construct_on_add(&self, enabled: bool) {
+        *lock(&self.auto_construct_on_add) = enabled;
+    }
+
+    pub fn on_current_changed<F>(&self, callback: F)
+    where
+        F: Fn(Option<T>) + Send + Sync + 'static,
+    {
+        *lock(&self.on_current_changed) = Some(Arc::new(callback));
+    }
+
+    pub fn batch_update<F>(&self, action: F)
+    where
+        F: FnOnce(),
+    {
+        self.items.batch_update(action);
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.core.transition(LifecycleOperation::Construct)?;
+        for item in self.items() {
+            item.construct()?;
+        }
+        Ok(())
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.assign_current(None);
+        for item in self.items() {
+            item.destruct()?;
+        }
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        for item in self.items() {
+            item.dispose()?;
+        }
+        self.core.transition(LifecycleOperation::Dispose)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
+    }
+
+    fn assign_current(&self, next: Option<T>) {
+        let previous = {
+            let mut current = lock(&self.current);
+            if *current == next {
+                return;
+            }
+            let previous = current.clone();
+            *current = next.clone();
+            previous
+        };
+        if let Some(previous) = previous {
+            previous.set_current_flag(false);
+        }
+        if let Some(next_current) = next.clone() {
+            next_current.set_current_flag(true);
+        }
+        self.core.property_changed("current");
+        self.invoke_current_changed(next);
+    }
+
+    fn invoke_current_changed(&self, current: Option<T>) {
+        if let Some(callback) = lock(&self.on_current_changed).clone() {
+            callback(current);
+        }
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
+    fn id(&self) -> usize {
+        CompositeVm::id(self)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        CompositeVm::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        CompositeVm::destruct(self)
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        CompositeVm::dispose(self)
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        CompositeVm::status(self)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.core.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.core.parent_id()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.core.is_selected()
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> PartialEq for CompositeVm<T, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> Eq for CompositeVm<T, D> {}
+
+#[derive(Clone)]
+pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
+    core: ComponentCore<D>,
+    items: ObservableList<T>,
+    auto_construct_on_add: Arc<Mutex<bool>>,
+}
+
+impl<T: VmNode> GroupVm<T, NullDispatcher> {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self::with_services(name, MessageHub::new(), NullDispatcher::new())
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
+    pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
+        let core = ComponentCore::new(name, hub.clone(), dispatcher);
+        let items = ObservableList::new(core.id(), hub);
+        Self {
+            core,
+            items,
+            auto_construct_on_add: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn id(&self) -> usize {
+        self.core.id()
+    }
+
+    pub fn items(&self) -> Vec<T> {
+        self.items.to_vec()
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        self.items.get(index)
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn add(&self, item: T) -> VmxResult<()> {
+        item.set_parent_id(Some(self.id()));
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        if should_construct {
+            item.construct()?;
+        }
+        self.items.push(item);
+        Ok(())
+    }
+
+    pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
+        item.set_parent_id(Some(self.id()));
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        if should_construct {
+            item.construct()?;
+        }
+        self.items.insert(index, item)
+    }
+
+    pub fn remove(&self, item: &T) -> VmxResult<()> {
+        let index = self
+            .items()
+            .iter()
+            .position(|candidate| candidate == item)
+            .ok_or(VmxError::NonChild)?;
+        let removed = self.items.remove_at(index).expect("index checked");
+        removed.set_parent_id(None);
+        Ok(())
+    }
+
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let removed = self
+            .items
+            .remove_at(index)
+            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        removed.set_parent_id(None);
+        Ok(removed)
+    }
+
+    pub fn clear(&self) {
+        for item in self.items() {
+            item.set_parent_id(None);
+        }
+        self.items.clear();
     }
 
     pub fn set_auto_construct_on_add(&self, enabled: bool) {
@@ -1553,25 +1859,25 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 }
 
-impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
+impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
     fn id(&self) -> usize {
-        CompositeVm::id(self)
+        GroupVm::id(self)
     }
 
     fn construct(&self) -> VmxResult<()> {
-        CompositeVm::construct(self)
+        GroupVm::construct(self)
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        CompositeVm::destruct(self)
+        GroupVm::destruct(self)
     }
 
     fn dispose(&self) -> VmxResult<()> {
-        CompositeVm::dispose(self)
+        GroupVm::dispose(self)
     }
 
     fn status(&self) -> ConstructionStatus {
-        CompositeVm::status(self)
+        GroupVm::status(self)
     }
 
     fn set_parent_id(&self, parent_id: Option<usize>) {
@@ -1581,17 +1887,23 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
     fn parent_id(&self) -> Option<usize> {
         self.core.parent_id()
     }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.core.is_selected()
+    }
 }
 
-impl<T: VmNode, D: Dispatcher> PartialEq for CompositeVm<T, D> {
+impl<T: VmNode, D: Dispatcher> PartialEq for GroupVm<T, D> {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl<T: VmNode, D: Dispatcher> Eq for CompositeVm<T, D> {}
-
-pub type GroupVm<T, D = NullDispatcher> = CompositeVm<T, D>;
+impl<T: VmNode, D: Dispatcher> Eq for GroupVm<T, D> {}
 
 #[derive(Clone)]
 pub struct PagedComposition<T: Clone + Send + 'static> {
@@ -2242,12 +2554,443 @@ impl<T: VmNode> AggregateVm<T> {
     }
 }
 
-pub type AggregateVm1<T> = AggregateVm<T>;
-pub type AggregateVm2<T> = AggregateVm<T>;
-pub type AggregateVm3<T> = AggregateVm<T>;
-pub type AggregateVm4<T> = AggregateVm<T>;
-pub type AggregateVm5<T> = AggregateVm<T>;
-pub type AggregateVm6<T> = AggregateVm<T>;
+#[derive(Clone)]
+pub struct AggregateVm1<T1: VmNode, D: Dispatcher = NullDispatcher> {
+    core: ComponentCore<D>,
+    component1: T1,
+}
+
+impl<T1: VmNode> AggregateVm1<T1, NullDispatcher> {
+    pub fn new(name: impl Into<String>, component1: T1) -> Self {
+        Self::with_services(name, MessageHub::new(), NullDispatcher::new(), component1)
+    }
+}
+
+impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
+    pub fn with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+    ) -> Self {
+        Self {
+            core: ComponentCore::new(name, hub, dispatcher),
+            component1,
+        }
+    }
+
+    pub fn component1(&self) -> T1 {
+        self.component1.clone()
+    }
+
+    pub fn id(&self) -> usize {
+        self.core.id()
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.core.property_changed("component1");
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.component1.destruct()?;
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        self.component1.dispose()?;
+        self.core.transition(LifecycleOperation::Dispose)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
+    }
+}
+
+impl<T1: VmNode, D: Dispatcher> VmNode for AggregateVm1<T1, D> {
+    fn id(&self) -> usize {
+        AggregateVm1::id(self)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        AggregateVm1::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        AggregateVm1::destruct(self)
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        AggregateVm1::dispose(self)
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        AggregateVm1::status(self)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.core.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.core.parent_id()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.core.is_selected()
+    }
+}
+
+impl<T1: VmNode, D: Dispatcher> PartialEq for AggregateVm1<T1, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl<T1: VmNode, D: Dispatcher> Eq for AggregateVm1<T1, D> {}
+
+#[derive(Clone)]
+pub struct AggregateVm2<T1: VmNode, T2: VmNode, D: Dispatcher = NullDispatcher> {
+    core: ComponentCore<D>,
+    component1: T1,
+    component2: T2,
+}
+
+impl<T1: VmNode, T2: VmNode> AggregateVm2<T1, T2, NullDispatcher> {
+    pub fn new(name: impl Into<String>, component1: T1, component2: T2) -> Self {
+        Self::with_services(
+            name,
+            MessageHub::new(),
+            NullDispatcher::new(),
+            component1,
+            component2,
+        )
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
+    pub fn with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+    ) -> Self {
+        Self {
+            core: ComponentCore::new(name, hub, dispatcher),
+            component1,
+            component2,
+        }
+    }
+
+    pub fn component1(&self) -> T1 {
+        self.component1.clone()
+    }
+
+    pub fn component2(&self) -> T2 {
+        self.component2.clone()
+    }
+
+    pub fn id(&self) -> usize {
+        self.core.id()
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.core.property_changed("component1");
+        self.component2.construct()?;
+        self.core.property_changed("component2");
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.component1.destruct()?;
+        self.component2.destruct()?;
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        self.component1.dispose()?;
+        self.component2.dispose()?;
+        self.core.transition(LifecycleOperation::Dispose)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, D: Dispatcher> VmNode for AggregateVm2<T1, T2, D> {
+    fn id(&self) -> usize {
+        AggregateVm2::id(self)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        AggregateVm2::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        AggregateVm2::destruct(self)
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        AggregateVm2::dispose(self)
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        AggregateVm2::status(self)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.core.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.core.parent_id()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.core.is_selected()
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, D: Dispatcher> PartialEq for AggregateVm2<T1, T2, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, D: Dispatcher> Eq for AggregateVm2<T1, T2, D> {}
+
+#[derive(Clone)]
+pub struct AggregateVm3<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher = NullDispatcher> {
+    core: ComponentCore<D>,
+    component1: T1,
+    component2: T2,
+    component3: T3,
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode> AggregateVm3<T1, T2, T3, NullDispatcher> {
+    pub fn new(name: impl Into<String>, component1: T1, component2: T2, component3: T3) -> Self {
+        Self::with_services(
+            name,
+            MessageHub::new(),
+            NullDispatcher::new(),
+            component1,
+            component2,
+            component3,
+        )
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3, D> {
+    pub fn with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+    ) -> Self {
+        Self {
+            core: ComponentCore::new(name, hub, dispatcher),
+            component1,
+            component2,
+            component3,
+        }
+    }
+
+    pub fn component1(&self) -> T1 {
+        self.component1.clone()
+    }
+
+    pub fn component2(&self) -> T2 {
+        self.component2.clone()
+    }
+
+    pub fn component3(&self) -> T3 {
+        self.component3.clone()
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.core.property_changed("component1");
+        self.component2.construct()?;
+        self.core.property_changed("component2");
+        self.component3.construct()?;
+        self.core.property_changed("component3");
+        self.core.transition(LifecycleOperation::Construct)
+    }
+}
+
+#[derive(Clone)]
+pub struct AggregateVm4<
+    T1: VmNode,
+    T2: VmNode,
+    T3: VmNode,
+    T4: VmNode,
+    D: Dispatcher = NullDispatcher,
+> {
+    core: ComponentCore<D>,
+    component1: T1,
+    component2: T2,
+    component3: T3,
+    component4: T4,
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4, NullDispatcher> {
+    pub fn new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+    ) -> Self {
+        Self {
+            core: ComponentCore::new(name, MessageHub::new(), NullDispatcher::new()),
+            component1,
+            component2,
+            component3,
+            component4,
+        }
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.component2.construct()?;
+        self.component3.construct()?;
+        self.component4.construct()?;
+        self.core.transition(LifecycleOperation::Construct)
+    }
+}
+
+#[derive(Clone)]
+pub struct AggregateVm5<
+    T1: VmNode,
+    T2: VmNode,
+    T3: VmNode,
+    T4: VmNode,
+    T5: VmNode,
+    D: Dispatcher = NullDispatcher,
+> {
+    core: ComponentCore<D>,
+    component1: T1,
+    component2: T2,
+    component3: T3,
+    component4: T4,
+    component5: T5,
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
+    AggregateVm5<T1, T2, T3, T4, T5, NullDispatcher>
+{
+    pub fn new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+    ) -> Self {
+        Self {
+            core: ComponentCore::new(name, MessageHub::new(), NullDispatcher::new()),
+            component1,
+            component2,
+            component3,
+            component4,
+            component5,
+        }
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.component2.construct()?;
+        self.component3.construct()?;
+        self.component4.construct()?;
+        self.component5.construct()?;
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn component5(&self) -> T5 {
+        self.component5.clone()
+    }
+}
+
+#[derive(Clone)]
+pub struct AggregateVm6<
+    T1: VmNode,
+    T2: VmNode,
+    T3: VmNode,
+    T4: VmNode,
+    T5: VmNode,
+    T6: VmNode,
+    D: Dispatcher = NullDispatcher,
+> {
+    core: ComponentCore<D>,
+    component1: T1,
+    component2: T2,
+    component3: T3,
+    component4: T4,
+    component5: T5,
+    component6: T6,
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
+    AggregateVm6<T1, T2, T3, T4, T5, T6, NullDispatcher>
+{
+    pub fn new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+        component6: T6,
+    ) -> Self {
+        Self {
+            core: ComponentCore::new(name, MessageHub::new(), NullDispatcher::new()),
+            component1,
+            component2,
+            component3,
+            component4,
+            component5,
+            component6,
+        }
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.component2.construct()?;
+        self.component3.construct()?;
+        self.component4.construct()?;
+        self.component5.construct()?;
+        self.component6.construct()?;
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.component1.destruct()?;
+        self.component2.destruct()?;
+        self.component3.destruct()?;
+        self.component4.destruct()?;
+        self.component5.destruct()?;
+        self.component6.destruct()?;
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn component6(&self) -> T6 {
+        self.component6.clone()
+    }
+}
 
 #[derive(Clone)]
 pub struct ForwardingComponentVm<
