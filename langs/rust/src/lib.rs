@@ -2977,35 +2977,96 @@ impl NullDialogService {
     }
 }
 
-type FormValidator<M> = Arc<dyn Fn(&M) -> Vec<String> + Send + Sync>;
+type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
+type FormSnapshotter<M> = Arc<dyn Fn(&M) -> M + Send + Sync>;
+type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
+type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, String> + Send + Sync>;
+type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,
-    validator: FormValidator<M>,
+    persister: FormPersister<M>,
+    strict: Arc<Mutex<bool>>,
+    errors: Arc<Mutex<BTreeMap<String, String>>>,
+    field_validators: Arc<Mutex<BTreeMap<String, FieldValidator<M>>>>,
+    model_validators: Arc<Mutex<Vec<ModelValidator<M>>>>,
+    errors_changed: MessageHub,
+    approve_errors: MessageHub,
+    approved_callbacks: Arc<Mutex<Vec<ApprovedCallback<M>>>>,
+    disposed: Arc<Mutex<bool>>,
+    hub: MessageHub,
 }
 
 impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     pub fn new(name: impl Into<String>, model: M) -> Self {
-        Self {
-            component: ComponentVm::with_model(
-                name,
-                model.clone(),
-                MessageHub::new(),
-                NullDispatcher::new(),
-            ),
-            snapshot: Arc::new(Mutex::new(model)),
-            validator: Arc::new(|_| Vec::new()),
-        }
+        Self::with_options(name, model, |_| Ok(()), false, MessageHub::new())
     }
 
-    pub fn with_validator<F>(mut self, validator: F) -> Self
+    pub fn with_options<F>(
+        name: impl Into<String>,
+        model: M,
+        persister: F,
+        strict: bool,
+        hub: MessageHub,
+    ) -> Self
+    where
+        F: Fn(&M) -> VmxResult<()> + Send + Sync + 'static,
+    {
+        let component =
+            ComponentVm::with_model(name, model.clone(), hub.clone(), NullDispatcher::new());
+        let form = Self {
+            component,
+            snapshot: Arc::new(Mutex::new(model)),
+            persister: Arc::new(persister),
+            strict: Arc::new(Mutex::new(strict)),
+            errors: Arc::new(Mutex::new(BTreeMap::new())),
+            field_validators: Arc::new(Mutex::new(BTreeMap::new())),
+            model_validators: Arc::new(Mutex::new(Vec::new())),
+            errors_changed: MessageHub::new(),
+            approve_errors: MessageHub::new(),
+            approved_callbacks: Arc::new(Mutex::new(Vec::new())),
+            disposed: Arc::new(Mutex::new(false)),
+            hub,
+        };
+        form.validate();
+        form
+    }
+
+    pub fn builder() -> FormVmBuilder<M> {
+        FormVmBuilder::new()
+    }
+
+    pub fn with_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&M) -> Vec<String> + Send + Sync + 'static,
     {
-        self.validator = Arc::new(validator);
+        lock(&self.model_validators).push(Arc::new(move |model| {
+            validator(model)
+                .into_iter()
+                .enumerate()
+                .map(|(index, error)| (index.to_string(), error))
+                .collect()
+        }));
+        self.validate();
         self
+    }
+
+    pub fn with_field_validator<F>(&self, field: impl Into<String>, validator: F)
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        lock(&self.field_validators).insert(field.into(), Arc::new(validator));
+        self.validate();
+    }
+
+    pub fn with_model_validator<F>(&self, validator: F)
+    where
+        F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
+    {
+        lock(&self.model_validators).push(Arc::new(validator));
+        self.validate();
     }
 
     pub fn model(&self) -> M {
@@ -3013,7 +3074,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     pub fn set_model(&self, model: M) {
+        if *lock(&self.disposed) {
+            return;
+        }
         self.component.set_model(model);
+        self.validate();
+    }
+
+    pub fn snapshot(&self) -> M {
+        lock(&self.snapshot).clone()
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -3021,23 +3090,242 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     pub fn errors(&self) -> Vec<String> {
-        (self.validator)(&self.model())
+        lock(&self.errors).values().cloned().collect()
+    }
+
+    pub fn error_map(&self) -> BTreeMap<String, String> {
+        lock(&self.errors).clone()
+    }
+
+    pub fn field_error(&self, field: &str) -> Option<String> {
+        lock(&self.errors).get(field).cloned()
     }
 
     pub fn is_valid(&self) -> bool {
-        self.errors().is_empty()
+        lock(&self.errors).is_empty()
+    }
+
+    pub fn can_approve(&self) -> bool {
+        !*lock(&self.disposed) && self.is_valid() && (!*lock(&self.strict) || self.is_dirty())
     }
 
     pub fn approve(&self) -> VmxResult<()> {
-        if !self.is_valid() {
-            return Err(VmxError::InvalidArgument("form is invalid".to_string()));
+        if *lock(&self.disposed) {
+            return Ok(());
         }
-        *lock(&self.snapshot) = self.model();
+        if !self.can_approve() {
+            return Err(VmxError::InvalidArgument("form cannot approve".to_string()));
+        }
+        let model = self.model();
+        (self.persister)(&model)?;
+        *lock(&self.snapshot) = model.clone();
+        for callback in lock(&self.approved_callbacks).iter() {
+            callback(model.clone());
+        }
         Ok(())
     }
 
     pub fn revert(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         self.component.set_model(lock(&self.snapshot).clone());
+        self.hub.send(Message::FormReverted(FormRevertedMessage {
+            sender_id: self.component.id(),
+        }));
+        self.hub
+            .send(Message::PropertyChanged(PropertyChangedMessage {
+                sender_id: self.component.id(),
+                property_name: "Model".to_string(),
+            }));
+        self.validate();
+    }
+
+    pub fn approve_command(&self) -> RelayCommand {
+        let form = self.clone();
+        RelayCommand::new(move || {
+            if let Err(error) = form.approve() {
+                form.approve_errors.send(Message::Custom {
+                    sender_id: form.component.id(),
+                    name: error.to_string(),
+                });
+            }
+        })
+        .with_can_execute({
+            let form = self.clone();
+            move || form.can_approve()
+        })
+    }
+
+    pub fn deny_command(&self) -> RelayCommand {
+        let form = self.clone();
+        RelayCommand::new(move || form.revert())
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.hub.clone()
+    }
+
+    pub fn errors_changed(&self) -> MessageHub {
+        self.errors_changed.clone()
+    }
+
+    pub fn approve_errors(&self) -> MessageHub {
+        self.approve_errors.clone()
+    }
+
+    pub fn on_approved<F>(&self, callback: F)
+    where
+        F: Fn(M) + Send + Sync + 'static,
+    {
+        lock(&self.approved_callbacks).push(Arc::new(callback));
+    }
+
+    pub fn dispose(&self) {
+        *lock(&self.disposed) = true;
+    }
+
+    fn validate(&self) {
+        let model = self.model();
+        let mut next = BTreeMap::new();
+        for (field, validator) in lock(&self.field_validators).iter() {
+            if let Some(error) = validator(&model) {
+                next.insert(field.clone(), error);
+            }
+        }
+        for validator in lock(&self.model_validators).iter() {
+            next.extend(validator(&model));
+        }
+        let changed = {
+            let mut errors = lock(&self.errors);
+            if *errors == next {
+                false
+            } else {
+                *errors = next;
+                true
+            }
+        };
+        if changed {
+            self.errors_changed.send(Message::Custom {
+                sender_id: self.component.id(),
+                name: "errors_changed".to_string(),
+            });
+            self.hub
+                .send(Message::PropertyChanged(PropertyChangedMessage {
+                    sender_id: self.component.id(),
+                    property_name: "is_valid".to_string(),
+                }));
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct FormVmBuilder<M: Clone + PartialEq + Send + 'static> {
+    initial: Option<M>,
+    persister: Option<FormPersister<M>>,
+    strict: bool,
+    hub: MessageHub,
+    snapshotter: FormSnapshotter<M>,
+    field_validators: BTreeMap<String, FieldValidator<M>>,
+    model_validators: Vec<ModelValidator<M>>,
+}
+
+impl<M: Clone + PartialEq + Send + 'static> Default for FormVmBuilder<M> {
+    fn default() -> Self {
+        Self {
+            initial: None,
+            persister: None,
+            strict: false,
+            hub: NullMessageHub::hub(),
+            snapshotter: Arc::new(|model| model.clone()),
+            field_validators: BTreeMap::new(),
+            model_validators: Vec::new(),
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn initial(mut self, model: M) -> Self {
+        self.initial = Some(model);
+        self
+    }
+
+    pub fn persister<F>(mut self, persister: F) -> Self
+    where
+        F: Fn(&M) -> VmxResult<()> + Send + Sync + 'static,
+    {
+        self.persister = Some(Arc::new(persister));
+        self
+    }
+
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+
+    pub fn hub(mut self, hub: MessageHub) -> Self {
+        self.hub = hub;
+        self
+    }
+
+    pub fn snapshotter<F>(mut self, snapshotter: F) -> Self
+    where
+        F: Fn(&M) -> M + Send + Sync + 'static,
+    {
+        self.snapshotter = Arc::new(snapshotter);
+        self
+    }
+
+    pub fn validator<F>(mut self, field: impl Into<String>, validator: F) -> Self
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        self.field_validators
+            .insert(field.into(), Arc::new(validator));
+        self
+    }
+
+    pub fn model_validator<F>(mut self, validator: F) -> Self
+    where
+        F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
+    {
+        self.model_validators.push(Arc::new(validator));
+        self
+    }
+
+    pub fn build(self) -> VmxResult<FormVm<M>> {
+        let initial = self
+            .initial
+            .ok_or_else(|| VmxError::BuilderValidation("initial is required".to_string()))?;
+        let persister = self
+            .persister
+            .ok_or_else(|| VmxError::BuilderValidation("persister is required".to_string()))?;
+        let snapshot = (self.snapshotter)(&initial);
+        let form = FormVm {
+            component: ComponentVm::with_model(
+                "FormVm",
+                initial,
+                self.hub.clone(),
+                NullDispatcher::new(),
+            ),
+            snapshot: Arc::new(Mutex::new(snapshot)),
+            persister,
+            strict: Arc::new(Mutex::new(self.strict)),
+            errors: Arc::new(Mutex::new(BTreeMap::new())),
+            field_validators: Arc::new(Mutex::new(self.field_validators)),
+            model_validators: Arc::new(Mutex::new(self.model_validators)),
+            errors_changed: MessageHub::new(),
+            approve_errors: MessageHub::new(),
+            approved_callbacks: Arc::new(Mutex::new(Vec::new())),
+            disposed: Arc::new(Mutex::new(false)),
+            hub: self.hub,
+        };
+        form.validate();
+        Ok(form)
     }
 }
 
@@ -3045,13 +3333,19 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 pub struct DiscriminatorVm<K: Clone + Eq + Hash + Send + 'static> {
     current_key: Arc<Mutex<K>>,
     allowed: Arc<Mutex<HashSet<K>>>,
+    active_changed: MessageHub,
+    modal_stack: Arc<Mutex<Vec<K>>>,
 }
 
 impl<K: Clone + Eq + Hash + Send + 'static> DiscriminatorVm<K> {
     pub fn new(initial: K, allowed: impl IntoIterator<Item = K>) -> Self {
+        let mut allowed_set = allowed.into_iter().collect::<HashSet<_>>();
+        allowed_set.insert(initial.clone());
         Self {
             current_key: Arc::new(Mutex::new(initial)),
-            allowed: Arc::new(Mutex::new(allowed.into_iter().collect())),
+            allowed: Arc::new(Mutex::new(allowed_set)),
+            active_changed: MessageHub::new(),
+            modal_stack: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -3059,13 +3353,58 @@ impl<K: Clone + Eq + Hash + Send + 'static> DiscriminatorVm<K> {
         lock(&self.current_key).clone()
     }
 
+    pub fn active_key(&self) -> K {
+        self.current_key()
+    }
+
     pub fn set_current_key(&self, key: K) -> VmxResult<()> {
+        self.set_active_key(key)
+    }
+
+    pub fn set_active_key(&self, key: K) -> VmxResult<()> {
         if !lock(&self.allowed).contains(&key) {
             return Err(VmxError::InvalidArgument(
                 "unknown discriminator key".to_string(),
             ));
         }
-        *lock(&self.current_key) = key;
+        let changed = {
+            let mut current = lock(&self.current_key);
+            if *current == key {
+                false
+            } else {
+                *current = key;
+                true
+            }
+        };
+        if changed {
+            self.active_changed.send(Message::Custom {
+                sender_id: 0,
+                name: "active_changed".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn is_active(&self, key: &K) -> bool {
+        lock(&self.current_key).eq(key)
+    }
+
+    pub fn active_changed(&self) -> MessageHub {
+        self.active_changed.clone()
+    }
+
+    pub fn modal_open(&self, key: K) -> VmxResult<()> {
+        lock(&self.allowed).insert(key.clone());
+        let previous = self.active_key();
+        lock(&self.modal_stack).push(previous);
+        self.set_active_key(key)
+    }
+
+    pub fn modal_close(&self) -> VmxResult<()> {
+        let previous = lock(&self.modal_stack).pop();
+        if let Some(previous) = previous {
+            self.set_active_key(previous)?;
+        }
         Ok(())
     }
 }

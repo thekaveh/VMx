@@ -9,6 +9,8 @@ mod conformance {
     mod composite_vm;
     mod derived_properties;
     mod dialogs;
+    mod discriminator;
+    mod forms;
     mod forwarding;
     mod group_vm;
     mod lifecycle;
