@@ -3405,6 +3405,54 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     pub fn inner(&self) -> &ComponentVm<M, D> {
         &self.inner
     }
+
+    pub fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn hint(&self) -> Option<String> {
+        self.inner.hint()
+    }
+
+    pub fn model(&self) -> M {
+        self.inner.model()
+    }
+
+    pub fn set_model(&self, model: M) {
+        self.inner.set_model(model);
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.inner.construct()
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    pub fn select(&self) {
+        self.inner.select();
+    }
+
+    pub fn deselect(&self) {
+        self.inner.deselect();
+    }
+
+    pub fn is_selected(&self) -> bool {
+        self.inner.is_selected()
+    }
 }
 
 #[derive(Clone)]
@@ -3419,6 +3467,50 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
 
     pub fn inner(&self) -> &CompositeVm<T, D> {
         &self.inner
+    }
+
+    pub fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    pub fn items(&self) -> Vec<T> {
+        self.inner.items()
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn add(&self, item: T) -> VmxResult<()> {
+        self.inner.add(item)
+    }
+
+    pub fn remove(&self, item: &T) -> VmxResult<()> {
+        self.inner.remove(item)
+    }
+
+    pub fn current(&self) -> Option<T> {
+        self.inner.current()
+    }
+
+    pub fn select_component(&self, item: &T) -> VmxResult<()> {
+        self.inner.select_component(item)
+    }
+
+    pub fn deselect_component(&self, item: &T) -> VmxResult<()> {
+        self.inner.deselect_component(item)
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.inner.construct()
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.inner.destruct()
     }
 }
 

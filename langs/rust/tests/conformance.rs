@@ -6,6 +6,7 @@ mod conformance {
     mod command_decorators;
     mod commands;
     mod composite_vm;
+    mod forwarding;
     mod group_vm;
     mod lifecycle;
     mod message_hub;
