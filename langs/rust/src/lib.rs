@@ -2639,6 +2639,9 @@ impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
 pub struct DerivedProperty<T: Clone + PartialEq + Send + 'static> {
     value: Arc<Mutex<T>>,
     value_changed: MessageHub,
+    validator: Arc<dyn Fn(&T) -> bool + Send + Sync>,
+    write_back: Arc<dyn Fn(T) + Send + Sync>,
+    disposed: Arc<Mutex<bool>>,
 }
 
 impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
@@ -2646,6 +2649,27 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         Self {
             value: Arc::new(Mutex::new(value)),
             value_changed: MessageHub::new(),
+            validator: Arc::new(|_| false),
+            write_back: Arc::new(|_| {}),
+            disposed: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn with_write_back<Validate, WriteBack>(
+        value: T,
+        validator: Validate,
+        write_back: WriteBack,
+    ) -> Self
+    where
+        Validate: Fn(&T) -> bool + Send + Sync + 'static,
+        WriteBack: Fn(T) + Send + Sync + 'static,
+    {
+        Self {
+            value: Arc::new(Mutex::new(value)),
+            value_changed: MessageHub::new(),
+            validator: Arc::new(validator),
+            write_back: Arc::new(write_back),
+            disposed: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -2657,6 +2681,9 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     where
         F: FnOnce(&T) -> T,
     {
+        if *lock(&self.disposed) {
+            return;
+        }
         let next = transform(&lock(&self.value));
         let changed = {
             let mut value = lock(&self.value);
@@ -2678,6 +2705,25 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
 
     pub fn value_changed(&self) -> MessageHub {
         self.value_changed.clone()
+    }
+
+    pub fn can_set(&self, value: &T) -> bool {
+        !*lock(&self.disposed) && (self.validator)(value)
+    }
+
+    pub fn set_value(&self, value: T) -> VmxResult<()> {
+        if !self.can_set(&value) {
+            return Err(VmxError::InvalidArgument(
+                "derived property is read-only".to_string(),
+            ));
+        }
+        (self.write_back)(value);
+        Ok(())
+    }
+
+    pub fn dispose(&self) {
+        *lock(&self.disposed) = true;
+        self.value_changed.dispose();
     }
 }
 

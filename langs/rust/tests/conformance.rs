@@ -7,9 +7,11 @@ mod conformance {
     mod command_decorators;
     mod commands;
     mod composite_vm;
+    mod derived_properties;
     mod forwarding;
     mod group_vm;
     mod lifecycle;
+    mod localization;
     mod message_hub;
     mod modeled_crud;
     mod null_services;
