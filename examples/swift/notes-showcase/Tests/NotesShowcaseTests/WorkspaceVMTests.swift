@@ -128,7 +128,12 @@ final class WorkspaceVMTests: XCTestCase {
         }
 
         ws.notebooksRoot.current = other
-        await waitUntil { ws.notesView.boundNotebookId == other.model.id }
+        await waitUntil {
+            ws.notesView.boundNotebookId == other.model.id
+                && ws.notesView.filteredItems.allSatisfy {
+                    $0.model.notebookId == other.model.id
+                }
+        }
 
         XCTAssertEqual(other.model.id, ws.notesView.boundNotebookId)
         XCTAssertTrue(
