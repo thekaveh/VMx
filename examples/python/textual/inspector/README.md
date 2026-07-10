@@ -2,6 +2,10 @@
 
 A terminal UI showcase app for the **VMx** hierarchical MVVM framework, built with
 [Textual](https://github.com/Textualize/textual).
+Architecture diagram:
+[`python-textual-inspector.svg`](../../../../docs/assets/diagrams/python-textual-inspector.svg)
+([HTML](../../../../docs/assets/diagrams/python-textual-inspector.html),
+[PNG](../../../../docs/assets/diagrams/python-textual-inspector.png)).
 
 ## 1. What it does
 

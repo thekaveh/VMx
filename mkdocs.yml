@@ -79,6 +79,7 @@ nav:
       - Cross-Language Naming: flavors/cross-language-naming.md
   - Examples:
       - Overview: examples/index.md
+      - Example Diagram Gallery: examples/example-diagram-gallery.md
       - Notes Workspace: examples/notes-workspace.md
       - VM Layer Map: examples/notes-workspace-vm-layer.md
       - Rust TUI Notes Showcase: examples/rust-tui-notes-showcase.md

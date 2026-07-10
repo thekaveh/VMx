@@ -3,6 +3,9 @@
 The gallery collects the current documentation diagrams in one place. Use the
 standalone HTML pages for zoomable browsing and the PNG exports for sharing.
 
+Example-app diagrams have their own page:
+[Example Diagram Gallery](../examples/example-diagram-gallery.md).
+
 ## Architecture
 
 ### VMx System Architecture

@@ -1,6 +1,10 @@
 # Swift Notes Workspace
 
 SwiftUI + Combine implementation of the VMx Notes Workspace flagship scenario.
+Architecture diagram:
+[`swift-notes-showcase.svg`](../../../docs/assets/diagrams/swift-notes-showcase.svg)
+([HTML](../../../docs/assets/diagrams/swift-notes-showcase.html),
+[PNG](../../../docs/assets/diagrams/swift-notes-showcase.png)).
 The package has three targets:
 
 - `NotesShowcaseCore` — pure VM layer, models, messages, and repository.

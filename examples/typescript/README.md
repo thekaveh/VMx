@@ -1,6 +1,8 @@
 # VMx TypeScript examples
 
 Self-contained demos of the [VMx TypeScript package](../../langs/typescript/).
+Generated architecture diagrams for all examples live in
+[`../DIAGRAMS.md`](../DIAGRAMS.md).
 
 ## 1. Setup
 
@@ -21,6 +23,11 @@ Minimal console demo. Demonstrates:
    message.
 
 **Run against the local source build (from a clone of this repo):**
+
+Diagram:
+[`typescript-console-hello-vmx.svg`](../../docs/assets/diagrams/typescript-console-hello-vmx.svg)
+([HTML](../../docs/assets/diagrams/typescript-console-hello-vmx.html),
+[PNG](../../docs/assets/diagrams/typescript-console-hello-vmx.png)).
 
 ```bash
 cd examples/typescript/console/hello-vmx
@@ -43,6 +50,11 @@ Pure-VM contract enforced via ESLint's
 `useReducer`.
 
 **Run (dev server):**
+
+Diagram:
+[`typescript-react-notes-showcase.svg`](../../docs/assets/diagrams/typescript-react-notes-showcase.svg)
+([HTML](../../docs/assets/diagrams/typescript-react-notes-showcase.html),
+[PNG](../../docs/assets/diagrams/typescript-react-notes-showcase.png)).
 
 ```bash
 cd react/notes-showcase

@@ -1945,6 +1945,319 @@ def rust_tui_notes_showcase() -> Diagram:
     )
 
 
+def example_app_diagram(
+    *,
+    diagram_id: str,
+    title: str,
+    subtitle: str,
+    host: tuple[str, tuple[str, ...]],
+    adapter: tuple[str, tuple[str, ...]],
+    root: tuple[str, tuple[str, ...]],
+    primary: tuple[str, tuple[str, ...]],
+    support: tuple[str, tuple[str, ...]],
+    model: tuple[str, tuple[str, ...]],
+    verification: tuple[str, tuple[str, ...]],
+    rule: tuple[str, tuple[str, ...]],
+    cards: tuple[tuple[str, tuple[str, ...]], ...],
+    footer: str,
+) -> Diagram:
+    return Diagram(
+        diagram_id=diagram_id,
+        title=title,
+        subtitle=subtitle,
+        width=1700,
+        height=980,
+        boundaries=(
+            Boundary(70, 118, 1560, 248, "Host and adapter boundary", "#22d3ee"),
+            Boundary(70, 396, 1560, 270, "VMx-owned application state", "#34d399"),
+            Boundary(70, 696, 1560, 166, "Verification and modeling rule", "#fb923c"),
+        ),
+        boxes=(
+            Box(120, 166, 300, 116, host[0], host[1], "frontend"),
+            Box(510, 166, 300, 116, adapter[0], adapter[1], "security"),
+            Box(900, 166, 300, 116, "User gestures", ("events become VM calls", "no domain state in host", "render from VM snapshots"), "bus"),
+            Box(1290, 166, 260, 116, "Run surface", ("local example command", "smoke-friendly path", "documented README entry"), "cloud"),
+            Box(120, 444, 300, 122, root[0], root[1], "frontend"),
+            Box(510, 444, 300, 122, primary[0], primary[1], "database"),
+            Box(900, 444, 300, 122, support[0], support[1], "bus"),
+            Box(1290, 444, 260, 122, model[0], model[1], "backend"),
+            Box(250, 738, 350, 90, verification[0], verification[1], "generic"),
+            Box(760, 738, 620, 90, rule[0], rule[1], "generic"),
+        ),
+        lines=(
+            Polyline(((420, 224), (510, 224)), color="#22d3ee", label="binds", label_xy=(466, 208)),
+            Polyline(((810, 224), (900, 224)), color="#fb923c", label="routes", label_xy=(856, 208)),
+            Polyline(((1200, 224), (1290, 224)), color="#fbbf24", label="runs", label_xy=(1246, 208)),
+            Polyline(((270, 282), (270, 444)), color="#34d399", label="owns", label_xy=(326, 366)),
+            Polyline(((660, 282), (660, 444)), color="#34d399", label="projects", label_xy=(724, 366)),
+            Polyline(((1050, 282), (1050, 444)), color="#fb923c", label="executes", label_xy=(1116, 366)),
+            Polyline(((1420, 282), (1420, 444)), color="#a78bfa", label="loads", label_xy=(1470, 366)),
+            Polyline(((420, 505), (510, 505)), color="#22d3ee", label="children", label_xy=(466, 489)),
+            Polyline(((810, 505), (900, 505)), color="#fb923c", label="commands", label_xy=(856, 489)),
+            Polyline(((1200, 505), (1290, 505)), color="#34d399", label="data", label_xy=(1246, 489)),
+            Polyline(((660, 566), (425, 738)), color="#64748b", label="tests", label_xy=(544, 660)),
+            Polyline(((1050, 566), (1070, 738)), color="#64748b", label="boundary", label_xy=(1114, 660)),
+        ),
+        notes=(
+            Note(
+                120,
+                884,
+                1460,
+                58,
+                "Reading rule",
+                (
+                    "Follow arrows top to bottom: host input becomes VMx commands; VMx state publishes renderable projections back to the host.",
+                ),
+                "#22d3ee",
+            ),
+        ),
+        cards=cards,
+        footer=footer,
+    )
+
+
+def csharp_console_hello_vmx() -> Diagram:
+    return example_app_diagram(
+        diagram_id="csharp-console-hello-vmx",
+        title="C# Console HelloVMx Example",
+        subtitle="minimal .NET host for ComponentVM lifecycle, hub messages, and model equality",
+        host=("Console program", ("Program.cs entrypoint", "net8.0 command", "stdout narrative")),
+        adapter=("Message subscriptions", ("hub observers", "status/property logs", "no UI framework")),
+        root=("ComponentVM<UserModel>", ("builder-created VM", "name + modeled hint", "construct/destruct/dispose")),
+        primary=("UserModel projection", ("Alice -> Bob mutation", "equality guard", "modeled hint update")),
+        support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "hot message stream")),
+        model=("UserModel", ("name", "age", "value equality")),
+        verification=("Manual smoke", ("dotnet run", "observable log sequence", "roll-forward note")),
+        rule=("Best-fit use", ("Use this when learning the smallest VMx surface before adding host adapters or child containers.",)),
+        cards=(
+            ("Smallest surface", ("One modeled ComponentVM shows lifecycle and property messages.", "The host never owns domain behavior.")),
+            ("Signal path", ("Model mutation publishes through the hub.", "Setting an equal model value stays silent.")),
+            ("Next step", ("Move to WPF or Avalonia examples when bindings and child VMs matter.",)),
+        ),
+        footer="Generated for examples/csharp/console/HelloVMx.",
+    )
+
+
+def csharp_wpf_todo_app() -> Diagram:
+    return example_app_diagram(
+        diagram_id="csharp-wpf-todo-app",
+        title="C# WPF Todo App Example",
+        subtitle="Windows WPF host showing VMx commands with idiomatic XAML binding wrappers",
+        host=("WPF window", ("MainWindow.xaml", "ListBox + buttons", "Windows-only launch")),
+        adapter=("INPC wrappers", ("TodoItemVM forwards VMx", "ICommand bridge", "XAML data binding")),
+        root=("MainWindowViewModel", ("ObservableCollection rows", "AddCommand", "selected item context")),
+        primary=("TodoItemVM rows", ("ComponentVM<TodoItem>", "Title / Done projection", "ToggleDoneCommand")),
+        support=("RelayCommand", ("add item", "toggle item", "CanExecute binding")),
+        model=("TodoItem", ("title", "done flag", "simple value model")),
+        verification=("Build + launch", ("dotnet build", "dotnet run on Windows", "cross-platform restore")),
+        rule=("Best-fit use", ("Use this for wrapper-style integration where the UI toolkit expects INPC and ICommand surfaces.",)),
+        cards=(
+            ("Wrapper pattern", ("VMx stays inside row wrappers.", "WPF sees familiar binding contracts.")),
+            ("Command ownership", ("Add and toggle behavior route through RelayCommand.", "The view only binds commands.")),
+            ("Platform note", ("Build can succeed off Windows.", "Running WPF still requires Windows.")),
+        ),
+        footer="Generated for examples/csharp/wpf/TodoApp.",
+    )
+
+
+def csharp_avalonia_notes_showcase() -> Diagram:
+    return example_app_diagram(
+        diagram_id="csharp-avalonia-notes-showcase",
+        title="C# Avalonia Notes Showcase Example",
+        subtitle="flagship XAML host with AggregateVM6, FormVM, paging, dialogs, theme, and notifications",
+        host=("Avalonia views", ("AXAML-only screens", "InitializeComponent code-behind", "cross-platform desktop")),
+        adapter=("Avalonia adapters", ("BindableVm / Derived", "collection + command bridges", "dispatcher + dialogs")),
+        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        primary=("Notebook + note VMs", ("tree projection", "paged notes list", "strict NoteFormVM")),
+        support=("Workflow services", ("dialogs", "notifications", "global token search")),
+        model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
+        verification=("Pure-VM tests", ("dotnet test", "adapter tests", "code-behind checker")),
+        rule=("Best-fit use", ("Use this as the C# reference for full VMx desktop composition with thin Avalonia views.",)),
+        cards=(
+            ("Full surface", ("Exercises the 19-row Notes Workspace contract.", "Uses specialized VMs where they reduce host glue.")),
+            ("Adapter seam", ("Avalonia specifics live in Views/Adapter.", "VMs remain host-independent.")),
+            ("Parity role", ("Matches Python Textual, TypeScript React, and SwiftUI flagship behavior.",)),
+        ),
+        footer="Generated for examples/csharp/avalonia/NotesShowcase.",
+    )
+
+
+def python_console_hello_vmx() -> Diagram:
+    return example_app_diagram(
+        diagram_id="python-console-hello-vmx",
+        title="Python Console hello_vmx Example",
+        subtitle="minimal uv-run script for ComponentVMOf lifecycle and reactivex-backed hub messages",
+        host=("Python module", ("python -m hello_vmx", "uv-managed env", "stdout narrative")),
+        adapter=("Reactive observers", ("hub.messages subscribe", "status/property printout", "no UI toolkit")),
+        root=("ComponentVMOf[UserModel]", ("fluent builder", "name + hint", "construct/destruct/dispose")),
+        primary=("UserModel projection", ("dataclass-like model", "Alice -> Bob mutation", "equality guard")),
+        support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "reactivex stream")),
+        model=("UserModel", ("name", "age", "typed payload")),
+        verification=("Manual smoke", ("uv sync", "uv run python -m hello_vmx", "expected log trace")),
+        rule=("Best-fit use", ("Use this as the shortest Python path before adding tkinter, Textual, or child containers.",)),
+        cards=(
+            ("Smallest Python path", ("One modeled VM demonstrates lifecycle and hub semantics.", "No view adapter is required.")),
+            ("Signal path", ("Model changes publish property messages.", "Equal assignments are intentionally quiet.")),
+            ("Next step", ("Move to tkinter Todo for CompositeVM or Textual Inspector for tree traversal.",)),
+        ),
+        footer="Generated for examples/python/console/hello_vmx.",
+    )
+
+
+def python_tk_todo_app() -> Diagram:
+    return example_app_diagram(
+        diagram_id="python-tk-todo-app",
+        title="Python tkinter Todo App Example",
+        subtitle="small GUI host using CompositeVM rows and RelayCommand-driven todo actions",
+        host=("tkinter window", ("entry + listbox", "button callbacks", "display required")),
+        adapter=("View callbacks", ("button -> command", "selection -> VM", "render from VM list")),
+        root=("MainWindowViewModel", ("CompositeVM[TodoItemVM]", "add_command", "remove_command")),
+        primary=("TodoItemVM rows", ("ComponentVMOf[TodoItem]", "toggle_done command", "row projection")),
+        support=("RelayCommand", ("add", "remove", "toggle complete")),
+        model=("TodoItem", ("title", "done flag", "simple payload")),
+        verification=("Import + run", ("headless import check", "uv run python -m todo_app", "display-gated UI")),
+        rule=("Best-fit use", ("Use this when a small Python UI needs VMx collection ownership without a heavier TUI stack.",)),
+        cards=(
+            ("Composite fit", ("Todo rows are homogeneous and selectable.", "CompositeVM is a better fit than manual list state.")),
+            ("Thin host", ("tkinter callbacks translate gestures to commands.", "The VM owns collection mutations.")),
+            ("Contrast", ("The C# WPF Todo app uses wrappers for toolkit idiom.", "Both preserve VMx command ownership.")),
+        ),
+        footer="Generated for examples/python/tk/todo_app.",
+    )
+
+
+def python_textual_inspector() -> Diagram:
+    return example_app_diagram(
+        diagram_id="python-textual-inspector",
+        title="Python Textual Inspector Example",
+        subtitle="live TUI for walking VMx hierarchies and observing hub message traffic",
+        host=("Textual app", ("tree widget", "details panel", "message table")),
+        adapter=("Inspector views", ("vmx.tree.walk", "highlighted node actions", "hub log sink")),
+        root=("Sample hierarchy", ("ComponentVM nodes", "constructable tree", "selected node context")),
+        primary=("Tree projection", ("walk output", "node metadata", "details view")),
+        support=("Lifecycle actions", ("construct", "destruct", "reconstruct", "dispose / select")),
+        model=("Hub stream", ("PropertyChanged", "ConstructionStatusChanged", "ordered log rows")),
+        verification=("Smoke test", ("uv run project", "Textual import smoke", "sample hierarchy renders")),
+        rule=("Best-fit use", ("Use this to inspect VMx runtime behavior before wiring a domain-specific application host.",)),
+        cards=(
+            ("Observability", ("The app makes lifecycle and property messages visible.", "It is intentionally general-purpose.")),
+            ("Tree utilities", ("vmx.tree.walk drives the visual hierarchy.", "Highlighted nodes route lifecycle commands.")),
+            ("Learning role", ("Best for understanding state flow and hub traffic.",)),
+        ),
+        footer="Generated for examples/python/textual/inspector.",
+    )
+
+
+def python_textual_notes_showcase() -> Diagram:
+    return example_app_diagram(
+        diagram_id="python-textual-notes-showcase",
+        title="Python Textual Notes Showcase Example",
+        subtitle="flagship terminal host with pure VMx state, Textual rendering, dialogs, search, and paging",
+        host=("Textual screens", ("compose/on_mount views", "single-statement actions", "keyboard bindings")),
+        adapter=("Textual adapters", ("property binders", "collection bridge", "dialog + dispatcher ports")),
+        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        primary=("Notebook + note VMs", ("tree projection", "PagedComposition", "strict NoteFormVM")),
+        support=("Workflow services", ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM")),
+        model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
+        verification=("VM + view tests", ("uv run pytest", "Pure-VM contract", "adapter smoke tests")),
+        rule=("Best-fit use", ("Use this as the Python reference for full VMx MVVM in a terminal UI.",)),
+        cards=(
+            ("Full surface", ("Exercises the same 19-row Notes Workspace contract.", "Textual owns rendering, not state.")),
+            ("Adapter seam", ("View classes stay thin and route to VM commands.", "VM tests cover the domain behavior.")),
+            ("Parity role", ("Matches the C#, TypeScript, and Swift flagship scenario.",)),
+        ),
+        footer="Generated for examples/python/textual/notes_showcase.",
+    )
+
+
+def typescript_console_hello_vmx() -> Diagram:
+    return example_app_diagram(
+        diagram_id="typescript-console-hello-vmx",
+        title="TypeScript Console hello-vmx Example",
+        subtitle="minimal Node script for ComponentVMOf lifecycle and rxjs-backed message observation",
+        host=("Node script", ("tsx entrypoint", "npm start", "stdout narrative")),
+        adapter=("rxjs subscriptions", ("hub.messages subscribe", "status/property logs", "no DOM host")),
+        root=("ComponentVMOf<UserModel>", ("fluent builder", "name + hint", "construct/destruct/dispose")),
+        primary=("UserModel projection", ("typed object model", "Alice -> Bob mutation", "equality guard")),
+        support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "rxjs stream")),
+        model=("UserModel", ("name", "age", "structural payload")),
+        verification=("Manual smoke", ("npm ci", "npm start", "local VMx build first")),
+        rule=("Best-fit use", ("Use this as the shortest TypeScript path before adding React adapters or child containers.",)),
+        cards=(
+            ("Smallest TS path", ("One modeled VM demonstrates lifecycle and hub semantics.", "The script stays framework-free.")),
+            ("Signal path", ("Model updates publish property messages.", "Equal assignments produce no message.")),
+            ("Next step", ("Move to the React showcase when host hooks and adapters matter.",)),
+        ),
+        footer="Generated for examples/typescript/console/hello-vmx.",
+    )
+
+
+def typescript_react_notes_showcase() -> Diagram:
+    return example_app_diagram(
+        diagram_id="typescript-react-notes-showcase",
+        title="TypeScript React Notes Showcase Example",
+        subtitle="flagship web host with hooks as VMx adapters and React components as pure renderers",
+        host=("React components", ("Vite app shell", "pure render components", "hotkey hooks")),
+        adapter=("React adapter hooks", ("useVm / useCommand", "collection + derived hooks", "dialog overlay")),
+        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        primary=("Notebook + note VMs", ("tree projection", "PagedComposition", "strict NoteFormVM")),
+        support=("Workflow services", ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM")),
+        model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
+        verification=("Vitest + lint", ("npm test", "typecheck", "no useState/useReducer in views")),
+        rule=("Best-fit use", ("Use this as the TypeScript reference for full VMx MVVM in a browser host.",)),
+        cards=(
+            ("Hook seam", ("Hooks adapt VMx streams to React rendering.", "Components do not own domain state.")),
+            ("Full surface", ("Exercises the 19-row Notes Workspace contract.", "Specialized VMs keep wrapper code small.")),
+            ("Parity role", ("Matches the C#, Python, and Swift flagship scenario.",)),
+        ),
+        footer="Generated for examples/typescript/react/notes-showcase.",
+    )
+
+
+def swift_notes_showcase() -> Diagram:
+    return example_app_diagram(
+        diagram_id="swift-notes-showcase",
+        title="Swift Notes Showcase Example",
+        subtitle="SwiftUI + Combine flagship with a pure NotesShowcaseCore VM layer",
+        host=("SwiftUI views", ("RootView layout", "Combine subscriptions", "macOS app target")),
+        adapter=("SwiftUI adapters", ("BindableVM", "BindableCollection", "command + derived bridges")),
+        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        primary=("Notebook + note VMs", ("tree projection", "paged notes", "strict NoteFormVM")),
+        support=("Workflow services", ("global token search", "notifications", "dialogs + theme")),
+        model=("Core package", ("models", "repository", "ThemeChangedMessage")),
+        verification=("Swift tests", ("swift build", "swift test with Xcode", "THEME-001..005")),
+        rule=("Best-fit use", ("Use this as the Swift reference for keeping SwiftUI views bound to VMx-owned state.",)),
+        cards=(
+            ("Target split", ("NotesShowcaseCore owns models and VMs.", "NotesShowcase owns SwiftUI adapters and views.")),
+            ("Combine bridge", ("Adapters expose VMx state to SwiftUI.", "Commands remain VM-owned.")),
+            ("Parity role", ("Matches the C#, Python, and TypeScript flagship scenario.",)),
+        ),
+        footer="Generated for examples/swift/notes-showcase.",
+    )
+
+
+def rust_console_hello_vmx() -> Diagram:
+    return example_app_diagram(
+        diagram_id="rust-console-hello-vmx",
+        title="Rust Console hello-vmx Example",
+        subtitle="Cargo console demo using ComponentVm, CompositeVm, FilteredCompositeVm, and RelayCommand",
+        host=("Cargo binary", ("src/main.rs", "cargo run", "stdout summary")),
+        adapter=("Console projection", ("print current note", "print search count", "no TUI state")),
+        root=("CompositeVm rows", ("modeled note rows", "initial current", "construct + dispose")),
+        primary=("FilteredCompositeVm", ("live search result", "rust query", "selected note remains VM-owned")),
+        support=("RelayCommand", ("command execution", "VMx services", "hub + dispatcher")),
+        model=("Note models", ("3 seeded notes", "slug/title/body", "search text")),
+        verification=("Manual smoke", ("cargo run", "expected four-line output", "builds local vmx crate")),
+        rule=("Best-fit use", ("Use this as the Rust stepping stone from modeled rows to filtered collections before the Ratatui showcase.",)),
+        cards=(
+            ("Rust primitives", ("The example shows the Rust flavor beyond a single leaf VM.", "Composite and filtered projections stay VMx-owned.")),
+            ("Command path", ("RelayCommand demonstrates executable VM behavior.", "Console output is only a projection.")),
+            ("Next step", ("Move to Ratatui Notes Showcase for full MVVM terminal composition.",)),
+        ),
+        footer="Generated for examples/rust/console/hello-vmx.",
+    )
+
+
 def build_diagrams() -> dict[str, Diagram]:
     return {
         "system-architecture": system_architecture(),
@@ -1961,6 +2274,17 @@ def build_diagrams() -> dict[str, Diagram]:
         "commands-capabilities": commands_capabilities(),
         "forms-dialogs-notifications": forms_dialogs_notifications(),
         "examples-vm-layer": examples_vm_layer(),
+        "csharp-console-hello-vmx": csharp_console_hello_vmx(),
+        "csharp-wpf-todo-app": csharp_wpf_todo_app(),
+        "csharp-avalonia-notes-showcase": csharp_avalonia_notes_showcase(),
+        "python-console-hello-vmx": python_console_hello_vmx(),
+        "python-tk-todo-app": python_tk_todo_app(),
+        "python-textual-inspector": python_textual_inspector(),
+        "python-textual-notes-showcase": python_textual_notes_showcase(),
+        "typescript-console-hello-vmx": typescript_console_hello_vmx(),
+        "typescript-react-notes-showcase": typescript_react_notes_showcase(),
+        "swift-notes-showcase": swift_notes_showcase(),
+        "rust-console-hello-vmx": rust_console_hello_vmx(),
         "rust-tui-notes-showcase": rust_tui_notes_showcase(),
     }
 
