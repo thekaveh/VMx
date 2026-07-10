@@ -3,6 +3,9 @@
 The smaller demos are the shortest path to the builder, lifecycle, hub, and
 host-adapter basics without reading the full flagship app.
 
+See [[Example Diagram Gallery|Examples/Example-Diagram-Gallery]] for one
+generated VMx architecture diagram per committed example.
+
 ## Coverage
 
 - C#: console `HelloVMx`, WPF Todo app

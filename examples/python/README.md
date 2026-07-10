@@ -1,6 +1,8 @@
 # VMx Python Examples
 
 Four self-contained demos of the [VMx Python library](../../langs/python/).
+Generated architecture diagrams for all examples live in
+[`../DIAGRAMS.md`](../DIAGRAMS.md).
 
 ## 1. Setup
 
@@ -23,6 +25,11 @@ Minimal console demo. Demonstrates:
 4. The equality guard: setting the same model value emits **no** hub message.
 
 **Run:**
+
+Diagram:
+[`python-console-hello-vmx.svg`](../../docs/assets/diagrams/python-console-hello-vmx.svg)
+([HTML](../../docs/assets/diagrams/python-console-hello-vmx.html),
+[PNG](../../docs/assets/diagrams/python-console-hello-vmx.png)).
 
 ```bash
 cd examples/python
@@ -66,6 +73,11 @@ Full MVVM todo app using tkinter. Demonstrates:
 
 **Run (requires a display):**
 
+Diagram:
+[`python-tk-todo-app.svg`](../../docs/assets/diagrams/python-tk-todo-app.svg)
+([HTML](../../docs/assets/diagrams/python-tk-todo-app.html),
+[PNG](../../docs/assets/diagrams/python-tk-todo-app.png)).
+
 ```bash
 cd examples/python
 uv run python -m todo_app
@@ -93,6 +105,11 @@ A general-purpose live inspector for any VMx hierarchy. Demonstrates:
 `textual/inspector/` is its own uv project (Textual is a heavier dependency
 than the other two examples) — run it from its own directory:
 
+Diagram:
+[`python-textual-inspector.svg`](../../docs/assets/diagrams/python-textual-inspector.svg)
+([HTML](../../docs/assets/diagrams/python-textual-inspector.html),
+[PNG](../../docs/assets/diagrams/python-textual-inspector.png)).
+
 ```bash
 uv run --project examples/python/textual/inspector python -m vmx_inspector
 ```
@@ -110,6 +127,11 @@ edit/preview state, and tag autocomplete). Pure-VM contract enforced; widget
 classes expose only `compose()` / `on_mount()` / one-statement `action_*()`.
 
 `textual/notes_showcase/` is its own uv project — run it from the repo root:
+
+Diagram:
+[`python-textual-notes-showcase.svg`](../../docs/assets/diagrams/python-textual-notes-showcase.svg)
+([HTML](../../docs/assets/diagrams/python-textual-notes-showcase.html),
+[PNG](../../docs/assets/diagrams/python-textual-notes-showcase.png)).
 
 ```bash
 uv run --project examples/python/textual/notes_showcase python -m notes_showcase

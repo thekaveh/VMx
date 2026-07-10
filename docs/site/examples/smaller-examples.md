@@ -3,6 +3,9 @@
 The smaller demos are the shortest path to the builder, lifecycle, hub, and
 host-adapter basics without reading the full flagship app.
 
+For the VMx/component shape of each example, see the
+[Example Diagram Gallery](example-diagram-gallery.md).
+
 ## C\#
 
 - `examples/csharp/console/HelloVMx/`:

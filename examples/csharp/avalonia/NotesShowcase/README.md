@@ -8,7 +8,12 @@ table, and the
 [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
 plus
 [VMx component map](../../../assets/notes-showcase-vmx-components.svg)
-for the canonical visuals of how the VMs compose). The canonical scenario
+for the canonical visuals of how the VMs compose). The C# host-specific
+diagram is
+[`csharp-avalonia-notes-showcase.svg`](../../../../docs/assets/diagrams/csharp-avalonia-notes-showcase.svg)
+([HTML](../../../../docs/assets/diagrams/csharp-avalonia-notes-showcase.html),
+[PNG](../../../../docs/assets/diagrams/csharp-avalonia-notes-showcase.png)).
+The canonical scenario
 contract lives at
 [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../../../spec/proposals/2026-05-29-notes-showcase-scenario.md);
 this README documents how the C# implementation maps onto it.

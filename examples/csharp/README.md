@@ -1,6 +1,8 @@
 # VMx C# examples
 
 Three self-contained demos of the [VMx C# package](../../langs/csharp/).
+Generated architecture diagrams for all examples live in
+[`../DIAGRAMS.md`](../DIAGRAMS.md).
 
 ## 1. Setup
 
@@ -26,6 +28,11 @@ Minimal console demo. Demonstrates:
    message.
 
 **Run:**
+
+Diagram:
+[`csharp-console-hello-vmx.svg`](../../docs/assets/diagrams/csharp-console-hello-vmx.svg)
+([HTML](../../docs/assets/diagrams/csharp-console-hello-vmx.html),
+[PNG](../../docs/assets/diagrams/csharp-console-hello-vmx.png)).
 
 ```bash
 cd console/HelloVMx
@@ -73,6 +80,11 @@ A todo app that wires VMx into a WPF view. Demonstrates:
 
 **Run (Windows only):**
 
+Diagram:
+[`csharp-wpf-todo-app.svg`](../../docs/assets/diagrams/csharp-wpf-todo-app.svg)
+([HTML](../../docs/assets/diagrams/csharp-wpf-todo-app.html),
+[PNG](../../docs/assets/diagrams/csharp-wpf-todo-app.png)).
+
 ```bash
 cd wpf/TodoApp
 dotnet run
@@ -95,6 +107,11 @@ Pure-VM contract enforced; every `*.axaml.cs` code-behind is
 `InitializeComponent()`-only.
 
 **Run (macOS / Linux / Windows):**
+
+Diagram:
+[`csharp-avalonia-notes-showcase.svg`](../../docs/assets/diagrams/csharp-avalonia-notes-showcase.svg)
+([HTML](../../docs/assets/diagrams/csharp-avalonia-notes-showcase.html),
+[PNG](../../docs/assets/diagrams/csharp-avalonia-notes-showcase.png)).
 
 ```bash
 cd ../../    # repo root

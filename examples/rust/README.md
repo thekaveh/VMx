@@ -1,6 +1,8 @@
 # VMx Rust Examples
 
 Demos for the [VMx Rust crate](../../langs/rust/).
+Generated architecture diagrams for all examples live in
+[`../DIAGRAMS.md`](../DIAGRAMS.md).
 
 ## 1. Example 1 — `console/hello-vmx`
 
@@ -13,6 +15,11 @@ Minimal Cargo console demo. Demonstrates:
 1. Running the lifecycle through `construct()` and `dispose()`.
 
 Run from the repository root:
+
+Diagram:
+[`rust-console-hello-vmx.svg`](../../docs/assets/diagrams/rust-console-hello-vmx.svg)
+([HTML](../../docs/assets/diagrams/rust-console-hello-vmx.html),
+[PNG](../../docs/assets/diagrams/rust-console-hello-vmx.png)).
 
 ```bash
 cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml

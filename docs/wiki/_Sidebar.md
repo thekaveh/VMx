@@ -50,6 +50,7 @@
 **Examples**
 
 - [[Examples|Examples/Examples]]
+- [[Example Diagram Gallery|Examples/Example-Diagram-Gallery]]
 - [[Notes Workspace|Examples/Notes-Workspace]]
 - [[Rust TUI Notes Showcase|Examples/Rust-TUI-Notes-Showcase]]
 - [[VM Layer Map|Examples/VM-Layer-Map]]
