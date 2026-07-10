@@ -152,5 +152,18 @@
       "docs/site/examples/notes-workspace-vm-layer.md",
       "docs/wiki/Examples/VM-Layer-Map.md"
     ]
+  },
+  {
+    "id": "rust-tui-notes-showcase",
+    "title": "Rust TUI Notes Showcase VM Layer",
+    "html": "rust-tui-notes-showcase.html",
+    "svg": "rust-tui-notes-showcase.svg",
+    "png": "rust-tui-notes-showcase.png",
+    "referencedBy": [
+      "docs/site/examples/rust-tui-notes-showcase.md",
+      "docs/site/architecture/diagram-gallery.md",
+      "docs/wiki/Examples/Rust-TUI-Notes-Showcase.md",
+      "docs/wiki/Architecture/Diagram-Gallery.md"
+    ]
   }
 ]

@@ -11,6 +11,8 @@ host-adapter basics without reading the full flagship app.
 - Swift: flagship-only today
 - Rust: console `hello-vmx` with `ComponentVm`, `CompositeVm`,
   `FilteredCompositeVm`, and `RelayCommand`
+- Rust: Ratatui Notes Showcase with a pure VMx MVVM layer for search, paging,
+  validation, notifications, and edit/preview mode
 
 ## Related Pages
 

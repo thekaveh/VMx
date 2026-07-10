@@ -46,7 +46,7 @@ jobs:
         run: cargo test --manifest-path langs/rust/Cargo.toml
 
   examples:
-    name: examples (console)
+    name: examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -58,3 +58,9 @@ jobs:
 
       - name: Run hello-vmx example
         run: cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
+
+      - name: Test notes-showcase TUI example
+        run: cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+
+      - name: Smoke notes-showcase TUI example
+        run: cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
