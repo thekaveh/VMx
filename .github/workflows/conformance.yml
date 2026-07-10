@@ -91,7 +91,7 @@ jobs:
         # ones (verified: spec/**/*.md matches 41 of 64).
         run: |
           git ls-files 'spec/*.md' 'docs/*.md' \
-            | grep -Ev '^(docs/site/(installation|quickstart)\.md|docs/site/primitives/(command-families|services-messages-dispatching)\.md|docs/site/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/site/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md|docs/wiki/.*\.md)$' \
+            | grep -Ev '^(docs/site/(installation|quickstart)\.md|docs/site/flavors/rust\.md|docs/site/primitives/(command-families|services-messages-dispatching)\.md|docs/site/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/site/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md|docs/wiki/.*\.md)$' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
                 mdformat --check
