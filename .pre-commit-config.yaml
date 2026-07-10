@@ -41,6 +41,7 @@ repos:
         exclude: |
           (?x)^(
             docs/site/(installation|quickstart)\.md|
+            docs/site/examples/rust-tui-notes-showcase\.md|
             docs/site/flavors/rust\.md|
             docs/site/primitives/(command-families|services-messages-dispatching)\.md|
             docs/site/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|

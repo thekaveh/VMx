@@ -1860,6 +1860,91 @@ def examples_vm_layer() -> Diagram:
     )
 
 
+def rust_tui_notes_showcase() -> Diagram:
+    return Diagram(
+        diagram_id="rust-tui-notes-showcase",
+        title="Rust TUI Notes Showcase VM Layer",
+        subtitle="Ratatui renders snapshots; VMx owns application state, commands, and lifecycle",
+        width=1820,
+        height=1160,
+        boundaries=(
+            Boundary(70, 118, 1680, 680, "Pure VMx MVVM layer", "#22d3ee"),
+            Boundary(70, 830, 1680, 220, "Terminal host adapter", "#fb923c"),
+        ),
+        boxes=(
+            Box(710, 160, 400, 108, "WorkspaceVm", ("AggregateVm6 composition root", "constructs/destructs child VMs", "exposes host-safe commands"), "frontend"),
+            Box(120, 340, 235, 150, "NotebooksVm", ("ComponentVm lifecycle", "current notebook id", "selection command"), "frontend"),
+            Box(390, 340, 270, 150, "NotesViewVm", ("CompositeVm<NoteVm>", "FilteredCompositeVm search", "PagedComposition pages"), "frontend"),
+            Box(700, 340, 250, 150, "NoteFormVm", ("FormVm<NoteDraft>", "strict dirty tracking", "field + model validators"), "frontend"),
+            Box(990, 340, 280, 150, "GlobalSearchVm", ("SearchableState", "TokenPagedComposition", "load-more command"), "database"),
+            Box(1310, 340, 220, 150, "NotificationsVm", ("NotificationHub", "NotificationVm wrappers", "confirmation messages"), "security"),
+            Box(1570, 340, 150, 150, "EditorModeVm", ("DiscriminatorVm", "edit", "preview"), "database"),
+            Box(170, 565, 300, 120, "Repository + models", ("NotebookModel / NoteModel", "NoteDraft snapshots", "in-memory persistence"), "cloud"),
+            Box(520, 565, 300, 120, "RelayCommand seams", ("save/revert", "delete request", "mode toggle"), "bus"),
+            Box(870, 565, 300, 120, "Search and paging state", ("note search term", "global query", "current page/token"), "database"),
+            Box(1220, 565, 300, 120, "Message surfaces", ("property changes", "collection reset", "pending notifications"), "security"),
+            Box(220, 900, 360, 96, "Ratatui views.rs", ("pure render functions", "read VM getters", "own no domain state"), "generic"),
+            Box(730, 900, 360, 96, "app.rs event shell", ("keyboard -> VM command", "smoke mode", "terminal lifecycle"), "generic"),
+            Box(1240, 900, 360, 96, "crossterm terminal", ("input events", "alternate screen", "raw mode"), "generic"),
+        ),
+        lines=(
+            Polyline(((780, 268), (238, 340)), color="#22d3ee", label="component1", label_xy=(472, 286)),
+            Polyline(((850, 268), (525, 340)), color="#22d3ee", label="component2", label_xy=(640, 302)),
+            Polyline(((910, 268), (825, 340)), color="#22d3ee", label="component3", label_xy=(880, 302)),
+            Polyline(((975, 268), (1130, 340)), color="#22d3ee", label="component4", label_xy=(1064, 302)),
+            Polyline(((1040, 268), (1420, 340)), color="#22d3ee", label="component5", label_xy=(1240, 286)),
+            Polyline(((1090, 268), (1645, 340)), color="#22d3ee", label="component6", label_xy=(1390, 270)),
+            Polyline(((525, 490), (525, 565), (320, 565)), color="#fbbf24", label="load notes", label_xy=(430, 548)),
+            Polyline(((825, 490), (670, 565)), color="#fb923c", label="commands", label_xy=(720, 528)),
+            Polyline(((1130, 490), (1020, 565)), color="#a78bfa", label="query/token", label_xy=(1100, 528)),
+            Polyline(((1420, 490), (1370, 565)), color="#fb7185", label="post/resolve", label_xy=(1450, 528)),
+            Polyline(((400, 685), (400, 900)), color="#64748b", label="snapshots", label_xy=(462, 812)),
+            Polyline(((900, 685), (900, 900)), color="#64748b", label="execute", label_xy=(950, 812)),
+            Polyline(((1410, 900), (1410, 812), (900, 812), (900, 900)), color="#64748b", label="events", label_xy=(1170, 798)),
+        ),
+        notes=(
+            Note(
+                120,
+                708,
+                1600,
+                70,
+                "MVVM rule",
+                (
+                    "The terminal shell may keep focus and quit state only.",
+                    "Note data, filtering, paging, validation, notifications, and editor mode live in VMx view models.",
+                ),
+                "#fb923c",
+            ),
+        ),
+        cards=(
+            (
+                "VMx-owned state",
+                (
+                    "The example uses ComponentVm, CompositeVm, FilteredCompositeVm, PagedComposition, FormVm, SearchableState, TokenPagedComposition, NotificationHub, and DiscriminatorVm.",
+                    "WorkspaceVm composes the six child surfaces through AggregateVm6.",
+                    "Tests target the VM layer before the TUI adapter.",
+                ),
+            ),
+            (
+                "Thin terminal adapter",
+                (
+                    "Ratatui only renders snapshots from view model getters.",
+                    "crossterm events are translated into VM commands and methods.",
+                    "The smoke path exercises the same VM commands without an interactive terminal.",
+                ),
+            ),
+            (
+                "Showcase behavior",
+                (
+                    "Notebook selection, note filtering, paging, edit validation, save/revert, global token search, delete confirmation, and notifications are all represented.",
+                    "The app remains cross-platform and CI-friendly.",
+                    "No TUI framework state model competes with VMx.",
+                ),
+            ),
+        ),
+    )
+
+
 def build_diagrams() -> dict[str, Diagram]:
     return {
         "system-architecture": system_architecture(),
@@ -1876,6 +1961,7 @@ def build_diagrams() -> dict[str, Diagram]:
         "commands-capabilities": commands_capabilities(),
         "forms-dialogs-notifications": forms_dialogs_notifications(),
         "examples-vm-layer": examples_vm_layer(),
+        "rust-tui-notes-showcase": rust_tui_notes_showcase(),
     }
 
 

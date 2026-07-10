@@ -174,3 +174,15 @@ standalone HTML pages for zoomable browsing and the PNG exports for sharing.
   &middot;
   <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
 </p>
+
+### Rust TUI Notes Showcase VM Layer
+
+<img src="../../assets/diagrams/rust-tui-notes-showcase.svg" alt="Rust TUI Notes Showcase VM Layer" class="vmx-diagram" />
+
+<p>
+  <a href="../../assets/diagrams/rust-tui-notes-showcase.html">HTML</a>
+  &middot;
+  <a href="../../assets/diagrams/rust-tui-notes-showcase.svg">SVG</a>
+  &middot;
+  <a href="../../assets/diagrams/rust-tui-notes-showcase.png">PNG</a>
+</p>

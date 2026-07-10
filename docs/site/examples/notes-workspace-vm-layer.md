@@ -20,6 +20,10 @@ The language-neutral VM hierarchy diagram lives in the examples tree:
 Use that diagram for node names and host-agnostic structure; use the local map
 above for the VMx primitive-to-scenario routing.
 
+The Rust TUI showcase has its own VM-layer map because its terminal host is a
+Rust-specific adapter rather than one of the four GUI-backed flagship hosts:
+[Rust TUI Notes Showcase](rust-tui-notes-showcase.md).
+
 ## Layer Walk
 
 - `WorkspaceVM` is the composition root. In the current flagship apps it wraps

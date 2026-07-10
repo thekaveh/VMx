@@ -81,6 +81,7 @@ nav:
       - Overview: examples/index.md
       - Notes Workspace: examples/notes-workspace.md
       - VM Layer Map: examples/notes-workspace-vm-layer.md
+      - Rust TUI Notes Showcase: examples/rust-tui-notes-showcase.md
       - Global Search & Token Paging: examples/global-search-token-paging.md
       - Editor Mode & DiscriminatorVM: examples/editor-mode-discriminator-vm.md
       - Tag Autocomplete & SearchableState: examples/tag-autocomplete-searchable-state.md

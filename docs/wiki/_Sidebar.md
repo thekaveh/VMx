@@ -51,6 +51,7 @@
 
 - [[Examples|Examples/Examples]]
 - [[Notes Workspace|Examples/Notes-Workspace]]
+- [[Rust TUI Notes Showcase|Examples/Rust-TUI-Notes-Showcase]]
 - [[VM Layer Map|Examples/VM-Layer-Map]]
 - [[Smaller Examples|Examples/Smaller-Examples]]
 - [[Global Search & Token Paging|Examples/Global-Search-and-Token-Paging]]

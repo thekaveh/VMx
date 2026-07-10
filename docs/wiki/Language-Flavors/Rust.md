@@ -32,3 +32,4 @@ fn main() -> VmxResult<()> {
 - [[Cross-Language Naming|Language-Flavors/Cross-Language-Naming]]
 - [[Conformance Workflow|Specification-and-Conformance/Conformance-Workflow]]
 - [[Smaller Examples|Examples/Smaller-Examples]]
+- [[Rust TUI Notes Showcase|Examples/Rust-TUI-Notes-Showcase]]

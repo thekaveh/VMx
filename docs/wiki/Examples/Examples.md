@@ -6,6 +6,7 @@ the full cross-language contract in the flagship Notes Workspace portfolio.
 ## Start Here
 
 - [[Notes Workspace|Examples/Notes-Workspace]]
+- [[Rust TUI Notes Showcase|Examples/Rust-TUI-Notes-Showcase]]
 - [[VM Layer Map|Examples/VM-Layer-Map]]
 - [[Smaller Examples|Examples/Smaller-Examples]]
 

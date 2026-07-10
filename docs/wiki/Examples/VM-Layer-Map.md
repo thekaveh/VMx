@@ -20,4 +20,5 @@ Support links: [HTML](../../assets/diagrams/examples-vm-layer.html),
 ## Related Pages
 
 - [[Notes Workspace|Examples/Notes-Workspace]]
+- [[Rust TUI Notes Showcase|Examples/Rust-TUI-Notes-Showcase]]
 - [[Hierarchical Family|Framework-Primitives/ViewModel-Families/Hierarchical-Family]]
