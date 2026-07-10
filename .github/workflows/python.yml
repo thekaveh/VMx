@@ -5,13 +5,14 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "langs/python/**"
       - "examples/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
   pull_request:
+    branches: [main, develop]
     paths:
       - "langs/python/**"
       - "examples/python/**"

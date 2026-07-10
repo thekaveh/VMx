@@ -5,13 +5,14 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "langs/swift/**"
       - "examples/swift/**"
       - "spec/**"
       - ".github/workflows/swift.yml"
   pull_request:
+    branches: [main, develop]
     paths:
       - "langs/swift/**"
       - "examples/swift/**"
