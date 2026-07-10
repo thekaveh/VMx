@@ -485,6 +485,37 @@ ______________________________________________________________________
 **Then** it returns `true`
 **And** after `vm.select()`, `SelectCommand.CanExecute()` returns `false`
 
+### CVM-007 — Notification helper emits both channels exactly once
+
+**Given** a component subclass with an equality-gated settable property
+**And** subscribers recording both the shared hub and VM-local property-change
+channels
+**When** the setter assigns a different value and calls the dual-channel helper
+once
+**Then** both subscribers can read the assigned value
+**And** exactly one `PropertyChangedMessage` and one VM-local notification are
+observed
+**And** for an ordinary top-level hub send the hub observer runs before the
+local observer
+**And** both notifications use the flavor-idiomatic public property name
+**And** a hub transaction may defer its observer until after the local observer
+while retaining hub-enqueue-before-local invocation order
+**And** if the hub observer disposes the VM re-entrantly, the admitted local
+notification still occurs before its local surface completes
+
+### CVM-008 — Notification helper leaves equality to the caller
+
+**Given** the equality-gated property from CVM-007
+**When** the setter receives its current value
+**Then** the caller does not invoke the helper
+**And** neither the hub nor the VM-local channel emits
+
+### CVM-009 — Notification helper is inert after disposal
+
+**Given** a disposed component
+**When** its dual-channel property notification helper is invoked
+**Then** neither the hub nor the VM-local channel emits
+
 ______________________________________________________________________
 
 ## 8. CompositeVM (`COMP-NNN`)

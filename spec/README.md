@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (292 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (295 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -333,11 +333,24 @@ IDs).
   calling-thread guarantee, and development builds diagnose suspected publish
   cycles without imposing a release-mode limit.
 
-### 1.12 Supporting artefacts
+### 1.12 v3.2.0 → v3.3.0 changes
 
-- `VERSION` — current spec SemVer (`3.2.0`).
+v3.3.0 adds one dual-channel property notification helper without adopting a
+property wrapper. The three `CVM-007..009` scenarios raise the catalog from 292
+to 295 total IDs (290 library + 5 THEME scenario IDs).
+
+- **ADR-0083** — ordinary equality-gated setters assign state, then call one
+  idiomatic helper that publishes exactly one shared-hub
+  `PropertyChangedMessage` followed by exactly one VM-local binding
+  notification. Calls after disposal are inert. Rust gains the missing
+  per-instance property-name stream so the contract applies to all five
+  flavors.
+
+### 1.13 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.3.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0082); see
+- `ADRs/` — Architecture Decision Records (0001-0083); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

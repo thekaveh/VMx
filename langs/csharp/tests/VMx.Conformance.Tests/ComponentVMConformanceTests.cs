@@ -1,15 +1,17 @@
 using System.Reflection;
+using System.ComponentModel;
 using FluentAssertions;
 using VMx.Components;
 using VMx.Lifecycle;
 using VMx.Messages;
+using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
 
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for ComponentVM, covering CVM-001..006 and
+/// Conformance tests for ComponentVM, covering CVM-001..009 and
 /// delegated LIFE-*/PROP-* IDs. See spec/12-conformance.md.
 /// </summary>
 public class ComponentVMConformanceTests
@@ -193,6 +195,114 @@ public class ComponentVMConformanceTests
         // The trigger fires asynchronously based on status changes, but for selection
         // the predicate is evaluated on-demand via CanExecute().
         vm.SelectCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact, Trait("Conformance", "CVM-007")]
+    public void CVM_007_Notification_Helper_Emits_Hub_Then_Local_Exactly_Once()
+    {
+        var hub = new TestHub();
+        var vm = new NotificationProbeVM(hub);
+        var trace = new List<string>();
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Value" })
+                trace.Add($"hub:{vm.Value}");
+        });
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, args) =>
+            trace.Add($"local:{args.PropertyName}:{vm.Value}");
+
+        vm.Value = 7;
+
+        trace.Should().Equal("hub:7", "local:Value:7");
+    }
+
+    [Fact, Trait("Conformance", "CVM-007")]
+    public void CVM_007_Deferred_Delivery_And_Reentrant_Disposal_Complete_The_Pair()
+    {
+        var batchedHub = new MessageHub();
+        var batchedVm = new NotificationProbeVM(batchedHub);
+        var batchedTrace = new List<string>();
+        batchedHub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Value" })
+                batchedTrace.Add("hub");
+        });
+        ((INotifyPropertyChanged)batchedVm).PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(NotificationProbeVM.Value)) batchedTrace.Add("local");
+        };
+
+        batchedHub.Batch(() => batchedVm.Value = 7);
+
+        batchedTrace.Should().Equal("local", "hub");
+
+        var disposingHub = new TestHub();
+        var disposingVm = new NotificationProbeVM(disposingHub);
+        var disposingTrace = new List<string>();
+        disposingHub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Value" })
+            {
+                disposingTrace.Add("hub");
+                disposingVm.Dispose();
+            }
+        });
+        ((INotifyPropertyChanged)disposingVm).PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(NotificationProbeVM.Value)) disposingTrace.Add("local");
+        };
+
+        disposingVm.Value = 7;
+
+        disposingTrace.Should().Equal("hub", "local");
+    }
+
+    [Fact, Trait("Conformance", "CVM-008")]
+    public void CVM_008_Equality_Guard_Suppresses_Both_Channels()
+    {
+        var hub = new TestHub();
+        var vm = new NotificationProbeVM(hub);
+        var hubCount = 0;
+        var localCount = 0;
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Value" })
+                hubCount++;
+        });
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(NotificationProbeVM.Value)) localCount++;
+        };
+
+        vm.Value = 7;
+        vm.Value = 7;
+
+        hubCount.Should().Be(1);
+        localCount.Should().Be(1);
+    }
+
+    [Fact, Trait("Conformance", "CVM-009")]
+    public void CVM_009_Notification_Helper_Is_Inert_After_Disposal()
+    {
+        var hub = new TestHub();
+        var vm = new NotificationProbeVM(hub);
+        var hubCount = 0;
+        var localCount = 0;
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Value" })
+                hubCount++;
+        });
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(NotificationProbeVM.Value)) localCount++;
+        };
+        vm.Dispose();
+
+        vm.EmitValueNotification();
+
+        hubCount.Should().Be(0);
+        localCount.Should().Be(0);
     }
 
     // ── PROP-001 — Setter publishes PropertyChangedMessage ───────────────────
@@ -471,5 +581,30 @@ public class ComponentVMConformanceTests
 
         public void SelectChild(IComponentVM vm) => _current = vm;
         public void DeselectChild(IComponentVM vm) { if (_current == vm) _current = null; }
+    }
+
+    private sealed class NotificationProbeVM : ComponentVMBase
+    {
+        private int _value;
+
+        public NotificationProbeVM(IMessageHub hub)
+            : base("probe", "", hub, new TestDispatcher(), null, null)
+        {
+        }
+
+        public override ViewModelType Type => ViewModelType.Component;
+
+        public int Value
+        {
+            get => _value;
+            set
+            {
+                if (_value == value) return;
+                _value = value;
+                NotifyPropertyChanged(nameof(Value));
+            }
+        }
+
+        public void EmitValueNotification() => NotifyPropertyChanged(nameof(Value));
     }
 }

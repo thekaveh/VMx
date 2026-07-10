@@ -49,6 +49,8 @@ export abstract class ComponentVMBase {
   readonly #propertyChangedSubject = new Subject<string>();
   readonly #statusTrigger = new Subject<void>();
   #triggersDisposed = false;
+  #activePropertyNotifications = 0;
+  #propertyNotificationTeardownPending = false;
 
   readonly #selectCommand: RelayCommand;
   readonly #deselectCommand: RelayCommand;
@@ -156,13 +158,11 @@ export abstract class ComponentVMBase {
   _setIsCurrent(value: boolean): void {
     // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
     // selection change on an already-disposed VM is a silent no-op (no
-    // propertyChanged emit, no hub PropertyChangedMessage), mirroring Swift
-    // (VMX-006).
+    // local or hub property-change emission), mirroring Swift (VMX-006).
     if (this.#status === ConstructionStatus.Disposed) return;
     if (this.#isCurrent === value) return;
     this.#isCurrent = value;
-    this._raisePropertyChanged("isCurrent");
-    this.#hub.send(PropertyChangedMessage.create(this, this.#name, "isCurrent"));
+    this._notifyPropertyChanged("isCurrent");
   }
 
   // ── propertyChanged observable ───────────────────────────────────────────
@@ -174,6 +174,29 @@ export abstract class ComponentVMBase {
   protected _raisePropertyChanged(propertyName: string): void {
     if (!this.#triggersDisposed) {
       this.#propertyChangedSubject.next(propertyName);
+    }
+  }
+
+  /** Publish one hub message, then one VM-local notification for assigned state. */
+  protected _notifyPropertyChanged(propertyName: string): void {
+    if (this.#status === ConstructionStatus.Disposed || this.#triggersDisposed) return;
+    this.#activePropertyNotifications += 1;
+    try {
+      try {
+        this.#hub.send(PropertyChangedMessage.create(this, this.#name, propertyName));
+      } finally {
+        // Complete the admitted pair even when a hub observer disposes this VM.
+        this.#propertyChangedSubject.next(propertyName);
+      }
+    } finally {
+      this.#activePropertyNotifications -= 1;
+      if (
+        this.#activePropertyNotifications === 0 &&
+        this.#propertyNotificationTeardownPending
+      ) {
+        this.#propertyNotificationTeardownPending = false;
+        this.#propertyChangedSubject.complete();
+      }
     }
   }
 
@@ -406,7 +429,11 @@ export abstract class ComponentVMBase {
     if (!this.#triggersDisposed) {
       this.#triggersDisposed = true;
       this.#statusTrigger.complete();
-      this.#propertyChangedSubject.complete();
+      if (this.#activePropertyNotifications === 0) {
+        this.#propertyChangedSubject.complete();
+      } else {
+        this.#propertyNotificationTeardownPending = true;
+      }
     }
 
     this.#selectCommand.dispose();

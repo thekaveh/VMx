@@ -54,17 +54,14 @@ public sealed class NoteVM
             var oldTitle = _model.Title;
             var oldStarred = _model.Starred;
             _model = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Model)));
-            RaisePropertyChanged(nameof(Model));
+            NotifyPropertyChanged(nameof(Model));
             if (!string.Equals(oldTitle, value.Title, StringComparison.Ordinal))
             {
-                Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Title)));
-                RaisePropertyChanged(nameof(Title));
+                NotifyPropertyChanged(nameof(Title));
             }
             if (oldStarred != value.Starred)
             {
-                Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
-                RaisePropertyChanged(nameof(Starred));
+                NotifyPropertyChanged(nameof(Starred));
             }
         }
     }

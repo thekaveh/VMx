@@ -50,10 +50,8 @@ public sealed class NotebookVM
         {
             if (EqualityComparer<NotebookModel>.Default.Equals(_model, value)) return;
             _model = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Model)));
-            RaisePropertyChanged(nameof(Model));
-            RaisePropertyChanged(nameof(NotebookName));
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(NotebookName)));
+            NotifyPropertyChanged(nameof(Model));
+            NotifyPropertyChanged(nameof(NotebookName));
         }
     }
 
@@ -80,8 +78,7 @@ public sealed class NotebookVM
     public void SetChildrenGetter(Func<NotebookVM, IReadOnlyList<NotebookVM>>? getter)
     {
         _childrenGetter = getter;
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Children)));
-        RaisePropertyChanged(nameof(Children));
+        NotifyPropertyChanged(nameof(Children));
     }
 
     /// <summary>
@@ -91,8 +88,7 @@ public sealed class NotebookVM
     /// </summary>
     internal void NotifyChildrenChanged()
     {
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Children)));
-        RaisePropertyChanged(nameof(Children));
+        NotifyPropertyChanged(nameof(Children));
     }
 
     // ── ISelectable / IExpandable / ICollapsible / IExpansionTogglable ──────
@@ -133,8 +129,7 @@ public sealed class NotebookVM
 
     private void EmitExpansionChange()
     {
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsExpanded)));
-        RaisePropertyChanged(nameof(IsExpanded));
+        NotifyPropertyChanged(nameof(IsExpanded));
     }
 
     // Selection delegates to base ComponentVMBase Select/Deselect plumbing.

@@ -14,7 +14,6 @@ import {
   ConfirmationDecoratorCommand,
   ConstructionStatus,
   declareCapabilities,
-  PropertyChangedMessage,
   RelayCommand,
   ViewModelType,
   type ICommand,
@@ -130,17 +129,12 @@ export class NoteVM extends ComponentVMBase {
     const oldTitle = this.#model.title;
     const oldStarred = this.#model.starred;
     this.#model = value;
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "model"));
-    this._raisePropertyChanged("model");
+    this._notifyPropertyChanged("model");
     if (oldTitle !== value.title) {
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "title"));
-      this._raisePropertyChanged("title");
+      this._notifyPropertyChanged("title");
     }
     if (oldStarred !== value.starred) {
-      this._hub.send(
-        PropertyChangedMessage.create(this, this._name, "starred"),
-      );
-      this._raisePropertyChanged("starred");
+      this._notifyPropertyChanged("starred");
     }
   }
 

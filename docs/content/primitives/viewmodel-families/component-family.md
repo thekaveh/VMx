@@ -50,15 +50,61 @@ Important behavior from the spec:
 
 ## Cross-Language Surface
 
-| Concept          | C#                       | Python                     | TypeScript                 | Swift                      |
-| ---------------- | ------------------------ | -------------------------- | -------------------------- | -------------------------- |
-| Concept          | C#                       | Python                     | TypeScript                 | Swift                      |
-| ---------------- | ------------------------ | -------------------------  | -------------------------- | -------------------------  |
-| Unmodeled leaf   | `ComponentVM`            | `ComponentVM`              | `ComponentVM`              | `ComponentVM`              |
-| Modeled leaf     | `ComponentVM<M>`         | `ComponentVMOf[M]`         | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         |
-| Readonly leaf    | `ReadonlyComponentVM<M>` | `ReadonlyComponentVMOf[M]` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVMOf<M>` |
-| Builder entry    | `Builder()`              | `builder()`                | `builder()`                | `builder()`                |
-| Property channel | `INotifyPropertyChanged` | `property_changed`         | `propertyChanged`          | `propertyChanged`          |
+| Concept          | C#                       | Python                     | TypeScript                 | Swift                      | Rust                     |
+| ---------------- | ------------------------ | -------------------------- | -------------------------- | -------------------------- | ------------------------ |
+| Unmodeled leaf   | `ComponentVM`            | `ComponentVM`              | `ComponentVM`              | `ComponentVM`              | `ComponentVm`            |
+| Modeled leaf     | `ComponentVM<M>`         | `ComponentVMOf[M]`         | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         | `ComponentVm<M>`         |
+| Readonly leaf    | `ReadonlyComponentVM<M>` | `ReadonlyComponentVMOf[M]` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVm<M>` |
+| Builder entry    | `Builder()`              | `builder()`                | `builder()`                | `builder()`                | `with_model(...)`        |
+| Property channel | `INotifyPropertyChanged` | `property_changed`         | `propertyChanged`          | `propertyChanged`          | `property_changed()`     |
+
+## Authoring A Mutable Property
+
+A component property has two audiences: cross-VM coordination through the
+message hub and host binding through the VM's local property-change surface.
+The subclass helper keeps those channels paired and ordered.
+
+| Flavor     | Subclass helper            |
+| ---------- | -------------------------- |
+| C#         | `NotifyPropertyChanged`    |
+| Python     | `_notify_property_changed` |
+| TypeScript | `_notifyPropertyChanged`   |
+| Swift      | `_notifyPropertyChanged`   |
+| Rust       | `notify_property_changed`  |
+
+The caller first determines that a change was accepted. A setter still owns its
+equality check and assignment; a computed refresh runs only after its
+underlying state changes. One helper call invokes exactly one hub
+`PropertyChangedMessage` send, then exactly one local notification carrying the
+current value. A call begun after disposal is inert, while a call admitted
+before disposal completes both channels even if a hub observer disposes the VM.
+Property names follow the flavor idiom (`ActiveTab`, `active_tab`, or
+`activeTab`). The lower-level local-only raise primitive stays available for
+framework lifecycle properties that deliberately do not publish to the hub.
+
+Ordinary top-level delivery is observed hub first. Inside a hub transaction or
+re-entrant drain, the hub queues its delivery, so a local observer may run
+before the queued hub observer even though the helper invoked the hub first.
+
+```typescript
+set activeTab(value: string) {
+  if (this._activeTab === value) return;
+  this._activeTab = value;
+  this._notifyPropertyChanged("activeTab");
+}
+```
+
+Do not wrap fields with a VMx property decorator or descriptor. Explicit
+setters preserve each flavor's idioms and make equality, assignment, and
+notification order visible at the mutation site.
+
+This pattern was piloted against NNx Studio's `ConsoleVM`: two hand-written
+hub-plus-local emission sequences collapsed to the helper call, the viewmodel
+package remained type-clean, and its focused test suite passed all 7 tests,
+including an assertion that the hub event precedes the local event.
+
+VMx's C#, Python, TypeScript, and Swift Notes Showcase viewmodels use the same
+helper, eliminating their former hand-written hub-plus-local pairs.
 
 ## Example
 

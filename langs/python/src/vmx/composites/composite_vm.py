@@ -17,7 +17,6 @@ from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
-from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHub
@@ -416,8 +415,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             value._set_is_current(True)
 
         # Emit PropertyChangedMessage("current") on the hub.
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "current"))
-        self._raise_property_changed("current")
+        self._notify_property_changed("current")
 
         # Invoke the optional builder-registered on_current_changed callback
         # AFTER state update + hub publish + INPC raise so every observer sees

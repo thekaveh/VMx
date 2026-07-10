@@ -101,8 +101,8 @@ class CompositeVMBuilder(Generic[VM]):
         """Set an optional callback invoked synchronously after every ``current`` transition.
 
         The callback fires AFTER the state is updated, the hub publishes
-        ``PropertyChangedMessage("current")`` and ``_raise_property_changed``
-        has run. Receives the new ``current`` value (which may be ``None``).
+        ``PropertyChangedMessage("current")`` and its paired local notification
+        have fired. Receives the new ``current`` value (which may be ``None``).
         The callback also fires for the initial assignment driven by
         :meth:`current`. See ADR-0042 and spec/06 §3.2 (COMP-026).
         """
@@ -216,8 +216,8 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         """Set an optional callback invoked synchronously after every ``current`` transition.
 
         The callback fires AFTER the state is updated, the hub publishes
-        ``PropertyChangedMessage("current")`` and ``_raise_property_changed``
-        has run. Receives the new ``current`` value (which may be ``None``).
+        ``PropertyChangedMessage("current")`` and its paired local notification
+        have fired. Receives the new ``current`` value (which may be ``None``).
         The callback also fires for the initial assignment driven by
         :meth:`current`. See ADR-0042 and spec/06 §3.2 (COMP-026).
         """

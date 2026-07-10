@@ -17,7 +17,6 @@ import {
   declareCapabilities,
   DiscriminatorVM,
   FormVM,
-  PropertyChangedMessage,
   RelayCommand,
   RelayCommandOf,
   SearchableState,
@@ -140,16 +139,11 @@ export class NoteFormVM extends ComponentVMBase {
       .triggers(this.#editorMode.activeChanged)
       .build();
     this.#editorModeSub = this.#editorMode.activeChanged.subscribe(() => {
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "editorMode"));
-      this._raisePropertyChanged("editorMode");
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "isPreviewMode"));
-      this._raisePropertyChanged("isPreviewMode");
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "isEditMode"));
-      this._raisePropertyChanged("isEditMode");
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "showEditModeCommand"));
-      this._raisePropertyChanged("showEditModeCommand");
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "showPreviewModeCommand"));
-      this._raisePropertyChanged("showPreviewModeCommand");
+      this._notifyPropertyChanged("editorMode");
+      this._notifyPropertyChanged("isPreviewMode");
+      this._notifyPropertyChanged("isEditMode");
+      this._notifyPropertyChanged("showEditModeCommand");
+      this._notifyPropertyChanged("showPreviewModeCommand");
     });
     this.#tagSearchSub = this.#tagSearch.filtered.subscribe((suggestions) => {
       this.#tagSuggestions = suggestions;
@@ -246,10 +240,7 @@ export class NoteFormVM extends ComponentVMBase {
   set tagDraft(value: string) {
     if (this.#tagDraft === value) return;
     this.#tagDraft = value;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "tagDraft"),
-    );
-    this._raisePropertyChanged("tagDraft");
+    this._notifyPropertyChanged("tagDraft");
     this.#tagSearch.searchTerm = value;
     this.#tagSearch.search();
   }
@@ -312,10 +303,7 @@ export class NoteFormVM extends ComponentVMBase {
     this.#bound = null;
     if (hadTagDraft) {
       this.#tagDraft = "";
-      this._hub.send(
-        PropertyChangedMessage.create(this, this._name, "tagDraft"),
-      );
-      this._raisePropertyChanged("tagDraft");
+      this._notifyPropertyChanged("tagDraft");
     }
     this.#emitDraftChanges();
   }
@@ -406,17 +394,13 @@ export class NoteFormVM extends ComponentVMBase {
       "approveCommand",
       "denyCommand",
     ]) {
-      this._hub.send(
-        PropertyChangedMessage.create(this, this._name, name),
-      );
-      this._raisePropertyChanged(name);
+      this._notifyPropertyChanged(name);
     }
   }
 
   #emitTagSuggestionChanges(): void {
     for (const name of ["tagSuggestions", "tagSuggestionsText"]) {
-      this._hub.send(PropertyChangedMessage.create(this, this._name, name));
-      this._raisePropertyChanged(name);
+      this._notifyPropertyChanged(name);
     }
   }
 

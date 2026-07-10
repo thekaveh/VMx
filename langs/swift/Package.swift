@@ -2,7 +2,7 @@
 //
 // VMx — Swift flavor.
 //
-// Implements spec v3.2.0 at full library parity. See README.md §5 for the
+// Implements spec v3.3.0 at full library parity. See README.md §5 for the
 // conformance matrix and CHANGELOG.md for per-release history.
 //
 import PackageDescription

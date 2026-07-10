@@ -11,7 +11,6 @@ from typing import Generic, TypeVar
 
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ComponentVMProto, ViewModelType
-from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHub
@@ -83,8 +82,7 @@ class AggregateVM1(Generic[V1], _ComponentVMBase):
         if self._component1 is not None:
             self._component1.dispose()
         self._component1 = self._factory1()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
-        self._raise_property_changed("component_1")
+        self._notify_property_changed("component_1")
         self._component1.construct()
 
     def _on_destruct(self) -> None:
@@ -162,12 +160,10 @@ class AggregateVM2(Generic[V1, V2], _ComponentVMBase):
             self._component2.dispose()
 
         self._component1 = self._factory1()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
-        self._raise_property_changed("component_1")
+        self._notify_property_changed("component_1")
 
         self._component2 = self._factory2()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_2"))
-        self._raise_property_changed("component_2")
+        self._notify_property_changed("component_2")
 
         self._component1.construct()
         self._component2.construct()
@@ -259,16 +255,13 @@ class AggregateVM3(Generic[V1, V2, V3], _ComponentVMBase):
             self._component3.dispose()
 
         self._component1 = self._factory1()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
-        self._raise_property_changed("component_1")
+        self._notify_property_changed("component_1")
 
         self._component2 = self._factory2()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_2"))
-        self._raise_property_changed("component_2")
+        self._notify_property_changed("component_2")
 
         self._component3 = self._factory3()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_3"))
-        self._raise_property_changed("component_3")
+        self._notify_property_changed("component_3")
 
         self._component1.construct()
         self._component2.construct()
@@ -375,20 +368,16 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _ComponentVMBase):
             self._component4.dispose()
 
         self._component1 = self._factory1()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
-        self._raise_property_changed("component_1")
+        self._notify_property_changed("component_1")
 
         self._component2 = self._factory2()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_2"))
-        self._raise_property_changed("component_2")
+        self._notify_property_changed("component_2")
 
         self._component3 = self._factory3()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_3"))
-        self._raise_property_changed("component_3")
+        self._notify_property_changed("component_3")
 
         self._component4 = self._factory4()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_4"))
-        self._raise_property_changed("component_4")
+        self._notify_property_changed("component_4")
 
         self._component1.construct()
         self._component2.construct()
@@ -510,24 +499,19 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _ComponentVMBase):
             self._component5.dispose()
 
         self._component1 = self._factory1()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
-        self._raise_property_changed("component_1")
+        self._notify_property_changed("component_1")
 
         self._component2 = self._factory2()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_2"))
-        self._raise_property_changed("component_2")
+        self._notify_property_changed("component_2")
 
         self._component3 = self._factory3()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_3"))
-        self._raise_property_changed("component_3")
+        self._notify_property_changed("component_3")
 
         self._component4 = self._factory4()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_4"))
-        self._raise_property_changed("component_4")
+        self._notify_property_changed("component_4")
 
         self._component5 = self._factory5()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_5"))
-        self._raise_property_changed("component_5")
+        self._notify_property_changed("component_5")
 
         self._component1.construct()
         self._component2.construct()
@@ -667,28 +651,22 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _ComponentVMBase):
             self._component6.dispose()
 
         self._component1 = self._factory1()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_1"))
-        self._raise_property_changed("component_1")
+        self._notify_property_changed("component_1")
 
         self._component2 = self._factory2()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_2"))
-        self._raise_property_changed("component_2")
+        self._notify_property_changed("component_2")
 
         self._component3 = self._factory3()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_3"))
-        self._raise_property_changed("component_3")
+        self._notify_property_changed("component_3")
 
         self._component4 = self._factory4()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_4"))
-        self._raise_property_changed("component_4")
+        self._notify_property_changed("component_4")
 
         self._component5 = self._factory5()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_5"))
-        self._raise_property_changed("component_5")
+        self._notify_property_changed("component_5")
 
         self._component6 = self._factory6()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "component_6"))
-        self._raise_property_changed("component_6")
+        self._notify_property_changed("component_6")
 
         self._component1.construct()
         self._component2.construct()

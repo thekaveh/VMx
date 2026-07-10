@@ -11,7 +11,7 @@
 // layer uniformly across flavors. (`ComponentVMOf<M>` is an `open class`, so
 // subclassing it is possible — the base is chosen for parity, not because the
 // wrapper is sealed.) Cross-module subclassing enabled by ADR-0066: `hub`,
-// `dispatcher`, and `_raisePropertyChanged` are `public` on the base class.
+// `dispatcher`, and `_notifyPropertyChanged` are `public` on the base class.
 //
 import Foundation
 import Combine
@@ -43,10 +43,8 @@ public final class NotebookVM: ComponentVMBase,
         set {
             guard _model != newValue else { return }
             _model = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "model"))
-            _raisePropertyChanged("model")
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "notebookName"))
-            _raisePropertyChanged("notebookName")
+            _notifyPropertyChanged("model")
+            _notifyPropertyChanged("notebookName")
         }
     }
 
@@ -66,16 +64,14 @@ public final class NotebookVM: ComponentVMBase,
     /// for `"children"` so already-bound views refresh.
     public func setChildrenGetter(_ getter: ((NotebookVM) -> [NotebookVM])?) {
         _childrenGetter = getter
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "children"))
-        _raisePropertyChanged("children")
+        _notifyPropertyChanged("children")
     }
 
     /// Re-emits a `"children"` change notification (called by `NotebooksRootVM`
     /// whenever the flat collection mutates so already-bound parents refresh).
     /// `internal` (matches C#) — same-module bookkeeping, not consumer API.
     func notifyChildrenChanged() {
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "children"))
-        _raisePropertyChanged("children")
+        _notifyPropertyChanged("children")
     }
 
     // ── Selectable / Deselectable (delegated to ComponentVMBase) ──────────
@@ -113,8 +109,7 @@ public final class NotebookVM: ComponentVMBase,
     }
 
     private func _emitExpansionChange() {
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "isExpanded"))
-        _raisePropertyChanged("isExpanded")
+        _notifyPropertyChanged("isExpanded")
     }
 
     // ── Init ───────────────────────────────────────────────────────────────

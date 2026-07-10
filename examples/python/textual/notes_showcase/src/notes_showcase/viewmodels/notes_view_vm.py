@@ -21,6 +21,10 @@ from typing import cast
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler
 
+from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.viewmodels.dialog_service import IDialogService
+from notes_showcase.viewmodels.note_vm import NoteVM
 from vmx import (
     ComponentVM,
     ConstructionStatus,
@@ -33,7 +37,6 @@ from vmx import (
     ObservableList,
     Pageable,
     PagedComposition,
-    PropertyChangedMessage,
     RelayCommand,
     RxDispatcher,
     SearchableState,
@@ -42,11 +45,6 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub
 from vmx.services.dispatcher import Dispatcher
-
-from notes_showcase.models.note_model import NoteModel
-from notes_showcase.models.note_repository import INoteRepository
-from notes_showcase.viewmodels.dialog_service import IDialogService
-from notes_showcase.viewmodels.note_vm import NoteVM
 
 _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
@@ -71,8 +69,8 @@ class NotesViewVM(
         page_size: int = _DEFAULT_PAGE_SIZE,
         search_debounce_seconds: float = _DEFAULT_SEARCH_DEBOUNCE_S,
         search_scheduler: SchedulerBase | None = None,
-        dialog_service: "IDialogService | None" = None,
-        notification_hub: "INotificationHub | None" = None,
+        dialog_service: IDialogService | None = None,
+        notification_hub: INotificationHub | None = None,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._repo = repository
@@ -195,12 +193,7 @@ class NotesViewVM(
         if self._current_notebook_is_readonly == value:
             return
         self._current_notebook_is_readonly = value
-        self._hub.send(
-            PropertyChangedMessage.create(
-                self, self._name, "current_notebook_is_readonly"
-            )
-        )
-        self._raise_property_changed("current_notebook_is_readonly")
+        self._notify_property_changed("current_notebook_is_readonly")
 
     @property
     def dialog_service(self) -> IDialogService | None:
@@ -228,8 +221,7 @@ class NotesViewVM(
         if self._current is value:
             return
         self._current = value
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "current"))
-        self._raise_property_changed("current")
+        self._notify_property_changed("current")
 
     # ── ISearchable ────────────────────────────────────────────────────────
     @property
@@ -270,10 +262,7 @@ class NotesViewVM(
         if self._show_starred_only == value:
             return
         self._show_starred_only = value
-        self._hub.send(
-            PropertyChangedMessage.create(self, self._name, "show_starred_only")
-        )
-        self._raise_property_changed("show_starred_only")
+        self._notify_property_changed("show_starred_only")
         self._recompute_filtered()
 
     # ── Pageable ───────────────────────────────────────────────────────────
@@ -388,8 +377,7 @@ class NotesViewVM(
                 vm.construct()
                 self._inner.append(vm)
         self._current = None
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "current"))
-        self._raise_property_changed("current")
+        self._notify_property_changed("current")
         self._recompute_filtered()
         self._paged.move_to_first_page()
 
@@ -432,10 +420,7 @@ class NotesViewVM(
                     break
             if self._current is note:
                 self._current = None
-                self._hub.send(
-                    PropertyChangedMessage.create(self, self._name, "current")
-                )
-                self._raise_property_changed("current")
+                self._notify_property_changed("current")
             self._recompute_filtered()
             note.dispose()
 
@@ -484,35 +469,22 @@ class NotesViewVM(
         self._filtered = result
         # Re-push self into the subject so DerivedProperties recompute.
         self._self_subject.on_next(self)
-        self._hub.send(
-            PropertyChangedMessage.create(self, self._name, "filtered_items")
-        )
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "is_empty"))
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "visible_items"))
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "page_label"))
-        self._raise_property_changed("filtered_items")
-        self._raise_property_changed("is_empty")
-        self._raise_property_changed("visible_items")
-        self._raise_property_changed("page_label")
+        self._notify_property_changed("filtered_items")
+        self._notify_property_changed("is_empty")
+        self._notify_property_changed("visible_items")
+        self._notify_property_changed("page_label")
 
     def _build_page_label(self) -> str:
         pages = max(1, self._paged.page_count)
         return f"Page {self._paged.current_page_index + 1} of {pages}"
 
     def _on_paged_changed(self, property_name: str) -> None:
-        self._raise_property_changed(property_name)
-        self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
+        self._notify_property_changed(property_name)
         if property_name in {"current_page_index", "page_count", "page_size"}:
             # Push a fresh self emission so derived "page_label" recomputes.
             self._self_subject.on_next(self)
-            self._hub.send(
-                PropertyChangedMessage.create(self, self._name, "page_label")
-            )
-            self._hub.send(
-                PropertyChangedMessage.create(self, self._name, "visible_items")
-            )
-            self._raise_property_changed("page_label")
-            self._raise_property_changed("visible_items")
+            self._notify_property_changed("page_label")
+            self._notify_property_changed("visible_items")
 
     # ── Lifecycle override ─────────────────────────────────────────────────
     def _on_destruct(self) -> None:

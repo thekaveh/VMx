@@ -171,8 +171,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // message (HUB-005). The guard also avoids redundant INPC raises.
             if (_isCurrent == value) return;
             _isCurrent = value;
-            RaisePropertyChanged(nameof(IsCurrent));
-            _hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsCurrent)));
+            NotifyPropertyChanged(nameof(IsCurrent));
         }
     }
 
@@ -724,7 +723,31 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
-    /// <summary>Raises <see cref="PropertyChanged"/> for the named property.</summary>
+    /// <summary>
+    /// Publishes one hub message followed by one local <see cref="PropertyChanged"/>
+    /// event for an already-assigned, equality-gated property.
+    /// </summary>
+    protected void NotifyPropertyChanged(string propertyName)
+    {
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed) return;
+        }
+
+        // External observers run outside the lifecycle gate. Once admitted by
+        // the terminal-state check, both channels complete even when a hub
+        // observer disposes this VM re-entrantly.
+        try
+        {
+            _hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName));
+        }
+        finally
+        {
+            RaisePropertyChanged(propertyName);
+        }
+    }
+
+    /// <summary>Raises only the local <see cref="PropertyChanged"/> event.</summary>
     protected void RaisePropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 

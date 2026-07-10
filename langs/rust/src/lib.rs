@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::hash::Hash;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.2.0";
+pub const MIN_SPEC_VERSION: &str = "3.3.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -391,6 +391,107 @@ impl Drop for Subscription {
     }
 }
 
+type PropertyChangedSubscriber = Arc<dyn Fn(&str) + Send + Sync + 'static>;
+
+/// Hot, per-viewmodel property-name stream used by local binding adapters.
+#[derive(Clone, Default)]
+pub struct PropertyChangedStream {
+    inner: Arc<Mutex<PropertyChangedStreamInner>>,
+}
+
+#[derive(Default)]
+struct PropertyChangedStreamInner {
+    next_subscription_id: usize,
+    subscribers: BTreeMap<usize, PropertyChangedSubscriber>,
+    disposed: bool,
+    active_notifications: usize,
+    teardown_pending: bool,
+}
+
+impl PropertyChangedStream {
+    pub fn subscribe<F>(&self, handler: F) -> PropertyChangedSubscription
+    where
+        F: Fn(&str) + Send + Sync + 'static,
+    {
+        let mut inner = lock(&self.inner);
+        if inner.disposed {
+            return PropertyChangedSubscription::noop();
+        }
+        inner.next_subscription_id += 1;
+        let id = inner.next_subscription_id;
+        inner.subscribers.insert(id, Arc::new(handler));
+        PropertyChangedSubscription {
+            id,
+            stream: Arc::downgrade(&self.inner),
+        }
+    }
+
+    fn begin_notification(&self) -> bool {
+        let mut inner = lock(&self.inner);
+        if inner.disposed {
+            return false;
+        }
+        inner.active_notifications += 1;
+        true
+    }
+
+    fn send_admitted(&self, property_name: &str) {
+        let subscribers = lock(&self.inner)
+            .subscribers
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for subscriber in subscribers {
+            let _ = catch_unwind(AssertUnwindSafe(|| subscriber(property_name)));
+        }
+    }
+
+    fn end_notification(&self) {
+        let mut inner = lock(&self.inner);
+        inner.active_notifications -= 1;
+        if inner.active_notifications == 0 && inner.teardown_pending {
+            inner.teardown_pending = false;
+            inner.subscribers.clear();
+        }
+    }
+
+    fn dispose(&self) {
+        let mut inner = lock(&self.inner);
+        inner.disposed = true;
+        if inner.active_notifications == 0 {
+            inner.subscribers.clear();
+        } else {
+            inner.teardown_pending = true;
+        }
+    }
+}
+
+pub struct PropertyChangedSubscription {
+    id: usize,
+    stream: Weak<Mutex<PropertyChangedStreamInner>>,
+}
+
+impl PropertyChangedSubscription {
+    fn noop() -> Self {
+        Self {
+            id: 0,
+            stream: Weak::new(),
+        }
+    }
+
+    pub fn dispose(&self) {
+        if let Some(stream) = self.stream.upgrade() {
+            lock(&stream).subscribers.remove(&self.id);
+        }
+    }
+}
+
+impl Drop for PropertyChangedSubscription {
+    fn drop(&mut self) {
+        self.dispose();
+    }
+}
+
 pub trait Dispatcher: Clone + Send + Sync + 'static {
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>);
 }
@@ -499,6 +600,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     transitioning: bool,
     parent_id: Option<usize>,
     hub: MessageHub,
+    property_changed: PropertyChangedStream,
     foreground: D,
     on_construct: Option<Hook>,
     on_destruct: Option<Hook>,
@@ -518,6 +620,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 transitioning: false,
                 parent_id: None,
                 hub,
+                property_changed: PropertyChangedStream::default(),
                 foreground: dispatcher,
                 on_construct: None,
                 on_destruct: None,
@@ -626,10 +729,14 @@ impl<D: Dispatcher> ComponentCore<D> {
             return Err(error);
         }
 
-        {
+        let property_changed = {
             let mut inner = lock(&self.inner);
             inner.status = target;
             inner.transitioning = false;
+            (target == ConstructionStatus::Disposed).then(|| inner.property_changed.clone())
+        };
+        if let Some(property_changed) = property_changed {
+            property_changed.dispose();
         }
         foreground.dispatch(Box::new(move || {
             hub.send(Message::ConstructionStatusChanged(
@@ -650,14 +757,36 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).parent_id
     }
 
-    fn property_changed(&self, property_name: impl Into<String>) {
-        let inner = lock(&self.inner);
-        inner
-            .hub
-            .send(Message::PropertyChanged(PropertyChangedMessage {
-                sender_id: inner.id,
-                property_name: property_name.into(),
+    fn property_changed_stream(&self) -> PropertyChangedStream {
+        lock(&self.inner).property_changed.clone()
+    }
+
+    fn notify_property_changed(&self, property_name: impl Into<String>) {
+        let property_name = property_name.into();
+        let (sender_id, hub, local) = {
+            let inner = lock(&self.inner);
+            if inner.status == ConstructionStatus::Disposed {
+                return;
+            }
+            (inner.id, inner.hub.clone(), inner.property_changed.clone())
+        };
+        if !local.begin_notification() {
+            return;
+        }
+        let hub_result = catch_unwind(AssertUnwindSafe(|| {
+            hub.send(Message::PropertyChanged(PropertyChangedMessage {
+                sender_id,
+                property_name: property_name.clone(),
             }));
+        }));
+        // The stream admitted this call before disposal, so the pair completes
+        // even when a hub observer disposes the VM re-entrantly. Subscriber
+        // additions/removals during hub delivery still affect the local send.
+        local.send_admitted(&property_name);
+        local.end_notification();
+        if let Err(payload) = hub_result {
+            resume_unwind(payload);
+        }
     }
 
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
@@ -679,7 +808,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         };
         if changed {
-            self.property_changed("is_current");
+            self.notify_property_changed("is_current");
         }
     }
 
@@ -694,7 +823,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         };
         if changed {
-            self.property_changed("is_selected");
+            self.notify_property_changed("is_selected");
         }
     }
 
@@ -709,7 +838,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         };
         if changed {
-            self.property_changed("is_selected");
+            self.notify_property_changed("is_selected");
         }
     }
 
@@ -728,7 +857,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         };
         if changed {
-            self.property_changed("is_expanded");
+            self.notify_property_changed("is_expanded");
         }
     }
 }
@@ -793,6 +922,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         lock(&self.model).clone()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
+    }
+
     pub fn set_model(&self, model: M) {
         let old_hint = self.hint();
         let changed = {
@@ -805,9 +942,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             }
         };
         if changed {
-            self.core.property_changed("model");
+            self.core.notify_property_changed("model");
             if self.hint() != old_hint {
-                self.core.property_changed("modeled_hint");
+                self.core.notify_property_changed("modeled_hint");
             }
         }
     }
@@ -976,6 +1113,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
 
     pub fn as_component(&self) -> &ComponentVm<M, D> {
         &self.inner
+    }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.inner.property_changed()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.inner.notify_property_changed(property_name);
     }
 }
 
@@ -1992,6 +2137,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core.id()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
+    }
+
     pub fn items(&self) -> Vec<T> {
         self.items.to_vec()
     }
@@ -2178,7 +2331,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         if let Some(next_current) = next.clone() {
             next_current.set_current_flag(true);
         }
-        self.core.property_changed("current");
+        self.core.notify_property_changed("current");
         self.invoke_current_changed(next);
     }
 
@@ -2607,6 +2760,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.items()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.inner.property_changed()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.inner.notify_property_changed(property_name);
+    }
+
     pub fn get(&self, index: usize) -> Option<T> {
         self.inner.get(index)
     }
@@ -2837,6 +2998,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             items,
             auto_construct_on_add: Arc::new(Mutex::new(false)),
         }
+    }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
     }
 
     pub fn id(&self) -> usize {
@@ -4276,6 +4445,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         self.hub.clone()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.component.property_changed()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.component.notify_property_changed(property_name);
+    }
+
     pub fn parent(&self) -> Option<Self> {
         lock(&self.parent).clone()
     }
@@ -4925,9 +5102,17 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         self.core.id()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
+    }
+
     pub fn construct(&self) -> VmxResult<()> {
         self.component1.construct()?;
-        self.core.property_changed("component1");
+        self.core.notify_property_changed("component1");
         self.core.transition(LifecycleOperation::Construct)
     }
 
@@ -5034,15 +5219,23 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         self.component2.clone()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
+    }
+
     pub fn id(&self) -> usize {
         self.core.id()
     }
 
     pub fn construct(&self) -> VmxResult<()> {
         self.component1.construct()?;
-        self.core.property_changed("component1");
+        self.core.notify_property_changed("component1");
         self.component2.construct()?;
-        self.core.property_changed("component2");
+        self.core.notify_property_changed("component2");
         self.core.transition(LifecycleOperation::Construct)
     }
 
@@ -5159,13 +5352,21 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         self.component3.clone()
     }
 
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
+    }
+
     pub fn construct(&self) -> VmxResult<()> {
         self.component1.construct()?;
-        self.core.property_changed("component1");
+        self.core.notify_property_changed("component1");
         self.component2.construct()?;
-        self.core.property_changed("component2");
+        self.core.notify_property_changed("component2");
         self.component3.construct()?;
-        self.core.property_changed("component3");
+        self.core.notify_property_changed("component3");
         self.core.transition(LifecycleOperation::Construct)
     }
 }
@@ -5208,6 +5409,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4
         self.component3.construct()?;
         self.component4.construct()?;
         self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
     }
 }
 
@@ -5261,6 +5470,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
     pub fn component5(&self) -> T5 {
         self.component5.clone()
     }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
+    }
 }
 
 #[derive(Clone)]
@@ -5313,6 +5530,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
         self.component5.construct()?;
         self.component6.construct()?;
         self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.core.property_changed_stream()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.core.notify_property_changed(property_name);
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
@@ -5394,6 +5619,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     pub fn is_selected(&self) -> bool {
         self.inner.is_selected()
     }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.inner.property_changed()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.inner.notify_property_changed(property_name);
+    }
 }
 
 #[derive(Clone)]
@@ -5452,6 +5685,14 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
 
     pub fn destruct(&self) -> VmxResult<()> {
         self.inner.destruct()
+    }
+
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.inner.property_changed()
+    }
+
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.inner.notify_property_changed(property_name);
     }
 }
 

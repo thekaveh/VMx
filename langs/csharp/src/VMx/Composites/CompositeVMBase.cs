@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Specialized;
 using VMx.Components;
 using VMx.Lifecycle;
-using VMx.Messages;
 using VMx.Services;
 
 namespace VMx.Composites;
@@ -386,8 +385,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
             value.SetIsCurrent(true);
 
         // Emit PropertyChangedMessage for "Current" on the hub.
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-        RaisePropertyChanged(nameof(Current));
+        NotifyPropertyChanged(nameof(Current));
 
         // Invoke the optional builder-registered OnCurrentChanged callback
         // AFTER state update + hub publish + PropertyChanged so all observers

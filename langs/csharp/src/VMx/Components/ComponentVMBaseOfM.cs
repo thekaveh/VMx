@@ -1,4 +1,3 @@
-using VMx.Messages;
 using VMx.Services;
 
 namespace VMx.Components;
@@ -68,19 +67,14 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
 
         _model = value;
 
-        // Emit PropertyChangedMessage for "Model".
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, "Model"));
-
-        // Raise INPC for "Model".
-        RaisePropertyChanged("Model");
+        NotifyPropertyChanged("Model");
 
         // Recompute ModeledHint.
         var newHint = _modeledHinter(value);
         if (!string.Equals(_modeledHint, newHint, StringComparison.Ordinal))
         {
             _modeledHint = newHint;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(ModeledHint)));
-            RaisePropertyChanged(nameof(ModeledHint));
+            NotifyPropertyChanged(nameof(ModeledHint));
         }
 
         // Invoke OnModelChanged callback.

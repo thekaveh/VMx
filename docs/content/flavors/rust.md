@@ -11,7 +11,9 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Reactive primitive: VMx-owned facade over `rxrust`
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 287 library IDs are covered by behavioral Rust tests
+- Conformance: all 290 library IDs are covered by behavioral Rust tests
+- Property notifications: `notify_property_changed` publishes to the hub and
+  then the per-instance `property_changed` stream
 
 ## Local Use
 

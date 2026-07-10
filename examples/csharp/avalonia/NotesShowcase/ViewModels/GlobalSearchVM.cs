@@ -72,8 +72,7 @@ public sealed class GlobalSearchVM : ComponentVMBase
         {
             if (string.Equals(_search.SearchTerm, value, StringComparison.Ordinal)) return;
             _search.SearchTerm = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(SearchTerm)));
-            RaisePropertyChanged(nameof(SearchTerm));
+            NotifyPropertyChanged(nameof(SearchTerm));
         }
     }
 
@@ -102,16 +101,14 @@ public sealed class GlobalSearchVM : ComponentVMBase
 
     private void OnPagedCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Results)));
-        RaisePropertyChanged(nameof(Results));
+        NotifyPropertyChanged(nameof(Results));
     }
 
     private void OnPagedPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TokenPagedComposition<NoteVM, string>.HasMore))
         {
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(HasMore)));
-            RaisePropertyChanged(nameof(HasMore));
+            NotifyPropertyChanged(nameof(HasMore));
         }
     }
 

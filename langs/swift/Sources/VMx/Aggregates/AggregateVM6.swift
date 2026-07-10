@@ -48,23 +48,17 @@ open class AggregateVM6<
         component5?.dispose(); component6?.dispose()
 
         let c1 = factory1(); component1 = c1
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component1"))
-        _raisePropertyChanged("component1")
+        _notifyPropertyChanged("component1")
         let c2 = factory2(); component2 = c2
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component2"))
-        _raisePropertyChanged("component2")
+        _notifyPropertyChanged("component2")
         let c3 = factory3(); component3 = c3
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component3"))
-        _raisePropertyChanged("component3")
+        _notifyPropertyChanged("component3")
         let c4 = factory4(); component4 = c4
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component4"))
-        _raisePropertyChanged("component4")
+        _notifyPropertyChanged("component4")
         let c5 = factory5(); component5 = c5
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component5"))
-        _raisePropertyChanged("component5")
+        _notifyPropertyChanged("component5")
         let c6 = factory6(); component6 = c6
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component6"))
-        _raisePropertyChanged("component6")
+        _notifyPropertyChanged("component6")
 
         try c1.construct(); try c2.construct(); try c3.construct()
         try c4.construct(); try c5.construct(); try c6.construct()
