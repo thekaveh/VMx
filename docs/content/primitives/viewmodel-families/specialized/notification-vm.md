@@ -32,6 +32,9 @@ render-time lifecycle:
 - external hub resolution updates `IsResolved`
 - dispose tears down timer and subscriptions
 
+Timer, subscription, command, and property-stream teardown happens at most
+once under the [Disposal Contract](../../disposal-contract.md).
+
 ## Cross-Language Surface
 
 | Concept          | C#               | Python            | TypeScript       | Swift            |

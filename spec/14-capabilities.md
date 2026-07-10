@@ -324,3 +324,6 @@ etc.
 
 The composition rule (Rule 3) is covered by `CAP-019`: a fixture class can
 satisfy any combination of capability interfaces simultaneously.
+
+Disposable state helpers that implement capability behavior participate in
+the cross-cutting `DISP-005` at-most-once completion contract (ADR-0084).

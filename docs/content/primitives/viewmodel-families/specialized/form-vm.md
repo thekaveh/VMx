@@ -43,6 +43,10 @@ Construction captures the initial snapshot. After that:
 - approve persists, advances the snapshot, and publishes `OnApproved`
 - fire-and-forget approve failures surface on `ApproveErrors`
 
+Repeated disposal completes the owned channels and commands at most once while
+preserving the form's inert post-dispose behavior. See the
+[Disposal Contract](../../disposal-contract.md).
+
 Strict mode gates approve on `IsValid && IsDirty`.
 
 ## Cross-Language Surface

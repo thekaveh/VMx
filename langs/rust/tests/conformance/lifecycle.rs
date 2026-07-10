@@ -242,6 +242,35 @@ fn dispose_on_parent_disposes_children_before_parent() {
     assert_eq!(parent.status(), ConstructionStatus::Disposed);
 }
 
+/// DISP-001 — VM disposal and owned child cascades are observably idempotent
+#[test]
+fn repeated_parent_dispose_emits_one_terminal_transition_per_node() {
+    let hub = MessageHub::new();
+    let parent = CompositeVm::with_services("parent", hub.clone(), NullDispatcher::new());
+    let child = ComponentVm::with_services("child", hub.clone(), NullDispatcher::new());
+    let parent_id = parent.id();
+    let child_id = child.id();
+    parent.add(child).unwrap();
+
+    parent.dispose().unwrap();
+    parent.dispose().unwrap();
+
+    let disposed = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change)
+                if change.status == ConstructionStatus::Disposed =>
+            {
+                Some(change.sender_id)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(disposed.iter().filter(|id| **id == child_id).count(), 1);
+    assert_eq!(disposed.iter().filter(|id| **id == parent_id).count(), 1);
+}
+
 /// LIFE-014 — A throwing construct/destruct hook rolls Status back (transactional)
 #[test]
 fn throwing_lifecycle_hook_rolls_status_back() {

@@ -141,6 +141,17 @@ fn dispose_stops_recompute_emissions() {
     assert_eq!(property.value(), 1);
 }
 
+/// DISP-005 — reactive helper disposal completes once and retains the last value
+#[test]
+fn repeated_derived_property_dispose_is_inert_and_retains_value() {
+    let property = DerivedProperty::new(7);
+    property.dispose();
+    property.dispose();
+    property.recompute(|value| value + 1);
+
+    assert_eq!(property.value(), 7);
+}
+
 /// DPROP-012 — Derived-property scenarios match fixture
 #[test]
 fn fixture_style_sum_scenario_matches_expected_values() {

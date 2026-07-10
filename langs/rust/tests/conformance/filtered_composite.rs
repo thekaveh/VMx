@@ -139,6 +139,21 @@ fn disposed_filtered_view_freezes_projection() {
     assert_eq!(filtered.visible_count(), 2);
 }
 
+/// DISP-006 — disposable collection/projection helpers perform terminal work once
+#[test]
+fn repeated_filtered_view_dispose_keeps_one_frozen_projection() {
+    let source = source_with(&[1, 2]);
+    let filtered =
+        FilteredCompositeVm::new(source.clone(), |vm: &ComponentVm<i32>| vm.model() >= 1);
+    filtered.dispose();
+    filtered.dispose();
+
+    source.add(child(3)).unwrap();
+    filtered.set_predicate(|_: &ComponentVm<i32>| true);
+
+    assert_eq!(filtered.visible_count(), 2);
+}
+
 /// COMP-036 — scored filter orders by score with stable ties
 #[test]
 fn scored_filter_orders_by_descending_score_with_stable_ties() {

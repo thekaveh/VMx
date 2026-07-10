@@ -29,6 +29,9 @@ Modal completion is single-winner and host-driven:
 - null dialog presentation returns the cancellation result immediately
 - awaiters never hang if the modal is disposed instead of explicitly dismissed
 
+Repeated disposal never replaces a prior result or resumes awaiters twice. See
+the [Disposal Contract](../../disposal-contract.md).
+
 ## Cross-Language Surface
 
 | Concept          | C#             | Python          | TypeScript     | Swift                  |

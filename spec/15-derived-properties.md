@@ -158,3 +158,6 @@ specified in [ADR-0011](ADRs/0011-derived-properties.md)).
   "`DerivedProperty` distinct-emit")
 - `Dispose` ends subscriptions and `ValueChanged` completes
 - Fixture-driven scenarios
+
+`DISP-005` adds repeated-dispose coverage: completion occurs at most once,
+late sources do not emit, and the documented last value remains readable.

@@ -10,6 +10,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | Prefix      | Area                                                 | File                                          |
 | ----------- | ---------------------------------------------------- | --------------------------------------------- |
 | `LIFE-NNN`  | Lifecycle state machine                              | `02-lifecycle.md`                             |
+| `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md`                              |
 | `HUB-NNN`   | Message hub                                          | `03-messages.md`                              |
 | `PROP-NNN`  | Property change notifications                        | `03-messages.md`                              |
 | `CMD-NNN`   | Commands                                             | `04-commands.md`                              |
@@ -2706,3 +2707,62 @@ hub subscriber filtered on `ThemeChangedMessage`
 **When** `setThemeCommand.execute("dark")` is called afterward
 **Then** `currentTheme.value.followSystem == false`
 **And** `currentTheme.value.name == "dark"`
+
+## 30. Cross-cutting disposal (`DISP-NNN`) — spec v3.4
+
+These IDs top up the existing type-specific disposal coverage. They apply to
+public VMx-owned types that expose `Dispose()` / `dispose()`; they do not add a
+disposal member to types that do not otherwise own disposable resources.
+
+### DISP-001 — VM disposal and owned cascades are observably idempotent
+
+**Given** a parent VM with at least one child and observers of terminal lifecycle changes
+**When** the parent is disposed twice
+**Then** the parent and each child reach `Disposed`
+**And** each publishes exactly one terminal `Disposed` transition
+**And** each owned disposal hook or side effect runs at most once
+
+### DISP-002 — command disposal cancels one in-flight operation once
+
+**Given** an `AsyncRelayCommand` whose operation is in flight
+**When** the command is disposed twice
+**Then** the operation observes one cancellation
+**And** the command returns to a non-executing terminal state
+**And** later execution attempts are inert
+**And** no terminal/error channel is completed more than once
+
+### DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once
+
+**Given** a thread-safe notification or message hub with an in-flight waiter and terminal observer
+**When** multiple callers race to dispose the hub
+**Then** exactly one caller claims terminal teardown
+**And** the waiter resolves with the hub's documented safe result
+**And** completion or terminal snapshot publication occurs exactly once
+
+For flavors whose hub contract is single-threaded, a re-entrant disposal call
+MUST satisfy the same at-most-once observable result; this ID does not add a
+thread-safety guarantee to that flavor.
+
+### DISP-004 — interaction-owner disposal completes once and preserves the first result
+
+**Given** disposable form, modal, or notification interaction owners
+**When** an owner is disposed twice, including after an interaction already resolved
+**Then** each owned completion surface completes at most once
+**And** a modal or notification keeps its first terminal result
+**And** a disposed form retains its documented inert post-dispose behavior
+
+### DISP-005 — reactive-helper disposal completes once and retains documented readable state
+
+**Given** a disposable derived property or state helper with a current value and subscriber
+**When** the helper is disposed twice and its former source changes
+**Then** its completion surface completes at most once
+**And** it emits no post-dispose value
+**And** any last-value read documented by that helper still returns the retained value
+
+### DISP-006 — collection and projection helper disposal performs one terminal transition
+
+**Given** a disposable batch, paging, collection, or filtered-projection helper
+**When** its disposal handle or helper is disposed twice
+**Then** batch exit, reset/completion, or projection freezing occurs at most once
+**And** later source or suspended-load activity follows that helper's documented
+post-dispose behavior without a second terminal side effect

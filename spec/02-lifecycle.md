@@ -231,3 +231,7 @@ directly.
 - dispose cascade (parent disposes children depth-first)
 - transactional rollback: a throwing `OnConstruct`/`OnDestruct` hook rolls `Status` back to
   the prior settled state and leaves the VM recoverable (`LIFE-014`, §2.4)
+
+`DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
+dispose path more than once produces one observable terminal transition and
+one owned cleanup per node. See `01-concepts.md` §4 and ADR-0084.

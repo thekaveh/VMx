@@ -248,3 +248,7 @@ hub resolves every in-flight `Post` awaitable with
 subsequent `Post` calls into immediately-`Pending` results that do not
 enqueue, makes subsequent `Resolve` calls no-ops, and is idempotent. These
 were previously C#-only shutdown semantics; all flavors now share them.
+
+`DISP-003` adds concurrent/re-entrant at-most-once teardown for the hub, while
+`DISP-004` covers repeated rendering-VM/interaction-owner disposal. Both retain
+the existing first-resolution and post-dispose rules (ADR-0084).

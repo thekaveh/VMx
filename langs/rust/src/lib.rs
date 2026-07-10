@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.3.0";
+pub const MIN_SPEC_VERSION: &str = "3.4.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -738,14 +738,19 @@ impl<D: Dispatcher> ComponentCore<D> {
         if let Some(property_changed) = property_changed {
             property_changed.dispose();
         }
-        foreground.dispatch(Box::new(move || {
-            hub.send(Message::ConstructionStatusChanged(
-                ConstructionStatusChangedMessage {
-                    sender_id,
-                    status: target,
-                },
-            ));
-        }));
+        // Dispose has no distinct intermediate state: the first publication
+        // above is already the terminal Disposed transition. Publishing the
+        // same state again would make one dispose observably execute twice.
+        if operation != LifecycleOperation::Dispose {
+            foreground.dispatch(Box::new(move || {
+                hub.send(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
+                        sender_id,
+                        status: target,
+                    },
+                ));
+            }));
+        }
         Ok(())
     }
 
@@ -3818,10 +3823,18 @@ impl NotificationHub {
     }
 
     pub fn dispose(&self) {
-        if *lock(&self.disposed) {
+        let should_dispose = {
+            let mut disposed = lock(&self.disposed);
+            if *disposed {
+                false
+            } else {
+                *disposed = true;
+                true
+            }
+        };
+        if !should_dispose {
             return;
         }
-        *lock(&self.disposed) = true;
         let pending_ids = lock(&self.pending).keys().copied().collect::<Vec<_>>();
         for id in pending_ids {
             lock(&self.reactions).insert(id, NotificationReaction::Pending);
