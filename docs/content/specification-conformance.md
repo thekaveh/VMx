@@ -37,6 +37,25 @@ The source overview is here:
   C#, Python, TypeScript, Swift, and Rust.
 - The examples workflows enforce the separate flagship scenario contract.
 
+## Test Marker Grammar
+
+The coverage checker recognizes one intentional marker form per flavor:
+
+| Flavor     | Marker                                                                     |
+| ---------- | -------------------------------------------------------------------------- |
+| C#         | `[Trait("Conformance", "LIFE-001")]`                                       |
+| Python     | `@pytest.mark.conformance("LIFE-001")`                                     |
+| TypeScript | `describe("LIFE-001", ...)`                                                |
+| Swift      | `/// LIFE-001 — description` attached to a test function                   |
+| Rust       | `/// LIFE-001 — description` attached through `#[test]` to a test function |
+
+For Rust, the ID must be the first token after `///` and an em dash must follow
+it on the same line. Only doc-comment and attribute lines may separate the
+marker from `#[test]` and its function. Ordinary comments, file summaries,
+unattached markers, and markers in block-commented tests are ignored. Duplicate
+markers are one set-based coverage claim. In required mode, a missing Rust ID is
+listed under `MISSING` and fails the coverage command.
+
 ## Practical Reading Path
 
 1. Read `spec/README.md` for chapter ownership and release history.

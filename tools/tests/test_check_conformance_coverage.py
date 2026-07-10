@@ -525,3 +525,107 @@ def test_swift_orphan_id_is_informational(tmp_path: Path) -> None:
     rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
 
     assert rc == 0, "orphan markers are informational for full-parity flavors"
+
+
+# ─── Rust conformance scraper ────────────────────────────────────────────────
+
+
+def test_rust_ignores_block_commented_test(tmp_path: Path) -> None:
+    """A marker inside a block-commented Rust test must not count as coverage."""
+    test_file = tmp_path / "lifecycle.rs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            /*
+            /// LIFE-001 — disabled placeholder
+            #[test]
+            fn disabled_placeholder() {}
+            */
+
+            /// LIFE-002 — live test
+            #[test]
+            fn live_test() {}
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_rust_conformance_ids(tmp_path)
+
+    assert found == {"LIFE-002"}
+
+
+def test_rust_marker_must_attach_to_live_test(tmp_path: Path) -> None:
+    """Only a doc marker attached to a live ``#[test]`` function counts."""
+    test_file = tmp_path / "lifecycle.rs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            // LIFE-001 — ordinary comments are not markers
+            /// LIFE-002 — file summary, not a test
+            use vmx::ComponentVm;
+
+            /// LIFE-003 — helper, not a test
+            fn helper() {}
+
+            /// LIFE-004 — line-commented test
+            // #[test]
+            // fn disabled() {}
+
+            /// LIFE-005 — live test
+            /// Additional test documentation is allowed.
+            #[allow(clippy::assertions_on_constants)]
+            #[test]
+            fn live_test() { assert!(true); }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_rust_conformance_ids(tmp_path)
+
+    assert found == {"LIFE-005"}
+
+
+def test_rust_duplicate_markers_are_deduplicated(tmp_path: Path) -> None:
+    """Repeated coverage markers count once because coverage is a set of IDs."""
+    (tmp_path / "first.rs").write_text(
+        "/// LIFE-001 — first test\n#[test]\nfn first() {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "second.rs").write_text(
+        "/// LIFE-001 — second test\n#[test]\nfn second() {}\n",
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_rust_conformance_ids(tmp_path)
+
+    assert found == {"LIFE-001"}
+    report = ccc.render_report({"LIFE-001"}, {"rust": found}, {})
+    assert "rust: 1/1 covered" in report
+
+
+def test_required_rust_missing_id_fails_with_actionable_report(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    catalog = tmp_path / "spec" / "12-conformance.md"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text(
+        "### LIFE-001 — present\n### LIFE-002 — missing\n",
+        encoding="utf-8",
+    )
+    rust_dir = tmp_path / "langs" / "rust" / "tests" / "conformance"
+    rust_dir.mkdir(parents=True)
+    (rust_dir / "lifecycle.rs").write_text(
+        "/// LIFE-001 — present\n#[test]\nfn present() {}\n",
+        encoding="utf-8",
+    )
+
+    rc = ccc.main(["--repo-root", str(tmp_path), "--require", "rust"])
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "rust: 1/2 covered" in captured.out
+    assert "MISSING (1): LIFE-002" in captured.out
+    assert "required languages have conformance gaps: ['rust']" in captured.err

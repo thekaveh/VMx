@@ -225,7 +225,8 @@ def scrape_rust_conformance_ids(directory: Path) -> set[str]:
     """Scrape Rust conformance IDs from doc-comment markers attached to tests."""
     ids: set[str] = set()
     for path in directory.rglob("*.rs"):
-        lines = path.read_text(encoding="utf-8").splitlines()
+        text = _BLOCK_COMMENT_RE.sub("", path.read_text(encoding="utf-8"))
+        lines = text.splitlines()
         for index, line in enumerate(lines):
             match = _RUST_COMMENT_MARKER_PATTERN.match(line)
             if match is None or not _rust_marker_attaches_to_test(lines, index):
