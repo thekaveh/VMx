@@ -17,8 +17,14 @@ final class NullServicesTests: XCTestCase {
         let c = hub.messages.sink(receiveCompletion: { _ in completed = true },
                                   receiveValue: { _ in values += 1 })
         hub.send(PropertyChangedMessage(sender: NSObject(), senderName: "x", propertyName: "y"))
+        var bodyRan = false
+        XCTAssertNoThrow(try hub.batch {
+            bodyRan = true
+            hub.send(PropertyChangedMessage(sender: NSObject(), senderName: "x", propertyName: "z"))
+        })
         XCTAssertEqual(values, 0)
         XCTAssertTrue(completed, "empty stream completes immediately on subscribe")
+        XCTAssertTrue(bodyRan, "a null transaction still executes its body")
         c.cancel()
     }
 

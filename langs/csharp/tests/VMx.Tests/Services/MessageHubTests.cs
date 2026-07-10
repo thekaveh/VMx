@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Reactive.Linq;
 using VMx.Messages;
 using VMx.Services;
 using VMx.Tests.Helpers;
@@ -69,5 +70,63 @@ public class MessageHubTests
 
         act.Should().NotThrow("shutdown-time sends are dropped, not faulted");
         received.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Concurrent_Producer_Waits_For_Batch_Then_Delivers_On_Its_Own_Thread()
+    {
+        using var hub = new MessageHub();
+        using var batchEntered = new ManualResetEventSlim();
+        using var releaseBatch = new ManualResetEventSlim();
+        using var sendStarted = new ManualResetEventSlim();
+        using var sendFinished = new ManualResetEventSlim();
+        var producerThread = 0;
+        var deliveryThread = 0;
+        using var subscription = hub.Messages.Subscribe(_ =>
+            deliveryThread = Environment.CurrentManagedThreadId);
+
+        var batchTask = Task.Run(() => hub.Batch(() =>
+        {
+            batchEntered.Set();
+            releaseBatch.Wait();
+        }));
+        batchEntered.Wait();
+        var sendTask = Task.Run(() =>
+        {
+            producerThread = Environment.CurrentManagedThreadId;
+            sendStarted.Set();
+            hub.Send(new Stub("concurrent"));
+            sendFinished.Set();
+        });
+        sendStarted.Wait();
+
+        var wasBlocked = false;
+        try
+        {
+            wasBlocked = !sendFinished.Wait(TimeSpan.FromMilliseconds(50));
+        }
+        finally
+        {
+            releaseBatch.Set();
+            await Task.WhenAll(batchTask, sendTask);
+        }
+
+        wasBlocked.Should().BeTrue("the active transaction serializes other producers");
+        deliveryThread.Should().Be(producerThread);
+    }
+
+    [Fact]
+    public void Development_Drain_Diagnostic_Names_Message_Type()
+    {
+#if DEBUG
+        using var hub = new MessageHub();
+        using var subscription = hub.Messages.OfType<Stub>()
+            .Subscribe(message => hub.Send(new Stub(message.Tag)));
+
+        Action act = () => hub.Send(new Stub("cycle"));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*possible publish cycle involving: Stub*");
+#endif
     }
 }

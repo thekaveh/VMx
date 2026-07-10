@@ -157,3 +157,205 @@ fn throwing_subscriber_does_not_break_hub() {
 
     assert_eq!(*received.lock().unwrap(), vec!["msg1", "msg2"]);
 }
+
+/// HUB-008 — Nested transactions defer and preserve every message
+#[test]
+fn nested_batches_defer_and_preserve_fifo() {
+    let hub = MessageHub::new();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    let _subscription = hub.subscribe(move |message| {
+        received_clone
+            .lock()
+            .unwrap()
+            .push(custom_name(message).to_string());
+    });
+
+    hub.batch(|| {
+        hub.send(make_msg("A"));
+        hub.batch(|| hub.send(make_msg("B")));
+        hub.send(make_msg("C"));
+        assert!(received.lock().unwrap().is_empty());
+    });
+
+    assert_eq!(*received.lock().unwrap(), vec!["A", "B", "C"]);
+}
+
+/// HUB-009 — Transaction error drains then rethrows the original error
+#[test]
+fn batch_panic_drains_then_resumes_original_panic() {
+    #[derive(Debug)]
+    struct Sentinel;
+
+    let hub = MessageHub::new();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    let _subscription = hub.subscribe(move |message| {
+        received_clone
+            .lock()
+            .unwrap()
+            .push(custom_name(message).to_string());
+    });
+
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        hub.batch(|| {
+            hub.send(make_msg("A"));
+            std::panic::panic_any(Sentinel);
+        });
+    }))
+    .expect_err("the original panic must be resumed");
+
+    assert!(panic.downcast_ref::<Sentinel>().is_some());
+    assert_eq!(*received.lock().unwrap(), vec!["A"]);
+}
+
+/// HUB-010 — Re-entrant send joins the iterative FIFO drain
+#[test]
+fn reentrant_send_joins_iterative_fifo_drain() {
+    let hub = MessageHub::new();
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let first_trace = trace.clone();
+    let reentrant_hub = hub.clone();
+    let _first = hub.subscribe(move |message| {
+        first_trace
+            .lock()
+            .unwrap()
+            .push(format!("first:{}", custom_name(message)));
+        if custom_name(message) == "A" {
+            reentrant_hub.batch(|| reentrant_hub.send(make_msg("B")));
+        }
+    });
+    let second_trace = trace.clone();
+    let _second = hub.subscribe(move |message| {
+        second_trace
+            .lock()
+            .unwrap()
+            .push(format!("second:{}", custom_name(message)));
+    });
+
+    hub.send(make_msg("A"));
+
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec!["first:A", "second:A", "first:B", "second:B"]
+    );
+}
+
+/// HUB-011 — Subscriber failure does not abort a transaction drain
+#[test]
+fn subscriber_failure_does_not_abort_batch_drain() {
+    let hub = MessageHub::new();
+    let _bad = hub.subscribe(|_| panic!("subscriber failed"));
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    let _good = hub.subscribe(move |message| {
+        received_clone
+            .lock()
+            .unwrap()
+            .push(custom_name(message).to_string());
+    });
+
+    hub.batch(|| {
+        hub.send(make_msg("A"));
+        hub.send(make_msg("B"));
+    });
+
+    assert_eq!(*received.lock().unwrap(), vec!["A", "B"]);
+}
+
+/// HUB-012 — Disposing during a transaction drops queued messages
+#[test]
+fn dispose_during_batch_drops_queued_messages() {
+    let hub = MessageHub::new();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    let _subscription = hub.subscribe(move |message| {
+        received_clone
+            .lock()
+            .unwrap()
+            .push(custom_name(message).to_string());
+    });
+
+    hub.batch(|| {
+        hub.send(make_msg("A"));
+        hub.dispose();
+        hub.send(make_msg("B"));
+    });
+    hub.send(make_msg("C"));
+
+    assert!(received.lock().unwrap().is_empty());
+}
+
+/// HUB-013 — Ordinary sends remain synchronous outside transactions
+#[test]
+fn ordinary_send_remains_synchronous() {
+    let hub = MessageHub::new();
+    let delivered = Arc::new(Mutex::new(false));
+    let delivered_clone = delivered.clone();
+    let _subscription = hub.subscribe(move |_| *delivered_clone.lock().unwrap() = true);
+
+    hub.send(make_msg("A"));
+
+    assert!(*delivered.lock().unwrap());
+}
+
+#[test]
+fn concurrent_producer_waits_for_batch_and_delivers_on_own_thread() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let hub = MessageHub::new();
+    let delivery_thread = Arc::new(Mutex::new(None));
+    let delivery_thread_clone = delivery_thread.clone();
+    let _subscription = hub.subscribe(move |_| {
+        *delivery_thread_clone.lock().unwrap() = Some(std::thread::current().id());
+    });
+    let (batch_entered_tx, batch_entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let batch_hub = hub.clone();
+    let batch_worker = std::thread::spawn(move || {
+        batch_hub.batch(|| {
+            batch_entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+    });
+    batch_entered_rx.recv().unwrap();
+
+    let (started_tx, started_rx) = mpsc::channel();
+    let (finished_tx, finished_rx) = mpsc::channel();
+    let sender_hub = hub.clone();
+    let send_worker = std::thread::spawn(move || {
+        let producer_thread = std::thread::current().id();
+        started_tx.send(()).unwrap();
+        sender_hub.send(make_msg("concurrent"));
+        finished_tx.send(producer_thread).unwrap();
+    });
+    started_rx.recv().unwrap();
+    assert!(finished_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    release_tx.send(()).unwrap();
+    batch_worker.join().unwrap();
+    let producer_thread = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    send_worker.join().unwrap();
+
+    assert_eq!(*delivery_thread.lock().unwrap(), Some(producer_thread));
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn development_drain_diagnostic_names_message_type() {
+    let hub = MessageHub::new();
+    let reentrant_hub = hub.clone();
+    let _subscription = hub.subscribe(move |message| reentrant_hub.send(message.clone()));
+
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        hub.send(make_msg("cycle"));
+    }))
+    .expect_err("a development publish cycle must panic");
+    let text = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+
+    assert!(text.contains("CustomMessage"), "diagnostic was: {text}");
+}

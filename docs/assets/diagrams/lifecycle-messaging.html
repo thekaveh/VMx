@@ -114,21 +114,19 @@
 <polyline points="980,217 1030,217" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="660,264 660,310 430,310 430,264" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1210,217 1300,217" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="225,542 225,684" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="515,542 515,684" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="820,542 820,684" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="1130,542 1130,684" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="1440,542 1440,684" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="370,750 420,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="680,750 730,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="990,750 1040,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="1300,750 1350,750" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="225,542 200,684" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="515,542 455,684" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="820,542 965,684" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1130,542 965,684" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1440,542 710,684" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="965,816 965,840 1475,840 1475,816" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1330,790 1365,790" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <rect x="70" y="118" width="1580" height="232" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Lifecycle state machine</text>
 <rect x="70" y="378" width="1580" height="224" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="400" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Operations and atomicity rules</text>
 <rect x="70" y="630" width="1580" height="240" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
-<text x="84" y="652" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Hub publication and cross-VM coordination</text>
+<text x="84" y="652" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Hub publication, transaction queue, and cross-VM coordination</text>
 <rect x="110" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
 <rect x="110" y="170" width="180" height="94" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="200" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Destructed</text>
@@ -191,39 +189,47 @@
 <text x="1440" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">composite/group/aggregate</text>
 <text x="1440" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wait for child settled states</text>
 <text x="1440" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">sequential reference impls</text>
-<rect x="110" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
-<rect x="110" y="684" width="260" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="240" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ConstructionStatusChangedMessage</text>
-<text x="240" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">two emissions for construct/destruct</text>
-<text x="240" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">four for reconstruct</text>
-<text x="240" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hot FIFO hub delivery</text>
-<rect x="420" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
-<rect x="420" y="684" width="260" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="550" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">PropertyChangedMessage</text>
-<text x="550" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsCurrent, Model, Snapshot, ActiveKey</text>
-<text x="550" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">per-flavor property names</text>
-<rect x="730" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
-<rect x="730" y="684" width="260" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="860" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection + tree messages</text>
-<text x="860" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CollectionChangedMessage</text>
-<text x="860" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TreeStructureChangedMessage</text>
-<text x="860" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">batch Reset interactions</text>
-<rect x="1040" y="684" width="260" height="132" rx="8" fill="#0f172a"/>
-<rect x="1040" y="684" width="260" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1170" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Per-instance binding surface</text>
-<text x="1170" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">INotifyPropertyChanged / propertyChanged</text>
-<text x="1170" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">adapter-friendly single-VM binding</text>
-<rect x="1350" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
-<rect x="1350" y="684" width="220" height="132" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
-<text x="1460" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Consumers</text>
-<text x="1460" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">commands</text>
-<text x="1460" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">view adapters</text>
-<text x="1460" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">cross-VM observers</text>
+<rect x="90" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="90" y="684" width="220" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="200" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Status messages</text>
+<text x="200" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">construction status</text>
+<text x="200" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">2 / 4 lifecycle emissions</text>
+<text x="200" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hot FIFO delivery</text>
+<rect x="345" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="345" y="684" width="220" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="455" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Property messages</text>
+<text x="455" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsCurrent / Model</text>
+<text x="455" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Snapshot / ActiveKey</text>
+<text x="455" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">per-flavor names</text>
+<rect x="600" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="600" y="684" width="220" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="710" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection + tree</text>
+<text x="710" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">collection changes</text>
+<text x="710" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">tree structure changes</text>
+<text x="710" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">batch Reset</text>
+<rect x="855" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="855" y="684" width="220" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="965" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Transaction queue</text>
+<text x="965" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">nested scopes flatten</text>
+<text x="965" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lossless outer flush</text>
+<text x="965" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">re-entrant append</text>
+<rect x="1110" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="1110" y="684" width="220" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="1220" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Per-instance bindings</text>
+<text x="1220" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">property change events</text>
+<text x="1220" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">single-VM adapters</text>
+<text x="1220" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">bypass shared hub</text>
+<rect x="1365" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
+<rect x="1365" y="684" width="220" height="132" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="1475" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Consumers</text>
+<text x="1475" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">commands</text>
+<text x="1475" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">view adapters</text>
+<text x="1475" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">cross-VM observers</text>
 <rect x="120" y="874" width="1460" height="94" rx="8" fill="#0f172a"/>
 <rect x="120" y="874" width="1460" height="94" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
 <text x="136" y="898" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Key rule</text>
 <text x="136" y="920" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Lifecycle operations raise when called from an illegal state, while selection after Disposed is a silent no-op.</text>
-<text x="136" y="938" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">That distinction matters for both conformance and view-adapter expectations.</text>
+<text x="136" y="938" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Hub transactions defer a lossless FIFO until the outer scope exits; re-entrant sends append to the same iterative drain.</text>
 <rect x="271" y="190" width="95" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
 <text x="318" y="204" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">construct()</text>
 <rect x="732" y="190" width="88" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
@@ -234,12 +240,16 @@
 <text x="548" y="300" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">reconstruct()</text>
 <rect x="1205" y="190" width="102" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
 <text x="1256" y="204" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">validated by</text>
-<rect x="530" y="600" width="116" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
-<text x="588" y="614" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">gates commands</text>
-<rect x="826" y="600" width="81" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
-<text x="866" y="614" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">publishes</text>
-<rect x="1455" y="600" width="123" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1516" y="614" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">drives children</text>
+<rect x="490" y="600" width="116" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="548" y="614" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">gates commands</text>
+<rect x="870" y="600" width="88" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="914" y="614" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">serializes</text>
+<rect x="1011" y="600" width="123" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="1072" y="614" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">queues rollback</text>
+<rect x="1189" y="600" width="123" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1250" y="614" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">drives children</text>
+<rect x="1159" y="824" width="123" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="1220" y="838" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">iterative drain</text>
 </svg>
 
       </div>
@@ -265,10 +275,10 @@
           <div class="card-dot violet"></div>
           <h2>Messaging</h2>
         </div>
-        <ul><li>Hub messages remain the cross-VM coordination surface.</li><li>Per-instance propertyChanged surfaces exist so views do not need to filter the shared hub when they bind one VM.</li><li>Collection and tree messages extend the same hot-stream model for containers and recursive trees.</li></ul>
+        <ul><li>Hub transactions preserve every typed message while deferring one iterative FIFO drain until the outermost scope exits.</li><li>Subscriber-generated messages append to the same queue instead of recursively re-entering the subject.</li><li>Per-instance propertyChanged surfaces exist so views do not need to filter the shared hub when they bind one VM.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.1.0.</footer>
+    <footer>Generated from repo-derived facts for VMx spec 3.2.0.</footer>
   </main>
 </body>
 </html>

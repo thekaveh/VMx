@@ -38,6 +38,12 @@ private final class CancelBox {
     var cancellable: AnyCancellable?
 }
 
+private final class BoolBox {
+    var value = false
+}
+
+private final class SentinelError: Error {}
+
 // MARK: - Fixture model (HUB-006)
 
 private struct OrderingScenario: Decodable {
@@ -289,5 +295,134 @@ final class MessageHubConformanceTests: XCTestCase {
                 XCTFail("HUB-006: unrecognised scenario '\(scenario.id)' — fixture may have drifted")
             }
         }
+    }
+
+    /// HUB-008 — Nested batches defer and preserve every message in FIFO order.
+    func testNestedBatchesDeferAndPreserveFIFO() throws {
+        let hub = MessageHub()
+        let recorder = Recorder()
+        var cancellables = Set<AnyCancellable>()
+        hub.messages.sink { [recorder] message in
+            if let pc = message as? PropertyChangedMessage {
+                recorder.entries.append(pc.senderName)
+            }
+        }.store(in: &cancellables)
+
+        try hub.batch {
+            hub.send(makeMsg("A"))
+            try hub.batch { hub.send(makeMsg("B")) }
+            hub.send(makeMsg("C"))
+            XCTAssertEqual(recorder.entries, [])
+        }
+
+        XCTAssertEqual(recorder.entries, ["A", "B", "C"])
+    }
+
+    /// HUB-009 — A batch error drains queued messages before the same error is rethrown.
+    func testBatchErrorDrainsThenRethrowsOriginal() {
+        let hub = MessageHub()
+        let recorder = Recorder()
+        let sentinel = SentinelError()
+        var thrown: Error?
+        var cancellables = Set<AnyCancellable>()
+        hub.messages.sink { [recorder] message in
+            if let pc = message as? PropertyChangedMessage {
+                recorder.entries.append(pc.senderName)
+            }
+        }.store(in: &cancellables)
+
+        do {
+            try hub.batch {
+                hub.send(makeMsg("A"))
+                throw sentinel
+            }
+        } catch {
+            thrown = error
+        }
+
+        XCTAssertTrue((thrown as AnyObject?) === sentinel)
+        XCTAssertEqual(recorder.entries, ["A"])
+    }
+
+    /// HUB-010 — Re-entrant sends join an iterative message-level FIFO drain.
+    func testReentrantSendJoinsIterativeFIFO() {
+        let hub = MessageHub()
+        let trace = Recorder()
+        var cancellables = Set<AnyCancellable>()
+        hub.messages.sink { [trace, hub] message in
+            guard let pc = message as? PropertyChangedMessage else { return }
+            trace.entries.append("first:\(pc.senderName)")
+            if pc.senderName == "A" { hub.send(self.makeMsg("B")) }
+        }.store(in: &cancellables)
+        hub.messages.sink { [trace] message in
+            if let pc = message as? PropertyChangedMessage {
+                trace.entries.append("second:\(pc.senderName)")
+            }
+        }.store(in: &cancellables)
+
+        hub.send(makeMsg("A"))
+
+        XCTAssertEqual(trace.entries.count, 4)
+        XCTAssertEqual(Set(trace.entries.prefix(2)), Set(["first:A", "second:A"]))
+        XCTAssertEqual(Set(trace.entries.suffix(2)), Set(["first:B", "second:B"]))
+    }
+
+    /// HUB-011 — A throwing subscriber does not abort a transaction drain.
+    func testSubscriberFailureDoesNotAbortBatchDrain() throws {
+        let hub = MessageHub()
+        let recorder = Recorder()
+        let bad = hub.subscribe { _ in throw SentinelError() }
+        var cancellables = Set<AnyCancellable>()
+        hub.messages.sink { [recorder] message in
+            if let pc = message as? PropertyChangedMessage {
+                recorder.entries.append(pc.senderName)
+            }
+        }.store(in: &cancellables)
+
+        try hub.batch {
+            hub.send(makeMsg("A"))
+            hub.send(makeMsg("B"))
+        }
+
+        XCTAssertEqual(recorder.entries, ["A", "B"])
+        bad.cancel()
+    }
+
+    /// HUB-012 — Disposing during a transaction drops its queued messages.
+    func testDisposeDuringBatchDropsQueuedMessages() throws {
+        let hub = MessageHub()
+        let recorder = Recorder()
+        let completed = BoolBox()
+        let cancellable = hub.messages.sink(
+            receiveCompletion: { _ in completed.value = true },
+            receiveValue: { message in
+                if let pc = message as? PropertyChangedMessage {
+                    recorder.entries.append(pc.senderName)
+                }
+            }
+        )
+
+        try hub.batch {
+            hub.send(makeMsg("A"))
+            hub.dispose()
+            hub.send(makeMsg("B"))
+        }
+        hub.send(makeMsg("C"))
+
+        XCTAssertEqual(recorder.entries, [])
+        XCTAssertTrue(completed.value)
+        cancellable.cancel()
+    }
+
+    /// HUB-013 — Ordinary sends remain synchronous outside a transaction.
+    func testOrdinarySendRemainsSynchronous() {
+        let hub = MessageHub()
+        let delivered = BoolBox()
+        let cancellable = hub.messages.sink { _ in delivered.value = true }
+
+        hub.send(makeMsg("A"))
+
+        XCTAssertTrue(delivered.value)
+        cancellable.cancel()
     }
 }

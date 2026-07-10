@@ -1,4 +1,4 @@
-"""Conformance tests for the message hub — HUB-001 through HUB-007.
+"""Conformance tests for the message hub — HUB-001 through HUB-013.
 
 HUB-006 is fixture-driven from spec/fixtures/message-ordering.json.
 All other tests are implemented directly.
@@ -226,3 +226,106 @@ def test_HUB_007_raising_subscriber_does_not_break_hub() -> None:
         f"Good subscriber should receive both messages but got: {good_received}"
     )
     hub.dispose()
+
+
+@pytest.mark.conformance("HUB-008")
+def test_HUB_008_nested_batches_defer_and_preserve_fifo() -> None:
+    hub = _fresh_hub()
+    received: list[str] = []
+    hub.messages.subscribe(lambda m: received.append(m.property_name))  # type: ignore[union-attr]
+
+    with hub.batch():
+        hub.send(_make_msg("A"))
+        with hub.batch():
+            hub.send(_make_msg("B"))
+        hub.send(_make_msg("C"))
+        assert received == []
+
+    assert received == ["A", "B", "C"]
+
+
+@pytest.mark.conformance("HUB-009")
+def test_HUB_009_batch_error_drains_then_reraises_original() -> None:
+    hub = _fresh_hub()
+    received: list[str] = []
+    hub.messages.subscribe(lambda m: received.append(m.property_name))  # type: ignore[union-attr]
+    sentinel = RuntimeError("sentinel")
+
+    with pytest.raises(RuntimeError) as raised:
+        with hub.batch():
+            hub.send(_make_msg("A"))
+            raise sentinel
+
+    assert raised.value is sentinel
+    assert received == ["A"]
+
+
+@pytest.mark.conformance("HUB-010")
+def test_HUB_010_reentrant_send_joins_iterative_fifo_drain() -> None:
+    hub = _fresh_hub()
+    trace: list[str] = []
+
+    def first(message: Any) -> None:
+        trace.append(f"first:{message.property_name}")
+        if message.property_name == "A":
+            hub.send(_make_msg("B"))
+
+    hub.messages.subscribe(first)
+    hub.messages.subscribe(lambda m: trace.append(f"second:{m.property_name}"))  # type: ignore[union-attr]
+
+    hub.send(_make_msg("A"))
+
+    assert trace == ["first:A", "second:A", "first:B", "second:B"]
+
+
+@pytest.mark.conformance("HUB-011")
+def test_HUB_011_subscriber_failure_does_not_abort_batch_drain() -> None:
+    hub = _fresh_hub()
+    received: list[str] = []
+
+    def bad_handler(message: object) -> None:
+        raise ValueError("subscriber explodes")
+
+    hub.messages.subscribe(bad_handler)
+    hub.messages.subscribe(lambda m: received.append(m.property_name))  # type: ignore[union-attr]
+
+    with hub.batch():
+        hub.send(_make_msg("A"))
+        hub.send(_make_msg("B"))
+
+    assert received == ["A", "B"]
+
+
+@pytest.mark.conformance("HUB-012")
+def test_HUB_012_dispose_during_batch_drops_queued_messages() -> None:
+    hub = _fresh_hub()
+    received: list[str] = []
+    completed: list[bool] = []
+    hub.messages.subscribe(
+        lambda m: received.append(m.property_name),  # type: ignore[union-attr]
+        on_completed=lambda: completed.append(True),
+    )
+
+    with hub.batch():
+        hub.send(_make_msg("A"))
+        hub.dispose()
+        hub.send(_make_msg("B"))
+    hub.send(_make_msg("C"))
+
+    assert received == []
+    assert completed == [True]
+
+
+@pytest.mark.conformance("HUB-013")
+def test_HUB_013_ordinary_send_remains_synchronous() -> None:
+    hub = _fresh_hub()
+    delivered = False
+
+    def record(message: object) -> None:
+        nonlocal delivered
+        delivered = True
+
+    hub.messages.subscribe(record)
+    hub.send(_make_msg("A"))
+
+    assert delivered

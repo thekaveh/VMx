@@ -14,12 +14,19 @@
 //
 import XCTest
 import Combine
+import Darwin
 @testable import VMx
 
 final class MessageHubTests: XCTestCase {
 
     private func msg(_ name: String) -> PropertyChangedMessage {
         PropertyChangedMessage(sender: NSObject(), senderName: "h", propertyName: name)
+    }
+
+    func testZeroArgumentInitializerRemainsFactoryCompatible() {
+        let factory: () -> MessageHub = MessageHub.init
+
+        _ = factory()
     }
 
     /// HUB-007 — A throwing subscriber registered via `subscribe(_:)` is
@@ -74,5 +81,61 @@ final class MessageHubTests: XCTestCase {
         hub.send(msg("b"))     // after cancel — not delivered
 
         XCTAssertEqual(seen, ["a"])
+    }
+
+    func testDevelopmentDrainDiagnosticNamesMessageType() {
+#if DEBUG
+        var diagnostic: MessageHubOverflowError?
+        let hub = MessageHub { diagnostic = $0 }
+        let cancellable = hub.messages.sink { message in hub.send(message) }
+
+        hub.send(msg("cycle"))
+
+        XCTAssertEqual(diagnostic?.limit, 10_000)
+        XCTAssertTrue(diagnostic?.messageTypes.contains("PropertyChangedMessage") == true)
+        cancellable.cancel()
+#endif
+    }
+
+    func testConcurrentProducerWaitsForBatchThenDeliversOnOwnThread() {
+        let hub = MessageHub()
+        let batchEntered = DispatchSemaphore(value: 0)
+        let releaseBatch = DispatchSemaphore(value: 0)
+        let sendStarted = DispatchSemaphore(value: 0)
+        let sendFinished = DispatchSemaphore(value: 0)
+        let batchDone = expectation(description: "batch completed")
+        let sendDone = expectation(description: "send completed")
+        let concurrentMessage = msg("concurrent")
+        var producerThread: UInt32 = 0
+        var deliveryThread: UInt32 = 0
+        let cancellable = hub.messages.sink { _ in
+            deliveryThread = pthread_mach_thread_np(pthread_self())
+        }
+
+        DispatchQueue.global().async {
+            try? hub.batch {
+                batchEntered.signal()
+                releaseBatch.wait()
+            }
+            batchDone.fulfill()
+        }
+        XCTAssertEqual(batchEntered.wait(timeout: .now() + 1), .success)
+        DispatchQueue.global().async {
+            producerThread = pthread_mach_thread_np(pthread_self())
+            sendStarted.signal()
+            hub.send(concurrentMessage)
+            sendFinished.signal()
+            sendDone.fulfill()
+        }
+        XCTAssertEqual(sendStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(
+            sendFinished.wait(timeout: .now() + 0.05), .timedOut,
+            "the active transaction must serialize another producer"
+        )
+        releaseBatch.signal()
+        wait(for: [batchDone, sendDone], timeout: 2)
+
+        XCTAssertEqual(deliveryThread, producerThread)
+        cancellable.cancel()
     }
 }

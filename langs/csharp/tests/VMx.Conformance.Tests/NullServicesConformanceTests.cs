@@ -30,8 +30,16 @@ public class NullServicesConformanceTests
             hub.Send(ConstructionStatusChangedMessage.Create(this, "x", ConstructionStatus.Constructed));
         }
 
+        var bodyRan = false;
+        hub.Batch(() =>
+        {
+            bodyRan = true;
+            hub.Send(ConstructionStatusChangedMessage.Create(this, "x", ConstructionStatus.Constructed));
+        });
+
         observed.Should().BeEmpty();
         completed.Should().BeTrue("the empty observable completes on subscribe");
+        bodyRan.Should().BeTrue("a null transaction still executes its body");
     }
 
     // ── NULL-002 ────────────────────────────────────────────────────────────

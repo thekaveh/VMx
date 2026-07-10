@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using VMx.Internal;
 using VMx.Messages;
 
 namespace VMx.Services;
@@ -9,7 +10,7 @@ namespace VMx.Services;
 /// safe to share via <see cref="Instance"/>. See spec/03-messages.md
 /// §"Null variant" and ADR-0017.
 /// </summary>
-public sealed class NullMessageHub : IMessageHub
+public sealed class NullMessageHub : ITransactionalMessageHub
 {
     /// <summary>Shared singleton instance (the hub holds no state).</summary>
     public static NullMessageHub Instance { get; } = new();
@@ -23,5 +24,12 @@ public sealed class NullMessageHub : IMessageHub
     public void Send<TMessage>(TMessage message) where TMessage : IMessage
     {
         // intentional no-op per ADR-0017
+    }
+
+    /// <inheritdoc/>
+    public void Batch(Action transaction)
+    {
+        ThrowHelper.ThrowIfNull(transaction, nameof(transaction));
+        transaction();
     }
 }
