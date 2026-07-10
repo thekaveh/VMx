@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.4.0** — implements `spec-v3.4.0` end-to-end. 296/296 library conformance IDs
+**v3.5.0** — implements `spec-v3.5.0` end-to-end. 304/304 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.4.0. The latest public PyPI package may
+The source tree currently implements v3.5.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -143,6 +143,8 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `ReadonlyComponentVMOf[M]`                        | Leaf VM with read-only model                                                        |
 | `CompositeVM[VM]` / `CompositeVMOf[M,VM]`         | Ordered collection + current slot                                                   |
 | `GroupVM[VM]`                                     | Collection without current selection                                                |
+| `VmCollectionProto[VM]`                           | Shared group/composite collection + atomic move                                     |
+| `SelectableVmCollectionProto[VM]`                 | Composite-only current-selection extension                                          |
 | `AggregateVM1..6[…]`                              | Fixed-arity named component slots (arity 6 added in spec v2.2.0 — see ADR-0034)     |
 | `ForwardingComponentVM`                           | Decorator for `ComponentVMOfProto`                                                  |
 | `ForwardingCompositeVM`                           | Decorator for composites                                                            |
@@ -189,7 +191,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 296 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 304 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

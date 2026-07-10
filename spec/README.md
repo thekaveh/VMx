@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (301 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (309 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -359,11 +359,23 @@ IDs).
   each type's documented post-dispose behavior. Thread-safe hubs and lifecycle
   owners additionally prove concurrent disposal.
 
-### 1.14 Supporting artefacts
+### 1.14 v3.4.0 → v3.5.0 changes
 
-- `VERSION` — current spec SemVer (`3.4.0`).
+v3.5.0 introduces one shared VM child-collection capability for groups and
+composites, keeps selection in a composite-only extension, and adds atomic
+identity-preserving move semantics. The eight `COL-032..039` scenarios raise
+the catalog from 301 to 309 total IDs (304 library + 5 THEME scenario IDs).
+
+- **ADR-0085** — defines the five idiomatic shared capability names, complete
+  mutation surface, explicit move bounds/final-index semantics, one `Move`
+  event, batch coalescing, and preservation of identity, parent, lifecycle,
+  subscriptions, selection, and auto-construction state.
+
+### 1.15 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.5.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0084); see
+- `ADRs/` — Architecture Decision Records (0001-0085); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

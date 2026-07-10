@@ -136,6 +136,10 @@ sections:
         number: "6.8"
         title: Disposal Contract
         source: docs/content/primitives/disposal-contract.md
+      - id: vm-collection-contract
+        number: "6.9"
+        title: VM Collection Contract
+        source: docs/content/primitives/vm-collection-contract.md
   - id: flavors
     number: "7"
     title: Language Flavors

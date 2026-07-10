@@ -22,12 +22,14 @@ stacked panels, and other peer lists usually belong here.
 selection slot:
 
 - ordered children
-- add, insert, remove, clear, batch update
+- add, insert, remove, replace, clear, atomic move, batch update
 - collection-changed notifications
 - no `Current`
 - no `select_component` / `deselect_component`
 
 The group itself is still a component and may be selected by its own parent.
+It implements the base [VM Collection Contract](../vm-collection-contract.md),
+not its selectable extension.
 
 ## Lifecycle And Messaging
 
@@ -73,3 +75,4 @@ Representative build shape:
 - [Component Family](component-family.md)
 - [Capability Families](../capability-families.md)
 - [Builders, Collections & Tree Utilities](../builders-collections-tree-utilities.md)
+- [VM Collection Contract](../vm-collection-contract.md)

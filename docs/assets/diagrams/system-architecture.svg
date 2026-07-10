@@ -13,7 +13,7 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">VMx System Architecture</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.4.0 source of truth -&gt; parity flavors -&gt; host examples</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.5.0 source of truth -&gt; parity flavors -&gt; host examples</text>
   <polyline points="260,200 280,200" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="450,200 550,200" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="450,312 550,312" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
@@ -44,8 +44,8 @@
 <rect x="90" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="175" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">spec/</text>
 <text x="175" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">23 chapters</text>
-<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">84 ADRs</text>
-<text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.4.0</text>
+<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">85 ADRs</text>
+<text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.5.0</text>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="#0f172a"/>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="365" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">fixtures</text>
@@ -55,9 +55,9 @@
 <rect x="90" y="270" width="360" height="100" rx="8" fill="#0f172a"/>
 <rect x="90" y="270" width="360" height="100" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="270" y="298" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">12-conformance</text>
-<text x="270" y="324" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">296 library IDs</text>
+<text x="270" y="324" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">304 library IDs</text>
 <text x="270" y="343" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">5 THEME scenario IDs</text>
-<text x="270" y="362" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">301 total</text>
+<text x="270" y="362" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">309 total</text>
 <rect x="550" y="152" width="220" height="110" rx="8" fill="#0f172a"/>
 <rect x="550" y="152" width="220" height="110" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="660" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Lifecycle base</text>
@@ -69,7 +69,7 @@
 <text x="915" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">VM families</text>
 <text x="915" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">component</text>
 <text x="915" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">composite / group / aggregate</text>
-<text x="915" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hierarchical + forwarding</text>
+<text x="915" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared collection + atomic move</text>
 <rect x="550" y="288" width="220" height="110" rx="8" fill="#0f172a"/>
 <rect x="550" y="288" width="220" height="110" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="660" y="316" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Commands</text>
@@ -92,9 +92,9 @@
 <rect x="1390" y="152" width="220" height="110" rx="8" fill="#0f172a"/>
 <rect x="1390" y="152" width="220" height="110" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
 <text x="1500" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collections + state</text>
-<text x="1500" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ObservableList</text>
-<text x="1500" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DerivedProperty</text>
-<text x="1500" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">SearchableState</text>
+<text x="1500" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VMCollection capability</text>
+<text x="1500" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ObservableList</text>
+<text x="1500" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DerivedProperty / SearchableState</text>
 <rect x="1150" y="288" width="220" height="110" rx="8" fill="#0f172a"/>
 <rect x="1150" y="288" width="220" height="110" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
 <text x="1260" y="316" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Paging primitives</text>

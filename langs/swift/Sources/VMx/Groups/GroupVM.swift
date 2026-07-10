@@ -48,7 +48,7 @@ private final class GroupParent: ParentVM {
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
 }
 
-open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable {
+open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable, VMCollection {
     private var children: [Child] = []
     private let childrenFactory: (() -> [Child])?
     private var populated = false
@@ -116,6 +116,11 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable {
 
     public func at(_ index: Int) -> Child { children[index] }
 
+    public func makeIterator() -> AnyIterator<Child> {
+        var iterator = children.makeIterator()
+        return AnyIterator { iterator.next() }
+    }
+
     public func add(_ child: Child) {
         children.append(child)
         child._parent = groupParent
@@ -139,6 +144,17 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable {
         }
     }
 
+    public func insert(_ child: Child, at index: Int) {
+        children.insert(child, at: index)
+        child._parent = groupParent
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        emit(.added(child, at: index))
+    }
+
     public func remove(_ child: Child) -> Bool {
         guard let idx = children.firstIndex(where: { $0 === child }) else {
             return false
@@ -152,6 +168,55 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable {
             collectionChangedSubject.send(.removed(child, at: idx))
         }
         return true
+    }
+
+    public func removeAt(_ index: Int) {
+        let child = children.remove(at: index)
+        child._parent = nil
+        emit(.removed(child, at: index))
+    }
+
+    public func replace(at index: Int, with child: Child) {
+        let old = children[index]
+        children[index] = child
+        old._parent = nil
+        child._parent = groupParent
+        emit(.removed(old, at: index))
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        emit(.added(child, at: index))
+    }
+
+    public func clear() {
+        for child in children { child._parent = nil }
+        children.removeAll()
+        emit(.reset())
+    }
+
+    public func move(from fromIndex: Int, to toIndex: Int) throws {
+        try validateMoveIndex(fromIndex)
+        try validateMoveIndex(toIndex)
+        guard fromIndex != toIndex else { return }
+        let child = children.remove(at: fromIndex)
+        children.insert(child, at: toIndex)
+        emit(.moved(child, from: fromIndex, to: toIndex))
+    }
+
+    private func validateMoveIndex(_ index: Int) throws {
+        guard index >= 0 && index < children.count else {
+            throw VMCollectionIndexError(index: index, count: children.count)
+        }
+    }
+
+    private func emit(_ event: CollectionChangedEvent) {
+        if _batchLevel > 0 {
+            _batchDirty = true
+        } else {
+            collectionChangedSubject.send(event)
+        }
     }
 
     open override func _onConstruct() throws {

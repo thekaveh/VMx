@@ -2,9 +2,9 @@
  * CollectionChangedEvent — immutable payload emitted on collection mutations.
  *
  * Mirrors WPF's NotifyCollectionChangedEventArgs shape.
- * Action is one of "add" | "remove" | "reset".
+ * Action is one of "add" | "remove" | "move" | "reset".
  */
-export type CollectionChangedAction = "add" | "remove" | "reset";
+export type CollectionChangedAction = "add" | "remove" | "move" | "reset";
 
 export interface CollectionChangedEvent {
   readonly action: CollectionChangedAction;

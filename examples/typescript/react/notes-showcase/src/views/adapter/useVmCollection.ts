@@ -1,5 +1,5 @@
 /**
- * useVmCollection — React CollectionBridge for a VMx `CompositeVM`.
+ * useVmCollection — React CollectionBridge for a VMx `IVmCollection`.
  *
  * See scenario doc §7.1 (CollectionBridge) and §7.3 (TS adapter signature) and
  * plan §4.c.
@@ -21,11 +21,10 @@
  * composite, drained on unmount.
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import type { CompositeVMBase } from "@thekaveh/vmx";
-import type { ComponentVMBase } from "@thekaveh/vmx";
+import type { ComponentVMBase, IVmCollection } from "@thekaveh/vmx";
 
 export function useVmCollection<VM extends ComponentVMBase>(
-  composite: CompositeVMBase<VM>,
+  collection: IVmCollection<VM>,
 ): VM[] {
   // Cached snapshot: we must return the same reference between successive
   // getSnapshot calls when nothing has changed, otherwise useSyncExternalStore
@@ -36,7 +35,7 @@ export function useVmCollection<VM extends ComponentVMBase>(
 
   const subscribe = useCallback(
     (notify: () => void): (() => void) => {
-      const subscription = composite.collectionChanged.subscribe({
+      const subscription = collection.collectionChanged.subscribe({
         next: () => {
           versionRef.current += 1;
           notify();
@@ -44,7 +43,7 @@ export function useVmCollection<VM extends ComponentVMBase>(
       });
       return () => subscription.unsubscribe();
     },
-    [composite],
+    [collection],
   );
 
   const getSnapshot = useCallback((): VM[] => {
@@ -52,10 +51,10 @@ export function useVmCollection<VM extends ComponentVMBase>(
     if (cached !== null && cached.version === versionRef.current) {
       return cached.items;
     }
-    const items = Array.from(composite) as VM[];
+    const items = Array.from(collection);
     snapshotRef.current = { version: versionRef.current, items };
     return items;
-  }, [composite]);
+  }, [collection]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

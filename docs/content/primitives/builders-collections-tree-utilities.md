@@ -18,6 +18,10 @@ Three groups live here:
 These pieces are deliberately separate from the core hierarchy so you can opt
 into them only where they help.
 
+The core `CompositeVM` / `GroupVM` child surface is a different concern. Both
+implement the [VM Collection Contract](vm-collection-contract.md), including
+atomic identity-preserving move; selection is a composite-only extension.
+
 ## Lifecycle And Messaging
 
 The main operational rules:
@@ -69,3 +73,4 @@ are the practical references for observable-list and paging composition.
 - [Composite Family](viewmodel-families/composite-family.md)
 - [Hierarchical Family](viewmodel-families/hierarchical-family.md)
 - [State & Reactive Helpers](state-reactive-helpers.md)
+- [VM Collection Contract](vm-collection-contract.md)

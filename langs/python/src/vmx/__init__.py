@@ -58,8 +58,10 @@ from vmx.collections import (
     ObservableDictionary,
     ObservableList,
     PagedComposition,
+    SelectableVmCollectionProto,
     ServicedObservableCollection,
     TokenPagedComposition,
+    VmCollectionProto,
 )
 from vmx.commands import (
     AsyncRelayCommand,
@@ -249,6 +251,7 @@ __all__ = [
     "RxDispatcher",
     "ScoredFilteredCompositeVM",
     "SearchableState",
+    "SelectableVmCollectionProto",
     "ServicedObservableCollection",
     "StatusTransitionError",
     "TokenPagedComposition",
@@ -257,6 +260,7 @@ __all__ = [
     "TreeStructureChangedMessage",
     "TypedMessage",
     "ViewModelType",
+    "VmCollectionProto",
     "__min_spec_version__",
     "__version__",
     "confirm",

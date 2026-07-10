@@ -29,6 +29,10 @@ Everything else follows from that contract: guarded selection helpers,
 foreground updates of `IsCurrent`, and optional builder hooks for initial
 selection and current-changed callbacks.
 
+Composite implements the selectable extension of the shared
+[VM Collection Contract](../vm-collection-contract.md). Its atomic move keeps
+the identical child, parent, lifecycle, subscriptions, and `Current` reference.
+
 ## Lifecycle And Messaging
 
 The composite owns both child lifecycle and selection messaging:
@@ -39,6 +43,8 @@ The composite owns both child lifecycle and selection messaging:
   children's `IsCurrent`
 - `AsyncSelection(true)` routes selection work through the foreground
   dispatcher
+- a non-batched move emits one move event with both indices; a batched move is
+  represented by the outer reset
 
 ## Cross-Language Surface
 
@@ -110,3 +116,4 @@ The composite owns both child lifecycle and selection messaging:
 - [Hierarchical Family](hierarchical-family.md)
 - [Command Families](../command-families.md)
 - [State & Reactive Helpers](../state-reactive-helpers.md)
+- [VM Collection Contract](../vm-collection-contract.md)

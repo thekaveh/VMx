@@ -214,6 +214,24 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children.clear()
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
+    def move(self, from_index: int, to_index: int) -> None:
+        """Move an existing peer to its final index without rewiring it."""
+        self._validate_move_index(from_index)
+        self._validate_move_index(to_index)
+        if from_index == to_index:
+            return
+        item = self._children.pop(from_index)
+        self._children.insert(to_index, item)
+        self._emit_collection_changed(
+            CollectionChangedEvent(
+                action="move",
+                new_items=(item,),
+                new_index=to_index,
+                old_items=(item,),
+                old_index=from_index,
+            )
+        )
+
     # ── Batch + auto-construct (spec v1.1) ──────────────────────────────────
 
     def batch_update(self) -> BatchUpdateHandle:
@@ -254,6 +272,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if child.status == ConstructionStatus.CONSTRUCTED:
             return
         child.construct()
+
+    def _validate_move_index(self, index: int) -> None:
+        if index < 0 or index >= len(self._children):
+            raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 
     # ── Lifecycle overrides ──────────────────────────────────────────────────
 

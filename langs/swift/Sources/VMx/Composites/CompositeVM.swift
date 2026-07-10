@@ -49,7 +49,8 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
     }
 }
 
-open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batchable {
+open class CompositeVM<Child: ComponentVMBase>:
+    ComponentVMBase, ParentVM, _Batchable, SelectableVMCollection {
     private var children: [Child] = []
     private var _current: Child?
     private let childrenFactory: (() -> [Child])?
@@ -153,6 +154,11 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         children[index]
     }
 
+    public func makeIterator() -> AnyIterator<Child> {
+        var iterator = children.makeIterator()
+        return AnyIterator { iterator.next() }
+    }
+
     /// The selected child, or `nil`.
     ///
     /// The **setter traps** (`preconditionFailure`) if assigned a value that is
@@ -251,6 +257,17 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         }
     }
 
+    public func insert(_ child: Child, at index: Int) {
+        children.insert(child, at: index)
+        child._parent = self
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        emit(.added(child, at: index))
+    }
+
     public func remove(_ child: Child) -> Bool {
         guard let idx = children.firstIndex(where: { $0 === child }) else {
             return false
@@ -272,10 +289,51 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
             _applyCurrentChange(nil)
         }
         // Emit AFTER the child has been removed and parent cleared.
+        emit(.removed(item, at: index))
+    }
+
+    public func replace(at index: Int, with child: Child) {
+        let old = children[index]
+        children[index] = child
+        old._parent = nil
+        if _current === old { _applyCurrentChange(nil) }
+        child._parent = self
+        emit(.removed(old, at: index))
+        if _autoConstructOnAdd && isConstructed {
+            do { try child.construct() } catch {
+                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+            }
+        }
+        emit(.added(child, at: index))
+    }
+
+    public func clear() {
+        for child in children { child._parent = nil }
+        children.removeAll()
+        if _current != nil { _applyCurrentChange(nil) }
+        emit(.reset())
+    }
+
+    public func move(from fromIndex: Int, to toIndex: Int) throws {
+        try validateMoveIndex(fromIndex)
+        try validateMoveIndex(toIndex)
+        guard fromIndex != toIndex else { return }
+        let child = children.remove(at: fromIndex)
+        children.insert(child, at: toIndex)
+        emit(.moved(child, from: fromIndex, to: toIndex))
+    }
+
+    private func validateMoveIndex(_ index: Int) throws {
+        guard index >= 0 && index < children.count else {
+            throw VMCollectionIndexError(index: index, count: children.count)
+        }
+    }
+
+    private func emit(_ event: CollectionChangedEvent) {
         if _batchLevel > 0 {
             _batchDirty = true
         } else {
-            collectionChangedSubject.send(.removed(item, at: index))
+            collectionChangedSubject.send(event)
         }
     }
 
