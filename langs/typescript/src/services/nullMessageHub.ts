@@ -5,9 +5,9 @@
  */
 import { EMPTY, type Observable } from "rxjs";
 import type { IMessage } from "../messages/types.js";
-import type { IMessageHub } from "./messageHub.js";
+import type { ITransactionalMessageHub } from "./messageHub.js";
 
-export class NullMessageHub implements IMessageHub {
+export class NullMessageHub implements ITransactionalMessageHub {
   /** Shared singleton instance (the hub holds no state). */
   static readonly INSTANCE: NullMessageHub = new NullMessageHub();
 
@@ -19,5 +19,10 @@ export class NullMessageHub implements IMessageHub {
   /** No-op. */
   send(_message: IMessage): void {
     // intentional no-op per ADR-0017
+  }
+
+  /** Execute a transaction body while continuing to publish nothing. */
+  batch(transaction: () => void): void {
+    transaction();
   }
 }

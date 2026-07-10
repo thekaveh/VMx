@@ -6,7 +6,7 @@
 import Foundation
 import Combine
 
-public final class NullMessageHub: MessageHubProtocol {
+public final class NullMessageHub: TransactionalMessageHubProtocol {
     /// Shared singleton instance. The hub is stateless.
     public static let INSTANCE = NullMessageHub()
 
@@ -20,5 +20,10 @@ public final class NullMessageHub: MessageHubProtocol {
     /// No-op send per ADR-0017.
     public func send(_ message: any Message) {
         // intentional no-op
+    }
+
+    /// Execute the transaction body while continuing to publish nothing.
+    public func batch(_ transaction: () throws -> Void) throws {
+        try transaction()
     }
 }

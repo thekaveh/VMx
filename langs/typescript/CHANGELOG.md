@@ -4,6 +4,23 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.2.0] — 2026-07-10
+
+Implements `spec-v3.2.0` and keeps TypeScript at full library parity: 287/287
+conformance IDs covered.
+
+### Added
+
+- `ITransactionalMessageHub` and `hub.batch(callback)` for nested, lossless
+  FIFO transactions (`HUB-008..013`).
+- Iterative re-entrant delivery and a development publish-cycle diagnostic
+  that reports involved message types.
+
+### Changed
+
+- `NullMessageHub` executes transaction callbacks while continuing to publish
+  nothing.
+
 ## [3.1.0] — 2026-07-01
 
 Implements `spec-v3.1.0` and keeps TypeScript at full library parity: 281/281

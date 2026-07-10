@@ -4,6 +4,23 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] — 2026-07-10
+
+Implements `spec-v3.2.0` and keeps C# at full library parity: 287/287
+conformance IDs covered.
+
+### Added
+
+- `ITransactionalMessageHub` and `MessageHub.Batch(Action)` for nested,
+  lossless FIFO transactions (`HUB-008..013`).
+- Iterative re-entrant delivery, serialized concurrent producers, and a
+  debug-only publish-cycle diagnostic that reports involved message types.
+
+### Changed
+
+- `NullMessageHub` implements the additive transaction capability, executing
+  the body while continuing to publish nothing.
+
 ## [3.1.0] — 2026-07-01
 
 Implements `spec-v3.1.0` and keeps C# at full library parity: 281/281

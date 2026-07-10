@@ -8,7 +8,7 @@ Public API re-exports:
 """
 
 from vmx.services.dispatcher import Dispatcher, RxDispatcher
-from vmx.services.message_hub import MessageHub, MessageHubProto
+from vmx.services.message_hub import MessageHub, MessageHubProto, TransactionalMessageHubProto
 from vmx.services.null_dispatcher import NULL_DISPATCHER, NullDispatcher
 from vmx.services.null_message_hub import (
     NULL_MESSAGE_HUB,
@@ -25,5 +25,6 @@ __all__ = [
     "NullDispatcher",
     "NullMessageHub",
     "RxDispatcher",
+    "TransactionalMessageHubProto",
     "null_message_hub_of",
 ]

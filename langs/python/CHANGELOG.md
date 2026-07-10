@@ -4,6 +4,23 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] — 2026-07-10
+
+Implements `spec-v3.2.0` and keeps Python at full library parity: 287/287
+conformance IDs covered.
+
+### Added
+
+- `TransactionalMessageHubProto` and the `with hub.batch():` context manager
+  for nested, lossless FIFO transactions (`HUB-008..013`).
+- Iterative re-entrant delivery, serialized concurrent producers, and a
+  debug-only publish-cycle diagnostic that reports involved message types.
+
+### Changed
+
+- `NullMessageHub` executes transaction bodies while continuing to publish
+  nothing.
+
 ## [3.1.0] — 2026-07-01
 
 Implements `spec-v3.1.0` and keeps Python at full library parity: 281/281

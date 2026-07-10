@@ -44,8 +44,17 @@ def test_NULL_001_nullmessagehub_is_safe_noop() -> None:
                     object(), "x", ConstructionStatus.CONSTRUCTED
                 )
             )
+        body_ran = False
+        with hub.batch():
+            body_ran = True
+            hub.send(
+                ConstructionStatusChangedMessage.create(
+                    object(), "x", ConstructionStatus.CONSTRUCTED
+                )
+            )
         assert observed == []
         assert completed is True
+        assert body_ran is True
     finally:
         sub.dispose()
 

@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (286 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (292 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -319,11 +319,25 @@ catalog from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
   conformance coverage gate; crates.io publication remains a separate release
   channel task.
 
-### 1.11 Supporting artefacts
+### 1.11 v3.1.0 → v3.2.0 changes
 
-- `VERSION` — current spec SemVer (`3.1.0`).
+v3.2.0 adds lossless, synchronous message-hub transactions and iterative
+re-entrant delivery across all five flavors. The six `HUB-008..013` scenarios
+raise the catalog from 286 to 292 total IDs (287 library + 5 THEME scenario
+IDs).
+
+- **ADR-0082** — adds an optional transaction capability implemented by every
+  shipped real and null message hub. Nested scopes defer every typed message in
+  FIFO order, callback errors drain before rethrow, subscriber sends join an
+  iterative drain, concurrent producers serialize without losing their
+  calling-thread guarantee, and development builds diagnose suspected publish
+  cycles without imposing a release-mode limit.
+
+### 1.12 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.2.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0081); see
+- `ADRs/` — Architecture Decision Records (0001-0082); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

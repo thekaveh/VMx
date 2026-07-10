@@ -14,4 +14,20 @@ public interface IMessageHub
     /// <typeparam name="TMessage">The concrete message type.</typeparam>
     /// <param name="message">The message to publish.</param>
     void Send<TMessage>(TMessage message) where TMessage : IMessage;
+
+}
+
+/// <summary>
+/// Additive capability implemented by hubs that support lossless message
+/// transactions. Existing custom <see cref="IMessageHub"/> implementations
+/// remain source-compatible.
+/// </summary>
+public interface ITransactionalMessageHub : IMessageHub
+{
+    /// <summary>
+    /// Executes a synchronous transaction whose messages are delivered after
+    /// the outermost transaction exits.
+    /// </summary>
+    /// <param name="transaction">The state mutation to execute.</param>
+    void Batch(Action transaction);
 }

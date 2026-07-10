@@ -9,6 +9,10 @@ Covers:
 
 from __future__ import annotations
 
+from threading import Event, Thread, get_ident
+
+import pytest
+
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub, MessageHubProto
 
@@ -97,3 +101,51 @@ def test_message_hub_satisfies_proto() -> None:
     hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
     assert isinstance(hub, MessageHubProto)
     hub.dispose()
+
+
+def test_concurrent_producer_waits_for_batch_and_delivers_on_own_thread() -> None:
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    batch_entered = Event()
+    release_batch = Event()
+    send_started = Event()
+    send_finished = Event()
+    producer_thread: list[int] = []
+    delivery_thread: list[int] = []
+    hub.messages.subscribe(lambda _: delivery_thread.append(get_ident()))
+
+    def hold_batch() -> None:
+        with hub.batch():
+            batch_entered.set()
+            release_batch.wait()
+
+    def send() -> None:
+        producer_thread.append(get_ident())
+        send_started.set()
+        hub.send(_make_msg("concurrent"))
+        send_finished.set()
+
+    batch_worker = Thread(target=hold_batch)
+    batch_worker.start()
+    assert batch_entered.wait(1)
+    send_worker = Thread(target=send)
+    send_worker.start()
+    assert send_started.wait(1)
+    try:
+        assert not send_finished.wait(0.05)
+    finally:
+        release_batch.set()
+        batch_worker.join(1)
+        send_worker.join(1)
+
+    assert send_finished.is_set()
+    assert delivery_thread == producer_thread
+
+
+def test_development_drain_diagnostic_names_message_type() -> None:
+    if not __debug__:
+        pytest.skip("development diagnostics are compiled out under python -O")
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    hub.messages.subscribe(lambda message: hub.send(message))
+
+    with pytest.raises(RuntimeError, match="PropertyChangedMessage"):
+        hub.send(_make_msg("cycle"))

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
+from threading import RLock
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 import reactivex as rx
@@ -34,6 +38,15 @@ class MessageHubProto(Protocol[TMessage]):
         ...
 
 
+@runtime_checkable
+class TransactionalMessageHubProto(MessageHubProto[TMessage], Protocol[TMessage]):
+    """Additive capability for hubs that support message transactions."""
+
+    def batch(self) -> AbstractContextManager[None]:
+        """Return a synchronous, nestable message transaction scope."""
+        ...
+
+
 _THubMessage = TypeVar("_THubMessage", bound=Message)
 
 
@@ -46,7 +59,11 @@ class MessageHub(Generic[_THubMessage]):
 
     def __init__(self) -> None:
         self._subject: Subject[Message] = Subject()
+        self._gate = RLock()
+        self._pending: deque[Message] = deque()
         self._disposed: bool = False
+        self._draining = False
+        self._batch_depth = 0
 
     @property
     def messages(self) -> rx.Observable[Message]:
@@ -80,14 +97,65 @@ class MessageHub(Generic[_THubMessage]):
 
     def send(self, message: _THubMessage) -> None:
         """Publish *message* synchronously to all current subscribers."""
-        if self._disposed:
-            return
-        self._subject.on_next(message)
+        with self._gate:
+            if self._disposed:
+                return
+            self._pending.append(message)
+            if self._batch_depth == 0 and not self._draining:
+                self._drain()
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Defer messages until the outermost transaction scope exits."""
+        self._gate.acquire()
+        self._batch_depth += 1
+        try:
+            try:
+                yield
+            except BaseException:
+                self._batch_depth -= 1
+                try:
+                    if self._batch_depth == 0 and not self._disposed and not self._draining:
+                        self._drain()
+                except BaseException:
+                    pass  # the transaction body's original error takes precedence
+                raise
+            else:
+                self._batch_depth -= 1
+                if self._batch_depth == 0 and not self._disposed and not self._draining:
+                    self._drain()
+        finally:
+            self._gate.release()
+
+    def _drain(self) -> None:
+        self._draining = True
+        delivered = 0
+        message_types: set[str] = set()
+        try:
+            while not self._disposed and self._pending:
+                message = self._pending.popleft()
+                if __debug__:
+                    message_types.add(type(message).__name__)
+                self._subject.on_next(message)
+                if __debug__:
+                    delivered += 1
+                    if delivered >= 10_000 and self._pending:
+                        message_types.update(type(item).__name__ for item in self._pending)
+                        self._pending.clear()
+                        names = ", ".join(sorted(message_types))
+                        raise RuntimeError(
+                            "MessageHub drain exceeded 10000 messages; "
+                            f"possible publish cycle involving: {names}"
+                        )
+        finally:
+            self._draining = False
 
     def dispose(self) -> None:
         """Complete and dispose the underlying subject."""
-        if self._disposed:
-            return
-        self._disposed = True
-        self._subject.on_completed()
-        self._subject.dispose()
+        with self._gate:
+            if self._disposed:
+                return
+            self._disposed = True
+            self._pending.clear()
+            self._subject.on_completed()
+            self._subject.dispose()

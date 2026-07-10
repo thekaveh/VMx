@@ -64,7 +64,11 @@ export type { CollectionMutationAction, ICollectionChangedMessage } from "./mess
 export { CollectionChangedMessage } from "./messages/collectionChanged.js";
 
 // Services
-export type { IMessageHub } from "./services/messageHub.js";
+export type {
+  IMessageHub,
+  ITransactionalMessageHub,
+  MessageHubOptions,
+} from "./services/messageHub.js";
 export { MessageHub } from "./services/messageHub.js";
 export type { IDispatcher } from "./services/dispatcher.js";
 export { RxDispatcher } from "./services/dispatcher.js";

@@ -74,6 +74,12 @@ absent both, no thread guarantee is made (VMX-048). The reference implementation
 marshal background lifecycle completions via (a) (§4), so those terminal-status
 emissions reach subscribers on the foreground thread regardless of `ObserveOn`.
 
+Message-hub transactions do not introduce a scheduler. The transaction owner
+drains its queued messages on the thread that exits the outermost scope. Other
+producers are serialized behind that scope and retain ordinary synchronous
+delivery on their own calling thread after it exits. Re-entrant sends are
+delivered iteratively on the current drainer's thread. See `03-messages.md §3.3`.
+
 ## 4. Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The

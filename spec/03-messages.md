@@ -83,6 +83,9 @@ A factory `Create(sender, senderName, status)` exists per language.
 IMessageHub:
     Messages : IObservable<IMessage>
     Send<TMessage : IMessage>(message: TMessage) : void
+
+ITransactionalMessageHub : IMessageHub:
+    Batch(transaction) : void
 ```
 
 ### 3.1 Hot stream semantics
@@ -100,7 +103,63 @@ observes the messages in send order (FIFO). Across producers (concurrent `Send`
 calls), the hub MAY interleave but MUST preserve per-producer order: if producer P
 sends `A` then `B`, no subscriber observes `B` before `A`.
 
-### 3.3 Subscriber resilience
+### 3.3 Hub transactions and re-entrant delivery
+
+A hub transaction is a synchronous scope that defers publication until its
+outermost scope exits. It is exposed idiomatically in each flavor:
+
+| Flavor     | API                             |
+| ---------- | ------------------------------- |
+| C#         | `hub.Batch(Action transaction)` |
+| Python     | `with hub.batch(): ...`         |
+| TypeScript | `hub.batch(() => { ... })`      |
+| Swift      | `try hub.batch { ... }`         |
+| Rust       | `hub.batch(closure)`            |
+
+The transaction member is an additive capability (`ITransactionalMessageHub` /
+`TransactionalMessageHubProto` / `ITransactionalMessageHub` /
+`TransactionalMessageHubProtocol` as applicable), so adding it does not break
+custom implementations of the established base hub contract. Every shipped
+real and null hub implements the capability.
+
+The contract is **lossless deferral**, not message coalescing:
+
+1. Every `Send` inside a transaction appends its message to a hub-wide FIFO
+   queue. No message is merged, replaced, or dropped.
+1. Nested transactions flatten. Only exit from the outermost scope starts
+   delivery.
+1. Each queued message is delivered exactly once, in queue order, after the
+   outermost scope exits.
+1. If the transaction body raises, already-queued messages are still drained
+   before the original error is rethrown. The body error takes precedence over
+   a diagnostic raised while draining.
+1. A subscriber MAY call `Send`. That message appends to the same queue and is
+   delivered by the current iterative drain after the in-flight message has
+   reached its current subscribers. Delivery MUST NOT recurse on the call
+   stack.
+1. Disposing the hub during a transaction completes the stream and drops the
+   undelivered queue. Subsequent sends remain no-ops.
+
+Outside a transaction, an ordinary top-level `Send` remains hot and
+synchronous: it drains its message (and any finite re-entrant descendants)
+before returning. A re-entrant `Send` itself returns after enqueueing; the
+outermost `Send` does not return until the shared queue is empty.
+
+Development builds MUST bound a single drain cycle and emit a loud overflow
+diagnostic that names the message types involved. This is a cycle detector,
+not a production limit: optimized/release configurations MUST disable or
+compile out the bound and continue the correctness-preserving iterative drain
+without dropping a finite message sequence. The Swift flavor reports through its development
+diagnostic hook because its established `send` surface is non-throwing; the
+other flavors raise/panic idiomatically.
+
+TypeScript enables the bound automatically in Node development/test processes.
+Browser hosts opt in with
+`new MessageHub({ developmentDiagnostics: true })` because the web platform
+has no standard development-mode flag; the browser default is unbounded so a
+production bundle cannot accidentally truncate a valid finite transaction.
+
+### 3.4 Subscriber resilience
 
 If a subscriber's handler raises, the hub MUST swallow the exception (the stream
 continues for other subscribers and for future `Send` calls). Raising subscribers
@@ -111,7 +170,7 @@ the handler calls `subscription.Dispose()`), the in-flight dispatch of *that* me
 completes normally for the subscriber; subsequent messages are not delivered to that
 subscriber. Other subscribers are unaffected.
 
-### 3.4 Multiplicity
+### 3.5 Multiplicity
 
 A host application MAY create as many `IMessageHub` instances as it likes. The
 common pattern is one hub per VM tree (per "screen" or "feature"); shared root hubs
@@ -122,6 +181,14 @@ across the whole app are also valid.
 `Send` runs on the calling thread. Subscribers wishing to observe on a specific
 thread/scheduler MUST apply `.ObserveOn(scheduler)` themselves. VMx does not impose
 a scheduler choice on the hub.
+
+The real hubs serialize a transaction and its drain. A producer on another
+thread that calls `Send` while a transaction or drain is active waits, then
+performs synchronous delivery on its own calling thread. This retains the
+per-producer FIFO and calling-thread guarantees. A transaction body therefore
+MUST NOT wait for another thread whose progress requires sending to that same
+hub. TypeScript has no shared-memory hub across workers; JavaScript jobs using
+one hub are already serialized by the host event loop.
 
 VMs that emit `PropertyChangedMessage` (Status changes, model changes, etc.) MAY
 dispatch the emission via `IDispatcher.Foreground` so subscribers can opt into
@@ -146,6 +213,8 @@ Every service contract in VMx has a **null-object** variant per ADR-0017. For
 
 - `Send<TMessage>(message)` is a no-op. Calling it has no effect, raises
   nothing, returns immediately.
+- The transaction API executes its body immediately and propagates its error,
+  while all sends made through the null hub remain no-ops.
 - `Messages` returns the empty observable (`Observable.Empty<IMessage>()` in
   C#, `reactivex.empty()` in Python, `EMPTY` in TypeScript,
   `Empty<...>(completeImmediately: true).eraseToAnyPublisher()` in Swift).
@@ -222,7 +291,7 @@ in Swift). See ADR-0050 for the rationale.
 
 ## 8. Conformance
 
-`HUB-001` through `HUB-007`, `PROP-001` through `PROP-004`, and the null-object
+`HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, and the null-object
 IDs `NULL-001` (NullMessageHub is a safe no-op) and `NULL-003` (paired null
 variants exist for the core service contracts) in `12-conformance.md` cover:
 
@@ -233,5 +302,11 @@ variants exist for the core service contracts) in `12-conformance.md` cover:
 - multiple subscribers each observe every post-subscribe message
 - table-driven scenarios from `fixtures/message-ordering.json`
 - subscriber handler raising does not break the hub
+- nested transaction deferral and lossless FIFO delivery
+- transaction-body errors drain queued messages before rethrowing
+- iterative re-entrant publishing without recursive stack growth
+- subscriber-failure isolation during a transaction drain
+- disposal during a transaction drops the pending queue
+- unchanged synchronous semantics for ordinary non-batch sends
 - `PropertyChangedMessage` emitted on real changes only (not on same-value sets)
 - sender identity / property name / sender name correctness
