@@ -46,7 +46,7 @@ def test_validate_accepts_complete_landscape_triplet(tmp_path: Path) -> None:
     (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
     (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
     write_png(diagrams / "one.png", 3200, 1800)
-    ref = tmp_path / "docs" / "site" / "page.md"
+    ref = tmp_path / "docs" / "content" / "page.md"
     ref.parent.mkdir(parents=True)
     ref.write_text("![One](../assets/diagrams/one.svg)", encoding="utf-8")
     registry = diagrams / "diagram-registry.json"
@@ -59,7 +59,7 @@ def test_validate_accepts_complete_landscape_triplet(tmp_path: Path) -> None:
                 "html": "one.html",
                 "svg": "one.svg",
                 "png": "one.png",
-                "referencedBy": ["docs/site/page.md"],
+                "referencedBy": ["docs/content/page.md"],
             }
         ],
     )
@@ -99,7 +99,7 @@ def test_validate_reports_non_landscape_png(tmp_path: Path) -> None:
     (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
     (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
     write_png(diagrams / "one.png", 1800, 3200)
-    ref = tmp_path / "docs" / "site" / "page.md"
+    ref = tmp_path / "docs" / "content" / "page.md"
     ref.parent.mkdir(parents=True)
     ref.write_text("![One](../assets/diagrams/one.svg)", encoding="utf-8")
     registry = diagrams / "diagram-registry.json"
@@ -112,7 +112,7 @@ def test_validate_reports_non_landscape_png(tmp_path: Path) -> None:
                 "html": "one.html",
                 "svg": "one.svg",
                 "png": "one.png",
-                "referencedBy": ["docs/site/page.md"],
+                "referencedBy": ["docs/content/page.md"],
             }
         ],
     )
@@ -163,12 +163,12 @@ def test_validate_reports_missing_reference_file(tmp_path: Path) -> None:
                 "html": "one.html",
                 "svg": "one.svg",
                 "png": "one.png",
-                "referencedBy": ["docs/site/page.md"],
+                "referencedBy": ["docs/content/page.md"],
             }
         ],
     )
 
-    assert validate(tmp_path, registry) == ["one: missing reference file docs/site/page.md"]
+    assert validate(tmp_path, registry) == ["one: missing reference file docs/content/page.md"]
 
 
 def test_validate_reports_site_diagram_link_that_resolves_to_wrong_output_path(
@@ -179,9 +179,12 @@ def test_validate_reports_site_diagram_link_that_resolves_to_wrong_output_path(
     (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
     (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
     write_png(diagrams / "one.png", 3200, 1800)
-    ref = tmp_path / "docs" / "site" / "primitives" / "command-families.md"
+    ref = tmp_path / "docs" / "content" / "primitives" / "command-families.md"
     ref.parent.mkdir(parents=True)
     ref.write_text('<img src="../assets/diagrams/one.svg" />', encoding="utf-8")
+    generated = tmp_path / "generated" / "site" / "primitives" / "command-families.md"
+    generated.parent.mkdir(parents=True)
+    generated.write_text('<img src="../assets/diagrams/one.svg" />', encoding="utf-8")
     registry = diagrams / "diagram-registry.json"
     write_registry(
         registry,
@@ -192,15 +195,15 @@ def test_validate_reports_site_diagram_link_that_resolves_to_wrong_output_path(
                 "html": "one.html",
                 "svg": "one.svg",
                 "png": "one.png",
-                "referencedBy": ["docs/site/primitives/command-families.md"],
+                "referencedBy": ["docs/content/primitives/command-families.md"],
             }
         ],
     )
 
     assert validate(tmp_path, registry) == [
-        "docs/site/primitives/command-families.md: diagram link ../assets/diagrams/one.svg "
-        "resolves to site/primitives/assets/diagrams/one.svg, "
-        "expected site/assets/diagrams/one.svg"
+        "generated/site/primitives/command-families.md: diagram link ../assets/diagrams/one.svg "
+        "resolves to generated/site/primitives/assets/diagrams/one.svg, "
+        "expected generated/site/assets/diagrams/one.svg"
     ]
 
 
@@ -210,10 +213,10 @@ def test_validate_scans_site_pages_not_listed_in_registry_references(tmp_path: P
     (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
     (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
     write_png(diagrams / "one.png", 3200, 1800)
-    canonical = tmp_path / "docs" / "site" / "page.md"
+    canonical = tmp_path / "docs" / "content" / "page.md"
     canonical.parent.mkdir(parents=True)
     canonical.write_text("![One](../assets/diagrams/one.svg)", encoding="utf-8")
-    gallery = tmp_path / "docs" / "site" / "architecture" / "diagram-gallery.md"
+    gallery = tmp_path / "generated" / "site" / "architecture" / "diagram-gallery.md"
     gallery.parent.mkdir(parents=True)
     gallery.write_text('<img src="../assets/diagrams/one.svg" />', encoding="utf-8")
     registry = diagrams / "diagram-registry.json"
@@ -226,15 +229,15 @@ def test_validate_scans_site_pages_not_listed_in_registry_references(tmp_path: P
                 "html": "one.html",
                 "svg": "one.svg",
                 "png": "one.png",
-                "referencedBy": ["docs/site/page.md"],
+                "referencedBy": ["docs/content/page.md"],
             }
         ],
     )
 
     assert validate(tmp_path, registry) == [
-        "docs/site/architecture/diagram-gallery.md: diagram link ../assets/diagrams/one.svg "
-        "resolves to site/architecture/assets/diagrams/one.svg, "
-        "expected site/assets/diagrams/one.svg"
+        "generated/site/architecture/diagram-gallery.md: diagram link ../assets/diagrams/one.svg "
+        "resolves to generated/site/architecture/assets/diagrams/one.svg, "
+        "expected generated/site/assets/diagrams/one.svg"
     ]
 
 
@@ -244,7 +247,7 @@ def test_main_reports_malformed_registry_errors(tmp_path: Path, capsys, monkeypa
     registry.write_text(
         (
             '[{"id": 1, "title": "One", "html": "one.html", '
-            '"png": "one.png", "referencedBy": "docs/site/page.md"}]'
+            '"png": "one.png", "referencedBy": "docs/content/page.md"}]'
         ),
         encoding="utf-8",
     )

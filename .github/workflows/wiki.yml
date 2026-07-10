@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "docs/assets/diagrams/**"
-      - "docs/wiki/**"
-      - "tools/docs/build_wiki.py"
-      - "tools/docs/publish_wiki.sh"
+      - "docs/content/**"
+      - "docs/manifest.yaml"
+      - "scripts/docs/**"
       - "tools/docs/validate_diagrams.py"
+      - "Makefile"
+      - "docs/requirements.txt"
       - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
@@ -23,14 +25,31 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - name: Validate wiki export
-        run: python3 tools/docs/build_wiki.py
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r docs/requirements.txt
+      - name: Generate wiki
+        run: python -m scripts.docs.build_docs --wiki
       - name: Validate diagrams
-        run: python3 tools/docs/validate_diagrams.py
+        run: python -m scripts.docs.validate_diagrams
+      - name: Install wiki deploy key when configured
+        if: ${{ secrets.WIKI_DEPLOY_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.WIKI_DEPLOY_KEY }}" > ~/.ssh/wiki_key
+          chmod 600 ~/.ssh/wiki_key
       - name: Publish wiki
         env:
+          WIKI_DEPLOY_KEY: /home/runner/.ssh/wiki_key
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-        run: tools/docs/publish_wiki.sh "https://x-access-token:${{ github.token }}@github.com/thekaveh/VMx.wiki.git"
+        run: |
+          if [ -s "$WIKI_DEPLOY_KEY" ]; then
+            python -m scripts.docs.push_wiki --push
+          else
+            WIKI_REMOTE="https://x-access-token:${{ github.token }}@github.com/thekaveh/VMx.wiki.git" \
+              python -m scripts.docs.push_wiki --push
+          fi
