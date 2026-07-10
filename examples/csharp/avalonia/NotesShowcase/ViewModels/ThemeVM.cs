@@ -217,8 +217,7 @@ public sealed class ThemeVM : ComponentVMBase
         _modelSubject.OnNext(value);
 
         // INPC + hub PropertyChanged for the modeled property.
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Model)));
-        RaisePropertyChanged(nameof(Model));
+        NotifyPropertyChanged(nameof(Model));
 
         // Custom event per scenario §4.
         Hub.Send(new ThemeChangedMessage(this, Name, previous, value));

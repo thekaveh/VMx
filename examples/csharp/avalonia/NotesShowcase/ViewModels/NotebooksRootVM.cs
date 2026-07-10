@@ -70,8 +70,7 @@ public sealed class NotebooksRootVM
         {
             if (ReferenceEquals(_current, value)) return;
             _current = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-            RaisePropertyChanged(nameof(Current));
+            NotifyPropertyChanged(nameof(Current));
         }
     }
 
@@ -168,8 +167,7 @@ public sealed class NotebooksRootVM
         // (same rationale as the Roots raise below; pass-7 review).
         _dispatcher.Foreground.Schedule(() =>
         {
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-            RaisePropertyChanged(nameof(Current));
+            NotifyPropertyChanged(nameof(Current));
         });
 
         foreach (var nb in notebooks)

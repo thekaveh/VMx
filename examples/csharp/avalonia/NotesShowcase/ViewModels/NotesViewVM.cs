@@ -141,8 +141,7 @@ public sealed class NotesViewVM
             if (_showStarredOnlyField == value) return;
             _showStarredOnlyField = value;
             _showStarredOnly.OnNext(value);
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(ShowStarredOnly)));
-            RaisePropertyChanged(nameof(ShowStarredOnly));
+            NotifyPropertyChanged(nameof(ShowStarredOnly));
             RecomputeFiltered();
         }
     }
@@ -200,8 +199,7 @@ public sealed class NotesViewVM
         {
             if (ReferenceEquals(_current, value)) return;
             _current = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-            RaisePropertyChanged(nameof(Current));
+            NotifyPropertyChanged(nameof(Current));
         }
     }
 
@@ -216,8 +214,7 @@ public sealed class NotesViewVM
         {
             if (_currentNotebookIsReadOnly == value) return;
             _currentNotebookIsReadOnly = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(CurrentNotebookIsReadOnly)));
-            RaisePropertyChanged(nameof(CurrentNotebookIsReadOnly));
+            NotifyPropertyChanged(nameof(CurrentNotebookIsReadOnly));
         }
     }
 
@@ -316,8 +313,7 @@ public sealed class NotesViewVM
         }
 
         _current = null;
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-        RaisePropertyChanged(nameof(Current));
+        NotifyPropertyChanged(nameof(Current));
 
         RecomputeFiltered();
         _paged.MoveToFirstPage();
@@ -359,8 +355,7 @@ public sealed class NotesViewVM
             if (ReferenceEquals(_current, note))
             {
                 _current = null;
-                Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Current)));
-                RaisePropertyChanged(nameof(Current));
+                NotifyPropertyChanged(nameof(Current));
             }
             RecomputeFiltered();
             note.Dispose();
@@ -384,14 +379,10 @@ public sealed class NotesViewVM
                 && !n.Tags.Any(t => t.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
             _filtered.Add(n);
         }
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(FilteredItems)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsEmpty)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(VisibleItems)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(PageLabel)));
-        RaisePropertyChanged(nameof(FilteredItems));
-        RaisePropertyChanged(nameof(IsEmpty));
-        RaisePropertyChanged(nameof(VisibleItems));
-        RaisePropertyChanged(nameof(PageLabel));
+        NotifyPropertyChanged(nameof(FilteredItems));
+        NotifyPropertyChanged(nameof(IsEmpty));
+        NotifyPropertyChanged(nameof(VisibleItems));
+        NotifyPropertyChanged(nameof(PageLabel));
         _stateSubject.OnNext(Unit.Default);
     }
 
@@ -475,19 +466,17 @@ public sealed class NotesViewVM
     {
         // Re-broadcast paged changes through our own INPC + hub so subscribers
         // bound to NotesViewVM (not the inner PagedComposition) see them.
-        RaisePropertyChanged(e.PropertyName ?? string.Empty);
-        if (!string.IsNullOrEmpty(e.PropertyName))
-        {
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, e.PropertyName));
-        }
+        var propertyName = e.PropertyName ?? string.Empty;
+        if (propertyName.Length == 0)
+            RaisePropertyChanged(propertyName);
+        else
+            NotifyPropertyChanged(propertyName);
         // Page index/size/count changes also change the "Page X of Y" label
         // and the visible-items slice.
         if (e.PropertyName is nameof(CurrentPageIndex) or nameof(PageCount) or nameof(PageSize))
         {
-            RaisePropertyChanged(nameof(PageLabel));
-            RaisePropertyChanged(nameof(VisibleItems));
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(PageLabel)));
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(VisibleItems)));
+            NotifyPropertyChanged(nameof(PageLabel));
+            NotifyPropertyChanged(nameof(VisibleItems));
             _stateSubject.OnNext(Unit.Default);
         }
     }

@@ -5,7 +5,6 @@
  */
 import { ComponentVMBase } from "./componentVMBase.js";
 import { ViewModelType } from "./types.js";
-import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { NullMessageHub } from "../services/nullMessageHub.js";
@@ -60,14 +59,12 @@ export class ComponentVMOf<M> extends ComponentVMBase {
     if (this.#model === value) return;
     this.#model = value;
 
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "model"));
-    this._raisePropertyChanged("model");
+    this._notifyPropertyChanged("model");
 
     const newHint = this.#modeledHinter(value);
     if (this.#modeledHint !== newHint) {
       this.#modeledHint = newHint;
-      this._hub.send(PropertyChangedMessage.create(this, this._name, "modeledHint"));
-      this._raisePropertyChanged("modeledHint");
+      this._notifyPropertyChanged("modeledHint");
     }
 
     if (this.#onModelChangedCb !== null) {

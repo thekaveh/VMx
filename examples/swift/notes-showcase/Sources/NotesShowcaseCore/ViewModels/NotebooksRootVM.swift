@@ -11,7 +11,7 @@
 // subscribers observe changes identically to HierarchicalVM.
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on `ComponentVMBase`.
+// `_notifyPropertyChanged` are `public` on `ComponentVMBase`.
 //
 import Foundation
 import Combine
@@ -58,15 +58,14 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     /// Currently selected notebook (reference-guarded setter).
     ///
     /// Setting the same reference is a no-op. Emits a
-    /// `PropertyChangedMessage` on the hub and fires `_raisePropertyChanged`
+    /// `PropertyChangedMessage` on the hub and fires `_notifyPropertyChanged`
     /// on change.
     public var current: NotebookVM? {
         get { _current }
         set {
             guard _current !== newValue else { return }
             _current = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "current"))
-            _raisePropertyChanged("current")
+            _notifyPropertyChanged("current")
         }
     }
 
@@ -122,10 +121,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         } else {
             dispatcher.scheduleForeground { [weak self] in
                 guard let self, self.status != .disposed else { return }
-                self.hub.send(PropertyChangedMessage(
-                    sender: self, senderName: self.name, propertyName: "roots"
-                ))
-                self._raisePropertyChanged("roots")
+                self._notifyPropertyChanged("roots")
             }
         }
 
@@ -168,10 +164,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         // Marshal the Current reset to the foreground (continuation is off-thread).
         dispatcher.scheduleForeground { [weak self] in
             guard let self, self.status != .disposed else { return }
-            self.hub.send(PropertyChangedMessage(
-                sender: self, senderName: self.name, propertyName: "current"
-            ))
-            self._raisePropertyChanged("current")
+            self._notifyPropertyChanged("current")
         }
 
         for nb in notebooks {
@@ -199,10 +192,7 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         // re-reads it on an explicit raise. Marshal to the foreground.
         dispatcher.scheduleForeground { [weak self] in
             guard let self, self.status != .disposed else { return }
-            self.hub.send(PropertyChangedMessage(
-                sender: self, senderName: self.name, propertyName: "roots"
-            ))
-            self._raisePropertyChanged("roots")
+            self._notifyPropertyChanged("roots")
         }
     }
 

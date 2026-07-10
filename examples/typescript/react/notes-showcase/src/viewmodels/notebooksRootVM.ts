@@ -15,7 +15,6 @@ import {
   ComponentVMBase,
   ConstructionStatus,
   declareCapabilities,
-  PropertyChangedMessage,
   RelayCommand,
   TreeStructureChangedMessage,
   ViewModelType,
@@ -110,10 +109,7 @@ export class NotebooksRootVM extends ComponentVMBase {
   set current(value: NotebookVM | null) {
     if (this.#current === value) return;
     this.#current = value;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "current"),
-    );
-    this._raisePropertyChanged("current");
+    this._notifyPropertyChanged("current");
   }
 
   // ── INewCreatable ─────────────────────────────────────────────────────────
@@ -147,10 +143,7 @@ export class NotebooksRootVM extends ComponentVMBase {
     // Real-wiring audit, pass 6: useVm re-renders only on
     // PropertyChangedMessage — TreeStructureChangedMessage alone left the
     // new notebook invisible until the next unrelated re-render.
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "roots"),
-    );
-    this._raisePropertyChanged("roots");
+    this._notifyPropertyChanged("roots");
     this._hub.send(
       new TreeStructureChangedMessage(
         this,

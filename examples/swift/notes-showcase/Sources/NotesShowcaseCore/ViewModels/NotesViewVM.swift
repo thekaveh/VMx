@@ -11,7 +11,7 @@
 //   * search         = SearchableState<NoteVM> (debounced, 150 ms default)
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on `ComponentVMBase`.
+// `_notifyPropertyChanged` are `public` on `ComponentVMBase`.
 //
 import Foundation
 import Combine
@@ -104,8 +104,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         set {
             guard _currentNotebookIsReadonly != newValue else { return }
             _currentNotebookIsReadonly = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "currentNotebookIsReadonly"))
-            _raisePropertyChanged("currentNotebookIsReadonly")
+            _notifyPropertyChanged("currentNotebookIsReadonly")
         }
     }
 
@@ -117,8 +116,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         set {
             guard _current !== newValue else { return }
             _current = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "current"))
-            _raisePropertyChanged("current")
+            _notifyPropertyChanged("current")
         }
     }
 
@@ -139,8 +137,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         set {
             guard newValue != _search.searchTerm else { return }
             _search.searchTerm = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "searchTerm"))
-            _raisePropertyChanged("searchTerm")
+            _notifyPropertyChanged("searchTerm")
         }
     }
 
@@ -169,8 +166,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         set {
             guard _showStarredOnly != newValue else { return }
             _showStarredOnly = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "showStarredOnly"))
-            _raisePropertyChanged("showStarredOnly")
+            _notifyPropertyChanged("showStarredOnly")
             recomputeFiltered()
         }
     }
@@ -290,20 +286,11 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         // so subscribers bound to NotesViewVM (not the inner PagedComposition) see them.
         _pagedChangedCancellable = _paged.propertyChanged.sink { [weak self] propName in
             guard let self else { return }
-            self._raisePropertyChanged(propName)
-            self.hub.send(PropertyChangedMessage(
-                sender: self, senderName: self.name, propertyName: propName
-            ))
+            self._notifyPropertyChanged(propName)
             // Page-index / size / count changes also update the page label and slice.
             if propName == "currentPageIndex" || propName == "pageCount" || propName == "pageSize" {
-                self._raisePropertyChanged("pageLabel")
-                self._raisePropertyChanged("visibleItems")
-                self.hub.send(PropertyChangedMessage(
-                    sender: self, senderName: self.name, propertyName: "pageLabel"
-                ))
-                self.hub.send(PropertyChangedMessage(
-                    sender: self, senderName: self.name, propertyName: "visibleItems"
-                ))
+                self._notifyPropertyChanged("pageLabel")
+                self._notifyPropertyChanged("visibleItems")
                 self._pageLabelState.send(self.pageLabel)
                 self._pageCommandTrigger.send(())
             }
@@ -420,8 +407,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
 
         // Clear current selection.
         _current = nil
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "current"))
-        _raisePropertyChanged("current")
+        _notifyPropertyChanged("current")
 
         recomputeFiltered()
         _paged.moveToFirstPage()
@@ -446,10 +432,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
                         self._inner.removeAt(i)
                         if self._current === vm {
                             self._current = nil
-                            self.hub.send(PropertyChangedMessage(
-                                sender: self, senderName: self.name, propertyName: "current"
-                            ))
-                            self._raisePropertyChanged("current")
+                            self._notifyPropertyChanged("current")
                         }
                         self.recomputeFiltered()
                         vm.dispose()
@@ -485,8 +468,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         _pageCommandTrigger.send(())
 
         for propName in ["filteredItems", "isEmpty", "visibleItems", "pageLabel"] {
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: propName))
-            _raisePropertyChanged(propName)
+            _notifyPropertyChanged(propName)
         }
     }
 

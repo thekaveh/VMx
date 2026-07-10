@@ -10,7 +10,7 @@
 // identity and removes resolved notifications when the hub no longer lists them.
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on `ComponentVMBase`.
+// `_notifyPropertyChanged` are `public` on `ComponentVMBase`.
 //
 import Foundation
 import Combine
@@ -145,10 +145,7 @@ public final class NotificationsVM: ComponentVMBase {
             }
         }
 
-        hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "visible"
-        ))
-        _raisePropertyChanged("visible")
+        _notifyPropertyChanged("visible")
     }
 
     private func clearVisible() {

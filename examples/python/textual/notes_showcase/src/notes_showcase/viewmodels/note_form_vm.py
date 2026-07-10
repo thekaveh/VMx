@@ -18,6 +18,8 @@ from typing import cast
 from reactivex import Observable
 from reactivex.abc import DisposableBase
 
+from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_repository import INoteRepository
 from vmx import (
     ComponentVM,
     DerivedProperty,
@@ -26,7 +28,6 @@ from vmx import (
     IReconstructable,
     MessageHub,
     MessageHubProto,
-    PropertyChangedMessage,
     RelayCommand,
     RelayCommandOf,
     RxDispatcher,
@@ -36,9 +37,6 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
-
-from notes_showcase.models.note_model import NoteModel
-from notes_showcase.models.note_repository import INoteRepository
 
 _EMPTY_NOTE = NoteModel(
     id="",
@@ -274,8 +272,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if self._tag_draft == value:
             return
         self._tag_draft = value
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "tag_draft"))
-        self._raise_property_changed("tag_draft")
+        self._notify_property_changed("tag_draft")
         self._tag_search.search_term = value
         self._tag_search.search()
         # Nudge command predicates (add-tag gates on a non-empty draft).
@@ -440,8 +437,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._bind_subscription = None
         if had_tag_draft:
             self._tag_draft = ""
-            self._hub.send(PropertyChangedMessage.create(self, self._name, "tag_draft"))
-            self._raise_property_changed("tag_draft")
+            self._notify_property_changed("tag_draft")
         self._emit_draft_changes()
 
     async def approve_async(self) -> None:
@@ -529,8 +525,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             "approve_command",
             "deny_command",
         ):
-            self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
-            self._raise_property_changed(prop)
+            self._notify_property_changed(prop)
 
     def _emit_editor_mode_changes(self) -> None:
         for prop in (
@@ -540,14 +535,12 @@ class NoteFormVM(ComponentVM, IReconstructable):
             "show_edit_mode_command",
             "show_preview_mode_command",
         ):
-            self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
-            self._raise_property_changed(prop)
+            self._notify_property_changed(prop)
         self._self_subject.on_next(self)
 
     def _emit_tag_suggestion_changes(self) -> None:
         for prop in ("tag_suggestions", "tag_suggestions_text"):
-            self._hub.send(PropertyChangedMessage.create(self, self._name, prop))
-            self._raise_property_changed(prop)
+            self._notify_property_changed(prop)
 
     # ── Lifecycle override ─────────────────────────────────────────────────
     def _on_dispose(self) -> None:

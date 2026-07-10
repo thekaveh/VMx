@@ -17,7 +17,6 @@ import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IParentVM } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
-import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import {
@@ -349,10 +348,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (previous !== null) previous._setIsCurrent(false);
     if (value !== null) value._setIsCurrent(true);
 
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "current"),
-    );
-    this._raisePropertyChanged("current");
+    this._notifyPropertyChanged("current");
 
     // Invoke the optional builder-registered onCurrentChanged callback AFTER
     // state update + hub publish + INPC raise so every observer sees the new

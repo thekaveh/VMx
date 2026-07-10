@@ -7,7 +7,7 @@
 // Architecture notes:
 // - Extends `ComponentVMBase` from the VMx Swift library, publishing on the
 //   base's now-`public` `hub` and firing the `propertyChanged` side-channel via
-//   `_raisePropertyChanged` (cross-module subclassing enabled by ADR-0066).
+//   `_notifyPropertyChanged` (cross-module subclassing enabled by ADR-0066).
 //
 import Foundation
 import Combine
@@ -230,8 +230,7 @@ public final class ThemeVM: ComponentVMBase {
         _modelSubject.send(newModel)
         // Standard INPC channel (matches the C# SetModel order: model subject →
         // PropertyChangedMessage → propertyChanged → ThemeChangedMessage).
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "model"))
-        _raisePropertyChanged("model")
+        _notifyPropertyChanged("model")
         hub.send(ThemeChangedMessage(
             sender: self,
             senderName: name,

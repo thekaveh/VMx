@@ -161,8 +161,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         {
             if (string.Equals(_tagDraft, value, StringComparison.Ordinal)) return;
             _tagDraft = value;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagDraft)));
-            RaisePropertyChanged(nameof(TagDraft));
+            NotifyPropertyChanged(nameof(TagDraft));
             _tagSearch.SearchTerm = value;
             _tagSearch.Search();
             _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
@@ -247,8 +246,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         if (hadTagDraft)
         {
             _tagDraft = string.Empty;
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagDraft)));
-            RaisePropertyChanged(nameof(TagDraft));
+            NotifyPropertyChanged(nameof(TagDraft));
         }
         EmitDraftChanges();
     }
@@ -326,39 +324,24 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         // Includes the per-field scalar accessors (Title/Body/Starred/Tags) so
         // two-way bound widgets receive PropertyChanged and re-read after every
         // draft mutation. See Phase 5.a binding gap #1.
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Draft)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Snapshot)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsDirty)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsValid)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TitleError)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Title)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Body)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Starred)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Tags)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagsText)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestions)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestionsText)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(HasTagSuggestions)));
+        NotifyPropertyChanged(nameof(Draft));
+        NotifyPropertyChanged(nameof(Snapshot));
+        NotifyPropertyChanged(nameof(IsDirty));
+        NotifyPropertyChanged(nameof(IsValid));
+        NotifyPropertyChanged(nameof(TitleError));
+        NotifyPropertyChanged(nameof(Title));
+        NotifyPropertyChanged(nameof(Body));
+        NotifyPropertyChanged(nameof(Starred));
+        NotifyPropertyChanged(nameof(Tags));
+        NotifyPropertyChanged(nameof(TagsText));
+        NotifyPropertyChanged(nameof(TagSuggestions));
+        NotifyPropertyChanged(nameof(TagSuggestionsText));
+        NotifyPropertyChanged(nameof(HasTagSuggestions));
         // Round-3 Important B-I2: both commands are stable objects now, but
         // consumers that re-resolve on change notifications still expect the
         // signal on rebinds (cross-flavor parity).
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(ApproveCommand)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(DenyCommand)));
-        RaisePropertyChanged(nameof(Draft));
-        RaisePropertyChanged(nameof(Snapshot));
-        RaisePropertyChanged(nameof(IsDirty));
-        RaisePropertyChanged(nameof(IsValid));
-        RaisePropertyChanged(nameof(TitleError));
-        RaisePropertyChanged(nameof(Title));
-        RaisePropertyChanged(nameof(Body));
-        RaisePropertyChanged(nameof(Starred));
-        RaisePropertyChanged(nameof(Tags));
-        RaisePropertyChanged(nameof(TagsText));
-        RaisePropertyChanged(nameof(TagSuggestions));
-        RaisePropertyChanged(nameof(TagSuggestionsText));
-        RaisePropertyChanged(nameof(HasTagSuggestions));
-        RaisePropertyChanged(nameof(ApproveCommand));
-        RaisePropertyChanged(nameof(DenyCommand));
+        NotifyPropertyChanged(nameof(ApproveCommand));
+        NotifyPropertyChanged(nameof(DenyCommand));
         _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
     }
 
@@ -427,24 +410,18 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             .Build();
         _editorModeSub = _editorMode.ActiveChanged.Subscribe(_ =>
         {
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(EditorMode)));
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsPreviewMode)));
-            Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(IsEditMode)));
-            RaisePropertyChanged(nameof(EditorMode));
-            RaisePropertyChanged(nameof(IsPreviewMode));
-            RaisePropertyChanged(nameof(IsEditMode));
+            NotifyPropertyChanged(nameof(EditorMode));
+            NotifyPropertyChanged(nameof(IsPreviewMode));
+            NotifyPropertyChanged(nameof(IsEditMode));
             _canExecuteTrigger.OnNext(System.Reactive.Unit.Default);
         });
     }
 
     private void EmitTagSuggestionChanges()
     {
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestions)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(TagSuggestionsText)));
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(HasTagSuggestions)));
-        RaisePropertyChanged(nameof(TagSuggestions));
-        RaisePropertyChanged(nameof(TagSuggestionsText));
-        RaisePropertyChanged(nameof(HasTagSuggestions));
+        NotifyPropertyChanged(nameof(TagSuggestions));
+        NotifyPropertyChanged(nameof(TagSuggestionsText));
+        NotifyPropertyChanged(nameof(HasTagSuggestions));
     }
 
     private static readonly NoteModel Empty = new(

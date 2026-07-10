@@ -5,9 +5,9 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.2.0 — total parity.** Covers **all 287 of 287** library conformance IDs
-from `spec-v3.2.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **292 total**, at
+**v3.3.0 — total parity.** Covers **all 290 of 290** library conformance IDs
+from `spec-v3.3.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **295 total**, at
 full parity with C#, Python, and TypeScript. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -41,7 +41,7 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.2.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.3.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -159,22 +159,25 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
-## 5. Conformance — total parity (292)
+## 5. Conformance — total parity (295)
 
-This flavor implements **all 287 library conformance IDs** from the
+This flavor implements **all 290 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 Inc-4: +40 forms/commands/hub IDs per ADR-0062;
 Inc-5: +25 notifications/dialogs IDs per ADR-0063;
 Inc-6: +19 composite/group IDs per ADR-0064;
-Inc-7: +44 v3.1 upstream-consumer IDs per ADR-0068..ADR-0079). The covered IDs are:
+Inc-7: +44 v3.1 upstream-consumer IDs per ADR-0068..ADR-0079;
+Inc-8: +6 transactional-hub IDs per ADR-0082;
+Inc-9: +3 dual-channel property-notification IDs per ADR-0083). The covered IDs are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
                 (LIFE-005/006/008 assert catchable throws — ADR-0053;
                 LIFE-011 fixture-backed table now covered via Bundle.module)
-CVM-001..006    ComponentVM / ComponentVMOf identity + model
+CVM-001..009    ComponentVM / ComponentVMOf identity + model and ordered,
+                exactly-once dual-channel property notification
                 (CVM-003: read-only model setter still traps —
                 Swift setters cannot throw — per ADR-0053)
 COMP-001/002,   CollectionChanged events on CompositeVM (Inc-2 — ADR-0060)
@@ -365,7 +368,7 @@ DISC-001..006   DiscriminatorVM active key + modal stack coordinator (ADR-0075)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 287 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (292) with C#, Python, TypeScript, and Rust.**
+**All 290 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (295) with C#, Python, TypeScript, and Rust.**
 
 Run the suite:
 

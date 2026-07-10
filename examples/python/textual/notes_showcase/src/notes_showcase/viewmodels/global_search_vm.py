@@ -7,21 +7,19 @@ import dataclasses
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler
 
+from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.viewmodels.note_vm import NoteVM
 from vmx import (
     AsyncRelayCommand,
     ComponentVM,
     MessageHub,
     MessageHubProto,
-    PropertyChangedMessage,
     RxDispatcher,
     SearchableState,
     TokenPagedComposition,
 )
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-
-from notes_showcase.models.note_repository import INoteRepository
-from notes_showcase.viewmodels.note_vm import NoteVM
 
 _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
@@ -74,8 +72,7 @@ class GlobalSearchVM(ComponentVM):
         if self._search.search_term == value:
             return
         self._search.search_term = value
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "search_term"))
-        self._raise_property_changed("search_term")
+        self._notify_property_changed("search_term")
 
     def can_search(self) -> bool:
         return self._search.can_search()
@@ -117,12 +114,10 @@ class GlobalSearchVM(ComponentVM):
         )
 
     def _notify_results(self) -> None:
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "results"))
-        self._raise_property_changed("results")
+        self._notify_property_changed("results")
 
     def _notify_has_more(self) -> None:
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "has_more"))
-        self._raise_property_changed("has_more")
+        self._notify_property_changed("has_more")
 
     def dispose(self) -> None:
         self._collection_sub.dispose()

@@ -20,7 +20,6 @@ from vmx import (
     MessageHub,
     MessageHubProto,
     ObservableList,
-    PropertyChangedMessage,
     RxDispatcher,
 )
 from vmx.messages.protocols import Message
@@ -126,8 +125,7 @@ class NotificationsVM(ComponentVM):
             vm = self._map.pop(n)
             self._visible.remove(vm)
             vm.dispose()
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "visible"))
-        self._raise_property_changed("visible")
+        self._notify_property_changed("visible")
 
     # ── Builder entry-point ────────────────────────────────────────────────
     @staticmethod

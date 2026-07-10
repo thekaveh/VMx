@@ -1,6 +1,5 @@
 using VMx.Builders;
 using VMx.Components;
-using VMx.Messages;
 using VMx.Services;
 
 namespace VMx.Aggregates;
@@ -101,24 +100,19 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
         _component5?.Dispose();
 
         _component1 = _factory1();
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));
-        RaisePropertyChanged(nameof(Component1));
+        NotifyPropertyChanged(nameof(Component1));
 
         _component2 = _factory2();
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component2)));
-        RaisePropertyChanged(nameof(Component2));
+        NotifyPropertyChanged(nameof(Component2));
 
         _component3 = _factory3();
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component3)));
-        RaisePropertyChanged(nameof(Component3));
+        NotifyPropertyChanged(nameof(Component3));
 
         _component4 = _factory4();
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component4)));
-        RaisePropertyChanged(nameof(Component4));
+        NotifyPropertyChanged(nameof(Component4));
 
         _component5 = _factory5();
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component5)));
-        RaisePropertyChanged(nameof(Component5));
+        NotifyPropertyChanged(nameof(Component5));
 
         _component1.Construct();
         _component2.Construct();

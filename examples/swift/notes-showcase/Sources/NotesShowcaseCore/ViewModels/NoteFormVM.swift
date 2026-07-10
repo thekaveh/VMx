@@ -5,7 +5,7 @@
 // See spec/20-form-vm.md and the C# reference ViewModels/NoteFormVM.cs.
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on `ComponentVMBase`.
+// `_notifyPropertyChanged` are `public` on `ComponentVMBase`.
 //
 import Foundation
 import Combine
@@ -127,8 +127,7 @@ public final class NoteFormVM: ComponentVMBase {
         set {
             guard _tagDraft != newValue else { return }
             _tagDraft = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "tagDraft"))
-            _raisePropertyChanged("tagDraft")
+            _notifyPropertyChanged("tagDraft")
             _tagSearch?.searchTerm = newValue
             _tagSearch?.search()
             _canExecuteTrigger.send(())
@@ -311,8 +310,7 @@ public final class NoteFormVM: ComponentVMBase {
         _approvedCancellable = nil
         if hadTagDraft {
             _tagDraft = ""
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "tagDraft"))
-            _raisePropertyChanged("tagDraft")
+            _notifyPropertyChanged("tagDraft")
         }
         emitDraftChanges()
     }
@@ -408,8 +406,7 @@ public final class NoteFormVM: ComponentVMBase {
             "approveCommand", "denyCommand"
         ]
         for prop in props {
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
-            _raisePropertyChanged(prop)
+            _notifyPropertyChanged(prop)
         }
         _canExecuteTrigger.send(())
     }
@@ -418,8 +415,7 @@ public final class NoteFormVM: ComponentVMBase {
     private func emitTagSuggestionChanges() {
         let props = ["tagSuggestions", "tagSuggestionsText"]
         for prop in props {
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
-            _raisePropertyChanged(prop)
+            _notifyPropertyChanged(prop)
         }
     }
 
@@ -430,8 +426,7 @@ public final class NoteFormVM: ComponentVMBase {
             "showEditModeCommand", "showPreviewModeCommand"
         ]
         for prop in props {
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: prop))
-            _raisePropertyChanged(prop)
+            _notifyPropertyChanged(prop)
         }
         _canExecuteTrigger.send(())
     }

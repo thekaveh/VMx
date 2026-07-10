@@ -5,8 +5,8 @@
 //
 public enum VMxVersion {
     /// The package version.
-    public static let current = "3.2.0"
+    public static let current = "3.3.0"
 
     /// The minimum spec version this package implements.
-    public static let minSpecVersion = "3.2.0"
+    public static let minSpecVersion = "3.3.0"
 }

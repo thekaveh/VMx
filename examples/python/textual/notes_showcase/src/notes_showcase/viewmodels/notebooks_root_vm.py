@@ -19,6 +19,9 @@ import asyncio
 import dataclasses
 import uuid
 
+from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.models.notebook_model import NotebookModel
+from notes_showcase.viewmodels.notebook_vm import NotebookVM
 from vmx import (
     ComponentVM,
     ConstructionStatus,
@@ -27,7 +30,6 @@ from vmx import (
     MessageHub,
     MessageHubProto,
     ObservableList,
-    PropertyChangedMessage,
     RelayCommand,
     RxDispatcher,
     TreeStructureChange,
@@ -36,10 +38,6 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
-
-from notes_showcase.models.note_repository import INoteRepository
-from notes_showcase.models.notebook_model import NotebookModel
-from notes_showcase.viewmodels.notebook_vm import NotebookVM
 
 
 class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
@@ -102,8 +100,7 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
         if self._current is value:
             return
         self._current = value
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "current"))
-        self._raise_property_changed("current")
+        self._notify_property_changed("current")
 
     # ── INewCreatable ──────────────────────────────────────────────────────
     def can_create_new(self) -> bool:

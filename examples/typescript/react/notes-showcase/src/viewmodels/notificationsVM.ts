@@ -10,7 +10,6 @@
 import { asyncScheduler, type SchedulerLike } from "rxjs";
 import {
   ComponentVMBase,
-  PropertyChangedMessage,
   ViewModelType,
   type IDispatcher,
   type IMessageHub,
@@ -119,10 +118,7 @@ export class NotificationsVM extends ComponentVMBase {
         v.dispose();
       }
     }
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "visible"),
-    );
-    this._raisePropertyChanged("visible");
+    this._notifyPropertyChanged("visible");
   }
 
   #clearVisible(): void {

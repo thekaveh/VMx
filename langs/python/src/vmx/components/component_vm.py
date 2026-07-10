@@ -10,7 +10,6 @@ from typing import Generic, TypeVar
 
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
-from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHubProto
@@ -161,16 +160,13 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
 
         self._model = value
 
-        # Emit PropertyChangedMessage for "model".
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "model"))
-        self._raise_property_changed("model")
+        self._notify_property_changed("model")
 
         # Recompute modeled_hint.
         new_hint = self._modeled_hinter(value)
         if self._modeled_hint != new_hint:
             self._modeled_hint = new_hint
-            self._hub.send(PropertyChangedMessage.create(self, self._name, "modeled_hint"))
-            self._raise_property_changed("modeled_hint")
+            self._notify_property_changed("modeled_hint")
 
         # Invoke on_model_changed callback.
         if self._on_model_changed_cb is not None:

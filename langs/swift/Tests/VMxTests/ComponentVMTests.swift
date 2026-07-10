@@ -1,7 +1,7 @@
 //
 // ComponentVM conformance tests.
 //
-// Claimed IDs: CVM-001..006 (CVM-003's "no setter" is compiler-shaped in
+// Claimed IDs: CVM-001..009 (CVM-003's "no setter" is compiler-shaped in
 // Swift — external writes trap per ADR-0037; the test verifies the
 // readonly builder and internal update path).
 //
@@ -18,6 +18,23 @@ private struct Tab: Equatable {
 private final class RefModel {
     let n: Int
     init(_ n: Int) { self.n = n }
+}
+
+private final class NotificationProbeVM: ComponentVMBase {
+    private var storedValue = 0
+
+    var value: Int {
+        get { storedValue }
+        set {
+            guard storedValue != newValue else { return }
+            storedValue = newValue
+            _notifyPropertyChanged("value")
+        }
+    }
+
+    func emitValueNotification() {
+        _notifyPropertyChanged("value")
+    }
 }
 
 final class ComponentVMTests: XCTestCase {
@@ -155,6 +172,122 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertTrue(comp.current === child)
         XCTAssertFalse(child.selectCommand.canExecute(), "already current")
         XCTAssertTrue(child.deselectCommand.canExecute())
+    }
+
+    /// CVM-007 — helper emits one hub notification before one local notification.
+    func testCvm007NotificationHelperEmitsHubThenLocalOnce() {
+        let hub = MessageHub()
+        let vm = NotificationProbeVM(
+            name: "probe", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        var trace: [String] = []
+        let hubCancel = hub.messages.sink { message in
+            if let change = message as? PropertyChangedMessage,
+               change.propertyName == "value" {
+                trace.append("hub:\(vm.value)")
+            }
+        }
+        let localCancel = vm.propertyChanged.sink { name in
+            trace.append("local:\(name):\(vm.value)")
+        }
+
+        vm.value = 7
+
+        XCTAssertEqual(trace, ["hub:7", "local:value:7"])
+        hubCancel.cancel()
+        localCancel.cancel()
+    }
+
+    /// CVM-007 — deferred delivery and re-entrant disposal preserve the pair.
+    func testCvm007DeferredDeliveryAndReentrantDisposalCompletePair() throws {
+        let batchedHub = MessageHub()
+        let batchedVM = NotificationProbeVM(
+            name: "batched", hub: batchedHub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        var batchedTrace: [String] = []
+        let batchedHubCancel = batchedHub.messages.sink { message in
+            if let change = message as? PropertyChangedMessage,
+               change.propertyName == "value" {
+                batchedTrace.append("hub")
+            }
+        }
+        let batchedLocalCancel = batchedVM.propertyChanged.sink { name in
+            if name == "value" { batchedTrace.append("local") }
+        }
+
+        try batchedHub.batch { batchedVM.value = 7 }
+
+        XCTAssertEqual(batchedTrace, ["local", "hub"])
+        batchedHubCancel.cancel()
+        batchedLocalCancel.cancel()
+
+        let disposingHub = MessageHub()
+        let disposingVM = NotificationProbeVM(
+            name: "disposing", hub: disposingHub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        var disposingTrace: [String] = []
+        let disposingHubCancel = disposingHub.messages.sink { message in
+            if let change = message as? PropertyChangedMessage,
+               change.propertyName == "value" {
+                disposingTrace.append("hub")
+                disposingVM.dispose()
+            }
+        }
+        let disposingLocalCancel = disposingVM.propertyChanged.sink { name in
+            if name == "value" { disposingTrace.append("local") }
+        }
+
+        disposingVM.value = 7
+
+        XCTAssertEqual(disposingTrace, ["hub", "local"])
+        disposingHubCancel.cancel()
+        disposingLocalCancel.cancel()
+    }
+
+    /// CVM-008 — the setter's equality guard suppresses both channels.
+    func testCvm008EqualityGuardSuppressesBothChannels() {
+        let hub = MessageHub()
+        let vm = NotificationProbeVM(
+            name: "probe", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        var hubNames: [String] = []
+        var localNames: [String] = []
+        let hubCancel = hub.messages
+            .compactMap { ($0 as? PropertyChangedMessage)?.propertyName }
+            .sink { hubNames.append($0) }
+        let localCancel = vm.propertyChanged.sink { localNames.append($0) }
+
+        vm.value = 7
+        vm.value = 7
+
+        XCTAssertEqual(hubNames, ["value"])
+        XCTAssertEqual(localNames, ["value"])
+        hubCancel.cancel()
+        localCancel.cancel()
+    }
+
+    /// CVM-009 — helper calls after disposal are silent on both channels.
+    func testCvm009NotificationHelperIsInertAfterDisposal() {
+        let hub = MessageHub()
+        let vm = NotificationProbeVM(
+            name: "probe", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        var hubNames: [String] = []
+        var localNames: [String] = []
+        let hubCancel = hub.messages
+            .compactMap { ($0 as? PropertyChangedMessage)?.propertyName }
+            .sink { hubNames.append($0) }
+        let localCancel = vm.propertyChanged.sink { localNames.append($0) }
+        vm.dispose()
+        hubNames.removeAll()
+        localNames.removeAll()
+
+        vm.emitValueNotification()
+
+        XCTAssertEqual(hubNames, [])
+        XCTAssertEqual(localNames, [])
+        hubCancel.cancel()
+        localCancel.cancel()
     }
 
     /// Modeled component starts with its initial model.

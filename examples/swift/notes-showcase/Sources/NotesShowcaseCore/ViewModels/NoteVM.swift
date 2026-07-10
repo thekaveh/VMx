@@ -9,7 +9,7 @@
 // back-references from the leaf to its container.
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on the base class.
+// `_notifyPropertyChanged` are `public` on the base class.
 //
 import Foundation
 import Combine
@@ -69,15 +69,12 @@ public final class NoteVM: ComponentVMBase,
             let oldTitle = _model.title
             let oldStarred = _model.starred
             _model = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "model"))
-            _raisePropertyChanged("model")
+            _notifyPropertyChanged("model")
             if oldTitle != newValue.title {
-                hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "title"))
-                _raisePropertyChanged("title")
+                _notifyPropertyChanged("title")
             }
             if oldStarred != newValue.starred {
-                hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "starred"))
-                _raisePropertyChanged("starred")
+                _notifyPropertyChanged("starred")
             }
         }
     }

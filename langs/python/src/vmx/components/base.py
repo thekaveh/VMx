@@ -126,6 +126,8 @@ class _ComponentVMBase(ABC):
         # Mimics INotifyPropertyChanged — emits property name strings.
         self._property_changed_subject: Subject[str] = Subject()
         self._trigger_disposed: bool = False
+        self._active_property_notifications: int = 0
+        self._property_notification_teardown_pending: bool = False
 
         # ── Status-change trigger (drives command CanExecute re-eval) ────────
         self._status_trigger: Subject[None] = Subject()
@@ -189,8 +191,7 @@ class _ComponentVMBase(ABC):
         if self._is_current == value:
             return
         self._is_current = value
-        self._raise_property_changed("is_current")
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "is_current"))
+        self._notify_property_changed("is_current")
 
     def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
         """Called by CompositeVMBase when this child is added/removed."""
@@ -211,9 +212,33 @@ class _ComponentVMBase(ABC):
         return self._property_changed_subject.pipe(ops.as_observable())
 
     def _raise_property_changed(self, property_name: str) -> None:
-        """Emit *property_name* on the property_changed subject."""
+        """Emit *property_name* only on the VM-local property_changed subject."""
         if not self._trigger_disposed:
             self._property_changed_subject.on_next(property_name)
+
+    def _notify_property_changed(self, property_name: str) -> None:
+        """Publish one hub message, then one VM-local property notification."""
+        with self._lifecycle_lock:
+            if self._status == ConstructionStatus.DISPOSED or self._trigger_disposed:
+                return
+            self._active_property_notifications += 1
+        try:
+            try:
+                self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
+            finally:
+                # This call was admitted before disposal. Its local half must
+                # still run if a hub observer disposes the VM re-entrantly.
+                self._property_changed_subject.on_next(property_name)
+        finally:
+            with self._lifecycle_lock:
+                self._active_property_notifications -= 1
+                if (
+                    self._active_property_notifications == 0
+                    and self._property_notification_teardown_pending
+                ):
+                    self._property_notification_teardown_pending = False
+                    self._property_changed_subject.on_completed()
+                    self._property_changed_subject.dispose()
 
     # ── Built-in commands (lazily built + cached — VMX-018) ──────────────────
     def _build_command(
@@ -513,8 +538,11 @@ class _ComponentVMBase(ABC):
                 self._trigger_disposed = True
                 self._status_trigger.on_completed()
                 self._status_trigger.dispose()
-                self._property_changed_subject.on_completed()
-                self._property_changed_subject.dispose()
+                if self._active_property_notifications == 0:
+                    self._property_changed_subject.on_completed()
+                    self._property_changed_subject.dispose()
+                else:
+                    self._property_notification_teardown_pending = True
 
         # Only commands that were actually accessed (lazily built — VMX-018)
         # need disposal; un-built slots are still None.
