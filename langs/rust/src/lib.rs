@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.4.0";
+pub const MIN_SPEC_VERSION: &str = "3.5.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -86,6 +86,7 @@ pub enum CollectionChangeAction {
     Add,
     Remove,
     Replace,
+    Move,
     Reset,
 }
 
@@ -94,6 +95,8 @@ pub struct CollectionChangedMessage {
     pub sender_id: usize,
     pub property_name: String,
     pub action: CollectionChangeAction,
+    pub old_index: Option<usize>,
+    pub new_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1816,8 +1819,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     pub fn push(&self, item: T) {
-        lock(&self.inner).push(item);
-        self.publish(CollectionChangeAction::Add);
+        let index = {
+            let mut inner = lock(&self.inner);
+            let index = inner.len();
+            inner.push(item);
+            index
+        };
+        self.publish(CollectionChangeAction::Add, None, Some(index));
     }
 
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
@@ -1827,7 +1835,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         }
         inner.insert(index, item);
         drop(inner);
-        self.publish(CollectionChangeAction::Add);
+        self.publish(CollectionChangeAction::Add, None, Some(index));
         Ok(())
     }
 
@@ -1841,7 +1849,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             }
         };
         if item.is_some() {
-            self.publish(CollectionChangeAction::Remove);
+            self.publish(CollectionChangeAction::Remove, Some(index), None);
         }
         item
     }
@@ -1854,8 +1862,30 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             }
             std::mem::replace(&mut inner[index], item)
         };
-        self.publish(CollectionChangeAction::Replace);
+        self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
         Ok(old)
+    }
+
+    fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        {
+            let mut inner = lock(&self.inner);
+            if from_index >= inner.len() || to_index >= inner.len() {
+                return Err(VmxError::InvalidArgument(
+                    "move index out of range".to_string(),
+                ));
+            }
+            if from_index == to_index {
+                return Ok(());
+            }
+            let item = inner.remove(from_index);
+            inner.insert(to_index, item);
+        }
+        self.publish(
+            CollectionChangeAction::Move,
+            Some(from_index),
+            Some(to_index),
+        );
+        Ok(())
     }
 
     pub fn clear(&self) {
@@ -1866,7 +1896,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             changed
         };
         if changed {
-            self.publish(CollectionChangeAction::Reset);
+            self.publish(CollectionChangeAction::Reset, None, None);
         }
     }
 
@@ -1887,12 +1917,17 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 changed
             };
             if changed {
-                self.publish(CollectionChangeAction::Reset);
+                self.publish(CollectionChangeAction::Reset, None, None);
             }
         }
     }
 
-    fn publish(&self, action: CollectionChangeAction) {
+    fn publish(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+    ) {
         if *lock(&self.batch_depth) > 0 {
             *lock(&self.batch_dirty) = true;
             return;
@@ -1902,8 +1937,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 sender_id: self.owner_id,
                 property_name: "items".to_string(),
                 action: action.clone(),
+                old_index,
+                new_index,
             }));
-        if action != CollectionChangeAction::Replace {
+        if !matches!(
+            action,
+            CollectionChangeAction::Replace | CollectionChangeAction::Move
+        ) {
             self.hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.owner_id,
@@ -1997,6 +2037,8 @@ where
                 sender_id: self.owner_id,
                 property_name: "items".to_string(),
                 action,
+                old_index: None,
+                new_index: None,
             }));
     }
 }
@@ -2099,12 +2141,41 @@ where
                 sender_id: self.owner_id,
                 property_name: "items".to_string(),
                 action,
+                old_index: None,
+                new_index: None,
             }));
     }
 }
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
 type CurrentSelector<T> = Arc<dyn Fn(Vec<T>) -> Option<T> + Send + Sync>;
+
+/// Shared ordered, observable child-collection capability without selection.
+pub trait VmCollection<T: VmNode> {
+    fn items(&self) -> Vec<T>;
+    fn get(&self, index: usize) -> Option<T>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn add(&self, item: T) -> VmxResult<()>;
+    fn insert(&self, index: usize, item: T) -> VmxResult<()>;
+    fn remove(&self, item: &T) -> VmxResult<()>;
+    fn remove_at(&self, index: usize) -> VmxResult<T>;
+    fn replace(&self, index: usize, item: T) -> VmxResult<T>;
+    fn clear(&self);
+    fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()>;
+    fn batch_update<F>(&self, action: F)
+    where
+        F: FnOnce();
+}
+
+/// VM collection that additionally owns a current-child selection slot.
+pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
+    fn current(&self) -> Option<T>;
+    fn set_current(&self, item: Option<T>) -> VmxResult<()>;
+    fn select_component(&self, item: &T) -> VmxResult<()>;
+    fn deselect_component(&self, item: &T) -> VmxResult<()>;
+    fn can_select_component(&self, item: &T) -> bool;
+}
 
 #[derive(Clone)]
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
@@ -2211,6 +2282,29 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             self.assign_current(None);
         }
         Ok(removed)
+    }
+
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let old = self
+            .items
+            .get(index)
+            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        item.set_parent_id(Some(self.id()));
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        if should_construct {
+            item.construct()?;
+        }
+        old.set_parent_id(None);
+        if lock(&self.current).as_ref() == Some(&old) {
+            self.assign_current(None);
+        }
+        self.items.replace(index, item)?;
+        Ok(old)
+    }
+
+    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        self.items.move_item(from_index, to_index)
     }
 
     pub fn clear(&self) {
@@ -2354,6 +2448,66 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         if let Some(callback) = lock(&self.on_current_changed).clone() {
             callback(current);
         }
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> VmCollection<T> for CompositeVm<T, D> {
+    fn items(&self) -> Vec<T> {
+        CompositeVm::items(self)
+    }
+    fn get(&self, index: usize) -> Option<T> {
+        CompositeVm::get(self, index)
+    }
+    fn len(&self) -> usize {
+        CompositeVm::len(self)
+    }
+    fn is_empty(&self) -> bool {
+        CompositeVm::is_empty(self)
+    }
+    fn add(&self, item: T) -> VmxResult<()> {
+        CompositeVm::add(self, item)
+    }
+    fn insert(&self, index: usize, item: T) -> VmxResult<()> {
+        CompositeVm::insert(self, index, item)
+    }
+    fn remove(&self, item: &T) -> VmxResult<()> {
+        CompositeVm::remove(self, item)
+    }
+    fn remove_at(&self, index: usize) -> VmxResult<T> {
+        CompositeVm::remove_at(self, index)
+    }
+    fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        CompositeVm::replace(self, index, item)
+    }
+    fn clear(&self) {
+        CompositeVm::clear(self);
+    }
+    fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        CompositeVm::move_item(self, from_index, to_index)
+    }
+    fn batch_update<F>(&self, action: F)
+    where
+        F: FnOnce(),
+    {
+        CompositeVm::batch_update(self, action);
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> SelectableVmCollection<T> for CompositeVm<T, D> {
+    fn current(&self) -> Option<T> {
+        CompositeVm::current(self)
+    }
+    fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        CompositeVm::set_current(self, item)
+    }
+    fn select_component(&self, item: &T) -> VmxResult<()> {
+        CompositeVm::select_component(self, item)
+    }
+    fn deselect_component(&self, item: &T) -> VmxResult<()> {
+        CompositeVm::deselect_component(self, item)
+    }
+    fn can_select_component(&self, item: &T) -> bool {
+        CompositeVm::can_select_component(self, item)
     }
 }
 
@@ -3074,6 +3228,26 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         Ok(removed)
     }
 
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let old = self
+            .items
+            .get(index)
+            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        item.set_parent_id(Some(self.id()));
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        if should_construct {
+            item.construct()?;
+        }
+        old.set_parent_id(None);
+        self.items.replace(index, item)?;
+        Ok(old)
+    }
+
+    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        self.items.move_item(from_index, to_index)
+    }
+
     pub fn clear(&self) {
         for item in self.items() {
             item.set_parent_id(None);
@@ -3146,6 +3320,48 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             move || vm.deselect()
         })
         .with_can_execute(move || vm.is_selected())
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> VmCollection<T> for GroupVm<T, D> {
+    fn items(&self) -> Vec<T> {
+        GroupVm::items(self)
+    }
+    fn get(&self, index: usize) -> Option<T> {
+        GroupVm::get(self, index)
+    }
+    fn len(&self) -> usize {
+        GroupVm::len(self)
+    }
+    fn is_empty(&self) -> bool {
+        GroupVm::is_empty(self)
+    }
+    fn add(&self, item: T) -> VmxResult<()> {
+        GroupVm::add(self, item)
+    }
+    fn insert(&self, index: usize, item: T) -> VmxResult<()> {
+        GroupVm::insert(self, index, item)
+    }
+    fn remove(&self, item: &T) -> VmxResult<()> {
+        GroupVm::remove(self, item)
+    }
+    fn remove_at(&self, index: usize) -> VmxResult<T> {
+        GroupVm::remove_at(self, index)
+    }
+    fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        GroupVm::replace(self, index, item)
+    }
+    fn clear(&self) {
+        GroupVm::clear(self);
+    }
+    fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        GroupVm::move_item(self, from_index, to_index)
+    }
+    fn batch_update<F>(&self, action: F)
+    where
+        F: FnOnce(),
+    {
+        GroupVm::batch_update(self, action);
     }
 }
 
@@ -5775,6 +5991,8 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                     sender_id: id,
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
+                    old_index: None,
+                    new_index: None,
                 }));
             }
         })
@@ -5808,6 +6026,8 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                     sender_id: id,
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
+                    old_index: None,
+                    new_index: None,
                 }));
             }
         });
@@ -5877,6 +6097,8 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                     sender_id: self.id,
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
+                    old_index: None,
+                    new_index: None,
                 }));
         }
     }
@@ -5921,6 +6143,8 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                     sender_id: id,
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
+                    old_index: None,
+                    new_index: None,
                 }));
             }
         })
@@ -5957,6 +6181,8 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                     sender_id: id,
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
+                    old_index: None,
+                    new_index: None,
                 }));
             }
         });

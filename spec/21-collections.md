@@ -5,6 +5,10 @@ core VM hierarchy (`ComponentVM`, `CompositeVM`, `GroupVM`, `AggregateVM`) with
 richer observable-collection behaviour. They are not part of the base VM types;
 a consumer chooses which primitives to compose into a given VM.
 
+The shared `CompositeVM` / `GroupVM` child-collection capability and its atomic
+identity-preserving `Move` operation are core hierarchy contracts, not
+standalone helpers; see chapter 01 §1.4, chapters 06–07, and ADR-0085.
+
 This chapter covers four primitives:
 
 - `ServicedObservableCollection<T>` — hub-aware observable collection

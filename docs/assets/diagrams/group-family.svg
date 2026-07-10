@@ -45,15 +45,15 @@
 <rect x="860" y="166" width="280" height="120" rx="8" fill="#0f172a"/>
 <rect x="860" y="166" width="280" height="120" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
 <text x="1000" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection API</text>
-<text x="1000" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">add / insert / remove</text>
-<text x="1000" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">clear / batch update</text>
-<text x="1000" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">enumeration surface</text>
+<text x="1000" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared VMCollection contract</text>
+<text x="1000" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">add / replace / remove / clear</text>
+<text x="1000" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">atomic identity-preserving move</text>
 <rect x="1220" y="166" width="270" height="120" rx="8" fill="#0f172a"/>
 <rect x="1220" y="166" width="270" height="120" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="1355" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection messages</text>
-<text x="1355" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">granular events</text>
+<text x="1355" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">one Move with both indices</text>
 <text x="1355" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">BatchUpdate -&gt; Reset</text>
-<text x="1355" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hot hub delivery</text>
+<text x="1355" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same-index move is silent</text>
 <rect x="150" y="466" width="300" height="112" rx="8" fill="#0f172a"/>
 <rect x="150" y="466" width="300" height="112" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="300" y="494" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Construct children</text>

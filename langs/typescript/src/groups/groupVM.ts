@@ -16,7 +16,7 @@ import {
   makeCollectionChangedEvent,
   BatchUpdateHandle,
 } from "../collections/index.js";
-import type { CollectionChangedEvent, IBatchable } from "../collections/index.js";
+import type { CollectionChangedEvent, IBatchable, IVmCollection } from "../collections/index.js";
 
 /** GroupVM parent adaptor — no selection concept. */
 class GroupParent implements IParentVM {
@@ -28,7 +28,7 @@ class GroupParent implements IParentVM {
 
 export class GroupVM<VM extends ComponentVMBase>
   extends ComponentVMBase
-  implements IBatchable
+  implements IBatchable, IVmCollection<VM>
 {
   readonly #autoConstructOnAdd: boolean;
   readonly #childrenFactory: (() => Iterable<VM>) | null;
@@ -145,6 +145,23 @@ export class GroupVM<VM extends ComponentVMBase>
     this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
   }
 
+  move(fromIndex: number, toIndex: number): void {
+    this._validateMoveIndex(fromIndex);
+    this._validateMoveIndex(toIndex);
+    if (fromIndex === toIndex) return;
+    const item = this.at(fromIndex);
+    this._children.splice(fromIndex, 1);
+    this._children.splice(toIndex, 0, item);
+    this._emitCollectionChanged(
+      makeCollectionChangedEvent("move", {
+        newItems: [item],
+        newIndex: toIndex,
+        oldItems: [item],
+        oldIndex: fromIndex,
+      }),
+    );
+  }
+
   // ── Batch updates (spec v1.1) ─────────────────────────────────────────────
 
   batchUpdate(): BatchUpdateHandle {
@@ -173,6 +190,12 @@ export class GroupVM<VM extends ComponentVMBase>
     if (this.status !== ConstructionStatus.Constructed) return;
     if (child.status === ConstructionStatus.Constructed) return;
     child.construct();
+  }
+
+  private _validateMoveIndex(index: number): void {
+    if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
+      throw new RangeError(`Move index ${String(index)} out of range`);
+    }
   }
 
   // ── Lifecycle overrides ───────────────────────────────────────────────────

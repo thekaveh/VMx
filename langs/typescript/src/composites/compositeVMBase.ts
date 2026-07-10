@@ -23,11 +23,15 @@ import {
   makeCollectionChangedEvent,
   BatchUpdateHandle,
 } from "../collections/index.js";
-import type { CollectionChangedEvent, IBatchable } from "../collections/index.js";
+import type {
+  CollectionChangedEvent,
+  IBatchable,
+  ISelectableVmCollection,
+} from "../collections/index.js";
 
 export abstract class CompositeVMBase<VM extends ComponentVMBase>
   extends ComponentVMBase
-  implements IParentVM, IBatchable
+  implements IParentVM, IBatchable, ISelectableVmCollection<VM>
 {
   readonly supportsChildSelection = true;
   readonly #asyncSelection: boolean;
@@ -235,6 +239,23 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
   }
 
+  move(fromIndex: number, toIndex: number): void {
+    this._validateMoveIndex(fromIndex);
+    this._validateMoveIndex(toIndex);
+    if (fromIndex === toIndex) return;
+    const item = this.at(fromIndex);
+    this._children.splice(fromIndex, 1);
+    this._children.splice(toIndex, 0, item);
+    this._emitCollectionChanged(
+      makeCollectionChangedEvent("move", {
+        newItems: [item],
+        newIndex: toIndex,
+        oldItems: [item],
+        oldIndex: fromIndex,
+      }),
+    );
+  }
+
   // ── Batch updates (spec v1.1) ─────────────────────────────────────────────
 
   batchUpdate(): BatchUpdateHandle {
@@ -263,6 +284,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (this.status !== ConstructionStatus.Constructed) return;
     if (child.status === ConstructionStatus.Constructed) return;
     child.construct();
+  }
+
+  private _validateMoveIndex(index: number): void {
+    if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
+      throw new RangeError(`Move index ${String(index)} out of range`);
+    }
   }
 
   // ── Lifecycle overrides ───────────────────────────────────────────────────

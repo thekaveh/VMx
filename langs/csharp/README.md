@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.4.0** — implements `spec-v3.4.0` end-to-end. 296/296 library conformance IDs
+**v3.5.0** — implements `spec-v3.5.0` end-to-end. 304/304 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.4.0. The NuGet package has not been
+The source tree currently implements v3.5.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -160,6 +160,8 @@ The public API lives under the `VMx.*` namespaces:
 | `ReadonlyComponentVM<M>`        | Leaf VM with read-only model                      |
 | `CompositeVM<VM>` / `<M,VM>`    | Ordered collection of children + current slot     |
 | `GroupVM<VM>`                   | Collection without current selection              |
+| `IVmCollection<VM>`            | Shared group/composite collection + atomic move   |
+| `ISelectableVmCollection<VM>`  | Composite-only current-selection extension        |
 | `AggregateVM1..6<…>`            | Fixed-arity named component slots (arity 6 new in 2.2.0; see ADR-0034) |
 | `ForwardingComponentVM<M>`      | Decorator for `IComponentVM<M>`                   |
 | `ForwardingCompositeVM<VM>`     | Decorator for composites                          |
@@ -212,7 +214,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 296 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 304 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

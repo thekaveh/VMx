@@ -422,7 +422,12 @@ def class_diagram() -> None:
             260,
             170,
             "Containers",
-            ("CompositeVM", "GroupVM", "AggregateVM1..6", "HierarchicalVM"),
+            (
+                "CompositeVM / GroupVM",
+                "shared collection capability",
+                "identity-safe atomic move",
+                "Aggregate / Hierarchical",
+            ),
             "frontend",
         ),
         Box(
@@ -525,6 +530,7 @@ def class_diagram() -> None:
                 "DiscriminatorVM is part of the specialized VM family.",
                 "TokenPagedComposition covers cursor paging.",
                 "Filtered/scored composite views are catalogued with collections.",
+                "Groups and composites share a non-selecting collection capability.",
             ],
         ),
         (

@@ -167,6 +167,13 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
     /// <inheritdoc/>
     public virtual void Clear() => _wrappedComposite.Clear();
 
+    /// <inheritdoc/>
+    public virtual void Move(int fromIndex, int toIndex)
+        => _wrappedComposite.Move(fromIndex, toIndex);
+
+    /// <inheritdoc/>
+    public virtual IDisposable BatchUpdate() => _wrappedComposite.BatchUpdate();
+
     // ── IEnumerable<VM> ────────────────────────────────────────────────────
 
     /// <inheritdoc/>

@@ -101,3 +101,4 @@ flat-adapter example shape.
 - [Specialized ViewModels & Coordinators](specialized/index.md)
 - [Command Families](../command-families.md)
 - [Builders, Collections & Tree Utilities](../builders-collections-tree-utilities.md)
+- [VM Collection Contract](../vm-collection-contract.md)

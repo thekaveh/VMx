@@ -7,14 +7,15 @@ members and commands.
 ## 1. Members
 
 ```
-GroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
+GroupVM<VM> : IVmCollection<VM>:
     # IComponentVM members:
     Name, Hint, Type=Group, IsCurrent, IsConstructed, Status,
     SelectCommand, DeselectCommand, SelectNextCommand, SelectPreviousCommand,
     ReconstructCommand, can_construct/construct/..., can_select/select/...
 
     # IList<VM>:
-    Add, Remove, Insert, RemoveAt, Clear, Count, indexer, iterator
+    Add, Remove, Insert, RemoveAt, Replace, Clear, Move, BatchUpdate,
+    Count, indexer, iterator, CollectionChanged
 ```
 
 Differences from `CompositeVM<VM>`:
@@ -32,6 +33,12 @@ Children added to a `GroupVM` are peers: their inherited `can_select` /
 `CanSelect` / `canSelect` predicate MUST return `false` while the parent is the
 group, and their inherited select command MUST be disabled. Calling `select()` /
 `Select()` on such a child is a no-op.
+
+The shared non-selecting collection capability is defined in chapter 01 §1.4
+and ADR-0085. Group implements that complete capability but does not implement
+the selectable extension. `Move(from, to)` validates both pre-move indices,
+emits one `Move` event with the same child and both indices, and preserves
+identity, parent, lifecycle, subscriptions, and auto-construction state.
 
 ## 2. Children construction orchestration
 
@@ -67,6 +74,9 @@ raise individual `CollectionChanged` events. When the last live handle is
 disposed, if any mutations occurred a single
 `CollectionChanged(action=Reset)` MUST be raised. Nested batches are
 ref-counted.
+
+A same-index move is not a mutation and does not dirty the batch. A non-no-op
+move inside a batch contributes to the one outer `Reset`.
 
 ## 6. Search / filter (spec v2.0)
 

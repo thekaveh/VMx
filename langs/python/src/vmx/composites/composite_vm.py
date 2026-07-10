@@ -264,6 +264,24 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._set_current(None, async_sel=False)
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
+    def move(self, from_index: int, to_index: int) -> None:
+        """Move an existing child to its final index without rewiring it."""
+        self._validate_move_index(from_index)
+        self._validate_move_index(to_index)
+        if from_index == to_index:
+            return
+        item = self._children.pop(from_index)
+        self._children.insert(to_index, item)
+        self._emit_collection_changed(
+            CollectionChangedEvent(
+                action="move",
+                new_items=(item,),
+                new_index=to_index,
+                old_items=(item,),
+                old_index=from_index,
+            )
+        )
+
     def copy_to(self, target: list[VM], array_index: int) -> None:
         """Copy children into *target* starting at *array_index*."""
         for i, child in enumerate(self._children):
@@ -321,6 +339,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         if child.status == ConstructionStatus.CONSTRUCTED:
             return
         child.construct()
+
+    def _validate_move_index(self, index: int) -> None:
+        if index < 0 or index >= len(self._children):
+            raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 
     # ── Lifecycle overrides ───────────────────────────────────────────────────
 

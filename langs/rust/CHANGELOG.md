@@ -4,6 +4,19 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-07-10
+
+Implements `spec-v3.5.0` and keeps Rust at full library parity: 304/304
+conformance IDs covered.
+
+### Added
+
+- Shared `VmCollection<T>` and selection-specific
+  `SelectableVmCollection<T>` traits.
+- Atomic identity-preserving `move_item(from_index, to_index)`, `Move`
+  collection actions with both indices, and VM wrapper replacement methods
+  (`COL-032..039`).
+
 ## [0.4.0] — 2026-07-10
 
 Implements `spec-v3.4.0` and keeps Rust at full library parity: 296/296

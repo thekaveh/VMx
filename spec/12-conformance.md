@@ -2032,6 +2032,66 @@ count-preserving mutations (e.g., only replace operations)
 **Then** the paged composition recomputes page state
 **And** emits an `Items` property notification
 
+### COL-032 — shared VM collection capability keeps selection separate
+
+**Given** one `CompositeVM<VM>` and one `GroupVM<VM>`
+**Then** both satisfy the shared VM collection capability, including count,
+indexed/iterable reads, observation, mutation, move, and batching
+**And** only the composite satisfies the selectable collection capability
+**And** the group exposes no `Current` child slot
+
+### COL-033 — forward move is one precise collection mutation
+
+**Given** a VM collection containing `[a, b, c]`
+**When** `move(0, 2)` is called
+**Then** its order is `[b, c, a]`
+**And** exactly one `Move` event names `a`, old index `0`, and new index `2`
+
+### COL-034 — backward move applies to non-selecting groups
+
+**Given** a `GroupVM` containing `[a, b, c]`
+**When** `move(2, 0)` is called
+**Then** its order is `[c, a, b]`
+**And** exactly one `Move` event names old index `2` and new index `0`
+
+### COL-035 — same-index move is a true no-op
+
+**Given** a VM collection containing `[a, b, c]`
+**When** `move(1, 1)` is called
+**Then** order and child state are unchanged
+**And** no collection event is emitted
+**And** an enclosing batch is not dirtied by that call
+
+### COL-036 — invalid move bounds fail atomically
+
+**Given** a VM collection of count three
+**When** either move index is outside `[0, 3)`
+**Then** a flavor-idiomatic catchable bounds error is raised
+**And** no item, state, or event changes
+
+### COL-037 — move preserves child and selection invariants
+
+**Given** a constructed composite whose current child is `a`
+**When** `a` is moved to another valid index
+**Then** the child at the destination is the identical `a` instance
+**And** its parent, lifecycle status, subscriptions, and `IsCurrent` stay unchanged
+**And** the composite's `Current` remains the identical `a` instance
+
+### COL-038 — batched move coalesces to reset
+
+**Given** a VM collection with an open batch
+**When** a non-no-op move occurs and the outer batch closes
+**Then** no granular move event escapes the batch
+**And** exactly one `Reset` event is emitted
+
+### COL-039 — move does not trigger auto-construction
+
+**Given** a constructed VM collection with auto-construct-on-add enabled
+**And** an added child has already been constructed exactly once
+**When** that child is moved
+**Then** its construct hook is not called again
+**And** the identical constructed instance occupies the destination
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
