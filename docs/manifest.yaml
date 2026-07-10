@@ -1,0 +1,218 @@
+surfaces:
+  - repo
+  - site
+  - wiki
+numbering: baked
+sections:
+  - id: home
+    number: "1"
+    title: VMx
+    source: docs/content/index.md
+  - id: installation
+    number: "2"
+    title: Installation
+    source: docs/content/installation.md
+  - id: quickstart
+    number: "3"
+    title: Quickstart
+    source: docs/content/quickstart.md
+  - id: core-concepts
+    number: "4"
+    title: Core Concepts
+    source: docs/content/core-concepts.md
+  - id: architecture
+    number: "5"
+    title: Architecture Map
+    children:
+      - id: architecture-overview
+        number: "5.1"
+        title: Architecture Map
+        source: docs/content/architecture/index.md
+      - id: system-architecture
+        number: "5.2"
+        title: System Architecture
+        source: docs/content/architecture/system-architecture.md
+      - id: class-architecture
+        number: "5.3"
+        title: Class Architecture
+        source: docs/content/architecture/class-architecture.md
+      - id: lifecycle-messaging
+        number: "5.4"
+        title: Lifecycle & Messaging
+        source: docs/content/architecture/lifecycle-messaging.md
+      - id: diagram-gallery
+        number: "5.5"
+        title: Diagram Gallery
+        source: docs/content/architecture/diagram-gallery.md
+  - id: primitives
+    number: "6"
+    title: Framework Primitives
+    children:
+      - id: primitives-overview
+        number: "6.1"
+        title: Framework Primitives
+        source: docs/content/primitives/index.md
+      - id: viewmodel-families
+        number: "6.2"
+        title: ViewModel Families
+        children:
+          - id: viewmodel-families-overview
+            number: "6.2.1"
+            title: ViewModel Families
+            source: docs/content/primitives/viewmodel-families/index.md
+          - id: component-family
+            number: "6.2.2"
+            title: Component Family
+            source: docs/content/primitives/viewmodel-families/component-family.md
+          - id: aggregate-family
+            number: "6.2.3"
+            title: Aggregate Family
+            source: docs/content/primitives/viewmodel-families/aggregate-family.md
+          - id: group-family
+            number: "6.2.4"
+            title: Group Family
+            source: docs/content/primitives/viewmodel-families/group-family.md
+          - id: composite-family
+            number: "6.2.5"
+            title: Composite Family
+            source: docs/content/primitives/viewmodel-families/composite-family.md
+          - id: hierarchical-family
+            number: "6.2.6"
+            title: Hierarchical Family
+            source: docs/content/primitives/viewmodel-families/hierarchical-family.md
+          - id: forwarding-wrapper-family
+            number: "6.2.7"
+            title: Forwarding & Wrapper Family
+            source: docs/content/primitives/viewmodel-families/forwarding-wrapper-family.md
+          - id: specialized-viewmodels
+            number: "6.2.8"
+            title: Specialized ViewModels & Coordinators
+            children:
+              - id: specialized-overview
+                number: "6.2.8.1"
+                title: Specialized ViewModels & Coordinators
+                source: docs/content/primitives/viewmodel-families/specialized/index.md
+              - id: form-vm
+                number: "6.2.8.2"
+                title: FormVM
+                source: docs/content/primitives/viewmodel-families/specialized/form-vm.md
+              - id: discriminator-vm
+                number: "6.2.8.3"
+                title: DiscriminatorVM
+                source: docs/content/primitives/viewmodel-families/specialized/discriminator-vm.md
+              - id: notification-vm
+                number: "6.2.8.4"
+                title: NotificationVM
+                source: docs/content/primitives/viewmodel-families/specialized/notification-vm.md
+              - id: confirmation-vm
+                number: "6.2.8.5"
+                title: ConfirmationVM
+                source: docs/content/primitives/viewmodel-families/specialized/confirmation-vm.md
+              - id: modal-vm
+                number: "6.2.8.6"
+                title: ModalVM
+                source: docs/content/primitives/viewmodel-families/specialized/modal-vm.md
+      - id: command-families
+        number: "6.3"
+        title: Command Families
+        source: docs/content/primitives/command-families.md
+      - id: capability-families
+        number: "6.4"
+        title: Capability Families
+        source: docs/content/primitives/capability-families.md
+      - id: state-reactive-helpers
+        number: "6.5"
+        title: State & Reactive Helpers
+        source: docs/content/primitives/state-reactive-helpers.md
+      - id: services-messages-dispatching
+        number: "6.6"
+        title: Services, Messages & Dispatching
+        source: docs/content/primitives/services-messages-dispatching.md
+      - id: builders-collections-tree
+        number: "6.7"
+        title: Builders, Collections & Tree Utilities
+        source: docs/content/primitives/builders-collections-tree-utilities.md
+  - id: flavors
+    number: "7"
+    title: Language Flavors
+    children:
+      - id: flavors-overview
+        number: "7.1"
+        title: Language Flavors
+        source: docs/content/flavors/index.md
+      - id: csharp
+        number: "7.2"
+        title: C\#
+        source: docs/content/flavors/csharp.md
+      - id: python
+        number: "7.3"
+        title: Python
+        source: docs/content/flavors/python.md
+      - id: typescript
+        number: "7.4"
+        title: TypeScript
+        source: docs/content/flavors/typescript.md
+      - id: swift
+        number: "7.5"
+        title: Swift
+        source: docs/content/flavors/swift.md
+      - id: rust
+        number: "7.6"
+        title: Rust
+        source: docs/content/flavors/rust.md
+      - id: cross-language-naming
+        number: "7.7"
+        title: Cross-Language Naming
+        source: docs/content/flavors/cross-language-naming.md
+  - id: examples
+    number: "8"
+    title: Examples
+    children:
+      - id: examples-overview
+        number: "8.1"
+        title: Examples
+        source: docs/content/examples/index.md
+      - id: example-diagram-gallery
+        number: "8.2"
+        title: Example Diagram Gallery
+        source: docs/content/examples/example-diagram-gallery.md
+      - id: notes-workspace
+        number: "8.3"
+        title: Notes Workspace
+        source: docs/content/examples/notes-workspace.md
+      - id: notes-workspace-vm-layer
+        number: "8.4"
+        title: VM Layer Map
+        source: docs/content/examples/notes-workspace-vm-layer.md
+      - id: rust-tui-notes-showcase
+        number: "8.5"
+        title: Rust TUI Notes Showcase
+        source: docs/content/examples/rust-tui-notes-showcase.md
+      - id: global-search-token-paging
+        number: "8.6"
+        title: Global Search & Token Paging
+        source: docs/content/examples/global-search-token-paging.md
+      - id: editor-mode-discriminator-vm
+        number: "8.7"
+        title: Editor Mode & DiscriminatorVM
+        source: docs/content/examples/editor-mode-discriminator-vm.md
+      - id: tag-autocomplete-searchable-state
+        number: "8.8"
+        title: Tag Autocomplete & SearchableState
+        source: docs/content/examples/tag-autocomplete-searchable-state.md
+      - id: smaller-examples
+        number: "8.9"
+        title: Smaller Examples
+        source: docs/content/examples/smaller-examples.md
+  - id: integration-recipes
+    number: "9"
+    title: Integration Recipes
+    source: docs/content/integration-recipes.md
+  - id: specification-conformance
+    number: "10"
+    title: Specification & Conformance
+    source: docs/content/specification-conformance.md
+  - id: contributing-releases
+    number: "11"
+    title: Contributing & Releases
+    source: docs/content/contributing-releases.md

@@ -121,9 +121,9 @@ coverage/
 
 # ─── Docs builds ──────────────────────────────────────────────────────
 docs/_build/
+generated/
 site/
-!docs/site/
-!docs/site/**
+mkdocs.yml
 
 # ─── Local git worktrees ──────────────────────────────────────────────
 .worktrees/

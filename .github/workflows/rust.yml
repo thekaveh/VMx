@@ -5,13 +5,14 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "langs/rust/**"
       - "examples/rust/**"
       - "spec/**"
       - ".github/workflows/rust.yml"
   pull_request:
+    branches: [main, develop]
     paths:
       - "langs/rust/**"
       - "examples/rust/**"

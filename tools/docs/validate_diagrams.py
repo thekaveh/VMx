@@ -51,10 +51,10 @@ def diagram_links(text: str) -> list[str]:
 
 
 def rendered_site_dir(ref: Path) -> Path:
-    rel = ref.relative_to("docs/site")
+    rel = ref.relative_to("generated/site")
     if rel.name == "index.md":
-        return Path("site") / rel.parent
-    return Path("site") / rel.parent / rel.stem
+        return Path("generated/site") / rel.parent
+    return Path("generated/site") / rel.parent / rel.stem
 
 
 def validate_site_diagram_links(ref: Path, text: str, asset_names: set[str]) -> list[str]:
@@ -67,7 +67,7 @@ def validate_site_diagram_links(ref: Path, text: str, asset_names: set[str]) -> 
         if clean_target.startswith(("http://", "https://", "/")):
             continue
         resolved = posixpath.normpath(str(rendered_site_dir(ref) / clean_target))
-        expected = posixpath.normpath(str(Path("site/assets/diagrams") / asset_name))
+        expected = posixpath.normpath(str(Path("generated/site/assets/diagrams") / asset_name))
         if resolved != expected:
             errors.append(
                 f"{ref}: diagram link {target} resolves to {resolved}, expected {expected}"
@@ -77,7 +77,7 @@ def validate_site_diagram_links(ref: Path, text: str, asset_names: set[str]) -> 
 
 def validate_all_site_diagram_links(root: Path, asset_names: set[str]) -> list[str]:
     errors: list[str] = []
-    for ref_path in sorted((root / "docs/site").rglob("*.md")):
+    for ref_path in sorted((root / "generated/site").rglob("*.md")):
         ref = ref_path.relative_to(root)
         text = ref_path.read_text(encoding="utf-8")
         errors.extend(validate_site_diagram_links(ref, text, asset_names))

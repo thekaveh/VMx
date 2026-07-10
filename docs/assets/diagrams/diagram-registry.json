@@ -6,8 +6,7 @@
     "svg": "system-architecture.svg",
     "png": "system-architecture.png",
     "referencedBy": [
-      "docs/site/architecture/system-architecture.md",
-      "docs/wiki/Architecture/Architecture-Map.md"
+      "docs/content/architecture/system-architecture.md"
     ]
   },
   {
@@ -17,8 +16,7 @@
     "svg": "class-architecture.svg",
     "png": "class-architecture.png",
     "referencedBy": [
-      "docs/site/architecture/class-architecture.md",
-      "docs/wiki/Architecture/Class-Architecture.md"
+      "docs/content/architecture/class-architecture.md"
     ]
   },
   {
@@ -28,8 +26,7 @@
     "svg": "viewmodel-families.svg",
     "png": "viewmodel-families.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/index.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/ViewModel-Families.md"
+      "docs/content/primitives/viewmodel-families/index.md"
     ]
   },
   {
@@ -39,8 +36,7 @@
     "svg": "lifecycle-messaging.svg",
     "png": "lifecycle-messaging.png",
     "referencedBy": [
-      "docs/site/architecture/lifecycle-messaging.md",
-      "docs/wiki/Architecture/Lifecycle-and-Messaging.md"
+      "docs/content/architecture/lifecycle-messaging.md"
     ]
   },
   {
@@ -50,8 +46,7 @@
     "svg": "component-family.svg",
     "png": "component-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/component-family.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Component-Family.md"
+      "docs/content/primitives/viewmodel-families/component-family.md"
     ]
   },
   {
@@ -61,8 +56,7 @@
     "svg": "aggregate-family.svg",
     "png": "aggregate-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/aggregate-family.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Aggregate-Family.md"
+      "docs/content/primitives/viewmodel-families/aggregate-family.md"
     ]
   },
   {
@@ -72,8 +66,7 @@
     "svg": "group-family.svg",
     "png": "group-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/group-family.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Group-Family.md"
+      "docs/content/primitives/viewmodel-families/group-family.md"
     ]
   },
   {
@@ -83,8 +76,7 @@
     "svg": "composite-family.svg",
     "png": "composite-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/composite-family.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Composite-Family.md"
+      "docs/content/primitives/viewmodel-families/composite-family.md"
     ]
   },
   {
@@ -94,8 +86,7 @@
     "svg": "hierarchical-family.svg",
     "png": "hierarchical-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/hierarchical-family.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Hierarchical-Family.md"
+      "docs/content/primitives/viewmodel-families/hierarchical-family.md"
     ]
   },
   {
@@ -105,8 +96,7 @@
     "svg": "forwarding-wrapper-family.svg",
     "png": "forwarding-wrapper-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/forwarding-wrapper-family.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Forwarding-and-Wrapper-Family.md"
+      "docs/content/primitives/viewmodel-families/forwarding-wrapper-family.md"
     ]
   },
   {
@@ -116,8 +106,7 @@
     "svg": "specialized-vm-family.svg",
     "png": "specialized-vm-family.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/specialized/index.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Specialized/Specialized-ViewModels-and-Coordinators.md"
+      "docs/content/primitives/viewmodel-families/specialized/index.md"
     ]
   },
   {
@@ -127,8 +116,7 @@
     "svg": "commands-capabilities.svg",
     "png": "commands-capabilities.png",
     "referencedBy": [
-      "docs/site/primitives/command-families.md",
-      "docs/wiki/Framework-Primitives/Command-Families.md"
+      "docs/content/primitives/command-families.md"
     ]
   },
   {
@@ -138,8 +126,7 @@
     "svg": "forms-dialogs-notifications.svg",
     "png": "forms-dialogs-notifications.png",
     "referencedBy": [
-      "docs/site/primitives/viewmodel-families/specialized/form-vm.md",
-      "docs/wiki/Framework-Primitives/ViewModel-Families/Specialized/FormVM.md"
+      "docs/content/primitives/viewmodel-families/specialized/form-vm.md"
     ]
   },
   {
@@ -149,8 +136,7 @@
     "svg": "examples-vm-layer.svg",
     "png": "examples-vm-layer.png",
     "referencedBy": [
-      "docs/site/examples/notes-workspace-vm-layer.md",
-      "docs/wiki/Examples/VM-Layer-Map.md"
+      "docs/content/examples/notes-workspace-vm-layer.md"
     ]
   },
   {
@@ -160,10 +146,7 @@
     "svg": "csharp-console-hello-vmx.svg",
     "png": "csharp-console-hello-vmx.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/csharp/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -173,10 +156,7 @@
     "svg": "csharp-wpf-todo-app.svg",
     "png": "csharp-wpf-todo-app.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/csharp/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -186,10 +166,7 @@
     "svg": "csharp-avalonia-notes-showcase.svg",
     "png": "csharp-avalonia-notes-showcase.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/csharp/avalonia/NotesShowcase/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -199,10 +176,7 @@
     "svg": "python-console-hello-vmx.svg",
     "png": "python-console-hello-vmx.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/python/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -212,10 +186,7 @@
     "svg": "python-tk-todo-app.svg",
     "png": "python-tk-todo-app.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/python/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -225,10 +196,7 @@
     "svg": "python-textual-inspector.svg",
     "png": "python-textual-inspector.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/python/textual/inspector/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -238,10 +206,7 @@
     "svg": "python-textual-notes-showcase.svg",
     "png": "python-textual-notes-showcase.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/python/textual/notes_showcase/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -251,10 +216,7 @@
     "svg": "typescript-console-hello-vmx.svg",
     "png": "typescript-console-hello-vmx.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/typescript/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -264,10 +226,7 @@
     "svg": "typescript-react-notes-showcase.svg",
     "png": "typescript-react-notes-showcase.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/typescript/react/notes-showcase/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -277,10 +236,7 @@
     "svg": "swift-notes-showcase.svg",
     "png": "swift-notes-showcase.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/swift/notes-showcase/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -290,10 +246,7 @@
     "svg": "rust-console-hello-vmx.svg",
     "png": "rust-console-hello-vmx.png",
     "referencedBy": [
-      "examples/DIAGRAMS.md",
-      "examples/rust/README.md",
-      "docs/site/examples/example-diagram-gallery.md",
-      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   },
   {
@@ -303,10 +256,8 @@
     "svg": "rust-tui-notes-showcase.svg",
     "png": "rust-tui-notes-showcase.png",
     "referencedBy": [
-      "docs/site/examples/rust-tui-notes-showcase.md",
-      "docs/site/architecture/diagram-gallery.md",
-      "docs/wiki/Examples/Rust-TUI-Notes-Showcase.md",
-      "docs/wiki/Architecture/Diagram-Gallery.md"
+      "docs/content/examples/rust-tui-notes-showcase.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   }
 ]
