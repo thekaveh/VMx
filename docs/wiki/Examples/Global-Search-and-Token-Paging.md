@@ -7,7 +7,7 @@ Global all-notes search is the main scenario path that demonstrates
 
 - forward-only token paging
 - search results independent of the current notebook
-- the same conceptual flow across all four language flavors
+- the same conceptual flow across the UI-backed language flavors
 
 ## Related Pages
 

@@ -33,7 +33,7 @@ additionally retain a deprecated untyped alias on the base message
 (`IMessage.SenderObject`, `Message.sender_object`, `Message.senderObject`)
 for source compatibility; that alias returns the same instance as `Sender`
 and is slated for removal at each of those flavors' next major. The canonical
-accessor across all four flavors is `Sender`.
+accessor across the full-parity flavors is `Sender`.
 
 ## 2. Concrete message types
 

@@ -6,7 +6,7 @@ bump in every active flavor.
 ## Use This When
 
 - checking which flavor version implements which spec version
-- verifying package maturity across the four language surfaces
+- verifying package maturity across the five language surfaces
 - reviewing coordinated release expectations
 
 ## Related Pages

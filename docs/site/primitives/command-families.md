@@ -69,7 +69,8 @@ Canonical relay-command shape:
       .build();
     ```
 
-The same structure appears across all four flavors with only casing changes.
+The same structure appears across all full-parity source flavors with only
+casing and trait-import changes.
 The Notes Workspace editor and delete flows are concrete examples.
 
 ## Common Pitfalls

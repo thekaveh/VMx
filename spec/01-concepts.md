@@ -25,19 +25,19 @@ canonical decision documented in ADR-0018:
 
 ### 1.0 Cross-language naming
 
-The conceptual surface is identical across the four flavors; identifier
+The conceptual surface is identical across the full-parity flavors; identifier
 casing follows the per-language idiom defined by ADR-0006. The same logical
 type appears under the following names:
 
-| Concept            | C#                        | Python             | TypeScript                | Swift                     |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- |
-| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             |
-| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        |
-| Status property    | `Status`                  | `status`           | `status`                  | `status`                  |
-| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
+| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
+| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             | `ComponentVm`           |
+| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Status property    | `Status`                  | `status`           | `status`                  | `status`                  | `status()`              |
+| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
-C# uses PascalCase, Python uses snake_case, TypeScript and Swift use
+C# uses PascalCase, Python and Rust methods use snake_case, TypeScript and Swift use
 camelCase. The single substantive divergence is that C# names the modeled
 variant with a generic-parameter suffix on the same identifier
 (`ComponentVM<M>`), while Python, TypeScript, and Swift expose a separate

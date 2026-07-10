@@ -91,20 +91,18 @@ jobs:
         # ones (verified: spec/**/*.md matches 41 of 64).
         run: |
           git ls-files 'spec/*.md' 'docs/*.md' \
-            | grep -Ev '^(docs/site/(installation|quickstart)\.md|docs/site/primitives/(command-families|services-messages-dispatching)\.md|docs/site/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/site/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md|docs/wiki/.*\.md)$' \
+            | grep -Ev '^(docs/site/(installation|quickstart)\.md|docs/site/flavors/rust\.md|docs/site/primitives/(command-families|services-messages-dispatching)\.md|docs/site/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/site/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md|docs/wiki/.*\.md)$' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
                 mdformat --check
 
-      - name: Enforce conformance coverage (csharp + python + typescript + swift)
-        # All four flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 281-ID library catalog. The swift flavor
-        # reached full library parity in Phase 3 (ADR-0065 retired its subset
-        # manifest), so it is now required against the full catalog exactly like
-        # the others, via the tool's registered swift scraper, which only reads
-        # *.swift doc-comment markers (no Swift toolchain needed). The tool exits
-        # non-zero if any required language falls below full catalog coverage.
-        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift
+      - name: Enforce conformance coverage (csharp + python + typescript + swift + rust)
+        # All five flavors ship at the current spec version and are enforced at
+        # 100% coverage of the full 281-ID library catalog. Swift and Rust use
+        # doc-comment markers attached to real test functions, so this coverage
+        # check does not need either toolchain. The tool exits non-zero if any
+        # required language falls below full catalog coverage.
+        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
 
       - name: Check Swift fixture sync
         run: uv --project langs/python run python tools/check-swift-fixture-sync.py

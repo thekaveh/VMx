@@ -1,0 +1,60 @@
+name: rust
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "langs/rust/**"
+      - "examples/rust/**"
+      - "spec/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "langs/rust/**"
+      - "examples/rust/**"
+      - "spec/**"
+      - ".github/workflows/rust.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Format check
+        run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path langs/rust/Cargo.toml
+
+  examples:
+    name: examples (console)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        with:
+          toolchain: stable
+
+      - name: Run hello-vmx example
+        run: cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml

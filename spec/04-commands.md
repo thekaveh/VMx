@@ -369,8 +369,8 @@ A task that faults for a non-cancellation reason is **not** swallowed:
 
 ### 10.5 Cross-flavor parity (ADR-0006 / ADR-0056)
 
-`AsyncRelayCommand` / `IAsyncCommand` is normative in all four full-parity
-flavors (C#, Python, TypeScript, Swift); the cancellation channel is the
+`AsyncRelayCommand` / `IAsyncCommand` is normative in all full-parity
+flavors; the cancellation channel is the
 idiomatic primitive per flavor (`CancellationToken` / asyncio cancellation /
 `AbortSignal` / Swift `Task` cancellation) and the conceptual shape is
 identical. Swift's implementation uses Swift structured concurrency for the

@@ -1,16 +1,16 @@
 # Cross-Language Naming
 
-VMx keeps one conceptual API shape across all four supported flavors. Names
-shift only to match the host language idiom.
+VMx keeps one conceptual API shape across all five source flavors. Names shift
+only to match the host language idiom.
 
 ## Core Translation Table
 
-| Concept            | C#                        | Python             | TypeScript                | Swift                     |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- |
-| Casing             | PascalCase                | snake_case         | camelCase                 | camelCase                 |
-| Modeled leaf       | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        |
-| Builder entry      | `Builder()`               | `builder()`        | `builder()`               | `builder()`               |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
+| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
+| Casing             | PascalCase                | snake_case         | camelCase                 | camelCase                 | snake_case methods      |
+| Modeled leaf       | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Builder entry      | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 ## Notable Exceptions
 

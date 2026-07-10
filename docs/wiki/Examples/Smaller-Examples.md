@@ -9,6 +9,8 @@ host-adapter basics without reading the full flagship app.
 - Python: console `hello_vmx`, tkinter Todo app, Textual inspector
 - TypeScript: console `hello-vmx`
 - Swift: flagship-only today
+- Rust: console `hello-vmx` with `ComponentVm`, `CompositeVm`,
+  `FilteredCompositeVm`, and `RelayCommand`
 
 ## Related Pages
 
