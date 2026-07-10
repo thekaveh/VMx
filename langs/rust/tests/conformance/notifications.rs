@@ -233,3 +233,32 @@ fn hub_dispose_resolves_waiters_pending() {
     assert_eq!(waiter.wait(), NotificationReaction::Pending);
     assert!(hub.pending().is_empty());
 }
+
+/// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once
+#[test]
+fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
+    use std::sync::{Arc, Barrier};
+
+    for _ in 0..100 {
+        let hub = NotificationHub::new();
+        hub.post(NotificationType::Notification, "info");
+        let before = hub.pending_snapshots().len();
+        let barrier = Arc::new(Barrier::new(32));
+        let threads = (0..32)
+            .map(|_| {
+                let hub = hub.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    hub.dispose();
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        assert_eq!(hub.pending_snapshots().len(), before + 1);
+    }
+}

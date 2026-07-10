@@ -479,3 +479,7 @@ regardless of what filtering or paging is applied on top.
 
 `COL-001` through `COL-031` in `12-conformance.md`. Applicable ADRs:
 ADR-0024 (§2), ADR-0026 (§3), ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6).
+
+`DISP-006` provides cross-cutting repeated-dispose coverage for the public
+collection, paging, batch, and projection helpers that expose disposal. It
+retains the in-flight token-page rule in §6 and the non-ownership rule in §2.6.

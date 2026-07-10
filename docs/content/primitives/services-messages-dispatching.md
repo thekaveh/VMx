@@ -42,6 +42,9 @@ Important runtime rules from the spec:
 - background lifecycle work publishes intermediate state immediately and
   foreground-marshals terminal completion
 
+Thread-safe hubs atomically claim teardown, so racing callers still complete
+and clear owned state once. See the [Disposal Contract](disposal-contract.md).
+
 ## Cross-Language Surface
 
 | Service            | Purpose                                              |

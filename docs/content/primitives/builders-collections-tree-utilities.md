@@ -29,6 +29,11 @@ The main operational rules:
   messages
 - tree utilities are pure reads; they do not trigger lifecycle transitions
 
+Batch handles, paging helpers, disposable collections, and frozen projections
+have type-specific terminal behavior cataloged in the
+[Disposal Contract](disposal-contract.md). Serviced collections remain
+non-owning and never dispose their items.
+
 ## Cross-Language Surface
 
 | Primitive                                                      | Purpose                                        |

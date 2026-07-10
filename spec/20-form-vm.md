@@ -379,3 +379,6 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 - `FORM-022` — `FormVMBuilder<TM>` registers validators immutably.
 - `FORM-023` — Clearing validation errors enables approval when all other
   gates pass.
+
+`DISP-004` adds the cross-cutting assertion that repeated disposal completes
+owned form channels and commands at most once while preserving `FORM-014`.

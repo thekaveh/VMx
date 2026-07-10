@@ -329,3 +329,7 @@ The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
 - `COMP-027` — `Add` sets a child's `Parent` (the child becomes selectable and
   `select()` delegates through it); `Remove` clears it (the child is no longer
   selectable and `select()` becomes a no-op).
+
+Cross-cutting `DISP-001` covers repeated parent cascades, and `DISP-006`
+covers idempotent batch/projection disposal without changing this chapter's
+ownership rules.

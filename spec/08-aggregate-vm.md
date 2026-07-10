@@ -107,3 +107,6 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 - ComponentN property change fires on construct
 - destruction waits for all children
 - arity-6 construction and destruction ordering
+
+`DISP-001` additionally requires repeated aggregate disposal to produce one
+observable terminal transition per slot and for the aggregate itself.

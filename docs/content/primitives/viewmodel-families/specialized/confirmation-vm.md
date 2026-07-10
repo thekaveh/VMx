@@ -26,6 +26,10 @@ The key difference from `NotificationVM` is timeout behavior:
 - explicit approve/reject flows resolve the underlying notification
 - inherited dismiss still resolves with `Approve`
 
+Approve/reject commands and inherited rendering resources are released at most
+once; first resolution still wins. See the
+[Disposal Contract](../../disposal-contract.md).
+
 ## Cross-Language Surface
 
 | Concept          | C#               | Python           | TypeScript       | Swift            |

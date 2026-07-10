@@ -46,6 +46,9 @@ children directly and therefore owns their construction, destruction, and
 property-change propagation. The linked family pages cover those rules in
 detail.
 
+Every family that exposes disposal follows one shared at-most-once rule; parent
+cascades remain depth-first. See the [Disposal Contract](../disposal-contract.md).
+
 ## Cross-Language Surface
 
 The conceptual family map is shared across all five source flavors. The main

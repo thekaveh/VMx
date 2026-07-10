@@ -168,6 +168,9 @@ syntactic sugar for the above and is tested in `DIA-008`.
 
 ## 9. Conformance
 
+`DISP-004` complements `DIA-011` and `DIA-012`: repeated disposal completes an
+interaction owner at most once and never replaces the first modal result.
+
 - `DIA-001` — `PickFileToOpen` contract: accepts optional filter and title; returns
   a path string or `null` on cancel.
 - `DIA-002` — `PickFileToSave` contract: accepts optional filter, title, and

@@ -132,6 +132,10 @@ sections:
         number: "6.7"
         title: Builders, Collections & Tree Utilities
         source: docs/content/primitives/builders-collections-tree-utilities.md
+      - id: disposal-contract
+        number: "6.8"
+        title: Disposal Contract
+        source: docs/content/primitives/disposal-contract.md
   - id: flavors
     number: "7"
     title: Language Flavors

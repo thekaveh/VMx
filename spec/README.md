@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (295 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (301 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -346,11 +346,24 @@ to 295 total IDs (290 library + 5 THEME scenario IDs).
   per-instance property-name stream so the contract applies to all five
   flavors.
 
-### 1.13 Supporting artefacts
+### 1.13 v3.3.0 → v3.4.0 changes
 
-- `VERSION` — current spec SemVer (`3.3.0`).
+v3.4.0 makes disposal idempotency a cross-cutting invariant and publishes a
+public-surface inventory for every flavor. The six `DISP-001..006` scenarios
+raise the catalog from 295 to 301 total IDs (296 library + 5 THEME scenario
+IDs).
+
+- **ADR-0084** — classifies disposable surfaces into six ownership families,
+  requires repeated disposal to be safe in every state, limits terminal
+  publication and owned teardown to one observable occurrence, and preserves
+  each type's documented post-dispose behavior. Thread-safe hubs and lifecycle
+  owners additionally prove concurrent disposal.
+
+### 1.14 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.4.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0083); see
+- `ADRs/` — Architecture Decision Records (0001-0084); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

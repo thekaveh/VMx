@@ -43,6 +43,10 @@ Commands become interesting when triggers are involved:
 - fire-and-forget confirmation flows surface asynchronous failures on an error
   observable instead of swallowing them
 
+Repeated command disposal, including during an in-flight async operation,
+follows the [Disposal Contract](disposal-contract.md): cancellation and terminal
+completion occur at most once.
+
 ## Cross-Language Surface
 
 Representative naming differences:
