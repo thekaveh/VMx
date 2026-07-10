@@ -555,6 +555,44 @@ def test_rust_ignores_block_commented_test(tmp_path: Path) -> None:
     assert found == {"LIFE-002"}
 
 
+def test_rust_ignores_nested_comments_and_string_literals(tmp_path: Path) -> None:
+    """Rust lexical contexts must not manufacture coverage markers."""
+    test_file = tmp_path / "lifecycle.rs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            /* outer comment
+            /* nested comment */
+            /// LIFE-001 — disabled in outer comment
+            #[test]
+            fn nested_comment_placeholder() {}
+            */
+
+            const NORMAL: &str = "
+            /// LIFE-002 — text inside a normal string
+            #[test]
+            fn normal_string_placeholder() {}
+            ";
+
+            const RAW: &str = r#"
+            /// LIFE-003 — text inside a raw string
+            #[test]
+            fn raw_string_placeholder() {}
+            "#;
+
+            /// LIFE-004 — live test
+            #[test]
+            fn live_test() {}
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_rust_conformance_ids(tmp_path)
+
+    assert found == {"LIFE-004"}
+
+
 def test_rust_marker_must_attach_to_live_test(tmp_path: Path) -> None:
     """Only a doc marker attached to a live ``#[test]`` function counts."""
     test_file = tmp_path / "lifecycle.rs"
@@ -585,6 +623,29 @@ def test_rust_marker_must_attach_to_live_test(tmp_path: Path) -> None:
     found = ccc.scrape_rust_conformance_ids(tmp_path)
 
     assert found == {"LIFE-005"}
+
+
+def test_rust_marker_accepts_valid_public_and_split_declarations(tmp_path: Path) -> None:
+    test_file = tmp_path / "lifecycle.rs"
+    test_file.write_text(
+        textwrap.dedent(
+            """\
+            /// LIFE-001 — public test
+            #[test]
+            pub fn public_test() {}
+
+            /// LIFE-002 — declaration split after fn
+            #[test]
+            fn
+            split_test() {}
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    found = ccc.scrape_rust_conformance_ids(tmp_path)
+
+    assert found == {"LIFE-001", "LIFE-002"}
 
 
 def test_rust_duplicate_markers_are_deduplicated(tmp_path: Path) -> None:

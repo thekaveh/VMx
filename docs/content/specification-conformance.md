@@ -41,13 +41,13 @@ The source overview is here:
 
 The coverage checker recognizes one intentional marker form per flavor:
 
-| Flavor     | Marker                                                                     |
-| ---------- | -------------------------------------------------------------------------- |
-| C#         | `[Trait("Conformance", "LIFE-001")]`                                       |
-| Python     | `@pytest.mark.conformance("LIFE-001")`                                     |
-| TypeScript | `describe("LIFE-001", ...)`                                                |
-| Swift      | `/// LIFE-001 — description` attached to a test function                   |
-| Rust       | `/// LIFE-001 — description` attached through `#[test]` to a test function |
+| Flavor     | Marker                                                                                   |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| C#         | `[Trait("Conformance", "LIFE-001")]`                                                     |
+| Python     | `@pytest.mark.conformance("LIFE-001")`                                                   |
+| TypeScript | `describe("LIFE-001", ...)`                                                              |
+| Swift      | `// LIFE-001 — description` or `/// LIFE-001 — description`, attached to a test function |
+| Rust       | `/// LIFE-001 — description` attached through `#[test]` to a test function               |
 
 For Rust, the ID must be the first token after `///` and an em dash must follow
 it on the same line. Only doc-comment and attribute lines may separate the
