@@ -11,7 +11,7 @@ namespace VMx.Tests.Commands;
 /// </summary>
 public class DecoratorCommandTests
 {
-    private static System.Windows.Input.ICommand BuildThrowing()
+    private static RelayCommand BuildThrowing()
     {
         return RelayCommand.Builder()
             .Task(() => throw new InvalidOperationException("boom"))

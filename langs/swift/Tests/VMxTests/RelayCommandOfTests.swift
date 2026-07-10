@@ -1,7 +1,7 @@
 //
 // RelayCommandOf<T> conformance tests.
 //
-// Claimed IDs: CMD-005 (parameterized variant passes parameter).
+// Claimed IDs: CMD-005, CMD-016, CMD-017.
 //
 import XCTest
 import Combine
@@ -19,6 +19,31 @@ final class RelayCommandOfTests: XCTestCase {
         cmd.execute(42)
 
         XCTAssertEqual(recorder, [42])
+    }
+
+    /// CMD-017 — parameterized imperative raise emits exactly once.
+    func testCmd017ParameterizedImperativeRaiseEmitsOnce() {
+        let cmd = RelayCommandOf<Int>.builder().build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+
+        XCTAssertEqual(fires, 1)
+        cancel.cancel()
+    }
+
+    /// CMD-016 — parameterized imperative raise after disposal is a no-op.
+    func testCmd016ParameterizedImperativeRaiseAfterDisposalIsNoOp() {
+        let cmd = RelayCommandOf<Int>.builder().build()
+        cmd.dispose()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+
+        XCTAssertEqual(fires, 0)
+        cancel.cancel()
     }
 
     /// CMD-005 (predicate sub-case) — predicate receives the parameter and gates execution.

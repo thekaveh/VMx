@@ -17,6 +17,7 @@ Behavior contract:
 - Predicate that raises → treated as False (exception does NOT propagate).
 - Task that raises → exception propagates to the caller of execute.
 - Trigger emissions fire can_execute_changed.
+- raise_can_execute_changed emits one imperative re-evaluation notification.
 - Disposed commands are inert: can_execute returns False and execute is a no-op.
 - Builder is IMMUTABLE (BLD-001): every setter returns a NEW builder instance.
 - Triggers are additive: multiple .triggers(obs) calls combine into the trigger set.
@@ -57,7 +58,7 @@ class RelayCommand:
         self._can_execute_changed_subject: Subject[None] = Subject()
         self._disposed = False
         self._subscriptions = [
-            t.subscribe(lambda _: self._can_execute_changed_subject.on_next(None)) for t in triggers
+            t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
         ]
 
     # ------------------------------------------------------------------
@@ -99,6 +100,15 @@ class RelayCommand:
         (VMX-013).
         """
         return self._can_execute_changed_subject.pipe(ops.as_observable())
+
+    def raise_can_execute_changed(self) -> None:
+        """Emit one re-evaluation notification without invoking user delegates.
+
+        Repeated calls are additive. Calls after :meth:`dispose` are no-ops.
+        """
+        if self._disposed:
+            return
+        self._can_execute_changed_subject.on_next(None)
 
     def dispose(self) -> None:
         """Dispose all trigger subscriptions and complete the subject.
@@ -179,7 +189,7 @@ class RelayCommandOf(Generic[T]):
         self._can_execute_changed_subject: Subject[None] = Subject()
         self._disposed = False
         self._subscriptions = [
-            t.subscribe(lambda _: self._can_execute_changed_subject.on_next(None)) for t in triggers
+            t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
         ]
 
     # ------------------------------------------------------------------
@@ -220,6 +230,15 @@ class RelayCommandOf(Generic[T]):
         (VMX-013).
         """
         return self._can_execute_changed_subject.pipe(ops.as_observable())
+
+    def raise_can_execute_changed(self) -> None:
+        """Emit one re-evaluation notification without invoking user delegates.
+
+        Repeated calls are additive. Calls after :meth:`dispose` are no-ops.
+        """
+        if self._disposed:
+            return
+        self._can_execute_changed_subject.on_next(None)
 
     def dispose(self) -> None:
         """Dispose all trigger subscriptions and complete the subject.

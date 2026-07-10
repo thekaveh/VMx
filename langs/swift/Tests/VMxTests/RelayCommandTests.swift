@@ -1,7 +1,7 @@
 //
 // RelayCommand conformance tests.
 //
-// Claimed IDs: CMD-001..004, CMD-006, plus BLD-005 (additive triggers on
+// Claimed IDs: CMD-001..004, CMD-006, CMD-014..016, plus BLD-005 (additive triggers on
 // the command builder). CMD-005 (parameterized RelayCommandOf) and CMD-007
 // (truth-table fixture) are covered by RelayCommandOfTests /
 // RelayCommandTruthTableTests (Phase 3 Inc 4).
@@ -47,6 +47,55 @@ final class RelayCommandTests: XCTestCase {
         let cancel = cmd.canExecuteChanged.sink { _ in fires += 1 }
         trigger.send(())
         XCTAssertEqual(fires, 1)
+        cancel.cancel()
+    }
+
+    /// CMD-014 — imperative raise emits exactly once without evaluating delegates.
+    func testCmd014ImperativeRaiseEmitsOnceWithoutEvaluatingDelegates() {
+        var predicateCalls = 0
+        var taskCalls = 0
+        let cmd = RelayCommand.builder()
+            .predicate { predicateCalls += 1; return true }
+            .task { taskCalls += 1 }
+            .build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+
+        XCTAssertEqual(fires, 1)
+        XCTAssertEqual(predicateCalls, 0)
+        XCTAssertEqual(taskCalls, 0)
+        cancel.cancel()
+    }
+
+    /// CMD-015 — repeated imperative raises and trigger emissions remain additive.
+    func testCmd015RepeatedImperativeAndTriggerNotificationsAreAdditive() {
+        let trigger = PassthroughSubject<Void, Never>()
+        let cmd = RelayCommand.builder()
+            .triggers(trigger.eraseToAnyPublisher())
+            .build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+        cmd.raiseCanExecuteChanged()
+        trigger.send(())
+
+        XCTAssertEqual(fires, 3)
+        cancel.cancel()
+    }
+
+    /// CMD-016 — imperative raise after disposal is a no-op.
+    func testCmd016ImperativeRaiseAfterDisposalIsNoOp() {
+        let cmd = RelayCommand.builder().build()
+        cmd.dispose()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+
+        XCTAssertEqual(fires, 0)
         cancel.cancel()
     }
 

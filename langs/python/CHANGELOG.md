@@ -4,6 +4,17 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] — 2026-07-10
+
+Implements `spec-v3.6.0` and keeps Python at full library parity: 310/310
+conformance IDs covered.
+
+### Added
+
+- `raise_can_execute_changed()` on `RelayCommand`, `RelayCommandOf`, and
+  `AsyncRelayCommand`, including exact live, repeated, trigger-additive,
+  in-flight, and post-dispose behavior (`CMD-014..019`).
+
 ## [3.5.0] — 2026-07-10
 
 Implements `spec-v3.5.0` and keeps Python at full library parity: 304/304

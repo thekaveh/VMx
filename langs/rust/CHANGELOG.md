@@ -4,6 +4,19 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-07-10
+
+Implements `spec-v3.6.0` and keeps Rust at full library parity: 310/310
+conformance IDs covered.
+
+### Added
+
+- `raise_can_execute_changed()` on synchronous, parameterized, and async relay
+  commands, with the previous `trigger_can_execute_changed()` retained as an
+  alias (`CMD-014..019`).
+- Async relay execution-start and execution-completion notifications on the
+  existing command channel, completing the normative in-flight sequence.
+
 ## [0.5.0] — 2026-07-10
 
 Implements `spec-v3.5.0` and keeps Rust at full library parity: 304/304

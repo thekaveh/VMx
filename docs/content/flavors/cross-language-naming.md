@@ -5,13 +5,14 @@ names shift only to match the host language idiom.
 
 ## Core Translation Table
 
-| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                           |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ------------------------------ |
-| Casing             | PascalCase                | snake_case         | camelCase                 | camelCase                 | snake_case methods, Rust types |
-| Modeled leaf       | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`               |
-| Builder entry      | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | direct constructors / builders |
-| Status property    | `Status`                  | `status`           | `status`                  | `status`                  | `status()`                     |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()`        |
+| Concept            | C#                         | Python                        | TypeScript                 | Swift                      | Rust                           |
+| ------------------ | -------------------------- | ----------------------------- | -------------------------- | -------------------------- | ------------------------------ |
+| Casing             | PascalCase                 | snake_case                    | camelCase                  | camelCase                  | snake_case methods, Rust types |
+| Modeled leaf       | `ComponentVM<M>`           | `ComponentVMOf[M]`            | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         | `ComponentVm<M>`               |
+| Builder entry      | `Builder()`                | `builder()`                   | `builder()`                | `builder()`                | direct constructors / builders |
+| Command requery    | `RaiseCanExecuteChanged()` | `raise_can_execute_changed()` | `raiseCanExecuteChanged()` | `raiseCanExecuteChanged()` | `raise_can_execute_changed()`  |
+| Status property    | `Status`                   | `status`                      | `status`                   | `status`                   | `status()`                     |
+| Null hub singleton | `NullMessageHub.Instance`  | `NULL_MESSAGE_HUB`            | `NullMessageHub.INSTANCE`  | `NullMessageHub.INSTANCE`  | `NullMessageHub::hub()`        |
 
 ## Practical Notes
 
