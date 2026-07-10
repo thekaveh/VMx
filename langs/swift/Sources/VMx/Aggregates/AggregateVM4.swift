@@ -38,17 +38,13 @@ open class AggregateVM4<
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
         let c1 = factory1(); component1 = c1
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component1"))
-        _raisePropertyChanged("component1")
+        _notifyPropertyChanged("component1")
         let c2 = factory2(); component2 = c2
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component2"))
-        _raisePropertyChanged("component2")
+        _notifyPropertyChanged("component2")
         let c3 = factory3(); component3 = c3
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component3"))
-        _raisePropertyChanged("component3")
+        _notifyPropertyChanged("component3")
         let c4 = factory4(); component4 = c4
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component4"))
-        _raisePropertyChanged("component4")
+        _notifyPropertyChanged("component4")
         try c1.construct(); try c2.construct(); try c3.construct(); try c4.construct()
     }
 

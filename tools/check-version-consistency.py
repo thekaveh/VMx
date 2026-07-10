@@ -11,8 +11,10 @@ Rules enforced:
      ``spec/VERSION`` implies both ``spec-v<version>`` and ``v<version>``
      (the repo-wide tag).
   3. Every version a compatibility-matrix row *claims* must have a
-     matching flavor tag (e.g. ``csharp-v2.5.0``).  A spec row also
-     implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
+     matching flavor tag (e.g. ``csharp-v2.5.0``).  A row with a stable
+     flavor release also implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
+     Source-only rows containing only a pre-1.0 Rust flavor do not imply
+     repository release tags.
 
 In-development exemption:
   The current version — the one that EQUALS ``spec/VERSION`` — is being
@@ -325,7 +327,8 @@ def find_missing_tags(
     * ``spec/VERSION`` → ``spec-v<version>`` and ``v<version>``
     * each flavor manifest ``version`` → ``<flavor>-v<version>``
     * each matrix row flavor cell → ``<flavor>-v<cell_version>``
-    * each matrix row spec column ``X.Y.x`` → ``spec-vX.Y.0`` and ``vX.Y.0``
+    * each matrix row with a stable-flavor release → ``spec-vX.Y.0`` and
+      ``vX.Y.0``
     """
     missing: dict[str, list[str]] = {}
 
@@ -353,8 +356,20 @@ def find_missing_tags(
         spec_xy = m.group(1)
         spec_canonical = f"{spec_xy}.0"
 
-        _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
-        _want(f"v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)")
+        # A historical row may record a source-only, pre-1.0 Rust line even
+        # when no repository/spec release was tagged. Stable-flavor claims
+        # are what promote the row to a tagged repository release.
+        rust_versions = [str(version) for version in row.get("rust", [])]  # type: ignore[union-attr]
+        rust_has_stable_release = any(not version.startswith("0.") for version in rust_versions)
+        has_stable_release = rust_has_stable_release or any(
+            row.get(flavor, []) for flavor in FLAVORS if flavor != "rust"
+        )
+        if has_stable_release:
+            _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
+            _want(
+                f"v{spec_canonical}",
+                f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)",
+            )
 
         for flavor in FLAVORS:
             for ver in row.get(flavor, []):  # type: ignore[union-attr]

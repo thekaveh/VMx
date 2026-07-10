@@ -67,8 +67,7 @@ public final class GlobalSearchVM: ComponentVMBase {
         set {
             guard search.searchTerm != newValue else { return }
             search.searchTerm = newValue
-            hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "searchTerm"))
-            _raisePropertyChanged("searchTerm")
+            _notifyPropertyChanged("searchTerm")
         }
     }
 
@@ -98,13 +97,11 @@ public final class GlobalSearchVM: ComponentVMBase {
     }
 
     private func notifyResults() {
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "results"))
-        _raisePropertyChanged("results")
+        _notifyPropertyChanged("results")
     }
 
     private func notifyHasMore() {
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "hasMore"))
-        _raisePropertyChanged("hasMore")
+        _notifyPropertyChanged("hasMore")
     }
 
     public override func _onDispose() {

@@ -88,6 +88,8 @@ open class ComponentVMBase {
     private let propertyChangedSubject = PassthroughSubject<String, Never>()
     private let statusTriggerSubject = PassthroughSubject<Void, Never>()
     private var triggersDisposed = false
+    private var activePropertyNotifications = 0
+    private var propertyNotificationTeardownPending = false
 
     // ── Built-in commands ───────────────────────────────────────────────
 
@@ -186,10 +188,7 @@ open class ComponentVMBase {
         // not (pass-7 review).
         guard status != .disposed else { return }
         _isCurrent = value
-        _raisePropertyChanged("isCurrent")
-        hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "isCurrent"
-        ))
+        _notifyPropertyChanged("isCurrent")
     }
 
     // ── propertyChanged publisher ───────────────────────────────────────
@@ -198,9 +197,8 @@ open class ComponentVMBase {
         propertyChangedSubject.eraseToAnyPublisher()
     }
 
-    /// Subclasses call this to publish a property-changed event on the
-    /// in-process publisher. Hub publishing is the caller's choice
-    /// (most call sites also do a `hub.send(PropertyChangedMessage(...))`).
+    /// Publishes only on the in-process property-changed surface. Subclasses
+    /// normally call `_notifyPropertyChanged` for assigned mutable state.
     /// `public` so consumer subclasses in another module can fire it (Swift has
     /// no `protected`; this is the cross-module analogue of C#'s
     /// `protected RaisePropertyChanged`).
@@ -212,6 +210,35 @@ open class ComponentVMBase {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
         guard !triggersDisposed else { return }
+        propertyChangedSubject.send(propertyName)
+    }
+
+    /// Publishes one hub message followed by one VM-local property change for
+    /// state that a subclass has already equality-gated and assigned.
+    public func _notifyPropertyChanged(_ propertyName: String) {
+        lifecycleLock.lock()
+        guard _status != .disposed, !triggersDisposed else {
+            lifecycleLock.unlock()
+            return
+        }
+        activePropertyNotifications += 1
+        lifecycleLock.unlock()
+
+        defer {
+            lifecycleLock.lock()
+            activePropertyNotifications -= 1
+            if activePropertyNotifications == 0,
+               propertyNotificationTeardownPending {
+                propertyNotificationTeardownPending = false
+                propertyChangedSubject.send(completion: .finished)
+            }
+            lifecycleLock.unlock()
+        }
+
+        hub.send(PropertyChangedMessage(
+            sender: self, senderName: name, propertyName: propertyName
+        ))
+        // Complete the admitted pair even when a hub observer disposes this VM.
         propertyChangedSubject.send(propertyName)
     }
 
@@ -476,7 +503,11 @@ open class ComponentVMBase {
         if !triggersDisposed {
             triggersDisposed = true
             statusTriggerSubject.send(completion: .finished)
-            propertyChangedSubject.send(completion: .finished)
+            if activePropertyNotifications == 0 {
+                propertyChangedSubject.send(completion: .finished)
+            } else {
+                propertyNotificationTeardownPending = true
+            }
         }
         lifecycleLock.unlock()
 

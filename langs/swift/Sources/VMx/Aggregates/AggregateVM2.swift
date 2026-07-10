@@ -30,12 +30,10 @@ open class AggregateVM2<C1: ComponentVMBase, C2: ComponentVMBase>: ComponentVMBa
         component2?.dispose()
 
         let c1 = factory1(); component1 = c1
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component1"))
-        _raisePropertyChanged("component1")
+        _notifyPropertyChanged("component1")
 
         let c2 = factory2(); component2 = c2
-        hub.send(PropertyChangedMessage(sender: self, senderName: name, propertyName: "component2"))
-        _raisePropertyChanged("component2")
+        _notifyPropertyChanged("component2")
 
         try c1.construct(); try c2.construct()
     }

@@ -113,8 +113,7 @@ public sealed class NotificationsVM : ComponentVMBase
             _visible.Remove(vm);
             vm.Dispose();
         }
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Visible)));
-        RaisePropertyChanged(nameof(Visible));
+        NotifyPropertyChanged(nameof(Visible));
     }
 
     private void ClearVisible()

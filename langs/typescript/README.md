@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v3.2.0** — implements `spec-v3.2.0` end-to-end. 287/287 library conformance IDs
+**v3.3.0** — implements `spec-v3.3.0` end-to-end. 290/290 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -18,7 +18,7 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 
 ## 2. Install
 
-The source tree currently implements v3.2.0. The scoped npm package has not
+The source tree currently implements v3.3.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -198,11 +198,11 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 287 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 290 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-       CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
+       CVM-001..009   COMP-001..013 GRP-001..006   AGG-001..005
        FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
 v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005

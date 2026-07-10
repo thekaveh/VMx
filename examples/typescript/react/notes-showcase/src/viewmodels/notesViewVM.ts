@@ -25,7 +25,6 @@ import {
   declareCapabilities,
   DerivedProperty,
   PagedComposition,
-  PropertyChangedMessage,
   RelayCommand,
   SearchableState,
   ViewModelType,
@@ -103,19 +102,10 @@ export class NotesViewVM extends ComponentVMBase {
       opts.pageSize,
     );
     this.#paged.propertyChanged.subscribe((name) => {
-      this._raisePropertyChanged(name);
-      this._hub.send(
-        PropertyChangedMessage.create(this, this._name, name),
-      );
+      this._notifyPropertyChanged(name);
       if (name === "currentPageIndex" || name === "pageCount" || name === "pageSize") {
-        this._raisePropertyChanged("pageLabel");
-        this._hub.send(
-          PropertyChangedMessage.create(this, this._name, "pageLabel"),
-        );
-        this._raisePropertyChanged("visibleItems");
-        this._hub.send(
-          PropertyChangedMessage.create(this, this._name, "visibleItems"),
-        );
+        this._notifyPropertyChanged("pageLabel");
+        this._notifyPropertyChanged("visibleItems");
       }
     });
 
@@ -205,10 +195,7 @@ export class NotesViewVM extends ComponentVMBase {
   set searchTerm(value: string) {
     if (this.#search.searchTerm === value) return;
     this.#search.searchTerm = value;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "searchTerm"),
-    );
-    this._raisePropertyChanged("searchTerm");
+    this._notifyPropertyChanged("searchTerm");
   }
 
   canSearch(): boolean {
@@ -259,10 +246,7 @@ export class NotesViewVM extends ComponentVMBase {
   set showStarredOnly(value: boolean) {
     if (this.#showStarredOnly === value) return;
     this.#showStarredOnly = value;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "showStarredOnly"),
-    );
-    this._raisePropertyChanged("showStarredOnly");
+    this._notifyPropertyChanged("showStarredOnly");
     this.#recomputeFiltered();
   }
 
@@ -333,10 +317,7 @@ export class NotesViewVM extends ComponentVMBase {
   set current(value: NoteVM | null) {
     if (this.#current === value) return;
     this.#current = value;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "current"),
-    );
-    this._raisePropertyChanged("current");
+    this._notifyPropertyChanged("current");
   }
 
   get boundNotebookId(): string | null {
@@ -357,14 +338,7 @@ export class NotesViewVM extends ComponentVMBase {
   set currentNotebookIsReadonly(value: boolean) {
     if (this.#currentNotebookIsReadonly === value) return;
     this.#currentNotebookIsReadonly = value;
-    this._hub.send(
-      PropertyChangedMessage.create(
-        this,
-        this._name,
-        "currentNotebookIsReadonly",
-      ),
-    );
-    this._raisePropertyChanged("currentNotebookIsReadonly");
+    this._notifyPropertyChanged("currentNotebookIsReadonly");
   }
 
   // ── Binding ──────────────────────────────────────────────────────────────
@@ -425,10 +399,7 @@ export class NotesViewVM extends ComponentVMBase {
       this.#inner.push(vm);
     }
     this.#current = null;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "current"),
-    );
-    this._raisePropertyChanged("current");
+    this._notifyPropertyChanged("current");
     this.#recomputeFiltered();
     this.#paged.moveToFirstPage();
   }
@@ -451,10 +422,7 @@ export class NotesViewVM extends ComponentVMBase {
     this.#inner.splice(idx, 1);
     if (this.#current === note) {
       this.#current = null;
-      this._hub.send(
-        PropertyChangedMessage.create(this, this._name, "current"),
-      );
-      this._raisePropertyChanged("current");
+      this._notifyPropertyChanged("current");
     }
     this.#recomputeFiltered();
     note.dispose();
@@ -474,10 +442,7 @@ export class NotesViewVM extends ComponentVMBase {
       this.#filtered.push(n);
     }
     for (const name of ["filteredItems", "isEmpty", "visibleItems", "pageLabel", "count"]) {
-      this._hub.send(
-        PropertyChangedMessage.create(this, this._name, name),
-      );
-      this._raisePropertyChanged(name);
+      this._notifyPropertyChanged(name);
     }
     this.#stateSubject.next();
   }

@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable
 
+from notes_showcase.models.notebook_model import NotebookModel
 from vmx import (
     ComponentVMOf,
     ExpandableState,
@@ -24,13 +25,10 @@ from vmx import (
     ISelectable,
     MessageHub,
     MessageHubProto,
-    PropertyChangedMessage,
     RxDispatcher,
 )
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-
-from notes_showcase.models.notebook_model import NotebookModel
 
 
 class NotebookVM(
@@ -52,7 +50,7 @@ class NotebookVM(
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         initially_expanded: bool = False,
-        children_getter: Callable[["NotebookVM"], list["NotebookVM"]] | None = None,
+        children_getter: Callable[[NotebookVM], list[NotebookVM]] | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -82,7 +80,7 @@ class NotebookVM(
         return str(self.model.name)
 
     @property
-    def children(self) -> list["NotebookVM"]:
+    def children(self) -> list[NotebookVM]:
         """Child notebook VMs (``parent_id`` walk via the owner-supplied getter).
 
         Returns an empty list when no getter was supplied (standalone VMs do
@@ -95,7 +93,7 @@ class NotebookVM(
         return self._children_getter(self)
 
     def set_children_getter(
-        self, getter: Callable[["NotebookVM"], list["NotebookVM"]] | None
+        self, getter: Callable[[NotebookVM], list[NotebookVM]] | None
     ) -> None:
         """Late-bind the children resolver (used by :class:`NotebooksRootVM`)."""
         self._children_getter = getter
@@ -133,8 +131,7 @@ class NotebookVM(
             self.expand()
 
     def _emit_expansion_change(self) -> None:
-        self._hub.send(PropertyChangedMessage.create(self, self._name, "is_expanded"))
-        self._raise_property_changed("is_expanded")
+        self._notify_property_changed("is_expanded")
 
     # ── Model setter override — emit notebook_name PCM in addition ─────────
     def _set_model(self, value: NotebookModel) -> None:
@@ -143,10 +140,7 @@ class NotebookVM(
         if old_name != value.name:
             # ComponentVMOf emits "model" and "modeled_hint"; we add the
             # showcase-specific "notebook_name" alias.
-            self._hub.send(
-                PropertyChangedMessage.create(self, self._name, "notebook_name")
-            )
-            self._raise_property_changed("notebook_name")
+            self._notify_property_changed("notebook_name")
 
     # ── Lifecycle hook — dispose expansion subject ─────────────────────────
     def _on_dispose(self) -> None:

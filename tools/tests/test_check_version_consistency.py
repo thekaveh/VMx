@@ -409,6 +409,44 @@ def test_find_missing_tags_skips_empty_flavor_cells() -> None:
     assert "swift-v2.3.0" not in missing
 
 
+def test_find_missing_tags_does_not_invent_release_tags_for_source_only_rust_row() -> None:
+    rows = [
+        {
+            "spec_row": "3.2.x",
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": [],
+            "rust": ["0.2.0"],
+        }
+    ]
+
+    missing = cvc.find_missing_tags("3.3.0", {}, rows, set())
+
+    assert "rust-v0.2.0" in missing
+    assert "spec-v3.2.0" not in missing
+    assert "v3.2.0" not in missing
+
+
+def test_find_missing_tags_requires_release_tags_for_stable_rust_only_row() -> None:
+    rows = [
+        {
+            "spec_row": "4.0.x",
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": [],
+            "rust": ["2.0.0"],
+        }
+    ]
+
+    missing = cvc.find_missing_tags("4.1.0", {}, rows, set())
+
+    assert "rust-v2.0.0" in missing
+    assert "spec-v4.0.0" in missing
+    assert "v4.0.0" in missing
+
+
 # ── main integration ───────────────────────────────────────────────────
 
 

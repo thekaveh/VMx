@@ -1,6 +1,5 @@
 import {
   ComponentVMBase,
-  PropertyChangedMessage,
   SearchableState,
   TokenPagedComposition,
   ViewModelType,
@@ -66,12 +65,10 @@ export class GlobalSearchVM extends ComponentVMBase {
     );
     this.#paged.propertyChanged.subscribe((name) => {
       if (name === "items") {
-        this._hub.send(PropertyChangedMessage.create(this, this._name, "results"));
-        this._raisePropertyChanged("results");
+        this._notifyPropertyChanged("results");
       }
       if (name === "hasMore") {
-        this._hub.send(PropertyChangedMessage.create(this, this._name, "hasMore"));
-        this._raisePropertyChanged("hasMore");
+        this._notifyPropertyChanged("hasMore");
       }
     });
   }
@@ -91,8 +88,7 @@ export class GlobalSearchVM extends ComponentVMBase {
   set searchTerm(value: string) {
     if (this.#search.searchTerm === value) return;
     this.#search.searchTerm = value;
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "searchTerm"));
-    this._raisePropertyChanged("searchTerm");
+    this._notifyPropertyChanged("searchTerm");
   }
 
   canSearch(): boolean {

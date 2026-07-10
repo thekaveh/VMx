@@ -5,7 +5,6 @@
  */
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
-import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
@@ -58,16 +57,13 @@ export class AggregateVM3<
     this.#component3?.dispose();
 
     this.#component1 = this.#factory1();
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "component1"));
-    this._raisePropertyChanged("component1");
+    this._notifyPropertyChanged("component1");
 
     this.#component2 = this.#factory2();
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "component2"));
-    this._raisePropertyChanged("component2");
+    this._notifyPropertyChanged("component2");
 
     this.#component3 = this.#factory3();
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "component3"));
-    this._raisePropertyChanged("component3");
+    this._notifyPropertyChanged("component3");
 
     this.#component1.construct();
     this.#component2.construct();

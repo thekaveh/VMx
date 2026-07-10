@@ -1,4 +1,4 @@
-"""Conformance tests: CVM-001..006.
+"""Conformance tests: CVM-001..009.
 
 The LIFE-001..010, 012 and PROP-001..004 ids each own a single self-contained
 test in test_lifecycle.py / test_property_change.py respectively; this file no
@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import pytest
 
+from vmx.components.base import _ComponentVMBase
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
+from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -235,3 +237,132 @@ def test_CVM_006_select_command_predicate() -> None:
     assert parent.current_child is vm
     assert vm.can_select() is False
     assert vm.select_command.can_execute() is False
+
+
+class _NotificationProbeVM(_ComponentVMBase):
+    def __init__(self, hub: MessageHub[object]) -> None:
+        super().__init__(name="probe", hint="", hub=hub, dispatcher=_dispatcher())
+        self._value = 0
+
+    @property
+    def type(self) -> ViewModelType:
+        return ViewModelType.COMPONENT
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @value.setter
+    def value(self, value: int) -> None:
+        if self._value == value:
+            return
+        self._value = value
+        self._notify_property_changed("value")
+
+    def emit_value_notification(self) -> None:
+        self._notify_property_changed("value")
+
+
+@pytest.mark.conformance("CVM-007")
+def test_CVM_007_notification_helper_emits_hub_then_local_once() -> None:
+    hub = _hub()
+    vm = _NotificationProbeVM(hub)
+    trace: list[str] = []
+    hub.messages.subscribe(
+        lambda message: (
+            trace.append(f"hub:{vm.value}")
+            if isinstance(message, PropertyChangedMessage) and message.property_name == "value"
+            else None
+        )
+    )
+    vm.property_changed.subscribe(lambda name: trace.append(f"local:{name}:{vm.value}"))
+
+    vm.value = 7
+
+    assert trace == ["hub:7", "local:value:7"]
+
+
+@pytest.mark.conformance("CVM-007")
+def test_CVM_007_deferred_delivery_and_reentrant_disposal_complete_pair() -> None:
+    batched_hub = _hub()
+    batched_vm = _NotificationProbeVM(batched_hub)
+    batched_trace: list[str] = []
+    batched_hub.messages.subscribe(
+        lambda message: (
+            batched_trace.append("hub")
+            if isinstance(message, PropertyChangedMessage) and message.property_name == "value"
+            else None
+        )
+    )
+    batched_vm.property_changed.subscribe(
+        lambda name: batched_trace.append("local") if name == "value" else None
+    )
+
+    with batched_hub.batch():
+        batched_vm.value = 7
+
+    assert batched_trace == ["local", "hub"]
+
+    disposing_hub = _hub()
+    disposing_vm = _NotificationProbeVM(disposing_hub)
+    disposing_trace: list[str] = []
+
+    def dispose_from_hub(message: object) -> None:
+        if isinstance(message, PropertyChangedMessage) and message.property_name == "value":
+            disposing_trace.append("hub")
+            disposing_vm.dispose()
+
+    disposing_hub.messages.subscribe(dispose_from_hub)
+    disposing_vm.property_changed.subscribe(
+        lambda name: disposing_trace.append("local") if name == "value" else None
+    )
+
+    disposing_vm.value = 7
+
+    assert disposing_trace == ["hub", "local"]
+
+
+@pytest.mark.conformance("CVM-008")
+def test_CVM_008_equality_guard_suppresses_both_channels() -> None:
+    hub = _hub()
+    vm = _NotificationProbeVM(hub)
+    hub_names: list[str] = []
+    local_names: list[str] = []
+    hub.messages.subscribe(
+        lambda message: (
+            hub_names.append(message.property_name)
+            if isinstance(message, PropertyChangedMessage)
+            else None
+        )
+    )
+    vm.property_changed.subscribe(local_names.append)
+
+    vm.value = 7
+    vm.value = 7
+
+    assert hub_names == ["value"]
+    assert local_names == ["value"]
+
+
+@pytest.mark.conformance("CVM-009")
+def test_CVM_009_notification_helper_is_inert_after_disposal() -> None:
+    hub = _hub()
+    vm = _NotificationProbeVM(hub)
+    hub_names: list[str] = []
+    local_names: list[str] = []
+    hub.messages.subscribe(
+        lambda message: (
+            hub_names.append(message.property_name)
+            if isinstance(message, PropertyChangedMessage)
+            else None
+        )
+    )
+    vm.property_changed.subscribe(local_names.append)
+    vm.dispose()
+    hub_names.clear()
+    local_names.clear()
+
+    vm.emit_value_notification()
+
+    assert hub_names == []
+    assert local_names == []

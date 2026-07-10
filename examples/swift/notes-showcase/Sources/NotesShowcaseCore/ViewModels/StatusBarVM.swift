@@ -18,7 +18,7 @@
 // (Swift has no INPC, so SwiftUI/AppKit bindings use a different mechanism).
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
-// `_raisePropertyChanged` are `public` on `ComponentVMBase`.
+// `_notifyPropertyChanged` are `public` on `ComponentVMBase`.
 //
 import Foundation
 import Combine

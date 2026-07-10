@@ -401,10 +401,7 @@ open class CompositeVM<Child: ComponentVMBase>: ComponentVMBase, ParentVM, _Batc
         }
         value?._setIsCurrent(true)
 
-        hub.send(PropertyChangedMessage(
-            sender: self, senderName: name, propertyName: "current"
-        ))
-        _raisePropertyChanged("current")
+        _notifyPropertyChanged("current")
         onCurrentChanged?(value)
     }
 }

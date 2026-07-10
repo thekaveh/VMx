@@ -15,7 +15,6 @@ import {
   ComponentVMBase,
   declareCapabilities,
   ExpandableState,
-  PropertyChangedMessage,
   ViewModelType,
   type IDispatcher,
   type IMessageHub,
@@ -72,14 +71,8 @@ export class NotebookVM extends ComponentVMBase {
   set model(value: NotebookModel) {
     if (this.#model === value) return;
     this.#model = value;
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "model"),
-    );
-    this._raisePropertyChanged("model");
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "notebookName"),
-    );
-    this._raisePropertyChanged("notebookName");
+    this._notifyPropertyChanged("model");
+    this._notifyPropertyChanged("notebookName");
   }
 
   /** Notebook display name (proxy on `model`). */
@@ -123,10 +116,7 @@ export class NotebookVM extends ComponentVMBase {
   }
 
   #emitExpansionChange(): void {
-    this._hub.send(
-      PropertyChangedMessage.create(this, this._name, "isExpanded"),
-    );
-    this._raisePropertyChanged("isExpanded");
+    this._notifyPropertyChanged("isExpanded");
   }
 
   protected override _onDispose(): void {

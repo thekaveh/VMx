@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift flavor is at full parity as of v3.2.0: 287/287 library
+> The Swift flavor is at full parity as of v3.3.0: 290/290 library
 > conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
 > Notes Workspace flagship. See
 > [`langs/swift/README.md` §5](../../langs/swift/README.md) for the current
@@ -17,7 +17,7 @@ ______________________________________________________________________
 
 ## 1. Install
 
-The source tree currently implements v3.2.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.3.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:

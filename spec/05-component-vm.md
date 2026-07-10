@@ -65,10 +65,56 @@ care about one VM:
 | Python     | `property_changed`       | changed property name string |
 | TypeScript | `propertyChanged`        | changed property name string |
 | Swift      | `propertyChanged`        | changed property name string |
+| Rust       | `property_changed()`     | changed property name string |
 
 The shared hub `PropertyChangedMessage` path remains the cross-VM coordination
 channel. The per-instance surface is the preferred binding target for a single
 VM's view adapter.
+
+### 2.2 Dual-channel property notification helper
+
+Component bases expose one subclass-author helper for an accepted property
+change:
+
+| Flavor     | Helper                                    |
+| ---------- | ----------------------------------------- |
+| C#         | `NotifyPropertyChanged(propertyName)`     |
+| Python     | `_notify_property_changed(property_name)` |
+| TypeScript | `_notifyPropertyChanged(propertyName)`    |
+| Swift      | `_notifyPropertyChanged(propertyName)`    |
+| Rust       | `notify_property_changed(property_name)`  |
+
+The helper does not own storage, compare values, capture old/new values, or
+create a property wrapper. The caller MUST first determine that a change was
+accepted. A setter performs its idiomatic equality guard and assignment before
+calling the helper; a derived refresh calls it only after the underlying state
+has changed. One helper call then:
+
+1. publishes exactly one `PropertyChangedMessage` on the shared hub; and
+1. emits exactly one property name on the VM-local surface from §2.1.
+
+The helper invokes the hub send before emitting locally. For an ordinary
+top-level send, the hub observer therefore runs before the local observer. A
+hub transaction or re-entrant hub drain intentionally queues delivery (chapter
+03 §§7.2 and 7.3), so in those contexts a local observer can run before the
+queued hub observer even though the hub message was enqueued first. Both
+observers read the already-accepted state. The property name uses the flavor's
+public member idiom: PascalCase in C#; snake_case in Python and Rust; camelCase
+in TypeScript and Swift.
+
+A helper call that begins after VM disposal is a no-op on both channels. A call
+admitted before disposal completes both emissions, including when a hub
+observer disposes the VM re-entrantly; external observers do not run while the
+helper holds the VM lifecycle lock.
+
+The established local-only raise primitive remains available for lifecycle and
+computed properties that intentionally do not publish a hub
+`PropertyChangedMessage`. Subclass-authored settable properties SHOULD use the
+dual-channel helper so a binding notification cannot be omitted accidentally.
+
+This is the only property-authoring convenience added by VMx. Per ADR-0040,
+VMx does not provide `IProperty` wrappers, decorators, implicit accessors,
+mutation history, or automatic equality/old-value tracking.
 
 ## 3. Modeled variant additions (`ComponentVM<M>`)
 
@@ -212,7 +258,7 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 
 ## 9. Conformance
 
-`CVM-001` through `CVM-006` and `EXP-001` through `EXP-005` in
+`CVM-001` through `CVM-009` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:
 
 - status emission on construct
@@ -221,3 +267,6 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 - `ModeledHint` recomputation
 - `Name`/`Hint`/`Type` immutability
 - `SelectCommand` predicate behavior
+- dual-channel helper multiplicity and hub-before-local ordering
+- caller-owned equality guards
+- post-dispose helper inertness

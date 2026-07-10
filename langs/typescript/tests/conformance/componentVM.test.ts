@@ -9,6 +9,8 @@ import {
   ConstructionStatusChangedMessage,
   PropertyChangedMessage,
   CompositeVM,
+  ComponentVMBase,
+  ViewModelType,
 } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
@@ -167,6 +169,127 @@ describe("CVM-006", () => {
     vm.select();
     // Now vm is current → canSelect returns false
     expect(vm.selectCommand.canExecute()).toBe(false);
+  });
+});
+
+class NotificationProbeVM extends ComponentVMBase {
+  #value = 0;
+
+  constructor(hub: MessageHub) {
+    super({ name: "probe", hint: "", hub, dispatcher: makeDisp() });
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  get value(): number {
+    return this.#value;
+  }
+
+  set value(value: number) {
+    if (this.#value === value) return;
+    this.#value = value;
+    this._notifyPropertyChanged("value");
+  }
+
+  emitValueNotification(): void {
+    this._notifyPropertyChanged("value");
+  }
+}
+
+describe("CVM-007", () => {
+  it("emits one hub notification before one local notification", () => {
+    const hub = makeHub();
+    const vm = new NotificationProbeVM(hub);
+    const trace: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "value") {
+        trace.push(`hub:${String(vm.value)}`);
+      }
+    });
+    vm.propertyChanged.subscribe((name) => trace.push(`local:${name}:${String(vm.value)}`));
+
+    vm.value = 7;
+
+    expect(trace).toEqual(["hub:7", "local:value:7"]);
+  });
+
+  it("documents deferred delivery and completes an admitted pair across disposal", () => {
+    const batchedHub = makeHub();
+    const batchedVm = new NotificationProbeVM(batchedHub);
+    const batchedTrace: string[] = [];
+    batchedHub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "value") {
+        batchedTrace.push("hub");
+      }
+    });
+    batchedVm.propertyChanged.subscribe((name) => {
+      if (name === "value") batchedTrace.push("local");
+    });
+
+    batchedHub.batch(() => {
+      batchedVm.value = 7;
+    });
+
+    expect(batchedTrace).toEqual(["local", "hub"]);
+
+    const disposingHub = makeHub();
+    const disposingVm = new NotificationProbeVM(disposingHub);
+    const disposingTrace: string[] = [];
+    disposingHub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "value") {
+        disposingTrace.push("hub");
+        disposingVm.dispose();
+      }
+    });
+    disposingVm.propertyChanged.subscribe((name) => {
+      if (name === "value") disposingTrace.push("local");
+    });
+
+    disposingVm.value = 7;
+
+    expect(disposingTrace).toEqual(["hub", "local"]);
+  });
+});
+
+describe("CVM-008", () => {
+  it("leaves equality suppression to the setter", () => {
+    const hub = makeHub();
+    const vm = new NotificationProbeVM(hub);
+    const hubNames: string[] = [];
+    const localNames: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage) hubNames.push(message.propertyName);
+    });
+    vm.propertyChanged.subscribe((name) => localNames.push(name));
+
+    vm.value = 7;
+    vm.value = 7;
+
+    expect(hubNames).toEqual(["value"]);
+    expect(localNames).toEqual(["value"]);
+  });
+});
+
+describe("CVM-009", () => {
+  it("is inert after disposal", () => {
+    const hub = makeHub();
+    const vm = new NotificationProbeVM(hub);
+    const hubNames: string[] = [];
+    const localNames: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage) hubNames.push(message.propertyName);
+    });
+    vm.propertyChanged.subscribe((name) => localNames.push(name));
+    vm.dispose();
+    hubNames.length = 0;
+    localNames.length = 0;
+
+    vm.emitValueNotification();
+
+    expect(hubNames).toEqual([]);
+    expect(localNames).toEqual([]);
   });
 });
 

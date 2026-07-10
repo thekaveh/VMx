@@ -5,7 +5,6 @@
  */
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
-import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
@@ -52,8 +51,7 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // overwriting so subscribers don't leak across the Reconstruct boundary.
     this.#component1?.dispose();
     this.#component1 = this.#factory1();
-    this._hub.send(PropertyChangedMessage.create(this, this._name, "component1"));
-    this._raisePropertyChanged("component1");
+    this._notifyPropertyChanged("component1");
     this.#component1.construct();
   }
 

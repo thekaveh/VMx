@@ -1,6 +1,5 @@
 using VMx.Builders;
 using VMx.Components;
-using VMx.Messages;
 using VMx.Services;
 
 namespace VMx.Aggregates;
@@ -57,8 +56,7 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
         // overwriting so subscribers don't leak across the Reconstruct boundary.
         _component1?.Dispose();
         _component1 = _factory1();
-        Hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, nameof(Component1)));
-        RaisePropertyChanged(nameof(Component1));
+        NotifyPropertyChanged(nameof(Component1));
 
         _component1.Construct();
     }

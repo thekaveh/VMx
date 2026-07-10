@@ -24,7 +24,6 @@ from vmx import (
     ISelectable,
     MessageHub,
     MessageHubProto,
-    PropertyChangedMessage,
     RelayCommand,
     RxDispatcher,
 )
@@ -194,11 +193,9 @@ class NoteVM(
         old_starred = self._model.starred
         super()._set_model(value)
         if old_title != value.title:
-            self._hub.send(PropertyChangedMessage.create(self, self._name, "title"))
-            self._raise_property_changed("title")
+            self._notify_property_changed("title")
         if old_starred != value.starred:
-            self._hub.send(PropertyChangedMessage.create(self, self._name, "starred"))
-            self._raise_property_changed("starred")
+            self._notify_property_changed("starred")
 
     # ── Lifecycle override — dispose owned commands ────────────────────────
     def _on_dispose(self) -> None:
