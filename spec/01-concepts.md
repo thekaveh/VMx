@@ -118,6 +118,29 @@ Every viewmodel exposes:
   `SelectPreviousCommand`, `ReconstructCommand`. Each is an `ICommand`-equivalent
   with appropriate predicates.
 
+### 1.4 Shared VM collection capability
+
+`CompositeVM<VM>` and `GroupVM<VM>` implement one public ordered child-
+collection capability (ADR-0085). It contains lifecycle-aware add, insert,
+remove, indexed remove, replace, clear, atomic move, count, indexed and iterable
+reads, collection-change observation, and batch updates. Its idiomatic names
+are `IVmCollection<VM>` (C# / TypeScript), `VmCollectionProto[VM]` (Python),
+`VMCollection` (Swift), and `VmCollection<T>` (Rust).
+
+Selection is intentionally layered as a second capability:
+`ISelectableVmCollection<VM>` / `SelectableVmCollectionProto` /
+`SelectableVMCollection` / `SelectableVmCollection<T>`. `CompositeVM`
+implements it; `GroupVM` does not acquire a `Current` placeholder.
+
+`move(fromIndex, toIndex)` changes ordering only. Both indices use the
+pre-move `[0, Count)` domain and the child occupies `toIndex` afterward. Equal
+indices are silent no-ops. Invalid indices raise before mutation. A successful
+move emits one `Move` event containing the same child and both indices, or is
+coalesced into the outer batch `Reset`. Identity, parent, lifecycle,
+subscriptions, auto-construction count, and a composite's `Current` reference
+remain unchanged. Chapters 06 and 07 define the container-specific details;
+`COL-032..039` are normative.
+
 ## 2. Dependency philosophy
 
 Every VM receives two cross-cutting services:

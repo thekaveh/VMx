@@ -65,9 +65,9 @@
 <rect x="490" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
 <rect x="490" y="398" width="280" height="162" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
 <text x="630" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection semantics</text>
-<text x="630" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Add / Remove / Insert / Clear</text>
-<text x="630" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">publish collection changes</text>
-<text x="630" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">BatchUpdate emits one Reset</text>
+<text x="630" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared group/composite capability</text>
+<text x="630" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Move preserves child identity</text>
+<text x="630" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">one Move or batched Reset</text>
 <rect x="830" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
 <rect x="830" y="398" width="280" height="162" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="970" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Construction semantics</text>
@@ -107,7 +107,7 @@
 <rect x="1040" y="596" width="610" height="112" rx="8" fill="#0f172a"/>
 <rect x="1040" y="596" width="610" height="112" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
 <text x="1056" y="620" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Why separate primitives</text>
-<text x="1056" y="642" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">CompositeVM handles Current; GroupVM represents peers.</text>
+<text x="1056" y="642" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">CompositeVM adds Current; both families share VMCollection.</text>
 <text x="1056" y="660" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">AggregateVM owns fixed slots; HierarchicalVM owns trees.</text>
 <text x="1056" y="678" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Paging helpers sit beside containers, not under them.</text>
 <rect x="339" y="138" width="186" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>

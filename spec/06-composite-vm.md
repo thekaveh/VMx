@@ -18,7 +18,7 @@ plus depth-first construction order.
 ## 2. Members
 
 ```
-CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
+CompositeVM<VM> : ISelectableVmCollection<VM>:
     # IComponentVM members (see 01-concepts.md and 05-component-vm.md):
     Name, Hint, Type=Composite, IsCurrent, IsConstructed, Status,
     SelectCommand, DeselectCommand, SelectNextCommand, SelectPreviousCommand,
@@ -32,7 +32,9 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
     Remove(vm: VM) : bool
     Insert(index: int, vm: VM) : void
     RemoveAt(index: int) : void
+    Replace(index: int, vm: VM) : void
     Clear() : void
+    Move(fromIndex: int, toIndex: int) : void
     Count : int
     indexer [i] : VM
     iterator
@@ -45,20 +47,22 @@ CompositeVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged:
 
 ### 2.1 The `ICompositeVM<VM>` contract
 
-`ICompositeVM<VM>` is the **canonical interface** that every `CompositeVM<VM>`
-realizes. It extends `IComponentVM` (chapter 01 / 05) with the container surface
+`ICompositeVM<VM>` is the compatibility name every `CompositeVM<VM>` realizes.
+It extends the shared selectable VM collection capability (chapter 01 §1.4,
+ADR-0085), which combines the non-selecting collection surface with
 the members above describe:
 
 ```
-ICompositeVM<VM> : IComponentVM, IList<VM>:
+ICompositeVM<VM> : ISelectableVmCollection<VM>:
     Current : VM?                         # selection slot (§3)
     select_component(vm: VM) : void       # guarded selection (§3.1)
     deselect_component(vm: VM) : void
     can_select_component(vm: VM) : bool
 ```
 
-The `IList<VM>` surface contributes `Add` / `Remove` / `Insert` / `RemoveAt` /
-`Clear` / `Count` / the indexer / iteration; `Current` and the three
+The shared collection surface contributes `Add` / `Remove` / `Insert` /
+`RemoveAt` / replacement / `Clear` / `Move` / `BatchUpdate` / `Count` / the
+indexer / iteration / collection-change observation; `Current` and the three
 `*_component` methods are the composite-specific additions over the base
 `IComponentVM`. This is the interface `ForwardingCompositeVM<VM>`
 (`09-forwarding.md`) wraps and delegates; chapter 09 references this declaration
@@ -110,14 +114,20 @@ The collection raises `INotifyCollectionChanged.CollectionChanged` events:
 - `Remove(vm)` → `CollectionChanged(action=Remove, oldItems=[vm], oldIndex=where vm was)`.
 - `Insert(i, vm)` → `CollectionChanged(action=Add, newItems=[vm], newIndex=i)`.
 - `RemoveAt(i)` → `CollectionChanged(action=Remove, oldItems=[old], oldIndex=i)`.
+- `Move(from, to)` → one `CollectionChanged(action=Move, oldItems=[vm], newItems=[vm], oldIndex=from, newIndex=to)`.
 - `Clear()` → `CollectionChanged(action=Reset)`.
+
+Move follows chapter 01 §1.4 exactly: indices are validated before mutation,
+same-index moves emit nothing, and a successful move preserves child identity,
+parent, lifecycle, subscriptions, and `Current`.
 
 ### 4.1 Batch updates (spec v1.1)
 
 A composite MUST expose a `BatchUpdate()` method returning an `IDisposable` /
 context manager. While at least one batch handle is live, mutations (`Add`,
 `Insert`, `Remove`, `RemoveAt`, `Clear`, indexer set) MUST NOT raise individual
-`CollectionChanged` events. When the last live handle is disposed:
+`CollectionChanged` events. Move participates as one mutation. When the last
+live handle is disposed:
 
 - If any mutations occurred during the batch, a single
   `CollectionChanged(action=Reset)` MUST be raised.

@@ -10,7 +10,7 @@ class CollectionChangedEvent:
     """Immutable payload emitted on collection mutations.
 
     Mirrors WPF's ``NotifyCollectionChangedEventArgs`` shape. The ``action``
-    field is one of ``"add"``, ``"remove"`` or ``"reset"``. Indexer assignment
+    field is one of ``"add"``, ``"remove"``, ``"move"`` or ``"reset"``. Indexer assignment
     is decomposed into a Remove followed by an Add.
     """
 

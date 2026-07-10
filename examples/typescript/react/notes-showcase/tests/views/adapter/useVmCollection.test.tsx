@@ -4,7 +4,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ComponentVM, CompositeVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
+import { ComponentVM, CompositeVM, GroupVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
+import type { IVmCollection } from "@thekaveh/vmx";
 
 import { useVmCollection } from "../../../src/views/adapter/useVmCollection.js";
 
@@ -36,7 +37,7 @@ function makeComposite(initial: number): {
 }
 
 function Probe(props: {
-  composite: CompositeVM<ComponentVM>;
+  composite: IVmCollection<ComponentVM>;
 }): JSX.Element {
   const items = useVmCollection(props.composite);
   return (
@@ -59,6 +60,19 @@ describe("useVmCollection", () => {
     const { composite } = makeComposite(2);
     render(<Probe composite={composite} />);
     expect(screen.getAllByTestId("row")).toHaveLength(2);
+  });
+
+  it("accepts GroupVM through the shared collection contract", () => {
+    const hub = new MessageHub();
+    const dispatcher = RxDispatcher.immediate();
+    const child = ComponentVM.builder().name("peer").services(hub, dispatcher).build();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher).children(() => [child]).build();
+    group.construct();
+
+    render(<Probe composite={group} />);
+
+    expect(screen.getByTestId("row").textContent).toBe("peer");
   });
 
   it("re-renders with the new array on add", () => {

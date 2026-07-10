@@ -101,8 +101,26 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     }
 
     open override func add(_ child: Child) { _wrapped.add(child) }
+    open override func insert(_ child: Child, at index: Int) { _wrapped.insert(child, at: index) }
     open override func remove(_ child: Child) -> Bool { _wrapped.remove(child) }
     open override func removeAt(_ index: Int) { _wrapped.removeAt(index) }
+    open override func replace(at index: Int, with child: Child) {
+        _wrapped.replace(at: index, with: child)
+    }
+    open override func clear() { _wrapped.clear() }
+    open override func move(from fromIndex: Int, to toIndex: Int) throws {
+        try _wrapped.move(from: fromIndex, to: toIndex)
+    }
+
+    open override func makeIterator() -> AnyIterator<Child> {
+        let wrapped = _wrapped
+        var index = 0
+        return AnyIterator {
+            guard index < wrapped.count else { return nil }
+            defer { index += 1 }
+            return wrapped.at(index)
+        }
+    }
 
     // Forward the collection-changed stream and batch coalescing to the wrapped
     // composite. As an is-a subclass the decorator inherits its own (never-fed)
@@ -113,22 +131,4 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
         _wrapped.collectionChanged
     }
     open override func batchUpdate() -> BatchUpdateHandle { _wrapped.batchUpdate() }
-}
-
-// ── Iteration forwarding (FWD-003) ──────────────────────────────────────
-//
-// Yields the wrapped composite's children in order, so iterating the decorator
-// transparently iterates the wrapped instance.
-extension ForwardingCompositeVM: Sequence {
-    public func makeIterator() -> AnyIterator<Child> {
-        // Capture the wrapped composite (not `self`) so the iterator keeps the
-        // backing collection alive for the duration of iteration.
-        let wrapped = _wrapped
-        var index = 0
-        return AnyIterator {
-            guard index < wrapped.count else { return nil }
-            defer { index += 1 }
-            return wrapped.at(index)
-        }
-    }
 }

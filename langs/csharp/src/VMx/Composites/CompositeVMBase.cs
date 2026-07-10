@@ -178,6 +178,20 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     }
 
     /// <inheritdoc/>
+    public void Move(int fromIndex, int toIndex)
+    {
+        ValidateMoveIndex(fromIndex, nameof(fromIndex));
+        ValidateMoveIndex(toIndex, nameof(toIndex));
+        if (fromIndex == toIndex) return;
+
+        var item = _children[fromIndex];
+        _children.RemoveAt(fromIndex);
+        _children.Insert(toIndex, item);
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Move, item, toIndex, fromIndex));
+    }
+
+    /// <inheritdoc/>
     public void RemoveAt(int index)
     {
         var item = _children[index];
@@ -238,6 +252,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
         if (Status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
+    }
+
+    private void ValidateMoveIndex(int index, string parameterName)
+    {
+        if (index < 0 || index >= _children.Count)
+            throw new ArgumentOutOfRangeException(parameterName, index,
+                $"Move index must be in [0, {_children.Count}).");
     }
 
     /// <summary>

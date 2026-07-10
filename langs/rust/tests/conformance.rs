@@ -26,4 +26,5 @@ mod conformance {
     mod search_filter;
     mod threading;
     mod tree_utils;
+    mod vm_collection_move;
 }

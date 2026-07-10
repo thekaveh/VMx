@@ -2,7 +2,7 @@
 // CollectionChangedEvent — immutable payload emitted on collection mutations.
 //
 // Mirrors WPF's NotifyCollectionChangedEventArgs shape and the TypeScript
-// CollectionChangedEvent interface. Action is .add, .remove, .replace, or .reset.
+// CollectionChangedEvent interface. Action is .add, .remove, .replace, .move, or .reset.
 //
 // See spec/21-collections.md. Consumed by CompositeVM.collectionChanged,
 // GroupVM.collectionChanged (COMP-001/002, GRP-001), and
@@ -19,6 +19,7 @@ public enum CollectionChangedAction: Sendable, Equatable {
     case add
     case remove
     case replace
+    case move
     case reset
 }
 
@@ -48,6 +49,18 @@ extension CollectionChangedEvent {
     /// A Remove event for a single item that was at `index` before removal.
     static func removed(_ item: ComponentVMBase, at index: Int) -> CollectionChangedEvent {
         .init(action: .remove, newItems: [], oldItems: [item], newIndex: -1, oldIndex: index)
+    }
+
+    /// A Move event for an existing item relocated without replacement.
+    static func moved(_ item: ComponentVMBase, from oldIndex: Int, to newIndex: Int)
+        -> CollectionChangedEvent {
+        .init(
+            action: .move,
+            newItems: [item],
+            oldItems: [item],
+            newIndex: newIndex,
+            oldIndex: oldIndex
+        )
     }
 
     /// A Reset event (batch clear or batch update completion).

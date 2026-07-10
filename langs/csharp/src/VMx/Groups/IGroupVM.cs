@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+using VMx.Collections;
 using VMx.Components;
 
 namespace VMx.Groups;
@@ -16,7 +16,7 @@ namespace VMx.Groups;
 /// See spec/07-group-vm.md §Members.
 /// </summary>
 /// <typeparam name="VM">The child viewmodel type.</typeparam>
-public interface IGroupVM<VM> : IComponentVM, IList<VM>, INotifyCollectionChanged
+public interface IGroupVM<VM> : IVmCollection<VM>
     where VM : class, IComponentVM
 {
 }

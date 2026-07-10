@@ -35,6 +35,7 @@ export type {
 } from "./collections/collectionChangedEvent.js";
 export { makeCollectionChangedEvent } from "./collections/collectionChangedEvent.js";
 export { BatchUpdateHandle, type IBatchable } from "./collections/batchUpdateHandle.js";
+export type { IVmCollection, ISelectableVmCollection } from "./collections/vmCollection.js";
 export { ServicedObservableCollection } from "./collections/servicedObservableCollection.js";
 export {
   ObservableList,

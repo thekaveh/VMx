@@ -4,6 +4,20 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.5.0] — 2026-07-10
+
+Implements `spec-v3.5.0` and keeps TypeScript at full library parity: 304/304
+conformance IDs covered.
+
+### Added
+
+- Shared `IVmCollection<VM>` and selection-specific
+  `ISelectableVmCollection<VM>` capabilities.
+- Atomic identity-preserving `move(fromIndex, toIndex)` and a `"move"`
+  collection event (`COL-032..039`).
+- The React collection adapter now accepts both groups and composites without
+  casts.
+
 ## [3.4.0] — 2026-07-10
 
 Implements `spec-v3.4.0` and keeps TypeScript at full library parity: 296/296
