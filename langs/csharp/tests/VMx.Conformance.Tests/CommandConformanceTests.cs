@@ -7,7 +7,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// CMD-001 through CMD-007 — see spec/12-conformance.md §Commands.
+/// CMD-001 through CMD-019 — see spec/12-conformance.md §Commands.
 /// </summary>
 public class CommandConformanceTests
 {
@@ -119,6 +119,111 @@ public class CommandConformanceTests
             ((IDisposable)cmd).Dispose();
             trigger.Dispose();
         }
+    }
+
+    [Fact, Trait("Conformance", "CMD-014")]
+    public void CMD_014_Imperative_Raise_Emits_Exactly_Once_Without_Evaluating_Delegates()
+    {
+        var predicateCalls = 0;
+        var taskCalls = 0;
+        var fired = 0;
+        var cmd = RelayCommand.Builder()
+            .Predicate(() => { predicateCalls++; return true; })
+            .Task(() => taskCalls++)
+            .Build();
+        cmd.CanExecuteChanged += (_, _) => fired++;
+
+        cmd.RaiseCanExecuteChanged();
+
+        fired.Should().Be(1);
+        predicateCalls.Should().Be(0);
+        taskCalls.Should().Be(0);
+    }
+
+    [Fact, Trait("Conformance", "CMD-015")]
+    public void CMD_015_Repeated_Imperative_And_Trigger_Notifications_Are_Additive()
+    {
+        using var trigger = new Subject<System.Reactive.Unit>();
+        using var cmd = RelayCommand.Builder().Triggers(trigger).Build();
+        var fired = 0;
+        cmd.CanExecuteChanged += (_, _) => fired++;
+
+        cmd.RaiseCanExecuteChanged();
+        cmd.RaiseCanExecuteChanged();
+        trigger.OnNext(System.Reactive.Unit.Default);
+
+        fired.Should().Be(3);
+    }
+
+    [Fact, Trait("Conformance", "CMD-016")]
+    public void CMD_016_Imperative_Raise_After_Disposal_Is_A_NoOp()
+    {
+        var relay = RelayCommand.Builder().Build();
+        var parameterized = RelayCommand<int>.Builder().Build();
+        var async = AsyncRelayCommand.Builder().Build();
+        relay.Dispose();
+        parameterized.Dispose();
+        async.Dispose();
+        var fired = 0;
+        relay.CanExecuteChanged += (_, _) => fired++;
+        parameterized.CanExecuteChanged += (_, _) => fired++;
+        async.CanExecuteChanged += (_, _) => fired++;
+
+        relay.RaiseCanExecuteChanged();
+        parameterized.RaiseCanExecuteChanged();
+        async.RaiseCanExecuteChanged();
+
+        fired.Should().Be(0);
+    }
+
+    [Fact, Trait("Conformance", "CMD-017")]
+    public void CMD_017_Parameterized_Imperative_Raise_Emits_Exactly_Once()
+    {
+        var cmd = RelayCommand<int>.Builder().Build();
+        var fired = 0;
+        cmd.CanExecuteChanged += (_, _) => fired++;
+
+        cmd.RaiseCanExecuteChanged();
+
+        fired.Should().Be(1);
+    }
+
+    [Fact, Trait("Conformance", "CMD-018")]
+    public void CMD_018_Async_Imperative_Raise_While_Idle_Emits_Exactly_Once()
+    {
+        using var cmd = AsyncRelayCommand.Builder().Build();
+        var fired = 0;
+        cmd.CanExecuteChanged += (_, _) => fired++;
+
+        cmd.RaiseCanExecuteChanged();
+
+        fired.Should().Be(1);
+    }
+
+    [Fact, Trait("Conformance", "CMD-019")]
+    public async Task CMD_019_Async_Imperative_Raise_While_InFlight_Is_Additive()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async _ =>
+            {
+                started.SetResult();
+                await release.Task;
+            })
+            .Build();
+        var fired = 0;
+        cmd.CanExecuteChanged += (_, _) => fired++;
+
+        var run = cmd.ExecuteAsync();
+        await started.Task;
+        fired.Should().Be(1, "execution start emits once");
+        cmd.RaiseCanExecuteChanged();
+        fired.Should().Be(2, "the in-flight imperative raise adds exactly one emission");
+        release.SetResult();
+        await run;
+
+        fired.Should().Be(3, "execution completion remains additive on the same channel");
     }
 
     // CMD-013 — Disposed RelayCommand instances are inert.

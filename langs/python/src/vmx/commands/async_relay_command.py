@@ -55,7 +55,7 @@ class AsyncRelayCommand:
         self._is_executing = False
         self._disposed = False
         self._subscriptions = [
-            t.subscribe(lambda _: self._can_execute_changed_subject.on_next(None)) for t in triggers
+            t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
         ]
 
     # ------------------------------------------------------------------
@@ -97,7 +97,7 @@ class AsyncRelayCommand:
             return
         self._cancel_requested = False
         self._is_executing = True
-        self._emit_can_execute_changed()
+        self.raise_can_execute_changed()
         inner: asyncio.Task[None] = asyncio.ensure_future(self._task())
         self._current_task = inner
         try:
@@ -111,7 +111,7 @@ class AsyncRelayCommand:
         finally:
             self._is_executing = False
             self._current_task = None
-            self._emit_can_execute_changed()
+            self.raise_can_execute_changed()
 
     def execute(self, parameter: object = None) -> None:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop.
@@ -173,7 +173,12 @@ class AsyncRelayCommand:
             return
         self._errors.on_next(exc)
 
-    def _emit_can_execute_changed(self) -> None:
+    def raise_can_execute_changed(self) -> None:
+        """Emit one re-evaluation notification without invoking user delegates.
+
+        Valid while idle or in flight; repeated calls are additive. Calls after
+        :meth:`dispose` are no-ops.
+        """
         if self._disposed:
             return
         self._can_execute_changed_subject.on_next(None)

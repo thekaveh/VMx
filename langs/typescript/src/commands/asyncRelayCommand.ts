@@ -51,7 +51,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
     this.#throwOnCancel = throwOnCancel;
     for (const t of triggers) {
       this.#subscriptions.add(
-        t.subscribe(() => this.#canExecuteChangedSubject.next()),
+        t.subscribe(() => this.raiseCanExecuteChanged()),
       );
     }
   }
@@ -62,6 +62,15 @@ export class AsyncRelayCommand implements IAsyncCommand {
 
   get canExecuteChanged(): Observable<void> {
     return this.#canExecuteChangedSubject.asObservable();
+  }
+
+  /**
+   * Emit one re-evaluation notification without evaluating the predicate or task.
+   * Valid while idle or in flight; a no-op after disposal.
+   */
+  raiseCanExecuteChanged(): void {
+    if (this.#disposed) return;
+    this.#canExecuteChangedSubject.next();
   }
 
   /**
@@ -111,7 +120,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
     }
 
     this.#isExecuting = true;
-    this.#canExecuteChangedSubject.next();
+    this.raiseCanExecuteChanged();
     try {
       await this.#task(controller.signal);
     } catch (err) {
@@ -134,7 +143,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
     } finally {
       this.#isExecuting = false;
       this.#controller = null;
-      this.#canExecuteChangedSubject.next();
+      this.raiseCanExecuteChanged();
     }
   }
 

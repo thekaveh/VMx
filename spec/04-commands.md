@@ -89,8 +89,10 @@ No new helper is needed — the existing `triggers` parameter and the
 A command whose `CanExecute` depends on a mutable provider — most notably one
 gated on "is something currently selected" — has no way to refresh a bound
 control's enabled state unless a trigger fires `CanExecuteChanged` when that
-provider changes. A predicate alone is insufficient: per §4, `CanExecuteChanged`
-fires **only** on a trigger emission, never on its own.
+provider changes. A predicate alone is insufficient: it does not publish a
+notification when its closed-over inputs change. Use a trigger when that change
+already has an observable source, or the imperative raise operation in §4.3
+when it does not.
 
 The canonical case is `ModeledCrudCommands` (chapter 06 §7): its
 `UpdateCurrentCommand` / `DeleteCurrentCommand` predicates read `current != null`,
@@ -110,6 +112,39 @@ update = RelayCommand.Builder()
 Absent the trigger, the predicate's value goes stale: the button enables on
 construction (or never) and never tracks the selection. See chapter 06 §7 for
 the normative `ModeledCrudCommands` contract.
+
+### 4.3 Imperative re-evaluation notification (spec v3.6, ADR-0086)
+
+Concrete relay commands expose an imperative escape valve for predicate inputs
+that do not have an observable trigger:
+
+| Flavor     | Method                        |
+| ---------- | ----------------------------- |
+| C#         | `RaiseCanExecuteChanged()`    |
+| Python     | `raise_can_execute_changed()` |
+| TypeScript | `raiseCanExecuteChanged()`    |
+| Swift      | `raiseCanExecuteChanged()`    |
+| Rust       | `raise_can_execute_changed()` |
+
+The method is available on `RelayCommand`, its parameterized variant, and
+`AsyncRelayCommand`. One call while live MUST publish exactly one notification
+on the existing `CanExecuteChanged` channel. The call MUST NOT evaluate the
+predicate, invoke the task, or start an async execution. Repeated calls are
+additive. A call after disposal is a no-op and MUST NOT publish or raise.
+
+For an async command, the method is valid while idle and while in flight. An
+in-flight call adds exactly one notification between the already-required
+execution-start and execution-completion notifications (§10.2). Trigger,
+execution-state, and imperative notifications share one channel and do not
+coalesce.
+
+This operation belongs to the concrete command that owns the notification
+channel. The base command interfaces/protocols, `CompositeCommand`, and command
+decorators do not expose it. Composites and decorators still forward inner
+notifications as specified in §8; callers needing imperative invalidation
+through a decorated graph retain the owning relay reference. Rust's legacy
+`trigger_can_execute_changed()` is a source-compatible alias on its synchronous
+relay variants.
 
 ## 5. RelayCommand
 
@@ -379,7 +414,7 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-013` and `CMDD-001` through `CMDD-010` in
+`CMD-001` through `CMD-019` and `CMDD-001` through `CMDD-010` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -395,6 +430,10 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
   `CanExecute == true`); no exception surfaces by default (§10, ADR-0056)
 - `CMD-013` — disposed relay commands become inert (`CanExecute == false`;
   `Execute` is a no-op) (§5, ADR-0068)
+- `CMD-014..CMD-019` — imperative re-evaluation notifications are exact,
+  additive with triggers and async state changes, safe after disposal, and
+  available on synchronous, parameterized, and async relay commands (§4.3,
+  ADR-0086)
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)

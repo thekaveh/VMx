@@ -114,7 +114,7 @@ public final class AsyncRelayCommand: AsyncCommand {
         guard began else {
             return
         }
-        canExecuteChangedSubject.send()
+        raiseCanExecuteChanged()
 
         // Wrap the body in a Task so `cancel()` can cancel it independently of
         // the calling Task's lifetime.
@@ -132,7 +132,7 @@ public final class AsyncRelayCommand: AsyncCommand {
                 return !disposed
             }
             if shouldNotify {
-                canExecuteChangedSubject.send()
+                raiseCanExecuteChanged()
             }
         }
 
@@ -196,6 +196,14 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// Publisher that fires whenever `canExecute()` may have changed.
     public var canExecuteChanged: AnyPublisher<Void, Never> {
         canExecuteChangedSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits one re-evaluation notification without invoking user closures.
+    /// Valid while idle or in flight; calls after disposal are no-ops.
+    public func raiseCanExecuteChanged() {
+        let shouldNotify = stateQueue.sync { !disposed }
+        guard shouldNotify else { return }
+        canExecuteChangedSubject.send(())
     }
 
     // MARK: - Errors channel

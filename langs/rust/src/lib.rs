@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.5.0";
+pub const MIN_SPEC_VERSION: &str = "3.6.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -1296,11 +1296,18 @@ impl RelayCommand {
         self
     }
 
-    pub fn trigger_can_execute_changed(&self) {
+    pub fn raise_can_execute_changed(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         self.can_execute_changed.send(Message::Custom {
             sender_id: 0,
             name: "can_execute_changed".to_string(),
         });
+    }
+
+    pub fn trigger_can_execute_changed(&self) {
+        self.raise_can_execute_changed();
     }
 
     pub fn can_execute_changed(&self) -> MessageHub {
@@ -1405,11 +1412,18 @@ impl<T: Clone + Send + 'static> RelayCommandOf<T> {
         self
     }
 
-    pub fn trigger_can_execute_changed(&self) {
+    pub fn raise_can_execute_changed(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         self.can_execute_changed.send(Message::Custom {
             sender_id: 0,
             name: "can_execute_changed".to_string(),
         });
+    }
+
+    pub fn trigger_can_execute_changed(&self) {
+        self.raise_can_execute_changed();
     }
 
     pub fn can_execute_changed(&self) -> MessageHub {
@@ -1532,13 +1546,22 @@ impl AsyncRelayCommand {
         self.executing.store(true, Ordering::SeqCst);
         let token = CancellationToken::new();
         *lock(&self.active_token) = Some(token.clone());
+        self.raise_can_execute_changed();
         let action = self.action.clone();
         let executing = self.executing.clone();
         let active_token = self.active_token.clone();
+        let can_execute_changed = self.can_execute_changed.clone();
+        let disposed = self.disposed.clone();
         std::thread::spawn(move || {
             let result = action.map(|action| action(token)).unwrap_or(Ok(()));
             executing.store(false, Ordering::SeqCst);
             *lock(&active_token) = None;
+            if !disposed.load(Ordering::SeqCst) {
+                can_execute_changed.send(Message::Custom {
+                    sender_id: 0,
+                    name: "can_execute_changed".to_string(),
+                });
+            }
             result
         })
     }
@@ -1560,6 +1583,16 @@ impl AsyncRelayCommand {
 
     pub fn can_execute_changed(&self) -> MessageHub {
         self.can_execute_changed.clone()
+    }
+
+    pub fn raise_can_execute_changed(&self) {
+        if self.disposed.load(Ordering::SeqCst) {
+            return;
+        }
+        self.can_execute_changed.send(Message::Custom {
+            sender_id: 0,
+            name: "can_execute_changed".to_string(),
+        });
     }
 }
 

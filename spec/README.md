@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (309 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (315 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -371,11 +371,23 @@ the catalog from 301 to 309 total IDs (304 library + 5 THEME scenario IDs).
   event, batch coalescing, and preservation of identity, parent, lifecycle,
   subscriptions, selection, and auto-construction state.
 
-### 1.15 Supporting artefacts
+### 1.15 v3.5.0 → v3.6.0 changes
 
-- `VERSION` — current spec SemVer (`3.5.0`).
+v3.6.0 adds an imperative command re-evaluation notification to concrete
+synchronous, parameterized, and async relay commands while keeping trigger
+wiring as the declarative path. The six `CMD-014..019` scenarios raise the
+catalog from 309 to 315 total IDs (310 library + 5 THEME scenario IDs).
+
+- **ADR-0086** — defines the five idiomatic raise names, exact one-call/one-event
+  behavior without delegate invocation, additive trigger and async-state
+  notifications, post-dispose inertness, concrete relay ownership, and Rust's
+  source-compatible legacy alias.
+
+### 1.16 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.6.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0085); see
+- `ADRs/` — Architecture Decision Records (0001-0086); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

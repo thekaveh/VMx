@@ -776,7 +776,7 @@ def class_architecture() -> Diagram:
             Box(980, 560, 230, 112, "NotificationVM", ("lifespan / opacity", "DismissCommand", "auto-resolve at expiry"), "security"),
             Box(1270, 550, 250, 112, "ConfirmationVM", ("ApproveCommand", "RejectCommand", "no auto-resolve at expiry"), "security"),
             Box(90, 756, 210, 96, "ICommand", ("CanExecute / Execute", "CanExecuteChanged"), "generic"),
-            Box(350, 744, 230, 120, "RelayCommand", ("implements ICommand", "predicate + task", "reactive triggers"), "bus"),
+            Box(350, 744, 230, 120, "RelayCommand", ("implements ICommand", "predicate + task", "trigger + imperative requery"), "bus"),
             Box(630, 744, 240, 120, "DecoratorCommand", ("single inner command", "pre/post actions", "extra gate"), "bus"),
             Box(920, 732, 270, 132, "ConfirmationDecoratorCommand", ("confirm delegate gate", "errors observable", "fire-and-forget + async entry"), "bus"),
             Box(1240, 732, 250, 132, "ModeledCrudCommands", ("CreateNew / UpdateCurrent / DeleteCurrent", "optional confirm delegates", "selection trigger re-evaluates"), "bus"),
@@ -1616,7 +1616,7 @@ def commands_capabilities() -> Diagram:
         ),
         boxes=(
             Box(120, 170, 420, 118, "ICommand / ICommand<T>", ("CanExecute / Execute / CanExecuteChanged", "parameterized variant when payload is needed"), "bus"),
-            Box(120, 322, 420, 118, "RelayCommand", ("optional predicate + task", "trigger observables re-fire CanExecuteChanged", "disposed command becomes inert"), "bus"),
+            Box(120, 322, 420, 118, "RelayCommand", ("optional predicate + task", "trigger + imperative CanExecuteChanged", "disposed command becomes inert"), "bus"),
             Box(120, 474, 420, 118, "CompositeCommand", ("execute every enabled inner command", "aggregate CanExecute over children"), "bus"),
             Box(120, 626, 420, 118, "DecoratorCommand", ("inner command + extra gate", "optional pre/post actions"), "bus"),
             Box(120, 778, 420, 118, "ConfirmationDecoratorCommand", ("confirm delegate before Execute", "ExecuteAsync and errors channel", "fluent Confirm helper overloads"), "bus"),

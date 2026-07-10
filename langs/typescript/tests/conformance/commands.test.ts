@@ -137,6 +137,107 @@ describe("CMD-007", () => {
   });
 });
 
+describe("CMD-014", () => {
+  it("imperative raise emits once without evaluating the predicate or task", () => {
+    const predicate = vi.fn(() => true);
+    const task = vi.fn();
+    const cmd = RelayCommand.builder().predicate(predicate).task(task).build();
+    let fired = 0;
+    cmd.canExecuteChanged.subscribe(() => fired++);
+
+    cmd.raiseCanExecuteChanged();
+
+    expect(fired).toBe(1);
+    expect(predicate).not.toHaveBeenCalled();
+    expect(task).not.toHaveBeenCalled();
+  });
+});
+
+describe("CMD-015", () => {
+  it("repeated imperative and trigger notifications are additive", () => {
+    const trigger = new Subject<void>();
+    const cmd = RelayCommand.builder().triggers(trigger).build();
+    let fired = 0;
+    cmd.canExecuteChanged.subscribe(() => fired++);
+
+    cmd.raiseCanExecuteChanged();
+    cmd.raiseCanExecuteChanged();
+    trigger.next();
+
+    expect(fired).toBe(3);
+  });
+});
+
+describe("CMD-016", () => {
+  it("imperative raise after disposal is a no-op for every concrete relay", () => {
+    const relay = RelayCommand.builder().build();
+    const parameterized = RelayCommandOf.builder<number>().build();
+    const asyncCommand = AsyncRelayCommand.builder().build();
+    relay.dispose();
+    parameterized.dispose();
+    asyncCommand.dispose();
+    let fired = 0;
+    relay.canExecuteChanged.subscribe(() => fired++);
+    parameterized.canExecuteChanged.subscribe(() => fired++);
+    asyncCommand.canExecuteChanged.subscribe(() => fired++);
+
+    relay.raiseCanExecuteChanged();
+    parameterized.raiseCanExecuteChanged();
+    asyncCommand.raiseCanExecuteChanged();
+
+    expect(fired).toBe(0);
+  });
+});
+
+describe("CMD-017", () => {
+  it("parameterized imperative raise emits exactly once", () => {
+    const cmd = RelayCommandOf.builder<number>().build();
+    let fired = 0;
+    cmd.canExecuteChanged.subscribe(() => fired++);
+
+    cmd.raiseCanExecuteChanged();
+
+    expect(fired).toBe(1);
+  });
+});
+
+describe("CMD-018", () => {
+  it("async imperative raise while idle emits exactly once", () => {
+    const cmd = AsyncRelayCommand.builder().build();
+    let fired = 0;
+    cmd.canExecuteChanged.subscribe(() => fired++);
+
+    cmd.raiseCanExecuteChanged();
+
+    expect(fired).toBe(1);
+  });
+});
+
+describe("CMD-019", () => {
+  it("async imperative raise while in flight is additive", async () => {
+    let startedResolve!: () => void;
+    let releaseResolve!: () => void;
+    const started = new Promise<void>((resolve) => { startedResolve = resolve; });
+    const release = new Promise<void>((resolve) => { releaseResolve = resolve; });
+    const cmd = AsyncRelayCommand.builder().task(async () => {
+      startedResolve();
+      await release;
+    }).build();
+    let fired = 0;
+    cmd.canExecuteChanged.subscribe(() => fired++);
+
+    const run = cmd.executeAsync();
+    await started;
+    expect(fired).toBe(1);
+    cmd.raiseCanExecuteChanged();
+    expect(fired).toBe(2);
+    releaseResolve();
+    await run;
+
+    expect(fired).toBe(3);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // CMD-013
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@
  * - Predicate that raises → treated as false (exception does NOT propagate).
  * - Task that raises → exception propagates to the caller of execute.
  * - Trigger emissions fire canExecuteChanged.
+ * - raiseCanExecuteChanged emits one imperative re-evaluation notification.
  * - Disposed commands are inert: canExecute returns false and execute is a no-op.
  * - Builder is immutable (BLD-001): every setter returns a NEW builder instance.
  * - Triggers are additive: multiple .triggers(obs) calls combine into trigger set.
@@ -43,7 +44,7 @@ export class RelayCommand implements ICommand {
     this.#predicate = predicate;
     for (const t of triggers) {
       this.#subscriptions.add(
-        t.subscribe(() => this.#canExecuteChangedSubject.next()),
+        t.subscribe(() => this.raiseCanExecuteChanged()),
       );
     }
   }
@@ -65,6 +66,12 @@ export class RelayCommand implements ICommand {
 
   get canExecuteChanged(): Observable<void> {
     return this.#canExecuteChangedSubject.asObservable();
+  }
+
+  /** Emit one re-evaluation notification without invoking user delegates. */
+  raiseCanExecuteChanged(): void {
+    if (this.#disposed) return;
+    this.#canExecuteChangedSubject.next();
   }
 
   /** Idempotent: subsequent calls are a no-op. */
@@ -143,7 +150,7 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
     this.#predicate = predicate;
     for (const t of triggers) {
       this.#subscriptions.add(
-        t.subscribe(() => this.#canExecuteChangedSubject.next()),
+        t.subscribe(() => this.raiseCanExecuteChanged()),
       );
     }
   }
@@ -165,6 +172,12 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
 
   get canExecuteChanged(): Observable<void> {
     return this.#canExecuteChangedSubject.asObservable();
+  }
+
+  /** Emit one re-evaluation notification without invoking user delegates. */
+  raiseCanExecuteChanged(): void {
+    if (this.#disposed) return;
+    this.#canExecuteChangedSubject.next();
   }
 
   /** Idempotent: subsequent calls are a no-op. */

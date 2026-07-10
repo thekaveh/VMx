@@ -1,5 +1,5 @@
 //
-// AsyncRelayCommandTests — CMD-012: AsyncRelayCommand cancellation.
+// AsyncRelayCommandTests — CMD-012, CMD-016, CMD-018, CMD-019.
 //
 // See spec/04-commands.md §10, ADR-0056.
 //
@@ -18,6 +18,59 @@ import Combine
 final class AsyncRelayCommandTests: XCTestCase {
 
     // MARK: - CMD-012
+
+    /// CMD-018 — async imperative raise while idle emits exactly once.
+    func testCmd018ImperativeRaiseWhileIdleEmitsOnce() {
+        let cmd = AsyncRelayCommand.builder().build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+
+        XCTAssertEqual(fires, 1)
+        cancel.cancel()
+    }
+
+    /// CMD-019 — async imperative raise while in flight is additive with state flips.
+    func testCmd019ImperativeRaiseWhileInFlightIsAdditive() async {
+        let startedExp = expectation(description: "CMD-019: body is running")
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                startedExp.fulfill()
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000)
+                }
+                try Task.checkCancellation()
+            }
+            .build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        let run = Task<Void, Error> { try await cmd.executeAsync() }
+        await fulfillment(of: [startedExp], timeout: 2.0)
+        XCTAssertEqual(fires, 1)
+        cmd.raiseCanExecuteChanged()
+        XCTAssertEqual(fires, 2)
+        cmd.cancel()
+        _ = try? await run.value
+
+        XCTAssertEqual(fires, 3)
+        cancel.cancel()
+        cmd.dispose()
+    }
+
+    /// CMD-016 — async imperative raise after disposal is a no-op.
+    func testCmd016ImperativeRaiseAfterDisposalIsNoOp() {
+        let cmd = AsyncRelayCommand.builder().build()
+        cmd.dispose()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+
+        cmd.raiseCanExecuteChanged()
+
+        XCTAssertEqual(fires, 0)
+        cancel.cancel()
+    }
 
     /// CMD-012 — `cancel()` cancels an in-flight async task; `executeAsync()` completes
     /// normally by default (non-throwing DIA-007 alignment); `isExecuting` returns to false.

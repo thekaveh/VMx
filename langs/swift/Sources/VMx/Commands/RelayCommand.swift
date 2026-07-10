@@ -12,6 +12,7 @@
 //   (Swift closures must declare `throws`; this flavor uses non-throwing
 //   closures for parity with TS/Python — host code should catch internally.)
 // - Trigger emissions fire `canExecuteChanged`.
+// - `raiseCanExecuteChanged()` emits one imperative re-evaluation notification.
 // - Disposed commands are inert: `canExecute()` returns false and `execute()` is a no-op.
 // - Builder is immutable: every setter returns a new builder instance.
 // - Triggers are additive across `.triggers(...)` calls.
@@ -58,6 +59,13 @@ public final class RelayCommand: Command {
 
     public var canExecuteChanged: AnyPublisher<Void, Never> {
         canExecuteChangedSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits one re-evaluation notification without invoking user closures.
+    /// Repeated calls are additive; calls after disposal are no-ops.
+    public func raiseCanExecuteChanged() {
+        guard !disposed else { return }
+        canExecuteChangedSubject.send(())
     }
 
     /// Idempotent. Subsequent calls are a no-op.

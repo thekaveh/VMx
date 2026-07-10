@@ -10,7 +10,7 @@ namespace VMx.Conformance.Tests;
 /// </summary>
 public class CMD_008_to_011_FluentCommandExtensions_Tests
 {
-    private static System.Windows.Input.ICommand BuildRecording(List<string> log, string label, bool predicate)
+    private static RelayCommand BuildRecording(List<string> log, string label, bool predicate)
     {
         return RelayCommand.Builder()
             .Task(() => log.Add(label))
