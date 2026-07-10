@@ -4,6 +4,19 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.4.0] — 2026-07-10
+
+Implements `spec-v3.4.0` and keeps TypeScript at full library parity: 296/296
+conformance IDs covered.
+
+### Added
+
+- Cross-cutting disposal conformance for lifecycle owners, commands, hubs,
+  interaction owners, reactive helpers, and collection/projection helpers
+  (`DISP-001..006`).
+- A public disposal-surface inventory documenting completion, owned teardown,
+  post-dispose behavior, and second-call behavior.
+
 ## [3.3.0] — 2026-07-10
 
 Implements `spec-v3.3.0` and keeps TypeScript at full library parity: 290/290

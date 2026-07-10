@@ -150,7 +150,38 @@ background.
 
 See `11-threading.md` for the full contract.
 
-## 4. What this spec is not
+## 4. Disposal invariant
+
+Every public VMx-owned type that exposes `Dispose()` / `dispose()` MUST make
+that operation safe and idempotent from every state in which the type permits
+disposal. The first call claims terminal teardown; later and re-entrant calls
+return normally without repeating stream completion, terminal notification,
+cancellation, owned-resource cleanup, or other observable side effects.
+
+For types documented as thread-safe, racing dispose callers MUST atomically
+claim teardown so terminal work still occurs at most once. This does not make
+otherwise single-threaded types thread-safe.
+
+Parent disposal retains each family's specified ordering. A child reachable
+through more than one cascade or host teardown path has one observable terminal
+transition because its own disposal is idempotent.
+
+The invariant applies only to disposal itself. Each type keeps its documented
+post-dispose behavior: calls may be inert, last values may remain readable,
+in-flight waiters may resolve with a safe result, or explicitly documented
+operations may raise. Disposal also does not change ownership; non-owning
+wrappers and serviced collections remain non-owning. The complete public
+inventory and per-type behaviors are published in the
+[Disposal Contract](../docs/content/primitives/disposal-contract.md). See
+ADR-0084 and `DISP-001..006`.
+
+## 5. Conformance
+
+`DISP-001` through `DISP-006` in `12-conformance.md` top up the existing
+type-specific coverage for VM cascades, commands, hubs, interaction owners,
+reactive helpers, and collection/projection helpers.
+
+## 6. What this spec is not
 
 This spec does not specify:
 

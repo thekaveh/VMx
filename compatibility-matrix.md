@@ -6,7 +6,8 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.3.x | 3.3.0[^current] | 3.3.0[^current] | 3.3.0[^current] | 3.3.0[^current] | 0.3.0[^rust] |
+| 3.4.x | 3.4.0[^current] | 3.4.0[^current] | 3.4.0[^current] | 3.4.0[^current] | 0.4.0[^rust] |
+| 3.3.x | —               | —               | —               | —               | 0.3.0        |
 | 3.2.x | —               | —               | —               | —               | 0.2.0        |
 | 3.1.x | —               | 3.1.0           | —               | —               | 0.1.0        |
 | 2.6.x | 2.6.0           | 2.6.1           | 2.6.0           | 2.6.0 (subset)  | —             |
@@ -41,24 +42,25 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**290 of 290 library conformance IDs + 5 `THEME-00x` scenario IDs = 295 total
+**296 of 296 library conformance IDs + 5 `THEME-00x` scenario IDs = 301 total
 (total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0079** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 +40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
 ADR-0063; +19 composite/group IDs per ADR-0064; +44 v3.1 library IDs per
 ADR-0068..ADR-0079; +6 hub-transaction IDs per ADR-0082; +3 dual-channel
-notification-helper IDs per ADR-0083; THEME-001..005 covered by the
+notification-helper IDs per ADR-0083; +6 cross-cutting disposal IDs per
+ADR-0084; THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: 3.3.0 — current in-development source line and not yet tagged or
+[^current]: 3.4.0 — current in-development source line and not yet tagged or
 published. Python's latest PyPI release remains 3.1.0; the other stable flavor
 registries also remain pending. The C#/TypeScript release jobs deliberately
 refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-declares `MIN_SPEC_VERSION = "3.3.0"` and carries behavioral tests for all 290
+declares `MIN_SPEC_VERSION = "3.4.0"` and carries behavioral tests for all 296
 library conformance IDs. It has not yet been published to crates.io.
 
 ## 3. C# companion packages
@@ -76,6 +78,6 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.3.0 core project, so a
-> published companion would carry a `VMx >= 3.3.0` NuGet dependency — the raised floor to record in
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.4.0 core project, so a
+> published companion would carry a `VMx >= 3.4.0` NuGet dependency — the raised floor to record in
 > the C# `CHANGELOG.md` when the first C# packages are cut.

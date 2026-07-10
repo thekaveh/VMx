@@ -54,3 +54,6 @@ tables externally and ask `IsActive(routeKey)` when projecting behavior.
 - `DISC-004` — opening a modal activates the modal key.
 - `DISC-005` — closing a modal restores the prior key.
 - `DISC-006` — nested modal precedence restores in LIFO order.
+
+Repeated disposal follows the framework-wide invariant in `01-concepts.md`
+§4: the change stream completes at most once and later mutations remain no-ops.

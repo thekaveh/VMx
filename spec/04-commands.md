@@ -398,3 +398,6 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)
+
+`DISP-002` additionally disposes an in-flight async command twice and pins one
+cancellation, one terminal teardown, and inert later execution (ADR-0084).

@@ -13,6 +13,10 @@ Every VM participates in the same construction state machine:
 `Disposed`. Construction, destruction, reconstruction, and disposal are part of
 the framework contract rather than host-app convention.
 
+Disposal itself is framework-wide and idempotent: independent teardown paths
+may call it without consumer-side coordination. The complete per-type behavior
+is in the [Disposal Contract](primitives/disposal-contract.md).
+
 ## Message Hub and Dispatcher
 
 Each VM receives a message hub and dispatcher. The hub carries property and
@@ -41,6 +45,6 @@ Message payload property names follow the local idiom, with the documented
 
 ## Conformance Catalog
 
-The spec defines 295 conformance IDs: 290 library IDs plus 5 `THEME-00x`
-scenario IDs. Every full-parity flavor carries the 290 library IDs in its own
+The spec defines 301 conformance IDs: 296 library IDs plus 5 `THEME-00x`
+scenario IDs. Every full-parity flavor carries the 296 library IDs in its own
 conformance suite, and repository tooling checks coverage before CI passes.

@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use vmx::{Command, DialogService, FormVm, Message, MessageHub, NullDialogService, VmxError};
+use vmx::{
+    Command, DialogService, FormVm, Message, MessageHub, ModalVm, NullDialogService, VmxError,
+};
 
 /// FORM-001 — Snapshot captured at construct
 #[test]
@@ -224,6 +226,34 @@ fn disposed_form_is_inert() {
 
     assert_eq!(*persisted.lock().unwrap(), 0);
     assert_eq!(form.model(), 2);
+}
+
+/// DISP-004 — interaction owners complete once and preserve their post-dispose contract
+#[test]
+fn repeated_form_and_modal_dispose_preserve_one_terminal_result() {
+    let persisted = Arc::new(Mutex::new(0));
+    let persisted_inner = persisted.clone();
+    let form = FormVm::with_options(
+        "form",
+        1,
+        move |_| {
+            *persisted_inner.lock().unwrap() += 1;
+            Ok(())
+        },
+        false,
+        MessageHub::new(),
+    );
+    form.set_model(2);
+    form.dispose();
+    form.dispose();
+    form.approve_command().execute();
+    assert_eq!(*persisted.lock().unwrap(), 0);
+
+    let modal = ModalVm::new("cancel");
+    modal.dismiss("first");
+    modal.dispose();
+    modal.dispose();
+    assert_eq!(modal.completion(), "first");
 }
 
 /// FORM-015 — ApproveCommand surfaces persister failure on ApproveErrors

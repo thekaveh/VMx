@@ -109,6 +109,31 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
     assert!(command.can_execute());
 }
 
+/// DISP-002 — command disposal is idempotent and cancels in-flight work
+#[test]
+fn repeated_async_command_dispose_cancels_one_in_flight_execution() {
+    let observed_cancel = Arc::new(AtomicUsize::new(0));
+    let observed_cancel_clone = observed_cancel.clone();
+    let command = AsyncRelayCommand::new(move |token| {
+        while !token.is_cancelled() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        observed_cancel_clone.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+
+    let run = command.execute_async();
+    while !command.is_executing() {
+        std::thread::yield_now();
+    }
+    command.dispose();
+    command.dispose();
+    run.join().unwrap().unwrap();
+
+    assert_eq!(observed_cancel.load(Ordering::SeqCst), 1);
+    assert!(!command.can_execute());
+}
+
 /// CMD-013 — disposed relay commands are inert
 #[test]
 fn disposed_relay_commands_are_inert() {

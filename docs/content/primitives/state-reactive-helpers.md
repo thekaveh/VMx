@@ -29,6 +29,9 @@ its owner. That matters especially for `DerivedProperty`, `SearchableState`, and
 initialization-token patterns: subscribe once, multicast value changes, and tear
 down cleanly on disposal.
 
+The [Disposal Contract](disposal-contract.md) inventories which helpers expose
+disposal, which last values remain readable, and which streams complete.
+
 ## Cross-Language Surface
 
 | Helper                    | Key surface                                      |

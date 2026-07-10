@@ -70,3 +70,7 @@ own the wrapped's lifetime.
 - default delegation of every member to the wrapped VM
 - selective override replaces a single behavior
 - ForwardingCompositeVM forwards iteration
+
+Forwarded disposal inherits `DISP-001`: repeated wrapper disposal may reach the
+wrapped instance repeatedly at the call boundary, but the wrapped VM performs
+terminal work at most once observably.

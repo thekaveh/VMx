@@ -86,3 +86,6 @@ in `12-conformance.md` cover:
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
 - group children are peers whose inherited select command is disabled
+
+`DISP-001` and `DISP-006` provide the cross-cutting repeated-cascade and
+batch-handle idempotency assertions (ADR-0084).
