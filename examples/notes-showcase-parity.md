@@ -79,7 +79,7 @@ split is enforced by SwiftPM target boundaries.
     set in `tools/check-conformance-coverage.py`.
 
 [^readonly]: The core capability action bar (CRUD capability dispatch +
-    `DerivedProperty`-driven enablement) ships in all four flavors. Each
+    `DerivedProperty`-driven enablement) ships in all four UI-backed examples. Each
     `CapabilityActionsVM` also exposes the host-gated add-note command backed by
     the notebook read-only flag, with seed coverage and VM tests so the command
     disables consistently when the focused notebook is read-only.
@@ -131,7 +131,7 @@ split is enforced by SwiftPM target boundaries.
   captured they will live under `assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.
 
-[^hier]: All four flavors implement an equivalent flat-collection +
+[^hier]: All four UI-backed examples implement an equivalent flat-collection +
     parent-id navigation pattern instead of subclassing
     `HierarchicalVM<TModel, TVM>` directly, because the canonical class
     sources each node's children from a per-node factory (materialized
@@ -139,7 +139,7 @@ split is enforced by SwiftPM target boundaries.
     freely-mutated `parent_id` collection. The observable contract —
     `TreeStructureChangedMessage` emission on add/remove, `current`
     selection, and `walk()` / `childrenOf()` accessors — is preserved
-    identically across all four flavors, so capability dispatch and
+    identically across all four UI-backed examples, so capability dispatch and
     spec-level tree messaging behave the same way as a canonical
     `HierarchicalVM`. Per-flavor source notes:
     `examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs`,

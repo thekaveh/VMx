@@ -1223,7 +1223,7 @@ def aggregate_family() -> Diagram:
             Box(120, 166, 300, 118, "AggregateVM1..6", ("component-shaped parent", "fixed arity", "heterogeneous child roles"), "frontend"),
             Box(500, 166, 250, 118, "Slot factories", ("Component1(...) through Component6(...)", "invoked during construct()", "stable semantic names"), "cloud"),
             Box(830, 166, 250, 118, "Typed slots", ("Component1..6", "property per slot", "no list indexing"), "frontend"),
-            Box(1160, 166, 330, 118, "Compile-time contract", ("arity is explicit", "portable across four flavors", "no variadic escape hatch"), "security"),
+            Box(1160, 166, 330, 118, "Compile-time contract", ("arity is explicit", "portable across five source flavors", "no variadic escape hatch"), "security"),
             Box(150, 486, 300, 112, "Construct cascade", ("populate slot", "construct child", "aggregate settles last"), "backend"),
             Box(520, 486, 300, 112, "Destruct cascade", ("children first", "parent settles after slots", "dispose remains terminal"), "backend"),
             Box(890, 486, 300, 112, "Property messages", ("slot property changed", "lifecycle status", "per-flavor casing"), "bus"),

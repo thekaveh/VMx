@@ -48,7 +48,7 @@ The portfolio is the working example for the current full-parity surface:
 ## Important Modeling Note
 
 The notebooks tree in the current flagship apps is not built from direct
-`HierarchicalVM` subclasses. All four flavors use flat `ComponentVM`-based
+`HierarchicalVM` subclasses. All four UI-backed examples use flat `ComponentVM`-based
 adapters that represent the `HierarchicalVM` capability and preserve the same
 tree messaging contract.
 
