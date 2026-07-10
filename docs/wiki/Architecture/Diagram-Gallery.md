@@ -4,6 +4,9 @@ The gallery collects the current documentation diagrams in one place. Embedded
 images use PNG for GitHub-native rendering, with SVG and HTML as supporting
 links.
 
+Example-app diagrams have their own page:
+[[Example Diagram Gallery|Examples/Example-Diagram-Gallery]].
+
 ## Architecture
 
 ### VMx System Architecture

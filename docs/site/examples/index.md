@@ -7,6 +7,8 @@ Workspace portfolio.
 ## Start Here
 
 - [Notes Workspace](notes-workspace.md) for the full stable four-flavor scenario.
+- [Example Diagram Gallery](example-diagram-gallery.md) for one generated VMx
+  architecture diagram per committed example app.
 - [Rust TUI Notes Showcase](rust-tui-notes-showcase.md) for the Rust-native
   full MVVM terminal example.
 - [VM Layer Map](notes-workspace-vm-layer.md) when you want the component-to-VM
@@ -36,3 +38,5 @@ Workspace portfolio.
   [TypeScript examples](https://github.com/thekaveh/VMx/blob/main/examples/typescript/README.md),
   [Swift flagship](https://github.com/thekaveh/VMx/blob/main/examples/swift/notes-showcase/README.md),
   [Rust examples](https://github.com/thekaveh/VMx/blob/main/examples/rust/README.md).
+- Use the in-repo generated diagram index when browsing from GitHub:
+  [examples/DIAGRAMS.md](https://github.com/thekaveh/VMx/blob/main/examples/DIAGRAMS.md).

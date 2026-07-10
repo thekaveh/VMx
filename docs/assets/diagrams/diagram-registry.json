@@ -154,6 +154,149 @@
     ]
   },
   {
+    "id": "csharp-console-hello-vmx",
+    "title": "C# Console HelloVMx Example",
+    "html": "csharp-console-hello-vmx.html",
+    "svg": "csharp-console-hello-vmx.svg",
+    "png": "csharp-console-hello-vmx.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/csharp/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "csharp-wpf-todo-app",
+    "title": "C# WPF Todo App Example",
+    "html": "csharp-wpf-todo-app.html",
+    "svg": "csharp-wpf-todo-app.svg",
+    "png": "csharp-wpf-todo-app.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/csharp/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "csharp-avalonia-notes-showcase",
+    "title": "C# Avalonia Notes Showcase Example",
+    "html": "csharp-avalonia-notes-showcase.html",
+    "svg": "csharp-avalonia-notes-showcase.svg",
+    "png": "csharp-avalonia-notes-showcase.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/csharp/avalonia/NotesShowcase/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "python-console-hello-vmx",
+    "title": "Python Console hello_vmx Example",
+    "html": "python-console-hello-vmx.html",
+    "svg": "python-console-hello-vmx.svg",
+    "png": "python-console-hello-vmx.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/python/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "python-tk-todo-app",
+    "title": "Python tkinter Todo App Example",
+    "html": "python-tk-todo-app.html",
+    "svg": "python-tk-todo-app.svg",
+    "png": "python-tk-todo-app.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/python/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "python-textual-inspector",
+    "title": "Python Textual Inspector Example",
+    "html": "python-textual-inspector.html",
+    "svg": "python-textual-inspector.svg",
+    "png": "python-textual-inspector.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/python/textual/inspector/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "python-textual-notes-showcase",
+    "title": "Python Textual Notes Showcase Example",
+    "html": "python-textual-notes-showcase.html",
+    "svg": "python-textual-notes-showcase.svg",
+    "png": "python-textual-notes-showcase.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/python/textual/notes_showcase/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "typescript-console-hello-vmx",
+    "title": "TypeScript Console hello-vmx Example",
+    "html": "typescript-console-hello-vmx.html",
+    "svg": "typescript-console-hello-vmx.svg",
+    "png": "typescript-console-hello-vmx.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/typescript/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "typescript-react-notes-showcase",
+    "title": "TypeScript React Notes Showcase Example",
+    "html": "typescript-react-notes-showcase.html",
+    "svg": "typescript-react-notes-showcase.svg",
+    "png": "typescript-react-notes-showcase.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/typescript/react/notes-showcase/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "swift-notes-showcase",
+    "title": "Swift Notes Showcase Example",
+    "html": "swift-notes-showcase.html",
+    "svg": "swift-notes-showcase.svg",
+    "png": "swift-notes-showcase.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/swift/notes-showcase/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
+    "id": "rust-console-hello-vmx",
+    "title": "Rust Console hello-vmx Example",
+    "html": "rust-console-hello-vmx.html",
+    "svg": "rust-console-hello-vmx.svg",
+    "png": "rust-console-hello-vmx.png",
+    "referencedBy": [
+      "examples/DIAGRAMS.md",
+      "examples/rust/README.md",
+      "docs/site/examples/example-diagram-gallery.md",
+      "docs/wiki/Examples/Example-Diagram-Gallery.md"
+    ]
+  },
+  {
     "id": "rust-tui-notes-showcase",
     "title": "Rust TUI Notes Showcase VM Layer",
     "html": "rust-tui-notes-showcase.html",
