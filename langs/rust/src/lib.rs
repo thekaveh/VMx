@@ -11,10 +11,11 @@ use std::fmt;
 use std::hash::Hash;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.1.0";
+pub const MIN_SPEC_VERSION: &str = "3.2.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -25,6 +26,12 @@ fn next_id() -> usize {
 fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
+    condition
+        .wait(guard)
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
@@ -132,13 +139,31 @@ impl Message {
             Self::Custom { sender_id, .. } => *sender_id,
         }
     }
+
+    #[cfg(debug_assertions)]
+    fn type_name(&self) -> &'static str {
+        match self {
+            Self::PropertyChanged(_) => "PropertyChangedMessage",
+            Self::ConstructionStatusChanged(_) => "ConstructionStatusChangedMessage",
+            Self::CollectionChanged(_) => "CollectionChangedMessage",
+            Self::TreeStructureChanged(_) => "TreeStructureChangedMessage",
+            Self::FormReverted(_) => "FormRevertedMessage",
+            Self::Custom { .. } => "CustomMessage",
+        }
+    }
 }
 
 type Subscriber = Arc<dyn Fn(&Message) + Send + Sync + 'static>;
 
 #[derive(Clone, Default)]
 pub struct MessageHub {
-    inner: Arc<Mutex<MessageHubInner>>,
+    inner: Arc<MessageHubShared>,
+}
+
+#[derive(Default)]
+struct MessageHubShared {
+    state: Mutex<MessageHubInner>,
+    ready: Condvar,
 }
 
 #[derive(Default)]
@@ -146,6 +171,10 @@ struct MessageHubInner {
     next_subscription_id: usize,
     subscribers: BTreeMap<usize, Subscriber>,
     history: Vec<Message>,
+    pending: VecDeque<Message>,
+    batch_owner: Option<ThreadId>,
+    batch_depth: usize,
+    draining_owner: Option<ThreadId>,
     disposed: bool,
 }
 
@@ -158,7 +187,7 @@ impl MessageHub {
     where
         F: Fn(&Message) + Send + Sync + 'static,
     {
-        let mut inner = lock(&self.inner);
+        let mut inner = lock(&self.inner.state);
         if inner.disposed {
             return Subscription::noop();
         }
@@ -172,27 +201,150 @@ impl MessageHub {
     }
 
     pub fn send(&self, message: Message) {
-        let subscribers = {
-            let mut inner = lock(&self.inner);
-            if inner.disposed {
-                return;
+        let current = thread::current().id();
+        let mut inner = lock(&self.inner.state);
+        while inner.batch_owner.is_some_and(|owner| owner != current)
+            || inner.draining_owner.is_some_and(|owner| owner != current)
+        {
+            inner = wait(&self.inner.ready, inner);
+        }
+        if inner.disposed {
+            return;
+        }
+        inner.history.push(message.clone());
+        inner.pending.push_back(message);
+        if inner.batch_owner == Some(current) || inner.draining_owner == Some(current) {
+            return;
+        }
+        inner.draining_owner = Some(current);
+        drop(inner);
+        self.drain(current);
+    }
+
+    pub fn batch<F, R>(&self, transaction: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let current = thread::current().id();
+        let mut inner = lock(&self.inner.state);
+        while inner.batch_owner.is_some_and(|owner| owner != current)
+            || inner.draining_owner.is_some_and(|owner| owner != current)
+        {
+            inner = wait(&self.inner.ready, inner);
+        }
+        if inner.batch_owner == Some(current) {
+            inner.batch_depth += 1;
+        } else {
+            inner.batch_owner = Some(current);
+            inner.batch_depth = 1;
+        }
+        drop(inner);
+
+        let callback_result = catch_unwind(AssertUnwindSafe(transaction));
+        let mut inner = lock(&self.inner.state);
+        inner.batch_depth -= 1;
+        let outermost = inner.batch_depth == 0;
+        let should_drain = outermost
+            && !inner.disposed
+            && !inner.pending.is_empty()
+            && inner.draining_owner != Some(current);
+        if outermost {
+            inner.batch_owner = None;
+            if should_drain {
+                inner.draining_owner = Some(current);
             }
-            inner.history.push(message.clone());
-            inner.subscribers.values().cloned().collect::<Vec<_>>()
+            self.inner.ready.notify_all();
+        }
+        drop(inner);
+
+        let drain_result = if should_drain {
+            catch_unwind(AssertUnwindSafe(|| self.drain(current)))
+        } else {
+            Ok(())
         };
-        for subscriber in subscribers {
-            let _ = catch_unwind(AssertUnwindSafe(|| subscriber(&message)));
+
+        match callback_result {
+            Ok(value) => {
+                if let Err(error) = drain_result {
+                    std::panic::resume_unwind(error);
+                }
+                value
+            }
+            Err(error) => {
+                // The transaction body's original panic takes precedence over
+                // a development overflow diagnostic raised while draining.
+                std::panic::resume_unwind(error)
+            }
+        }
+    }
+
+    fn drain(&self, current: ThreadId) {
+        #[cfg(debug_assertions)]
+        let mut delivered = 0usize;
+        #[cfg(debug_assertions)]
+        let mut message_types = HashSet::new();
+
+        loop {
+            let (message, subscribers) = {
+                let mut inner = lock(&self.inner.state);
+                if inner.disposed || inner.pending.is_empty() {
+                    inner.draining_owner = None;
+                    self.inner.ready.notify_all();
+                    return;
+                }
+                debug_assert_eq!(inner.draining_owner, Some(current));
+                let message = inner.pending.pop_front().expect("queue checked non-empty");
+                let subscribers = inner.subscribers.values().cloned().collect::<Vec<_>>();
+                (message, subscribers)
+            };
+
+            #[cfg(debug_assertions)]
+            message_types.insert(message.type_name());
+            for subscriber in subscribers {
+                let _ = catch_unwind(AssertUnwindSafe(|| subscriber(&message)));
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                delivered += 1;
+                if delivered >= 10_000 {
+                    let mut inner = lock(&self.inner.state);
+                    if !inner.pending.is_empty() {
+                        message_types.extend(inner.pending.iter().map(Message::type_name));
+                        inner.pending.clear();
+                        inner.draining_owner = None;
+                        self.inner.ready.notify_all();
+                        let names = {
+                            let mut names = message_types.iter().copied().collect::<Vec<_>>();
+                            names.sort_unstable();
+                            names.join(", ")
+                        };
+                        drop(inner);
+                        panic!(
+                            "MessageHub drain exceeded 10000 messages; possible publish cycle involving: {names}"
+                        );
+                    }
+                }
+            }
         }
     }
 
     pub fn history(&self) -> Vec<Message> {
-        lock(&self.inner).history.clone()
+        lock(&self.inner.state).history.clone()
     }
 
     pub fn dispose(&self) {
-        let mut inner = lock(&self.inner);
+        let current = thread::current().id();
+        let mut inner = lock(&self.inner.state);
+        while inner.batch_owner.is_some_and(|owner| owner != current)
+            || inner.draining_owner.is_some_and(|owner| owner != current)
+        {
+            inner = wait(&self.inner.ready, inner);
+        }
         inner.subscribers.clear();
+        inner.pending.clear();
         inner.disposed = true;
+        self.inner.ready.notify_all();
     }
 }
 
@@ -215,7 +367,7 @@ impl MessageHub {
 
 pub struct Subscription {
     id: usize,
-    hub: Weak<Mutex<MessageHubInner>>,
+    hub: Weak<MessageHubShared>,
 }
 
 impl Subscription {
@@ -228,7 +380,7 @@ impl Subscription {
 
     pub fn dispose(&self) {
         if let Some(hub) = self.hub.upgrade() {
-            lock(&hub).subscribers.remove(&self.id);
+            lock(&hub.state).subscribers.remove(&self.id);
         }
     }
 }

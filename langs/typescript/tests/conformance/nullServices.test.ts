@@ -36,8 +36,17 @@ describe("NULL-001", () => {
       );
     }
 
+    let bodyRan = false;
+    hub.batch(() => {
+      bodyRan = true;
+      hub.send(
+        ConstructionStatusChangedMessage.create({}, "x", ConstructionStatus.Constructed),
+      );
+    });
+
     expect(observed).toEqual([]);
     expect(completed).toBe(true);
+    expect(bodyRan).toBe(true);
 
     sub.unsubscribe();
   });

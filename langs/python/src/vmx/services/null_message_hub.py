@@ -20,13 +20,15 @@ returns a freshly typed null hub bound to the message type parameter.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TypeVar
 
 import reactivex as rx
 from reactivex import Observable
 
 from vmx.messages.protocols import Message
-from vmx.services.message_hub import MessageHubProto
+from vmx.services.message_hub import TransactionalMessageHubProto
 
 TMessage = TypeVar("TMessage", bound=Message)
 
@@ -49,8 +51,13 @@ class NullMessageHub:
     def send(self, message: TMessage) -> None:
         return None
 
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Execute the body while continuing to publish nothing."""
+        yield
 
-NULL_MESSAGE_HUB: MessageHubProto[Message] = NullMessageHub()
+
+NULL_MESSAGE_HUB: TransactionalMessageHubProto[Message] = NullMessageHub()
 """Shared singleton instance (the hub holds no state).
 
 Typed as :class:`MessageHubProto[Message]` so downstream
@@ -59,7 +66,7 @@ or a ``MessageHub[Message]`` annotation without an extra cast.
 """
 
 
-def null_message_hub_of(message_type: type[TMessage]) -> MessageHubProto[TMessage]:
+def null_message_hub_of(message_type: type[TMessage]) -> TransactionalMessageHubProto[TMessage]:
     """Return a fresh null message hub typed for ``message_type``.
 
     Use this when a strictly-typed null hub of a narrower :class:`Message`

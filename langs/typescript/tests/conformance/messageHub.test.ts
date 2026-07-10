@@ -202,3 +202,135 @@ describe("HUB-007", () => {
     expect(received.map((m) => m.senderName)).toEqual(["msg1", "msg2"]);
   });
 });
+
+describe("HUB-008", () => {
+  it("nested batches defer and preserve every message in FIFO order", () => {
+    const hub = new MessageHub();
+    const received: string[] = [];
+    hub.messages.subscribe((message) => received.push(message.senderName));
+
+    hub.batch(() => {
+      hub.send(makeMsg("A"));
+      hub.batch(() => hub.send(makeMsg("B")));
+      hub.send(makeMsg("C"));
+      expect(received).toEqual([]);
+    });
+
+    expect(received).toEqual(["A", "B", "C"]);
+  });
+});
+
+describe("HUB-009", () => {
+  it("drains queued messages before rethrowing the original callback error", () => {
+    const hub = new MessageHub();
+    const received: string[] = [];
+    const sentinel = new Error("sentinel");
+    hub.messages.subscribe((message) => received.push(message.senderName));
+
+    let thrown: unknown;
+    try {
+      hub.batch(() => {
+        hub.send(makeMsg("A"));
+        throw sentinel;
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(sentinel);
+    expect(received).toEqual(["A"]);
+  });
+});
+
+describe("HUB-010", () => {
+  it("queues re-entrant sends behind the in-flight message", () => {
+    const hub = new MessageHub();
+    const trace: string[] = [];
+    hub.messages.subscribe((message) => {
+      trace.push(`first:${message.senderName}`);
+      if (message.senderName === "A") hub.send(makeMsg("B"));
+    });
+    hub.messages.subscribe((message) => trace.push(`second:${message.senderName}`));
+
+    hub.send(makeMsg("A"));
+
+    expect(trace).toEqual(["first:A", "second:A", "first:B", "second:B"]);
+  });
+});
+
+describe("HUB-011", () => {
+  it("continues a batch drain after a subscriber throws", () => {
+    allowRxUnhandledErrors();
+    const hub = new MessageHub();
+    const received: string[] = [];
+    hub.messages.subscribe(() => {
+      throw new Error("subscriber failed");
+    });
+    hub.messages.subscribe((message) => received.push(message.senderName));
+
+    expect(() => {
+      hub.batch(() => {
+        hub.send(makeMsg("A"));
+        hub.send(makeMsg("B"));
+      });
+    }).not.toThrow();
+    expect(received).toEqual(["A", "B"]);
+  });
+});
+
+describe("HUB-012", () => {
+  it("drops queued messages and completes when disposed during a batch", () => {
+    const hub = new MessageHub();
+    const received: string[] = [];
+    let completed = false;
+    hub.messages.subscribe({
+      next: (message) => received.push(message.senderName),
+      complete: () => { completed = true; },
+    });
+
+    hub.batch(() => {
+      hub.send(makeMsg("A"));
+      hub.dispose();
+      hub.send(makeMsg("B"));
+    });
+    hub.send(makeMsg("C"));
+
+    expect(received).toEqual([]);
+    expect(completed).toBe(true);
+  });
+});
+
+describe("HUB-013", () => {
+  it("keeps ordinary sends synchronous outside a batch", () => {
+    const hub = new MessageHub();
+    let delivered = false;
+    hub.messages.subscribe(() => { delivered = true; });
+
+    hub.send(makeMsg("A"));
+
+    expect(delivered).toBe(true);
+  });
+});
+
+describe("MessageHub development diagnostics", () => {
+  it("does not bound a finite drain when diagnostics are disabled", () => {
+    const hub = new MessageHub({ developmentDiagnostics: false });
+    let delivered = 0;
+    hub.messages.subscribe(() => { delivered += 1; });
+
+    hub.batch(() => {
+      for (let index = 0; index < 10_001; index += 1) hub.send(makeMsg(String(index)));
+    });
+
+    expect(delivered).toBe(10_001);
+  });
+
+  it("bounds a publish cycle and names the involved message type", () => {
+    const hub = new MessageHub({ developmentDiagnostics: true });
+    hub.messages.subscribe((message) => hub.send(message));
+
+    expect(() => hub.send(makeMsg("cycle"))).toThrow(
+      /possible publish cycle involving: Object/,
+    );
+  });
+});

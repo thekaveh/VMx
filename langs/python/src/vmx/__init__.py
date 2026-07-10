@@ -143,6 +143,7 @@ from vmx.services import (
     NullDispatcher,
     NullMessageHub,
     RxDispatcher,
+    TransactionalMessageHubProto,
 )
 from vmx.state import DiscriminatorVM
 from vmx.tree import find, walk, walk_expanded
@@ -251,6 +252,7 @@ __all__ = [
     "ServicedObservableCollection",
     "StatusTransitionError",
     "TokenPagedComposition",
+    "TransactionalMessageHubProto",
     "TreeStructureChange",
     "TreeStructureChangedMessage",
     "TypedMessage",

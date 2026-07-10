@@ -247,6 +247,50 @@ subscription on the first message
 **Then** subscriber B observes both `message1` and `message2`
 **And** no exception propagates to the caller of `Send`
 
+### HUB-008 — Nested transactions defer and preserve every message
+
+**Given** a hub with a current subscriber
+**When** an outer transaction sends `A`, an inner transaction sends `B`, and the
+outer transaction then sends `C`
+**Then** the subscriber observes nothing until the outer transaction exits
+**And** it then observes `A`, `B`, `C`, each exactly once
+
+### HUB-009 — Transaction error drains then rethrows the original error
+
+**Given** a hub with a current subscriber
+**When** a transaction sends `A` and then raises a sentinel error
+**Then** the subscriber observes `A` before control returns to the caller
+**And** the same sentinel error is rethrown
+
+### HUB-010 — Re-entrant send joins the iterative FIFO drain
+
+**Given** two current subscribers and subscriber A sends `B` while handling `A`
+**When** the producer sends `A`
+**Then** both subscribers observe `A` before either observes `B`
+**And** the outer send returns only after both have observed `B`
+**And** delivery uses an iterative queue rather than recursive dispatch
+
+### HUB-011 — Subscriber failure does not abort a transaction drain
+
+**Given** subscriber A raises for every message and subscriber B records messages
+**When** a transaction sends `A` and `B`
+**Then** subscriber B observes both messages in order
+**And** no subscriber error escapes the transaction
+
+### HUB-012 — Disposing during a transaction drops queued messages
+
+**Given** a hub with a current subscriber
+**When** a transaction sends `A`, disposes the hub, and sends `B`
+**Then** neither queued message is delivered
+**And** the stream completes and future sends remain no-ops
+
+### HUB-013 — Ordinary sends remain synchronous outside transactions
+
+**Given** a hub with a current subscriber and no active transaction
+**When** the producer calls `Send(A)`
+**Then** the subscriber observes `A` before `Send` returns
+**And** no transaction callback or explicit flush is required
+
 ______________________________________________________________________
 
 ## 5. Property change (`PROP-NNN`)

@@ -9,11 +9,21 @@ render on GitHub, in browsers, and through `rsvg-convert` for PNG exports.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SPEC_VERSION = (ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip()
+ADR_COUNT = len(list((ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md")))
+CONFORMANCE_IDS = re.findall(
+    r"^### ([A-Z]+-\d{3})\b",
+    (ROOT / "spec" / "12-conformance.md").read_text(encoding="utf-8"),
+    re.MULTILINE,
+)
+THEME_COUNT = sum(item.startswith("THEME-") for item in CONFORMANCE_IDS)
+LIBRARY_COUNT = len(CONFORMANCE_IDS) - THEME_COUNT
 
 
 COLORS = {
@@ -82,8 +92,9 @@ def arrow(
 
 
 def svg_doc(title: str, subtitle: str, width: int, height: int, body: str) -> str:
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
   <defs>
+    <style>text {{ font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}</style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.7"/>
     </pattern>
@@ -144,7 +155,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
     <div class="cards">
 {card_html}
     </div>
-    <footer>Generated for VMx spec 3.1.0 documentation.</footer>
+    <footer>Generated for VMx spec {SPEC_VERSION} documentation.</footer>
   </main>
 </body>
 </html>
@@ -174,7 +185,12 @@ def architecture() -> None:
             300,
             160,
             "Spec Source",
-            ("23 chapters", "79 ADRs", "286 conformance IDs", "4 JSON fixtures"),
+            (
+                "23 chapters",
+                f"{ADR_COUNT} ADRs",
+                f"{len(CONFORMANCE_IDS)} conformance IDs",
+                "4 JSON fixtures",
+            ),
             "cloud",
         ),
         Box(
@@ -215,45 +231,58 @@ def architecture() -> None:
             "security",
         ),
         Box(
-            70,
+            40,
             410,
-            260,
+            220,
             145,
             "C# Flavor",
-            ("System.Reactive", "Avalonia / WPF / MAUI", "Full 281+5 parity"),
+            (
+                "System.Reactive",
+                "Avalonia / WPF / MAUI",
+                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+            ),
             "frontend",
         ),
         Box(
-            390,
+            290,
             410,
-            260,
+            220,
             145,
             "Python Flavor",
-            ("reactivex", "Textual / Tk / NiceGUI", "Full 281+5 parity"),
+            ("reactivex", "Textual / Tk / NiceGUI", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
             "frontend",
         ),
         Box(
-            710,
+            540,
             410,
-            260,
+            220,
             145,
             "TypeScript Flavor",
-            ("rxjs", "React / DOM adapters", "Full 281+5 parity"),
+            ("rxjs", "React / DOM adapters", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
             "frontend",
         ),
         Box(
-            1030,
+            790,
             410,
-            260,
+            220,
             145,
             "Swift Flavor",
-            ("Combine", "SwiftUI flagship", "Full 281+5 parity"),
+            ("Combine", "SwiftUI flagship", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
             "frontend",
         ),
         Box(
-            1350,
+            1040,
             410,
-            190,
+            220,
+            145,
+            "Rust Flavor",
+            ("rxrust facade", "UI-neutral core", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
+            "frontend",
+        ),
+        Box(
+            1300,
+            410,
+            240,
             145,
             "CI Gates",
             ("Spec discipline", "Coverage", "Examples contracts"),
@@ -278,11 +307,12 @@ def architecture() -> None:
             arrow(360, 210, 450, 210, "norms"),
             arrow(750, 210, 840, 210, "uses"),
             arrow(1140, 210, 1230, 210, "injects"),
-            arrow(600, 290, 200, 410, "idiomatic APIs"),
-            arrow(600, 290, 520, 410),
-            arrow(600, 290, 840, 410),
-            arrow(600, 290, 1160, 410),
-            arrow(1445, 410, 1445, 290, "enforces", "#fb923c", True),
+            arrow(600, 290, 150, 410, "idiomatic APIs"),
+            arrow(600, 290, 400, 410),
+            arrow(600, 290, 650, 410),
+            arrow(600, 290, 900, 410),
+            arrow(600, 290, 1150, 410),
+            arrow(1420, 410, 1420, 290, "enforces", "#fb923c", True),
             arrow(840, 555, 800, 700, "showcases"),
         ]
         + [box(b) for b in boxes]
@@ -292,7 +322,7 @@ def architecture() -> None:
             "Spec discipline",
             [
                 "spec/ is the source of truth.",
-                "Every full-parity flavor tracks 281 library IDs.",
+                f"Every full-parity flavor tracks {LIBRARY_COUNT} library IDs.",
                 "THEME-001..005 live in the flagship examples.",
             ],
         ),
@@ -316,7 +346,7 @@ def architecture() -> None:
     write_pair(
         Path("assets/architecture"),
         "VMx Architecture",
-        "spec 3.1.0 · four full-parity flavors · examples as contract probes",
+        f"spec {SPEC_VERSION} · five full-parity flavors · examples as contract probes",
         1600,
         940,
         body,
@@ -517,7 +547,7 @@ def class_diagram() -> None:
     write_pair(
         Path("assets/class-diagram"),
         "VMx Library Class Map",
-        "cluster-level class families for spec 3.1.0",
+        f"cluster-level class families for spec {SPEC_VERSION}",
         1600,
         860,
         body,

@@ -15,8 +15,17 @@ fn null_message_hub_is_safe_noop() {
         sender_id: 1,
         name: "ignored".to_string(),
     });
+    let body_ran = AtomicBool::new(false);
+    hub.batch(|| {
+        body_ran.store(true, Ordering::SeqCst);
+        hub.send(Message::Custom {
+            sender_id: 1,
+            name: "also ignored".to_string(),
+        });
+    });
 
     assert!(!observed.load(Ordering::SeqCst));
+    assert!(body_ran.load(Ordering::SeqCst));
     assert!(hub.history().is_empty());
 }
 
