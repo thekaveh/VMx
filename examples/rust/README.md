@@ -34,6 +34,11 @@ VMx view models own notebook selection, note filtering, page state, editor
 mode, form validation, save/revert commands, global token search, and
 notifications.
 
+VM-layer diagram:
+[`docs/assets/diagrams/rust-tui-notes-showcase.svg`](../../docs/assets/diagrams/rust-tui-notes-showcase.svg)
+([HTML](../../docs/assets/diagrams/rust-tui-notes-showcase.html),
+[PNG](../../docs/assets/diagrams/rust-tui-notes-showcase.png)).
+
 Run the non-interactive smoke path from the repository root:
 
 ```bash

@@ -249,6 +249,11 @@ the companion VMx component map is at
 - [`examples/swift/notes-showcase/`](examples/swift/notes-showcase/)
   — Notes Workspace flagship on SwiftUI + Combine (macOS). Build and test via
   `swift build` / `swift test` from the example dir (requires macOS + Xcode).
+- [`examples/rust/tui/notes-showcase/`](examples/rust/tui/notes-showcase/)
+  — Rust-native Ratatui showcase with a pure VMx MVVM layer. Smoke-run via
+  `cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`.
+  The VM-layer diagram is
+  [`docs/assets/diagrams/rust-tui-notes-showcase.svg`](docs/assets/diagrams/rust-tui-notes-showcase.svg).
 
 Smaller per-flavor demos:
 
