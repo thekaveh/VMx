@@ -47,6 +47,9 @@ minimum entry points:
 - `examples/rust/console/hello-vmx/`:
   Cargo console demo using `ComponentVm`, `CompositeVm`, `FilteredCompositeVm`,
   and `RelayCommand`
+- `examples/rust/tui/notes-showcase/`:
+  Ratatui showcase using a pure VMx MVVM layer with search, paging, validation,
+  notifications, and editor mode
 
 Source index:
 [examples/rust/README.md](https://github.com/thekaveh/VMx/blob/main/examples/rust/README.md)

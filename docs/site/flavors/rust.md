@@ -45,7 +45,20 @@ cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
 cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path langs/rust/Cargo.toml
 cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
+cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 ```
+
+## Showcase
+
+Rust now ships a Ratatui Notes Showcase at
+`examples/rust/tui/notes-showcase/`. The host is intentionally a renderer and
+input adapter only: VMx view models own notebook selection, search/filtering,
+page state, form validation, save/revert commands, global token search,
+notifications, and edit/preview mode.
+
+See [Rust TUI Notes Showcase](../examples/rust-tui-notes-showcase.md) for the
+VM-layer diagram and run commands.
 
 Use [ADR-0080](https://github.com/thekaveh/VMx/blob/main/spec/ADRs/0080-rust-flavor-feasibility.md)
 for the adoption decision and [ADR-0081](https://github.com/thekaveh/VMx/blob/main/spec/ADRs/0081-rust-full-parity-cutover.md)

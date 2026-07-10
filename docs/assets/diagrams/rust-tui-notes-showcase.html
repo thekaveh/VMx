@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rust TUI Notes Showcase VM Layer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: dark;
+      --page-bg: #020617;
+      --page-accent: rgba(56, 189, 248, 0.08);
+      --surface: rgba(15, 23, 42, 0.82);
+      --surface-strong: rgba(16, 27, 38, 0.94);
+      --surface-border: #273542;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-tertiary: #94a3b8;
+      --shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px;
+      background: var(--page-bg);
+      background-image:
+        radial-gradient(circle at top left, var(--page-accent), transparent 28%),
+        linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent 18rem);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    }
+    main { max-width: 1600px; margin: 0 auto; }
+    header { margin-bottom: 20px; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { margin: 0; font-size: 26px; line-height: 1.25; }
+    .subtitle { margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }
+    .diagram {
+      overflow-x: auto;
+      padding: 14px 14px 10px;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .svg-frame { min-width: 1180px; }
+    .svg-frame svg { display: block; width: 100%; height: auto; }
+    .diagram-caption {
+      margin: 12px 4px 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      background: var(--surface-strong);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .card ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+    footer { margin-top: 22px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-row"><div class="pulse-dot"></div><h1>Rust TUI Notes Showcase VM Layer</h1></div>
+      <p class="subtitle">Ratatui renders snapshots; VMx owns application state, commands, and lifecycle</p>
+    </header>
+    <div class="diagram">
+      <div class="svg-frame" role="img" aria-label="Rust TUI Notes Showcase VM Layer">
+<svg xmlns="http://www.w3.org/2000/svg" width="1820" height="1160" viewBox="0 0 1820 1160" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <defs>
+    <style>
+      text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.8"/>
+    </pattern>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#020617"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Rust TUI Notes Showcase VM Layer</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">Ratatui renders snapshots; VMx owns application state, commands, and lifecycle</text>
+  <polyline points="780,268 238,340" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="850,268 525,340" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="910,268 825,340" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="975,268 1130,340" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1040,268 1420,340" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1090,268 1645,340" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="525,490 525,565 320,565" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="825,490 670,565" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1130,490 1020,565" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1420,490 1370,565" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="400,685 400,900" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="900,685 900,900" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="1410,900 1410,812 900,812 900,900" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="70" y="118" width="1680" height="680" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Pure VMx MVVM layer</text>
+<rect x="70" y="830" width="1680" height="220" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="8 4"/>
+<text x="84" y="852" fill="#fb923c" font-size="12" font-weight="700" text-anchor="start">Terminal host adapter</text>
+<rect x="710" y="160" width="400" height="108" rx="8" fill="#0f172a"/>
+<rect x="710" y="160" width="400" height="108" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="910" y="188" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">WorkspaceVm</text>
+<text x="910" y="214" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">AggregateVm6 composition root</text>
+<text x="910" y="233" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">constructs/destructs child VMs</text>
+<text x="910" y="252" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">exposes host-safe commands</text>
+<rect x="120" y="340" width="235" height="150" rx="8" fill="#0f172a"/>
+<rect x="120" y="340" width="235" height="150" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="237" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">NotebooksVm</text>
+<text x="237" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ComponentVm lifecycle</text>
+<text x="237" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">current notebook id</text>
+<text x="237" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">selection command</text>
+<rect x="390" y="340" width="270" height="150" rx="8" fill="#0f172a"/>
+<rect x="390" y="340" width="270" height="150" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="525" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">NotesViewVm</text>
+<text x="525" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CompositeVm&lt;NoteVm&gt;</text>
+<text x="525" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">FilteredCompositeVm search</text>
+<text x="525" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">PagedComposition pages</text>
+<rect x="700" y="340" width="250" height="150" rx="8" fill="#0f172a"/>
+<rect x="700" y="340" width="250" height="150" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
+<text x="825" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">NoteFormVm</text>
+<text x="825" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">FormVm&lt;NoteDraft&gt;</text>
+<text x="825" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">strict dirty tracking</text>
+<text x="825" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">field + model validators</text>
+<rect x="990" y="340" width="280" height="150" rx="8" fill="#0f172a"/>
+<rect x="990" y="340" width="280" height="150" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="1130" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">GlobalSearchVm</text>
+<text x="1130" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">SearchableState</text>
+<text x="1130" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TokenPagedComposition</text>
+<text x="1130" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">load-more command</text>
+<rect x="1310" y="340" width="220" height="150" rx="8" fill="#0f172a"/>
+<rect x="1310" y="340" width="220" height="150" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1420" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">NotificationsVm</text>
+<text x="1420" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NotificationHub</text>
+<text x="1420" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NotificationVm wrappers</text>
+<text x="1420" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirmation messages</text>
+<rect x="1570" y="340" width="150" height="150" rx="8" fill="#0f172a"/>
+<rect x="1570" y="340" width="150" height="150" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="1645" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">EditorModeVm</text>
+<text x="1645" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DiscriminatorVm</text>
+<text x="1645" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">edit</text>
+<text x="1645" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">preview</text>
+<rect x="170" y="565" width="300" height="120" rx="8" fill="#0f172a"/>
+<rect x="170" y="565" width="300" height="120" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
+<text x="320" y="593" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Repository + models</text>
+<text x="320" y="619" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NotebookModel / NoteModel</text>
+<text x="320" y="638" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">NoteDraft snapshots</text>
+<text x="320" y="657" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">in-memory persistence</text>
+<rect x="520" y="565" width="300" height="120" rx="8" fill="#0f172a"/>
+<rect x="520" y="565" width="300" height="120" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="670" y="593" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">RelayCommand seams</text>
+<text x="670" y="619" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">save/revert</text>
+<text x="670" y="638" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">delete request</text>
+<text x="670" y="657" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">mode toggle</text>
+<rect x="870" y="565" width="300" height="120" rx="8" fill="#0f172a"/>
+<rect x="870" y="565" width="300" height="120" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="1020" y="593" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Search and paging state</text>
+<text x="1020" y="619" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">note search term</text>
+<text x="1020" y="638" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">global query</text>
+<text x="1020" y="657" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">current page/token</text>
+<rect x="1220" y="565" width="300" height="120" rx="8" fill="#0f172a"/>
+<rect x="1220" y="565" width="300" height="120" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
+<text x="1370" y="593" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Message surfaces</text>
+<text x="1370" y="619" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">property changes</text>
+<text x="1370" y="638" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">collection reset</text>
+<text x="1370" y="657" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">pending notifications</text>
+<rect x="220" y="900" width="360" height="96" rx="8" fill="#0f172a"/>
+<rect x="220" y="900" width="360" height="96" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="400" y="928" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Ratatui views.rs</text>
+<text x="400" y="954" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">pure render functions</text>
+<text x="400" y="973" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">read VM getters</text>
+<text x="400" y="992" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">own no domain state</text>
+<rect x="730" y="900" width="360" height="96" rx="8" fill="#0f172a"/>
+<rect x="730" y="900" width="360" height="96" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="910" y="928" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">app.rs event shell</text>
+<text x="910" y="954" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">keyboard -&gt; VM command</text>
+<text x="910" y="973" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">smoke mode</text>
+<text x="910" y="992" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">terminal lifecycle</text>
+<rect x="1240" y="900" width="360" height="96" rx="8" fill="#0f172a"/>
+<rect x="1240" y="900" width="360" height="96" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<text x="1420" y="928" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">crossterm terminal</text>
+<text x="1420" y="954" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">input events</text>
+<text x="1420" y="973" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">alternate screen</text>
+<text x="1420" y="992" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">raw mode</text>
+<rect x="120" y="708" width="1600" height="70" rx="8" fill="#0f172a"/>
+<rect x="120" y="708" width="1600" height="70" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
+<text x="136" y="732" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">MVVM rule</text>
+<text x="136" y="754" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">The terminal shell may keep focus and quit state only.</text>
+<text x="136" y="772" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Note data, filtering, paging, validation, notifications, and editor mode live in VMx view models.</text>
+<rect x="428" y="274" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="472" y="288" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">component1</text>
+<rect x="596" y="290" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="640" y="304" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">component2</text>
+<rect x="836" y="290" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="880" y="304" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">component3</text>
+<rect x="1020" y="290" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1064" y="304" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">component4</text>
+<rect x="1196" y="274" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1240" y="288" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">component5</text>
+<rect x="1346" y="258" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1390" y="272" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">component6</text>
+<rect x="386" y="536" width="88" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
+<text x="430" y="550" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">load notes</text>
+<rect x="683" y="516" width="74" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="720" y="530" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">commands</text>
+<rect x="1053" y="516" width="95" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="1100" y="530" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">query/token</text>
+<rect x="1399" y="516" width="102" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="1450" y="530" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">post/resolve</text>
+<rect x="422" y="800" width="81" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
+<text x="462" y="814" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">snapshots</text>
+<rect x="917" y="800" width="67" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
+<text x="950" y="814" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">execute</text>
+<rect x="1140" y="786" width="60" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
+<text x="1170" y="800" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">events</text>
+</svg>
+
+      </div>
+      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
+    </div>
+    <div class="cards">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h2>VMx-owned state</h2>
+        </div>
+        <ul><li>The example uses ComponentVm, CompositeVm, FilteredCompositeVm, PagedComposition, FormVm, SearchableState, TokenPagedComposition, NotificationHub, and DiscriminatorVm.</li><li>WorkspaceVm composes the six child surfaces through AggregateVm6.</li><li>Tests target the VM layer before the TUI adapter.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h2>Thin terminal adapter</h2>
+        </div>
+        <ul><li>Ratatui only renders snapshots from view model getters.</li><li>crossterm events are translated into VM commands and methods.</li><li>The smoke path exercises the same VM commands without an interactive terminal.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h2>Showcase behavior</h2>
+        </div>
+        <ul><li>Notebook selection, note filtering, paging, edit validation, save/revert, global token search, delete confirmation, and notifications are all represented.</li><li>The app remains cross-platform and CI-friendly.</li><li>No TUI framework state model competes with VMx.</li></ul>
+      </section>
+    </div>
+    <footer>Generated from repo-derived facts for VMx spec 3.1.0.</footer>
+  </main>
+</body>
+</html>

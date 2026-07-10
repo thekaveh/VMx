@@ -1,0 +1,22 @@
+[package]
+name = "vmx-rust-notes-showcase"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+[lib]
+name = "notes_showcase"
+path = "src/lib.rs"
+
+[[bin]]
+name = "notes-showcase"
+path = "src/main.rs"
+
+[dependencies]
+crossterm = "0.29.0"
+ratatui = "0.29.0"
+vmx = { path = "../../../../langs/rust", package = "vmx-rs" }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"

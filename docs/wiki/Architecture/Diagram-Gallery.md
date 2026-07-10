@@ -71,3 +71,11 @@ links.
 [HTML](../../assets/diagrams/examples-vm-layer.html) |
 [SVG](../../assets/diagrams/examples-vm-layer.svg) |
 [PNG](../../assets/diagrams/examples-vm-layer.png)
+
+### Rust TUI Notes Showcase VM Layer
+
+![Rust TUI Notes Showcase VM Layer](../../assets/diagrams/rust-tui-notes-showcase.png)
+
+[HTML](../../assets/diagrams/rust-tui-notes-showcase.html) |
+[SVG](../../assets/diagrams/rust-tui-notes-showcase.svg) |
+[PNG](../../assets/diagrams/rust-tui-notes-showcase.png)

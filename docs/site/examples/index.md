@@ -7,6 +7,8 @@ Workspace portfolio.
 ## Start Here
 
 - [Notes Workspace](notes-workspace.md) for the full stable four-flavor scenario.
+- [Rust TUI Notes Showcase](rust-tui-notes-showcase.md) for the Rust-native
+  full MVVM terminal example.
 - [VM Layer Map](notes-workspace-vm-layer.md) when you want the component-to-VM
   mapping first.
 - [Smaller Examples](smaller-examples.md) for console, WPF, tkinter, and
@@ -20,7 +22,7 @@ Workspace portfolio.
 | Python     | Console `hello_vmx`, tkinter Todo, Textual Inspector | Textual Notes Workspace  |
 | TypeScript | Console `hello-vmx`                                  | React Notes Workspace    |
 | Swift      | none beyond the flagship today                       | SwiftUI Notes Workspace  |
-| Rust       | Console `hello-vmx`                                  | no UI flagship yet       |
+| Rust       | Console `hello-vmx`                                  | Ratatui Notes Showcase   |
 
 ## Reading Strategy
 

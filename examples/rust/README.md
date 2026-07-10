@@ -27,13 +27,64 @@ current: rust-roadmap
 rust search matches: 1
 ```
 
-## 2. Project Layout
+## 2. Example 2 — `tui/notes-showcase`
+
+Cross-platform Ratatui showcase app. The terminal host is intentionally thin:
+VMx view models own notebook selection, note filtering, page state, editor
+mode, form validation, save/revert commands, global token search, and
+notifications.
+
+VM-layer diagram:
+[`docs/assets/diagrams/rust-tui-notes-showcase.svg`](../../docs/assets/diagrams/rust-tui-notes-showcase.svg)
+([HTML](../../docs/assets/diagrams/rust-tui-notes-showcase.html),
+[PNG](../../docs/assets/diagrams/rust-tui-notes-showcase.png)).
+
+Run the non-interactive smoke path from the repository root:
+
+```bash
+cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
+```
+
+Run the VM-layer tests:
+
+```bash
+cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+```
+
+Run the interactive TUI:
+
+```bash
+cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+```
+
+Key bindings:
+
+- `q`: quit
+- `/`: apply the sample `vmx` note search
+- `x`: clear note search
+- `n` / `p`: next or previous notes page
+- `m`: toggle edit/preview mode
+- `d`: request delete confirmation
+- `y` / `r`: approve or reject pending delete
+
+## 3. Project Layout
 
 ```text
 examples/rust/
 ├── README.md
-└── console/
-    └── hello-vmx/
+├── console/
+│   └── hello-vmx/
+│       ├── Cargo.toml
+│       └── src/main.rs
+└── tui/
+    └── notes-showcase/
         ├── Cargo.toml
-        └── src/main.rs
+        ├── src/
+        │   ├── app.rs
+        │   ├── lib.rs
+        │   ├── main.rs
+        │   ├── models.rs
+        │   ├── viewmodels.rs
+        │   └── views.rs
+        └── tests/viewmodels.rs
 ```
