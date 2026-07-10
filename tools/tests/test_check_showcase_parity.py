@@ -6,7 +6,7 @@ import check_showcase_parity as csp
 
 
 def _build_valid_tree(root: Path) -> None:
-    """Materialise a synthetic tree that satisfies parity for all four flavors."""
+    """Materialise a synthetic tree that satisfies parity for all four UI-backed examples."""
     cs = root / "examples/csharp/avalonia/NotesShowcase.Tests"
     py = root / "examples/python/textual/notes_showcase/tests"
     ts = root / "examples/typescript/react/notes-showcase/tests"

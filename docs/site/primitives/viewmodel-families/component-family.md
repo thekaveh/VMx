@@ -52,6 +52,8 @@ Important behavior from the spec:
 
 | Concept          | C#                       | Python                     | TypeScript                 | Swift                      |
 | ---------------- | ------------------------ | -------------------------- | -------------------------- | -------------------------- |
+| Concept          | C#                       | Python                     | TypeScript                 | Swift                      |
+| ---------------- | ------------------------ | -------------------------  | -------------------------- | -------------------------  |
 | Unmodeled leaf   | `ComponentVM`            | `ComponentVM`              | `ComponentVM`              | `ComponentVM`              |
 | Modeled leaf     | `ComponentVM<M>`         | `ComponentVMOf[M]`         | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         |
 | Readonly leaf    | `ReadonlyComponentVM<M>` | `ReadonlyComponentVMOf[M]` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVMOf<M>` |
@@ -60,12 +62,13 @@ Important behavior from the spec:
 
 ## Example
 
-Representative modeled leaf shape across the four flavors:
+Representative modeled leaf shape across the five source flavors:
 
 - `C#`: `ComponentVM<TabModel>.Builder().Name("home-tab").Model(model).Services(hub, dispatcher).Build()`
 - `Python`: `ComponentVMOf.builder().name("home-tab").model(model).services(hub, dispatcher).build()`
 - `TypeScript`: `ComponentVMOf.builder<TabModel>().name("home-tab").model(model).services(hub, dispatcher).build()`
 - `Swift`: `try ComponentVMOf<TabModel>.builder().name("home-tab").model(model).services(hub: hub, dispatcher: dispatcher).build()`
+- `Rust`: `ComponentVm::with_model("home-tab", model, hub, dispatcher)`
 
 The Quickstart page uses exactly this pattern before composing those leaves into
 a `CompositeVM`.

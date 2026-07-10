@@ -54,6 +54,7 @@ from pathlib import Path
 # pre-date consistent tagging; absent tags for those rows are printed
 # as informational notes and do NOT cause exit 1.
 MIN_ENFORCED_MAJOR: int = 2
+FLAVORS: tuple[str, ...] = ("csharp", "python", "typescript", "swift", "rust")
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
@@ -148,6 +149,18 @@ def parse_swift_versions(version_swift_path: Path) -> dict[str, str]:
     }
 
 
+def parse_rust_versions(cargo_toml_path: Path, lib_rs_path: Path) -> dict[str, str]:
+    """Extract ``version`` from Cargo.toml and ``MIN_SPEC_VERSION`` from lib.rs."""
+    cargo_text = cargo_toml_path.read_text(encoding="utf-8")
+    lib_text = lib_rs_path.read_text(encoding="utf-8")
+    ver_m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', cargo_text)
+    msv_m = re.search(r'(?m)^pub\s+const\s+MIN_SPEC_VERSION:\s*&str\s*=\s*"([^"]+)"', lib_text)
+    return {
+        "version": ver_m.group(1) if ver_m else "",
+        "min_spec_version": msv_m.group(1) if msv_m else "",
+    }
+
+
 def collect_manifests(repo_root: Path) -> dict[str, dict[str, str]]:
     """Collect version info from every flavor manifest that is present."""
     manifests: dict[str, dict[str, str]] = {}
@@ -182,6 +195,15 @@ def collect_manifests(repo_root: Path) -> dict[str, dict[str, str]]:
         manifests["swift"] = {
             **parse_swift_versions(swift_ver),
             "tag_prefix": "swift",
+            "require_current_spec": "true",
+        }
+
+    rust_cargo = repo_root / "langs" / "rust" / "Cargo.toml"
+    rust_lib = repo_root / "langs" / "rust" / "src" / "lib.rs"
+    if rust_cargo.is_file() and rust_lib.is_file():
+        manifests["rust"] = {
+            **parse_rust_versions(rust_cargo, rust_lib),
+            "tag_prefix": "rust",
             "require_current_spec": "true",
         }
 
@@ -242,7 +264,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             continue
 
         row: dict[str, object] = {"spec_row": spec_row}
-        for idx, flavor in enumerate(("csharp", "python", "typescript", "swift")):
+        for idx, flavor in enumerate(FLAVORS):
             cell = cells[idx + 1].strip() if idx + 1 < len(cells) else ""
             # Strip annotation parentheticals like "(subset)".
             cell = re.sub(r"\s*\([^)]*\)", "", cell).strip()
@@ -334,7 +356,7 @@ def find_missing_tags(
         _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
         _want(f"v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)")
 
-        for flavor in ("csharp", "python", "typescript", "swift"):
+        for flavor in FLAVORS:
             for ver in row.get(flavor, []):  # type: ignore[union-attr]
                 _want(
                     f"{flavor}-v{ver}",

@@ -48,7 +48,7 @@ The dedicated pages cover the exact hooks and host seams each workflow uses.
 
 ## Cross-Language Surface
 
-All four flavors ship the same conceptual set of specialized primitives, with
+All five source flavors ship the same conceptual set of specialized primitives, with
 idiomatic naming differences only. The dedicated pages call out where example
 apps currently exercise them and where a flavor surfaces helper APIs
 idiomatically.

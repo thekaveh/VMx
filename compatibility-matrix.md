@@ -4,16 +4,16 @@ Maintained by hand alongside spec releases.
 
 ## 1. Matrix
 
-| spec  | csharp         | python         | typescript     | swift          |
-| ----- | -------------- | -------------- | -------------- | -------------- |
-| 3.1.x | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] |
-| 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
-| 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
-| 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
-| 2.2.x | 2.2.0          | 2.2.0          | 2.2.0          | —              |
-| 2.1.x | 2.1.0          | 2.1.0          | 2.1.0          | —              |
-| 2.0.x | 2.0.0          | 2.0.0          | 2.0.0          | —              |
-| 1.0.x | 1.0.0          | 1.0.0          | —              | —              |
+| spec  | csharp          | python          | typescript      | swift           | rust          |
+| ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
+| 3.1.x | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 3.1.0[^current] | 0.1.0[^rust] |
+| 2.6.x | 2.6.0           | 2.6.1           | 2.6.0           | 2.6.0 (subset)  | —             |
+| 2.4.x | 2.4.0           | 2.4.0           | 2.4.0           | 2.4.0 (subset)  | —             |
+| 2.3.x | 2.3.0           | 2.3.0           | 2.3.0           | —               | —             |
+| 2.2.x | 2.2.0           | 2.2.0           | 2.2.0           | —               | —             |
+| 2.1.x | 2.1.0           | 2.1.0           | 2.1.0           | —               | —             |
+| 2.0.x | 2.0.0           | 2.0.0           | 2.0.0           | —               | —             |
+| 1.0.x | 1.0.0           | 1.0.0           | —               | —               | —             |
 
 ## 2. Notes
 
@@ -50,11 +50,15 @@ ADR-0068..ADR-0079; THEME-001..005 covered by the
 with C#, Python, and TypeScript. See `langs/swift/README.md` §5.
 
 [^current]: 3.1.0 — current development line. `spec-v3.1.0`, `v3.1.0`, and
-    `python-v3.1.0` are tagged, and `vmx` 3.1.0 is published on PyPI. The
-    `csharp-v3.1.0`, `typescript-v3.1.0`, and `swift-v3.1.0` tags are not yet
-    created: C#/TypeScript/Swift 3.1.0 live in source and publish once their
-    registry credentials are configured (the C#/TS release jobs deliberately
-    refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`).
+`python-v3.1.0` are tagged, and `vmx` 3.1.0 is published on PyPI. The
+`csharp-v3.1.0`, `typescript-v3.1.0`, and `swift-v3.1.0` tags are not yet
+created: C#/TypeScript/Swift 3.1.0 live in source and publish once their
+registry credentials are configured (the C#/TS release jobs deliberately
+refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`).
+
+[^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
+declares `MIN_SPEC_VERSION = "3.1.0"` and carries behavioral tests for all 281
+library conformance IDs. It has not yet been published to crates.io.
 
 ## 3. C# companion packages
 
@@ -62,10 +66,10 @@ The C# core package `VMx` ships with two opt-in companion assemblies. Each
 versions independently (per ADR-0009 / ADR-0013) but declares the spec
 version it implements.
 
-| Package                                                                                       | Current | Spec |
-| --------------------------------------------------------------------------------------------- | ------- | ---- |
+| Package                                                                                                    | Current | Spec  |
+| ---------------------------------------------------------------------------------------------------------- | ------- | ----- |
 | [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.1.0   | 2.1.x |
-| [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                      | 1.2.0   | 2.6.x |
+| [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                                   | 1.2.0   | 2.6.x |
 
 > **Note:** Companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`) version
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not

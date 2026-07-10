@@ -324,8 +324,7 @@ async def test_capability_save_persists_the_focused_note() -> None:
 
     persisted = await repo.load_notes(original.notebook_id)
     assert any(
-        n.id == original.id and n.title == "Saved by capability bar"
-        for n in persisted
+        n.id == original.id and n.title == "Saved by capability bar" for n in persisted
     )
 
 

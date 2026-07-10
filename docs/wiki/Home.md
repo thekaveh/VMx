@@ -1,8 +1,8 @@
 # VMx Wiki
 
 VMx is a lifecycle-aware MVVM viewmodel framework with one language-neutral
-specification and four idiomatic language flavors: C#, Python, TypeScript, and
-Swift.
+specification and five idiomatic source flavors: C#, Python, TypeScript, Swift,
+and Rust.
 
 ## Start Here
 

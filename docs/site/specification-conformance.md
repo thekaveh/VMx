@@ -23,7 +23,7 @@ implementation.
 
 The current catalog contains:
 
-- 281 library IDs implemented by the four full-parity flavors
+- 281 library IDs implemented by all five full-parity source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
 - 286 total IDs in the published catalog
 
@@ -34,7 +34,7 @@ The source overview is here:
 
 - Each language flavor carries a conformance suite under its own tree.
 - `tools/check-conformance-coverage.py` enforces full library coverage across
-  C#, Python, TypeScript, and Swift.
+  C#, Python, TypeScript, Swift, and Rust.
 - The examples workflows enforce the separate flagship scenario contract.
 
 ## Practical Reading Path

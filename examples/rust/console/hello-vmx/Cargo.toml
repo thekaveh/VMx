@@ -1,0 +1,12 @@
+[package]
+name = "hello-vmx-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+vmx-rs = { path = "../../../../langs/rust" }
+
+[[bin]]
+name = "hello-vmx-rust"
+path = "src/main.rs"

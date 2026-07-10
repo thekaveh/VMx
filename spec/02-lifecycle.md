@@ -192,7 +192,7 @@ respect to other lifecycle operations on the same VM.
   reached `Destructed`.
 - The order in which children are constructed/destructed is unspecified.
   Implementations MAY drive them sequentially or concurrently; the reference
-  implementations in all four flavors (C# / Python / TypeScript / Swift) drive
+  implementations in the full-parity flavors drive
   them sequentially. The parent observes its children's
   `ConstructionStatusChangedMessage` emissions to know when to finalize its own
   state. Because the order is unspecified, subscribers MUST NOT rely on a

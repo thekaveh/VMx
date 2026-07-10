@@ -4,6 +4,7 @@
 [![python](https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/python.yml)
 [![typescript](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml)
 [![swift](https://github.com/thekaveh/VMx/actions/workflows/swift.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/swift.yml)
+[![rust](https://github.com/thekaveh/VMx/actions/workflows/rust.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/rust.yml)
 [![conformance](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml)
 [![spec-discipline](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml)
 [![examples](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml)
@@ -11,32 +12,32 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
-specification, four idiomatic language flavors (C# / Python / TypeScript / Swift
-at total parity), 281 library conformance IDs + 5 THEME scenario IDs = **286
-total** verified by path-filtered CI on relevant changes (all four flavors,
-including the Swift notes-showcase flagship).
+specification with five idiomatic source flavors (C# / Python / TypeScript /
+Swift / Rust). All five source flavors cover the 281 library conformance IDs;
+the flagship example apps cover 5 additional THEME scenario IDs for **286
+total** tracked scenarios.
 
 ## 0. Contents
 
 1. [Overview](#1-overview)
-2. [Architecture](#2-architecture)
+1. [Architecture](#2-architecture)
    - 2.1 [Architecture diagram](#21-architecture-diagram)
    - 2.2 [Class diagram](#22-class-diagram)
    - 2.3 [Layers](#23-layers)
-3. [Flavors](#3-flavors)
+1. [Flavors](#3-flavors)
    - 3.1 [Versions and packages](#31-versions-and-packages)
    - 3.2 [Spec and flavor compatibility](#32-spec-and-flavor-compatibility)
-4. [Getting started](#4-getting-started)
+1. [Getting started](#4-getting-started)
    - 4.1 [Install](#41-install)
    - 4.2 [Quickstart guides](#42-quickstart-guides)
    - 4.3 [Examples](#43-examples)
-5. [Repository layout](#5-repository-layout)
+1. [Repository layout](#5-repository-layout)
    - 5.1 [Documentation map](#51-documentation-map)
-6. [Versioning and conformance](#6-versioning-and-conformance)
+1. [Versioning and conformance](#6-versioning-and-conformance)
    - 6.1 [SemVer policy](#61-semver-policy)
    - 6.2 [Conformance catalog](#62-conformance-catalog)
-7. [Contributing](#7-contributing)
-8. [License](#8-license)
+1. [Contributing](#7-contributing)
+1. [License](#8-license)
 
 ## 1. Overview
 
@@ -98,10 +99,10 @@ a browsable HTML version with summary cards is at
 PNG export is at [`assets/class-diagram.png`](assets/class-diagram.png). Five bands:
 
 1. **Lifecycle base** — `ComponentVMBase` + `ConstructionStatus`; every VM derives from here.
-2. **VM family** — five idioms: leaf, composite (homogeneous + selectable), group (homogeneous peers), aggregate (heterogeneous, fixed arity 1..6), and specialized (`FormVM`, `DiscriminatorVM`, `NotificationVM`, `ConfirmationVM`, forwarding decorators).
-3. **Commands & capabilities** — `RelayCommand` family + `DecoratorCommand` chain + `ModeledCrudCommands`, alongside the 22 capability micro-interfaces (Selection / Expansion / Lifecycle / Query / Dialog / CRUD).
-4. **Services · Messages · State · Collections** — the constructor-injected runtime (`MessageHub`, `Dispatcher`, `ILocalizer`, `IDialogService` — each with its `Null*` sibling per ADR-0017), hub envelope types, state helpers (`SearchableState`, `ExpandableState`, `DerivedProperty`), observable collections, `PagedComposition`, `TokenPagedComposition`, filtered/scored composite views, fluent immutable builders, and tree utilities.
-5. **Notifications sub-package (opt-in)** — `INotificationHub`, `ConfirmHelper`, bridged to `ConfirmationDecoratorCommand` in band 3 and to `NotificationVM` / `ConfirmationVM` in band 2.
+1. **VM family** — five idioms: leaf, composite (homogeneous + selectable), group (homogeneous peers), aggregate (heterogeneous, fixed arity 1..6), and specialized (`FormVM`, `DiscriminatorVM`, `NotificationVM`, `ConfirmationVM`, forwarding decorators).
+1. **Commands & capabilities** — `RelayCommand` family + `DecoratorCommand` chain + `ModeledCrudCommands`, alongside the 22 capability micro-interfaces (Selection / Expansion / Lifecycle / Query / Dialog / CRUD).
+1. **Services · Messages · State · Collections** — the constructor-injected runtime (`MessageHub`, `Dispatcher`, `ILocalizer`, `IDialogService` — each with its `Null*` sibling per ADR-0017), hub envelope types, state helpers (`SearchableState`, `ExpandableState`, `DerivedProperty`), observable collections, `PagedComposition`, `TokenPagedComposition`, filtered/scored composite views, fluent immutable builders, and tree utilities.
+1. **Notifications sub-package (opt-in)** — `INotificationHub`, `ConfirmHelper`, bridged to `ConfirmationDecoratorCommand` in band 3 and to `NotificationVM` / `ConfirmationVM` in band 2.
 
 Boxes are cluster-level (one box per related set of classes); the exhaustive member list lives in the linked spec chapters + ADRs.
 
@@ -109,7 +110,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 79 ADRs,
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 81 ADRs,
   4 JSON fixtures, 286 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -135,22 +136,24 @@ Each flavor implements the same conceptual stack:
 
 ### 3.1 Versions and packages
 
-| Flavor     | Source status               | Public package status                                      | Reactive primitive |
-| ---------- | --------------------------- | ---------------------------------------------------------- | ------------------ |
-| C#         | v3.1.0 in source            | NuGet package not published yet                            | System.Reactive    |
-| Python     | v3.1.0 in source            | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex       |
-| TypeScript | v3.1.0 in source            | npm package not published yet                              | rxjs               |
-| Swift      | v3.1.0 in source            | SwiftPM tag not published yet; no central registry         | Combine            |
+| Flavor     | Source status           | Public package status                                          | Reactive primitive     |
+| ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
+| C#         | v3.1.0 in source        | NuGet package not published yet                                | System.Reactive        |
+| Python     | v3.1.0 in source        | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
+| TypeScript | v3.1.0 in source        | npm package not published yet                                  | rxjs                   |
+| Swift      | v3.1.0 in source        | SwiftPM tag not published yet; no central registry             | Combine                |
+| Rust       | v0.1.0 in source        | crates.io package not published yet                            | VMx facade over rxrust |
 
 `main` may contain an in-development source version before that version is
 published to package registries. Use the compatibility matrix for source-level
 spec parity; use each registry for installable package availability.
 
-The **Swift flavor is at total parity** — all 281 library conformance IDs as
-of v3.1.0 plus the 5 `THEME-00x` scenario IDs covered by the
-`examples/swift/notes-showcase/` flagship (ADR-0067) = **286 total**, matching
-C#, Python, and TypeScript. See [`langs/swift/README.md`](langs/swift/README.md)
-§5 for the full ID matrix. The C# flavor multi-targets `netstandard2.0` and
+All five source flavors implement the 281 library conformance IDs. The flagship
+example apps cover the 5 `THEME-00x` scenario IDs where a full UI host exists
+(Swift via `examples/swift/notes-showcase/`, ADR-0067), bringing stable
+UI-backed flavors to **286 total** tracked scenarios. See
+[`langs/swift/README.md`](langs/swift/README.md) §5 for the Swift ID matrix.
+The C# flavor multi-targets `netstandard2.0` and
 `net8.0` and ships two companion assemblies:
 [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
 (`services.AddVMx(...)`) and
@@ -160,20 +163,22 @@ is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
 in v2.4.0 because the unscoped `vmx` name was unavailable) targets Node
 ≥20, emits dual ESM + CJS bundles, and exposes `@thekaveh/vmx/notifications`
-as a sub-path export.
+as a sub-path export. The Rust flavor lives under `langs/rust/` as the
+`vmx-rs` crate with the `vmx` import namespace; it has full library conformance
+coverage in source and is awaiting a crates.io release channel.
 
 ### 3.2 Spec and flavor compatibility
 
-| spec  | csharp         | python         | typescript     | swift          |
-| ----- | -------------- | -------------- | -------------- | -------------- |
-| 3.1.x | 3.1.0          | 3.1.0          | 3.1.0          | 3.1.0          |
-| 2.6.x | 2.6.0          | 2.6.1          | 2.6.0          | 2.6.0 (subset) |
-| 2.4.x | 2.4.0          | 2.4.0          | 2.4.0          | 2.4.0 (subset) |
-| 2.3.x | 2.3.0          | 2.3.0          | 2.3.0          | —              |
-| 2.2.x | 2.2.0          | 2.2.0          | 2.2.0          | —              |
-| 2.1.x | 2.1.0          | 2.1.0          | 2.1.0          | —              |
-| 2.0.x | 2.0.0          | 2.0.0          | 2.0.0          | —              |
-| 1.0.x | 1.0.0          | 1.0.0          | —              | —              |
+| spec  | csharp | python | typescript | swift          | rust          |
+| ----- | ------ | ------ | ---------- | -------------- | ------------- |
+| 3.1.x | 3.1.0  | 3.1.0  | 3.1.0      | 3.1.0          | 0.1.0         |
+| 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —             |
+| 2.4.x | 2.4.0  | 2.4.0  | 2.4.0      | 2.4.0 (subset) | —             |
+| 2.3.x | 2.3.0  | 2.3.0  | 2.3.0      | —              | —             |
+| 2.2.x | 2.2.0  | 2.2.0  | 2.2.0      | —              | —             |
+| 2.1.x | 2.1.0  | 2.1.0  | 2.1.0      | —              | —             |
+| 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              | —             |
+| 1.0.x | 1.0.0  | 1.0.0  | —          | —              | —             |
 
 See [`compatibility-matrix.md`](compatibility-matrix.md) for the full table.
 Every published package declares its `MinSpecVersion` /
@@ -194,6 +199,9 @@ uv add vmx
 
 # TypeScript (after the npm package is published)
 npm install @thekaveh/vmx rxjs
+
+# Rust (source-tree path dependency today)
+cargo add vmx-rs --path langs/rust
 ```
 
 ### 4.2 Quickstart guides
@@ -208,6 +216,8 @@ npm install @thekaveh/vmx rxjs
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
   at total parity as of v3.1.0; see `langs/swift/README.md` §5).
+- [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
+  and a minimal `ComponentVm` example.
 
 ### 4.3 Examples
 
@@ -253,6 +263,8 @@ Smaller per-flavor demos:
   `vmx.tree.walk`.
 - [`examples/typescript/console/hello-vmx/`](examples/typescript/console/hello-vmx/) — minimal
   Node script.
+- [`examples/rust/console/hello-vmx/`](examples/rust/console/hello-vmx/) —
+  minimal Cargo console demo using `ComponentVm` and `RelayCommand`.
 
 ## 5. Repository layout
 
@@ -260,7 +272,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0079)
+│   ├── ADRs/              architecture decision records (0001..0081)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
@@ -268,7 +280,8 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   └── swift/             VMx Swift Package (v3.1.0, total parity — 281 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.1.0, total parity — 281 library + 5 THEME)
+│   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
 ├── docs/integration/      one-page UI-framework integration recipes
@@ -293,14 +306,15 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 79 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 81 ADRs,
   4 fixtures, and the 286-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - Per-flavor READMEs (status, install, API surface, dev commands):
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.1.0, total parity — 281 library + 5 THEME).
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.1.0, total parity — 281 library + 5 THEME),
+  [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
@@ -328,7 +342,8 @@ This README is the entry point; the documents below add focused detail.
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
   [`examples/typescript/README.md`](examples/typescript/README.md),
-  [`examples/swift/notes-showcase/README.md`](examples/swift/notes-showcase/README.md).
+  [`examples/swift/notes-showcase/README.md`](examples/swift/notes-showcase/README.md),
+  [`examples/rust/README.md`](examples/rust/README.md).
 - [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
   cross-flavor parity matrix for all four flagship Notes-Showcase apps
   (Avalonia / Textual / React / SwiftUI); 19 spec features × 4 flavors, plus
@@ -350,7 +365,8 @@ This README is the entry point; the documents below add focused detail.
 Each language flavor versions independently in SemVer. The spec also versions
 independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
-`__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift). A
+`__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
+`MIN_SPEC_VERSION` in Rust). A
 spec major bump triggers a major bump in every active flavor; a spec minor bump
 (like v2.1.0) is fully backwards compatible and ships in flavors as a minor
 bump.
@@ -360,20 +376,23 @@ bump.
 `spec/12-conformance.md` enumerates 286 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`THEME-001`, …) — 281 library IDs plus 5 `THEME` scenario IDs. All four
-flavors (C# / Python / TypeScript / Swift) implement the 281 library IDs under
+`THEME-001`, …) — 281 library IDs plus 5 `THEME` scenario IDs. All five
+flavors (C# / Python / TypeScript / Swift / Rust) implement the 281 library IDs under
 their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
 `langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
-`langs/swift/Tests/VMxTests`), and
-`tools/check-conformance-coverage.py` enforces 100% coverage in CI. All four
+`langs/swift/Tests/VMxTests`, and `langs/rust/tests/conformance`), and
+`tools/check-conformance-coverage.py` enforces 100% coverage in CI. Stable
 flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
 example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
-flavor is at **total parity: 281 library + 5 THEME = 286**.
+stable flavor is at **total parity: 281 library + 5 THEME = 286**.
 
 ```bash
-# Verify all four flavors are at full catalog coverage
+# Verify all full-parity flavors are at full catalog coverage
 uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript --require swift
+    --require csharp --require python --require typescript --require swift --require rust
+
+# Report all registered flavors
+python3 tools/check-conformance-coverage.py
 ```
 
 ## 7. Contributing

@@ -64,7 +64,7 @@ in multiple language flavors with semantically equivalent behavior.
   initial-current selection during construct, and `OnCurrentChanged(callback)`
   (`COMP-026`) for synchronous post-change selection callback (chapter 06 §3.2,
   ADR-0042). Both hooks ship on the non-modeled and modeled composite builders
-  in all four flavors — Swift's modeled `CompositeVMOfBuilder` gained `current(...)`
+  in all full-parity flavors — Swift's modeled `CompositeVMOfBuilder` gained `current(...)`
   and `onCurrentChanged(...)` at full parity (ADR-0064). Catalog total grows 235 → 237 (232 library + 5
   THEME). Three teaching ADRs formalize prior-art rejections: ADR-0039
   (`INotifyPropertyChanging` not supported), ADR-0040 (`IProperty<T>` reactive

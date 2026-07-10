@@ -9,7 +9,7 @@ permissions:
 #   * check-textual-views.py    — Textual views must not own VM state
 #   * check-layer-imports.py    — cross-layer (models <-> viewmodels <-> views)
 #                                 imports stay one-way (M <- VM <- V)
-#   * check-showcase-parity.py  — all four flavors expose the same VM surface
+#   * check-showcase-parity.py  — all four UI-backed examples expose the same VM surface
 #
 # They live at the repo root under tools/ so they are language-agnostic; this
 # workflow is the single integration point that fails CI if any contract drifts.
