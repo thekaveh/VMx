@@ -121,6 +121,9 @@ _SWIFT_COMMENT_MARKER_PATTERN = re.compile(r"(?m)^[ \t]*///?[ \t]+([A-Z]{3,5}-\d
 # Markers must attach to a Rust test function so prose-only comments are not
 # counted as conformance coverage.
 _RUST_COMMENT_MARKER_PATTERN = re.compile(r"(?m)^[ \t]*///[ \t]+([A-Z]{3,5}-\d{3})\b[^\n—]*—")
+_RUST_TEST_FN_PATTERN = re.compile(
+    r"^(?:pub(?:\s*\([^)]*\))?\s+)?fn(?:\s+([A-Za-z_][A-Za-z0-9_]*)|\s*$)"
+)
 
 # Prefixes that look like conformance IDs but are NOT — e.g. `VMX-002` is an
 # audit finding-id, which Swift test files legitimately reference in doc comments
@@ -225,7 +228,8 @@ def scrape_rust_conformance_ids(directory: Path) -> set[str]:
     """Scrape Rust conformance IDs from doc-comment markers attached to tests."""
     ids: set[str] = set()
     for path in directory.rglob("*.rs"):
-        lines = path.read_text(encoding="utf-8").splitlines()
+        text = _mask_rust_non_code(path.read_text(encoding="utf-8"))
+        lines = text.splitlines()
         for index, line in enumerate(lines):
             match = _RUST_COMMENT_MARKER_PATTERN.match(line)
             if match is None or not _rust_marker_attaches_to_test(lines, index):
@@ -237,16 +241,100 @@ def scrape_rust_conformance_ids(directory: Path) -> set[str]:
     return ids
 
 
+def _mask_rust_non_code(text: str) -> str:
+    """Blank Rust block comments and strings while preserving lines.
+
+    Line comments stay intact because ``///`` is the intentional marker syntax.
+    Rust block comments can nest, so the C-style comment regex used by other
+    scrapers is insufficient here.
+    """
+    masked = list(text)
+
+    def blank(start: int, end: int) -> None:
+        for position in range(start, end):
+            if masked[position] not in "\r\n":
+                masked[position] = " "
+
+    index = 0
+    while index < len(text):
+        if text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = len(text) if newline == -1 else newline + 1
+            continue
+
+        if text.startswith("/*", index):
+            depth = 1
+            end = index + 2
+            while end < len(text) and depth:
+                if text.startswith("/*", end):
+                    depth += 1
+                    end += 2
+                elif text.startswith("*/", end):
+                    depth -= 1
+                    end += 2
+                else:
+                    end += 1
+            blank(index, end)
+            index = end
+            continue
+
+        if text[index] == "r":
+            delimiter = index + 1
+            while delimiter < len(text) and text[delimiter] == "#":
+                delimiter += 1
+            if delimiter < len(text) and text[delimiter] == '"':
+                hashes = text[index + 1 : delimiter]
+                terminator = '"' + hashes
+                closing = text.find(terminator, delimiter + 1)
+                end = len(text) if closing == -1 else closing + len(terminator)
+                blank(index, end)
+                index = end
+                continue
+
+        if text[index] == '"':
+            end = index + 1
+            escaped = False
+            while end < len(text):
+                character = text[end]
+                end += 1
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    break
+            blank(index, end)
+            index = end
+            continue
+
+        if text.startswith("'\"'", index):
+            blank(index, index + 3)
+            index += 3
+            continue
+
+        index += 1
+
+    return "".join(masked)
+
+
 def _rust_marker_attaches_to_test(lines: list[str], marker_index: int) -> bool:
     """Return True when a Rust marker is part of a #[test] function doc block."""
     saw_test_attribute = False
-    for line in lines[marker_index + 1 :]:
+    for index, line in enumerate(lines[marker_index + 1 :], start=marker_index + 1):
         stripped = line.strip()
         if stripped == "#[test]":
             saw_test_attribute = True
             continue
-        if saw_test_attribute and stripped.startswith("fn "):
-            return True
+        if saw_test_attribute:
+            match = _RUST_TEST_FN_PATTERN.match(stripped)
+            if match is not None:
+                if match.group(1) is not None:
+                    return True
+                for continuation in lines[index + 1 :]:
+                    continued = continuation.strip()
+                    if not continued or continued.startswith("//"):
+                        continue
+                    return re.match(r"[A-Za-z_][A-Za-z0-9_]*\s*\(", continued) is not None
         if stripped.startswith("///") or stripped.startswith("#["):
             continue
         return False

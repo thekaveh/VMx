@@ -22,6 +22,21 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
       --require csharp --require python --require typescript --require swift --require rust
   ```
 
+  Rust conformance coverage uses an attached doc-comment marker:
+
+  ```rust
+  /// LIFE-001 — construct transitions
+  #[test]
+  fn life_001_constructs() {}
+  ```
+
+  The ID must be the first token after `///`, followed by an em dash on the same
+  line, and the doc block must attach to a live `#[test]` function. Additional
+  doc-comment and attribute lines may appear between the marker and function.
+  Ordinary comments, file summaries, unattached markers, and markers inside
+  block-commented tests do not count. Repeated IDs are deduplicated as one
+  coverage claim; `--require rust` reports each missing catalog ID and exits 1.
+
   Unit tests live in `tools/tests/`. Run with:
 
   ```bash
