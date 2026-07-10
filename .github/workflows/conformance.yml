@@ -16,6 +16,7 @@ on:
       - "tools/**"
       - ".pre-commit-config.yaml"
       - ".github/workflows/conformance.yml"
+      - ".github/workflows/wiki.yml"
   pull_request:
     branches: [main, develop]
     paths:
@@ -28,6 +29,7 @@ on:
       - "tools/**"
       - ".pre-commit-config.yaml"
       - ".github/workflows/conformance.yml"
+      - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
 jobs:

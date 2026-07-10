@@ -34,11 +34,14 @@ jobs:
       - name: Validate diagrams
         run: python -m scripts.docs.validate_diagrams
       - name: Install wiki deploy key when configured
-        if: ${{ secrets.WIKI_DEPLOY_KEY != '' }}
+        env:
+          WIKI_DEPLOY_KEY_VALUE: ${{ secrets.WIKI_DEPLOY_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.WIKI_DEPLOY_KEY }}" > ~/.ssh/wiki_key
-          chmod 600 ~/.ssh/wiki_key
+          if [ -n "$WIKI_DEPLOY_KEY_VALUE" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$WIKI_DEPLOY_KEY_VALUE" > ~/.ssh/wiki_key
+            chmod 600 ~/.ssh/wiki_key
+          fi
       - name: Publish wiki
         env:
           WIKI_DEPLOY_KEY: /home/runner/.ssh/wiki_key
