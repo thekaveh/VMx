@@ -359,8 +359,9 @@ already known, while predicates classify mixed raw streams and arrays.
 
 - [ ] **Step 2: Update TypeScript flavor and package docs**
 
-List all three signatures, collection generic usage, optional constraints, and
-the no-cross-flavor-parity rationale. Do not show consumer casts.
+List all three signatures, source/action constraints with collection payloads
+remaining `unknown`, optional constraints, and the no-cross-flavor-parity
+rationale. Do not show consumer casts.
 
 - [ ] **Step 3: Run the three-surface docs gate**
 
