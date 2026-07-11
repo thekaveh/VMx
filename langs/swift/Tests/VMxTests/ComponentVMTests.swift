@@ -1,7 +1,7 @@
 //
 // ComponentVM conformance tests.
 //
-// Claimed IDs: CVM-001..009 (CVM-003's "no setter" is compiler-shaped in
+// Claimed IDs: CVM-001..010 (CVM-003's "no setter" is compiler-shaped in
 // Swift — external writes trap per ADR-0037; the test verifies the
 // readonly builder and internal update path).
 //
@@ -288,6 +288,166 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertEqual(localNames, [])
         hubCancel.cancel()
         localCancel.cancel()
+    }
+
+    /// CVM-010 — modeled components explicitly republish the retained model.
+    func testCvm010ModeledComponentsExplicitlyRepublishRetainedModel() throws {
+        let model = RefModel(7)
+        var hinterCalls = 0
+        var callbackCalls = 0
+        let hub = MessageHub()
+        let vm = try ComponentVMOf<RefModel>.builder()
+            .name("writable")
+            .model(model)
+            .modeledHinter { value in
+                hinterCalls += 1
+                return "hint:\(value.n)"
+            }
+            .onModelChanged { _ in callbackCalls += 1 }
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let hint = vm.modeledHint
+        let hinterCallsAfterBuild = hinterCalls
+        var trace: [String] = []
+        let hubCancel = hub.messages.sink { message in
+            if let change = message as? PropertyChangedMessage,
+               change.propertyName == "model", change.senderObject === vm {
+                trace.append("hub:model")
+            }
+        }
+        let localCancel = vm.propertyChanged.sink { name in
+            if name == "model" { trace.append("local:model") }
+        }
+
+        vm.republishModel()
+
+        XCTAssertTrue(vm.model === model)
+        XCTAssertEqual(vm.modeledHint, hint)
+        XCTAssertEqual(hinterCalls, hinterCallsAfterBuild)
+        XCTAssertEqual(callbackCalls, 0)
+        XCTAssertEqual(trace, ["hub:model", "local:model"])
+
+        trace.removeAll()
+        vm.model = model
+        XCTAssertEqual(trace, [])
+        hubCancel.cancel()
+        localCancel.cancel()
+
+        let readonlyHub = MessageHub()
+        let readonlyVM = try ReadonlyComponentVMOfBuilder<RefModel>()
+            .name("readonly")
+            .model(model)
+            .services(hub: readonlyHub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        var readonlyTrace: [String] = []
+        let readonlyHubCancel = readonlyHub.messages.sink { message in
+            if let change = message as? PropertyChangedMessage,
+               change.propertyName == "model" {
+                readonlyTrace.append("hub:model")
+            }
+        }
+        let readonlyLocalCancel = readonlyVM.propertyChanged.sink { name in
+            if name == "model" { readonlyTrace.append("local:model") }
+        }
+
+        readonlyVM.republishModel()
+
+        XCTAssertTrue(readonlyVM.model === model)
+        XCTAssertEqual(readonlyTrace, ["hub:model", "local:model"])
+        readonlyHubCancel.cancel()
+        readonlyLocalCancel.cancel()
+
+        let wrappedHub = MessageHub()
+        let wrapped = try ComponentVMOf<RefModel>.builder()
+            .name("wrapped")
+            .model(model)
+            .services(hub: wrappedHub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let forwarding = ForwardingComponentVM(wrapped)
+        var forwardedSenders: [AnyObject] = []
+        var forwardedLocal: [String] = []
+        let forwardedHubCancel = wrappedHub.messages.sink { message in
+            if let change = message as? PropertyChangedMessage,
+               change.propertyName == "model" {
+                forwardedSenders.append(change.senderObject)
+            }
+        }
+        let forwardedLocalCancel = forwarding.propertyChanged.sink { name in
+            forwardedLocal.append(name)
+        }
+
+        forwarding.republishModel()
+
+        XCTAssertEqual(forwardedSenders.count, 1)
+        XCTAssertTrue(forwardedSenders[0] === wrapped)
+        XCTAssertEqual(forwardedLocal, ["model"])
+        forwardedHubCancel.cancel()
+        forwardedLocalCancel.cancel()
+
+        let nullVM = try ComponentVMOf<RefModel>.builder()
+            .name("null")
+            .model(model)
+            .withNullServices()
+            .build()
+        var nullLocal: [String] = []
+        let nullCancel = nullVM.propertyChanged.sink { nullLocal.append($0) }
+
+        nullVM.republishModel()
+
+        XCTAssertEqual(nullLocal, ["model"])
+        nullCancel.cancel()
+
+        let disposedHub = MessageHub()
+        let disposedVM = try ComponentVMOf<RefModel>.builder()
+            .name("disposed")
+            .model(model)
+            .services(hub: disposedHub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        var disposedHubNames: [String] = []
+        var disposedLocal: [String] = []
+        let disposedHubCancel = disposedHub.messages
+            .compactMap { ($0 as? PropertyChangedMessage)?.propertyName }
+            .sink { disposedHubNames.append($0) }
+        let disposedLocalCancel = disposedVM.propertyChanged.sink { disposedLocal.append($0) }
+        disposedVM.dispose()
+        disposedHubNames.removeAll()
+        disposedLocal.removeAll()
+
+        disposedVM.republishModel()
+
+        XCTAssertEqual(disposedHubNames, [])
+        XCTAssertEqual(disposedLocal, [])
+        disposedHubCancel.cancel()
+        disposedLocalCancel.cancel()
+
+        let reentrantHub = MessageHub()
+        let reentrantVM = try ComponentVMOf<RefModel>.builder()
+            .name("reentrant")
+            .model(model)
+            .services(hub: reentrantHub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        var reentered = false
+        var reentrantTrace: [String] = []
+        let reentrantHubCancel = reentrantHub.messages.sink { message in
+            guard let change = message as? PropertyChangedMessage,
+                  change.propertyName == "model" else { return }
+            reentrantTrace.append("hub:model")
+            guard !reentered else { return }
+            reentered = true
+            reentrantVM.republishModel()
+        }
+        let reentrantLocalCancel = reentrantVM.propertyChanged.sink { name in
+            if name == "model" { reentrantTrace.append("local:model") }
+        }
+
+        reentrantVM.republishModel()
+
+        XCTAssertEqual(
+            reentrantTrace,
+            ["hub:model", "local:model", "hub:model", "local:model"]
+        )
+        reentrantHubCancel.cancel()
+        reentrantLocalCancel.cancel()
     }
 
     /// Modeled component starts with its initial model.

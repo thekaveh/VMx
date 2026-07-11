@@ -2,6 +2,7 @@ using System.Reflection;
 using System.ComponentModel;
 using FluentAssertions;
 using VMx.Components;
+using VMx.Forwarding;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -305,6 +306,164 @@ public class ComponentVMConformanceTests
         localCount.Should().Be(0);
     }
 
+    [Fact, Trait("Conformance", "CVM-010")]
+    public void CVM_010_Modeled_Components_Explicitly_Republish_The_Retained_Model()
+    {
+        var hub = new MessageHub();
+        var model = new ReferenceModel(7);
+        var hinterCalls = 0;
+        var callbackCalls = 0;
+        var vm = ComponentVM<ReferenceModel>.Builder()
+            .Name("writable")
+            .Services(hub, new TestDispatcher())
+            .Model(model)
+            .ModeledHinter(value =>
+            {
+                hinterCalls++;
+                return $"hint:{value.Value}";
+            })
+            .OnModelChanged(_ => callbackCalls++)
+            .Build();
+        var hint = vm.ModeledHint;
+        var hinterCallsAfterBuild = hinterCalls;
+        var trace = new List<string>();
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM>
+                {
+                    PropertyName: "Model",
+                    SenderObject: var sender
+                } && ReferenceEquals(sender, vm))
+                trace.Add("hub:model");
+        });
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(vm.Model)) trace.Add("local:model");
+        };
+
+        vm.RepublishModel();
+
+        vm.Model.Should().BeSameAs(model);
+        vm.ModeledHint.Should().Be(hint);
+        hinterCalls.Should().Be(hinterCallsAfterBuild);
+        callbackCalls.Should().Be(0);
+        trace.Should().Equal("hub:model", "local:model");
+
+        trace.Clear();
+        vm.Model = model;
+        trace.Should().BeEmpty("ordinary equal assignment remains silent");
+
+        var readonlyHub = new MessageHub();
+        var readonlyVm = ReadonlyComponentVM<ReferenceModel>.Builder()
+            .Name("readonly")
+            .Services(readonlyHub, new TestDispatcher())
+            .Model(model)
+            .Build();
+        var readonlyTrace = new List<string>();
+        readonlyHub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Model" })
+                readonlyTrace.Add("hub:model");
+        });
+        readonlyVm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(readonlyVm.Model)) readonlyTrace.Add("local:model");
+        };
+
+        readonlyVm.RepublishModel();
+
+        readonlyVm.Model.Should().BeSameAs(model);
+        readonlyTrace.Should().Equal("hub:model", "local:model");
+
+        var wrappedHub = new MessageHub();
+        var wrapped = ComponentVM<ReferenceModel>.Builder()
+            .Name("wrapped")
+            .Services(wrappedHub, new TestDispatcher())
+            .Model(model)
+            .Build();
+        var forwarding = new TestForwardingComponentVM<ReferenceModel>(wrapped);
+        object? forwardedSender = null;
+        var forwardedLocalCount = 0;
+        wrappedHub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Model" } change)
+                forwardedSender = change.SenderObject;
+        });
+        forwarding.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(forwarding.Model)) forwardedLocalCount++;
+        };
+
+        forwarding.RepublishModel();
+
+        forwardedSender.Should().BeSameAs(wrapped);
+        forwardedLocalCount.Should().Be(1);
+
+        var nullVm = ComponentVM<ReferenceModel>.Builder()
+            .Name("null")
+            .Model(model)
+            .WithNullServices()
+            .Build();
+        var nullLocalCount = 0;
+        nullVm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(nullVm.Model)) nullLocalCount++;
+        };
+
+        nullVm.RepublishModel();
+
+        nullLocalCount.Should().Be(1);
+
+        var disposedHub = new MessageHub();
+        var disposedVm = ComponentVM<ReferenceModel>.Builder()
+            .Name("disposed")
+            .Services(disposedHub, new TestDispatcher())
+            .Model(model)
+            .Build();
+        var disposedHubCount = 0;
+        var disposedLocalCount = 0;
+        disposedHub.Messages.Subscribe(message =>
+        {
+            if (message is IPropertyChangedMessage<IComponentVM> { PropertyName: "Model" })
+                disposedHubCount++;
+        });
+        disposedVm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(disposedVm.Model)) disposedLocalCount++;
+        };
+        disposedVm.Dispose();
+
+        disposedVm.RepublishModel();
+
+        disposedHubCount.Should().Be(0);
+        disposedLocalCount.Should().Be(0);
+
+        var reentrantHub = new MessageHub();
+        var reentrantVm = ComponentVM<ReferenceModel>.Builder()
+            .Name("reentrant")
+            .Services(reentrantHub, new TestDispatcher())
+            .Model(model)
+            .Build();
+        var reentered = false;
+        var reentrantTrace = new List<string>();
+        reentrantHub.Messages.Subscribe(message =>
+        {
+            if (message is not IPropertyChangedMessage<IComponentVM> { PropertyName: "Model" }) return;
+            reentrantTrace.Add("hub:model");
+            if (reentered) return;
+            reentered = true;
+            reentrantVm.RepublishModel();
+        });
+        reentrantVm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(reentrantVm.Model)) reentrantTrace.Add("local:model");
+        };
+
+        reentrantVm.RepublishModel();
+
+        reentrantTrace.Should().Equal("hub:model", "local:model", "hub:model", "local:model");
+    }
+
     // ── PROP-001 — Setter publishes PropertyChangedMessage ───────────────────
 
     /// <summary>
@@ -606,5 +765,15 @@ public class ComponentVMConformanceTests
         }
 
         public void EmitValueNotification() => NotifyPropertyChanged(nameof(Value));
+    }
+
+    private sealed class ReferenceModel(int value)
+    {
+        public int Value { get; } = value;
+    }
+
+    private sealed class TestForwardingComponentVM<M>(IComponentVM<M> wrapped)
+        : ForwardingComponentVM<M>(wrapped)
+    {
     }
 }
