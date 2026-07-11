@@ -10,6 +10,7 @@ import {
   isConstructionStatusChanged,
   isPropertyChanged,
   PropertyChangedMessage,
+  ServicedObservableCollection,
 } from "../../../src/index.js";
 import { isPropertyChanged as isPropertyChangedFromMessages } from "../../../src/messages/index.js";
 
@@ -32,13 +33,25 @@ function expectExactType<_T extends true>(_value: unknown): void {}
 const sender = { name: "sender" };
 const other = { name: "sender" };
 const property = PropertyChangedMessage.create(sender, "sender", "model");
-const collection = CollectionChangedMessage.forAdd<string>(sender, "item", 0);
+const collectionSource = new ServicedObservableCollection<string>();
+const otherCollectionSource = new ServicedObservableCollection<string>();
+const opaqueCollectionSource: object = collectionSource;
+const collection = CollectionChangedMessage.forAdd(
+  collectionSource,
+  "item",
+  0,
+);
 const status = ConstructionStatusChangedMessage.create(
   sender,
   "sender",
   ConstructionStatus.Constructed,
 );
 const messages: IMessage[] = [property, collection, status];
+
+// @ts-expect-error A property generic requires a checked sender constraint.
+isPropertyChanged<typeof sender>(property, { propertyName: "model" });
+// @ts-expect-error A collection item generic requires a typed collection source.
+isCollectionChanged<string>(collection, { action: "add" });
 
 describe("raw message predicates", () => {
   it("classifies property changes and narrows their sender type", () => {
@@ -51,6 +64,10 @@ describe("raw message predicates", () => {
     expect(isPropertyChanged(property, { sender: other })).toBe(false);
     expect(
       isPropertyChanged(property, { sender, propertyName: "Model" }),
+    ).toBe(false);
+    expect(isPropertyChanged(property, { sender: undefined })).toBe(false);
+    expect(
+      isPropertyChanged(property, { propertyName: undefined }),
     ).toBe(false);
 
     const allProperties = messages.filter(isPropertyChanged);
@@ -71,6 +88,25 @@ describe("raw message predicates", () => {
         Observable<PropertyChangedMessage<unknown>>
       >
     >(allPropertyStream);
+
+    const namedProperties = messages.filter((message) =>
+      isPropertyChanged(message, { propertyName: "model" }),
+    );
+    expect(namedProperties).toEqual([property]);
+    expectExactType<
+      IsExact<typeof namedProperties, PropertyChangedMessage<unknown>[]>
+    >(namedProperties);
+
+    const emptyConstraintProperties = messages.filter((message) =>
+      isPropertyChanged(message, {}),
+    );
+    expect(emptyConstraintProperties).toEqual([property]);
+    expectExactType<
+      IsExact<
+        typeof emptyConstraintProperties,
+        PropertyChangedMessage<unknown>[]
+      >
+    >(emptyConstraintProperties);
 
     const senderProperties = messages.filter((message) =>
       isPropertyChanged(message, { sender, propertyName: "model" }),
@@ -99,23 +135,25 @@ describe("raw message predicates", () => {
   it("classifies collection changes and narrows their item type", () => {
     const wrongAction: CollectionMutationAction = "remove";
 
-    expect(isCollectionChanged<string>(collection)).toBe(true);
+    expect(isCollectionChanged(collection)).toBe(true);
     expect(
-      isCollectionChanged<string>(collection, {
-        source: sender,
+      isCollectionChanged(collection, {
+        source: collectionSource,
         action: "add",
       }),
     ).toBe(true);
-    expect(isCollectionChanged<string>(property)).toBe(false);
+    expect(isCollectionChanged(property)).toBe(false);
     expect(
-      isCollectionChanged<string>(collection, { source: other }),
+      isCollectionChanged(collection, { source: otherCollectionSource }),
     ).toBe(false);
     expect(
-      isCollectionChanged<string>(collection, {
-        source: sender,
+      isCollectionChanged(collection, {
+        source: collectionSource,
         action: wrongAction,
       }),
     ).toBe(false);
+    expect(isCollectionChanged(collection, { source: undefined })).toBe(false);
+    expect(isCollectionChanged(collection, { action: undefined })).toBe(false);
 
     const allCollections = messages.filter(isCollectionChanged);
     expect(allCollections).toEqual([collection]);
@@ -139,8 +177,8 @@ describe("raw message predicates", () => {
     >(allCollectionStream);
 
     const additions = messages.filter((message) =>
-      isCollectionChanged<string>(message, {
-        source: sender,
+      isCollectionChanged(message, {
+        source: collectionSource,
         action: "add",
       }),
     );
@@ -148,6 +186,28 @@ describe("raw message predicates", () => {
     expectExactType<
       IsExact<typeof additions, CollectionChangedMessage<string>[]>
     >(additions);
+
+    const additionsByAction = messages.filter((message) =>
+      isCollectionChanged(message, { action: "add" }),
+    );
+    expect(additionsByAction).toEqual([collection]);
+    expectExactType<
+      IsExact<
+        typeof additionsByAction,
+        CollectionChangedMessage<unknown>[]
+      >
+    >(additionsByAction);
+
+    const additionsByOpaqueSource = messages.filter((message) =>
+      isCollectionChanged(message, { source: opaqueCollectionSource }),
+    );
+    expect(additionsByOpaqueSource).toEqual([collection]);
+    expectExactType<
+      IsExact<
+        typeof additionsByOpaqueSource,
+        CollectionChangedMessage<unknown>[]
+      >
+    >(additionsByOpaqueSource);
   });
 
   it("classifies construction status changes and narrows the stream", () => {
@@ -167,6 +227,12 @@ describe("raw message predicates", () => {
         sender,
         status: ConstructionStatus.Destructed,
       }),
+    ).toBe(false);
+    expect(
+      isConstructionStatusChanged(status, { sender: undefined }),
+    ).toBe(false);
+    expect(
+      isConstructionStatusChanged(status, { status: undefined }),
     ).toBe(false);
 
     const allStatuses = messages.filter(isConstructionStatusChanged);

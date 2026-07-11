@@ -296,6 +296,12 @@ and `isConstructionStatusChanged` for narrowing mixed raw `IMessage` arrays or
 streams to the corresponding existing concrete message classes. Optional
 constraint objects select the existing sender/source and family-specific fields;
 the unary forms can be passed directly to `Array.filter` or RxJS `filter`.
+Generic sender narrowing requires a supplied sender that is checked by identity;
+generic collection-item narrowing requires a typed
+`ServicedObservableCollection<TItem>` source. Property-only, action-only, and
+opaque-source constraints retain `unknown`. Constraint fields use own-property
+presence, so an explicitly supplied `undefined` value is compared exactly while
+an omitted field is ignored.
 
 These predicates classify existing message objects without changing message
 semantics, delivery, ordering, lifecycle, or payloads. They are TypeScript-only

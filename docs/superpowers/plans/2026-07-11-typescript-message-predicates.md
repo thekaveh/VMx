@@ -44,7 +44,8 @@ function expectType<T>(_value: T): void {}
 const sender = { name: "sender" };
 const other = { name: "other" };
 const property = PropertyChangedMessage.create(sender, "sender", "model");
-const collection = CollectionChangedMessage.forAdd<string>(sender, "item", 0);
+const collectionSource = new ServicedObservableCollection<string>();
+const collection = CollectionChangedMessage.forAdd(collectionSource, "item", 0);
 const status = ConstructionStatusChangedMessage.create(
   sender,
   "sender",
@@ -79,7 +80,10 @@ expectType<Observable<PropertyChangedMessage<typeof sender>>>(propertyStream);
 
 Also pass `isPropertyChanged` directly to RxJS `filter`, subscribe synchronously,
 and assert that the property message is retained. This proves callback index
-arguments cannot be mistaken for constraints.
+arguments cannot be mistaken for constraints. Prove that property-name-only and
+empty constraints retain `PropertyChangedMessage<unknown>`, that a supplied
+`undefined` field is matched exactly, and that an explicit property generic
+without a sender is a compile-time error.
 
 - [ ] **Step 3: Specify collection and construction behavior and types**
 
@@ -87,7 +91,7 @@ Cover wrong source/action/status and add:
 
 ```typescript
 const additions = messages.filter((message) =>
-  isCollectionChanged<string>(message, { source: sender, action: "add" }),
+  isCollectionChanged(message, { source: collectionSource, action: "add" }),
 );
 expectType<CollectionChangedMessage<string>[]>(additions);
 
@@ -104,6 +108,10 @@ expectType<Observable<ConstructionStatusChangedMessage>>(constructed);
 
 For collection and construction messages, add the same direct-callback coverage
 in both Array and RxJS filters, with exact inferred types and runtime contents.
+Prove collection-item inference from `ServicedObservableCollection<string>`,
+`unknown` fallback for action-only and opaque-source constraints, rejection of
+an explicit item generic without a typed source, and exact matching for every
+explicitly supplied `undefined` field.
 
 - [ ] **Step 4: Run the red gates**
 
@@ -143,51 +151,76 @@ ______________________________________________________________________
 - [ ] **Step 1: Implement `isPropertyChanged`**
 
 ```typescript
-export function isPropertyChanged<TSender = unknown>(
+export function isPropertyChanged(
   message: IMessage,
-  constraints?: {
-    readonly sender?: TSender;
-    readonly propertyName?: string;
+): message is PropertyChangedMessage<unknown>;
+
+export function isPropertyChanged<TSender>(
+  message: IMessage,
+  constraints: {
+    readonly sender: TSender;
+    readonly propertyName?: string | undefined;
   },
-): message is PropertyChangedMessage<TSender> {
-  const match = typeof constraints === "object" && constraints !== null
-    ? constraints
-    : undefined;
-  return (
-    message instanceof PropertyChangedMessage &&
-    (match?.sender === undefined || message.sender === match.sender) &&
-    (match?.propertyName === undefined ||
-      message.propertyName === match.propertyName)
-  );
-}
+): message is PropertyChangedMessage<TSender>;
+
+export function isPropertyChanged(
+  message: IMessage,
+  constraints: {
+    readonly propertyName?: string | undefined;
+  },
+): message is PropertyChangedMessage<unknown>;
 ```
+
+The implementation uses own-property presence before strict comparison, so an
+explicitly supplied `undefined` sender or property name is not treated as an
+omitted constraint. The hidden implementation signature tolerates non-object
+callback indices without exposing a numeric overload.
 
 - [ ] **Step 2: Implement collection and construction predicates**
 
 Use the same early-classification/exact-constraint shape:
 
 ```typescript
-export function isCollectionChanged<TItem = unknown>(
+export function isCollectionChanged(
   message: IMessage,
-  constraints?: {
-    readonly source?: object;
-    readonly action?: CollectionMutationAction;
+): message is CollectionChangedMessage<unknown>;
+
+export function isCollectionChanged<TItem>(
+  message: IMessage,
+  constraints: {
+    readonly source: ServicedObservableCollection<TItem>;
+    readonly action?: CollectionMutationAction | undefined;
   },
 ): message is CollectionChangedMessage<TItem>;
 
+export function isCollectionChanged(
+  message: IMessage,
+  constraints: {
+    readonly source?: object | undefined;
+    readonly action?: CollectionMutationAction | undefined;
+  },
+): message is CollectionChangedMessage<unknown>;
+
 export function isConstructionStatusChanged(
   message: IMessage,
-  constraints?: {
-    readonly sender?: object;
-    readonly status?: ConstructionStatus;
+): message is ConstructionStatusChangedMessage;
+
+export function isConstructionStatusChanged(
+  message: IMessage,
+  constraints: {
+    readonly sender?: object | undefined;
+    readonly status?: ConstructionStatus | undefined;
   },
 ): message is ConstructionStatusChangedMessage;
 ```
 
-Add unary overloads for all three predicates so they are structurally compatible
-with direct Array/RxJS filter callbacks. Implementation bodies must tolerate the
-numeric callback index as a runtime-only non-object second argument. Do not add
-factories, exported options types, observable allocation, or error handling.
+Import `ServicedObservableCollection` as a type only. Generic property and
+collection overloads require the runtime value that justifies their narrowing;
+non-generic fallback overloads retain `unknown`. Use own-property presence for
+every optional field. Unary overloads remain structurally compatible with direct
+Array/RxJS filter callbacks, and implementation bodies tolerate numeric callback
+indices as runtime-only non-object arguments. Do not add factories, exported
+options types, observable allocation, or error handling.
 
 - [ ] **Step 3: Export from both public entry points**
 

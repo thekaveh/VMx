@@ -194,13 +194,15 @@ Key exports:
 
 All three predicates accept an `IMessage` and narrow it to an existing concrete
 message type. Each has a unary overload for direct use with `Array.filter` or
-RxJS `filter`, plus an overload with an optional inline constraint object:
+RxJS `filter`, plus inline constraint-object overloads:
 
-| Call signature | Optional exact constraints | Result after a match |
-| -------------- | -------------------------- | -------------------- |
-| `isPropertyChanged<TSender>(message, { sender?, propertyName? }?)` | sender identity and property name | `PropertyChangedMessage<TSender>` |
-| `isCollectionChanged<TItem>(message, { source?, action? }?)` | source identity and `"add"`, `"remove"`, `"replace"`, or `"reset"` | `CollectionChangedMessage<TItem>` |
-| `isConstructionStatusChanged(message, { sender?, status? }?)` | sender identity and `ConstructionStatus` | `ConstructionStatusChangedMessage` |
+| Call signature | Result after a match |
+| -------------- | -------------------- |
+| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>` |
+| `isPropertyChanged(message, { sender, propertyName? })` | `PropertyChangedMessage<TSender>` inferred from the checked sender |
+| `isCollectionChanged(message)` or action/opaque-source constraints | `CollectionChangedMessage<unknown>` |
+| `isCollectionChanged(message, { source: typedCollection, action? })` | `CollectionChangedMessage<TItem>` inferred from `ServicedObservableCollection<TItem>` |
+| `isConstructionStatusChanged(message)` or its sender/status constraints | `ConstructionStatusChangedMessage` |
 
 The unconstrained unary form is the shortest way to classify a whole mixed
 stream:
@@ -211,10 +213,13 @@ import {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
+  ServicedObservableCollection,
 } from "@thekaveh/vmx";
 import { filter } from "rxjs";
 
 interface Note { readonly title: string }
+
+const notes = new ServicedObservableCollection<Note>(hub);
 
 const propertyChanges = hub.messages.pipe(filter(isPropertyChanged));
 
@@ -226,7 +231,7 @@ const modelChanges = hub.messages.pipe(
 
 const addedNotes = hub.messages.pipe(
   filter((message) =>
-    isCollectionChanged<Note>(message, {
+    isCollectionChanged(message, {
       source: notes,
       action: "add",
     }),
@@ -243,9 +248,12 @@ const constructed = hub.messages.pipe(
 );
 ```
 
-Pass the collection item generic explicitly when downstream code needs typed
-`newItems` and `oldItems`; the collection's source object cannot supply that
-type. No cast is required for any predicate.
+Generic types cannot be selected without runtime evidence. A property sender is
+inferred only from a supplied sender constraint. Collection items are inferred
+only from a typed `ServicedObservableCollection<TItem>` source; action-only and
+opaque-source constraints retain `unknown`. Optional fields use own-property
+presence: an explicitly supplied `undefined` value compares exactly, while an
+omitted field disables that constraint. No cast is required for any predicate.
 
 Use raw predicates to classify mixed `IMessage` arrays or streams. If the hub,
 sender, and property are already known, prefer `whenPropertyChanged` for the

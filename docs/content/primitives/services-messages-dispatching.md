@@ -67,12 +67,15 @@ import {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
+  ServicedObservableCollection,
 } from "@thekaveh/vmx";
 import { filter } from "rxjs";
 
 interface Note {
   readonly title: string;
 }
+
+const notes = new ServicedObservableCollection<Note>(hub);
 
 const propertyChanges = hub.messages.pipe(filter(isPropertyChanged));
 
@@ -84,7 +87,7 @@ const modelChanges = hub.messages.pipe(
 
 const addedNotes = hub.messages.pipe(
   filter((message) =>
-    isCollectionChanged<Note>(message, {
+    isCollectionChanged(message, {
       source: notes,
       action: "add",
     }),
@@ -100,6 +103,12 @@ const constructed = hub.messages.pipe(
   ),
 );
 ```
+
+The sender generic is inferred only when a sender constraint is supplied and
+checked. The collection item generic is inferred only from a typed
+`ServicedObservableCollection<TItem>` source; action-only or opaque-source
+constraints retain `unknown`. An explicitly present `undefined` constraint is
+compared exactly, while an omitted field is ignored.
 
 Use `whenPropertyChanged(hub, sender, propertyName)` when those three inputs are
 already known and the subscriber needs the matching message. Use

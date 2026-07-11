@@ -21,22 +21,29 @@ filter overloads; it is not missing language-neutral message behavior.
 
 1. TypeScript exports three runner-agnostic predicates from the message barrel
    and package root:
-   - `isPropertyChanged(message, { sender?, propertyName? }?)`
-   - `isCollectionChanged(message, { source?, action? }?)`
-   - `isConstructionStatusChanged(message, { sender?, status? }?)`
+   - `isPropertyChanged(message)` and constrained sender/property forms
+   - `isCollectionChanged(message)` and constrained source/action forms
+   - `isConstructionStatusChanged(message)` and a sender/status form
 1. Each predicate first classifies the corresponding existing concrete message
    with `instanceof`. Every supplied constraint must then match: sender and
    source use strict object identity, while property name, collection action,
    and construction status use exact field equality. A different message family
-   or any mismatched constraint returns `false`.
+   or any mismatched constraint returns `false`. Constraint presence is based on
+   own properties, so an explicitly supplied `undefined` value compares exactly
+   instead of behaving like omission.
 1. Unary overloads make the predicates valid direct callbacks for both
    `Array.filter` and RxJS `filter`. Their implementations treat the numeric
    callback index passed as a second runtime argument as absent constraints; no
    public numeric-argument overload is exposed.
-1. The property predicate infers its generic sender from a constrained sender.
-   The collection predicate supports an explicit item generic because the
-   message's source cannot carry that item type. Unconstrained predicates narrow
-   generic payloads to `unknown`.
+1. The property predicate infers its generic sender only from a required sender
+   constraint that is checked at runtime. Property-name-only and empty
+   constraints retain `PropertyChangedMessage<unknown>`; callers cannot select a
+   sender generic without supplying its checked value.
+1. The collection predicate infers its item generic only from a required
+   `ServicedObservableCollection<TItem>` source, imported as a type only and
+   checked by identity at runtime. Action-only constraints and sources typed as
+   plain `object` retain `CollectionChangedMessage<unknown>`; callers cannot
+   select an item generic without a typed collection source.
 1. These functions only classify existing message objects. They do not mutate a
    message, subscribe to a hub, allocate an observable, catch errors, or change
    publication, ordering, lifecycle, sender, or payload semantics.
@@ -51,7 +58,7 @@ filter overloads; it is not missing language-neutral message behavior.
 ## 3. Consequences
 
 - TypeScript consumers can replace repeated local classifiers while preserving
-  useful type narrowing and exact runtime matching.
+  useful, evidence-backed type narrowing and exact runtime matching.
 - The package adds no dependency and no RxJS-specific abstraction.
 - All five flavors remain at 342 library conformance IDs and five `THEME-00x`
   scenarios (347 total).
