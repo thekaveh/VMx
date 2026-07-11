@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows.Input;
 using VMx.Capabilities;
 using VMx.Lifecycle;
+using VMx.Services;
 
 namespace VMx.Components;
 
@@ -32,6 +33,9 @@ public interface IComponentVM
 
     /// <summary>Current lifecycle state.</summary>
     ConstructionStatus Status { get; }
+
+    /// <summary>Injected shared message hub; the VM does not own its lifetime.</summary>
+    IMessageHub Hub { get; }
 
     // ── Built-in commands ───────────────────────────────────────────────────
 

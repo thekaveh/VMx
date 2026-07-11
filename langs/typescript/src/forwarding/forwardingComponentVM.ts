@@ -10,6 +10,7 @@ import type { Observable } from "rxjs";
 import type { ConstructionStatus } from "../lifecycle/status.js";
 import type { IComponentVMOf, ViewModelType } from "../components/types.js";
 import type { ICommand } from "../commands/types.js";
+import type { IMessageHub } from "../services/messageHub.js";
 
 export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
   protected readonly _wrapped: IComponentVMOf<M>;
@@ -24,6 +25,7 @@ export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
   get isCurrent(): boolean { return this._wrapped.isCurrent; }
   get isConstructed(): boolean { return this._wrapped.isConstructed; }
   get status(): ConstructionStatus { return this._wrapped.status; }
+  get hub(): IMessageHub { return this._wrapped.hub; }
   get model(): M { return this._wrapped.model; }
   // Delegate the model setter too (spec/09-forwarding.md §1 — the decorator
   // forwards every member; the modeled component's `model` is settable). Matches

@@ -24,6 +24,7 @@ mod conformance {
     mod notifications;
     mod null_services;
     mod observable_list_replace_all;
+    mod owned_resources;
     mod property_change;
     mod search_filter;
     mod threading;

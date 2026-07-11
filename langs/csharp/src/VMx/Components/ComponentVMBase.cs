@@ -64,6 +64,7 @@ internal static class ComponentVMExtensions
 public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 {
     private readonly IMessageHub _hub;
+    private readonly List<IDisposable> _ownedResources = [];
 
     /// <summary>
     /// The dispatcher supplied at construction. <c>private protected</c> so
@@ -142,6 +143,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     /// <inheritdoc/>
     public string Hint { get; }
+
+    /// <inheritdoc/>
+    public IMessageHub Hub => _hub;
 
     /// <inheritdoc/>
     public abstract ViewModelType Type { get; }
@@ -624,7 +628,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // status reaches Disposed and *before* the status trigger is
         // completed, so a subclass override can still publish a final
         // status value or touch hub-published subjects during cleanup.
-        OnDispose();
+        try
+        {
+            OnDispose();
+        }
+        finally
+        {
+            DisposeOwnedResources();
+        }
 
         // Tear down the status trigger under _gate so the flag flip and the
         // Subject disposal cannot interleave with an in-flight background
@@ -751,6 +762,45 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     protected void RaisePropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
-    /// <summary>Access to the hub for subclasses (modeled base needs it).</summary>
-    protected IMessageHub Hub => _hub;
+    /// <summary>Registers a disposable for terminal VM cleanup and returns it.</summary>
+    protected T Own<T>(T resource) where T : IDisposable
+    {
+        bool disposeNow;
+        lock (_gate)
+        {
+            disposeNow = _status == ConstructionStatus.Disposed;
+            if (!disposeNow)
+                _ownedResources.Add(resource);
+        }
+        if (disposeNow)
+            TryDispose(resource);
+        return resource;
+    }
+
+    /// <summary>Registers a cleanup action for terminal VM cleanup.</summary>
+    protected IDisposable Own(Action cleanup) => Own(Disposable.Create(cleanup));
+
+    private void DisposeOwnedResources()
+    {
+        IDisposable[] resources;
+        lock (_gate)
+        {
+            resources = [.. _ownedResources];
+            _ownedResources.Clear();
+        }
+        for (var index = resources.Length - 1; index >= 0; index--)
+            TryDispose(resources[index]);
+    }
+
+    private static void TryDispose(IDisposable resource)
+    {
+        try
+        {
+            resource.Dispose();
+        }
+        catch
+        {
+            // Terminal cleanup is best-effort; one failure must not block the rest.
+        }
+    }
 }

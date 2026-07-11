@@ -84,14 +84,46 @@ follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
 - `OnDestruct` — invoked during `destruct()` (and the destruct phase of
   `reconstruct()`). Release the per-construct subscriptions acquired in
   `OnConstruct`.
-- `OnDispose` — invoked once during `dispose()`. Release **long-lived**
-  resources acquired in the constructor (hub subscriptions, injected services).
+- `OnDispose` — invoked once during `dispose()`. Perform subclass-specific
+  terminal work. Long-lived resources SHOULD use the owned-resource helper in
+  §2.3 when their cleanup fits an accepted resource shape.
 
-The hooks express the per-construct vs. long-lived cleanup split as method
-overrides rather than a second disposable bag (ADR-0041). The container VMs of
-§6 and §7 use them to drive their child construct/destruct/dispose cascades.
+The hooks preserve the per-construct vs. long-lived cleanup split without two
+public bags (ADR-0041, refined by ADR-0090). The container VMs of §6 and §7 use
+them to drive their child construct/destruct/dispose cascades.
 
-### 2.3 Transition atomicity and the concurrency guard
+### 2.3 Owned resources
+
+`ComponentVMBase` exposes one flavor-idiomatic registration helper for resources
+owned until terminal VM disposal: `Own` in C#, `_own` in Python, and `own` in
+TypeScript, Swift, and Rust. C#, Python, and TypeScript keep the helper protected;
+Swift and Rust expose the language-required public analogue because neither has
+a protected member model that maps to the common subclass contract.
+
+Accepted resource shapes are explicit:
+
+| Flavor     | Accepted shape                                                  |
+| ---------- | --------------------------------------------------------------- |
+| C#         | `IDisposable` or `Action`                                       |
+| Python     | zero-argument callable or object with `dispose()`               |
+| TypeScript | zero-argument function, `{ dispose() }`, or `{ unsubscribe() }` |
+| Swift      | throwing/non-throwing closure or Combine `Cancellable`          |
+| Rust       | `FnOnce() + Send + 'static`                                     |
+
+Registration returns the resource where the language benefits from inline
+assignment (C#, Python, TypeScript); Swift and Rust return no value. Resources
+are released exactly once in reverse registration (LIFO) order, after the
+subclass `OnDispose` hook and before the base command/stream teardown. Each
+cleanup failure is swallowed independently so later resources still run.
+Registration that races with or follows disposal is serialized by the lifecycle
+guard: it cleans the resource immediately exactly once instead of retaining or
+rejecting it. `destruct()` and `reconstruct()` do not release owned resources.
+Per-construct resources still belong in `OnConstruct` / `OnDestruct`.
+
+The injected message hub is shared infrastructure, not an owned resource.
+Disposing a VM MUST NOT dispose its hub.
+
+### 2.4 Transition atomicity and the concurrency guard
 
 Every status transition — the `Status` read-modify-write, the
 `ConstructionStatusChangedMessage` publish, and the internal command-trigger
@@ -112,7 +144,7 @@ same primitive together with an in-flight guard: a second `construct()` /
 than rely on an unsynchronized `Status` read. The enforcement primitive is
 named normatively so flavors do not detect re-entrancy with a racy status read.
 
-### 2.4 Transactional hook failure (rollback)
+### 2.5 Transactional hook failure (rollback)
 
 If `OnConstruct` or `OnDestruct` raises, the transition is **transactional**: the
 VM rolls `Status` back to the prior settled state before the exception
@@ -126,7 +158,7 @@ propagates, so the VM is left recoverable rather than wedged in a transient
   `Constructed`. Subscribers observe `Destructing` then `Constructed`.
 
 The rollback is itself a status change: it publishes its own
-`ConstructionStatusChangedMessage` (invariant 4), runs under the §2.3 per-VM
+`ConstructionStatusChangedMessage` (invariant 4), runs under the §2.4 per-VM
 guard, and clears the in-flight guard. In the synchronous form the original
 exception is then re-raised to the caller. In the background form the rollback
 emission is marshalled onto `IDispatcher.Foreground` (`11-threading.md §4`); the
@@ -150,18 +182,18 @@ These hold for every VM at every point in its lifetime:
    distinguishing it from the lifecycle operations, which raise (VMX-006).
 1. Every `Status` change publishes exactly one `ConstructionStatusChangedMessage`
    on the VM's message hub before the operation returns (synchronous) or before the
-   awaiter resumes (asynchronous). A transactional rollback (§2.4) is itself a
+   awaiter resumes (asynchronous). A transactional rollback (§2.5) is itself a
    status change and so publishes its own message.
 1. A VM in `Constructing` or `Destructing` MUST NOT have its operation re-invoked
    concurrently. Implementations MUST raise on the second invocation, detected via
-   the per-VM guard of §2.3 (not an unsynchronized `Status` read).
+   the per-VM guard of §2.4 (not an unsynchronized `Status` read).
 1. Each status transition is atomic with respect to other lifecycle operations on
-   the same VM (§2.3). A transition racing `dispose()` observes the terminal
+   the same VM (§2.4). A transition racing `dispose()` observes the terminal
    `Disposed` state under the guard and aborts — it never resurrects the VM nor
    publishes a post-dispose message.
 1. If `OnConstruct` / `OnDestruct` raises, `Status` is rolled back to the prior
    settled state (`Destructed` for a failed construct, `Constructed` for a failed
-   destruct) before the exception propagates (§2.4); the VM never remains in a
+   destruct) before the exception propagates (§2.5); the VM never remains in a
    transient state after a failed hook.
 
 ## 4. Idempotency
@@ -225,13 +257,17 @@ directly.
 - idempotency from `Constructed`/`Destructed`/`Disposed` states
 - the `IsConstructed == Status == Constructed` invariant
 - concurrent re-invocation during `Constructing` / `Destructing` raises (enforced by the
-  §2.3 per-VM guard)
+  §2.4 per-VM guard)
 - the full transition matrix (table-driven from `fixtures/lifecycle-transitions.json`)
 - dispose-from-Disposed emits no message
 - dispose cascade (parent disposes children depth-first)
 - transactional rollback: a throwing `OnConstruct`/`OnDestruct` hook rolls `Status` back to
-  the prior settled state and leaves the VM recoverable (`LIFE-014`, §2.4)
+  the prior settled state and leaves the VM recoverable (`LIFE-014`, §2.5)
 
 `DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
 dispose path more than once produces one observable terminal transition and
 one owned cleanup per node. See `01-concepts.md` §4 and ADR-0084.
+
+`DISP-007` through `DISP-013` cover the owned-resource order, idempotency,
+failure isolation, post-dispose registration, reconstruct lifetime, public hub
+visibility, and shared-hub non-ownership contract from §2.3.

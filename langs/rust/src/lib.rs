@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.9.0";
+pub const MIN_SPEC_VERSION: &str = "3.10.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -588,6 +588,7 @@ pub trait TreeNode: VmNode {
 }
 
 type Hook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
+type OwnedCleanup = Box<dyn FnOnce() + Send + 'static>;
 type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 
 #[derive(Clone)]
@@ -608,6 +609,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     on_construct: Option<Hook>,
     on_destruct: Option<Hook>,
     on_dispose: Option<Hook>,
+    owned_cleanups: Vec<OwnedCleanup>,
     selected: bool,
     expanded: bool,
 }
@@ -628,6 +630,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 on_construct: None,
                 on_destruct: None,
                 on_dispose: None,
+                owned_cleanups: Vec::new(),
                 selected: false,
                 expanded: false,
             })),
@@ -720,6 +723,9 @@ impl<D: Dispatcher> ComponentCore<D> {
         ));
 
         let hook_result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+        if operation == LifecycleOperation::Dispose {
+            self.dispose_owned();
+        }
         if let Err(error) = hook_result {
             let rollback = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Destructed,
@@ -755,6 +761,38 @@ impl<D: Dispatcher> ComponentCore<D> {
             }));
         }
         Ok(())
+    }
+
+    fn hub(&self) -> MessageHub {
+        lock(&self.inner).hub.clone()
+    }
+
+    fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let cleanup = {
+            let mut inner = lock(&self.inner);
+            if inner.status == ConstructionStatus::Disposed {
+                Some(Box::new(cleanup) as OwnedCleanup)
+            } else {
+                inner.owned_cleanups.push(Box::new(cleanup));
+                None
+            }
+        };
+        if let Some(cleanup) = cleanup {
+            let _ = catch_unwind(AssertUnwindSafe(cleanup));
+        }
+    }
+
+    fn dispose_owned(&self) {
+        let resources = {
+            let mut inner = lock(&self.inner);
+            std::mem::take(&mut inner.owned_cleanups)
+        };
+        for cleanup in resources.into_iter().rev() {
+            let _ = catch_unwind(AssertUnwindSafe(cleanup));
+        }
     }
 
     fn set_parent_id(&self, parent_id: Option<usize>) {
@@ -934,6 +972,17 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.core.property_changed_stream()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.core.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
     }
@@ -971,6 +1020,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     {
         self.core
             .set_hook(LifecycleOperation::Destruct, Arc::new(Mutex::new(hook)));
+    }
+
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Dispose, Arc::new(Mutex::new(hook)));
     }
 
     pub fn construct(&self) -> VmxResult<()> {
@@ -1125,6 +1182,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
 
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.inner.property_changed()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.inner.hub()
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
@@ -2288,6 +2349,17 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core.property_changed_stream()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.core.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
     }
@@ -2680,6 +2752,10 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         }
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.source.hub()
+    }
+
     pub fn scored<F>(source: CompositeVm<T, D>, scorer: F) -> Self
     where
         F: Fn(&T) -> Option<i32> + Send + Sync + 'static,
@@ -2994,6 +3070,17 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.property_changed()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.inner.hub()
+    }
+
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.inner.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
     }
@@ -3232,6 +3319,17 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.core.own(cleanup);
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
@@ -4869,6 +4967,13 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         self.hub.clone()
     }
 
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.component.own(cleanup);
+    }
+
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.component.property_changed()
     }
@@ -5766,6 +5871,10 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         self.core.property_changed_stream()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
     }
@@ -5881,6 +5990,10 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
 
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
@@ -6016,6 +6129,10 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         self.core.property_changed_stream()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
     }
@@ -6073,6 +6190,10 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4
 
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
@@ -6135,6 +6256,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
         self.core.property_changed_stream()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
+    pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
+        self.core.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
     }
@@ -6194,6 +6323,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
 
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.core.hub()
+    }
+
+    pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
+        self.core.own(cleanup);
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
@@ -6284,6 +6421,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
         self.inner.property_changed()
     }
 
+    pub fn hub(&self) -> MessageHub {
+        self.inner.hub()
+    }
+
+    pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
+        self.inner.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
     }
@@ -6347,8 +6492,24 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.destruct()
     }
 
+    pub fn dispose(&self) -> VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.inner.property_changed()
+    }
+
+    pub fn hub(&self) -> MessageHub {
+        self.inner.hub()
+    }
+
+    pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
+        self.inner.own(cleanup);
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {

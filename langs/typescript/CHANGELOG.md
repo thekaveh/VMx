@@ -4,6 +4,17 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.10.0] — 2026-07-10
+
+Implements `spec-v3.10.0` and keeps TypeScript at full library parity: 339/339
+conformance IDs covered.
+
+### Added
+
+- `IComponentVM.hub` exposes the injected shared hub read-only.
+- `ComponentVMBase.own(...)` registers functions, disposables, or subscriptions
+  for exactly-once LIFO terminal cleanup (`DISP-007..013`).
+
 ## [3.9.0] — 2026-07-10
 
 Implements `spec-v3.9.0` and keeps TypeScript at full library parity: 332/332
