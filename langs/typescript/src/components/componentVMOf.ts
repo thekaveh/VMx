@@ -56,6 +56,11 @@ export class ComponentVMOf<M> extends ComponentVMBase {
     return this.#modeledHint;
   }
 
+  /** Republish the retained model without running assignment work. */
+  republishModel(): void {
+    this._notifyPropertyChanged("model");
+  }
+
   protected _setModel(value: M): void {
     if (this.status === ConstructionStatus.Disposed) return;
     if (this.#model === value) return;

@@ -125,6 +125,8 @@ class ComponentVMOfProto(ComponentVMProto, Protocol, Generic[M]):
     @property
     def modeled_hint(self) -> str: ...
 
+    def republish_model(self) -> None: ...
+
 
 @runtime_checkable
 class ReadonlyComponentVMOfProto(ComponentVMProto, Protocol, Generic[M_co]):
@@ -139,3 +141,5 @@ class ReadonlyComponentVMOfProto(ComponentVMProto, Protocol, Generic[M_co]):
 
     @property
     def modeled_hint(self) -> str: ...
+
+    def republish_model(self) -> None: ...

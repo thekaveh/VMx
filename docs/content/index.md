@@ -23,7 +23,7 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
 - Every flavor keeps the same conceptual shape while following native naming conventions.
-- The conformance catalog keeps 341 library IDs aligned across all five
+- The conformance catalog keeps 342 library IDs aligned across all five
   full-parity source flavors, plus 5 scenario IDs for flagship examples.
 
 ## Start Here

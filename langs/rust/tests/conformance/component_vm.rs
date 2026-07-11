@@ -1,7 +1,8 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use vmx::{
-    Command, ComponentVm, ConstructionStatus, Message, MessageHub, NullDispatcher,
-    ReadonlyComponentVm,
+    Command, ComponentVm, ConstructionStatus, ForwardingComponentVm, Message, MessageHub,
+    NullDispatcher, NullMessageHub, ReadonlyComponentVm,
 };
 
 /// CVM-001 — Construct emits ConstructionStatusChangedMessage(Constructed)
@@ -214,4 +215,216 @@ fn notification_helper_is_inert_after_disposal() {
 
     assert_eq!(hub.history().len(), hub_before);
     assert!(local_names.lock().unwrap().is_empty());
+}
+
+/// CVM-010 — Modeled components explicitly republish the retained model
+#[test]
+fn modeled_components_explicitly_republish_the_retained_model() {
+    #[derive(Clone)]
+    struct CountingModel {
+        value: &'static str,
+        equality_calls: Arc<AtomicUsize>,
+    }
+
+    impl PartialEq for CountingModel {
+        fn eq(&self, other: &Self) -> bool {
+            self.equality_calls.fetch_add(1, Ordering::SeqCst);
+            self.value == other.value
+        }
+    }
+
+    let equality_calls = Arc::new(AtomicUsize::new(0));
+    let model = Arc::new(CountingModel {
+        value: "model",
+        equality_calls: equality_calls.clone(),
+    });
+    let hinter_calls = Arc::new(AtomicUsize::new(0));
+    let hinter_calls_for_vm = hinter_calls.clone();
+    let hub = MessageHub::new();
+    let vm = ComponentVm::with_model(
+        "writable",
+        model.clone(),
+        hub.clone(),
+        NullDispatcher::new(),
+    )
+    .with_model_hint(move |value| {
+        hinter_calls_for_vm.fetch_add(1, Ordering::SeqCst);
+        Some(format!("hint:{}", value.value))
+    });
+    let hint_before = vm.hint();
+    let hinter_calls_before = hinter_calls.load(Ordering::SeqCst);
+    let equality_calls_before_republish = equality_calls.load(Ordering::SeqCst);
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let hub_trace = trace.clone();
+    let vm_id = vm.id();
+    let _hub_subscription = hub.subscribe(move |message| {
+        if matches!(message, Message::PropertyChanged(change) if change.property_name == "model" && change.sender_id == vm_id)
+        {
+            hub_trace.lock().unwrap().push("hub:model");
+        }
+    });
+    let local_trace = trace.clone();
+    let _local_subscription = vm.property_changed().subscribe(move |name| {
+        if name == "model" {
+            local_trace.lock().unwrap().push("local:model");
+        }
+    });
+
+    vm.republish_model();
+
+    assert!(Arc::ptr_eq(&vm.model(), &model));
+    assert_eq!(hinter_calls.load(Ordering::SeqCst), hinter_calls_before);
+    assert_eq!(
+        equality_calls.load(Ordering::SeqCst),
+        equality_calls_before_republish
+    );
+    assert_eq!(vm.hint(), hint_before);
+    assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
+
+    trace.lock().unwrap().clear();
+    vm.set_model(model.clone());
+    assert!(trace.lock().unwrap().is_empty());
+
+    let replacement = Arc::new(CountingModel {
+        value: "replacement",
+        equality_calls: equality_calls.clone(),
+    });
+    trace.lock().unwrap().clear();
+    vm.set_model(replacement.clone());
+
+    assert!(Arc::ptr_eq(&vm.model(), &replacement));
+    assert_eq!(vm.hint().as_deref(), Some("hint:replacement"));
+    assert!(hinter_calls.load(Ordering::SeqCst) > hinter_calls_before);
+    assert!(equality_calls.load(Ordering::SeqCst) > equality_calls_before_republish);
+    assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
+
+    let readonly_hub = MessageHub::new();
+    let readonly_vm = ReadonlyComponentVm::new(
+        "readonly",
+        model.clone(),
+        readonly_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let readonly_local = Arc::new(Mutex::new(Vec::new()));
+    let readonly_local_for_subscription = readonly_local.clone();
+    let _readonly_subscription = readonly_vm.property_changed().subscribe(move |name| {
+        readonly_local_for_subscription
+            .lock()
+            .unwrap()
+            .push(name.to_string());
+    });
+
+    readonly_vm.republish_model();
+
+    assert!(Arc::ptr_eq(&readonly_vm.model(), &model));
+    assert_eq!(
+        readonly_hub
+            .history()
+            .iter()
+            .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name == "model"))
+            .count(),
+        1
+    );
+    assert_eq!(*readonly_local.lock().unwrap(), vec!["model"]);
+
+    let wrapped_hub = MessageHub::new();
+    let wrapped = ComponentVm::with_model(
+        "wrapped",
+        model.clone(),
+        wrapped_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let forwarding = ForwardingComponentVm::new(wrapped.clone());
+    let forwarded_local = Arc::new(Mutex::new(Vec::new()));
+    let forwarded_local_for_subscription = forwarded_local.clone();
+    let _forwarded_subscription = forwarding.property_changed().subscribe(move |name| {
+        forwarded_local_for_subscription
+            .lock()
+            .unwrap()
+            .push(name.to_string());
+    });
+
+    forwarding.republish_model();
+
+    assert!(wrapped_hub.history().iter().any(
+        |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "model" && change.sender_id == wrapped.id())
+    ));
+    assert_eq!(*forwarded_local.lock().unwrap(), vec!["model"]);
+
+    let null_vm = ComponentVm::with_model(
+        "null",
+        model.clone(),
+        NullMessageHub::hub(),
+        NullDispatcher::new(),
+    );
+    let null_local = Arc::new(Mutex::new(Vec::new()));
+    let null_local_for_subscription = null_local.clone();
+    let _null_subscription = null_vm.property_changed().subscribe(move |name| {
+        null_local_for_subscription
+            .lock()
+            .unwrap()
+            .push(name.to_string());
+    });
+
+    null_vm.republish_model();
+
+    assert_eq!(*null_local.lock().unwrap(), vec!["model"]);
+
+    let disposed_hub = MessageHub::new();
+    let disposed_vm = ComponentVm::with_model(
+        "disposed",
+        model.clone(),
+        disposed_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let disposed_local = Arc::new(Mutex::new(Vec::new()));
+    let disposed_local_for_subscription = disposed_local.clone();
+    let _disposed_subscription = disposed_vm.property_changed().subscribe(move |name| {
+        disposed_local_for_subscription
+            .lock()
+            .unwrap()
+            .push(name.to_string());
+    });
+    disposed_vm.dispose().unwrap();
+    let disposed_history_before = disposed_hub.history().len();
+
+    disposed_vm.republish_model();
+
+    assert_eq!(disposed_hub.history().len(), disposed_history_before);
+    assert!(disposed_local.lock().unwrap().is_empty());
+
+    let reentrant_hub = MessageHub::new();
+    let reentrant_vm = ComponentVm::with_model(
+        "reentrant",
+        model,
+        reentrant_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let reentered = Arc::new(AtomicBool::new(false));
+    let reentrant_trace = Arc::new(Mutex::new(Vec::new()));
+    let hub_trace = reentrant_trace.clone();
+    let reentered_for_hub = reentered.clone();
+    let vm_for_hub = reentrant_vm.clone();
+    let _reentrant_hub_subscription = reentrant_hub.subscribe(move |message| {
+        if !matches!(message, Message::PropertyChanged(change) if change.property_name == "model") {
+            return;
+        }
+        hub_trace.lock().unwrap().push("hub:model");
+        if !reentered_for_hub.swap(true, Ordering::SeqCst) {
+            vm_for_hub.republish_model();
+        }
+    });
+    let local_trace = reentrant_trace.clone();
+    let _reentrant_local_subscription = reentrant_vm.property_changed().subscribe(move |name| {
+        if name == "model" {
+            local_trace.lock().unwrap().push("local:model");
+        }
+    });
+
+    reentrant_vm.republish_model();
+
+    assert_eq!(
+        *reentrant_trace.lock().unwrap(),
+        vec!["hub:model", "local:model", "hub:model", "local:model"]
+    );
 }

@@ -22,4 +22,10 @@ public interface IComponentVM<M> : IComponentVM
     /// Recomputed (and messaged) whenever <see cref="Model"/> changes.
     /// </summary>
     string ModeledHint { get; }
+
+    /// <summary>
+    /// Republishes the retained model without assigning it, recomputing
+    /// <see cref="ModeledHint"/>, or invoking the model-changed callback.
+    /// </summary>
+    void RepublishModel();
 }

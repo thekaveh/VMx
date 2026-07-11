@@ -10,6 +10,7 @@ import {
   PropertyChangedMessage,
   CompositeVM,
   ComponentVMBase,
+  ForwardingComponentVM,
   ViewModelType,
 } from "../../src/index.js";
 
@@ -290,6 +291,164 @@ describe("CVM-009", () => {
 
     expect(hubNames).toEqual([]);
     expect(localNames).toEqual([]);
+  });
+});
+
+describe("CVM-010", () => {
+  it("explicitly republishes the retained model across modeled component variants", () => {
+    const model = { value: 7 };
+    let hinterCalls = 0;
+    let callbackCalls = 0;
+    const hub = makeHub();
+    const vm = ComponentVMOf.builder<typeof model>()
+      .name("writable")
+      .model(model)
+      .modeledHinter((value) => {
+        hinterCalls += 1;
+        return `hint:${String(value.value)}`;
+      })
+      .onModelChanged(() => {
+        callbackCalls += 1;
+      })
+      .services(hub, makeDisp())
+      .build();
+    const hint = vm.modeledHint;
+    const hinterCallsAfterBuild = hinterCalls;
+    const trace: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (
+        message instanceof PropertyChangedMessage &&
+        message.propertyName === "model" &&
+        message.sender === vm
+      ) {
+        trace.push("hub:model");
+      }
+    });
+    vm.propertyChanged.subscribe((name) => {
+      if (name === "model") trace.push("local:model");
+    });
+
+    vm.republishModel();
+
+    expect(vm.model).toBe(model);
+    expect(vm.modeledHint).toBe(hint);
+    expect(hinterCalls).toBe(hinterCallsAfterBuild);
+    expect(callbackCalls).toBe(0);
+    expect(trace).toEqual(["hub:model", "local:model"]);
+
+    trace.length = 0;
+    vm.model = model;
+    expect(trace).toEqual([]);
+
+    const replacement = { value: 8 };
+    trace.length = 0;
+    vm.model = replacement;
+
+    expect(vm.model).toBe(replacement);
+    expect(vm.modeledHint).toBe("hint:8");
+    expect(hinterCalls).toBe(hinterCallsAfterBuild + 1);
+    expect(callbackCalls).toBe(1);
+    expect(trace).toEqual(["hub:model", "local:model"]);
+
+    const readonlyHub = makeHub();
+    const readonlyVm = ReadonlyComponentVMOf.builder<typeof model>()
+      .name("readonly")
+      .model(model)
+      .services(readonlyHub, makeDisp())
+      .build();
+    const readonlyTrace: string[] = [];
+    readonlyHub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+        readonlyTrace.push("hub:model");
+      }
+    });
+    readonlyVm.propertyChanged.subscribe((name) => {
+      if (name === "model") readonlyTrace.push("local:model");
+    });
+
+    readonlyVm.republishModel();
+
+    expect(readonlyVm.model).toBe(model);
+    expect(readonlyTrace).toEqual(["hub:model", "local:model"]);
+
+    const wrappedHub = makeHub();
+    const wrapped = ComponentVMOf.builder<typeof model>()
+      .name("wrapped")
+      .model(model)
+      .services(wrappedHub, makeDisp())
+      .build();
+    const forwarding = new ForwardingComponentVM(wrapped);
+    const forwardedSenders: unknown[] = [];
+    const forwardedLocal: string[] = [];
+    wrappedHub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+        forwardedSenders.push(message.sender);
+      }
+    });
+    forwarding.propertyChanged.subscribe((name) => forwardedLocal.push(name));
+
+    forwarding.republishModel();
+
+    expect(forwardedSenders).toEqual([wrapped]);
+    expect(forwardedLocal).toEqual(["model"]);
+
+    const nullVm = ComponentVMOf.builder<typeof model>()
+      .name("null")
+      .model(model)
+      .withNullServices()
+      .build();
+    const nullLocal: string[] = [];
+    nullVm.propertyChanged.subscribe((name) => nullLocal.push(name));
+
+    nullVm.republishModel();
+
+    expect(nullLocal).toEqual(["model"]);
+
+    const disposedHub = makeHub();
+    const disposedVm = ComponentVMOf.builder<typeof model>()
+      .name("disposed")
+      .model(model)
+      .services(disposedHub, makeDisp())
+      .build();
+    const disposedHubNames: string[] = [];
+    const disposedLocal: string[] = [];
+    disposedHub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage) {
+        disposedHubNames.push(message.propertyName);
+      }
+    });
+    disposedVm.propertyChanged.subscribe((name) => disposedLocal.push(name));
+    disposedVm.dispose();
+    disposedHubNames.length = 0;
+    disposedLocal.length = 0;
+
+    disposedVm.republishModel();
+
+    expect(disposedHubNames).toEqual([]);
+    expect(disposedLocal).toEqual([]);
+
+    const reentrantHub = makeHub();
+    const reentrantVm = ComponentVMOf.builder<typeof model>()
+      .name("reentrant")
+      .model(model)
+      .services(reentrantHub, makeDisp())
+      .build();
+    let reentered = false;
+    const reentrantTrace: string[] = [];
+    reentrantHub.messages.subscribe((message) => {
+      if (!(message instanceof PropertyChangedMessage) || message.propertyName !== "model") return;
+      reentrantTrace.push("hub:model");
+      if (reentered) return;
+      reentered = true;
+      reentrantVm.republishModel();
+    });
+    reentrantVm.propertyChanged.subscribe((name) => {
+      if (name === "model") reentrantTrace.push("local:model");
+    });
+
+    reentrantVm.republishModel();
+
+    expect(reentrantTrace).toEqual(["hub:model", "local:model", "hub:model", "local:model"]);
   });
 });
 

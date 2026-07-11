@@ -153,6 +153,10 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
         """Derived hint computed from the current model via modeled_hinter."""
         return self._modeled_hint
 
+    def republish_model(self) -> None:
+        """Republish the retained model without running assignment work."""
+        self._notify_property_changed("model")
+
     def _set_model(self, value: M) -> None:
         """Apply terminal- and equality-guarded update per spec/05-component-vm.md."""
         if self._is_disposed():

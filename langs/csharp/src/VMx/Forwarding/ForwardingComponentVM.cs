@@ -60,6 +60,9 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IDisposable
     /// <inheritdoc/>
     public virtual string ModeledHint => _wrapped.ModeledHint;
 
+    /// <inheritdoc/>
+    public virtual void RepublishModel() => _wrapped.RepublishModel();
+
     // ── IComponentVM: commands ─────────────────────────────────────────────
 
     /// <inheritdoc/>
