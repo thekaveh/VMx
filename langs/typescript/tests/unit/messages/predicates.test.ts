@@ -50,8 +50,27 @@ const messages: IMessage[] = [property, collection, status];
 
 // @ts-expect-error A property generic requires a checked sender constraint.
 isPropertyChanged<typeof sender>(property, { propertyName: "model" });
-// @ts-expect-error A collection item generic requires a typed collection source.
+// @ts-expect-error Collection predicates never accept an item generic.
 isCollectionChanged<string>(collection, { action: "add" });
+
+function _assertForgedCollectionPayloadRemainsUnknown(): void {
+  const typedSource = new ServicedObservableCollection<string>();
+  const forgedMessage: IMessage = CollectionChangedMessage.forAdd(
+    typedSource,
+    42,
+    0,
+  );
+
+  if (
+    isCollectionChanged(forgedMessage, { source: typedSource }) &&
+    forgedMessage.newItems[0] !== undefined
+  ) {
+    /* eslint-disable @typescript-eslint/no-unsafe-call -- the intentionally unknown payload must reject this string method */
+    // @ts-expect-error Source identity cannot prove the public message payload type.
+    forgedMessage.newItems[0].toUpperCase();
+    /* eslint-enable @typescript-eslint/no-unsafe-call */
+  }
+}
 
 describe("raw message predicates", () => {
   it("classifies property changes and narrows their sender type", () => {
@@ -132,7 +151,7 @@ describe("raw message predicates", () => {
     >(senderPropertyStream);
   });
 
-  it("classifies collection changes and narrows their item type", () => {
+  it("classifies collection changes without inferring their item type", () => {
     const wrongAction: CollectionMutationAction = "remove";
 
     expect(isCollectionChanged(collection)).toBe(true);
@@ -184,7 +203,7 @@ describe("raw message predicates", () => {
     );
     expect(additions).toEqual([collection]);
     expectExactType<
-      IsExact<typeof additions, CollectionChangedMessage<string>[]>
+      IsExact<typeof additions, CollectionChangedMessage<unknown>[]>
     >(additions);
 
     const additionsByAction = messages.filter((message) =>

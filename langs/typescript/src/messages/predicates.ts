@@ -1,5 +1,4 @@
 import { ConstructionStatus } from "../lifecycle/status.js";
-import type { ServicedObservableCollection } from "../collections/servicedObservableCollection.js";
 import {
   CollectionChangedMessage,
   type CollectionMutationAction,
@@ -55,13 +54,6 @@ export function isPropertyChanged(
 export function isCollectionChanged(
   message: IMessage,
 ): message is CollectionChangedMessage<unknown>;
-export function isCollectionChanged<TItem>(
-  message: IMessage,
-  constraints: {
-    readonly source: ServicedObservableCollection<TItem>;
-    readonly action?: CollectionMutationAction | undefined;
-  },
-): message is CollectionChangedMessage<TItem>;
 /* eslint-disable @typescript-eslint/unified-signatures -- the unary overload prevents filter indices from becoming constraints */
 export function isCollectionChanged(
   message: IMessage,

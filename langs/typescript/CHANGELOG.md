@@ -13,9 +13,10 @@ conformance IDs covered.
 
 - `isPropertyChanged`, `isCollectionChanged`, and
   `isConstructionStatusChanged` classify existing raw messages with exact
-  optional constraints and filter-safe type narrowing. Generic sender/item
-  narrowing is inferred only from a checked sender or typed collection source,
-  and explicitly present `undefined` constraints compare exactly. The predicates
+  optional constraints and filter-safe type narrowing. A generic property sender
+  is inferred only from a checked sender; collection payloads remain `unknown`
+  because source identity cannot prove the independently constructed item type.
+  Explicitly present `undefined` constraints compare exactly. The predicates
   compose with `Array.filter`, RxJS `filter`, and the existing higher-level
   message helpers without changing message semantics (ADR-0094).
 

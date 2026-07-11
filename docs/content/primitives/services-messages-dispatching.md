@@ -105,10 +105,11 @@ const constructed = hub.messages.pipe(
 ```
 
 The sender generic is inferred only when a sender constraint is supplied and
-checked. The collection item generic is inferred only from a typed
-`ServicedObservableCollection<TItem>` source; action-only or opaque-source
-constraints retain `unknown`. An explicitly present `undefined` constraint is
-compared exactly, while an omitted field is ignored.
+checked. Collection predicates always retain `CollectionChangedMessage<unknown>`,
+even when the source is a typed `ServicedObservableCollection<TItem>`: source
+identity cannot prove a payload type because public message factories accept
+sender and item types independently. An explicitly present `undefined`
+constraint is compared exactly, while an omitted field is ignored.
 
 Use `whenPropertyChanged(hub, sender, propertyName)` when those three inputs are
 already known and the subscriber needs the matching message. Use

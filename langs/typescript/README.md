@@ -200,8 +200,7 @@ RxJS `filter`, plus inline constraint-object overloads:
 | -------------- | -------------------- |
 | `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>` |
 | `isPropertyChanged(message, { sender, propertyName? })` | `PropertyChangedMessage<TSender>` inferred from the checked sender |
-| `isCollectionChanged(message)` or action/opaque-source constraints | `CollectionChangedMessage<unknown>` |
-| `isCollectionChanged(message, { source: typedCollection, action? })` | `CollectionChangedMessage<TItem>` inferred from `ServicedObservableCollection<TItem>` |
+| `isCollectionChanged(message)` or any source/action constraints | `CollectionChangedMessage<unknown>` |
 | `isConstructionStatusChanged(message)` or its sender/status constraints | `ConstructionStatusChangedMessage` |
 
 The unconstrained unary form is the shortest way to classify a whole mixed
@@ -248,12 +247,14 @@ const constructed = hub.messages.pipe(
 );
 ```
 
-Generic types cannot be selected without runtime evidence. A property sender is
-inferred only from a supplied sender constraint. Collection items are inferred
-only from a typed `ServicedObservableCollection<TItem>` source; action-only and
-opaque-source constraints retain `unknown`. Optional fields use own-property
-presence: an explicitly supplied `undefined` value compares exactly, while an
-omitted field disables that constraint. No cast is required for any predicate.
+Generic property senders cannot be selected without runtime evidence and are
+inferred only from a supplied sender constraint. Collection predicates always
+retain `CollectionChangedMessage<unknown>`, even for a typed
+`ServicedObservableCollection<TItem>` source, because source identity cannot
+prove the independently constructed message payload type. Optional fields use
+own-property presence: an explicitly supplied `undefined` value compares
+exactly, while an omitted field disables that constraint. No cast is required
+for any predicate.
 
 Use raw predicates to classify mixed `IMessage` arrays or streams. If the hub,
 sender, and property are already known, prefer `whenPropertyChanged` for the

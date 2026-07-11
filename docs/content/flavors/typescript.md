@@ -19,22 +19,22 @@ and desktop webview hosts.
 
 The package root and message barrel export three filter-safe type predicates:
 
-| Call                                                                            | Narrowed message                                                                      |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>`                                                     |
-| `isPropertyChanged(message, { sender, propertyName? })`                         | `PropertyChangedMessage<TSender>` inferred from the checked sender                    |
-| `isCollectionChanged(message)` or action/opaque-source constraints              | `CollectionChangedMessage<unknown>`                                                   |
-| `isCollectionChanged(message, { source: typedCollection, action? })`            | `CollectionChangedMessage<TItem>` inferred from `ServicedObservableCollection<TItem>` |
-| `isConstructionStatusChanged(message)` or its sender/status constraints         | `ConstructionStatusChangedMessage`                                                    |
+| Call                                                                            | Narrowed message                                                   |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>`                                  |
+| `isPropertyChanged(message, { sender, propertyName? })`                         | `PropertyChangedMessage<TSender>` inferred from the checked sender |
+| `isCollectionChanged(message)` or any source/action constraints                 | `CollectionChangedMessage<unknown>`                                |
+| `isConstructionStatusChanged(message)` or its sender/status constraints         | `ConstructionStatusChangedMessage`                                 |
 
 Each predicate also has a unary overload, so calls such as
 `messages.filter(isPropertyChanged)` and RxJS
-`filter(isPropertyChanged)` narrow without a consumer cast. Generic sender and
-item types cannot be selected without runtime evidence: property narrowing
-requires a supplied sender, and collection-item narrowing requires a typed
-`ServicedObservableCollection<TItem>` source. Optional constraint fields use
-own-property presence, so a field explicitly supplied as `undefined` compares
-exactly instead of behaving like an omitted field.
+`filter(isPropertyChanged)` narrow without a consumer cast. Property sender
+narrowing requires a supplied sender. Collection predicates always retain an
+`unknown` payload, even for a typed `ServicedObservableCollection<TItem>` source,
+because source identity cannot prove the independently constructed message item
+type. Optional constraint fields use own-property presence, so a field explicitly
+supplied as `undefined` compares exactly instead of behaving like an omitted
+field.
 
 Use these predicates for mixed raw message arrays and streams. When the hub,
 sender, and property are already known, `whenPropertyChanged` is the shorter

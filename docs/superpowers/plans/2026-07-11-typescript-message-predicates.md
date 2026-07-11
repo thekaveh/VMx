@@ -108,10 +108,13 @@ expectType<Observable<ConstructionStatusChangedMessage>>(constructed);
 
 For collection and construction messages, add the same direct-callback coverage
 in both Array and RxJS filters, with exact inferred types and runtime contents.
-Prove collection-item inference from `ServicedObservableCollection<string>`,
-`unknown` fallback for action-only and opaque-source constraints, rejection of
-an explicit item generic without a typed source, and exact matching for every
-explicitly supplied `undefined` field.
+Prove `CollectionChangedMessage<unknown>` for unary, typed-source, action-only,
+and opaque-source constraints, plus rejection of every explicit collection item
+generic. Add a nonexecuted type-test counterexample that creates a numeric-item
+message with a `ServicedObservableCollection<string>` sender through the public
+factory and proves `newItems[0].toUpperCase()` remains an error after predicate
+narrowing. Retain exact matching for every explicitly supplied `undefined`
+field.
 
 - [ ] **Step 4: Run the red gates**
 
@@ -185,14 +188,6 @@ export function isCollectionChanged(
   message: IMessage,
 ): message is CollectionChangedMessage<unknown>;
 
-export function isCollectionChanged<TItem>(
-  message: IMessage,
-  constraints: {
-    readonly source: ServicedObservableCollection<TItem>;
-    readonly action?: CollectionMutationAction | undefined;
-  },
-): message is CollectionChangedMessage<TItem>;
-
 export function isCollectionChanged(
   message: IMessage,
   constraints: {
@@ -214,13 +209,15 @@ export function isConstructionStatusChanged(
 ): message is ConstructionStatusChangedMessage;
 ```
 
-Import `ServicedObservableCollection` as a type only. Generic property and
-collection overloads require the runtime value that justifies their narrowing;
-non-generic fallback overloads retain `unknown`. Use own-property presence for
-every optional field. Unary overloads remain structurally compatible with direct
-Array/RxJS filter callbacks, and implementation bodies tolerate numeric callback
-indices as runtime-only non-object arguments. Do not add factories, exported
-options types, observable allocation, or error handling.
+The collection predicate has no generic overload: source identity cannot prove
+payload type because public message factories accept sender and item types
+independently. Unary and constrained collection calls always retain `unknown`.
+The property generic still requires the runtime sender that justifies its
+narrowing. Use own-property presence for every optional field. Unary overloads
+remain structurally compatible with direct Array/RxJS filter callbacks, and
+implementation bodies tolerate numeric callback indices as runtime-only
+non-object arguments. Do not add factories, exported options types, observable
+allocation, or error handling.
 
 - [ ] **Step 3: Export from both public entry points**
 

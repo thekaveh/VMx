@@ -39,11 +39,12 @@ filter overloads; it is not missing language-neutral message behavior.
    constraint that is checked at runtime. Property-name-only and empty
    constraints retain `PropertyChangedMessage<unknown>`; callers cannot select a
    sender generic without supplying its checked value.
-1. The collection predicate infers its item generic only from a required
-   `ServicedObservableCollection<TItem>` source, imported as a type only and
-   checked by identity at runtime. Action-only constraints and sources typed as
-   plain `object` retain `CollectionChangedMessage<unknown>`; callers cannot
-   select an item generic without a typed collection source.
+1. The collection predicate always narrows to
+   `CollectionChangedMessage<unknown>`, whether unary or constrained by source
+   and/or action. Public `CollectionChangedMessage` factories accept sender and
+   item types independently, so even a source typed as
+   `ServicedObservableCollection<TItem>` cannot prove the payload generic.
+   Callers cannot select a collection item generic.
 1. These functions only classify existing message objects. They do not mutate a
    message, subscribe to a hub, allocate an observable, catch errors, or change
    publication, ordering, lifecycle, sender, or payload semantics.

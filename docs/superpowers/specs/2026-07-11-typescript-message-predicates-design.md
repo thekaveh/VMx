@@ -31,7 +31,6 @@ isPropertyChanged(message)
 isPropertyChanged(message, { sender, propertyName? })
 isPropertyChanged(message, { propertyName? })
 isCollectionChanged(message)
-isCollectionChanged(message, { source: typedCollection, action? })
 isCollectionChanged(message, { source?, action? })
 isConstructionStatusChanged(message)
 isConstructionStatusChanged(message, { sender?, status? })
@@ -82,14 +81,6 @@ export function isCollectionChanged(
   message: IMessage,
 ): message is CollectionChangedMessage<unknown>;
 
-export function isCollectionChanged<TItem>(
-  message: IMessage,
-  constraints: {
-    readonly source: ServicedObservableCollection<TItem>;
-    readonly action?: CollectionMutationAction | undefined;
-  },
-): message is CollectionChangedMessage<TItem>;
-
 export function isCollectionChanged(
   message: IMessage,
   constraints: {
@@ -111,9 +102,8 @@ export function isConstructionStatusChanged(
 ): message is ConstructionStatusChangedMessage;
 ```
 
-`ServicedObservableCollection` is a type-only import, so collection inference
-adds no runtime dependency. Each function first checks the corresponding class
-with `instanceof`. Supplied constraint fields use strict identity or exact field
+Each function first checks the corresponding class with `instanceof`. Supplied
+constraint fields use strict identity or exact field
 equality. Own-property presence distinguishes an omitted field from one supplied
 as `undefined`; the latter compares exactly and is not treated as omitted. Unary overloads
 make each function a valid direct `Array.filter` and RxJS `filter` callback. At
@@ -124,11 +114,11 @@ not appear as a public numeric-argument overload.
 
 The property predicate infers `TSender` only from a required, runtime-checked
 `sender` constraint. Property-name-only and empty constraints narrow to
-`PropertyChangedMessage<unknown>`. The collection predicate infers `TItem` only
-from a required `ServicedObservableCollection<TItem>` source that is checked by
-identity at runtime. Action-only constraints and sources typed merely as
-`object` narrow to `CollectionChangedMessage<unknown>`. Callers cannot supply
-either generic explicitly without the corresponding typed runtime evidence.
+`PropertyChangedMessage<unknown>`. The collection predicate always narrows to
+`CollectionChangedMessage<unknown>`, including when a source has type
+`ServicedObservableCollection<TItem>`. Public message factories accept sender
+and item types independently, so source identity cannot prove the payload
+generic. Callers cannot supply a collection item generic.
 
 Export all three functions from both `src/messages/index.ts` and the package root
 `src/index.ts`. Do not export an options type, alias, or RxJS-specific wrapper.
@@ -147,11 +137,11 @@ Export all three functions from both `src/messages/index.ts` and the package roo
   or catch errors.
 - Direct `Array.filter` and RxJS `filter` calls narrow and retain the matching
   message rather than misreading callback index arguments as constraints.
-- Constrained arrow predicates narrow a generic sender or collection item only
-  from the required checked sender or typed collection source. Property-only,
-  action-only, and opaque-source constraints retain `unknown`.
-- Explicit generic calls without the corresponding sender or typed source are
-  compile-time errors.
+- Constrained arrow predicates narrow a generic property sender only from the
+  required checked sender. Property-only constraints and every collection
+  predicate retain `unknown` payload types.
+- An explicit property generic without a sender and every explicit collection
+  item generic are compile-time errors.
 - Existing `whenPropertyChanged` and `propertyValueChangedMessagesFor` remain the
   preferred higher-level APIs when the caller already has a hub, sender, and
   property.
@@ -180,8 +170,11 @@ Add focused TypeScript unit/type coverage that proves:
 - positive and wrong-family runtime classification;
 - sender/source identity, property, action, and status constraints;
 - own-property semantics for explicitly supplied `undefined` constraints;
-- generic sender and collection-item inference only from checked values;
-- compile-time rejection of generics without a sender or typed collection source;
+- generic sender inference only from a checked sender;
+- collection payloads remaining `unknown`, including for typed collection sources;
+- a public-factory counterexample proving source identity cannot establish item type;
+- compile-time rejection of a property generic without a sender and every
+  collection item generic;
 - `Array.filter` and RxJS `filter` output types without casts;
 - public root and message-barrel exports;
 - the generated declaration bundle contains the three signatures.
