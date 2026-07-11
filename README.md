@@ -149,8 +149,11 @@ Each flavor implements the same conceptual stack:
 | Rust       | v0.14.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
 
 `main` may contain an in-development source version before that version is
-published to package registries. Use the compatibility matrix for source-level
-spec parity; use each registry for installable package availability.
+published to package registries. The §3.2 summary preserves source-line parity
+history, including lines that were never published. The
+[`compatibility-matrix.md`](compatibility-matrix.md) ledger is canonical for
+released compatibility plus the current in-development line; use each registry
+for installable package availability.
 
 All five source flavors implement the 342 library conformance IDs. The flagship
 example apps cover the 5 `THEME-00x` scenario IDs where a full UI host exists
@@ -172,6 +175,10 @@ as a sub-path export. The Rust flavor lives under `langs/rust/` as the
 coverage in source and is awaiting a crates.io release channel.
 
 ### 3.2 Spec and flavor compatibility
+
+This summary preserves source-line history; a historical row does not by itself
+claim that packages or tags were published. See the canonical compatibility
+ledger linked above for release status and the current in-development line.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |

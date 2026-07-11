@@ -7,7 +7,7 @@ Maintained by hand alongside spec releases.
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
 | 3.14.x | 3.14.0[^current] | 3.14.0[^current] | 3.14.0[^current] | 3.14.0[^current] | 0.14.0[^rust] |
-| 3.13.x | —               | —               | —               | —               | 0.13.0        |
+| 3.13.x | —               | —               | —               | —               | 0.13.0[^rust-source] |
 | 3.3.x | —               | —               | —               | —               | 0.3.0        |
 | 3.2.x | —               | —               | —               | —               | 0.2.0        |
 | 3.1.x | —               | 3.1.0           | —               | —               | 0.1.0        |
@@ -69,6 +69,10 @@ refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`.
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
 declares `MIN_SPEC_VERSION = "3.14.0"` and carries behavioral tests for all 342
 library conformance IDs. It has not yet been published to crates.io.
+
+[^rust-source]: Rust `0.13.0` records historical source-tree parity for spec
+3.13.x only. It was not published to crates.io and does not imply a
+`rust-v0.13.0` tag or release.
 
 ## 3. C# companion packages
 
