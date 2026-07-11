@@ -15,7 +15,11 @@ import { NullMessageHub } from "../services/nullMessageHub.js";
 /** Consumer-supplied async persister delegate. Throw on failure. */
 export type Persister<TM> = (model: TM) => Promise<void>;
 
-/** Optional custom snapshot function. Defaults to `structuredClone`. */
+/**
+ * Optional custom snapshot function. Defaults to `structuredClone`. Pair a
+ * custom implementation with a matching {@link ModelEquals} predicate so
+ * snapshot, revert, and dirty-tracking semantics stay aligned.
+ */
 export type Snapshotter<TM> = (model: TM) => TM;
 
 /** Field-level validator. Return a string error, or null/undefined when valid. */
@@ -30,6 +34,103 @@ export type ModelValidator<TM> = (model: TM) => Record<string, string | null | u
  * {@link deepEquals}.
  */
 export type ModelEquals<TM> = (a: TM, b: TM) => boolean;
+
+type SnapshotPhase = "construction" | "approve snapshot advance" | "deny/revert";
+
+function hasReachableEnumerableAccessor(
+  value: unknown,
+  seen = new Set<object>(),
+): boolean {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) {
+    return false;
+  }
+
+  const object = value;
+  if (seen.has(object)) return false;
+  seen.add(object);
+
+  let descriptors: PropertyDescriptorMap;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(object);
+  } catch {
+    return true;
+  }
+
+  // Structured clone traverses enumerable string-keyed properties but ignores
+  // symbol-keyed properties. Read descriptor values only; never invoke getters.
+  for (const key of Object.keys(descriptors)) {
+    const descriptor = descriptors[key];
+    if (descriptor?.enumerable !== true) continue;
+    if (!("value" in descriptor)) return true;
+    if (hasReachableEnumerableAccessor(descriptor.value, seen)) return true;
+  }
+
+  try {
+    // Structured clone follows engine-owned, non-enumerable Error slots such
+    // as `cause`; omit localization rather than risk re-running nested accessors.
+    if (value instanceof Error) {
+      return true;
+    } else if (value instanceof Map) {
+      for (const [key, entryValue] of Map.prototype.entries.call(value)) {
+        if (hasReachableEnumerableAccessor(key, seen)) return true;
+        if (hasReachableEnumerableAccessor(entryValue, seen)) return true;
+      }
+    } else if (value instanceof Set) {
+      for (const entryValue of Set.prototype.values.call(value)) {
+        if (hasReachableEnumerableAccessor(entryValue, seen)) return true;
+      }
+    }
+  } catch {
+    return true;
+  }
+
+  return false;
+}
+
+function findUncloneableTopLevelField(model: unknown): string | undefined {
+  if ((typeof model !== "object" && typeof model !== "function") || model === null) {
+    return undefined;
+  }
+
+  let descriptors: PropertyDescriptorMap;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(model);
+  } catch {
+    // Proxies may reject descriptor inspection. Context is still useful even
+    // when safe field localization is impossible.
+    return undefined;
+  }
+
+  if (hasReachableEnumerableAccessor(model)) return undefined;
+
+  for (const key of Object.keys(descriptors)) {
+    const descriptor = descriptors[key];
+    if (descriptor?.enumerable !== true || !("value" in descriptor)) continue;
+    try {
+      structuredClone(descriptor.value);
+    } catch {
+      return key;
+    }
+  }
+  return undefined;
+}
+
+function defaultSnapshotError(
+  model: unknown,
+  phase: SnapshotPhase,
+  cause: unknown,
+): Error {
+  const field = findUncloneableTopLevelField(model);
+  const fieldContext = field === undefined
+    ? ""
+    : ` for top-level field ${JSON.stringify(field)}`;
+  return new Error(
+    `FormVM default structuredClone snapshot failed during ${phase}${fieldContext}. `
+      + "Supply a custom snapshotter and a matching equals predicate through "
+      + "FormVM options or FormVM.builder().snapshotter(...).equals(...).",
+    { cause },
+  );
+}
 
 /**
  * Structural deep-equality used by {@link FormVM.isDirty} when no custom
@@ -148,7 +249,11 @@ export interface FormVMOptions<TM> {
    * Custom snapshot function. Defaults to `structuredClone` — a structured
    * deep clone; nested references are independent between Model and Snapshot.
    * Supply a custom snapshotter if you need shallow semantics or your model
-   * contains values structuredClone cannot serialize.
+   * contains values structuredClone cannot serialize, and pair it with a
+   * matching `equals` predicate. A built-in clone failure is rethrown with the
+   * FormVM phase and, when safely determinable, the owning top-level field;
+   * the native error remains available as `cause`. Errors from a supplied
+   * snapshotter pass through unchanged.
    */
   snapshotter?: Snapshotter<TM>;
   /**
@@ -174,6 +279,7 @@ export interface FormVMOptions<TM> {
 export class FormVM<TM> {
   readonly #persister: Persister<TM>;
   readonly #snapshotter: Snapshotter<TM>;
+  readonly #usesDefaultSnapshotter: boolean;
   readonly #equals: ModelEquals<TM>;
   readonly #validators: Record<string, FieldValidator<TM>>;
   readonly #modelValidator: ModelValidator<TM> | null;
@@ -225,13 +331,14 @@ export class FormVM<TM> {
     this.#persister = persister;
     this.#hub = hub ?? NullMessageHub.INSTANCE;
     this.#strict = strict;
+    this.#usesDefaultSnapshotter = snapshotter === undefined;
     this.#snapshotter = snapshotter ?? ((m: TM) => structuredClone(m));
     this.#equals = equals ?? ((a: TM, b: TM) => deepEquals(a, b));
     this.#validators = { ...(validators ?? {}) };
     this.#modelValidator = modelValidator ?? null;
 
     this.#model = initial;
-    this.#snapshot = this.#snapshotter(initial);
+    this.#snapshot = this.#takeSnapshot(initial, "construction");
     this.#errors = this.#validate(initial);
 
     this.denyCommand = RelayCommand.builder()
@@ -357,7 +464,7 @@ export class FormVM<TM> {
 
     // Success: advance snapshot and notify.
     const wasDirty = this.isDirty;
-    this.#snapshot = this.#snapshotter(current);
+    this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
 
     if (this.#strict && this.isDirty !== wasDirty) {
       this.#canExecuteTrigger.next();
@@ -389,7 +496,7 @@ export class FormVM<TM> {
     if (this.#disposed) return;
     const wasDirty = this.isDirty;
     const wasValid = this.isValid;
-    this.#model = this.#snapshotter(this.#snapshot);
+    this.#model = this.#takeSnapshot(this.#snapshot, "deny/revert");
     this.#revalidate();
 
     this.#hub.send(new FormRevertedMessage(this, "FormVM"));
@@ -418,6 +525,15 @@ export class FormVM<TM> {
       }
     }
     return errors;
+  }
+
+  #takeSnapshot(model: TM, phase: SnapshotPhase): TM {
+    if (!this.#usesDefaultSnapshotter) return this.#snapshotter(model);
+    try {
+      return this.#snapshotter(model);
+    } catch (cause: unknown) {
+      throw defaultSnapshotError(model, phase, cause);
+    }
   }
 
   #revalidate(): void {
@@ -511,7 +627,12 @@ export class FormVMBuilder<TM> {
     return b;
   }
 
-  /** Set a custom snapshot function (default: `structuredClone`). */
+  /**
+   * Set a custom snapshot function (default: `structuredClone`). The default
+   * requires a structured-cloneable model and reports phase/field context on
+   * failure. Pair a custom snapshotter with {@link equals}; custom errors pass
+   * through unchanged.
+   */
   snapshotter(value: Snapshotter<TM>): FormVMBuilder<TM> {
     const b = new FormVMBuilder<TM>(this);
     b.#snapshotter = value;

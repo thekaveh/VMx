@@ -15,6 +15,14 @@ conformance IDs covered.
   `AsyncRelayCommand`, including exact live, repeated, trigger-additive,
   in-flight, and post-dispose behavior (`CMD-014..019`).
 
+### Fixed
+
+- Default `FormVM` snapshot failures now name the construction, approve, or
+  deny/revert phase; safely identify the first failing top-level field when
+  possible; preserve the native error as `cause`; and point to the paired
+  `snapshotter`/`equals` escape hatch. Custom snapshotter errors remain
+  unchanged (#102).
+
 ## [3.5.0] — 2026-07-10
 
 Implements `spec-v3.5.0` and keeps TypeScript at full library parity: 304/304
