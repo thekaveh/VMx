@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.7.0";
+pub const MIN_SPEC_VERSION: &str = "3.8.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -4731,6 +4731,43 @@ impl<K: Clone + Eq + Hash + Send + 'static> DiscriminatorVm<K> {
 type HierChildrenFactory<M> =
     Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingParentPolicy {
+    Park,
+    Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchAttachRejectionReason {
+    DuplicateExistingKey,
+    DuplicateBatchKey,
+    AlreadyAttached,
+    MissingParent,
+    Cycle,
+    SelectorFailed,
+    AttachmentFailed,
+}
+
+pub struct BatchAttachRejection<N> {
+    pub item: N,
+    pub reason: BatchAttachRejectionReason,
+    pub detail: Option<String>,
+}
+
+pub struct BatchAttachResult<N> {
+    pub added: Vec<N>,
+    pub duplicates: Vec<N>,
+    pub orphans: Vec<N>,
+    pub rejections: Vec<BatchAttachRejection<N>>,
+}
+
+struct BatchAttachCandidate<N, K> {
+    item: N,
+    key: K,
+    parent_key: Option<K>,
+    retain_if_missing: bool,
+}
+
 #[derive(Clone)]
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     component: ComponentVm<M>,
@@ -4739,6 +4776,7 @@ pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
     expanded_for_walk: Arc<Mutex<bool>>,
+    parked_attach_items: Arc<Mutex<Vec<Self>>>,
     hub: MessageHub,
 }
 
@@ -4764,6 +4802,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             children_factory: Arc::new(children_factory),
             eager_children: Arc::new(Mutex::new(eager_children)),
             expanded_for_walk: Arc::new(Mutex::new(true)),
+            parked_attach_items: Arc::new(Mutex::new(Vec::new())),
             hub,
         }
     }
@@ -4851,6 +4890,192 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         Ok(())
     }
 
+    pub fn parked_attach_count(&self) -> usize {
+        lock(&self.tree_root().parked_attach_items).len()
+    }
+
+    pub fn attach_many<K, FKey, FParent>(
+        &self,
+        items: Vec<Self>,
+        key_of: FKey,
+        parent_key_of: FParent,
+        on_missing_parent: MissingParentPolicy,
+    ) -> BatchAttachResult<Self>
+    where
+        K: Clone + Eq + Hash,
+        FKey: Fn(&Self) -> VmxResult<K>,
+        FParent: Fn(&Self) -> VmxResult<Option<K>>,
+    {
+        let root = self.tree_root();
+        let parked = std::mem::take(&mut *lock(&root.parked_attach_items));
+        let mut added = Vec::new();
+        let mut duplicates = Vec::new();
+        let mut orphans = Vec::new();
+        let mut rejections = Vec::new();
+        let mut existing = HashMap::<K, Self>::new();
+
+        for materialized in root.materialized_subtree() {
+            let key = match key_of(&materialized) {
+                Ok(key) => key,
+                Err(error) => {
+                    lock(&root.parked_attach_items).extend(parked.iter().cloned());
+                    rejections.extend(parked.into_iter().chain(items).map(|item| {
+                        BatchAttachRejection {
+                            item,
+                            reason: BatchAttachRejectionReason::SelectorFailed,
+                            detail: Some(error.to_string()),
+                        }
+                    }));
+                    return BatchAttachResult {
+                        added,
+                        duplicates,
+                        orphans,
+                        rejections,
+                    };
+                }
+            };
+            existing.entry(key).or_insert(materialized);
+        }
+
+        let mut candidates = Vec::<BatchAttachCandidate<Self, K>>::new();
+        let mut candidate_keys = HashSet::<K>::new();
+        let active = parked
+            .into_iter()
+            .map(|item| (item, true))
+            .chain(items.into_iter().map(|item| (item, false)));
+        for (item, was_parked) in active {
+            let key = match key_of(&item) {
+                Ok(key) => key,
+                Err(error) => {
+                    if was_parked {
+                        lock(&root.parked_attach_items).push(item.clone());
+                    }
+                    rejections.push(BatchAttachRejection {
+                        item,
+                        reason: BatchAttachRejectionReason::SelectorFailed,
+                        detail: Some(error.to_string()),
+                    });
+                    continue;
+                }
+            };
+            let parent_key = match parent_key_of(&item) {
+                Ok(parent_key) => parent_key,
+                Err(error) => {
+                    if was_parked {
+                        lock(&root.parked_attach_items).push(item.clone());
+                    }
+                    rejections.push(BatchAttachRejection {
+                        item,
+                        reason: BatchAttachRejectionReason::SelectorFailed,
+                        detail: Some(error.to_string()),
+                    });
+                    continue;
+                }
+            };
+
+            if existing.contains_key(&key) {
+                duplicates.push(item.clone());
+                rejections.push(BatchAttachRejection {
+                    item,
+                    reason: BatchAttachRejectionReason::DuplicateExistingKey,
+                    detail: None,
+                });
+                continue;
+            }
+            if candidate_keys.contains(&key) {
+                duplicates.push(item.clone());
+                rejections.push(BatchAttachRejection {
+                    item,
+                    reason: BatchAttachRejectionReason::DuplicateBatchKey,
+                    detail: None,
+                });
+                continue;
+            }
+            if item.parent().is_some() {
+                rejections.push(BatchAttachRejection {
+                    item,
+                    reason: BatchAttachRejectionReason::AlreadyAttached,
+                    detail: None,
+                });
+                continue;
+            }
+            candidate_keys.insert(key.clone());
+            candidates.push(BatchAttachCandidate {
+                item,
+                key,
+                parent_key,
+                retain_if_missing: was_parked || on_missing_parent == MissingParentPolicy::Park,
+            });
+        }
+
+        let mut unresolved = candidates;
+        loop {
+            if unresolved.is_empty() {
+                break;
+            }
+            let mut next = Vec::new();
+            let mut progressed = false;
+            for candidate in unresolved {
+                let parent = candidate
+                    .parent_key
+                    .as_ref()
+                    .and_then(|key| existing.get(key).cloned())
+                    .or_else(|| candidate.parent_key.is_none().then(|| root.clone()));
+                let Some(parent) = parent else {
+                    next.push(candidate);
+                    continue;
+                };
+                if let Err(error) = parent.add_child(candidate.item.clone()) {
+                    Self::rollback_batch_attach(&parent, &candidate.item);
+                    rejections.push(BatchAttachRejection {
+                        item: candidate.item,
+                        reason: BatchAttachRejectionReason::AttachmentFailed,
+                        detail: Some(error.to_string()),
+                    });
+                    continue;
+                }
+                existing.insert(candidate.key, candidate.item.clone());
+                added.push(candidate.item);
+                progressed = true;
+            }
+            unresolved = next;
+            if !progressed {
+                break;
+            }
+        }
+
+        let unresolved_by_key = unresolved
+            .iter()
+            .map(|candidate| (candidate.key.clone(), candidate.parent_key.clone()))
+            .collect::<HashMap<_, _>>();
+        for candidate in unresolved {
+            let is_cycle = Self::batch_parent_chain_cycles(&candidate, &unresolved_by_key);
+            let reason = if is_cycle {
+                BatchAttachRejectionReason::Cycle
+            } else {
+                BatchAttachRejectionReason::MissingParent
+            };
+            rejections.push(BatchAttachRejection {
+                item: candidate.item.clone(),
+                reason,
+                detail: None,
+            });
+            if !is_cycle {
+                orphans.push(candidate.item.clone());
+                if candidate.retain_if_missing {
+                    lock(&root.parked_attach_items).push(candidate.item);
+                }
+            }
+        }
+
+        BatchAttachResult {
+            added,
+            duplicates,
+            orphans,
+            rejections,
+        }
+    }
+
     pub fn children(&self) -> Vec<Self> {
         self.materialize_children()
     }
@@ -4929,6 +5154,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         }
     }
 
+    pub fn dispose(&self) -> VmxResult<()> {
+        lock(&self.parked_attach_items).clear();
+        self.component.dispose()
+    }
+
     pub fn set_expanded_for_walk(&self, expanded: bool) {
         *lock(&self.expanded_for_walk) = expanded;
     }
@@ -4945,6 +5175,51 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .collect::<Vec<_>>();
         *lock(&self.children) = Some(children.clone());
         children
+    }
+
+    fn tree_root(&self) -> Self {
+        let mut current = self.clone();
+        while let Some(parent) = current.parent() {
+            current = parent;
+        }
+        current
+    }
+
+    fn materialized_subtree(&self) -> Vec<Self> {
+        let mut result = Vec::new();
+        let mut stack = vec![self.clone()];
+        while let Some(current) = stack.pop() {
+            result.push(current.clone());
+            if let Some(children) = lock(&current.children).clone() {
+                stack.extend(children.into_iter().rev());
+            }
+        }
+        result
+    }
+
+    fn batch_parent_chain_cycles<K: Clone + Eq + Hash>(
+        candidate: &BatchAttachCandidate<Self, K>,
+        unresolved: &HashMap<K, Option<K>>,
+    ) -> bool {
+        let mut seen = HashSet::new();
+        let mut current_key = candidate.key.clone();
+        loop {
+            if !seen.insert(current_key.clone()) {
+                return true;
+            }
+            match unresolved.get(&current_key) {
+                Some(Some(parent_key)) => current_key = parent_key.clone(),
+                Some(None) | None => return false,
+            }
+        }
+    }
+
+    fn rollback_batch_attach(parent: &Self, child: &Self) {
+        if let Some(children) = lock(&parent.children).as_mut() {
+            children.retain(|item| item.id() != child.id());
+        }
+        *lock(&child.parent) = None;
+        child.component.core.set_parent_id(None);
     }
 
     fn set_parent(&self, parent: Option<Self>) {
@@ -4991,7 +5266,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
     }
 
     fn dispose(&self) -> VmxResult<()> {
-        self.component.dispose()
+        HierarchicalVm::dispose(self)
     }
 
     fn status(&self) -> ConstructionStatus {

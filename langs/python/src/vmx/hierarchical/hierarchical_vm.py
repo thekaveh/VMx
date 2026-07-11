@@ -5,7 +5,9 @@ See spec/18-hierarchical-vm.md and ADR-0028.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Hashable, Iterable, Iterator, Sequence
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Generic, TypeVar, overload
 
 from vmx.components.base import _ComponentVMBase
@@ -18,6 +20,52 @@ from vmx.services.message_hub import MessageHub
 TModel = TypeVar("TModel")
 TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")
 _T = TypeVar("_T")
+
+
+class MissingParentPolicy(Enum):
+    """Retention policy for batch items whose parent key is not materialized."""
+
+    PARK = "park"
+    REJECT = "reject"
+
+
+class BatchAttachRejectionReason(Enum):
+    """Typed reason why an input item was not attached by ``attach_many``."""
+
+    DUPLICATE_EXISTING_KEY = "duplicate_existing_key"
+    DUPLICATE_BATCH_KEY = "duplicate_batch_key"
+    ALREADY_ATTACHED = "already_attached"
+    MISSING_PARENT = "missing_parent"
+    CYCLE = "cycle"
+    SELECTOR_FAILED = "selector_failed"
+    ATTACHMENT_FAILED = "attachment_failed"
+
+
+@dataclass(frozen=True)
+class BatchAttachRejection(Generic[TVM]):
+    """One non-throwing batch-attachment rejection."""
+
+    item: TVM
+    reason: BatchAttachRejectionReason
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class BatchAttachResult(Generic[TVM]):
+    """Structured outcome of one ``attach_many`` call."""
+
+    added: list[TVM]
+    duplicates: list[TVM]
+    orphans: list[TVM]
+    rejections: list[BatchAttachRejection[TVM]]
+
+
+@dataclass(frozen=True)
+class _BatchAttachCandidate(Generic[TVM]):
+    item: TVM
+    key: Hashable
+    parent_key: Hashable | None
+    retain_if_missing: bool
 
 
 class _ReadOnlyList(Sequence[_T]):
@@ -122,6 +170,9 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         # reparent) and is identity-stable across accesses.
         self._children_view: _ReadOnlyList[TVM] | None = None
         self._path_cache: _ReadOnlyList[TVM] | None = None
+        # Missing-parent items retained by attach_many. Calls made on a
+        # descendant always redirect here on the structural root.
+        self._parked_attach_items: list[TVM] = []
 
     # ── Abstract requirement (ViewModelType) ─────────────────────────────────
 
@@ -316,6 +367,164 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             )
         )
 
+    @property
+    def parked_attach_count(self) -> int:
+        """Number of missing-parent items retained on the structural root."""
+        return len(self._tree_root()._parked_attach_items)
+
+    def attach_many(
+        self,
+        items: Iterable[TVM],
+        *,
+        key_of: Callable[[TVM], Hashable],
+        parent_key_of: Callable[[TVM], Hashable | None],
+        on_missing_parent: MissingParentPolicy = MissingParentPolicy.PARK,
+    ) -> BatchAttachResult[TVM]:
+        """Attach an out-of-order batch beneath this node's structural root.
+
+        ``None`` from ``parent_key_of`` means a direct child of the root.
+        Duplicate keys, missing parents, selector failures, cycles, and
+        already-attached nodes are reported rather than raised. Only genuine
+        missing-parent items are retained by the ``PARK`` policy.
+        """
+        root = self._tree_root()
+        incoming = list(items)
+        parked = list(root._parked_attach_items)
+        root._parked_attach_items.clear()
+        added: list[TVM] = []
+        duplicates: list[TVM] = []
+        orphans: list[TVM] = []
+        rejections: list[BatchAttachRejection[TVM]] = []
+
+        existing: dict[Hashable, TVM] = {}
+        try:
+            for node in root._materialized_subtree():
+                key = key_of(node)
+                self._validate_batch_key(key)
+                existing.setdefault(key, node)
+        except Exception as exc:  # selectors are consumer code; contain them
+            root._parked_attach_items.extend(parked)
+            for item in [*parked, *incoming]:
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.SELECTOR_FAILED,
+                        str(exc),
+                    )
+                )
+            return BatchAttachResult(added, duplicates, orphans, rejections)
+
+        candidates: list[_BatchAttachCandidate[TVM]] = []
+        candidate_keys: set[Hashable] = set()
+        for item, was_parked in [
+            *((item, True) for item in parked),
+            *((item, False) for item in incoming),
+        ]:
+            try:
+                key = key_of(item)
+                self._validate_batch_key(key)
+                parent_key = parent_key_of(item)
+                if parent_key is not None:
+                    self._validate_batch_key(parent_key)
+            except Exception as exc:
+                if was_parked:
+                    root._parked_attach_items.append(item)
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.SELECTOR_FAILED,
+                        str(exc),
+                    )
+                )
+                continue
+
+            if key in existing:
+                duplicates.append(item)
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.DUPLICATE_EXISTING_KEY,
+                    )
+                )
+                continue
+            if key in candidate_keys:
+                duplicates.append(item)
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.DUPLICATE_BATCH_KEY,
+                    )
+                )
+                continue
+            if item._hierarchical_parent is not None:
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.ALREADY_ATTACHED,
+                    )
+                )
+                continue
+
+            candidate_keys.add(key)
+            candidates.append(
+                _BatchAttachCandidate(
+                    item,
+                    key,
+                    parent_key,
+                    was_parked or on_missing_parent is MissingParentPolicy.PARK,
+                )
+            )
+
+        unresolved = candidates
+        while unresolved:
+            next_unresolved: list[_BatchAttachCandidate[TVM]] = []
+            progressed = False
+            for candidate in unresolved:
+                parent: TVM | None
+                if candidate.parent_key is None:
+                    parent = root
+                else:
+                    parent = existing.get(candidate.parent_key)
+                if parent is None:
+                    next_unresolved.append(candidate)
+                    continue
+
+                try:
+                    parent.add_child(candidate.item)
+                except Exception as exc:
+                    self._rollback_batch_attach(parent, candidate.item)
+                    rejections.append(
+                        BatchAttachRejection(
+                            candidate.item,
+                            BatchAttachRejectionReason.ATTACHMENT_FAILED,
+                            str(exc),
+                        )
+                    )
+                    continue
+
+                existing[candidate.key] = candidate.item
+                added.append(candidate.item)
+                progressed = True
+            unresolved = next_unresolved
+            if not progressed:
+                break
+
+        unresolved_by_key = {candidate.key: candidate for candidate in unresolved}
+        for candidate in unresolved:
+            is_cycle = self._batch_parent_chain_cycles(candidate, unresolved_by_key)
+            reason = (
+                BatchAttachRejectionReason.CYCLE
+                if is_cycle
+                else BatchAttachRejectionReason.MISSING_PARENT
+            )
+            rejections.append(BatchAttachRejection(candidate.item, reason))
+            if not is_cycle:
+                orphans.append(candidate.item)
+                if candidate.retain_if_missing:
+                    root._parked_attach_items.append(candidate.item)
+
+        return BatchAttachResult(added, duplicates, orphans, rejections)
+
     def invalidate_children(self) -> None:
         """Drop this node's materialized child cache.
 
@@ -342,6 +551,10 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             child.invalidate_subtree()
         self.invalidate_children()
 
+    def _on_dispose(self) -> None:
+        self._parked_attach_items.clear()
+        super()._on_dispose()
+
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _materialize_children(self) -> list[TVM]:
@@ -349,6 +562,51 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         for child in children:
             child._hierarchical_parent = self
         return children
+
+    def _tree_root(self) -> TVM:
+        node: TVM = self  # type: ignore[assignment]  # CRTP self view
+        while node._hierarchical_parent is not None:
+            node = node._hierarchical_parent
+        return node
+
+    def _materialized_subtree(self) -> Iterator[TVM]:
+        stack: list[TVM] = [self]  # type: ignore[list-item]
+        while stack:
+            node = stack.pop()
+            yield node
+            cached = node._children_list
+            if cached is not None:
+                stack.extend(reversed(cached))
+
+    @staticmethod
+    def _validate_batch_key(key: Hashable) -> None:
+        if key is None:
+            raise ValueError("key_of must not return None")
+        hash(key)
+
+    @staticmethod
+    def _batch_parent_chain_cycles(
+        candidate: _BatchAttachCandidate[TVM],
+        unresolved: dict[Hashable, _BatchAttachCandidate[TVM]],
+    ) -> bool:
+        seen: set[Hashable] = set()
+        current: _BatchAttachCandidate[TVM] | None = candidate
+        while current is not None:
+            if current.key in seen:
+                return True
+            seen.add(current.key)
+            if current.parent_key is None:
+                return False
+            current = unresolved.get(current.parent_key)
+        return False
+
+    @staticmethod
+    def _rollback_batch_attach(parent: TVM, child: TVM) -> None:
+        if parent._children_list is not None:
+            parent._children_list[:] = [item for item in parent._children_list if item is not child]
+        child._hierarchical_parent = None
+        child._path_cache = None
+        child._invalidate_path_cache_descendants()
 
     def _ensure_children_materialized(self) -> None:
         if self._children_list is None:

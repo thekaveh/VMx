@@ -42,6 +42,8 @@ HierarchicalVM<TModel, TVM>:
 
     InvalidateChildren() -> void       # drop this node's materialized child cache
     InvalidateSubtree() -> void        # drop this node + materialized descendants
+    AttachMany(items, selectors, policy) -> BatchAttachResult<TVM>
+    ParkedAttachCount : int            # pending missing-parent nodes on root
 ```
 
 `Model` is the per-node domain model; the recursive-children factory function is
@@ -120,14 +122,77 @@ Time-to-live refresh is intentionally deferred. A TTL contract needs a
 cross-flavor clock/test-scheduler abstraction to be deterministic; explicit
 invalidation is the v3.1 cache contract.
 
-## 6. Hub messages
+## 6. Key-aware batch attachment
+
+`AttachMany` / `attach_many` / `attachMany` ingests out-of-order node windows
+without turning ordinary hydration anomalies into exceptions. Each call
+requires:
+
+- `keyOf(node)` — a stable, non-null, hashable identity key;
+- `parentKeyOf(node)` — the desired parent key, or the root sentinel;
+- `onMissingParent` — `park` (default) or `reject`.
+
+Python, TypeScript, Swift, and Rust use `None` / `null` for the root sentinel.
+C# uses `BatchParentKey<TKey>.Root`, rather than null, so value-type and
+reference-type keys have the same type-safe surface.
+
+The receiver first resolves its structural root. A root-sentinel item becomes a
+direct child of that root even when the method was invoked on a descendant.
+The operation indexes the root and all **already-materialized** descendants; it
+MUST NOT invoke a lazy children factory merely to build the index.
+
+The first materialized node or active candidate for a key is authoritative.
+Later same-key items are returned in `duplicates` with
+`DuplicateExistingKey` / `DuplicateBatchKey`; they never replace or reparent the
+authoritative node. An item already attached outside the indexed tree is
+rejected as `AlreadyAttached` and its original links remain unchanged.
+
+Candidates are scanned repeatedly in input order. A candidate attaches when
+its parent is in the materialized/added index; each successful node immediately
+joins that index. Scanning stops at a fixpoint. This resolves arbitrary
+child-before-parent chains and preserves relative input order among siblings.
+Previously parked items precede new input in the active scan.
+
+The structured result contains:
+
+```
+BatchAttachResult<TVM>:
+    Added       : IReadOnlyList<TVM>
+    Duplicates  : IReadOnlyList<TVM>
+    Orphans     : IReadOnlyList<TVM>
+    Rejections  : IReadOnlyList<BatchAttachRejection<TVM>>
+
+BatchAttachRejection<TVM>:
+    Item    : TVM
+    Reason  : DuplicateExistingKey | DuplicateBatchKey | AlreadyAttached |
+              MissingParent | Cycle | SelectorFailed | AttachmentFailed
+    Detail  : string?  # diagnostic only; never required for branching
+```
+
+Every non-added active item has one rejection entry. `Orphans` contains only
+items whose parent key is absent at the fixpoint. Parent-key cycles are reported
+as `Cycle`, are not orphans, and are never retained.
+
+With `park`, new missing-parent items are retained in a structural-root-owned
+pending list and retried before the next batch. With `reject`, they are returned
+but not retained. Already-parked items remain parked until resolved, terminally
+rejected, or the root is disposed. `ParkedAttachCount` exposes the pending count;
+root disposal clears it.
+
+Duplicates, missing parents, cycles, already-attached items, selector failures,
+and underlying attachment failures MUST NOT abort the batch. Successful nodes
+use the existing `AddChild` path, preserving parent/path/message invariants. If
+that path fails unexpectedly after beginning mutation, VMx rolls the child-list
+and parent link back before returning `AttachmentFailed`.
+
+## 7. Hub messages
 
 Two messages flow on `IMessageHub`:
 
 - **`PropertyChangedMessage`** — emitted on `Parent` change, child-cache
   invalidation, and any other `IReadable<T>` properties on the node, per chapter
   03 rules.
-- **`TreeStructureChangedMessage`** (defined in §7) — emitted on structural
+- **`TreeStructureChangedMessage`** (defined in §8) — emitted on structural
   mutations: add, remove, or reparent of descendants.
 
 Structural mutators MUST reject operations that would corrupt the tree:
@@ -137,7 +202,7 @@ ancestor cycle) raises the flavor's standard invalid-operation error
 unchanged, and publishes no message (HIER-018; added in v2.5.0 via
 ADR-0037 — previously the cycle silently corrupted `Depth`/`Path`/`walk`).
 
-## 7. `TreeStructureChangedMessage`
+## 8. `TreeStructureChangedMessage`
 
 ```
 TreeStructureChangedMessage:
@@ -147,7 +212,7 @@ TreeStructureChangedMessage:
     Index    : int                     # index in Children list (-1 for Reparented if N/A)
 ```
 
-## 8. Integration
+## 9. Integration
 
 - **`walk` / `walk_expanded`** (chapter 13): `HierarchicalVM` is a natural input.
   `walk` yields depth-first descendants including the root. Order is
@@ -163,7 +228,7 @@ TreeStructureChangedMessage:
   Update / Delete on a node's children) compose with the existing
   `CreateNewCommand`, `UpdateCurrentCommand`, `DeleteCurrentCommand` helpers.
 
-## 9. Conformance
+## 10. Conformance
 
 - `HIER-001` — Recursive generic constraint compiles per flavor with the bound
   type parameter.
@@ -211,3 +276,17 @@ TreeStructureChangedMessage:
   descendants.
 - `HIER-022` — Child-cache invalidation publishes a `PropertyChangedMessage`
   for the children property.
+- `HIER-023` — Child-before-parent chains resolve to a fixpoint with stable
+  sibling input order and ordinary structural invariants.
+- `HIER-024` — Multiple root-sentinel items attach directly beneath the
+  structural root in input order.
+- `HIER-025` — Duplicate keys within a batch, against the materialized tree,
+  and across repeated batches never throw or replace the authoritative node.
+- `HIER-026` — `park` retains a missing-parent item and a later batch resolves
+  it when the parent arrives.
+- `HIER-027` — `reject` returns a missing-parent orphan without retaining it.
+- `HIER-028` — Parent-key cycles are terminal typed rejections and are not
+  parked as orphans.
+- `HIER-029` — Every non-added item has a typed rejection; selector/attachment
+  failures are contained and parent links remain atomic.
+- `HIER-030` — Disposing the structural root clears its parked batch state.

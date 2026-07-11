@@ -16,6 +16,7 @@ mod conformance {
     mod forwarding;
     mod group_vm;
     mod hierarchical;
+    mod hierarchical_batch;
     mod lifecycle;
     mod localization;
     mod message_hub;

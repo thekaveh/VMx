@@ -88,7 +88,7 @@
   <main>
     <header>
       <div class="header-row"><div class="pulse-dot"></div><h1>Hierarchical Family Map</h1></div>
-      <p class="subtitle">recursive model ownership with parent/depth/path metadata and tree mutation messages</p>
+      <p class="subtitle">recursive ownership, key-aware batch hydration, and parent/depth/path invariants</p>
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="Hierarchical Family Map">
@@ -107,13 +107,13 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Hierarchical Family Map</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">recursive model ownership with parent/depth/path metadata and tree mutation messages</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">recursive ownership, key-aware batch hydration, and parent/depth/path invariants</text>
   <polyline points="420,226 500,226" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="750,226 830,226" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1080,226 1160,226" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="270,288 300,482" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="955,288 670,482" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="955,288 1040,482" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="955,288 670,482" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="955,288 1040,482" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1325,288 1400,482" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="300,598 345,762" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="670,598 785,762" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
@@ -121,7 +121,7 @@
 <rect x="70" y="118" width="1580" height="286" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Recursive node contract</text>
 <rect x="70" y="434" width="1580" height="258" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
-<text x="84" y="456" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Materialization and mutation</text>
+<text x="84" y="456" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Materialization, batch hydration, and mutation</text>
 <rect x="70" y="722" width="1580" height="176" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="744" fill="#a78bfa" font-size="12" font-weight="700" text-anchor="start">Traversal and host rendering</text>
 <rect x="120" y="166" width="300" height="122" rx="8" fill="#0f172a"/>
@@ -146,8 +146,8 @@
 <rect x="1160" y="166" width="330" height="122" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="1325" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Cycle protection</text>
 <text x="1325" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reject ancestor cycles</text>
-<text x="1325" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">stable parent links</text>
-<text x="1325" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">safe tree mutation</text>
+<text x="1325" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reject parent-key cycles</text>
+<text x="1325" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">stable parent links</text>
 <rect x="150" y="482" width="300" height="116" rx="8" fill="#0f172a"/>
 <rect x="150" y="482" width="300" height="116" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="300" y="510" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Materialize children</text>
@@ -155,17 +155,17 @@
 <text x="300" y="555" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">TVM node projection</text>
 <text x="300" y="574" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lazy boundary stays explicit</text>
 <rect x="520" y="482" width="300" height="116" rx="8" fill="#0f172a"/>
-<rect x="520" y="482" width="300" height="116" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="670" y="510" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">TreeStructureChangedMessage</text>
-<text x="670" y="536" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">add/remove/move</text>
-<text x="670" y="555" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">invalidate children</text>
-<text x="670" y="574" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">recursive observers</text>
+<rect x="520" y="482" width="300" height="116" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+<text x="670" y="510" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">attachMany / attach_many</text>
+<text x="670" y="536" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">consumer key selectors</text>
+<text x="670" y="555" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">stable fixpoint + dedupe</text>
+<text x="670" y="574" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">park or reject orphans</text>
 <rect x="890" y="482" width="300" height="116" rx="8" fill="#0f172a"/>
-<rect x="890" y="482" width="300" height="116" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1040" y="510" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ExpandableState</text>
-<text x="1040" y="536" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">expanded/collapsed view state</text>
-<text x="1040" y="555" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">walk_expanded()</text>
-<text x="1040" y="574" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">view-owned display shape</text>
+<rect x="890" y="482" width="300" height="116" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="1040" y="510" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">TreeStructureChangedMessage</text>
+<text x="1040" y="536" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">add/remove/reparent</text>
+<text x="1040" y="555" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">each successful attach</text>
+<text x="1040" y="574" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">recursive observers</text>
 <rect x="1260" y="482" width="280" height="116" rx="8" fill="#0f172a"/>
 <rect x="1260" y="482" width="280" height="116" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="1400" y="510" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Lifecycle cascade</text>
@@ -193,7 +193,7 @@
 <rect x="130" y="920" width="1460" height="68" rx="8" fill="#0f172a"/>
 <rect x="130" y="920" width="1460" height="68" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#a78bfa" stroke-width="1.2"/>
 <text x="146" y="944" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Decision rule</text>
-<text x="146" y="966" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Use HierarchicalVM when recursive structure is part of the VM contract; avoid rebuilding tree metadata with nested composites.</text>
+<text x="146" y="966" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Use HierarchicalVM when recursive structure is part of the VM contract; attachMany centralizes streamed-tree ordering, dedupe, and orphan policy.</text>
 <rect x="429" y="198" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
 <text x="462" y="212" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">exposes</text>
 <rect x="765" y="198" width="54" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
@@ -202,14 +202,14 @@
 <text x="1122" y="212" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">guards</text>
 <rect x="307" y="372" width="95" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="354" y="386" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">materialize</text>
-<rect x="692" y="372" width="137" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
-<text x="760" y="386" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">publish structure</text>
-<rect x="990" y="372" width="88" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1034" y="386" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">view state</text>
+<rect x="688" y="372" width="144" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
+<text x="760" y="386" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">materialized index</text>
+<rect x="966" y="372" width="137" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
+<text x="1034" y="386" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">publish structure</text>
 <rect x="1407" y="372" width="67" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="1440" y="386" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">cascade</text>
 <rect x="727" y="670" width="67" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="760" y="684" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">flatten</text>
+<text x="760" y="684" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">resolve</text>
 <rect x="1150" y="670" width="60" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
 <text x="1180" y="684" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">render</text>
 </svg>
@@ -235,12 +235,19 @@
       <section class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
+          <h2>Batch hydration</h2>
+        </div>
+        <ul><li>Consumer selectors keep domain identity outside VMx.</li><li>Fixpoint scans resolve child-before-parent windows in stable sibling order.</li><li>Only missing-parent nodes park; duplicates and cycles are terminal results.</li></ul>
+      </section>
+      <section class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
           <h2>Best fit</h2>
         </div>
         <ul><li>Use it for explorer trees, notebooks, outlines, and taxonomies.</li><li>Pair with ExpandableState and walk utilities for renderable flattened views.</li><li>Use CompositeVM only when the domain is a list, not a recursive tree.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.7.0.</footer>
+    <footer>Generated from repo-derived facts for VMx spec 3.8.0.</footer>
   </main>
 </body>
 </html>

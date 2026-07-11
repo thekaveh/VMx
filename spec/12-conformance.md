@@ -2339,6 +2339,75 @@ are as before)
 **Then** a `PropertyChangedMessage` is published for the children property
 **And** no `TreeStructureChangedMessage` is required for the cache refresh
 
+### HIER-023 — Batch attachment reaches a stable child-before-parent fixpoint
+
+**Given** an empty hierarchy root and a batch ordered `grandchild, sibling B, sibling A, parent`, where each item carries consumer-selected key and parent key
+**When** the batch is attached
+**Then** all four items are added without throwing
+**And** the parent is below the root, both siblings are below the parent in
+input order `B, A`, and the grandchild is below A
+**And** existing parent, path, and structure-message invariants apply
+
+### HIER-024 — Root sentinel attaches multiple root items in stable order
+
+**Given** two batch items whose parent selector returns the flavor's root
+sentinel (`null` / `None` or C# `BatchParentKey<TKey>.Root`)
+**When** the batch is attached through any node in the hierarchy
+**Then** both items become direct children of the structural root in input order
+
+### HIER-025 — Batch keys deduplicate without replacement
+
+**Given** same-key conflicts against a materialized node, within one batch, and
+in a repeated later batch
+**When** each batch is attached
+**Then** the first authoritative node remains attached and identity-equal
+**And** each conflict appears in `Duplicates` with
+`DuplicateExistingKey` or `DuplicateBatchKey`
+**And** no conflict throws, replaces a VM, or aborts later batch items
+
+### HIER-026 — Parked orphan resolves across batches
+
+**Given** a child whose selected parent key is not materialized
+**When** it is attached with `onMissingParent = park`
+**Then** it is returned as an orphan and the root's parked count increments
+**When** a later batch supplies that parent
+**Then** the parked child is retried before new input, attaches below the
+parent, and is removed from parked state
+
+### HIER-027 — Reject policy does not retain an orphan
+
+**Given** a child whose selected parent key is not materialized
+**When** it is attached with `onMissingParent = reject`
+**Then** it is returned as an orphan with `MissingParent`
+**And** it is not retained or attached when an unrelated later batch supplies
+the parent
+
+### HIER-028 — Parent-key cycles are terminal non-throwing rejections
+
+**Given** two or more active items whose selected parent keys form a cycle
+**When** the batch reaches its fixpoint
+**Then** every item whose unresolved chain enters that cycle receives `Cycle`
+**And** those items are neither attached, reported as missing-parent orphans,
+nor parked
+
+### HIER-029 — Batch rejection is typed and structurally atomic
+
+**Given** an item already attached outside the target tree and a selector or
+underlying attachment that fails
+**When** batch attachment processes those items
+**Then** it returns `AlreadyAttached`, `SelectorFailed`, or `AttachmentFailed`
+as applicable instead of throwing the batch
+**And** every non-added item has exactly one typed rejection
+**And** an existing or partially-started parent/child link is unchanged or
+rolled back before return
+
+### HIER-030 — Root disposal clears parked batch state
+
+**Given** a structural root with one or more parked missing-parent items
+**When** the root is disposed
+**Then** its parked count becomes zero
+**And** repeated disposal remains safe under the general disposal invariant
+
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract

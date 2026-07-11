@@ -111,7 +111,14 @@ from vmx.dialogs import (
 from vmx.forms import FormVM, FormVMBuilder
 from vmx.forwarding import ForwardingComponentVM, ForwardingCompositeVM
 from vmx.groups import GroupVM, GroupVMBuilder
-from vmx.hierarchical import HierarchicalVM, HierarchicalVMBuilder
+from vmx.hierarchical import (
+    BatchAttachRejection,
+    BatchAttachRejectionReason,
+    BatchAttachResult,
+    HierarchicalVM,
+    HierarchicalVMBuilder,
+    MissingParentPolicy,
+)
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
 from vmx.localization import NULL_LOCALIZER, ILocalizer, NullLocalizer
 from vmx.messages import (
@@ -169,6 +176,9 @@ __all__ = [
     "AggregateVM6Builder",
     "AsyncRelayCommand",
     "AsyncRelayCommandBuilder",
+    "BatchAttachRejection",
+    "BatchAttachRejectionReason",
+    "BatchAttachResult",
     "BatchUpdateHandle",
     "BuilderValidationError",
     "CollectionChangedEvent",
@@ -229,6 +239,7 @@ __all__ = [
     "Message",
     "MessageHub",
     "MessageHubProto",
+    "MissingParentPolicy",
     "ModalVM",
     "ModeledCrudCommands",
     "NotificationSeverity",
