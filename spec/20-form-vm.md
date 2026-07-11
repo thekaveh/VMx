@@ -218,8 +218,9 @@ entry from that map. `ErrorsChanged` emits a fresh error map only when validatio
 changes the effective map; a model mutation that leaves errors identical emits
 nothing.
 
-Validation runs at construction, on `SetModel`, and after `DenyCommand` reverts
-the model. `ApproveCommand.CanExecute` returns `false` while invalid, regardless
+Validation runs at construction, on an accepted unequal `SetModel`, and after
+`DenyCommand` reverts the model. An equal candidate is rejected before validation
+under §5.2. `ApproveCommand.CanExecute` returns `false` while invalid, regardless
 of strict mode. `ApproveAsync` is a no-op while invalid and does not invoke the
 persister.
 
@@ -271,6 +272,41 @@ The callback does not run for invalid approval, persister failure or
 cancellation, disposal before or during persistence, or deny/revert. When the
 option is absent, existing approval semantics remain unchanged.
 
+### 5.2 Model assignment transaction (spec v3.12, ADR-0092)
+
+`SetModel` applies one synchronous transaction in this order:
+
+1. apply the disposal admission rule before candidate inspection;
+1. reject null in flavors whose public model contract has a null guard;
+1. compare the candidate with the live `Model` using the same equality mechanism
+   as §4;
+1. return without replacing the live value, validation, command work, or
+   notification when equal;
+1. capture the previous dirty and valid state;
+1. install the candidate as the live `Model`;
+1. rerun validation and emit `ErrorsChanged` only for an effective error-map
+   change;
+1. invalidate `ApproveCommand` when the existing strict/validity rules require
+   it; and
+1. publish exactly one model `PropertyChangedMessage` on the configured hub.
+
+The property name follows the flavor idiom: `"Model"` in C# and `"model"` in
+Python, TypeScript, Swift, and Rust. The sender is the form. FormVM does not add a
+separate local property-change stream.
+
+Hub publication is last. A synchronous subscriber therefore reads the accepted
+model, errors, validity, dirty state, and approve-command state as one settled
+form state. If that subscriber re-enters `SetModel` with another unequal value,
+the nested call completes its own state work and publishes once; the outer call
+performs no state work after its send returns. One message is published for each
+accepted unequal assignment.
+
+The null/default hub keeps null-object behavior: the local edit transaction still
+settles and no exception is raised. Validator failures retain their existing
+flavor behavior; this contract does not add rollback. Intentional publication of
+an equal/current model is outside this method and is tracked separately by issue
+#89.
+
 ## 6. Lifecycle state diagram
 
 ```mermaid
@@ -307,15 +343,22 @@ This is a **documented composition pattern** only — `FormVM` does not depend o
 
 ## 8. Hub messages
 
-`DenyCommand` publishes two messages on the message hub (chapter 03) after reverting:
+An accepted unequal `SetModel` publishes one model `PropertyChangedMessage` after
+the edit transaction is settled (§5.2). Equal and disposed assignments publish
+nothing.
+
+`DenyCommand` publishes two messages on the message hub (chapter 03) after
+reverting and revalidating:
 
 1. **`FormRevertedMessage`** — `{ sender: FormVM }` — signals that the form was
    reverted to its snapshot.
-1. **`PropertyChangedMessage("Model")`** — standard property-change notification for
-   `Model`, per chapter 03 §2 rules.
+1. **`PropertyChangedMessage("Model" / "model")`** — one standard property-change
+   notification for `Model`, using the flavor idiom per chapter 03 §2 rules.
 
 `ApproveCommand` does not publish hub messages directly; two observables carry the
-approve outcome instead (see *Approve signals* below).
+approve outcome instead (see *Approve signals* below). A configured
+`resetOnApproved` may replace the live model as part of that outcome but does not
+publish a model property message.
 
 ### 8.1. `FormRevertedMessage`
 
@@ -398,8 +441,8 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   uniform across flavors — §8); it does not fire when the persister throws.
 - `FORM-007` — When the persister throws, no state mutation occurs: `Snapshot` and
   `Model` remain unchanged, `IsDirty` is still `true`.
-- `FORM-008` — `DenyCommand` publishes `FormRevertedMessage` and
-  `PropertyChangedMessage("Model")` on the hub.
+- `FORM-008` — `DenyCommand` publishes exactly one `FormRevertedMessage` followed
+  by exactly one flavor-idiomatic model `PropertyChangedMessage` on the hub.
 - `FORM-009` — Strict mode: `ApproveCommand.CanExecute == false` when
   `IsDirty == false`; becomes `true` when `IsDirty == true`.
 - `FORM-010` — Integration with `IDialogService.Confirm`: wrapping `DenyCommand`
@@ -448,6 +491,11 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   post-persist state/notification work (§5.1, §10).
 - `FORM-029` — Reset is authoritative over a racing `SetModel` and remains based
   on the captured persisted value (§5.1).
+- `FORM-030` — An accepted unequal `SetModel` settles model, validation, and
+  approve-command state before publishing exactly one idiomatic model hub
+  message. Equal/disposed assignments are inert; re-entrant assignments publish
+  once each; null/default hubs are safe; deny stays one ordered pair; approval
+  reset publishes no model property message (§5.2, §8).
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.

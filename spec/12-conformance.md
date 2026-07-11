@@ -2687,8 +2687,9 @@ dispatches the persist call fire-and-forget per chapter 20 §2)
 **And** subscribers are recording `FormRevertedMessage` and `PropertyChangedMessage`
 **When** `DenyCommand.Execute()` is called
 **Then** exactly one `FormRevertedMessage` is published with `Sender == formVm`
-**And** exactly one `PropertyChangedMessage` with `PropertyName == "Model"` is
-published after the revert
+**And** exactly one model `PropertyChangedMessage` is published after it, with
+the flavor-idiomatic property name (`"Model"` in C#; `"model"` in Python,
+TypeScript, Swift, and Rust)
 
 ### FORM-009 — Strict mode: `ApproveCommand.CanExecute` gates on `IsDirty`
 
@@ -2885,6 +2886,33 @@ or deny/revert is invoked
 the racing `m2`, with `IsDirty == false`
 
 > Spec: `20-form-vm.md §5.1`, ADR-0087.
+
+### FORM-030 — unequal model assignment publishes one settled hub message
+
+**Given** a strict `FormVM<TM>` with observable validation/errors,
+`ApproveCommand.CanExecuteChanged`, and an injected hub
+**When** `SetModel` accepts a candidate unequal to the live model under the
+form's configured or idiomatic equality
+**Then** it installs the candidate, settles validation/errors and command state,
+and publishes exactly one flavor-idiomatic model `PropertyChangedMessage`
+**And** a synchronous hub subscriber observes the accepted model, errors,
+validity, dirty state, and command state already settled
+
+**When** that subscriber re-enters `SetModel` with another unequal value
+**Then** each accepted call publishes exactly once and the nested value is the
+final settled state
+**But when** a distinct candidate is equality-equal to the live model
+**Then** the current model is retained and no validator, command, or notification
+work occurs
+
+**And** assignment after disposal remains a complete no-op under `DISP-014`
+**And** the null/default hub path settles an unequal edit without error
+**And** deny publishes exactly `FormRevertedMessage` then one idiomatic model
+property message, with no duplicate
+**And** `resetOnApproved` retains its existing outcome channels without a model
+property message
+
+> Spec: `20-form-vm.md §5.2/§8`, ADR-0092.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1
 

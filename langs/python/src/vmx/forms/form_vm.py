@@ -191,12 +191,21 @@ class FormVM(Generic[TM]):
             return
         if model is None:
             raise ValueError("model must not be None")
+        if self._model == model:
+            return
         was_dirty = self.is_dirty
         was_valid = self.is_valid
         self._model = model
         self._revalidate()
         if (self._strict and self.is_dirty != was_dirty) or self.is_valid != was_valid:
             self._can_execute_trigger.on_next(None)
+        self._hub.send(
+            PropertyChangedMessage.create(
+                sender=self,
+                sender_name="FormVM",
+                property_name="model",
+            )
+        )
 
     # ── Async core ────────────────────────────────────────────────────────────
 

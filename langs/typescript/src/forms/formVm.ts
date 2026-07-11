@@ -444,6 +444,7 @@ export class FormVM<TM> {
     if (model === null || model === undefined) {
       throw new Error("model must not be null or undefined");
     }
+    if (this.#equals(this.#model, model)) return;
     const wasDirty = this.isDirty;
     const wasValid = this.isValid;
     this.#model = model;
@@ -451,6 +452,7 @@ export class FormVM<TM> {
     if ((this.#strict && this.isDirty !== wasDirty) || this.isValid !== wasValid) {
       this.#canExecuteTrigger.next();
     }
+    this.#hub.send(PropertyChangedMessage.create(this, "FormVM", "model"));
   }
 
   // ── Async core ─────────────────────────────────────────────────────────────

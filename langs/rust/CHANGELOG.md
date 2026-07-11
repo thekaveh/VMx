@@ -4,6 +4,23 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] — 2026-07-11
+
+Implements `spec-v3.12.0` and keeps Rust at full library parity: 341/341
+conformance IDs covered.
+
+### Changed
+
+- `FormVm::set_model` retains its `PartialEq` no-op gate and now publishes the
+  model notification only after validation and approve-command state settle
+  (`FORM-030`, ADR-0092).
+
+### Fixed
+
+- Deny now publishes one ordered `FormReverted` + idiomatic `"model"` pair
+  instead of the embedded component's early `"model"` plus legacy `"Model"`;
+  approval reset no longer leaks a component model notification.
+
 ## [0.11.0] — 2026-07-11
 
 Implements `spec-v3.11.0` and keeps Rust at full library parity: 340/340

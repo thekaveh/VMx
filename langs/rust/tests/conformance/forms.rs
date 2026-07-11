@@ -123,15 +123,17 @@ fn revert_publishes_form_reverted_and_model_changed() {
     let hub = MessageHub::new();
     let form = FormVm::with_options("form", 1, |_| Ok(()), false, hub.clone());
     form.set_model(2);
+    let start = hub.history().len();
 
     form.revert();
 
-    assert!(hub
-        .history()
-        .iter()
-        .any(|message| matches!(message, Message::FormReverted(_))));
-    assert!(hub.history().iter().any(
-        |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "Model")
+    let history = hub.history();
+    let messages = &history[start..];
+    assert_eq!(messages.len(), 2);
+    assert!(matches!(messages[0], Message::FormReverted(_)));
+    assert!(matches!(
+        messages[1],
+        Message::PropertyChanged(ref change) if change.property_name == "model"
     ));
 }
 

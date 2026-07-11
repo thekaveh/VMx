@@ -4,6 +4,20 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.12.0] — 2026-07-11
+
+Implements `spec-v3.12.0` and keeps Python at full library parity: 341/341
+conformance IDs covered.
+
+### Changed
+
+- `FormVM.set_model` now uses model value equality to suppress a no-op
+  candidate, then publishes exactly one model `PropertyChangedMessage` after
+  model, validation, and approve-command state settle (`FORM-030`, ADR-0092).
+- Compatibility: unequal edits are now visible on the configured hub, while a
+  distinct value-equal candidate is retained silently instead of replacing the
+  live model and rerunning validators.
+
 ## [3.11.0] — 2026-07-11
 
 Implements `spec-v3.11.0` and keeps Python at full library parity: 340/340

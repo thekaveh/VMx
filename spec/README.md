@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (345 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (346 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -441,11 +441,23 @@ flavors. `DISP-014` raises the catalog from 344 to 345 total IDs (340 library +
 
 See ADR-0091 and chapters 02 §7, 05 §3, and 20 §5/§10.
 
-### 1.21 Supporting artefacts
+### 1.21 v3.11.0 → v3.12.0 changes
 
-- `VERSION` — current spec SemVer (`3.11.0`).
+v3.12.0 makes an accepted unequal FormVM model edit observable on the injected
+hub after model, validation/errors, and approve-command state settle. Equal
+candidates are complete no-ops under each flavor's configured or idiomatic
+equality. Deny retains one ordered reverted/model pair, while approval reset
+does not publish a model message; Rust's prior early/duplicate component leaks
+are removed. `FORM-030` raises the catalog from 345 to 346 total IDs (341
+library + 5 THEME scenario IDs).
+
+See ADR-0092 and chapter 20 §5.2/§8.
+
+### 1.22 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.12.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0091); see
+- `ADRs/` — Architecture Decision Records (0001-0092); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

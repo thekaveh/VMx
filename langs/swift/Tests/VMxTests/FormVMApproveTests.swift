@@ -152,6 +152,7 @@ final class FormVMApproveTests: XCTestCase {
         )
 
         sut.setModel(TestModel(name: "Bob", value: 2))
+        received.removeAll()
         sut.denyCommand.execute()
 
         cancellables.removeAll()

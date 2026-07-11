@@ -205,6 +205,7 @@ describe("FORM-008", () => {
     });
 
     sut.setModel(makeModel("Bob", 2));
+    messages.length = 0;
     sut.denyCommand.execute();
 
     sub.unsubscribe();
