@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (329 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (337 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -405,11 +405,22 @@ per-item results. `HIER-023..030` raise the catalog from 321 to 329 total IDs
 
 See ADR-0088 and chapter 18 §6.
 
-### 1.18 Supporting artefacts
+### 1.18 v3.8.0 → v3.9.0 changes
 
-- `VERSION` — current spec SemVer (`3.8.0`).
+v3.9.0 adds atomic whole-list replacement to `ObservableList` in all five
+flavors. Input is snapshotted before mutation; every effective replacement
+emits one Reset and cardinality-dependent `Count`; identical non-empty contents
+do not require element equality; and nested or exceptional batch exits preserve
+one outer notification. `COL-040..047` raise the catalog from 329 to 337 total
+IDs (332 library + 5 THEME scenario IDs).
+
+See ADR-0089 and chapter 21 §3.6.
+
+### 1.19 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.9.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0088); see
+- `ADRs/` — Architecture Decision Records (0001-0089); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

@@ -4,6 +4,16 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.0] — 2026-07-10
+
+Implements `spec-v3.9.0` and keeps C# at full library parity: 332/332
+conformance IDs covered.
+
+### Added
+
+- `ObservableList<T>.ReplaceAll(...)` snapshots input and emits one Reset plus
+  cardinality-dependent `Count` (`COL-040..047`).
+
 ## [3.8.0] — 2026-07-10
 
 Implements `spec-v3.8.0` and keeps C# at full library parity: 324/324

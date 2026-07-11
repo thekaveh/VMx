@@ -5,7 +5,7 @@ See spec/21-collections.md §3 and ADR-0026.
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Generic, TypeVar, overload
 
@@ -164,6 +164,22 @@ class ObservableList(Generic[T]):
         old_item = self._items[index]
         self._items[index] = new_item
         self._on_replaced(new_item, old_item, index)
+
+    def replace_all(self, items: Iterable[T]) -> None:
+        """Replace all contents from a snapshot and emit one reset.
+
+        Empty-to-empty is the only no-op. Equal-length and element-for-element
+        identical non-empty inputs still emit Reset without comparing elements.
+        """
+        snapshot = list(items)
+        old_count = len(self._items)
+        if old_count == 0 and not snapshot:
+            return
+
+        self._items[:] = snapshot
+        self._on_reset()
+        if old_count != len(snapshot) and self._batch_depth == 0 and not self._disposed:
+            self._prop_changed_subject.on_next("Count")
 
     def clear(self) -> None:
         """Remove all items, emitting Reset then ``Count`` — but only when the

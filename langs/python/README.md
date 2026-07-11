@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.8.0** — implements `spec-v3.8.0` end-to-end. 324/324 library conformance IDs
+**v3.9.0** — implements `spec-v3.9.0` end-to-end. 332/332 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.8.0. The latest public PyPI package may
+The source tree currently implements v3.9.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -173,7 +173,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
 | `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
 | `ServicedObservableCollection[T]`                 | Hub-aware observable collection (spec v2.1)                                         |
-| `ObservableList[T]`                               | Granular per-mutation events (spec v2.1)                                            |
+| `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
 | `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
 | Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
@@ -191,7 +191,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 324 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 332 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -216,6 +216,8 @@ v3.4   DISP-001..006
 v3.5   COL-032..039
 v3.6   CMD-014..019
 v3.7   FORM-024..029
+v3.8   HIER-023..030
+v3.9   COL-040..047
 ```
 
 Run the suite:

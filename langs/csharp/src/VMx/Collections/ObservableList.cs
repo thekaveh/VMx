@@ -167,6 +167,29 @@ public sealed class ObservableList<T> :
         OnReplaced(newItem, oldItem, index);
     }
 
+    /// <summary>
+    /// Replace the complete contents with a snapshot of <paramref name="items"/>.
+    /// Every replacement except empty-to-empty emits one Reset; Count follows
+    /// only when the cardinality changes.
+    /// </summary>
+    public void ReplaceAll(IEnumerable<T> items)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(items);
+#else
+        if (items is null) throw new ArgumentNullException(nameof(items));
+#endif
+        var snapshot = new List<T>(items);
+        int oldCount = _items.Count;
+        if (oldCount == 0 && snapshot.Count == 0) return;
+
+        _items.Clear();
+        _items.AddRange(snapshot);
+        OnReset();
+        if (oldCount != snapshot.Count && _batchDepth == 0)
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+    }
+
     /// <summary>Remove all items and emit <see cref="Reset"/> (and <c>Count</c> when it changed).</summary>
     public void Clear()
     {
