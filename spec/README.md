@@ -463,11 +463,21 @@ to 347 total IDs (342 library + 5 THEME scenario IDs).
 
 See ADR-0093 and chapter 05 §3.3/§4.
 
-### 1.23 Supporting artefacts
+### 1.23 v3.13.0 → v3.14.0 changes
 
-- `VERSION` — current spec SemVer (`3.13.0`).
+v3.14.0 adds three non-normative TypeScript predicates for classifying existing
+property, collection, and construction-status messages in mixed raw-message
+arrays and streams. This TypeScript-only type-narrowing surface does not change
+message semantics or create an other-flavor requirement, so the catalog remains
+347 total IDs (342 library + 5 THEME scenario IDs).
+
+See ADR-0094 and chapter 03 §7.3.
+
+### 1.24 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.14.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0093); see
+- `ADRs/` — Architecture Decision Records (0001-0094); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

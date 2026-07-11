@@ -113,7 +113,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 93 ADRs,
+- **Spec** — `spec/` is the source of truth: 23 markdown chapters, 94 ADRs,
   4 JSON fixtures, 347 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -142,11 +142,11 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Source status           | Public package status                                          | Reactive primitive     |
 | ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
-| C#         | v3.13.0 in source       | NuGet package not published yet                                | System.Reactive        |
-| Python     | v3.13.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
-| TypeScript | v3.13.0 in source       | npm package not published yet                                  | rxjs                   |
-| Swift      | v3.13.0 in source       | SwiftPM tag not published yet; no central registry             | Combine                |
-| Rust       | v0.13.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
+| C#         | v3.14.0 in source       | NuGet package not published yet                                | System.Reactive        |
+| Python     | v3.14.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
+| TypeScript | v3.14.0 in source       | npm package not published yet                                  | rxjs                   |
+| Swift      | v3.14.0 in source       | SwiftPM tag not published yet; no central registry             | Combine                |
+| Rust       | v0.14.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
 
 `main` may contain an in-development source version before that version is
 published to package registries. Use the compatibility matrix for source-level
@@ -175,6 +175,7 @@ coverage in source and is awaiting a crates.io release channel.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
+| 3.14.x | 3.14.0 | 3.14.0 | 3.14.0     | 3.14.0         | 0.14.0        |
 | 3.13.x | 3.13.0 | 3.13.0 | 3.13.0     | 3.13.0         | 0.13.0        |
 | 3.3.x | 3.3.0  | 3.3.0  | 3.3.0      | 3.3.0          | 0.3.0         |
 | 3.2.x | 3.2.0  | 3.2.0  | 3.2.0      | 3.2.0          | 0.2.0         |
@@ -284,7 +285,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 22-discriminator-vm.md   (23 chapters)
-│   ├── ADRs/              architecture decision records (0001..0093)
+│   ├── ADRs/              architecture decision records (0001..0094)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
@@ -292,7 +293,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.13.0, total parity — 342 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.14.0, total parity — 342 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/getting-started/  per-flavor quickstart tutorials
@@ -316,7 +317,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 93 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 23 chapters, 94 ADRs,
   4 fixtures, and the 347-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
@@ -325,7 +326,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.13.0, total parity — 342 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.14.0, total parity — 342 library + 5 THEME),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
