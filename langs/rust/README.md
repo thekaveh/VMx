@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.11.0** implements `spec-v3.11.0` at full source parity: all 340 library
+**v0.12.0** implements `spec-v3.12.0` at full source parity: all 341 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -17,6 +17,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   invalidation without predicate polling;
 - `FormVm::builder().reset_on_approved(...)` derives a pristine model after a
   successful persist without exposing a mutable form to the persister;
+- `FormVm::set_model(...)` publishes one model hub message only after validation
+  and approve-command state settle;
 - `HierarchicalVm::attach_many(...)` resolves out-of-order tree windows with
   consumer keys, non-replacing dedupe, and park/reject orphan policy;
 - `ObservableList::replace_all(...)` snapshots a full refresh and emits one
