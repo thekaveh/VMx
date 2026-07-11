@@ -187,6 +187,75 @@ Key exports:
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
 | `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
+| `whenPropertyChanged`           | Hub helper yielding matching property-change messages |
+| `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages (spec v3.14) |
+
+### 4.1 Raw message predicates
+
+All three predicates accept an `IMessage` and narrow it to an existing concrete
+message type. Each has a unary overload for direct use with `Array.filter` or
+RxJS `filter`, plus an overload with an optional inline constraint object:
+
+| Call signature | Optional exact constraints | Result after a match |
+| -------------- | -------------------------- | -------------------- |
+| `isPropertyChanged<TSender>(message, { sender?, propertyName? }?)` | sender identity and property name | `PropertyChangedMessage<TSender>` |
+| `isCollectionChanged<TItem>(message, { source?, action? }?)` | source identity and `"add"`, `"remove"`, `"replace"`, or `"reset"` | `CollectionChangedMessage<TItem>` |
+| `isConstructionStatusChanged(message, { sender?, status? }?)` | sender identity and `ConstructionStatus` | `ConstructionStatusChangedMessage` |
+
+The unconstrained unary form is the shortest way to classify a whole mixed
+stream:
+
+```ts
+import {
+  ConstructionStatus,
+  isCollectionChanged,
+  isConstructionStatusChanged,
+  isPropertyChanged,
+} from "@thekaveh/vmx";
+import { filter } from "rxjs";
+
+interface Note { readonly title: string }
+
+const propertyChanges = hub.messages.pipe(filter(isPropertyChanged));
+
+const modelChanges = hub.messages.pipe(
+  filter((message) =>
+    isPropertyChanged(message, { sender: vm, propertyName: "model" }),
+  ),
+);
+
+const addedNotes = hub.messages.pipe(
+  filter((message) =>
+    isCollectionChanged<Note>(message, {
+      source: notes,
+      action: "add",
+    }),
+  ),
+);
+
+const constructed = hub.messages.pipe(
+  filter((message) =>
+    isConstructionStatusChanged(message, {
+      sender: vm,
+      status: ConstructionStatus.Constructed,
+    }),
+  ),
+);
+```
+
+Pass the collection item generic explicitly when downstream code needs typed
+`newItems` and `oldItems`; the collection's source object cannot supply that
+type. No cast is required for any predicate.
+
+Use raw predicates to classify mixed `IMessage` arrays or streams. If the hub,
+sender, and property are already known, prefer `whenPropertyChanged` for the
+matching message or `propertyValueChangedMessagesFor` for the property's current
+value.
+
+This API is intentionally TypeScript-only. It fills a TypeScript type-narrowing
+gap without changing message semantics; other flavors already use their
+idiomatic nominal/runtime checks, so ADR-0094 adds no artificial cross-flavor
+surface or conformance ID.
 
 The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
