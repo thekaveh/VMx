@@ -223,6 +223,13 @@ the model. `ApproveCommand.CanExecute` returns `false` while invalid, regardless
 of strict mode. `ApproveAsync` is a no-op while invalid and does not invoke the
 persister.
 
+`SetModel` first applies the lifecycle admission rule from chapter 02 §7. If the
+form is already disposed, it returns before null checks or equality, model or
+snapshot mutation, dirty-state evaluation, validation, command-state work, or
+notification. The model, snapshot, errors, dirty/valid state, and command state
+remain unchanged. A call admitted before disposal retains the ordinary behavior
+described above.
+
 ### 5.1 Declarative reset after approval (spec v3.7, ADR-0087)
 
 The builder and constructor accept an optional flavor-idiomatic
@@ -365,6 +372,9 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   no-ops — in particular the **persister delegate is never invoked**, since
   it is an external side effect.
 - `DenyCommand.Execute()` is a full no-op: no model revert, no hub messages.
+- `SetModel(...)` is a full no-op before candidate validation or equality: no
+  model/snapshot/error mutation, validator call, dirty/command recomputation, or
+  signal emission.
 - A `Dispose()` that lands *during* an in-flight persist suppresses the
   post-await state mutation and emissions (the persister itself, already
   running, completes normally). A persister *failure* that lands after
@@ -441,3 +451,5 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.
+`DISP-014` covers post-disposal modeled assignment for both forms and modeled
+components.

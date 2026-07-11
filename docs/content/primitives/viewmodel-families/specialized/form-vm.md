@@ -51,6 +51,13 @@ Repeated disposal completes the owned channels and commands at most once while
 preserving the form's inert post-dispose behavior. See the
 [Disposal Contract](../../disposal-contract.md).
 
+`SetModel` / `set_model` that begins after disposal is also a complete no-op.
+It returns before null or equality work, leaves the live model and snapshot
+unchanged, does not re-run validators, and cannot change errors, dirty/valid
+state, approve command state, or notification channels. A set admitted before
+disposal keeps the normal mutation contract. Upstream async work should still
+be cancelled for resource control; this guard only rejects a late form result.
+
 Strict mode gates approve on `IsValid && IsDirty`.
 
 ### Declarative submit-then-clear
@@ -264,6 +271,9 @@ make dirty and revert semantics ambiguous.
 - Retrying blindly after reset failure; the external persist already succeeded.
 - Re-implementing save/cancel/dirty plumbing in every editor instead of
   composing the primitive once.
+- Keeping a form-specific “zombie assignment” flag solely to stop late
+  `setModel` calls. VMx now rejects those calls after disposal; retain only
+  cancellation that still owns application resources.
 
 ## Related Primitives
 

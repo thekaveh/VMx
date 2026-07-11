@@ -4,12 +4,12 @@
     <RootNamespace>VMx</RootNamespace>
     <AssemblyName>VMx</AssemblyName>
     <PackageId>VMx</PackageId>
-    <Version>3.10.0</Version>
+    <Version>3.11.0</Version>
     <Description>Hierarchical, lifecycle-aware MVVM viewmodel framework.</Description>
     <PackageTags>mvvm;viewmodel;reactive;wpf;avalonia;maui;xamarin</PackageTags>
 
     <!-- Minimum spec version this assembly implements -->
-    <MinSpecVersion>3.10.0</MinSpecVersion>
+    <MinSpecVersion>3.11.0</MinSpecVersion>
   </PropertyGroup>
 
   <ItemGroup>

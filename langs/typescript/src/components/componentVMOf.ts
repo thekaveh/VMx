@@ -10,6 +10,7 @@ import type { IDispatcher } from "../services/dispatcher.js";
 import { NullMessageHub } from "../services/nullMessageHub.js";
 import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
 
 export class ComponentVMOf<M> extends ComponentVMBase {
   #model: M;
@@ -56,6 +57,7 @@ export class ComponentVMOf<M> extends ComponentVMBase {
   }
 
   protected _setModel(value: M): void {
+    if (this.status === ConstructionStatus.Disposed) return;
     if (this.#model === value) return;
     this.#model = value;
 
