@@ -14,7 +14,7 @@
 - `spec/` is the behavior source of truth; the chapter change and ADR-0093 land together.
 - Public conceptual shape is identical across flavors: `RepublishModel`, `republish_model`, `republishModel`, `republishModel`, `republish_model`.
 - Cover writable, read-only, and forwarding modeled leaf components; do not add the API to `FormVM`, modeled composites, `DerivedProperty`, or non-modeled components.
-- Preserve model identity/value and cached modeled hint; do not evaluate equality, run the hinter, or invoke `OnModelChanged`.
+- Preserve model identity/value and the observable modeled hint value; republish itself must not evaluate equality, run the hinter, or invoke `OnModelChanged`.
 - Emit through the existing helper exactly once using `"Model"` in C# and `"model"` elsewhere; do not duplicate ordering or lifecycle logic.
 - Stable flavors advance 3.12.0→3.13.0; Rust advances 0.12.0→0.13.0 and declares spec 3.13.0.
 - Add exactly one real `CVM-010` marker per full-parity flavor; counts advance 341→342 library and 346→347 total.
@@ -42,7 +42,7 @@ ______________________________________________________________________
 
 - [ ] **Step 1: Add ADR-0093**
 
-Record the dedicated API decision, writable/read-only/forwarding scope, FormVM exclusion, exact no-mutation/no-hint/no-callback semantics, helper ordering, null-hub and re-entry behavior, 3.13.0 versioning, and rejected force/touch/copy alternatives.
+Record the dedicated API decision, writable/read-only/forwarding scope, FormVM exclusion, exact no-mutation/no-hinter/no-callback semantics, helper ordering, null-hub and re-entry behavior, 3.13.0 versioning, and rejected force/touch/copy alternatives.
 
 - [ ] **Step 2: Extend chapter 05**
 
@@ -109,7 +109,7 @@ In each flavor build a reference-shaped model, a counting hinter, and a counting
 
 ```text
 same model identity/value
-same modeled hint
+same observable modeled hint value
 hinter count unchanged
 callback count unchanged
 trace == [hub:model, local:model]

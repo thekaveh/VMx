@@ -49,7 +49,8 @@ republish transaction without consumer evidence would broaden the ticket.
 For a non-disposed modeled component, one call:
 
 1. retains the exact current model reference/value;
-1. retains the cached modeled hint without invoking the modeled hinter;
+1. retains the observable modeled hint value without invoking the modeled
+   hinter as part of republish;
 1. does not evaluate model equality;
 1. does not invoke `OnModelChanged` / `onModelChanged`;
 1. invokes the established dual-channel notification helper exactly once with the
@@ -74,8 +75,8 @@ its re-entrant queue finish. This feature does not invent a second ordering rule
 
 Read-only components may republish because read-only means VMx does not replace
 the model reference; it does not make a referenced object deeply immutable. The
-operation still does not provide a setter or recompute the construction-time
-modeled hint. Forwarding decorators delegate to the wrapped component so sender
+operation still does not provide a setter or request modeled-hint recomputation.
+Forwarding decorators delegate to the wrapped component so sender
 identity, hub, local stream, disposal, and overrides remain those of the target.
 
 ## Alternatives rejected

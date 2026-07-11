@@ -569,8 +569,10 @@ notification still occurs before its local surface completes
 hinter, model-changed callback where the flavor exposes one, and subscribers to
 the hub and local property-change channels
 **When** its explicit model-republish operation is called
-**Then** the exact model reference/value and cached modeled hint are retained
-**And** equality, assignment, hinter, and model-changed callback work does not run
+**Then** the exact model reference/value and observable modeled hint value are
+retained
+**And** republish does not run equality, assignment, hinter, or model-changed
+callback work
 **And** exactly one flavor-idiomatic model `PropertyChangedMessage` and one local
 model notification are observed in ordinary hub-before-local order
 **And** a read-only modeled component exposes the same publication operation

@@ -30,9 +30,9 @@ decision.
 1. Expose it on writable and read-only modeled leaf components. Forwarding
    modeled components delegate it to the wrapped component. Do not add it to
    non-modeled components, modeled composites, `FormVM`, or `DerivedProperty`.
-1. One admitted call retains the exact model reference/value and cached modeled
-   hint. It performs no equality check, assignment, hint recomputation, or
-   `OnModelChanged` callback.
+1. One admitted call retains the exact model reference/value and observable
+   modeled hint value. Republish itself performs no equality check, assignment,
+   modeled-hinter invocation, or `OnModelChanged` callback.
 1. The operation invokes the chapter 05 dual-channel helper exactly once for
    the idiomatic model property name: `"Model"` in C# and `"model"` elsewhere.
    An ordinary top-level call therefore publishes one hub message before one
@@ -44,8 +44,8 @@ decision.
    lossless iterative queue and follows chapter 05 §2.3 ordering without a new
    recursive or global-order rule.
 1. Read-only describes replacement authority, not deep immutability of a
-   referenced object. Republish does not add a setter or recompute the stable
-   modeled hint. Forwarding preserves the wrapped sender, hub, local stream, and
+   referenced object. Republish does not add a setter or request modeled-hint
+   recomputation. Forwarding preserves the wrapped sender, hub, local stream, and
    disposal boundary.
 1. Add `CVM-010` in all five full-parity flavors.
 

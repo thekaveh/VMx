@@ -182,9 +182,9 @@ state reachable through the retained model changed outside ordinary replacement:
 | Swift      | `republishModel()`  | `"model"`     |
 | Rust       | `republish_model()` | `"model"`     |
 
-One call retains the exact current `Model` reference/value and cached
-`ModeledHint`. It does not evaluate model equality, assign the model, invoke the
-modeled hinter, or invoke `OnModelChanged`. Instead, it calls the §2.3
+One call retains the exact current `Model` reference/value and observable
+`ModeledHint` value. Republish itself does not evaluate model equality, assign the
+model, invoke the modeled hinter, or invoke `OnModelChanged`. Instead, it calls the §2.3
 dual-channel helper exactly once for the flavor-idiomatic model name. For an
 ordinary top-level call, observers therefore receive exactly one hub message
 followed by exactly one VM-local notification, and both read the unchanged
