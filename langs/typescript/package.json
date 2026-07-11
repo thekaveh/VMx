@@ -1,6 +1,6 @@
 {
   "name": "@thekaveh/vmx",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "Hierarchical lifecycle-aware MVVM viewmodel framework",
   "type": "module",
   "sideEffects": false,

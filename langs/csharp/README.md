@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.12.0** — implements `spec-v3.12.0` end-to-end. 341/341 library conformance IDs
+**v3.13.0** — implements `spec-v3.13.0` end-to-end. 342/342 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.12.0. The NuGet package has not been
+The source tree currently implements v3.13.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -214,11 +214,11 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 341 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 342 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-       CVM-001..009   COMP-001..013 GRP-001..006   AGG-001..005
+       CVM-001..010   COMP-001..013 GRP-001..006   AGG-001..005
        FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
 v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005

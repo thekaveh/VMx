@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (346 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (347 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -453,11 +453,21 @@ library + 5 THEME scenario IDs).
 
 See ADR-0092 and chapter 20 §5.2/§8.
 
-### 1.22 Supporting artefacts
+### 1.22 v3.12.0 → v3.13.0 changes
 
-- `VERSION` — current spec SemVer (`3.12.0`).
+v3.13.0 adds an explicit allocation-free modeled-component republish operation
+to writable, read-only, and forwarding leaves. It retains model identity/value
+and observable hint state, skips assignment/hinter/callback work, and emits one
+ordinary idiomatic hub/local model pair. `CVM-010` raises the catalog from 346
+to 347 total IDs (342 library + 5 THEME scenario IDs).
+
+See ADR-0093 and chapter 05 §3.3/§4.
+
+### 1.23 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.13.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0092); see
+- `ADRs/` — Architecture Decision Records (0001-0093); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
