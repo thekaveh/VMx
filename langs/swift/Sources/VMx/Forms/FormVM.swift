@@ -168,6 +168,7 @@ public final class FormVM<Model> {
     /// A call begun after disposal returns before inspecting the candidate.
     public func setModel(_ newModel: Model) {
         guard !_disposed else { return }
+        guard !equals(_model, newModel) else { return }
         let wasDirty = isDirty
         let wasValid = isValid
         _model = newModel
@@ -175,6 +176,7 @@ public final class FormVM<Model> {
         if (strict && isDirty != wasDirty) || isValid != wasValid {
             _approveCanExecSubject.send(())
         }
+        hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
     }
 
     // ── Async core ────────────────────────────────────────────────────────────

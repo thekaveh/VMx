@@ -60,6 +60,27 @@ be cancelled for resource control; this guard only rejects a late form result.
 
 Strict mode gates approve on `IsValid && IsDirty`.
 
+### Settled model publication
+
+An accepted unequal `SetModel` / `set_model` call is one synchronous edit
+transaction. VMx installs the candidate, recomputes validation, errors, dirty
+state, and approve-command state, then publishes exactly one model
+`PropertyChangedMessage` on the configured hub. Publication is last, so a
+synchronous hub observer sees the complete settled form state. The property
+name follows the flavor idiom: `"Model"` in C# and `"model"` in Python,
+TypeScript, Swift, and Rust.
+
+The equality check uses the same configured or idiomatic equality as dirty
+tracking. An equal candidate is a complete no-op: VMx retains the current model
+and does not validate, invalidate commands, or publish. A re-entrant observer
+may assign another unequal value; each accepted call settles and publishes
+once before returning.
+
+`DenyCommand` keeps its explicit ordered pair: one `FormRevertedMessage`, then
+one idiomatic model property message after the revert settles. A successful
+reset-after-approve publishes through `OnApproved` only and does not emit a
+model property message.
+
 ### Declarative submit-then-clear
 
 Configure reset-after-approve when a successful submission should leave the

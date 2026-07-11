@@ -12,6 +12,7 @@ mod conformance {
     mod discriminator;
     mod expandable;
     mod filtered_composite;
+    mod form_model_hub_publication;
     mod forms;
     mod forwarding;
     mod group_vm;

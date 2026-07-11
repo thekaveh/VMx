@@ -214,6 +214,7 @@ def test_form_008_hub_messages_on_revert() -> None:
     sut: FormVM[_Model] = FormVM(initial, persister, hub=hub)
 
     sut.set_model(_Model("Bob", 2))
+    messages.clear()
     sut.deny_command.execute()
 
     sub.dispose()

@@ -223,12 +223,17 @@ public sealed class FormVM<TM> : IDisposable
         // ObjectDisposedException (parity with the TS/Swift no-op).
         if (_disposed) return;
         ThrowHelper.ThrowIfNull(model, nameof(model));
+        if (Equals(_model, model)) return;
         var wasDirty = IsDirty;
         var wasValid = IsValid;
         _model = model;
         Revalidate();
         if ((_strict && IsDirty != wasDirty) || IsValid != wasValid)
             _canExecuteChangedTrigger.OnNext(Unit.Default);
+        _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(
+            this,
+            nameof(FormVM<TM>),
+            nameof(Model)));
     }
 
     // ── IDisposable ───────────────────────────────────────────────────────────
