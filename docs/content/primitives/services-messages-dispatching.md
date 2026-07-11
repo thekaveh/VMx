@@ -54,6 +54,70 @@ and clear owned state once. See the [Disposal Contract](disposal-contract.md).
 | `IDialogService`   | request/response host dialogs and modal presentation |
 | `INotificationHub` | fire-and-forget notification stream                  |
 
+## TypeScript Raw-Message Narrowing
+
+TypeScript exports three predicates for classifying mixed raw `IMessage`
+streams and arrays. Their unary overloads can be passed directly to RxJS or
+array filters; an inline constraint object adds exact sender/source and
+family-specific matching. Sender and source matching uses object identity.
+
+```typescript
+import {
+  ConstructionStatus,
+  isCollectionChanged,
+  isConstructionStatusChanged,
+  isPropertyChanged,
+  ServicedObservableCollection,
+} from "@thekaveh/vmx";
+import { filter } from "rxjs";
+
+interface Note {
+  readonly title: string;
+}
+
+const notes = new ServicedObservableCollection<Note>(hub);
+
+const propertyChanges = hub.messages.pipe(filter(isPropertyChanged));
+
+const modelChanges = hub.messages.pipe(
+  filter((message) =>
+    isPropertyChanged(message, { sender: vm, propertyName: "model" }),
+  ),
+);
+
+const addedNotes = hub.messages.pipe(
+  filter((message) =>
+    isCollectionChanged(message, {
+      source: notes,
+      action: "add",
+    }),
+  ),
+);
+
+const constructed = hub.messages.pipe(
+  filter((message) =>
+    isConstructionStatusChanged(message, {
+      sender: vm,
+      status: ConstructionStatus.Constructed,
+    }),
+  ),
+);
+```
+
+The sender generic is inferred only when a sender constraint is supplied and
+checked. Collection predicates always retain `CollectionChangedMessage<unknown>`,
+even when the source is a typed `ServicedObservableCollection<TItem>`: source
+identity cannot prove a payload type because public message factories accept
+sender and item types independently. An explicitly present `undefined`
+constraint is compared exactly, while an omitted field is ignored.
+
+Use `whenPropertyChanged(hub, sender, propertyName)` when those three inputs are
+already known and the subscriber needs the matching message. Use
+`propertyValueChangedMessagesFor(hub, sender, propertyName)` when it needs the
+current property value instead. The raw predicates are the appropriate choice
+when classifying a mixed message stream or array, especially when one pipeline
+must recognize several message families.
+
 ## Hub Transactions
 
 Use a hub transaction when one logical operation mutates several viewmodels and

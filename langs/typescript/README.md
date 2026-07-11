@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v3.13.0** — implements `spec-v3.13.0` end-to-end. 342/342 library conformance IDs
+**v3.14.0** — implements `spec-v3.14.0` end-to-end. 342/342 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -18,7 +18,7 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 
 ## 2. Install
 
-The source tree currently implements v3.13.0. The scoped npm package has not
+The source tree currently implements v3.14.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -187,6 +187,84 @@ Key exports:
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
 | `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
+| `whenPropertyChanged`           | Hub helper yielding matching property-change messages |
+| `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages (spec v3.14) |
+
+### 4.1 Raw message predicates
+
+All three predicates accept an `IMessage` and narrow it to an existing concrete
+message type. Each has a unary overload for direct use with `Array.filter` or
+RxJS `filter`, plus inline constraint-object overloads:
+
+| Call signature | Result after a match |
+| -------------- | -------------------- |
+| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>` |
+| `isPropertyChanged(message, { sender, propertyName? })` | `PropertyChangedMessage<TSender>` inferred from the checked sender |
+| `isCollectionChanged(message)` or any source/action constraints | `CollectionChangedMessage<unknown>` |
+| `isConstructionStatusChanged(message)` or its sender/status constraints | `ConstructionStatusChangedMessage` |
+
+The unconstrained unary form is the shortest way to classify a whole mixed
+stream:
+
+```ts
+import {
+  ConstructionStatus,
+  isCollectionChanged,
+  isConstructionStatusChanged,
+  isPropertyChanged,
+  ServicedObservableCollection,
+} from "@thekaveh/vmx";
+import { filter } from "rxjs";
+
+interface Note { readonly title: string }
+
+const notes = new ServicedObservableCollection<Note>(hub);
+
+const propertyChanges = hub.messages.pipe(filter(isPropertyChanged));
+
+const modelChanges = hub.messages.pipe(
+  filter((message) =>
+    isPropertyChanged(message, { sender: vm, propertyName: "model" }),
+  ),
+);
+
+const addedNotes = hub.messages.pipe(
+  filter((message) =>
+    isCollectionChanged(message, {
+      source: notes,
+      action: "add",
+    }),
+  ),
+);
+
+const constructed = hub.messages.pipe(
+  filter((message) =>
+    isConstructionStatusChanged(message, {
+      sender: vm,
+      status: ConstructionStatus.Constructed,
+    }),
+  ),
+);
+```
+
+Generic property senders cannot be selected without runtime evidence and are
+inferred only from a supplied sender constraint. Collection predicates always
+retain `CollectionChangedMessage<unknown>`, even for a typed
+`ServicedObservableCollection<TItem>` source, because source identity cannot
+prove the independently constructed message payload type. Optional fields use
+own-property presence: an explicitly supplied `undefined` value compares
+exactly, while an omitted field disables that constraint. No cast is required
+for any predicate.
+
+Use raw predicates to classify mixed `IMessage` arrays or streams. If the hub,
+sender, and property are already known, prefer `whenPropertyChanged` for the
+matching message or `propertyValueChangedMessagesFor` for the property's current
+value.
+
+This API is intentionally TypeScript-only. It fills a TypeScript type-narrowing
+gap without changing message semantics; other flavors already use their
+idiomatic nominal/runtime checks, so ADR-0094 adds no artificial cross-flavor
+surface or conformance ID.
 
 The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 

@@ -4,6 +4,17 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] — 2026-07-11
+
+Implements `spec-v3.14.0` and keeps Rust at full library parity: 342/342
+conformance IDs covered.
+
+### Changed
+
+- The package line advances to 0.14.0 with minimum spec 3.14.0. The Rust runtime
+  surface is unchanged because ADR-0094 records TypeScript-only message
+  predicate ergonomics and adds no language-neutral conformance requirement.
+
 ## [0.13.0] — 2026-07-11
 
 Implements `spec-v3.13.0` and keeps Rust at full library parity: 342/342
