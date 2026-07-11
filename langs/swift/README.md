@@ -129,13 +129,13 @@ a one-page SwiftUI integration recipe.
 
 ### 3.1 Cross-language naming
 
-| Concept            | C#                        | Python             | TypeScript                | Swift                     |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- |
-| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             |
-| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        |
-| Status property    | `Status`                  | `status`           | `status`                  | `status`                  |
-| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept             | C#                  | Python             | TypeScript         | Swift              |
+| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
+| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
+| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
+| Status property     | `Status`            | `status`           | `status`           | `status`           |
+| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
 
 ## 4. API surface
 
@@ -145,26 +145,26 @@ import VMx
 
 Key exports:
 
-| Export                                   | Description                                                                 |
-| ---------------------------------------- | --------------------------------------------------------------------------- |
-| `ComponentVM`                            | Leaf viewmodel (no model)                                                   |
-| `ComponentVMOf<M>`                       | Leaf viewmodel with a typed model                                           |
-| `ReadonlyComponentVMOf<M>`               | Leaf VM with externally read-only model                                     |
-| `CompositeVM<VM>`                        | Homogeneous-child container + `current` slot                                |
-| `GroupVM<VM>`                            | Homogeneous peer container (no current)                                     |
-| `VMCollection`                           | Shared group/composite collection + atomic move                             |
-| `SelectableVMCollection`                 | Composite-only current-selection extension                                  |
-| `AggregateVM1..6<...>`                   | Fixed-arity heterogeneous component slots                                   |
-| `RelayCommand`                           | Executable command with `canExecute`                                        |
-| `MessageHub` / `NullMessageHub.INSTANCE` | Combine-backed pub/sub + null variant                                       |
-| `Dispatcher`                             | Foreground/background work scheduler protocol                               |
-| `DefaultDispatcher`                      | Main + global-userInitiated Dispatch wrapper                                |
-| `ImmediateDispatcher.INSTANCE`           | Synchronous test dispatcher                                                 |
-| `NullDispatcher.INSTANCE`                | Null-object variant per ADR-0017                                            |
-| `ConstructionStatus`                     | 5-state lifecycle enum                                                      |
-| `StatusTransitionError`                  | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
-| `CompositeMembershipError`               | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053)            |
-| `BuilderValidationError`                 | Thrown when a builder is missing a required field                           |
+| Export                          | Description                                      |
+| ------------------------------- | ------------------------------------------------ |
+| `ComponentVM`                   | Leaf viewmodel (no model)                        |
+| `ComponentVMOf<M>`              | Leaf viewmodel with a typed model                |
+| `ReadonlyComponentVMOf<M>`      | Leaf VM with externally read-only model          |
+| `CompositeVM<VM>`               | Homogeneous-child container + `current` slot     |
+| `GroupVM<VM>`                   | Homogeneous peer container (no current)          |
+| `VMCollection`                  | Shared group/composite collection + atomic move  |
+| `SelectableVMCollection`       | Composite-only current-selection extension       |
+| `AggregateVM1..6<...>`          | Fixed-arity heterogeneous component slots        |
+| `RelayCommand`                  | Executable command with `canExecute`             |
+| `MessageHub` / `NullMessageHub.INSTANCE` | Combine-backed pub/sub + null variant   |
+| `Dispatcher`                    | Foreground/background work scheduler protocol    |
+| `DefaultDispatcher`             | Main + global-userInitiated Dispatch wrapper     |
+| `ImmediateDispatcher.INSTANCE`  | Synchronous test dispatcher                      |
+| `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `ConstructionStatus`            | 5-state lifecycle enum                           |
+| `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
+| `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
+| `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
 ## 5. Conformance — total parity (345)
 

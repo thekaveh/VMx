@@ -173,7 +173,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
 | `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
 | `ServicedObservableCollection[T]`                 | Hub-aware observable collection (spec v2.1)                                         |
-| `ObservableList[T]`                               | Granular events + atomic `replace_all`                                              |
+| `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
 | `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
 | Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |

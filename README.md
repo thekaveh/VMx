@@ -140,13 +140,13 @@ Each flavor implements the same conceptual stack:
 
 ### 3.1 Versions and packages
 
-| Flavor     | Source status     | Public package status                                          | Reactive primitive     |
-| ---------- | ----------------- | -------------------------------------------------------------- | ---------------------- |
-| C#         | v3.11.0 in source | NuGet package not published yet                                | System.Reactive        |
-| Python     | v3.11.0 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
-| TypeScript | v3.11.0 in source | npm package not published yet                                  | rxjs                   |
-| Swift      | v3.11.0 in source | SwiftPM tag not published yet; no central registry             | Combine                |
-| Rust       | v0.11.0 in source | crates.io package not published yet                            | VMx facade over rxrust |
+| Flavor     | Source status           | Public package status                                          | Reactive primitive     |
+| ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
+| C#         | v3.11.0 in source       | NuGet package not published yet                                | System.Reactive        |
+| Python     | v3.11.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
+| TypeScript | v3.11.0 in source       | npm package not published yet                                  | rxjs                   |
+| Swift      | v3.11.0 in source       | SwiftPM tag not published yet; no central registry             | Combine                |
+| Rust       | v0.11.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
 
 `main` may contain an in-development source version before that version is
 published to package registries. Use the compatibility matrix for source-level
@@ -173,19 +173,19 @@ coverage in source and is awaiting a crates.io release channel.
 
 ### 3.2 Spec and flavor compatibility
 
-| spec   | csharp | python | typescript | swift          | rust   |
-| ------ | ------ | ------ | ---------- | -------------- | ------ |
-| 3.11.x | 3.11.0 | 3.11.0 | 3.11.0     | 3.11.0         | 0.11.0 |
-| 3.3.x  | 3.3.0  | 3.3.0  | 3.3.0      | 3.3.0          | 0.3.0  |
-| 3.2.x  | 3.2.0  | 3.2.0  | 3.2.0      | 3.2.0          | 0.2.0  |
-| 3.1.x  | 3.1.0  | 3.1.0  | 3.1.0      | 3.1.0          | 0.1.0  |
-| 2.6.x  | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —      |
-| 2.4.x  | 2.4.0  | 2.4.0  | 2.4.0      | 2.4.0 (subset) | —      |
-| 2.3.x  | 2.3.0  | 2.3.0  | 2.3.0      | —              | —      |
-| 2.2.x  | 2.2.0  | 2.2.0  | 2.2.0      | —              | —      |
-| 2.1.x  | 2.1.0  | 2.1.0  | 2.1.0      | —              | —      |
-| 2.0.x  | 2.0.0  | 2.0.0  | 2.0.0      | —              | —      |
-| 1.0.x  | 1.0.0  | 1.0.0  | —          | —              | —      |
+| spec  | csharp | python | typescript | swift          | rust          |
+| ----- | ------ | ------ | ---------- | -------------- | ------------- |
+| 3.11.x | 3.11.0 | 3.11.0 | 3.11.0     | 3.11.0         | 0.11.0        |
+| 3.3.x | 3.3.0  | 3.3.0  | 3.3.0      | 3.3.0          | 0.3.0         |
+| 3.2.x | 3.2.0  | 3.2.0  | 3.2.0      | 3.2.0          | 0.2.0         |
+| 3.1.x | 3.1.0  | 3.1.0  | 3.1.0      | 3.1.0          | 0.1.0         |
+| 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —             |
+| 2.4.x | 2.4.0  | 2.4.0  | 2.4.0      | 2.4.0 (subset) | —             |
+| 2.3.x | 2.3.0  | 2.3.0  | 2.3.0      | —              | —             |
+| 2.2.x | 2.2.0  | 2.2.0  | 2.2.0      | —              | —             |
+| 2.1.x | 2.1.0  | 2.1.0  | 2.1.0      | —              | —             |
+| 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              | —             |
+| 1.0.x | 1.0.0  | 1.0.0  | —          | —              | —             |
 
 See [`compatibility-matrix.md`](compatibility-matrix.md) for the full table.
 Every published package declares its `MinSpecVersion` /

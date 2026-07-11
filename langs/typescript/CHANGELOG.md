@@ -303,14 +303,11 @@ Implements `spec-v2.5.0` (ADR-0037).
 
 - `HierarchicalVM.reparentChild` rejects self- and ancestor-reparenting
   with `Error` instead of silently corrupting the tree (HIER-018).
-
 - `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
-
 - Typed-arity `DerivedProperty` factories `fromOne`..`fromFive` plus the
   `fromMany` alias (ADR-0035 §2 DP2 always claimed TS had them; it never
   did — the recorded three-flavor parity decision is now true).
-
 - Idempotent `dispose()` on `DecoratorCommand`,
   `ConfirmationDecoratorCommand`, and `CompositeCommand` (teardown
   symmetry with the C# IDisposable surface; the decorators own no
@@ -337,12 +334,12 @@ changes to existing TS APIs.
 - **ThemeVM scenario contract** (example apps): the v2.4.0
   `spec-v2.4.0` cycle defines a normative shape for example-app
   theming (`ThemeModel` + `ThemeVM extends ComponentVMOf<ThemeModel>`
-  - per-framework `ThemeAdapter`) built from the existing core
-    primitives (`ComponentVMOf<M>`, `DerivedProperty<TValue>`,
-    `RelayCommand`, `MessageHub`). No new core types are introduced;
-    the contract is implemented by the React Notes-Showcase flagship
-    under `examples/typescript/react/notes-showcase/`. See
-    `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §2.C.
+  + per-framework `ThemeAdapter`) built from the existing core
+  primitives (`ComponentVMOf<M>`, `DerivedProperty<TValue>`,
+  `RelayCommand`, `MessageHub`). No new core types are introduced;
+  the contract is implemented by the React Notes-Showcase flagship
+  under `examples/typescript/react/notes-showcase/`. See
+  `spec/proposals/2026-06-02-theme-vm-scenario.md` + ADR-0036 §2.C.
 
 ### Fixed
 
@@ -404,8 +401,8 @@ validation parity with TS's existing Children-at-`build()` behaviour.
   children-factory callbacks for the hierarchical builder.
 - **`withNullServices()`** Wither extension on `ComponentVMBuilder` and
   friends — chainable convenience that wires `NullMessageHub.INSTANCE`
-  - `NullDispatcher.INSTANCE` in one call, for parity with the C#
-    `WithNullServices()` extension. See ADR-0035 §SV1.
+  + `NullDispatcher.INSTANCE` in one call, for parity with the C#
+  `WithNullServices()` extension. See ADR-0035 §SV1.
 - `tests/browser-build/smoke.test.ts` — JSDOM environment smoke test that
   loads the public surface and instantiates a `ComponentVMOf` to catch
   future regressions of the browser-safety contract (companion to D1).
@@ -511,7 +508,6 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
-
 - **Capabilities** (`vmx`): 20 opt-in micro-interfaces —
   `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
   `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
@@ -542,7 +538,6 @@ opt-in notifications sub-package, and a localization hook.
 - **Conformance**: 77 new IDs added (total 152).
 
 ### Changed (breaking)
-
 - `ModeledCrudCommands<VM>` is now `ModeledCrudCommands<M, VM>` (phantom
   `M`). Update callsites from `new ModeledCrudCommands<MyVM>({...})` to
   `new ModeledCrudCommands<MyModel, MyVM>({...})`.
@@ -553,7 +548,6 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.2.0] — 2026-05-23
 
 ### Added
-
 - `ConstructionStatusChangedMessage.sender` getter — alias of `senderObject`,
   matching the typed `sender` field on the C# and Python flavors.
 - `scripts/check-version-sync.mjs` enforces `package.json.version` ↔
@@ -561,12 +555,10 @@ opt-in notifications sub-package, and a localization hook.
   `prepack` so a release that forgets to update one side fails fast.
 
 ### Fixed
-
 - `scripts/sync-fixtures.mjs` now reports a clear error if `spec/fixtures/`
   is missing rather than failing inside `readdirSync` with an opaque ENOENT.
 
 ### Internal
-
 - JSDoc note on `selectNextCommand` / `selectPreviousCommand` explaining the
   hard-coded `false` predicate semantics on orphan leaves (CVM-005).
 - Module docstring on `version.ts` documenting the manual-sync contract that
