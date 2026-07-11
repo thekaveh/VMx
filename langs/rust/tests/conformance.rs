@@ -23,6 +23,7 @@ mod conformance {
     mod modeled_crud;
     mod notifications;
     mod null_services;
+    mod observable_list_replace_all;
     mod property_change;
     mod search_filter;
     mod threading;

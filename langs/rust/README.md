@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.8.0** implements `spec-v3.8.0` at full source parity: all 324 library
+**v0.9.0** implements `spec-v3.9.0` at full source parity: all 332 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -17,6 +17,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   successful persist without exposing a mutable form to the persister;
 - `HierarchicalVm::attach_many(...)` resolves out-of-order tree windows with
   consumer keys, non-replacing dedupe, and park/reject orphan policy;
+- `ObservableList::replace_all(...)` snapshots a full refresh and emits one
+  reset with cardinality-correct `Count` notification;
 - `VmCollection<T>` unifies groups and composites, while
   `SelectableVmCollection<T>` adds composite-only selection and `move_item`
   preserves child identity;
