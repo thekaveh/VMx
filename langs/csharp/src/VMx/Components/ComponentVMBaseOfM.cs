@@ -1,3 +1,4 @@
+using VMx.Lifecycle;
 using VMx.Services;
 
 namespace VMx.Components;
@@ -63,6 +64,7 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
     /// </summary>
     private void SetModel(M value)
     {
+        if (Status == ConstructionStatus.Disposed) return;
         if (EqualityComparer<M>.Default.Equals(_model, value)) return;
 
         _model = value;

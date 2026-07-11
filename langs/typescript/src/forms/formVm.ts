@@ -439,6 +439,7 @@ export class FormVM<TM> {
    * `approveCommand.canExecuteChanged` on dirty transitions.
    */
   setModel(model: TM): void {
+    if (this.#disposed) return;
     if (model === null || model === undefined) {
       throw new Error("model must not be null or undefined");
     }

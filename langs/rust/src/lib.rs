@@ -988,6 +988,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     pub fn set_model(&self, model: M) {
+        if self.status() == ConstructionStatus::Disposed {
+            return;
+        }
         let old_hint = self.hint();
         let changed = {
             let mut current = lock(&self.model);

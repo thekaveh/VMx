@@ -166,6 +166,7 @@ public final class FormVM<Model> {
     /// In strict mode fires `approveCommand.canExecuteChanged` when `isDirty`
     /// transitions so that UI bindings can re-evaluate the approve button state.
     public func setModel(_ newModel: Model) {
+        guard !_disposed else { return }
         let wasDirty = isDirty
         let wasValid = isValid
         _model = newModel

@@ -25,6 +25,7 @@ mod conformance {
     mod null_services;
     mod observable_list_replace_all;
     mod owned_resources;
+    mod post_dispose_modeled_assignment;
     mod property_change;
     mod search_filter;
     mod threading;
