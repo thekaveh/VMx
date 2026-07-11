@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (344 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (345 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -430,11 +430,22 @@ test; the package remained type-clean and all 319 remaining tests passed.
 
 See ADR-0090 and chapters 02 §2.3 and 05 §2.2.
 
-### 1.20 Supporting artefacts
+### 1.20 v3.10.0 → v3.11.0 changes
 
-- `VERSION` — current spec SemVer (`3.10.0`).
+v3.11.0 makes modeled assignment that begins after disposal inert before
+candidate equality, retained-state mutation, hinting, validation, command-state
+work, callbacks, or notification. TypeScript and Swift forms join the existing
+C#, Python, and Rust form behavior; modeled components converge in all five
+flavors. `DISP-014` raises the catalog from 344 to 345 total IDs (340 library +
+5 THEME scenario IDs).
+
+See ADR-0091 and chapters 02 §7, 05 §3, and 20 §5/§10.
+
+### 1.21 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.11.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0090); see
+- `ADRs/` — Architecture Decision Records (0001-0091); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

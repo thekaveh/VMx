@@ -4,6 +4,18 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.0] — 2026-07-11
+
+Implements `spec-v3.11.0` and keeps C# at full library parity: 340/340
+conformance IDs covered.
+
+### Changed
+
+- Modeled component assignment returns before equality, retained-state,
+  hinting, callback, or notification work after disposal (`DISP-014`,
+  ADR-0091). The existing `FormVM.SetModel` terminal guard satisfies the same
+  contract.
+
 ## [3.10.0] — 2026-07-10
 
 Implements `spec-v3.10.0` and keeps C# at full library parity: 339/339
@@ -298,6 +310,7 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
 - `HierarchicalVM.ReparentChild` rejects self- and ancestor-reparenting with
   `InvalidOperationException` instead of silently corrupting the tree
   (HIER-018).
+
 - `NOTIF-017` conformance coverage for the hub's dispose semantics (now
   normative across flavors).
 
@@ -480,6 +493,7 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
+
 - **Capabilities** (`VMx.Capabilities`): 20 opt-in micro-interfaces —
   `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
   `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
@@ -507,6 +521,7 @@ opt-in notifications sub-package, and a localization hook.
 - **Conformance**: 77 new IDs added (total 152).
 
 ### Internal
+
 - `BuilderValidationException.Require([NotNull])` rolled out to the new
   v2.0 builders (CRUD, expandable, searchable, derived) for consistent
   null-check shapes.
@@ -517,6 +532,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.2.0] — 2026-05-23
 
 ### Added
+
 - Non-modeled `ComponentVM` class + `ComponentVMBuilder` for parity with the
   Python and TypeScript flavors. Existing `ComponentVM<M>` continues to ship
   alongside it (additive change, no consumer impact).
@@ -528,12 +544,14 @@ opt-in notifications sub-package, and a localization hook.
   netstandard2.0 target (existing `IsExternalInit` polyfill pattern).
 
 ### Removed
+
 - `ComponentVMBuilder<M>.AsyncSelection(bool)` setter — the parameter was stored
   on the builder but never forwarded to the constructed `ComponentVM<M>` (only
   `CompositeVMBuilder<…>.AsyncSelection` is honoured at runtime, and that setter
   is unchanged). No test referenced the component-level setter.
 
 ### Internal
+
 - Comment polish on `ComponentVMBase.IsCurrent` idempotent-set guard,
   `LifecycleTransitionValidator` `Lazy<T>` thread-safety, and
   `Directory.Packages.props` central transitive pinning.
@@ -541,6 +559,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.1.0] — 2026-05-23
 
 ### Added
+
 - Implements spec-v1.1.0 on top of the v1.0.0 surface.
 - `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `.AutoConstructOnAdd(bool)` builder option. When `true`, a child added after the container reaches `Constructed` is automatically constructed before the `CollectionChanged(Add)` event fires.
 - `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `BatchUpdate()` method returns an `IDisposable` that suppresses per-mutation `CollectionChanged` events. The outermost `Dispose` emits a single `CollectionChanged(Reset)` event iff any mutations occurred.
@@ -551,6 +570,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.0.0] — 2026-05-22
 
 ### Added
+
 - Full implementation of spec-v1.0.0:
   - Lifecycle: `ConstructionStatus` + `StatusTransitionException` + transition validator
   - Messages: `IMessage` hierarchy + `PropertyChangedMessage` + `ConstructionStatusChangedMessage`

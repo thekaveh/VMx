@@ -1,11 +1,11 @@
-# vmx — C#
+# vmx — C\#
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
 spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.10.0** — implements `spec-v3.10.0` end-to-end. 339/339 library conformance IDs
+**v3.11.0** — implements `spec-v3.11.0` end-to-end. 340/340 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.10.0. The NuGet package has not been
+The source tree currently implements v3.11.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -30,8 +30,7 @@ dotnet add package VMx.Extensions.DependencyInjection
 
 ## 3. Quick start
 
-The minimum-viable shape is `imports → services → builder
-(name + model + services + optional hinter) → Construct() → read Status`:
+The minimum-viable shape is `imports → services → builder (name + model + services + optional hinter) → Construct() → read Status`:
 
 ```csharp
 using VMx.Components;
@@ -96,13 +95,13 @@ for the full walkthrough.
 The conceptual surface is identical across the four flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
 
-| Concept             | C#                  | Python             | TypeScript         | Swift              |
-| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept            | C#                        | Python             | TypeScript                | Swift                     |
+| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- |
+| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             |
+| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        |
+| Status property    | `Status`                  | `status`           | `status`                  | `status`                  |
+| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
 
 C# uses PascalCase, Python uses snake_case, TypeScript and Swift use
 camelCase. The single substantive divergence is that C# names the modeled
@@ -154,67 +153,67 @@ with cross-flavor parity documented in
 
 The public API lives under the `VMx.*` namespaces:
 
-| Export                          | Description                                       |
-| ------------------------------- | ------------------------------------------------- |
-| `ComponentVM` / `<M>`           | Leaf viewmodel (non-modeled / modeled)            |
-| `ReadonlyComponentVM<M>`        | Leaf VM with read-only model                      |
-| `CompositeVM<VM>` / `<M,VM>`    | Ordered collection of children + current slot     |
-| `GroupVM<VM>`                   | Collection without current selection              |
-| `IVmCollection<VM>`            | Shared group/composite collection + atomic move   |
-| `ISelectableVmCollection<VM>`  | Composite-only current-selection extension        |
-| `AggregateVM1..6<…>`            | Fixed-arity named component slots (arity 6 new in 2.2.0; see ADR-0034) |
-| `ForwardingComponentVM<M>`      | Decorator for `IComponentVM<M>`                   |
-| `ForwardingCompositeVM<VM>`     | Decorator for composites                          |
-| `RelayCommand` / `<T>`          | Executable command with `CanExecute` predicate    |
-| `CompositeCommand`              | Aggregate N inner commands (spec v2.0)            |
-| `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate   |
-| `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm delegate     |
-| `ModeledCrudCommands<M,VM>`     | Create / UpdateCurrent / DeleteCurrent helper     |
-| `MessageHub` / `IMessageHub`    | Pub/sub hub backed by `System.Reactive`           |
-| `NullMessageHub` (.Instance)    | Null-object variant per ADR-0017                  |
-| `RxDispatcher` / `IDispatcher`  | Foreground/background scheduler pair              |
-| `NullDispatcher` (.Instance)    | Null-object variant per ADR-0017                  |
-| `ConstructionStatus`            | 5-state lifecycle enum                            |
-| `StatusTransitionException`     | Thrown on illegal lifecycle operations            |
-| `BuilderValidationException`    | Thrown when a builder is missing required fields  |
-| `Tree.Walk(root)`               | DFS pre-order tree traversal                      |
-| `Tree.WalkExpanded(root)`       | DFS walk gated on `IExpandable.IsExpanded` (v2.0) |
-| `Tree.Find(root, predicate)`    | Short-circuit tree search                         |
-| `DerivedProperty<TValue>`       | N-source computed value (spec v2.0)               |
-| `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)   |
-| `SearchableState<TItem>`        | Debounced filter helper (spec v2.0)               |
-| `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)              |
-| 22× capability interfaces       | `VMx.Capabilities.*` — opt-in (spec v2.0+)        |
-| `HierarchicalVM<TModel, TVM>`   | Recursive tree VM with key-aware `AttachMany`     |
-| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
-| `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
-| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)     |
-| `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
-| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
-| `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
-| Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` (spec v2.1) |
-| `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
+| Export                                 | Description                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------- |
+| `ComponentVM` / `<M>`                  | Leaf viewmodel (non-modeled / modeled)                                                  |
+| `ReadonlyComponentVM<M>`               | Leaf VM with read-only model                                                            |
+| `CompositeVM<VM>` / `<M,VM>`           | Ordered collection of children + current slot                                           |
+| `GroupVM<VM>`                          | Collection without current selection                                                    |
+| `IVmCollection<VM>`                    | Shared group/composite collection + atomic move                                         |
+| `ISelectableVmCollection<VM>`          | Composite-only current-selection extension                                              |
+| `AggregateVM1..6<…>`                   | Fixed-arity named component slots (arity 6 new in 2.2.0; see ADR-0034)                  |
+| `ForwardingComponentVM<M>`             | Decorator for `IComponentVM<M>`                                                         |
+| `ForwardingCompositeVM<VM>`            | Decorator for composites                                                                |
+| `RelayCommand` / `<T>`                 | Executable command with `CanExecute` predicate                                          |
+| `CompositeCommand`                     | Aggregate N inner commands (spec v2.0)                                                  |
+| `DecoratorCommand`                     | Wrap a command with pre/post + can-execute gate                                         |
+| `ConfirmationDecoratorCommand`         | Wrap a command with an async confirm delegate                                           |
+| `ModeledCrudCommands<M,VM>`            | Create / UpdateCurrent / DeleteCurrent helper                                           |
+| `MessageHub` / `IMessageHub`           | Pub/sub hub backed by `System.Reactive`                                                 |
+| `NullMessageHub` (.Instance)           | Null-object variant per ADR-0017                                                        |
+| `RxDispatcher` / `IDispatcher`         | Foreground/background scheduler pair                                                    |
+| `NullDispatcher` (.Instance)           | Null-object variant per ADR-0017                                                        |
+| `ConstructionStatus`                   | 5-state lifecycle enum                                                                  |
+| `StatusTransitionException`            | Thrown on illegal lifecycle operations                                                  |
+| `BuilderValidationException`           | Thrown when a builder is missing required fields                                        |
+| `Tree.Walk(root)`                      | DFS pre-order tree traversal                                                            |
+| `Tree.WalkExpanded(root)`              | DFS walk gated on `IExpandable.IsExpanded` (v2.0)                                       |
+| `Tree.Find(root, predicate)`           | Short-circuit tree search                                                               |
+| `DerivedProperty<TValue>`              | N-source computed value (spec v2.0)                                                     |
+| `ExpandableState`                      | `IExpandable`+`ICollapsible` helper (spec v2.0)                                         |
+| `SearchableState<TItem>`               | Debounced filter helper (spec v2.0)                                                     |
+| `ILocalizer` / `NullLocalizer`         | i18n hook + null-default (spec v2.0)                                                    |
+| 22× capability interfaces              | `VMx.Capabilities.*` — opt-in (spec v2.0+)                                              |
+| `HierarchicalVM<TModel, TVM>`          | Recursive tree VM with key-aware `AttachMany`                                           |
+| `TreeStructureChangedMessage`          | Tree-structural-change notification (spec v2.1)                                         |
+| `FormVM<TM>` / `IFormPersister<TM>`    | Snapshot/revert form lifecycle (spec v2.1)                                              |
+| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1)                                          |
+| `ServicedObservableCollection<T>`      | Hub-aware observable collection (spec v2.1)                                             |
+| `ObservableList<T>`                    | Granular events + atomic `ReplaceAll`                                                   |
+| `ObservableDictionary<K1, K2, V>`      | Multi-key observable dictionary (spec v2.1)                                             |
+| `PagedComposition<TVM>`                | Pageable iterable decorator (spec v2.1)                                                 |
+| Fluent command extensions              | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` (spec v2.1)        |
+| `PropertyValueChangedMessagesFor`      | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
 
 The companion package `VMx.Extensions.DependencyInjection` adds:
 
-| Export                         | Description                                       |
-| ------------------------------ | ------------------------------------------------- |
-| `services.AddVMx(…)`           | Registers `IMessageHub` and `IDispatcher`         |
+| Export               | Description                               |
+| -------------------- | ----------------------------------------- |
+| `services.AddVMx(…)` | Registers `IMessageHub` and `IDispatcher` |
 
 The companion package `VMx.Notifications` (spec v2.1+) adds:
 
-| Export                                                   | Description                            |
-| -------------------------------------------------------- | -------------------------------------- |
-| `Notification` / `NotificationType` / `NotificationReaction` | Notification primitives            |
-| `INotificationHub` / `NotificationHub` / `NullNotificationHub` | Async notification hub + null variant |
-| `ConfirmHelper.MakeConfirm(hub, prompt)`                 | Bridge to `ConfirmationDecoratorCommand` |
-| `NotificationVM`                                         | Render-side VM for `Notification` (spec v2.1) |
-| `ConfirmationVM`                                         | Render-side VM with Approve/Reject (spec v2.1) |
+| Export                                                         | Description                                    |
+| -------------------------------------------------------------- | ---------------------------------------------- |
+| `Notification` / `NotificationType` / `NotificationReaction`   | Notification primitives                        |
+| `INotificationHub` / `NotificationHub` / `NullNotificationHub` | Async notification hub + null variant          |
+| `ConfirmHelper.MakeConfirm(hub, prompt)`                       | Bridge to `ConfirmationDecoratorCommand`       |
+| `NotificationVM`                                               | Render-side VM for `Notification` (spec v2.1)  |
+| `ConfirmationVM`                                               | Render-side VM with Approve/Reject (spec v2.1) |
 
 ## 5. Conformance
 
-All 339 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 340 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -242,6 +241,7 @@ v3.7   FORM-024..029
 v3.8   HIER-023..030
 v3.9   COL-040..047
 v3.10  DISP-007..013
+v3.11  DISP-014
 ```
 
 Run the suite:
