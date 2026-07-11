@@ -12,6 +12,8 @@ import reactivex as rx
 
 from vmx.commands.relay_command import RelayCommand
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.protocols import Message
+from vmx.services.message_hub import MessageHubProto
 
 M = TypeVar("M")
 M_co = TypeVar("M_co", covariant=True)  # for read-only protocol members
@@ -58,6 +60,9 @@ class ComponentVMProto(Protocol):
 
     @property
     def status(self) -> ConstructionStatus: ...
+
+    @property
+    def hub(self) -> MessageHubProto[Message]: ...
 
     # ── Observable property changes ──────────────────────────────────────────
     @property

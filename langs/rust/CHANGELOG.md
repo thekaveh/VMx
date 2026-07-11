@@ -4,6 +4,17 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] — 2026-07-10
+
+Implements `spec-v3.10.0` and keeps Rust at full library parity: 339/339
+conformance IDs covered.
+
+### Added
+
+- `ComponentVm::hub()` exposes the injected shared hub.
+- `ComponentVm::own(...)` registers `FnOnce` cleanup for exactly-once LIFO
+  terminal cleanup (`DISP-007..013`).
+
 ## [0.9.0] — 2026-07-10
 
 Implements `spec-v3.9.0` and keeps Rust at full library parity: 332/332

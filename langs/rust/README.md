@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.9.0** implements `spec-v3.9.0` at full source parity: all 332 library
+**v0.10.0** implements `spec-v3.10.0` at full source parity: all 339 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -10,6 +10,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
 
 - recoverable failures return `VmxResult<T>`;
 - viewmodels expose explicit lifecycle methods (`construct`, `destruct`, `dispose`);
+- component VMs expose their shared hub and accept LIFO disposal-lifetime
+  cleanup through `hub()` and `own(...)`;
 - message and dispatcher primitives are UI-framework neutral;
 - relay commands expose `raise_can_execute_changed` for precise binding
   invalidation without predicate polling;

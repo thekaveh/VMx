@@ -15,7 +15,7 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import reactivex as rx
 from reactivex import operators as ops
@@ -34,6 +34,10 @@ from vmx.services.message_hub import MessageHubProto
 
 if TYPE_CHECKING:
     from vmx.components.protocols import ViewModelType
+
+
+class _Disposable(Protocol):
+    def dispose(self) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +106,7 @@ class _ComponentVMBase(ABC):
         self._on_construct_cb: Callable[[], None] | None = on_construct
         self._on_destruct_cb: Callable[[], None] | None = on_destruct
         self._background: bool = background
+        self._owned_resources: list[Callable[[], None] | _Disposable] = []
 
         # ── Lifecycle state ──────────────────────────────────────────────────
         self._status: ConstructionStatus = ConstructionStatus.DESTRUCTED
@@ -157,6 +162,11 @@ class _ComponentVMBase(ABC):
     def hint(self) -> str:
         """Optional descriptive hint; immutable post-construction."""
         return self._hint
+
+    @property
+    def hub(self) -> MessageHubProto[Message]:
+        """Injected shared message hub; the VM does not own its lifetime."""
+        return self._hub
 
     @property
     @abstractmethod
@@ -525,7 +535,10 @@ class _ComponentVMBase(ABC):
 
             # _set_status flips _status to Disposed atomically under _lifecycle_lock.
             self._set_status(ConstructionStatus.DISPOSED)
-        self._on_dispose()
+        try:
+            self._on_dispose()
+        finally:
+            self._dispose_owned_resources()
 
         # Tear down the status trigger / property_changed subjects under the lock
         # so the flag flip and the Subject disposal cannot interleave with an
@@ -605,6 +618,34 @@ class _ComponentVMBase(ABC):
 
     def _on_dispose(self) -> None:  # noqa: B027  — intentional override hook
         """Called by dispose() after status reaches Disposed. Override for cleanup."""
+
+    def _own(self, resource: Callable[[], None] | _Disposable) -> Callable[[], None] | _Disposable:
+        """Register a callable or ``dispose()`` resource for terminal cleanup."""
+        with self._lifecycle_lock:
+            dispose_now = self._status == ConstructionStatus.DISPOSED
+            if not dispose_now:
+                self._owned_resources.append(resource)
+        if dispose_now:
+            self._dispose_owned_resource(resource)
+        return resource
+
+    @staticmethod
+    def _dispose_owned_resource(resource: Callable[[], None] | _Disposable) -> None:
+        try:
+            if callable(resource):
+                resource()
+            else:
+                resource.dispose()
+        except Exception:
+            # Terminal cleanup is best-effort; one failure must not block the rest.
+            pass
+
+    def _dispose_owned_resources(self) -> None:
+        with self._lifecycle_lock:
+            resources = self._owned_resources
+            self._owned_resources = []
+        for resource in reversed(resources):
+            self._dispose_owned_resource(resource)
 
     # -- SelectNext / SelectPrevious ----------------------------------------
     # Parent enumeration (sibling navigation) is intentionally not implemented

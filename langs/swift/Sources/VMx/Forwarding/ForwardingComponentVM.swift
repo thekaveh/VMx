@@ -73,6 +73,8 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func destruct() throws { try _wrapped.destruct() }
     open override func canReconstruct() -> Bool { _wrapped.canReconstruct() }
     open override func reconstruct() throws { try _wrapped.reconstruct() }
+    open override func own(_ cleanup: @escaping () throws -> Void) { _wrapped.own(cleanup) }
+    open override func own(_ cancellable: any Cancellable) { _wrapped.own(cancellable) }
     open override func dispose() { _wrapped.dispose() }
 
     // ── Selection ───────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Services;
 
 namespace VMx.Forwarding;
 
@@ -47,6 +48,9 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
 
     /// <inheritdoc/>
     public virtual Lifecycle.ConstructionStatus Status => _wrappedComposite.Status;
+
+    /// <inheritdoc/>
+    public virtual IMessageHub Hub => _wrappedComposite.Hub;
 
     // ── IComponentVM: commands ─────────────────────────────────────────────
 

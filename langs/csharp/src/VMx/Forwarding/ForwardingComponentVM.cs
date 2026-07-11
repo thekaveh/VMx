@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Windows.Input;
 using VMx.Components;
+using VMx.Services;
 
 namespace VMx.Forwarding;
 
@@ -43,6 +44,9 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IDisposable
 
     /// <inheritdoc/>
     public virtual Lifecycle.ConstructionStatus Status => _wrapped.Status;
+
+    /// <inheritdoc/>
+    public virtual IMessageHub Hub => _wrapped.Hub;
 
     // ── IComponentVM<M>: model ─────────────────────────────────────────────
 
