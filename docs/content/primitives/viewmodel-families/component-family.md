@@ -47,6 +47,9 @@ Important behavior from the spec:
 
 - `Model` changes publish only on real value change.
 - `ModeledHint` recomputes only when the model actually changes.
+- A model assignment that begins after disposal is inert before equality,
+  retained-state mutation, hint recomputation, callbacks, or either
+  notification channel. The previous model and hint remain readable.
 - `SelectNextCommand` and `SelectPreviousCommand` exist for uniform surface,
   but the base leaf implementation is inert.
 - `can_select()` depends on `Parent`, current-selection state, and the leaf
@@ -138,6 +141,11 @@ including an assertion that the hub event precedes the local event.
 VMx's C#, Python, TypeScript, and Swift Notes Showcase viewmodels use the same
 helper, eliminating their former hand-written hub-plus-local pairs.
 
+The built-in modeled setter applies the disposal admission guard before its own
+equality check. Forwarding components and Swift's internal read-only update path
+inherit that guard. A modeled composite is different: its model configures a
+child factory and is not a settable retained property.
+
 ## Example
 
 Representative modeled leaf shape across the five source flavors:
@@ -162,6 +170,8 @@ a `CompositeVM`.
   false until a container owns it.
 - Disposing `vm.hub` from the VM. Public visibility does not transfer ownership.
 - Registering per-construct work with `own`; it would survive reconstruct.
+- Treating the post-disposal model guard as task cancellation. Cancel upstream
+  work to release resources; rely on the guard only to reject a late result.
 
 ## Related Primitives
 

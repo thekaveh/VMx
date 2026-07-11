@@ -242,6 +242,15 @@ ensures no orphaned `IDisposable` resources are left behind.
 A disposed VM MAY still receive late-arriving subscriber events from the hub if
 those events were already in flight. Subscribers MUST be tolerant of this.
 
+A modeled assignment that begins after the target VM has entered `Disposed` is
+a complete no-op. The terminal check is an admission boundary and occurs before
+candidate equality, retained-state mutation, derived hint or snapshot work,
+validation, command-state work, consumer callbacks, local notifications, or hub
+messages. An assignment admitted before disposal retains its existing contract
+and completes normally. Upstream cancellation remains responsible for stopping
+application resources; this guard prevents only late VM state admission
+(ADR-0091).
+
 ## 8. Reference table
 
 See `fixtures/lifecycle-transitions.json` for the complete legal/illegal transition
@@ -268,6 +277,7 @@ directly.
 dispose path more than once produces one observable terminal transition and
 one owned cleanup per node. See `01-concepts.md` §4 and ADR-0084.
 
-`DISP-007` through `DISP-013` cover the owned-resource order, idempotency,
+`DISP-007` through `DISP-014` cover the owned-resource order, idempotency,
 failure isolation, post-dispose registration, reconstruct lifetime, public hub
-visibility, and shared-hub non-ownership contract from §2.3.
+visibility, shared-hub non-ownership contract from §2.3, and inert modeled
+assignment after terminal disposal (§7).

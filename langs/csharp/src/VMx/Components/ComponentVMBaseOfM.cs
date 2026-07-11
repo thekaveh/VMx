@@ -54,6 +54,7 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
     /// <summary>
     /// Applies equality-guarded model update:
     /// <list type="number">
+    ///   <item><description>No-op before candidate work when already disposed.</description></item>
     ///   <item><description>No-op if new value equals current value.</description></item>
     ///   <item><description>Sets field, emits PropertyChangedMessage("Model").</description></item>
     ///   <item><description>Raises INotifyPropertyChanged.PropertyChanged.</description></item>
@@ -63,6 +64,7 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
     /// </summary>
     private void SetModel(M value)
     {
+        if (IsDisposed()) return;
         if (EqualityComparer<M>.Default.Equals(_model, value)) return;
 
         _model = value;

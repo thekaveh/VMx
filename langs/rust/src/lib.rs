@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.10.0";
+pub const MIN_SPEC_VERSION: &str = "3.11.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -988,6 +988,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     pub fn set_model(&self, model: M) {
+        if self.status() == ConstructionStatus::Disposed {
+            return;
+        }
         let old_hint = self.hint();
         let changed = {
             let mut current = lock(&self.model);

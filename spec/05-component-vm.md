@@ -141,6 +141,10 @@ ComponentVM<M> : ComponentVM:
 
 The setter for `Model`:
 
+1. If assignment begins after `Status == Disposed`, return before evaluating the
+   candidate value or performing any other work. The retained model and
+   `ModeledHint` remain unchanged; no callback, local notification, or hub
+   message occurs.
 1. If the new value equals the old (`==` semantics per language), no message is
    emitted and no derived properties update.
 1. Otherwise, the field is replaced, `PropertyChangedMessage("Model")` is emitted,
@@ -169,6 +173,12 @@ setter accepts a new value, this callback is invoked AFTER the
 Same surface as `ComponentVM<M>` minus the `Model` setter. The model is provided at
 build time and is final. `ModeledHint` remains derived but stable (the model never
 changes).
+
+Swift's module-internal update path for this variant delegates to the same
+guarded modeled setter, so framework-authored updates after disposal are inert.
+Forwarding wrappers likewise delegate to the guarded instance. A modeled
+composite's model configures its child factory rather than a settable retained
+property, so it has no modeled-assignment surface to guard.
 
 `Type` equals `ReadOnlyComponent`.
 
@@ -287,3 +297,4 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 - post-dispose helper inertness
 - public read-only hub visibility and non-ownership
 - disposal-lifetime owned-resource behavior (`DISP-007..013`)
+- inert modeled assignment after disposal (`DISP-014`)

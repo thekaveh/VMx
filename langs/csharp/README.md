@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.10.0** — implements `spec-v3.10.0` end-to-end. 339/339 library conformance IDs
+**v3.11.0** — implements `spec-v3.11.0` end-to-end. 340/340 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.10.0. The NuGet package has not been
+The source tree currently implements v3.11.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -214,7 +214,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 339 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 340 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -242,6 +242,7 @@ v3.7   FORM-024..029
 v3.8   HIER-023..030
 v3.9   COL-040..047
 v3.10  DISP-007..013
+v3.11  DISP-014
 ```
 
 Run the suite:

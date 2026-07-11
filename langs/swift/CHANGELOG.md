@@ -4,6 +4,18 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.11.0] — 2026-07-11
+
+Implements `spec-v3.11.0` and keeps Swift at full library parity: 340/340
+conformance IDs covered.
+
+### Changed
+
+- Modeled component and `FormVM.setModel` assignment return before equality,
+  retained-state, hinting, validation, command-state, callback, or notification
+  work after disposal (`DISP-014`, ADR-0091). The read-only modeled component's
+  internal update path inherits the same terminal guard.
+
 ## [3.10.0] — 2026-07-10
 
 Implements `spec-v3.10.0` and keeps Swift at full library parity: 339/339

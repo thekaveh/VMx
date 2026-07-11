@@ -3108,3 +3108,11 @@ the flavor's owned-resource helper, including each accepted resource shape
 **Given** a VM and another consumer sharing one injected message hub
 **When** the VM is disposed
 **Then** the other consumer can still send through the hub
+
+### DISP-014 — Modeled assignment after disposal is inert
+
+**Given** a modeled component and a form with observable equality, hinting or
+validation, callbacks, retained state, and notification or command signals
+**When** each VM is disposed and a late completion attempts modeled assignment
+**Then** the attempt performs none of that work
+**And** every retained value and signal remains unchanged

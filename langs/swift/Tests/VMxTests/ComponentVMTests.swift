@@ -415,12 +415,9 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertEqual(vm.model.title, "fixed")
     }
 
-    /// VMX-102 — after dispose, setting `model` still updates the model
-    /// *field* (the getter reflects the latest value — parity with C#, whose
-    /// field write is unconditional) but publishes nothing further
-    /// (spec/02 invariant 3). Previously the field update was short-circuited
-    /// too, leaving the disposed getter stale.
-    func testDisposedModelSetUpdatesFieldButDoesNotPublish() throws {
+    /// ADR-0091 — after dispose, setting `model` preserves the retained model
+    /// and publishes nothing further.
+    func testDisposedModelSetIsInert() throws {
         let hub = MessageHub()
         let vm = try ComponentVMOf<Tab>.builder()
             .name("tab")
@@ -437,7 +434,7 @@ final class ComponentVMTests: XCTestCase {
 
         vm.model = Tab(title: "after-dispose")
 
-        XCTAssertEqual(vm.model.title, "after-dispose", "field reflects the new value")
+        XCTAssertEqual(vm.model.title, "home", "disposed model remains terminal")
         XCTAssertFalse(seen.contains("model"), "disposed VM publishes nothing")
         cancel.cancel()
     }

@@ -119,11 +119,9 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     /// Internal setter so subclasses (e.g. `ReadonlyComponentVMOf`) can
     /// gate writes while still using the same machinery.
     func _setModel(_ value: Model) {
+        guard status != .disposed else { return }
         if modelEquals(_model, value) { return }
         _model = value
-        // The model field is assigned above; the helper suppresses both
-        // notification channels after disposal.
-        guard status != .disposed else { return }
 
         _notifyPropertyChanged("model")
 
