@@ -19,6 +19,9 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
     /// <summary>Derived hint string computed from the current model.</summary>
     public string ModeledHint => _modeledHint;
 
+    /// <summary>Republishes the retained model without running assignment work.</summary>
+    public void RepublishModel() => NotifyPropertyChanged(nameof(ComponentVM<M>.Model));
+
     /// <summary>
     /// Protected model getter/setter used by concrete subclasses.
     /// </summary>

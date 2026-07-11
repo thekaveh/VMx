@@ -57,4 +57,5 @@ export interface IComponentVM {
 export interface IComponentVMOf<M> extends IComponentVM {
   model: M;
   readonly modeledHint: string;
+  republishModel(): void;
 }

@@ -44,6 +44,11 @@ export class ReadonlyComponentVMOf<M> extends ComponentVMBase {
     return this.#modeledHint;
   }
 
+  /** Republish the retained model without replacing it. */
+  republishModel(): void {
+    this._notifyPropertyChanged("model");
+  }
+
   static builder<M>(): ReadonlyComponentVMOfBuilder<M> {
     return new ReadonlyComponentVMOfBuilder<M>();
   }

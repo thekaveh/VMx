@@ -93,6 +93,9 @@ class ForwardingComponentVM(Generic[M]):
     def modeled_hint(self) -> str:
         return self._wrapped.modeled_hint
 
+    def republish_model(self) -> None:
+        self._wrapped.republish_model()
+
     # ── Observable property changes ───────────────────────────────────────────
 
     @property

@@ -987,6 +987,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.core.notify_property_changed(property_name);
     }
 
+    pub fn republish_model(&self) {
+        self.core.notify_property_changed("model");
+    }
+
     pub fn set_model(&self, model: M) {
         if self.status() == ConstructionStatus::Disposed {
             return;
@@ -1195,6 +1199,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
+    }
+
+    pub fn republish_model(&self) {
+        self.inner.republish_model();
     }
 }
 
@@ -6391,6 +6399,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
 
     pub fn set_model(&self, model: M) {
         self.inner.set_model(model);
+    }
+
+    pub fn republish_model(&self) {
+        self.inner.republish_model();
     }
 
     pub fn construct(&self) -> VmxResult<()> {
