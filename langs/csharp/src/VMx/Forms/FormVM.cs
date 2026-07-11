@@ -23,6 +23,7 @@ public sealed class FormVM<TM> : IDisposable
     private readonly Func<TM, TM> _snapshotter;
     private readonly Dictionary<string, Func<TM, string?>> _validators;
     private readonly Func<TM, IReadOnlyDictionary<string, string?>>? _modelValidator;
+    private readonly Func<TM, TM>? _resetOnApproved;
     private readonly bool _strict;
     private readonly IMessageHub _hub;
     private readonly Subject<TM> _onApproved = new();
@@ -63,6 +64,7 @@ public sealed class FormVM<TM> : IDisposable
     /// </param>
     /// <param name="validators">Optional field validators keyed by field/property name.</param>
     /// <param name="modelValidator">Optional model-level validator returning field-name errors.</param>
+    /// <param name="resetOnApproved">Optional post-persist callback that derives the next pristine model.</param>
     public FormVM(
         TM initial,
         Func<TM, Task> persister,
@@ -70,7 +72,8 @@ public sealed class FormVM<TM> : IDisposable
         bool strict = false,
         Func<TM, TM>? snapshotter = null,
         IReadOnlyDictionary<string, Func<TM, string?>>? validators = null,
-        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null)
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null,
+        Func<TM, TM>? resetOnApproved = null)
     {
         ThrowHelper.ThrowIfNull(initial, nameof(initial));
         ThrowHelper.ThrowIfNull(persister, nameof(persister));
@@ -81,6 +84,7 @@ public sealed class FormVM<TM> : IDisposable
         _snapshotter = snapshotter ?? DefaultSnapshotter;
         _validators = CopyValidators(validators);
         _modelValidator = modelValidator;
+        _resetOnApproved = resetOnApproved;
 
         _model = initial;
         _snapshot = _snapshotter(initial);
@@ -127,7 +131,8 @@ public sealed class FormVM<TM> : IDisposable
         bool strict = false,
         Func<TM, TM>? snapshotter = null,
         IReadOnlyDictionary<string, Func<TM, string?>>? validators = null,
-        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null)
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null,
+        Func<TM, TM>? resetOnApproved = null)
         : this(
             initial,
             persister is null ? throw new ArgumentNullException(nameof(persister)) : (Func<TM, Task>)(model => persister.PersistAsync(model)),
@@ -135,7 +140,8 @@ public sealed class FormVM<TM> : IDisposable
             strict,
             snapshotter,
             validators,
-            modelValidator)
+            modelValidator,
+            resetOnApproved)
     {
     }
 
@@ -279,11 +285,34 @@ public sealed class FormVM<TM> : IDisposable
         // unobserved task.
         if (_disposed) return;
 
-        // Success: advance snapshot and notify.
+        // Success: either atomically install the configured pristine reset
+        // state, or preserve the legacy snapshot-advance behavior.
         var wasDirty = IsDirty;
-        _snapshot = _snapshotter(current);
+        var wasValid = IsValid;
+        if (_resetOnApproved is not null)
+        {
+            // Prepare everything before assigning any field. A reset or
+            // snapshotter failure therefore leaves local state untouched even
+            // though persistence has already succeeded.
+            var reset = _resetOnApproved(current);
+            var nextModel = _snapshotter(reset);
+            var nextSnapshot = _snapshotter(reset);
+            var nextErrors = Validate(nextModel);
 
-        if (_strict && wasDirty != IsDirty)
+            _model = nextModel;
+            _snapshot = nextSnapshot;
+            if (!SameErrors(nextErrors, _errors))
+            {
+                _errors = nextErrors;
+                _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
+            }
+        }
+        else
+        {
+            _snapshot = _snapshotter(current);
+        }
+
+        if ((_strict && wasDirty != IsDirty) || wasValid != IsValid)
             _canExecuteChangedTrigger.OnNext(Unit.Default);
 
         _onApproved.OnNext(current);

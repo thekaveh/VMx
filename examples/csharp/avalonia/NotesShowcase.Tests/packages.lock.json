@@ -336,7 +336,7 @@
           "Avalonia.Desktop": "[11.3.18, )",
           "Avalonia.Fonts.Inter": "[11.3.18, )",
           "Avalonia.Themes.Fluent": "[11.3.18, )",
-          "VMx": "[3.6.0, )",
+          "VMx": "[3.7.0, )",
           "VMx.Notifications": "[1.2.0, )"
         }
       },
@@ -349,7 +349,7 @@
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.6.0, )"
+          "VMx": "[3.7.0, )"
         }
       }
     }

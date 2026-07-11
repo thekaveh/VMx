@@ -111,7 +111,8 @@ FormVM(
     strict?     : bool = false,
     snapshotter?: Func<TM, TM>,     # custom snapshot function (opt-in; defaults vary — §3)
     validators?: map<string, Func<TM, string?>>,
-    model_validator?: Func<TM, map<string, string?>>
+    model_validator?: Func<TM, map<string, string?>>,
+    reset_on_approved?: Func<TM, TM> # optional post-persist reset — §5.1
 )
 ```
 
@@ -222,6 +223,47 @@ the model. `ApproveCommand.CanExecute` returns `false` while invalid, regardless
 of strict mode. `ApproveAsync` is a no-op while invalid and does not invoke the
 persister.
 
+### 5.1 Declarative reset after approval (spec v3.7, ADR-0087)
+
+The builder and constructor accept an optional flavor-idiomatic
+`resetOnApproved` / `reset_on_approved` callback. It receives the model captured
+at the start of approval—the same value passed to the persister and later
+published by `OnApproved`—and returns the value that should become the next
+pristine form state. Rust uses its idiomatic fallible `VmxResult<TM>` return so
+callback failure has the same observable contract as an exception in the other
+flavors.
+
+The success sequence is normative:
+
+1. capture the approved model;
+1. persist that captured value exactly once;
+1. after persistence succeeds and the post-await disposal guard passes, call
+   `resetOnApproved(captured)` exactly once;
+1. apply the configured snapshotter twice to the reset value, preparing an
+   independent live model and snapshot before committing either;
+1. atomically replace `Model` and `Snapshot`, recompute validation, and publish
+   any resulting error/can-execute changes;
+1. publish `OnApproved(captured)`.
+
+Consequently an `OnApproved` observer sees the reset model, reset snapshot,
+recomputed validation, and `IsDirty == false`, while the event payload remains
+the model that was persisted. In strict mode the pristine reset disables
+approval. The reset is an authoritative post-success transition: a `SetModel`
+that races the in-flight persistence is overwritten by the reset, but neither
+the callback input nor the `OnApproved` payload changes from the captured
+persisted value.
+
+If the callback or either snapshot preparation fails, persistence has already
+succeeded but the reset transaction does not mutate `Model`, `Snapshot`, or
+validation and `OnApproved` does not fire. The awaitable approve path propagates
+that one failure to its caller and emits nothing on `ApproveErrors`; the
+fire-and-forget command path emits it exactly once on `ApproveErrors`. Consumers
+must treat retries as potentially repeating an already-successful persistence.
+
+The callback does not run for invalid approval, persister failure or
+cancellation, disposal before or during persistence, or deny/revert. When the
+option is absent, existing approval semantics remain unchanged.
+
 ## 6. Lifecycle state diagram
 
 ```mermaid
@@ -287,7 +329,9 @@ FormRevertedMessage:
   across flavors**: before v3, C# emitted the captured (pre-await) value while
   Python and TypeScript emitted the live post-await `Model`; all full-parity flavors now emit the
   captured persisted value (ADR-0048 resolves the ADR-0009 divergence note for
-  `OnApproved`).
+  `OnApproved`). With `resetOnApproved`, the authoritative reset replaces the
+  racing model before this event and the observer sees the pristine reset state
+  while still receiving the captured persisted value (§5.1, ADR-0087).
 - **`ApproveErrors`** (`ApproveErrors` / `approve_errors` / `approveErrors`) — an
   observable that surfaces the persister exception when the **fire-and-forget
   command path** (`ApproveCommand.Execute()`) fails (§2). Because `Execute` returns
@@ -379,6 +423,21 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 - `FORM-022` — `FormVMBuilder<TM>` registers validators immutably.
 - `FORM-023` — Clearing validation errors enables approval when all other
   gates pass.
+- `FORM-024` — A configured post-approve reset runs after persistence and before
+  `OnApproved`; the callback and event receive the captured persisted model,
+  while the observer sees the pristine reset state (§5.1).
+- `FORM-025` — Reset uses the configured snapshotter twice for independent live
+  and snapshot values, recomputes validation, and leaves strict approval
+  disabled while pristine (§5.1).
+- `FORM-026` — A reset callback failure occurs after successful persistence but
+  commits no reset state, publishes no `OnApproved`, and reaches exactly one
+  failure observer: the awaiter or `ApproveErrors` command channel (§5.1).
+- `FORM-027` — Reset does not run for invalid approval, persister failure or
+  cancellation, or deny/revert (§5.1).
+- `FORM-028` — Disposal during persistence suppresses the reset callback and all
+  post-persist state/notification work (§5.1, §10).
+- `FORM-029` — Reset is authoritative over a racing `SetModel` and remains based
+  on the captured persisted value (§5.1).
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.

@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (315 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (321 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -383,11 +383,22 @@ catalog from 309 to 315 total IDs (310 library + 5 THEME scenario IDs).
   notifications, post-dispose inertness, concrete relay ownership, and Rust's
   source-compatible legacy alias.
 
-### 1.16 Supporting artefacts
+### 1.16 v3.6.0 → v3.7.0 changes
 
-- `VERSION` — current spec SemVer (`3.6.0`).
+v3.7.0 adds declarative post-persist reset semantics to `FormVM` in all five
+flavors. The callback derives the next pristine model from the captured
+persisted value; VMx snapshots it twice, revalidates, commits before
+`OnApproved`, and routes post-persist reset failures through the existing
+single-observer approval error split. `FORM-024..029` raise the catalog from
+315 to 321 total IDs (316 library + 5 THEME scenario IDs).
+
+See ADR-0087 and chapter 20 §5.1.
+
+### 1.17 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.7.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0086); see
+- `ADRs/` — Architecture Decision Records (0001-0087); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

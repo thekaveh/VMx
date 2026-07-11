@@ -32,6 +32,8 @@ Important members:
 - `Errors`, `IsValid`, `FieldError(...)`
 - `ApproveCommand`, `ApproveAsync()`, `ApproveErrors`
 - `DenyCommand`
+- optional builder `resetOnApproved` / `ResetOnApproved` /
+  `reset_on_approved`
 
 ## Lifecycle And Messaging
 
@@ -41,6 +43,8 @@ Construction captures the initial snapshot. After that:
 - validation re-runs on construct, set-model, and deny
 - deny restores from the snapshot
 - approve persists, advances the snapshot, and publishes `OnApproved`
+- when configured, reset-after-approve derives a new pristine model from the
+  captured persisted value before `OnApproved` fires
 - fire-and-forget approve failures surface on `ApproveErrors`
 
 Repeated disposal completes the owned channels and commands at most once while
@@ -49,14 +53,84 @@ preserving the form's inert post-dispose behavior. See the
 
 Strict mode gates approve on `IsValid && IsDirty`.
 
+### Declarative submit-then-clear
+
+Configure reset-after-approve when a successful submission should leave the
+form pristine with a derived next model. VMx captures the model before awaiting
+persistence, persists it, checks disposal, invokes the reset once, snapshots
+the reset result twice for independent live and snapshot values, revalidates,
+and commits the transition. `OnApproved` then emits the captured persisted
+model while observers see the already-reset form.
+
+The reset wins over a `SetModel` racing the persistence wait. It does not run
+for invalid approval, persistence failure or cancellation, disposal during
+persistence, or deny/revert. If the reset or snapshot preparation fails,
+persistence has already succeeded but local state is not changed and
+`OnApproved` does not fire. Awaitable approval throws that failure; the command
+path emits it once on `ApproveErrors`. A retry can therefore repeat external
+persistence and should be handled as such.
+
 ## Cross-Language Surface
 
-| Concept           | C#                  | Python              | TypeScript             | Swift            |
-| ----------------- | ------------------- | ------------------- | ---------------------- | ---------------- |
-| Type              | `FormVM<TM>`        | `FormVM[TM]`        | `FormVM<TM>`           | `FormVM<Model>`  |
-| Builder           | `FormVMBuilder<TM>` | `FormVMBuilder[TM]` | `FormVM.builder<TM>()` | builder surface  |
-| Mutator           | `SetModel(...)`     | `set_model(...)`    | `setModel(...)`        | `setModel(...)`  |
-| Awaitable approve | `ApproveAsync()`    | `approve_async()`   | `approveAsync()`       | `approveAsync()` |
+| Concept           | C#                  | Python                | TypeScript             | Swift               | Rust                  |
+| ----------------- | ------------------- | --------------------- | ---------------------- | ------------------- | --------------------- |
+| Type              | `FormVM<TM>`        | `FormVM[TM]`          | `FormVM<TM>`           | `FormVM<Model>`     | `FormVm<M>`           |
+| Builder           | `FormVMBuilder<TM>` | `FormVMBuilder[TM]`   | `FormVM.builder<TM>()` | builder surface     | `FormVm::builder()`   |
+| Mutator           | `SetModel(...)`     | `set_model(...)`      | `setModel(...)`        | `setModel(...)`     | `set_model(...)`      |
+| Awaitable/direct approve | `ApproveAsync()` | `approve_async()` | `approveAsync()`       | `approveAsync()`    | `approve()`           |
+| Reset builder     | `ResetOnApproved`   | `reset_on_approved`   | `resetOnApproved`      | `resetOnApproved`   | `reset_on_approved`   |
+
+Builder examples use the idiomatic name but the same captured-model contract:
+
+=== "C#"
+
+    ```csharp
+    var form = FormVM<OrderDraft>.Builder()
+        .Initial(initial)
+        .Persister(SaveAsync)
+        .ResetOnApproved(saved => OrderDraft.Empty(saved.CustomerId))
+        .Build();
+    ```
+
+=== "Python"
+
+    ```python
+    form = (FormVM.builder()
+        .initial(initial)
+        .persister(save)
+        .reset_on_approved(lambda saved: OrderDraft.empty(saved.customer_id))
+        .build())
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    const form = FormVM.builder<OrderDraft>()
+      .initial(initial)
+      .persister(save)
+      .resetOnApproved((saved) => OrderDraft.empty(saved.customerId))
+      .build();
+    ```
+
+=== "Swift"
+
+    ```swift
+    let form = try FormVM<OrderDraft>.builder()
+        .initial(initial)
+        .persister(save)
+        .resetOnApproved { saved in .empty(customerID: saved.customerID) }
+        .build()
+    ```
+
+=== "Rust"
+
+    ```rust
+    let form = FormVm::builder()
+        .initial(initial)
+        .persister(save)
+        .reset_on_approved(|saved| Ok(OrderDraft::empty(saved.customer_id)))
+        .build()?;
+    ```
 
 ## Example
 
@@ -164,11 +238,17 @@ const form = FormVM.builder<GenesisModel>()
   .persister(persistGenesis)
   .snapshotter(snapshotGenesis)
   .equals(equalsGenesis)
+  .resetOnApproved((approved) => ({
+    ...approved,
+    imagePayload: undefined,
+  }))
   .build();
 ```
 
-Here `imagePayload` is intentionally excluded from dirty tracking and is
-restored by reference on deny. If reference identity should count as dirty,
+Here `imagePayload` is intentionally excluded from dirty tracking, restored by
+reference on deny, and cleared only after its captured value has been
+successfully persisted. This replaces a persister closure that captured the
+not-yet-created form merely to call `setModel` at the end. If reference identity should count as dirty,
 include `a.imagePayload === b.imagePayload` in `equalsGenesis`. VMx does not
 provide `snapshotExclude`: exclusion without an explicit equality policy would
 make dirty and revert semantics ambiguous.
@@ -181,6 +261,7 @@ make dirty and revert semantics ambiguous.
   snapshotter and matching equality predicate where the default is not
   appropriate.
 - Ignoring `ApproveErrors` on fire-and-forget command paths.
+- Retrying blindly after reset failure; the external persist already succeeded.
 - Re-implementing save/cancel/dirty plumbing in every editor instead of
   composing the primitive once.
 
