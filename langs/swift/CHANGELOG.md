@@ -4,6 +4,17 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.10.0] — 2026-07-10
+
+Implements `spec-v3.10.0` and keeps Swift at full library parity: 339/339
+conformance IDs covered.
+
+### Added
+
+- `ComponentVMBase.own(...)` registers cleanup closures or Combine cancellables
+  for exactly-once LIFO terminal cleanup; the existing public read-only `hub`
+  now forms the common cross-flavor baseline (`DISP-007..013`).
+
 ## [3.9.0] — 2026-07-10
 
 Implements `spec-v3.9.0` and keeps Swift at full library parity: 332/332

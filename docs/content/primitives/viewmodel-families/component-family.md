@@ -33,6 +33,10 @@ All variants share the same lifecycle base, built-in selection commands, and
 per-instance property-changed surface. They also carry the internal `Parent`
 back-reference used by selection predicates, but they never own children.
 
+The injected hub is publicly readable on every component (`Hub` in C# and
+`hub` elsewhere) but remains application-owned shared infrastructure. Disposing
+a VM never disposes that hub.
+
 ## Lifecycle And Messaging
 
 Construction is leaf-local: there is no child orchestration. The family still
@@ -50,13 +54,41 @@ Important behavior from the spec:
 
 ## Cross-Language Surface
 
-| Concept          | C#                       | Python                     | TypeScript                 | Swift                      | Rust                     |
-| ---------------- | ------------------------ | -------------------------- | -------------------------- | -------------------------- | ------------------------ |
-| Unmodeled leaf   | `ComponentVM`            | `ComponentVM`              | `ComponentVM`              | `ComponentVM`              | `ComponentVm`            |
-| Modeled leaf     | `ComponentVM<M>`         | `ComponentVMOf[M]`         | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         | `ComponentVm<M>`         |
-| Readonly leaf    | `ReadonlyComponentVM<M>` | `ReadonlyComponentVMOf[M]` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVm<M>` |
-| Builder entry    | `Builder()`              | `builder()`                | `builder()`                | `builder()`                | `with_model(...)`        |
-| Property channel | `INotifyPropertyChanged` | `property_changed`         | `propertyChanged`          | `propertyChanged`          | `property_changed()`     |
+| Concept           | C#                       | Python                     | TypeScript                 | Swift                      | Rust                     |
+| ----------------- | ------------------------ | -------------------------- | -------------------------- | -------------------------- | ------------------------ |
+| Unmodeled leaf    | `ComponentVM`            | `ComponentVM`              | `ComponentVM`              | `ComponentVM`              | `ComponentVm`            |
+| Modeled leaf      | `ComponentVM<M>`         | `ComponentVMOf[M]`         | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         | `ComponentVm<M>`         |
+| Readonly leaf     | `ReadonlyComponentVM<M>` | `ReadonlyComponentVMOf[M]` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVm<M>` |
+| Builder entry     | `Builder()`              | `builder()`                | `builder()`                | `builder()`                | `with_model(...)`        |
+| Property channel  | `INotifyPropertyChanged` | `property_changed`         | `propertyChanged`          | `propertyChanged`          | `property_changed()`     |
+| Shared hub        | `Hub`                    | `hub`                      | `hub`                      | `hub`                      | `hub()`                  |
+| Own until dispose | `Own(...)`               | `_own(...)`                | `own(...)`                 | `own(...)`                 | `own(...)`               |
+
+## Owning Long-Lived Resources
+
+Subclass authors can register subscriptions and cleanup callbacks that should
+live until terminal VM disposal. The registry drains once in LIFO order after
+the subclass disposal hook; one cleanup failure is isolated, and registration
+after disposal cleans immediately. Reconstruct does not drain the registry.
+
+```typescript
+class SearchVM extends ComponentVMBase {
+  constructor(hub: IMessageHub, dispatcher: IDispatcher) {
+    super({ name: "search", hint: "", hub, dispatcher });
+    this.own(hub.messages.subscribe(message => this.receive(message)));
+  }
+}
+```
+
+Use `OnConstruct`/`OnDestruct` (or their flavor equivalents) for resources that
+must be replaced on every reconstruct. The helper deliberately does not expose
+two mutable lifetime bags.
+
+The NNx Studio pilot removed 16 inherited hub getters, two subscription fields,
+two manual disposal overrides, and its two-case VMx hub-getter regression test
+(10 additions, 104 deletions). Its viewmodel package remained type-clean and
+all 319 remaining tests passed. The application-owned `WorkspaceVM` hub getter
+remained because that class does not derive from a VMx component base.
 
 ## Authoring A Mutable Property
 
@@ -128,6 +160,8 @@ a `CompositeVM`.
 - Subclassing to add domain behavior instead of composing around the sealed VM.
 - Forgetting that a detached leaf has no `Parent`, so selection predicates stay
   false until a container owns it.
+- Disposing `vm.hub` from the VM. Public visibility does not transfer ownership.
+- Registering per-construct work with `own`; it would survive reconstruct.
 
 ## Related Primitives
 

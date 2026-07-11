@@ -90,6 +90,7 @@ open class ComponentVMBase {
     private var triggersDisposed = false
     private var activePropertyNotifications = 0
     private var propertyNotificationTeardownPending = false
+    private var ownedCleanups: [() throws -> Void] = []
 
     // ── Built-in commands ───────────────────────────────────────────────
 
@@ -492,6 +493,7 @@ open class ComponentVMBase {
         _setStatus(.disposed)
         lifecycleLock.unlock()
         _onDispose()
+        disposeOwnedResources()
 
         // Tear down the trigger / property-changed subjects under the same lock
         // so the `triggersDisposed` flip and the `send(completion:)` cannot
@@ -563,6 +565,34 @@ open class ComponentVMBase {
 
     /// Subclasses override for resource cleanup on terminal dispose.
     open func _onDispose() {}
+
+    /// Register a throwing cleanup closure for terminal VM disposal.
+    open func own(_ cleanup: @escaping () throws -> Void) {
+        lifecycleLock.lock()
+        let disposeNow = _status == .disposed
+        if !disposeNow {
+            ownedCleanups.append(cleanup)
+        }
+        lifecycleLock.unlock()
+        if disposeNow {
+            try? cleanup()
+        }
+    }
+
+    /// Register a Combine cancellable for terminal VM disposal.
+    open func own(_ cancellable: any Cancellable) {
+        own { cancellable.cancel() }
+    }
+
+    private func disposeOwnedResources() {
+        lifecycleLock.lock()
+        let resources = Array(ownedCleanups.reversed())
+        ownedCleanups.removeAll()
+        lifecycleLock.unlock()
+        for cleanup in resources {
+            try? cleanup()
+        }
+    }
 
     // ── Internal helpers ────────────────────────────────────────────────
 

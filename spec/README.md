@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (337 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (344 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -416,11 +416,25 @@ IDs (332 library + 5 THEME scenario IDs).
 
 See ADR-0089 and chapter 21 §3.6.
 
-### 1.19 Supporting artefacts
+### 1.19 v3.9.0 → v3.10.0 changes
 
-- `VERSION` — current spec SemVer (`3.9.0`).
+v3.10.0 adds one disposal-lifetime ownership helper and makes the injected hub
+a public read-only, non-owned baseline member. Cleanup is exactly once in LIFO
+order, failures are isolated, post-dispose registration cleans immediately,
+and reconstruct leaves registrations intact. `DISP-007..013` raise the catalog
+from 337 to 344 total IDs (339 library + 5 THEME scenario IDs).
+
+The NNx Studio pilot removed 16 inherited hub getters, two subscription fields,
+two manual disposal overrides, and its two-case framework getter regression
+test; the package remained type-clean and all 319 remaining tests passed.
+
+See ADR-0090 and chapters 02 §2.3 and 05 §2.2.
+
+### 1.20 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.10.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0089); see
+- `ADRs/` — Architecture Decision Records (0001-0090); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

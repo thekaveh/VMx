@@ -3060,3 +3060,51 @@ thread-safety guarantee to that flavor.
 **Then** batch exit, reset/completion, or projection freezing occurs at most once
 **And** later source or suspended-load activity follows that helper's documented
 post-dispose behavior without a second terminal side effect
+
+### DISP-007 — owned resources are released in reverse registration order
+
+**Given** a VM with at least three disposal-lifetime resources registered through
+the flavor's owned-resource helper, including each accepted resource shape
+**When** the VM is disposed
+**Then** the resources are released exactly once in LIFO order
+
+### DISP-008 — repeated VM disposal releases each owned resource once
+
+**Given** a VM with one registered disposal-lifetime resource
+**When** the VM is disposed more than once
+**Then** the resource cleanup runs exactly once
+
+### DISP-009 — one owned-resource cleanup failure does not escape or stop later cleanup
+
+**Given** registered resources whose LIFO sequence contains a cleanup that fails
+**When** the VM is disposed
+**Then** the failure is swallowed
+**And** every other registered cleanup still runs once in LIFO order
+
+### DISP-010 — registration after disposal cleans immediately once
+
+**Given** a disposed VM
+**When** a resource is registered through the owned-resource helper
+**Then** its cleanup runs immediately exactly once
+**And** a later repeated VM disposal performs no second cleanup
+
+### DISP-011 — disposal-lifetime resources survive reconstruct
+
+**Given** a constructed VM with a registered disposal-lifetime resource
+**When** the VM is reconstructed
+**Then** the resource is not cleaned
+**When** the VM is later disposed
+**Then** the resource is cleaned exactly once
+
+### DISP-012 — the injected hub is publicly visible and read-only
+
+**Given** a VM built with an injected message hub
+**When** a consumer reads the VM's baseline hub member
+**Then** it is the same injected hub instance
+**And** the baseline exposes no hub setter
+
+### DISP-013 — VM disposal does not dispose its shared hub
+
+**Given** a VM and another consumer sharing one injected message hub
+**When** the VM is disposed
+**Then** the other consumer can still send through the hub

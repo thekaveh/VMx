@@ -21,6 +21,8 @@ from vmx.components.protocols import ViewModelType
 from vmx.composites.composite_vm import _CompositeVMBase
 from vmx.composites.protocols import CompositeVMProto
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.protocols import Message
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM")
 
@@ -73,6 +75,10 @@ class ForwardingCompositeVM(Generic[VM]):
     @property
     def status(self) -> ConstructionStatus:
         return self._wrapped.status
+
+    @property
+    def hub(self) -> MessageHubProto[Message]:
+        return self._wrapped.hub
 
     # ── Observable property changes ───────────────────────────────────────────
 

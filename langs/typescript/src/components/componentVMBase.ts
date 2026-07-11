@@ -31,6 +31,19 @@ export interface IParentVM {
   deselectChild(vm: ComponentVMBase): void;
 }
 
+export interface DisposableResource {
+  dispose(): void;
+}
+
+export interface UnsubscribableResource {
+  unsubscribe(): void;
+}
+
+export type OwnedResource =
+  | (() => void)
+  | DisposableResource
+  | UnsubscribableResource;
+
 export abstract class ComponentVMBase {
   readonly #name: string;
   readonly #hint: string;
@@ -51,6 +64,7 @@ export abstract class ComponentVMBase {
   #triggersDisposed = false;
   #activePropertyNotifications = 0;
   #propertyNotificationTeardownPending = false;
+  #ownedResources: OwnedResource[] = [];
 
   readonly #selectCommand: RelayCommand;
   readonly #deselectCommand: RelayCommand;
@@ -135,6 +149,10 @@ export abstract class ComponentVMBase {
 
   get hint(): string {
     return this.#hint;
+  }
+
+  get hub(): IMessageHub {
+    return this.#hub;
   }
 
   abstract get type(): ViewModelType;
@@ -424,7 +442,11 @@ export abstract class ComponentVMBase {
     if (this.#status === ConstructionStatus.Disposed) return;
 
     this._setStatus(ConstructionStatus.Disposed);
-    this._onDispose();
+    try {
+      this._onDispose();
+    } finally {
+      this.#disposeOwnedResources();
+    }
 
     if (!this.#triggersDisposed) {
       this.#triggersDisposed = true;
@@ -482,6 +504,32 @@ export abstract class ComponentVMBase {
 
   protected _onDispose(): void {
     // override in subclasses
+  }
+
+  protected own<T extends OwnedResource>(resource: T): T {
+    if (this.#status === ConstructionStatus.Disposed) {
+      ComponentVMBase.#disposeOwnedResource(resource);
+    } else {
+      this.#ownedResources.push(resource);
+    }
+    return resource;
+  }
+
+  static #disposeOwnedResource(resource: OwnedResource): void {
+    try {
+      if (typeof resource === "function") resource();
+      else if ("dispose" in resource) resource.dispose();
+      else resource.unsubscribe();
+    } catch {
+      // Terminal cleanup is best-effort; one failure must not block the rest.
+    }
+  }
+
+  #disposeOwnedResources(): void {
+    const resources = this.#ownedResources.splice(0).reverse();
+    for (const resource of resources) {
+      ComponentVMBase.#disposeOwnedResource(resource);
+    }
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────────

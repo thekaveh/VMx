@@ -4,6 +4,9 @@
 **Spec version:** 2.6.0 (teaching ADR; no code change)
 **Related:** ADR-0008, ADR-0018, `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §6 L3
 
+**Refined by:** ADR-0090 (one narrow disposal-lifetime registration helper;
+the rejection of two public bags remains)
+
 ## 1. Context
 
 The 2012 predecessors (`My.Architecture.New/Core/Unit.cs`, `GuideArch.Older/VMx/Core/Unit.cs`) exposed two `CompositeDisposable` bags on the lifecycle base:
@@ -35,3 +38,11 @@ VMx retains the single disposable lifecycle. Subclasses with mixed-lifetime clea
 - Subclasses with per-construct subscriptions register them in `OnConstruct`, store the `IDisposable` (or equivalent) in a local field, and dispose it in `OnDestruct`.
 - Subclasses with long-lived subscriptions register them in the constructor (where they truly run once) and dispose them in `OnDispose`.
 - If a future consumer pattern repeatedly forgets `OnDestruct` cleanup, revisit as a `RegisterPerConstruct(IDisposable)` ergonomic helper rather than reintroducing a second bag.
+
+## 5. Later consumer evidence (2026-07-10)
+
+NNx Studio demonstrated repeated long-lived subscription fields and manual
+`OnDispose` cleanup, plus repeated public hub forwarding getters. ADR-0090
+responds with one protected disposal-lifetime ownership helper and a public
+read-only, non-owned hub. Per-construct cleanup remains in
+`OnConstruct`/`OnDestruct`, and two public bags remain rejected.

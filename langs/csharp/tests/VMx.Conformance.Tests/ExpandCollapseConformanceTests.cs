@@ -117,6 +117,7 @@ public class ExpandCollapseConformanceTests
         public bool IsCurrent => false;
         public bool IsConstructed => true;
         public ConstructionStatus Status => ConstructionStatus.Constructed;
+        public VMx.Services.IMessageHub Hub => VMx.Services.NullMessageHub.Instance;
         public System.Windows.Input.ICommand SelectCommand => null!;
         public System.Windows.Input.ICommand DeselectCommand => null!;
         public System.Windows.Input.ICommand SelectNextCommand => null!;

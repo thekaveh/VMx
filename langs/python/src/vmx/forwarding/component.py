@@ -16,6 +16,8 @@ import reactivex as rx
 from vmx.commands.relay_command import RelayCommand
 from vmx.components.protocols import ComponentVMOfProto, ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.protocols import Message
+from vmx.services.message_hub import MessageHubProto
 
 M = TypeVar("M")
 
@@ -72,6 +74,10 @@ class ForwardingComponentVM(Generic[M]):
     @property
     def status(self) -> ConstructionStatus:
         return self._wrapped.status
+
+    @property
+    def hub(self) -> MessageHubProto[Message]:
+        return self._wrapped.hub
 
     # ── Model ─────────────────────────────────────────────────────────────────
 

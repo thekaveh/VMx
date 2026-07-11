@@ -6,6 +6,7 @@
 import type { Observable } from "rxjs";
 import type { ConstructionStatus } from "../lifecycle/status.js";
 import type { ICommand } from "../commands/types.js";
+import type { IMessageHub } from "../services/messageHub.js";
 
 export enum ViewModelType {
   Component = "Component",
@@ -23,6 +24,7 @@ export interface IComponentVM {
   readonly isCurrent: boolean;
   readonly isConstructed: boolean;
   readonly status: ConstructionStatus;
+  readonly hub: IMessageHub;
 
   readonly selectCommand: ICommand;
   readonly deselectCommand: ICommand;

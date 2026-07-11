@@ -23,6 +23,7 @@ ComponentVM:
     IsCurrent : bool                       # parent-derived; raised through PropertyChanged
     IsConstructed : bool                   # equals Status == Constructed
     Status : ConstructionStatus            # see 02-lifecycle.md
+    Hub : IMessageHub                      # public read-only; shared, not VM-owned
     PropertyChanged : per-instance stream  # flavor-idiomatic; see §2.1
 
     # Built-in commands
@@ -71,7 +72,21 @@ The shared hub `PropertyChangedMessage` path remains the cross-VM coordination
 channel. The per-instance surface is the preferred binding target for a single
 VM's view adapter.
 
-### 2.2 Dual-channel property notification helper
+### 2.2 Hub exposure and owned-resource registration
+
+Every component exposes its injected hub as a public read-only baseline member
+(`Hub` in C#, `hub` elsewhere). This removes consumer forwarding getters while
+preserving constructor injection: callers cannot replace the reference, and VM
+disposal never disposes the shared hub.
+
+Subclass authors register disposal-lifetime subscriptions and other cleanup
+through the single `Own` / `_own` / `own` helper defined in chapter 02 §2.3.
+The helper is not a mutable public bag and does not replace the
+`OnConstruct` / `OnDestruct` pair for per-construct resources. `Type` remains
+required/abstract wherever the flavor can express that requirement; this
+change does not infer a custom subclass's family.
+
+### 2.3 Dual-channel property notification helper
 
 Component bases expose one subclass-author helper for an accepted property
 change:
@@ -270,3 +285,5 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 - dual-channel helper multiplicity and hub-before-local ordering
 - caller-owned equality guards
 - post-dispose helper inertness
+- public read-only hub visibility and non-ownership
+- disposal-lifetime owned-resource behavior (`DISP-007..013`)

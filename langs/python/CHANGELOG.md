@@ -4,6 +4,17 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.0] — 2026-07-10
+
+Implements `spec-v3.10.0` and keeps Python at full library parity: 339/339
+conformance IDs covered.
+
+### Added
+
+- The component baseline exposes its injected shared `hub` read-only.
+- `_ComponentVMBase._own(...)` registers callables or `dispose()` resources for
+  exactly-once LIFO terminal cleanup (`DISP-007..013`).
+
 ## [3.9.0] — 2026-07-10
 
 Implements `spec-v3.9.0` and keeps Python at full library parity: 332/332

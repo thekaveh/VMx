@@ -115,7 +115,13 @@ export {
 // Components
 export { ViewModelType } from "./components/types.js";
 export type { IComponentVM, IComponentVMOf } from "./components/types.js";
-export { ComponentVMBase, type IParentVM } from "./components/componentVMBase.js";
+export {
+  ComponentVMBase,
+  type DisposableResource,
+  type IParentVM,
+  type OwnedResource,
+  type UnsubscribableResource,
+} from "./components/componentVMBase.js";
 export { ComponentVM, ComponentVMBuilder } from "./components/componentVM.js";
 export type { ComponentVMOptions } from "./components/componentVM.js";
 export {
