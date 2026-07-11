@@ -8,6 +8,7 @@
 // - Task nil → `execute(_:)` is a no-op (no error raised).
 // - `execute(_:)` is gated on `canExecute(_:)`: if false, returns immediately.
 // - Trigger emissions fire `canExecuteChanged`.
+// - `raiseCanExecuteChanged()` emits one imperative re-evaluation notification.
 // - Disposed commands are inert: `canExecute(_:)` returns false and `execute(_:)` is a no-op.
 // - Builder is immutable: every setter returns a new builder instance.
 // - Triggers are additive across `.triggers(...)` calls.
@@ -51,6 +52,13 @@ public final class RelayCommandOf<T> {
 
     public var canExecuteChanged: AnyPublisher<Void, Never> {
         canExecuteChangedSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits one re-evaluation notification without invoking user closures.
+    /// Repeated calls are additive; calls after disposal are no-ops.
+    public func raiseCanExecuteChanged() {
+        guard !disposed else { return }
+        canExecuteChangedSubject.send(())
     }
 
     /// Idempotent. Subsequent calls are a no-op.

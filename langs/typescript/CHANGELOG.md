@@ -4,6 +4,17 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.6.0] — 2026-07-10
+
+Implements `spec-v3.6.0` and keeps TypeScript at full library parity: 310/310
+conformance IDs covered.
+
+### Added
+
+- `raiseCanExecuteChanged()` on `RelayCommand`, `RelayCommandOf`, and
+  `AsyncRelayCommand`, including exact live, repeated, trigger-additive,
+  in-flight, and post-dispose behavior (`CMD-014..019`).
+
 ## [3.5.0] — 2026-07-10
 
 Implements `spec-v3.5.0` and keeps TypeScript at full library parity: 304/304

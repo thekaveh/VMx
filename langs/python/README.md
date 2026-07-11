@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.5.0** — implements `spec-v3.5.0` end-to-end. 304/304 library conformance IDs
+**v3.6.0** — implements `spec-v3.6.0` end-to-end. 310/310 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.5.0. The latest public PyPI package may
+The source tree currently implements v3.6.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -191,7 +191,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 304 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 310 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -210,6 +210,11 @@ v2.6   COMP-025..026
 v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
 v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
        DIA-009..013   HIER-019..022 DISC-001..006 BLD-006 GRP-011
+v3.2   HUB-008..013
+v3.3   CVM-007..009
+v3.4   DISP-001..006
+v3.5   COL-032..039
+v3.6   CMD-014..019
 ```
 
 Run the suite:

@@ -38,7 +38,7 @@
 <rect x="120" y="322" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="330" y="350" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">RelayCommand</text>
 <text x="330" y="376" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional predicate + task</text>
-<text x="330" y="395" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">trigger observables re-fire CanExecuteChanged</text>
+<text x="330" y="395" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">trigger + imperative CanExecuteChanged</text>
 <text x="330" y="414" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">disposed command becomes inert</text>
 <rect x="120" y="474" width="420" height="118" rx="8" fill="#0f172a"/>
 <rect x="120" y="474" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>

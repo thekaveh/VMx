@@ -11,6 +11,7 @@ CMD-005  Parameterized variant passes the parameter through
 CMD-006  Null task is a no-op (no exception)
 CMD-007  Table-driven configurations from command-truthtable.json
 CMD-013  Disposed RelayCommand instances are inert
+CMD-014..019  Imperative can-execute re-evaluation notifications
 """
 
 from __future__ import annotations
@@ -146,6 +147,108 @@ def test_CMD_007_truth_table(case: dict) -> None:  # type: ignore[type-arg]
     assert bool(task_called) is expected_task_invoked, (
         f"[{case['id']}] task invoked={bool(task_called)}, expected={expected_task_invoked}"
     )
+
+
+@pytest.mark.conformance("CMD-014")
+def test_CMD_014_imperative_raise_emits_once_without_evaluating_delegates() -> None:
+    predicate_calls: list[int] = []
+    task_calls: list[int] = []
+    fired: list[int] = []
+    cmd = (
+        RelayCommand.builder()
+        .predicate(lambda: not predicate_calls.append(1))
+        .task(lambda: task_calls.append(1))
+        .build()
+    )
+    cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
+
+    cmd.raise_can_execute_changed()
+
+    assert fired == [1]
+    assert predicate_calls == []
+    assert task_calls == []
+
+
+@pytest.mark.conformance("CMD-015")
+def test_CMD_015_repeated_imperative_and_trigger_notifications_are_additive() -> None:
+    trigger: Subject[None] = Subject()
+    cmd = RelayCommand.builder().triggers(trigger).build()
+    fired: list[int] = []
+    cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
+
+    cmd.raise_can_execute_changed()
+    cmd.raise_can_execute_changed()
+    trigger.on_next(None)
+
+    assert fired == [1, 1, 1]
+
+
+@pytest.mark.conformance("CMD-016")
+def test_CMD_016_imperative_raise_after_disposal_is_noop() -> None:
+    relay = RelayCommand.builder().build()
+    parameterized: RelayCommandOf[int] = RelayCommandOf.builder().build()
+    async_command = AsyncRelayCommand.builder().build()
+    fired: list[int] = []
+    relay.can_execute_changed.subscribe(lambda _: fired.append(1))
+    parameterized.can_execute_changed.subscribe(lambda _: fired.append(1))
+    async_command.can_execute_changed.subscribe(lambda _: fired.append(1))
+    relay.dispose()
+    parameterized.dispose()
+    async_command.dispose()
+    fired.clear()
+
+    relay.raise_can_execute_changed()
+    parameterized.raise_can_execute_changed()
+    async_command.raise_can_execute_changed()
+
+    assert fired == []
+
+
+@pytest.mark.conformance("CMD-017")
+def test_CMD_017_parameterized_imperative_raise_emits_once() -> None:
+    cmd: RelayCommandOf[int] = RelayCommandOf.builder().build()
+    fired: list[int] = []
+    cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
+
+    cmd.raise_can_execute_changed()
+
+    assert fired == [1]
+
+
+@pytest.mark.conformance("CMD-018")
+def test_CMD_018_async_imperative_raise_while_idle_emits_once() -> None:
+    cmd = AsyncRelayCommand.builder().build()
+    fired: list[int] = []
+    cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
+
+    cmd.raise_can_execute_changed()
+
+    assert fired == [1]
+
+
+@pytest.mark.conformance("CMD-019")
+async def test_CMD_019_async_imperative_raise_while_inflight_is_additive() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _task() -> None:
+        started.set()
+        await release.wait()
+
+    cmd = AsyncRelayCommand.builder().task(_task).build()
+    fired: list[int] = []
+    cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
+
+    run = asyncio.create_task(cmd.execute_async())
+    await started.wait()
+    assert fired == [1]
+    cmd.raise_can_execute_changed()
+    assert fired == [1, 1]
+    release.set()
+    await run
+
+    assert fired == [1, 1, 1]
+    cmd.dispose()
 
 
 # ---------------------------------------------------------------------------

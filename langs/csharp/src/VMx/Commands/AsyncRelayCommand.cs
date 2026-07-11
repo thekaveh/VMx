@@ -214,7 +214,19 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         }
     }
 
-    private void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    /// <summary>
+    /// Notifies subscribers that <see cref="CanExecute"/> may have changed without
+    /// evaluating the predicate or invoking the task. A no-op after disposal and
+    /// valid both while idle and while an execution is in flight.
+    /// </summary>
+    public void RaiseCanExecuteChanged()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+        }
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>Returns a new immutable builder for <see cref="AsyncRelayCommand"/>.</summary>
     public static AsyncRelayCommandBuilder Builder() => new();

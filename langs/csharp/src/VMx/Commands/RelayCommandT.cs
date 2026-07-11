@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Reactive;
 using System.Reactive.Disposables;
 using System.Windows.Input;
@@ -20,8 +19,9 @@ namespace VMx.Commands;
 /// - Predicate that throws → treated as false (exception does NOT propagate).
 /// - Task that throws → exception propagates to the caller of Execute.
 /// - Trigger emissions fire CanExecuteChanged.
+/// - RaiseCanExecuteChanged emits one imperative re-evaluation notification.
 /// - Disposed commands are inert: CanExecute returns false and Execute is a no-op.
-/// - Builder is IMMUTABLE (BLD-001): every setter returns a NEW builder instance via `with`.
+/// - Builder is IMMUTABLE (BLD-001): every setter returns a NEW builder instance.
 /// - Triggers are additive: multiple .Triggers(...) calls combine into the trigger set.
 /// </summary>
 /// <typeparam name="T">The parameter type threaded through Execute and CanExecute.</typeparam>
@@ -32,16 +32,26 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     private readonly CompositeDisposable _triggerSubscriptions = new();
     private bool _disposed;
 
-    private RelayCommand(Action<T>? task, Func<T, bool>? predicate, IReadOnlyList<IObservable<Unit>> triggers)
+    internal RelayCommand(Action<T>? task, Func<T, bool>? predicate, IReadOnlyList<IObservable<Unit>> triggers)
     {
         _task = task;
         _predicate = predicate;
         foreach (var t in triggers)
-            _triggerSubscriptions.Add(t.Subscribe(_ => CanExecuteChanged?.Invoke(this, EventArgs.Empty)));
+            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseCanExecuteChanged()));
     }
 
     /// <inheritdoc/>
     public event EventHandler? CanExecuteChanged;
+
+    /// <summary>
+    /// Notifies subscribers that <see cref="CanExecute"/> may have changed without
+    /// evaluating the predicate or invoking the task. A no-op after disposal.
+    /// </summary>
+    public void RaiseCanExecuteChanged()
+    {
+        if (_disposed) return;
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>
     /// Returns false when <paramref name="parameter"/> is not a T (a non-T command
@@ -81,30 +91,5 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     }
 
     /// <summary>Returns a new immutable builder for <see cref="RelayCommand{T}"/>.</summary>
-    public static ICommandBuilder<T> Builder() => new BuilderImpl();
-
-    // -----------------------------------------------------------------------
-    // Immutable nested record builder (BLD-001).
-    // -----------------------------------------------------------------------
-
-    private sealed record BuilderImpl(
-        Action<T>? Task = null,
-        Func<T, bool>? Predicate = null,
-        ImmutableList<IObservable<Unit>>? Triggers = null) : ICommandBuilder<T>
-    {
-        ICommandBuilder<T> ICommandBuilder<T>.Task(Action<T> task) =>
-            this with { Task = task };
-
-        ICommandBuilder<T> ICommandBuilder<T>.Predicate(Func<T, bool> predicate) =>
-            this with { Predicate = predicate };
-
-        ICommandBuilder<T> ICommandBuilder<T>.Triggers(IObservable<Unit> trigger) =>
-            this with { Triggers = (Triggers ?? ImmutableList<IObservable<Unit>>.Empty).Add(trigger) };
-
-        ICommand ICommandBuilder<T>.Build() =>
-            new RelayCommand<T>(
-                Task,
-                Predicate,
-                (IReadOnlyList<IObservable<Unit>>?)Triggers ?? Array.Empty<IObservable<Unit>>());
-    }
+    public static RelayCommandBuilder<T> Builder() => new();
 }

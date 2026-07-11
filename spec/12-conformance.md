@@ -437,6 +437,52 @@ cannot double-run)
 
 > Spec: `04-commands.md §5`, ADR-0068.
 
+### CMD-014 — imperative raise emits exactly once without invoking delegates
+
+**Given** a live `RelayCommand` with a predicate and task
+**And** a subscriber to `CanExecuteChanged`
+**When** the flavor-idiomatic imperative raise method is called once
+**Then** the subscriber observes exactly one notification
+**And** neither the predicate nor the task is invoked
+
+### CMD-015 — repeated imperative raises and triggers are additive
+
+**Given** a live `RelayCommand` with one trigger
+**And** a subscriber to `CanExecuteChanged`
+**When** the imperative raise method is called twice and the trigger emits once
+**Then** the subscriber observes exactly three notifications
+
+### CMD-016 — imperative raise after disposal is inert
+
+**Given** disposed synchronous, parameterized, and async relay commands
+**When** the imperative raise method is called on each command
+**Then** no notification is published and no exception is raised
+
+### CMD-017 — parameterized relay supports imperative raise
+
+**Given** a live parameterized relay command
+**And** a subscriber to `CanExecuteChanged`
+**When** the imperative raise method is called once
+**Then** the subscriber observes exactly one notification
+
+### CMD-018 — async relay supports imperative raise while idle
+
+**Given** a live idle `AsyncRelayCommand`
+**And** a subscriber to `CanExecuteChanged`
+**When** the imperative raise method is called once
+**Then** the subscriber observes exactly one notification
+**And** no execution starts
+
+### CMD-019 — async in-flight imperative raise is additive
+
+**Given** an `AsyncRelayCommand` whose execution is in flight
+**And** a subscriber that observed the execution-start notification
+**When** the imperative raise method is called once and the execution completes
+**Then** the subscriber observes exactly three notifications in total: start,
+imperative raise, and completion
+
+> Spec: `04-commands.md §4.3` and §10.2, ADR-0086.
+
 ______________________________________________________________________
 
 ## 7. ComponentVM (`CVM-NNN`)

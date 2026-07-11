@@ -232,7 +232,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// built post-dispose is built without it rather than subscribing to a
     /// disposed Subject.
     /// </summary>
-    private ICommand BuildCommand(Func<bool> predicate, Action task)
+    private RelayCommand BuildCommand(Func<bool> predicate, Action task)
     {
         var builder = RelayCommand.Builder().Predicate(predicate).Task(task);
         if (!_triggerDisposed)

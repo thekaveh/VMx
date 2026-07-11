@@ -126,6 +126,18 @@ public class RelayCommandTests
         b2.Should().NotBeSameAs(b1, "each setter must return a NEW builder instance (BLD-001)");
     }
 
+    [Fact]
+    public void Builder_Remains_Compatible_With_Legacy_Interface_And_Concrete_Result()
+    {
+        ICommandBuilder legacyBuilder = RelayCommand.Builder();
+        System.Windows.Input.ICommand legacyCommand = legacyBuilder.Task(() => { }).Build();
+        legacyCommand.Should().BeOfType<RelayCommand>();
+
+        RelayCommandBuilder concreteBuilder = RelayCommand.Builder();
+        RelayCommand concreteCommand = concreteBuilder.Task(() => { }).Build();
+        concreteCommand.Should().BeOfType<RelayCommand>();
+    }
+
     // -----------------------------------------------------------------------
     // RelayCommand<T> — parameterized
     // -----------------------------------------------------------------------
@@ -161,6 +173,18 @@ public class RelayCommandTests
         var b2 = b1.Task(_ => { });
 
         b2.Should().NotBeSameAs(b1, "each setter must return a NEW builder instance (BLD-001)");
+    }
+
+    [Fact]
+    public void Parameterized_Builder_Remains_Compatible_With_Legacy_Interface_And_Concrete_Result()
+    {
+        ICommandBuilder<int> legacyBuilder = RelayCommand<int>.Builder();
+        System.Windows.Input.ICommand legacyCommand = legacyBuilder.Task(_ => { }).Build();
+        legacyCommand.Should().BeOfType<RelayCommand<int>>();
+
+        RelayCommandBuilder<int> concreteBuilder = RelayCommand<int>.Builder();
+        RelayCommand<int> concreteCommand = concreteBuilder.Task(_ => { }).Build();
+        concreteCommand.Should().BeOfType<RelayCommand<int>>();
     }
 
     [Fact]

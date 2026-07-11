@@ -47,3 +47,94 @@ public interface ICommandBuilder<T>
     /// <summary>Builds the command. Succeeds even with no task, predicate, or triggers.</summary>
     System.Windows.Input.ICommand Build();
 }
+
+/// <summary>
+/// Built-in immutable builder for <see cref="RelayCommand"/>. Its concrete
+/// <see cref="Build"/> return preserves access to relay-specific capabilities while
+/// explicit interface members retain the existing <see cref="ICommandBuilder"/> contract.
+/// </summary>
+public sealed class RelayCommandBuilder : ICommandBuilder
+{
+    private readonly Action? _task;
+    private readonly Func<bool>? _predicate;
+    private readonly IReadOnlyList<IObservable<Unit>> _triggers;
+
+    /// <summary>Creates an empty builder.</summary>
+    public RelayCommandBuilder()
+        : this(null, null, Array.Empty<IObservable<Unit>>())
+    {
+    }
+
+    private RelayCommandBuilder(
+        Action? task,
+        Func<bool>? predicate,
+        IReadOnlyList<IObservable<Unit>> triggers)
+    {
+        _task = task;
+        _predicate = predicate;
+        _triggers = triggers;
+    }
+
+    /// <summary>Sets the action and returns a new builder.</summary>
+    public RelayCommandBuilder Task(Action task) => new(task, _predicate, _triggers);
+
+    /// <summary>Sets the predicate and returns a new builder.</summary>
+    public RelayCommandBuilder Predicate(Func<bool> predicate) => new(_task, predicate, _triggers);
+
+    /// <summary>Adds one trigger and returns a new builder.</summary>
+    public RelayCommandBuilder Triggers(IObservable<Unit> trigger) =>
+        new(_task, _predicate, _triggers.Append(trigger).ToArray());
+
+    /// <summary>Builds a concrete relay command.</summary>
+    public RelayCommand Build() => new(_task, _predicate, _triggers);
+
+    ICommandBuilder ICommandBuilder.Task(Action task) => Task(task);
+    ICommandBuilder ICommandBuilder.Predicate(Func<bool> predicate) => Predicate(predicate);
+    ICommandBuilder ICommandBuilder.Triggers(IObservable<Unit> trigger) => Triggers(trigger);
+    System.Windows.Input.ICommand ICommandBuilder.Build() => Build();
+}
+
+/// <summary>
+/// Built-in immutable builder for <see cref="RelayCommand{T}"/> with a concrete
+/// build result and source-compatible explicit <see cref="ICommandBuilder{T}"/> members.
+/// </summary>
+public sealed class RelayCommandBuilder<T> : ICommandBuilder<T>
+{
+    private readonly Action<T>? _task;
+    private readonly Func<T, bool>? _predicate;
+    private readonly IReadOnlyList<IObservable<Unit>> _triggers;
+
+    /// <summary>Creates an empty builder.</summary>
+    public RelayCommandBuilder()
+        : this(null, null, Array.Empty<IObservable<Unit>>())
+    {
+    }
+
+    private RelayCommandBuilder(
+        Action<T>? task,
+        Func<T, bool>? predicate,
+        IReadOnlyList<IObservable<Unit>> triggers)
+    {
+        _task = task;
+        _predicate = predicate;
+        _triggers = triggers;
+    }
+
+    /// <summary>Sets the action and returns a new builder.</summary>
+    public RelayCommandBuilder<T> Task(Action<T> task) => new(task, _predicate, _triggers);
+
+    /// <summary>Sets the predicate and returns a new builder.</summary>
+    public RelayCommandBuilder<T> Predicate(Func<T, bool> predicate) => new(_task, predicate, _triggers);
+
+    /// <summary>Adds one trigger and returns a new builder.</summary>
+    public RelayCommandBuilder<T> Triggers(IObservable<Unit> trigger) =>
+        new(_task, _predicate, _triggers.Append(trigger).ToArray());
+
+    /// <summary>Builds a concrete parameterized relay command.</summary>
+    public RelayCommand<T> Build() => new(_task, _predicate, _triggers);
+
+    ICommandBuilder<T> ICommandBuilder<T>.Task(Action<T> task) => Task(task);
+    ICommandBuilder<T> ICommandBuilder<T>.Predicate(Func<T, bool> predicate) => Predicate(predicate);
+    ICommandBuilder<T> ICommandBuilder<T>.Triggers(IObservable<Unit> trigger) => Triggers(trigger);
+    System.Windows.Input.ICommand ICommandBuilder<T>.Build() => Build();
+}
