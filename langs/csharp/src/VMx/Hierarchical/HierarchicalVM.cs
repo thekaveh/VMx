@@ -31,6 +31,27 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     private TVM? _hierarchicalParent;
     private List<TVM>? _children;
     private ReadOnlyCollection<TVM>? _pathCache;
+    private readonly List<TVM> _parkedAttachItems = [];
+
+    private sealed class BatchCandidate<TKey> where TKey : notnull
+    {
+        public BatchCandidate(
+            TVM item,
+            TKey key,
+            BatchParentKey<TKey> parentKey,
+            bool retainIfMissing)
+        {
+            Item = item;
+            Key = key;
+            ParentKey = parentKey;
+            RetainIfMissing = retainIfMissing;
+        }
+
+        public TVM Item { get; }
+        public TKey Key { get; }
+        public BatchParentKey<TKey> ParentKey { get; }
+        public bool RetainIfMissing { get; }
+    }
 
     // ── Constructor ─────────────────────────────────────────────────────────
 
@@ -263,6 +284,168 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             Index: -1));
     }
 
+    /// <summary>Number of missing-parent items retained on the structural root.</summary>
+    public int ParkedAttachCount => GetTreeRoot()._parkedAttachItems.Count;
+
+    /// <summary>
+    /// Attaches an out-of-order, consumer-keyed batch beneath this node's
+    /// structural root. Ordinary ingestion anomalies are returned as typed
+    /// rejections; an existing same-key node is never replaced.
+    /// </summary>
+    public BatchAttachResult<TVM> AttachMany<TKey>(
+        IEnumerable<TVM> items,
+        Func<TVM, TKey> keyOf,
+        Func<TVM, BatchParentKey<TKey>> parentKeyOf,
+        MissingParentPolicy onMissingParent = MissingParentPolicy.Park)
+        where TKey : notnull
+    {
+        ThrowHelper.ThrowIfNull(items, nameof(items));
+        ThrowHelper.ThrowIfNull(keyOf, nameof(keyOf));
+        ThrowHelper.ThrowIfNull(parentKeyOf, nameof(parentKeyOf));
+
+        var root = GetTreeRoot();
+        var incoming = items.ToList();
+        var parked = root._parkedAttachItems.ToList();
+        root._parkedAttachItems.Clear();
+        var added = new List<TVM>();
+        var duplicates = new List<TVM>();
+        var orphans = new List<TVM>();
+        var rejections = new List<BatchAttachRejection<TVM>>();
+        var existing = new Dictionary<TKey, TVM>();
+
+        try
+        {
+            foreach (var node in root.MaterializedSubtree())
+            {
+                var key = keyOf(node);
+                if (key is null) throw new InvalidOperationException("keyOf returned null.");
+                if (!existing.TryGetValue(key, out _)) existing.Add(key, node);
+            }
+        }
+        catch (Exception exception)
+        {
+            root._parkedAttachItems.AddRange(parked);
+            rejections.AddRange(parked.Concat(incoming).Select(item => new BatchAttachRejection<TVM>(
+                item,
+                BatchAttachRejectionReason.SelectorFailed,
+                exception.Message)));
+            return new BatchAttachResult<TVM>(added, duplicates, orphans, rejections);
+        }
+
+        var candidates = new List<BatchCandidate<TKey>>();
+        var candidateKeys = new HashSet<TKey>();
+        foreach (var entry in parked.Select(item => (Item: item, WasParked: true))
+                     .Concat(incoming.Select(item => (Item: item, WasParked: false))))
+        {
+            TKey key;
+            BatchParentKey<TKey> parentKey;
+            try
+            {
+                key = keyOf(entry.Item);
+                if (key is null) throw new InvalidOperationException("keyOf returned null.");
+                parentKey = parentKeyOf(entry.Item);
+            }
+            catch (Exception exception)
+            {
+                if (entry.WasParked) root._parkedAttachItems.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.SelectorFailed,
+                    exception.Message));
+                continue;
+            }
+
+            if (existing.ContainsKey(key))
+            {
+                duplicates.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.DuplicateExistingKey));
+                continue;
+            }
+            if (candidateKeys.Contains(key))
+            {
+                duplicates.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.DuplicateBatchKey));
+                continue;
+            }
+            if (entry.Item._hierarchicalParent is not null)
+            {
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.AlreadyAttached));
+                continue;
+            }
+
+            candidateKeys.Add(key);
+
+            candidates.Add(new BatchCandidate<TKey>(
+                entry.Item,
+                key,
+                parentKey,
+                entry.WasParked || onMissingParent == MissingParentPolicy.Park));
+        }
+
+        var unresolved = candidates;
+        while (unresolved.Count > 0)
+        {
+            var next = new List<BatchCandidate<TKey>>();
+            var progressed = false;
+            foreach (var candidate in unresolved)
+            {
+                TVM? parent;
+                if (candidate.ParentKey.IsRoot)
+                    parent = root;
+                else
+                    existing.TryGetValue(candidate.ParentKey.Key, out parent);
+                if (parent is null)
+                {
+                    next.Add(candidate);
+                    continue;
+                }
+
+                try
+                {
+                    parent.AddChild(candidate.Item);
+                }
+                catch (Exception exception)
+                {
+                    RollbackBatchAttach(parent, candidate.Item);
+                    rejections.Add(new BatchAttachRejection<TVM>(
+                        candidate.Item,
+                        BatchAttachRejectionReason.AttachmentFailed,
+                        exception.Message));
+                    continue;
+                }
+
+                existing.Add(candidate.Key, candidate.Item);
+                added.Add(candidate.Item);
+                progressed = true;
+            }
+            unresolved = next;
+            if (!progressed) break;
+        }
+
+        var unresolvedByKey = unresolved.ToDictionary(candidate => candidate.Key);
+        foreach (var candidate in unresolved)
+        {
+            var isCycle = BatchParentChainCycles(candidate, unresolvedByKey);
+            var reason = isCycle
+                ? BatchAttachRejectionReason.Cycle
+                : BatchAttachRejectionReason.MissingParent;
+            rejections.Add(new BatchAttachRejection<TVM>(candidate.Item, reason));
+            if (!isCycle)
+            {
+                orphans.Add(candidate.Item);
+                if (candidate.RetainIfMissing) root._parkedAttachItems.Add(candidate.Item);
+            }
+        }
+
+        return new BatchAttachResult<TVM>(added, duplicates, orphans, rejections);
+    }
+
     /// <summary>
     /// Drops this node's materialized child cache. The next <see cref="Children"/>
     /// access invokes the children factory again. Invalidating an unmaterialized
@@ -287,6 +470,13 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         InvalidateChildren();
     }
 
+    /// <inheritdoc/>
+    protected override void OnDispose()
+    {
+        _parkedAttachItems.Clear();
+        base.OnDispose();
+    }
+
     // ── Internal helpers ─────────────────────────────────────────────────────
 
     private List<TVM> MaterializeChildren()
@@ -300,6 +490,53 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         foreach (var child in list)
             child._hierarchicalParent = (TVM)this;
         return list;
+    }
+
+    private TVM GetTreeRoot()
+    {
+        var node = (TVM)this;
+        while (node._hierarchicalParent is not null)
+            node = node._hierarchicalParent;
+        return node;
+    }
+
+    private IEnumerable<TVM> MaterializedSubtree()
+    {
+        var stack = new Stack<TVM>();
+        stack.Push((TVM)this);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            yield return node;
+            if (node._children is null) continue;
+            for (var index = node._children.Count - 1; index >= 0; index--)
+                stack.Push(node._children[index]);
+        }
+    }
+
+    private static bool BatchParentChainCycles<TKey>(
+        BatchCandidate<TKey> candidate,
+        IReadOnlyDictionary<TKey, BatchCandidate<TKey>> unresolved)
+        where TKey : notnull
+    {
+        var seen = new HashSet<TKey>();
+        BatchCandidate<TKey>? current = candidate;
+        while (current is not null)
+        {
+            if (!seen.Add(current.Key)) return true;
+            if (current.ParentKey.IsRoot) return false;
+            unresolved.TryGetValue(current.ParentKey.Key, out current);
+        }
+        return false;
+    }
+
+    private static void RollbackBatchAttach(TVM parent, TVM child)
+    {
+        if (parent._children is not null)
+            parent._children.RemoveAll(item => ReferenceEquals(item, child));
+        child._hierarchicalParent = null;
+        child._pathCache = null;
+        child.InvalidatePathCacheDescendants();
     }
 
     private void EnsureChildrenMaterialized()

@@ -4,6 +4,17 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.8.0] — 2026-07-10
+
+Implements `spec-v3.8.0` and keeps TypeScript at full library parity: 324/324
+conformance IDs covered.
+
+### Added
+
+- `attachMany(...)` with consumer key selectors, stable fixpoint resolution,
+  non-replacing deduplication, park/reject orphan policy, structured rejection
+  results, and root-owned disposal cleanup (`HIER-023..030`).
+
 ## [3.7.0] — 2026-07-10
 
 Implements `spec-v3.7.0` and keeps TypeScript at full library parity: 316/316

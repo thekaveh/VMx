@@ -11,7 +11,7 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">VMx Library Class Map</text>
-  <text x="40" y="84" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">cluster-level class families for spec 3.7.0</text>
+  <text x="40" y="84" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">cluster-level class families for spec 3.8.0</text>
   <path d="M210,275 C200,275 200,350 190,350" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 
 <path d="M210,275 C350,275 350,350 490,350" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>

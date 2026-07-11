@@ -185,10 +185,15 @@ export { walk, find, walkExpanded } from "./tree/walk.js";
 
 // Hierarchical VM (spec v2.1)
 export {
+  BatchAttachRejectionReason,
   HierarchicalVM,
   HierarchicalVMBuilder,
+  MissingParentPolicy,
 } from "./hierarchical/hierarchicalVm.js";
 export type {
+  BatchAttachOptions,
+  BatchAttachRejection,
+  BatchAttachResult,
   HierarchicalVMOptions,
   HierarchicalVMConstructionContext,
 } from "./hierarchical/hierarchicalVm.js";
