@@ -140,8 +140,8 @@
 <rect x="340" y="336" width="200" height="118" rx="8" fill="#0f172a"/>
 <rect x="340" y="336" width="200" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="440" y="364" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ApproveCommand</text>
-<text x="440" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fire-and-forget entry point</text>
-<text x="440" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">calls ApproveAsync()</text>
+<text x="440" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">persist captured model</text>
+<text x="440" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional reset -&gt; pristine</text>
 <text x="440" y="428" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">errors -&gt; ApproveErrors</text>
 <rect x="120" y="494" width="420" height="142" rx="8" fill="#0f172a"/>
 <rect x="120" y="494" width="420" height="142" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
@@ -153,9 +153,9 @@
 <rect x="120" y="678" width="420" height="146" rx="8" fill="#0f172a"/>
 <rect x="120" y="678" width="420" height="146" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="330" y="706" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Success + failure channels</text>
-<text x="330" y="732" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">OnApproved emits persisted model</text>
-<text x="330" y="751" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ApproveAsync throws to awaiter</text>
-<text x="330" y="770" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">command path surfaces failures on ApproveErrors</text>
+<text x="330" y="732" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reset commits before OnApproved</text>
+<text x="330" y="751" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">OnApproved emits persisted model</text>
+<text x="330" y="770" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">one failure observer per entry path</text>
 <rect x="670" y="210" width="370" height="128" rx="8" fill="#0f172a"/>
 <rect x="670" y="210" width="370" height="128" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="855" y="238" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">IDialogService</text>
@@ -232,7 +232,7 @@
           <div class="card-dot cyan"></div>
           <h2>FormVM</h2>
         </div>
-        <ul><li>FormVM is an edit-lifecycle primitive, not a persistence framework.</li><li>Snapshot, dirty tracking, validation, and success/error channels all live on the VM surface.</li><li>Dialog confirmation is documented composition, not a hard dependency.</li></ul>
+        <ul><li>FormVM is an edit-lifecycle primitive, not a persistence framework.</li><li>Snapshot, dirty tracking, validation, declarative reset, and success/error channels all live on the VM surface.</li><li>Dialog confirmation is documented composition, not a hard dependency.</li></ul>
       </section>
       <section class="card">
         <div class="card-header">
@@ -249,7 +249,7 @@
         <ul><li>The notifications package is opt-in and orthogonal to dialogs.</li><li>NotificationVM and ConfirmationVM render posted notifications without changing the core VM family.</li><li>The make_confirm bridge is the clean way to reuse notification flows for command confirmation.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.6.0.</footer>
+    <footer>Generated from repo-derived facts for VMx spec 3.7.0.</footer>
   </main>
 </body>
 </html>

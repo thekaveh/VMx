@@ -4,6 +4,17 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] — 2026-07-10
+
+Implements `spec-v3.7.0` and keeps Python at full library parity: 316/316
+conformance IDs covered.
+
+### Added
+
+- Immutable-builder `reset_on_approved(...)` for declarative post-persist
+  reset, including independent snapshots, revalidation, deterministic race
+  semantics, and existing approval error routing (`FORM-024..029`).
+
 ## [3.6.0] — 2026-07-10
 
 Implements `spec-v3.6.0` and keeps Python at full library parity: 310/310

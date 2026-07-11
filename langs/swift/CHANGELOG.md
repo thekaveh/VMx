@@ -4,6 +4,18 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.7.0] — 2026-07-10
+
+Implements `spec-v3.7.0` and keeps Swift at full library parity: 316/316
+conformance IDs covered.
+
+### Added
+
+- Immutable-builder `resetOnApproved(...)` for declarative throwing
+  post-persist reset, including independent snapshots, revalidation,
+  deterministic race semantics, and existing approval error routing
+  (`FORM-024..029`).
+
 ## [3.6.0] — 2026-07-10
 
 Implements `spec-v3.6.0` and keeps Swift at full library parity: 310/310

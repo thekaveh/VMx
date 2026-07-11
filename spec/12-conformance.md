@@ -2698,6 +2698,64 @@ this ID pins the command-path error channel, chapter 20 §2/§8.)*
 **When** `SetModel` changes the model so validation passes and the form is dirty
 **Then** `ApproveCommand.CanExecute == true`
 
+### FORM-024 — reset runs after persistence and before approval notification
+
+**Given** a form configured with `resetOnApproved`, a recording persister, and
+an `OnApproved` subscriber
+**And** the model is changed from `m0` to `m1`
+**When** approval succeeds
+**Then** the observable order is persist `m1`, reset callback with `m1`, then
+`OnApproved(m1)`
+**And** the subscriber observes the live model and snapshot already equal to the
+reset value with `IsDirty == false`
+
+### FORM-025 — reset integrates with snapshotting, validation, and strict mode
+
+**Given** a strict form with a configured snapshotter, validators, and
+`resetOnApproved`
+**When** approval succeeds and the callback returns reset value `r`
+**Then** the snapshotter is invoked twice for `r`
+**And** `Model` and `Snapshot` are independent snapshotter outputs structurally
+equal to `r`
+**And** validation reflects `r`, `IsDirty == false`, and approval is disabled
+
+### FORM-026 — reset failure is post-persist, atomic, and singly observed
+
+**Given** a reset callback that fails with error `e`
+**When** the awaitable approval path is used
+**Then** persistence has occurred exactly once, reset state is not committed,
+`OnApproved` does not fire, `e` reaches the awaiter, and `ApproveErrors` remains
+silent
+**When** the same scenario is invoked through the fire-and-forget approve
+command on a fresh form
+**Then** `e` is emitted exactly once on `ApproveErrors` and nowhere else
+
+### FORM-027 — reset is skipped without successful approval
+
+**Given** forms configured with `resetOnApproved`
+**When** approval is blocked by validation, persistence fails or is cancelled,
+or deny/revert is invoked
+**Then** the reset callback is not invoked
+
+### FORM-028 — disposal during persistence suppresses reset
+
+**Given** approval whose persistence is in flight
+**When** the form is disposed before persistence completes
+**And** persistence later succeeds
+**Then** the reset callback does not run
+**And** no post-persist state mutation or approval notification occurs
+
+### FORM-029 — reset is authoritative over a racing model mutation
+
+**Given** approval captured model `m1` and its persistence is in flight
+**When** `SetModel(m2)` races before persistence completes
+**And** persistence succeeds
+**Then** the persister, reset callback, and `OnApproved` payload use `m1`
+**And** the live model and snapshot become the reset derived from `m1`, replacing
+the racing `m2`, with `IsDirty == false`
+
+> Spec: `20-form-vm.md §5.1`, ADR-0087.
+
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1
 
 ### DISC-001 — Initial active key and `IsActive`

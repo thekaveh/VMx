@@ -23,6 +23,7 @@ public struct FormVMBuilder<Model> {
     private var _equals: ((Model, Model) -> Bool)?
     private var _validators: [String: (Model) -> String?] = [:]
     private var _modelValidator: ((Model) -> [String: String?])?
+    private var _resetOnApproved: ((Model) throws -> Model)?
 
     /// One-shot box to distinguish "initial was assigned (possibly a nil-able
     /// generic)" from "initial was never set", without requiring Hashable.
@@ -96,6 +97,15 @@ public struct FormVMBuilder<Model> {
         return copy
     }
 
+    /// Derive the next pristine model after persistence succeeds.
+    public func resetOnApproved(
+        _ fn: @escaping (Model) throws -> Model
+    ) -> FormVMBuilder<Model> {
+        var copy = self
+        copy._resetOnApproved = fn
+        return copy
+    }
+
     /// Pre-wire the hub to `NullMessageHub.INSTANCE`.
     /// Equivalent to `.hub(NullMessageHub.INSTANCE)`.
     public func withDefaultServices() -> FormVMBuilder<Model> {
@@ -134,6 +144,7 @@ public struct FormVMBuilder<Model> {
             snapshotter: snapshotter,
             validators: _validators,
             modelValidator: _modelValidator,
+            resetOnApproved: _resetOnApproved,
             equals: equals
         )
     }

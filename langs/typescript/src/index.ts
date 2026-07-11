@@ -205,7 +205,7 @@ export { NullDialogService } from "./dialogs/nullDialogService.js";
 
 // Forms (spec v2.1)
 export { FormVM, FormVMBuilder } from "./forms/formVm.js";
-export type { FormVMOptions, Persister, Snapshotter } from "./forms/formVm.js";
+export type { FormVMOptions, Persister, ResetOnApproved, Snapshotter } from "./forms/formVm.js";
 export { FormRevertedMessage } from "./messages/formReverted.js";
 
 // Expandable state helper (spec v2.0)

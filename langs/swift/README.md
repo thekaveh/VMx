@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.6.0 — total parity.** Covers **all 310 of 310** library conformance IDs
-from `spec-v3.6.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **315 total**, at
-full parity with C#, Python, and TypeScript. Library IDs accumulated
+**v3.7.0 — total parity.** Covers **all 316 of 316** library conformance IDs
+from `spec-v3.7.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **321 total**, at
+full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
 IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
@@ -17,7 +17,7 @@ ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25
 notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063; +19 composite/group
 IDs via Phase-3 Inc-6 — ADR-0064; +44 v3.1 upstream-consumer IDs via
 ADR-0068..ADR-0079; +23 IDs via ADR-0082..ADR-0085; +6 imperative-command
-requery IDs via ADR-0086): the lifecycle state machine, the modeled
+requery IDs via ADR-0086; +6 FormVM reset IDs via ADR-0087): the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
 `CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`,
@@ -33,7 +33,7 @@ and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 lazy/eager construction, structural mutation, builder, capability composition),
 threading contracts (`ManualScheduler`, `VirtualTimeScheduler`, foreground
 dispatch, async selection), `SearchableState` (composite and group contexts),
-message hub semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
+message hub semantics, `FormVM` (snapshot/dirty/approve/deny/reset lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge). Requires Swift 5.9+, Combine, iOS 16 / macOS 13 /
@@ -42,7 +42,7 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.6.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.7.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -162,9 +162,9 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 
-## 5. Conformance — total parity (315)
+## 5. Conformance — total parity (321)
 
-This flavor implements **all 310 library conformance IDs** from the
+This flavor implements **all 316 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -362,6 +362,7 @@ CMD-014..019    imperative relay-command requery notification (ADR-0086)
 COL-024..031    TokenPagedComposition cursor flow and source observation (ADR-0069)
 COMP-028..037   FilteredCompositeVM and ScoredFilteredCompositeVM (ADR-0070)
 FORM-016..023   declarative FormVM field/model validation (ADR-0071)
+FORM-024..029   declarative post-persist FormVM reset (ADR-0087)
 DIA-009..013    ModalVM / BasicModalVM presentation lifecycle (ADR-0072)
 HIER-019..022   explicit child-cache invalidation (ADR-0073)
 DISC-001..006   DiscriminatorVM active key + modal stack coordinator (ADR-0075)
@@ -376,7 +377,7 @@ DISP-001..006   cross-cutting idempotent disposal across VM cascades, commands,
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 310 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (315) with C#, Python, TypeScript, and Rust.**
+**All 316 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (321) with C#, Python, TypeScript, and Rust.**
 
 Run the suite:
 
