@@ -563,6 +563,29 @@ notification still occurs before its local surface completes
 **When** its dual-channel property notification helper is invoked
 **Then** neither the hub nor the VM-local channel emits
 
+### CVM-010 — Modeled components explicitly republish the retained model
+
+**Given** a writable modeled component with a reference-shaped model, modeled
+hinter, model-changed callback where the flavor exposes one, and subscribers to
+the hub and local property-change channels
+**When** its explicit model-republish operation is called
+**Then** the exact model reference/value and observable modeled hint value are
+retained
+**And** republish does not run equality, assignment, hinter, or model-changed
+callback work
+**And** exactly one flavor-idiomatic model `PropertyChangedMessage` and one local
+model notification are observed in ordinary hub-before-local order
+**And** a read-only modeled component exposes the same publication operation
+without exposing model replacement
+**And** a forwarding modeled component delegates to the wrapped sender, hub,
+local stream, and disposal boundary
+**And** a null/default hub remains safe while the local channel emits once
+**And** a call beginning after disposal emits on neither channel
+**And** one guarded re-entrant call contributes a second complete pair through
+the existing iterative hub queue without recursive loss
+**And** ordinary equal assignment remains silent while ordinary unequal
+assignment retains its existing behavior
+
 ______________________________________________________________________
 
 ## 8. CompositeVM (`COMP-NNN`)

@@ -67,6 +67,10 @@ class ReadonlyComponentVMOf(Generic[M], _ComponentVMBase):
         """Derived hint string; stable (model never changes)."""
         return self._modeled_hint
 
+    def republish_model(self) -> None:
+        """Republish the retained model without replacing it."""
+        self._notify_property_changed("model")
+
     @staticmethod
     def builder() -> ReadonlyComponentVMOfBuilder[M]:
         """Return a new immutable builder for :class:`ReadonlyComponentVMOf`."""

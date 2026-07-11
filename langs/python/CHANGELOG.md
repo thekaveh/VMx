@@ -4,6 +4,18 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.13.0] — 2026-07-11
+
+Implements `spec-v3.13.0` and keeps Python at full library parity: 342/342
+conformance IDs covered.
+
+### Added
+
+- Writable, read-only, and forwarding modeled components expose
+  `republish_model()`, which retains model and hint state, skips assignment,
+  hinter, and callback work, and emits one ordinary `"model"` hub/local pair
+  (`CVM-010`, ADR-0093).
+
 ## [3.12.0] — 2026-07-11
 
 Implements `spec-v3.12.0` and keeps Python at full library parity: 341/341

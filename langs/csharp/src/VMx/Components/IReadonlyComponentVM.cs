@@ -13,4 +13,7 @@ public interface IReadonlyComponentVM<M> : IComponentVM
 
     /// <summary>Derived hint, computed from the fixed model at construction time.</summary>
     string ModeledHint { get; }
+
+    /// <summary>Republishes the retained model without replacing it.</summary>
+    void RepublishModel();
 }

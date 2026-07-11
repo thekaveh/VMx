@@ -137,6 +137,7 @@ mutation history, or automatic equality/old-value tracking.
 ComponentVM<M> : ComponentVM:
     Model : M                              # settable; setting fires PropertyChangedMessage("Model")
     ModeledHint : string                   # derived; recomputed when Model changes
+    RepublishModel() : void                # explicit model notification without replacement
 ```
 
 The setter for `Model`:
@@ -168,17 +169,56 @@ The builder accepts an `OnModelChanged` callback (`(M) -> void`). When the model
 setter accepts a new value, this callback is invoked AFTER the
 `PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
 
+### 3.3 Explicit model republish
+
+Every modeled leaf exposes one explicit operation for announcing that observable
+state reachable through the retained model changed outside ordinary replacement:
+
+| Flavor     | Operation           | Property name |
+| ---------- | ------------------- | ------------- |
+| C#         | `RepublishModel()`  | `"Model"`     |
+| Python     | `republish_model()` | `"model"`     |
+| TypeScript | `republishModel()`  | `"model"`     |
+| Swift      | `republishModel()`  | `"model"`     |
+| Rust       | `republish_model()` | `"model"`     |
+
+One call retains the exact current `Model` reference/value and observable
+`ModeledHint` value. Republish itself does not evaluate model equality, assign the
+model, invoke the modeled hinter, or invoke `OnModelChanged`. Instead, it calls the §2.3
+dual-channel helper exactly once for the flavor-idiomatic model name. For an
+ordinary top-level call, observers therefore receive exactly one hub message
+followed by exactly one VM-local notification, and both read the unchanged
+modeled state. With a null/default hub, the hub send retains its null-object
+behavior and the local notification still occurs once.
+
+The helper's existing admission and queue rules are authoritative. A call that
+begins after disposal is inert. A call admitted before re-entrant disposal
+completes its pair. A republish invoked by a hub subscriber joins the lossless
+iterative hub queue; as described in §2.3, its local notification can occur after
+the nested hub message is enqueued but before that queued message drains. This
+operation adds no recursive-delivery or global-order exception.
+
+Use republish only when state reachable through the retained model changed
+outside ordinary replacement. It MUST NOT conceal a model replacement or
+mutation that should use the normal equality-gated assignment path.
+
 ## 4. Readonly variant (`ReadonlyComponentVM<M>`)
 
 Same surface as `ComponentVM<M>` minus the `Model` setter. The model is provided at
-build time and is final. `ModeledHint` remains derived but stable (the model never
-changes).
+build time and its reference/value is final. `ModeledHint` remains derived but
+stable. `RepublishModel` / `republish_model` remains available because read-only
+replacement authority does not make a referenced object deeply immutable; calling
+it does not add a setter or recompute the hint.
 
 Swift's module-internal update path for this variant delegates to the same
 guarded modeled setter, so framework-authored updates after disposal are inert.
 Forwarding wrappers likewise delegate to the guarded instance. A modeled
 composite's model configures its child factory rather than a settable retained
 property, so it has no modeled-assignment surface to guard.
+
+Forwarding modeled-component wrappers also delegate explicit republish to the
+wrapped instance, preserving its sender identity, hub, local notification stream,
+and disposal boundary. Modeled composites and `FormVM` do not gain the operation.
 
 `Type` equals `ReadOnlyComponent`.
 
@@ -283,7 +323,7 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 
 ## 9. Conformance
 
-`CVM-001` through `CVM-009` and `EXP-001` through `EXP-005` in
+`CVM-001` through `CVM-010` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:
 
 - status emission on construct
@@ -298,3 +338,5 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 - public read-only hub visibility and non-ownership
 - disposal-lifetime owned-resource behavior (`DISP-007..013`)
 - inert modeled assignment after disposal (`DISP-014`)
+- explicit model republish identity, channel, variant, forwarding, null-hub,
+  re-entrancy, and disposal behavior

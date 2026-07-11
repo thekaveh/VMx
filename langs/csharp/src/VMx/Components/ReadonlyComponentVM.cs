@@ -20,6 +20,9 @@ public sealed class ReadonlyComponentVM<M> : ComponentVMBase, IReadonlyComponent
     /// <inheritdoc/>
     public string ModeledHint { get; }
 
+    /// <inheritdoc/>
+    public void RepublishModel() => NotifyPropertyChanged(nameof(Model));
+
     private ReadonlyComponentVM(
         string name,
         string hint,

@@ -32,6 +32,7 @@ export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
   // C#/Python/Swift ForwardingComponentVM and TS ForwardingCompositeVM.set current.
   set model(value: M) { this._wrapped.model = value; }
   get modeledHint(): string { return this._wrapped.modeledHint; }
+  republishModel(): void { this._wrapped.republishModel(); }
   get propertyChanged(): Observable<string> { return this._wrapped.propertyChanged; }
   get selectCommand(): ICommand { return this._wrapped.selectCommand; }
   get deselectCommand(): ICommand { return this._wrapped.deselectCommand; }

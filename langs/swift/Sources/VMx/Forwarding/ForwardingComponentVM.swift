@@ -58,6 +58,7 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
         set { _wrapped.model = newValue }
     }
     open override var modeledHint: String { _wrapped.modeledHint }
+    open override func republishModel() { _wrapped.republishModel() }
 
     // ── Built-in commands (override the getters to delegate) ────────────
     open override var selectCommand: RelayCommand { _wrapped.selectCommand }

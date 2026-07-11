@@ -1,4 +1,4 @@
-"""Conformance tests: CVM-001..009.
+"""Conformance tests: CVM-001..010.
 
 The LIFE-001..010, 012 and PROP-001..004 ids each own a single self-contained
 test in test_lifecycle.py / test_property_change.py respectively; this file no
@@ -10,8 +10,13 @@ from __future__ import annotations
 import pytest
 
 from vmx.components.base import _ComponentVMBase
-from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
+from vmx.components.builders import (
+    ComponentVMBuilder,
+    ComponentVMOfBuilder,
+    ReadonlyComponentVMOfBuilder,
+)
 from vmx.components.protocols import ViewModelType
+from vmx.forwarding.component import ForwardingComponentVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -366,3 +371,194 @@ def test_CVM_009_notification_helper_is_inert_after_disposal() -> None:
 
     assert hub_names == []
     assert local_names == []
+
+
+@pytest.mark.conformance("CVM-010")
+def test_CVM_010_modeled_components_explicitly_republish_retained_model() -> None:
+    class ReferenceModel:
+        def __init__(self, value: int) -> None:
+            self.value = value
+            self.equality_calls = 0
+
+        def __eq__(self, other: object) -> bool:
+            self.equality_calls += 1
+            return isinstance(other, ReferenceModel) and self.value == other.value
+
+    model = ReferenceModel(7)
+    hinter_calls = 0
+    callback_calls = 0
+
+    def hinter(value: ReferenceModel) -> str:
+        nonlocal hinter_calls
+        hinter_calls += 1
+        return f"hint:{value.value}"
+
+    def on_model_changed(_value: ReferenceModel) -> None:
+        nonlocal callback_calls
+        callback_calls += 1
+
+    hub = _hub()
+    vm = (
+        ComponentVMOfBuilder()
+        .name("writable")
+        .model(model)
+        .modeled_hinter(hinter)
+        .on_model_changed(on_model_changed)
+        .services(hub, _dispatcher())
+        .build()
+    )
+    hint = vm.modeled_hint
+    hinter_calls_after_build = hinter_calls
+    equality_calls_before_republish = model.equality_calls
+    trace: list[str] = []
+    hub.messages.subscribe(
+        lambda message: (
+            trace.append("hub:model")
+            if isinstance(message, PropertyChangedMessage)
+            and message.property_name == "model"
+            and message.sender is vm
+            else None
+        )
+    )
+    vm.property_changed.subscribe(
+        lambda name: trace.append("local:model") if name == "model" else None
+    )
+
+    vm.republish_model()
+
+    assert vm.model is model
+    assert vm.modeled_hint == hint
+    assert hinter_calls == hinter_calls_after_build
+    assert model.equality_calls == equality_calls_before_republish
+    assert callback_calls == 0
+    assert trace == ["hub:model", "local:model"]
+
+    trace.clear()
+    vm.model = model
+    assert trace == []
+
+    replacement = ReferenceModel(8)
+    trace.clear()
+    vm.model = replacement
+
+    assert vm.model is replacement
+    assert vm.modeled_hint == "hint:8"
+    assert hinter_calls == hinter_calls_after_build + 1
+    assert callback_calls == 1
+    assert model.equality_calls > equality_calls_before_republish
+    assert trace == ["hub:model", "local:model"]
+
+    readonly_hub = _hub()
+    readonly_vm = (
+        ReadonlyComponentVMOfBuilder()
+        .name("readonly")
+        .model(model)
+        .services(readonly_hub, _dispatcher())
+        .build()
+    )
+    readonly_trace: list[str] = []
+    readonly_hub.messages.subscribe(
+        lambda message: (
+            readonly_trace.append("hub:model")
+            if isinstance(message, PropertyChangedMessage) and message.property_name == "model"
+            else None
+        )
+    )
+    readonly_vm.property_changed.subscribe(
+        lambda name: readonly_trace.append("local:model") if name == "model" else None
+    )
+
+    readonly_vm.republish_model()
+
+    assert readonly_vm.model is model
+    assert readonly_trace == ["hub:model", "local:model"]
+
+    wrapped_hub = _hub()
+    wrapped = (
+        ComponentVMOfBuilder()
+        .name("wrapped")
+        .model(model)
+        .services(wrapped_hub, _dispatcher())
+        .build()
+    )
+    forwarding = ForwardingComponentVM(wrapped)
+    forwarded_senders: list[object] = []
+    forwarded_local: list[str] = []
+    wrapped_hub.messages.subscribe(
+        lambda message: (
+            forwarded_senders.append(message.sender)
+            if isinstance(message, PropertyChangedMessage) and message.property_name == "model"
+            else None
+        )
+    )
+    forwarding.property_changed.subscribe(forwarded_local.append)
+
+    forwarding.republish_model()
+
+    assert forwarded_senders == [wrapped]
+    assert forwarded_local == ["model"]
+
+    null_vm = ComponentVMOfBuilder().name("null").model(model).with_null_services().build()
+    null_local: list[str] = []
+    null_vm.property_changed.subscribe(null_local.append)
+
+    null_vm.republish_model()
+
+    assert null_local == ["model"]
+
+    disposed_hub = _hub()
+    disposed_vm = (
+        ComponentVMOfBuilder()
+        .name("disposed")
+        .model(model)
+        .services(disposed_hub, _dispatcher())
+        .build()
+    )
+    disposed_hub_names: list[str] = []
+    disposed_local: list[str] = []
+    disposed_hub.messages.subscribe(
+        lambda message: (
+            disposed_hub_names.append(message.property_name)
+            if isinstance(message, PropertyChangedMessage)
+            else None
+        )
+    )
+    disposed_vm.property_changed.subscribe(disposed_local.append)
+    disposed_vm.dispose()
+    disposed_hub_names.clear()
+    disposed_local.clear()
+
+    disposed_vm.republish_model()
+
+    assert disposed_hub_names == []
+    assert disposed_local == []
+
+    reentrant_hub = _hub()
+    reentrant_vm = (
+        ComponentVMOfBuilder()
+        .name("reentrant")
+        .model(model)
+        .services(reentrant_hub, _dispatcher())
+        .build()
+    )
+    reentered = False
+    reentrant_trace: list[str] = []
+
+    def reenter_once(message: object) -> None:
+        nonlocal reentered
+        if not isinstance(message, PropertyChangedMessage) or message.property_name != "model":
+            return
+        reentrant_trace.append("hub:model")
+        if reentered:
+            return
+        reentered = True
+        reentrant_vm.republish_model()
+
+    reentrant_hub.messages.subscribe(reenter_once)
+    reentrant_vm.property_changed.subscribe(
+        lambda name: reentrant_trace.append("local:model") if name == "model" else None
+    )
+
+    reentrant_vm.republish_model()
+
+    assert reentrant_trace == ["hub:model", "local:model", "hub:model", "local:model"]

@@ -116,6 +116,11 @@ open class ComponentVMOf<Model>: ComponentVMBase {
 
     public var modeledHint: String { _modeledHint }
 
+    /// Republish the retained model without running assignment work.
+    open func republishModel() {
+        _notifyPropertyChanged("model")
+    }
+
     /// Internal setter so subclasses (e.g. `ReadonlyComponentVMOf`) can
     /// gate writes while still using the same machinery.
     func _setModel(_ value: Model) {
