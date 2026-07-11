@@ -4524,9 +4524,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             let next_snapshot = (self.snapshotter)(&reset);
             let next_errors = self.validation_errors_for(&next_model);
 
-            // Install every derived field before ComponentVm publishes its
-            // model-change notification, so synchronous observers cannot see
-            // a reset model paired with the previous snapshot or errors.
+            // Install every derived field before the approval outcome is
+            // published, so synchronous observers cannot see a reset model
+            // paired with the previous snapshot or errors.
             *lock(&self.snapshot) = next_snapshot;
             let errors_changed = self.replace_validation_errors(next_errors);
             self.component.replace_model(next_model);

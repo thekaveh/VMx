@@ -53,8 +53,8 @@ reset, disposal, and re-entrancy rules rather than four additional send calls.
   refresh wrappers, and synchronous observers see model, validation, dirty, and
   command state already consistent.
 - Equal replacement objects are no longer installed or validated in the four
-  standalone forms. Callers that intentionally need an equal-value republish use
-  the explicit API selected by future issue #89; this ADR does not add one.
+  standalone forms. Intentional equal-value republish is deferred to issue #89;
+  this ADR does not add an API for it.
 - Rust no longer leaks an early component notification from deny or approval
   reset, and its deny property name follows the Rust idiom.
 - Validator exceptions keep their existing behavior. This decision does not add
