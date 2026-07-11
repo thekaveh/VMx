@@ -62,17 +62,24 @@ Assert positive classification, wrong family, wrong sender, and wrong property. 
 ```typescript
 const allProperties = messages.filter(isPropertyChanged);
 expectType<PropertyChangedMessage<unknown>[]>(allProperties);
+expect(allProperties).toEqual([property]);
 
 const senderProperties = messages.filter((message) =>
-  isPropertyChanged(message, sender, "model"),
+  isPropertyChanged(message, { sender, propertyName: "model" }),
 );
 expectType<PropertyChangedMessage<typeof sender>[]>(senderProperties);
 
 const propertyStream = from(messages).pipe(
-  filter((message) => isPropertyChanged(message, sender, "model")),
+  filter((message) =>
+    isPropertyChanged(message, { sender, propertyName: "model" }),
+  ),
 );
 expectType<Observable<PropertyChangedMessage<typeof sender>>>(propertyStream);
 ```
+
+Also pass `isPropertyChanged` directly to RxJS `filter`, subscribe synchronously,
+and assert that the property message is retained. This proves callback index
+arguments cannot be mistaken for constraints.
 
 - [ ] **Step 3: Specify collection and construction behavior and types**
 
@@ -80,7 +87,7 @@ Cover wrong source/action/status and add:
 
 ```typescript
 const additions = messages.filter((message) =>
-  isCollectionChanged<string>(message, sender, "add"),
+  isCollectionChanged<string>(message, { source: sender, action: "add" }),
 );
 expectType<CollectionChangedMessage<string>[]>(additions);
 
@@ -88,13 +95,15 @@ const constructed = from(messages).pipe(
   filter((message) =>
     isConstructionStatusChanged(
       message,
-      sender,
-      ConstructionStatus.Constructed,
+      { sender, status: ConstructionStatus.Constructed },
     ),
   ),
 );
 expectType<Observable<ConstructionStatusChangedMessage>>(constructed);
 ```
+
+For collection and construction messages, add the same direct-callback coverage
+in both Array and RxJS filters, with exact inferred types and runtime contents.
 
 - [ ] **Step 4: Run the red gates**
 
@@ -136,13 +145,19 @@ ______________________________________________________________________
 ```typescript
 export function isPropertyChanged<TSender = unknown>(
   message: IMessage,
-  sender?: TSender,
-  propertyName?: string,
+  constraints?: {
+    readonly sender?: TSender;
+    readonly propertyName?: string;
+  },
 ): message is PropertyChangedMessage<TSender> {
+  const match = typeof constraints === "object" && constraints !== null
+    ? constraints
+    : undefined;
   return (
     message instanceof PropertyChangedMessage &&
-    (sender === undefined || message.sender === sender) &&
-    (propertyName === undefined || message.propertyName === propertyName)
+    (match?.sender === undefined || message.sender === match.sender) &&
+    (match?.propertyName === undefined ||
+      message.propertyName === match.propertyName)
   );
 }
 ```
@@ -154,18 +169,25 @@ Use the same early-classification/exact-constraint shape:
 ```typescript
 export function isCollectionChanged<TItem = unknown>(
   message: IMessage,
-  source?: object,
-  action?: CollectionMutationAction,
+  constraints?: {
+    readonly source?: object;
+    readonly action?: CollectionMutationAction;
+  },
 ): message is CollectionChangedMessage<TItem>;
 
 export function isConstructionStatusChanged(
   message: IMessage,
-  sender?: object,
-  status?: ConstructionStatus,
+  constraints?: {
+    readonly sender?: object;
+    readonly status?: ConstructionStatus;
+  },
 ): message is ConstructionStatusChangedMessage;
 ```
 
-Do not add factories, overload aliases, observable allocation, or error handling.
+Add unary overloads for all three predicates so they are structurally compatible
+with direct Array/RxJS filter callbacks. Implementation bodies must tolerate the
+numeric callback index as a runtime-only non-object second argument. Do not add
+factories, exported options types, observable allocation, or error handling.
 
 - [ ] **Step 3: Export from both public entry points**
 
@@ -296,7 +318,9 @@ Show both:
 ```typescript
 hub.messages.pipe(filter(isPropertyChanged))
 hub.messages.pipe(
-  filter((message) => isPropertyChanged(message, vm, "model")),
+  filter((message) =>
+    isPropertyChanged(message, { sender: vm, propertyName: "model" }),
+  ),
 )
 ```
 

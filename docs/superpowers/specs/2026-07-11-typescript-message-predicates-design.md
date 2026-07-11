@@ -27,9 +27,9 @@ cross-flavor message behavior.
 Export one predicate per public raw-message family:
 
 ```typescript
-isPropertyChanged(message, sender?, propertyName?)
-isCollectionChanged(message, source?, action?)
-isConstructionStatusChanged(message, sender?, status?)
+isPropertyChanged(message, { sender?, propertyName? }?)
+isCollectionChanged(message, { source?, action? }?)
+isConstructionStatusChanged(message, { sender?, status? }?)
 ```
 
 This is the most discoverable shape, directly models the three concrete message
@@ -54,30 +54,50 @@ RxJS's existing `filter`; no additional operator is justified.
 Create `langs/typescript/src/messages/predicates.ts` with these exports:
 
 ```typescript
+export function isPropertyChanged(
+  message: IMessage,
+): message is PropertyChangedMessage<unknown>;
+
 export function isPropertyChanged<TSender = unknown>(
   message: IMessage,
-  sender?: TSender,
-  propertyName?: string,
+  constraints?: {
+    readonly sender?: TSender;
+    readonly propertyName?: string;
+  },
 ): message is PropertyChangedMessage<TSender>;
+
+export function isCollectionChanged(
+  message: IMessage,
+): message is CollectionChangedMessage<unknown>;
 
 export function isCollectionChanged<TItem = unknown>(
   message: IMessage,
-  source?: object,
-  action?: CollectionMutationAction,
+  constraints?: {
+    readonly source?: object;
+    readonly action?: CollectionMutationAction;
+  },
 ): message is CollectionChangedMessage<TItem>;
 
 export function isConstructionStatusChanged(
   message: IMessage,
-  sender?: object,
-  status?: ConstructionStatus,
+): message is ConstructionStatusChangedMessage;
+
+export function isConstructionStatusChanged(
+  message: IMessage,
+  constraints?: {
+    readonly sender?: object;
+    readonly status?: ConstructionStatus;
+  },
 ): message is ConstructionStatusChangedMessage;
 ```
 
 Each function first checks the corresponding class with `instanceof`. Optional
-constraints use strict identity or exact field equality and are ignored only
-when the argument is `undefined`. VMx collection and construction senders are
-objects; property-message senders emitted by VMx are also objects, so an omitted
-sender is unambiguous for supported messages.
+constraint fields use strict identity or exact field equality. Unary overloads
+make each function a valid direct `Array.filter` and RxJS `filter` callback. At
+runtime those callbacks pass a numeric index as their second argument; the
+implementation treats a non-object second argument as no constraints instead of
+misreading the index as a sender/source. This tolerance is runtime-only and does
+not appear as a public numeric-argument overload.
 
 The property predicate infers `TSender` when a sender is supplied. The collection
 predicate permits an explicit `TItem` because the current message contract types
@@ -97,7 +117,8 @@ Export all three functions from both `src/messages/index.ts` and the package roo
   returns `false`.
 - The functions do not mutate messages, subscribe to a hub, allocate observables,
   or catch errors.
-- `messages.filter(isPropertyChanged)` narrows to property messages.
+- Direct `Array.filter` and RxJS `filter` calls narrow and retain the matching
+  message rather than misreading callback index arguments as constraints.
 - Constrained arrow predicates narrow the generic sender in both `Array.filter`
   and RxJS `filter` without a cast.
 - Existing `whenPropertyChanged` and `propertyValueChangedMessagesFor` remain the
