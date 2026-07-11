@@ -4,6 +4,22 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.14.0] — 2026-07-11
+
+Implements `spec-v3.14.0` and keeps TypeScript at full library parity: 342/342
+conformance IDs covered.
+
+### Added
+
+- `isPropertyChanged`, `isCollectionChanged`, and
+  `isConstructionStatusChanged` classify existing raw messages with exact
+  optional constraints and filter-safe type narrowing. A generic property sender
+  is inferred only from a checked sender; collection payloads remain `unknown`
+  because source identity cannot prove the independently constructed item type.
+  Explicitly present `undefined` constraints compare exactly. The predicates
+  compose with `Array.filter`, RxJS `filter`, and the existing higher-level
+  message helpers without changing message semantics (ADR-0094).
+
 ## [3.13.0] — 2026-07-11
 
 Implements `spec-v3.13.0` and keeps TypeScript at full library parity: 342/342

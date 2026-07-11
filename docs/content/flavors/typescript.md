@@ -15,6 +15,37 @@ TypeScript is the best fit when you want browser-safe VMx usage with modern
 bundlers, React-style external-store wiring, or a shared VM layer across web
 and desktop webview hosts.
 
+## Raw Message Predicates
+
+The package root and message barrel export three filter-safe type predicates:
+
+| Call                                                                            | Narrowed message                                                   |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>`                                  |
+| `isPropertyChanged(message, { sender, propertyName? })`                         | `PropertyChangedMessage<TSender>` inferred from the checked sender |
+| `isCollectionChanged(message)` or any source/action constraints                 | `CollectionChangedMessage<unknown>`                                |
+| `isConstructionStatusChanged(message)` or its sender/status constraints         | `ConstructionStatusChangedMessage`                                 |
+
+Each predicate also has a unary overload, so calls such as
+`messages.filter(isPropertyChanged)` and RxJS
+`filter(isPropertyChanged)` narrow without a consumer cast. Property sender
+narrowing requires a supplied sender. Collection predicates always retain an
+`unknown` payload, even for a typed `ServicedObservableCollection<TItem>` source,
+because source identity cannot prove the independently constructed message item
+type. Optional constraint fields use own-property presence, so a field explicitly
+supplied as `undefined` compares exactly instead of behaving like an omitted
+field.
+
+Use these predicates for mixed raw message arrays and streams. When the hub,
+sender, and property are already known, `whenPropertyChanged` is the shorter
+message-returning helper, while `propertyValueChangedMessagesFor` emits the
+property's current value.
+
+These predicates are TypeScript-only type ergonomics, not new message behavior.
+The other flavors already have idiomatic nominal/runtime checks, so ADR-0094
+intentionally adds no artificial cross-flavor API parity requirement and no
+conformance ID.
+
 ## Pointers
 
 - Flavor README:

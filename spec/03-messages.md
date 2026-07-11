@@ -289,6 +289,27 @@ covers it with a unit test (`WhenPropertyChangedTests` /
 `test_when_property_changed` / `whenPropertyChanged.test.ts` / `PropertyChangedTests`
 in Swift). See ADR-0050 for the rationale.
 
+### 7.3 TypeScript raw-message predicates (informative, spec v3.14)
+
+TypeScript additionally exports `isPropertyChanged`, `isCollectionChanged`,
+and `isConstructionStatusChanged` for narrowing mixed raw `IMessage` arrays or
+streams to the corresponding existing concrete message classes. Optional
+constraint objects select the existing sender/source and family-specific fields;
+the unary forms can be passed directly to `Array.filter` or RxJS `filter`.
+Generic sender narrowing requires a supplied sender that is checked by identity;
+property-only constraints retain `unknown`. Collection predicates always narrow
+payloads to `unknown`, because public message factories accept sender and item
+types independently and source identity therefore cannot prove the payload
+generic. Constraint fields use own-property presence, so an explicitly supplied
+`undefined` value is compared exactly while an omitted field is ignored.
+
+These predicates classify existing message objects without changing message
+semantics, delivery, ordering, lifecycle, or payloads. They are TypeScript-only
+type ergonomics under ADR-0006, add no conformance ID, and create no API
+requirement for the other flavors. Existing §7.1 and §7.2 helpers remain the
+higher-level choices when the hub, sender, and property are already known. See
+ADR-0094 for the exact matching and overload decisions.
+
 ## 8. Conformance
 
 `HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, and the null-object

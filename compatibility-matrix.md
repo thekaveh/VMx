@@ -6,7 +6,8 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.13.x | 3.13.0[^current] | 3.13.0[^current] | 3.13.0[^current] | 3.13.0[^current] | 0.13.0[^rust] |
+| 3.14.x | 3.14.0[^current] | 3.14.0[^current] | 3.14.0[^current] | 3.14.0[^current] | 0.14.0[^rust] |
+| 3.13.x | —               | —               | —               | —               | 0.13.0[^rust-source] |
 | 3.3.x | —               | —               | —               | —               | 0.3.0        |
 | 3.2.x | —               | —               | —               | —               | 0.2.0        |
 | 3.1.x | —               | 3.1.0           | —               | —               | 0.1.0        |
@@ -60,14 +61,18 @@ THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: 3.13.0 — current in-development source line and not yet tagged or
+[^current]: 3.14.0 — current in-development source line and not yet tagged or
 published. Python's latest PyPI release remains 3.1.0; the other stable flavor
 registries also remain pending. The C#/TypeScript release jobs deliberately
 refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-declares `MIN_SPEC_VERSION = "3.13.0"` and carries behavioral tests for all 342
+declares `MIN_SPEC_VERSION = "3.14.0"` and carries behavioral tests for all 342
 library conformance IDs. It has not yet been published to crates.io.
+
+[^rust-source]: Rust `0.13.0` records historical source-tree parity for spec
+3.13.x only. It was not published to crates.io and does not imply a
+`rust-v0.13.0` tag or release.
 
 ## 3. C# companion packages
 
@@ -84,6 +89,6 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.13.0 core project, so a
-> published companion would carry a `VMx >= 3.13.0` NuGet dependency — the raised floor to record in
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.14.0 core project, so a
+> published companion would carry a `VMx >= 3.14.0` NuGet dependency — the raised floor to record in
 > the C# `CHANGELOG.md` when the first C# packages are cut.

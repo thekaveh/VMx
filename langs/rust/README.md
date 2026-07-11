@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.13.0** implements `spec-v3.13.0` at full source parity: all 342 library
+**v0.14.0** implements `spec-v3.14.0` at full source parity: all 342 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
