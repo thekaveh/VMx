@@ -25,6 +25,17 @@ function make(initial = m("A", 1)) {
   return new FormVM<IModel>({ initial, persister: noop });
 }
 
+function captureError(action: () => void): Error & { cause?: unknown } {
+  let caught: unknown;
+  try {
+    action();
+  } catch (error: unknown) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(Error);
+  return caught as Error & { cause?: unknown };
+}
+
 // ---------------------------------------------------------------------------
 // Construction guards
 // ---------------------------------------------------------------------------
@@ -86,6 +97,214 @@ describe("FormVM snapshot", () => {
     sut.denyCommand.execute();
 
     expect(snapCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default snapshot diagnostics (#102)
+// ---------------------------------------------------------------------------
+
+describe("FormVM default snapshot diagnostics", () => {
+  type AnyModel = Record<string, unknown>;
+
+  it("names the construction phase and top-level function field without rendering its value", () => {
+    const secret = "do-not-render-this-value";
+    const error = captureError(() => {
+      new FormVM<AnyModel>({
+        initial: { title: "safe", callback: () => secret },
+        persister: noop,
+      });
+    });
+
+    expect(error.message).toContain("FormVM");
+    expect(error.message).toContain("construction");
+    expect(error.message).toContain('field "callback"');
+    expect(error.message).toContain("snapshotter");
+    expect(error.message).toContain("equals");
+    expect(error.message).not.toContain(secret);
+    expect(error.cause).toMatchObject({ name: "DataCloneError" });
+  });
+
+  it.each([
+    ["nested class-owned function", new (class OpaquePayload { readonly run = () => 1; })()],
+    ["host object", new WeakMap<object, unknown>()],
+  ])("localizes a %s failure to its owning top-level field", (_case, payload) => {
+    const error = captureError(() => {
+      new FormVM<AnyModel>({ initial: { payload }, persister: noop });
+    });
+
+    expect(error.message).toContain('field "payload"');
+    expect(error.cause).toBeDefined();
+  });
+
+  it("localizes a nested failure to the owning top-level field", () => {
+    const error = captureError(() => {
+      new FormVM<AnyModel>({
+        initial: { settings: { transport: { send: () => undefined } } },
+        persister: noop,
+      });
+    });
+
+    expect(error.message).toContain('field "settings"');
+  });
+
+  it("accepts cyclic and BigInt values but diagnoses a symbol-valued field", () => {
+    const cyclic: AnyModel = { id: 1n };
+    cyclic.self = cyclic;
+    expect(() => new FormVM<AnyModel>({ initial: cyclic, persister: noop })).not.toThrow();
+
+    const error = captureError(() => {
+      new FormVM<AnyModel>({ initial: { token: Symbol("opaque") }, persister: noop });
+    });
+    expect(error.message).toContain('field "token"');
+  });
+
+  it("does not invoke an accessor again while trying to localize a failure", () => {
+    let reads = 0;
+    const initial = Object.defineProperty({}, "payload", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return () => undefined;
+      },
+    });
+
+    const error = captureError(() => {
+      new FormVM<object>({ initial, persister: noop });
+    });
+
+    expect(reads).toBe(1);
+    expect(error.message).toContain("construction");
+    expect(error.message).not.toContain('field "payload"');
+  });
+
+  it("does not invoke a nested accessor again while trying to localize a failure", () => {
+    let reads = 0;
+    const payload = Object.defineProperty({}, "callback", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return () => undefined;
+      },
+    });
+
+    const error = captureError(() => {
+      new FormVM<AnyModel>({ initial: { payload }, persister: noop });
+    });
+
+    expect(reads).toBe(1);
+    expect(error.message).toContain("construction");
+    expect(error.message).not.toContain('field "payload"');
+  });
+
+  it("does not blame a symbol-keyed property that structuredClone ignores", () => {
+    const decoy = Symbol("decoy");
+    const initial = new WeakMap<object, unknown>() as WeakMap<object, unknown> & {
+      [decoy]: () => void;
+    };
+    Object.defineProperty(initial, decoy, {
+      enumerable: true,
+      value: () => undefined,
+    });
+
+    const error = captureError(() => {
+      new FormVM<typeof initial>({ initial, persister: noop });
+    });
+
+    expect(error.message).toContain("construction");
+    expect(error.message).not.toContain("Symbol(decoy)");
+  });
+
+  it("does not invoke an accessor inside Error.cause again", () => {
+    let reads = 0;
+    const cause = Object.defineProperty({}, "callback", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return () => undefined;
+      },
+    });
+    const payload = new Error("opaque", { cause });
+
+    const error = captureError(() => {
+      new FormVM<AnyModel>({ initial: { payload }, persister: noop });
+    });
+
+    expect(reads).toBe(1);
+    expect(error.message).toContain("construction");
+    expect(error.message).not.toContain('field "payload"');
+  });
+
+  it("wraps approve snapshot failure with phase and field while preserving cause", async () => {
+    const form = new FormVM<AnyModel>({ initial: { title: "safe" }, persister: noop });
+    form.setModel({ title: "changed", callback: () => undefined });
+
+    let caught: unknown;
+    try {
+      await form.approveAsync();
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const error = caught as Error & { cause?: unknown };
+    expect(error.message).toContain("approve snapshot advance");
+    expect(error.message).toContain('field "callback"');
+    expect(error.cause).toMatchObject({ name: "DataCloneError" });
+    expect(form.snapshot).toEqual({ title: "safe" });
+  });
+
+  it("wraps deny snapshot failure with phase and field while preserving cause", () => {
+    const form = new FormVM<AnyModel>({
+      initial: { payload: { title: "safe" } },
+      persister: noop,
+    });
+    (form.snapshot.payload as AnyModel).callback = () => undefined;
+
+    const error = captureError(() => form.denyCommand.execute());
+
+    expect(error.message).toContain("deny/revert");
+    expect(error.message).toContain('field "payload"');
+    expect(error.cause).toMatchObject({ name: "DataCloneError" });
+  });
+
+  it("passes a custom snapshotter error through unchanged on every phase", async () => {
+    const constructionError = new Error("custom construction failure");
+    expect(
+      captureError(() => {
+        new FormVM<AnyModel>({
+          initial: { phase: "construction" },
+          persister: noop,
+          snapshotter: () => { throw constructionError; },
+        });
+      }),
+    ).toBe(constructionError);
+
+    const approveError = new Error("custom approve failure");
+    let approveCalls = 0;
+    const approveForm = new FormVM<AnyModel>({
+      initial: { phase: "construction" },
+      persister: noop,
+      snapshotter: (model) => {
+        approveCalls += 1;
+        if (approveCalls > 1) throw approveError;
+        return { ...model };
+      },
+    });
+    await expect(approveForm.approveAsync()).rejects.toBe(approveError);
+
+    const denyError = new Error("custom deny failure");
+    let denyCalls = 0;
+    const denyForm = new FormVM<AnyModel>({
+      initial: { phase: "construction" },
+      persister: noop,
+      snapshotter: (model) => {
+        denyCalls += 1;
+        if (denyCalls > 1) throw denyError;
+        return { ...model };
+      },
+    });
+    expect(captureError(() => denyForm.denyCommand.execute())).toBe(denyError);
   });
 });
 

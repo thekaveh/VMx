@@ -131,12 +131,55 @@ editor-specific commands and notifications around that core workflow.
     )
     ```
 
+## TypeScript Cloneability And Tableau Migration
+
+TypeScript uses `structuredClone` for the default snapshot. Functions,
+`WeakMap`/`WeakSet`, host handles, and objects containing those values are not
+structured-cloneable. If the default fails during construction, approve
+snapshot advance, or deny/revert, `FormVM` reports that phase and the first
+failing enumerable top-level field it can safely identify. The native error is
+preserved as `cause`; the diagnostic never renders field values.
+
+Field localization inspects data-property descriptors, performs no writes, and
+does not invoke getters a second time. User-defined accessors or proxy traps can
+have side effects during the original `structuredClone` call or descriptor
+inspection, so `FormVM` deliberately omits the field name when localization
+cannot be guaranteed.
+
+Tableau's genesis form carries an opaque `imagePayload` beside ordinary form
+data. Keep the opaque value by reference, explicitly define which plain fields
+participate in dirty tracking, and configure both hooks together:
+
+```typescript
+const snapshotGenesis = (model: GenesisModel): GenesisModel => ({
+  ...structuredClone({ prompt: model.prompt, seed: model.seed }),
+  imagePayload: model.imagePayload,
+});
+
+const equalsGenesis = (a: GenesisModel, b: GenesisModel): boolean =>
+  a.prompt === b.prompt && a.seed === b.seed;
+
+const form = FormVM.builder<GenesisModel>()
+  .initial(initial)
+  .persister(persistGenesis)
+  .snapshotter(snapshotGenesis)
+  .equals(equalsGenesis)
+  .build();
+```
+
+Here `imagePayload` is intentionally excluded from dirty tracking and is
+restored by reference on deny. If reference identity should count as dirty,
+include `a.imagePayload === b.imagePayload` in `equalsGenesis`. VMx does not
+provide `snapshotExclude`: exclusion without an explicit equality policy would
+make dirty and revert semantics ambiguous.
+
 ## Common Pitfalls
 
 - Treating `FormVM` as a drop-in `ComponentVM` subclass. It is a distinct
   workflow primitive.
 - Relying on shallow copy semantics for nested mutable models. Inject a custom
-  snapshotter where the default is not appropriate.
+  snapshotter and matching equality predicate where the default is not
+  appropriate.
 - Ignoring `ApproveErrors` on fire-and-forget command paths.
 - Re-implementing save/cancel/dirty plumbing in every editor instead of
   composing the primitive once.
