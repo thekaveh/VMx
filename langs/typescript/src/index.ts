@@ -25,6 +25,11 @@ export { PropertyChangedMessage } from "./messages/propertyChanged.js";
 export { propertyValueChangedMessagesFor } from "./messages/propertyValueChanged.js";
 export { whenPropertyChanged } from "./messages/whenPropertyChanged.js";
 export { ConstructionStatusChangedMessage } from "./messages/constructionStatusChanged.js";
+export {
+  isCollectionChanged,
+  isConstructionStatusChanged,
+  isPropertyChanged,
+} from "./messages/predicates.js";
 export { TreeStructureChangedMessage } from "./messages/treeStructureChanged.js";
 export type { TreeStructureChange } from "./messages/treeStructureChanged.js";
 

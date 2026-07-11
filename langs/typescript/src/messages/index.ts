@@ -7,3 +7,8 @@ export { TreeStructureChangedMessage } from "./treeStructureChanged.js";
 export type { TreeStructureChange } from "./treeStructureChanged.js";
 export { FormRevertedMessage } from "./formReverted.js";
 export { propertyValueChangedMessagesFor } from "./propertyValueChanged.js";
+export {
+  isCollectionChanged,
+  isConstructionStatusChanged,
+  isPropertyChanged,
+} from "./predicates.js";
