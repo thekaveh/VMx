@@ -220,7 +220,24 @@ fn notification_helper_is_inert_after_disposal() {
 /// CVM-010 — Modeled components explicitly republish the retained model
 #[test]
 fn modeled_components_explicitly_republish_the_retained_model() {
-    let model = Arc::new("model".to_string());
+    #[derive(Clone)]
+    struct CountingModel {
+        value: &'static str,
+        equality_calls: Arc<AtomicUsize>,
+    }
+
+    impl PartialEq for CountingModel {
+        fn eq(&self, other: &Self) -> bool {
+            self.equality_calls.fetch_add(1, Ordering::SeqCst);
+            self.value == other.value
+        }
+    }
+
+    let equality_calls = Arc::new(AtomicUsize::new(0));
+    let model = Arc::new(CountingModel {
+        value: "model",
+        equality_calls: equality_calls.clone(),
+    });
     let hinter_calls = Arc::new(AtomicUsize::new(0));
     let hinter_calls_for_vm = hinter_calls.clone();
     let hub = MessageHub::new();
@@ -232,10 +249,11 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     )
     .with_model_hint(move |value| {
         hinter_calls_for_vm.fetch_add(1, Ordering::SeqCst);
-        Some(format!("hint:{value}"))
+        Some(format!("hint:{}", value.value))
     });
     let hint_before = vm.hint();
     let hinter_calls_before = hinter_calls.load(Ordering::SeqCst);
+    let equality_calls_before_republish = equality_calls.load(Ordering::SeqCst);
     let trace = Arc::new(Mutex::new(Vec::new()));
     let hub_trace = trace.clone();
     let vm_id = vm.id();
@@ -256,12 +274,29 @@ fn modeled_components_explicitly_republish_the_retained_model() {
 
     assert!(Arc::ptr_eq(&vm.model(), &model));
     assert_eq!(hinter_calls.load(Ordering::SeqCst), hinter_calls_before);
+    assert_eq!(
+        equality_calls.load(Ordering::SeqCst),
+        equality_calls_before_republish
+    );
     assert_eq!(vm.hint(), hint_before);
     assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
 
     trace.lock().unwrap().clear();
     vm.set_model(model.clone());
     assert!(trace.lock().unwrap().is_empty());
+
+    let replacement = Arc::new(CountingModel {
+        value: "replacement",
+        equality_calls: equality_calls.clone(),
+    });
+    trace.lock().unwrap().clear();
+    vm.set_model(replacement.clone());
+
+    assert!(Arc::ptr_eq(&vm.model(), &replacement));
+    assert_eq!(vm.hint().as_deref(), Some("hint:replacement"));
+    assert!(hinter_calls.load(Ordering::SeqCst) > hinter_calls_before);
+    assert!(equality_calls.load(Ordering::SeqCst) > equality_calls_before_republish);
+    assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
 
     let readonly_hub = MessageHub::new();
     let readonly_vm = ReadonlyComponentVm::new(

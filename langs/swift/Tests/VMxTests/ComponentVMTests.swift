@@ -295,6 +295,7 @@ final class ComponentVMTests: XCTestCase {
         let model = RefModel(7)
         var hinterCalls = 0
         var callbackCalls = 0
+        var comparatorCalls = 0
         let hub = MessageHub()
         let vm = try ComponentVMOf<RefModel>.builder()
             .name("writable")
@@ -303,11 +304,16 @@ final class ComponentVMTests: XCTestCase {
                 hinterCalls += 1
                 return "hint:\(value.n)"
             }
+            .modelEquals { lhs, rhs in
+                comparatorCalls += 1
+                return lhs === rhs
+            }
             .onModelChanged { _ in callbackCalls += 1 }
             .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
             .build()
         let hint = vm.modeledHint
         let hinterCallsAfterBuild = hinterCalls
+        let comparatorCallsBeforeRepublish = comparatorCalls
         var trace: [String] = []
         let hubCancel = hub.messages.sink { message in
             if let change = message as? PropertyChangedMessage,
@@ -324,12 +330,24 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertTrue(vm.model === model)
         XCTAssertEqual(vm.modeledHint, hint)
         XCTAssertEqual(hinterCalls, hinterCallsAfterBuild)
+        XCTAssertEqual(comparatorCalls, comparatorCallsBeforeRepublish)
         XCTAssertEqual(callbackCalls, 0)
         XCTAssertEqual(trace, ["hub:model", "local:model"])
 
         trace.removeAll()
         vm.model = model
         XCTAssertEqual(trace, [])
+
+        let replacement = RefModel(8)
+        trace.removeAll()
+        vm.model = replacement
+
+        XCTAssertTrue(vm.model === replacement)
+        XCTAssertEqual(vm.modeledHint, "hint:8")
+        XCTAssertEqual(hinterCalls, hinterCallsAfterBuild + 1)
+        XCTAssertEqual(callbackCalls, 1)
+        XCTAssertGreaterThan(comparatorCalls, comparatorCallsBeforeRepublish)
+        XCTAssertEqual(trace, ["hub:model", "local:model"])
         hubCancel.cancel()
         localCancel.cancel()
 

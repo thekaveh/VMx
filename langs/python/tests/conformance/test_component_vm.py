@@ -378,6 +378,11 @@ def test_CVM_010_modeled_components_explicitly_republish_retained_model() -> Non
     class ReferenceModel:
         def __init__(self, value: int) -> None:
             self.value = value
+            self.equality_calls = 0
+
+        def __eq__(self, other: object) -> bool:
+            self.equality_calls += 1
+            return isinstance(other, ReferenceModel) and self.value == other.value
 
     model = ReferenceModel(7)
     hinter_calls = 0
@@ -404,6 +409,7 @@ def test_CVM_010_modeled_components_explicitly_republish_retained_model() -> Non
     )
     hint = vm.modeled_hint
     hinter_calls_after_build = hinter_calls
+    equality_calls_before_republish = model.equality_calls
     trace: list[str] = []
     hub.messages.subscribe(
         lambda message: (
@@ -423,12 +429,24 @@ def test_CVM_010_modeled_components_explicitly_republish_retained_model() -> Non
     assert vm.model is model
     assert vm.modeled_hint == hint
     assert hinter_calls == hinter_calls_after_build
+    assert model.equality_calls == equality_calls_before_republish
     assert callback_calls == 0
     assert trace == ["hub:model", "local:model"]
 
     trace.clear()
     vm.model = model
     assert trace == []
+
+    replacement = ReferenceModel(8)
+    trace.clear()
+    vm.model = replacement
+
+    assert vm.model is replacement
+    assert vm.modeled_hint == "hint:8"
+    assert hinter_calls == hinter_calls_after_build + 1
+    assert callback_calls == 1
+    assert model.equality_calls > equality_calls_before_republish
+    assert trace == ["hub:model", "local:model"]
 
     readonly_hub = _hub()
     readonly_vm = (

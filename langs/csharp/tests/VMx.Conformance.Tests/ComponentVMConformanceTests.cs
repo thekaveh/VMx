@@ -326,6 +326,7 @@ public class ComponentVMConformanceTests
             .Build();
         var hint = vm.ModeledHint;
         var hinterCallsAfterBuild = hinterCalls;
+        var equalityCallsBeforeRepublish = model.EqualityCalls;
         var trace = new List<string>();
         hub.Messages.Subscribe(message =>
         {
@@ -346,12 +347,24 @@ public class ComponentVMConformanceTests
         vm.Model.Should().BeSameAs(model);
         vm.ModeledHint.Should().Be(hint);
         hinterCalls.Should().Be(hinterCallsAfterBuild);
+        model.EqualityCalls.Should().Be(equalityCallsBeforeRepublish);
         callbackCalls.Should().Be(0);
         trace.Should().Equal("hub:model", "local:model");
 
         trace.Clear();
         vm.Model = model;
         trace.Should().BeEmpty("ordinary equal assignment remains silent");
+
+        var replacement = new ReferenceModel(8);
+        trace.Clear();
+        vm.Model = replacement;
+
+        vm.Model.Should().BeSameAs(replacement);
+        vm.ModeledHint.Should().Be("hint:8");
+        hinterCalls.Should().Be(hinterCallsAfterBuild + 1);
+        callbackCalls.Should().Be(1);
+        model.EqualityCalls.Should().BeGreaterThan(equalityCallsBeforeRepublish);
+        trace.Should().Equal("hub:model", "local:model");
 
         var readonlyHub = new MessageHub();
         var readonlyVm = ReadonlyComponentVM<ReferenceModel>.Builder()
@@ -767,9 +780,21 @@ public class ComponentVMConformanceTests
         public void EmitValueNotification() => NotifyPropertyChanged(nameof(Value));
     }
 
-    private sealed class ReferenceModel(int value)
+    private sealed class ReferenceModel(int value) : IEquatable<ReferenceModel>
     {
         public int Value { get; } = value;
+
+        public int EqualityCalls { get; private set; }
+
+        public bool Equals(ReferenceModel? other)
+        {
+            EqualityCalls++;
+            return other is not null && Value == other.Value;
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as ReferenceModel);
+
+        public override int GetHashCode() => Value;
     }
 
     private sealed class TestForwardingComponentVM<M>(IComponentVM<M> wrapped)

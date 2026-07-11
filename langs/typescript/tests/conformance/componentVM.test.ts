@@ -340,6 +340,16 @@ describe("CVM-010", () => {
     vm.model = model;
     expect(trace).toEqual([]);
 
+    const replacement = { value: 8 };
+    trace.length = 0;
+    vm.model = replacement;
+
+    expect(vm.model).toBe(replacement);
+    expect(vm.modeledHint).toBe("hint:8");
+    expect(hinterCalls).toBe(hinterCallsAfterBuild + 1);
+    expect(callbackCalls).toBe(1);
+    expect(trace).toEqual(["hub:model", "local:model"]);
+
     const readonlyHub = makeHub();
     const readonlyVm = ReadonlyComponentVMOf.builder<typeof model>()
       .name("readonly")
