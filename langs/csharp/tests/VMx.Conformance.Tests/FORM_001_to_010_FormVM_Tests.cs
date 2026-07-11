@@ -176,6 +176,7 @@ public class FORM_001_to_010_FormVM_Tests
         using var sut = new FormVM<Model>(initial, _ => Task.CompletedTask, hub: hub);
 
         sut.SetModel(new Model("Bob", 2));
+        messages.Clear();
         sut.DenyCommand.Execute(null);
 
         messages.Should().HaveCount(2, "two messages published on revert");

@@ -992,20 +992,22 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             return;
         }
         let old_hint = self.hint();
-        let changed = {
-            let mut current = lock(&self.model);
-            if *current == model {
-                false
-            } else {
-                *current = model;
-                true
-            }
-        };
+        let changed = self.replace_model(model);
         if changed {
             self.core.notify_property_changed("model");
             if self.hint() != old_hint {
                 self.core.notify_property_changed("modeled_hint");
             }
+        }
+    }
+
+    fn replace_model(&self, model: M) -> bool {
+        let mut current = lock(&self.model);
+        if *current == model {
+            false
+        } else {
+            *current = model;
+            true
         }
     }
 
@@ -4464,9 +4466,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return;
         }
         let could_approve = self.can_approve();
-        self.component.set_model(model);
+        if !self.component.replace_model(model) {
+            return;
+        }
         self.validate();
         self.publish_approve_state_change(could_approve);
+        self.component.notify_property_changed("model");
     }
 
     pub fn snapshot(&self) -> M {
@@ -4524,7 +4529,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             // a reset model paired with the previous snapshot or errors.
             *lock(&self.snapshot) = next_snapshot;
             let errors_changed = self.replace_validation_errors(next_errors);
-            self.component.set_model(next_model);
+            self.component.replace_model(next_model);
             if errors_changed {
                 self.publish_validation_changed();
             }
@@ -4544,16 +4549,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         let could_approve = self.can_approve();
         let restored = (self.snapshotter)(&lock(&self.snapshot));
-        self.component.set_model(restored);
+        self.component.replace_model(restored);
+        self.validate();
         self.hub.send(Message::FormReverted(FormRevertedMessage {
             sender_id: self.component.id(),
         }));
-        self.hub
-            .send(Message::PropertyChanged(PropertyChangedMessage {
-                sender_id: self.component.id(),
-                property_name: "Model".to_string(),
-            }));
-        self.validate();
+        self.component.notify_property_changed("model");
         self.publish_approve_state_change(could_approve);
     }
 
