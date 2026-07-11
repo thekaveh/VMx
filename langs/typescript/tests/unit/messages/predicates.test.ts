@@ -44,18 +44,36 @@ describe("raw message predicates", () => {
   it("classifies property changes and narrows their sender type", () => {
     expect(isPropertyChanged(property)).toBe(true);
     expect(isPropertyChangedFromMessages(property)).toBe(true);
-    expect(isPropertyChanged(property, sender, "model")).toBe(true);
+    expect(
+      isPropertyChanged(property, { sender, propertyName: "model" }),
+    ).toBe(true);
     expect(isPropertyChanged(collection)).toBe(false);
-    expect(isPropertyChanged(property, other)).toBe(false);
-    expect(isPropertyChanged(property, sender, "Model")).toBe(false);
+    expect(isPropertyChanged(property, { sender: other })).toBe(false);
+    expect(
+      isPropertyChanged(property, { sender, propertyName: "Model" }),
+    ).toBe(false);
 
     const allProperties = messages.filter(isPropertyChanged);
+    expect(allProperties).toEqual([property]);
     expectExactType<
       IsExact<typeof allProperties, PropertyChangedMessage<unknown>[]>
     >(allProperties);
 
+    const allPropertyStream = from(messages).pipe(filter(isPropertyChanged));
+    const streamedProperties: PropertyChangedMessage<unknown>[] = [];
+    allPropertyStream.subscribe((message) => {
+      streamedProperties.push(message);
+    });
+    expect(streamedProperties).toEqual([property]);
+    expectExactType<
+      IsExact<
+        typeof allPropertyStream,
+        Observable<PropertyChangedMessage<unknown>>
+      >
+    >(allPropertyStream);
+
     const senderProperties = messages.filter((message) =>
-      isPropertyChanged(message, sender, "model"),
+      isPropertyChanged(message, { sender, propertyName: "model" }),
     );
     expect(senderProperties).toEqual([property]);
     expectExactType<
@@ -65,30 +83,66 @@ describe("raw message predicates", () => {
       >
     >(senderProperties);
 
-    const propertyStream = from(messages).pipe(
-      filter((message) => isPropertyChanged(message, sender, "model")),
+    const senderPropertyStream = from(messages).pipe(
+      filter((message) =>
+        isPropertyChanged(message, { sender, propertyName: "model" }),
+      ),
     );
     expectExactType<
       IsExact<
-        typeof propertyStream,
+        typeof senderPropertyStream,
         Observable<PropertyChangedMessage<typeof sender>>
       >
-    >(propertyStream);
+    >(senderPropertyStream);
   });
 
   it("classifies collection changes and narrows their item type", () => {
     const wrongAction: CollectionMutationAction = "remove";
 
     expect(isCollectionChanged<string>(collection)).toBe(true);
-    expect(isCollectionChanged<string>(collection, sender, "add")).toBe(true);
+    expect(
+      isCollectionChanged<string>(collection, {
+        source: sender,
+        action: "add",
+      }),
+    ).toBe(true);
     expect(isCollectionChanged<string>(property)).toBe(false);
-    expect(isCollectionChanged<string>(collection, other)).toBe(false);
-    expect(isCollectionChanged<string>(collection, sender, wrongAction)).toBe(
-      false,
+    expect(
+      isCollectionChanged<string>(collection, { source: other }),
+    ).toBe(false);
+    expect(
+      isCollectionChanged<string>(collection, {
+        source: sender,
+        action: wrongAction,
+      }),
+    ).toBe(false);
+
+    const allCollections = messages.filter(isCollectionChanged);
+    expect(allCollections).toEqual([collection]);
+    expectExactType<
+      IsExact<typeof allCollections, CollectionChangedMessage<unknown>[]>
+    >(allCollections);
+
+    const allCollectionStream = from(messages).pipe(
+      filter(isCollectionChanged),
     );
+    const streamedCollections: CollectionChangedMessage<unknown>[] = [];
+    allCollectionStream.subscribe((message) => {
+      streamedCollections.push(message);
+    });
+    expect(streamedCollections).toEqual([collection]);
+    expectExactType<
+      IsExact<
+        typeof allCollectionStream,
+        Observable<CollectionChangedMessage<unknown>>
+      >
+    >(allCollectionStream);
 
     const additions = messages.filter((message) =>
-      isCollectionChanged<string>(message, sender, "add"),
+      isCollectionChanged<string>(message, {
+        source: sender,
+        action: "add",
+      }),
     );
     expect(additions).toEqual([collection]);
     expectExactType<
@@ -99,28 +153,48 @@ describe("raw message predicates", () => {
   it("classifies construction status changes and narrows the stream", () => {
     expect(isConstructionStatusChanged(status)).toBe(true);
     expect(
-      isConstructionStatusChanged(
-        status,
+      isConstructionStatusChanged(status, {
         sender,
-        ConstructionStatus.Constructed,
-      ),
+        status: ConstructionStatus.Constructed,
+      }),
     ).toBe(true);
     expect(isConstructionStatusChanged(property)).toBe(false);
-    expect(isConstructionStatusChanged(status, other)).toBe(false);
     expect(
-      isConstructionStatusChanged(
-        status,
+      isConstructionStatusChanged(status, { sender: other }),
+    ).toBe(false);
+    expect(
+      isConstructionStatusChanged(status, {
         sender,
-        ConstructionStatus.Destructed,
-      ),
+        status: ConstructionStatus.Destructed,
+      }),
     ).toBe(false);
 
+    const allStatuses = messages.filter(isConstructionStatusChanged);
+    expect(allStatuses).toEqual([status]);
+    expectExactType<
+      IsExact<typeof allStatuses, ConstructionStatusChangedMessage[]>
+    >(allStatuses);
+
+    const allStatusStream = from(messages).pipe(
+      filter(isConstructionStatusChanged),
+    );
+    const streamedStatuses: ConstructionStatusChangedMessage[] = [];
+    allStatusStream.subscribe((message) => {
+      streamedStatuses.push(message);
+    });
+    expect(streamedStatuses).toEqual([status]);
+    expectExactType<
+      IsExact<
+        typeof allStatusStream,
+        Observable<ConstructionStatusChangedMessage>
+      >
+    >(allStatusStream);
+
     const isConstructed = (message: IMessage) =>
-      isConstructionStatusChanged(
-        message,
+      isConstructionStatusChanged(message, {
         sender,
-        ConstructionStatus.Constructed,
-      );
+        status: ConstructionStatus.Constructed,
+      });
     const constructedMessages = messages.filter(isConstructed);
     expect(constructedMessages).toEqual([status]);
 
