@@ -2138,6 +2138,67 @@ indexed/iterable reads, observation, mutation, move, and batching
 **Then** its construct hook is not called again
 **And** the identical constructed instance occupies the destination
 
+### COL-040 — whole-list replacement growth
+
+**Given** a one-item `ObservableList<T>` with every notification channel observed
+**When** `ReplaceAll` replaces it with three items
+**Then** the final contents are exactly the three input items
+**And** no granular item event fires
+**And** exactly one Reset followed by one `PropertyChanged("Count")` fires
+
+### COL-041 — whole-list replacement shrink
+
+**Given** a three-item `ObservableList<T>`
+**When** `ReplaceAll` replaces it with one item
+**Then** the final contents contain only that item
+**And** exactly one Reset followed by one `PropertyChanged("Count")` fires
+
+### COL-042 — equal-count and identical replacement
+
+**Given** an `ObservableList<T>` whose element type has no equality constraint
+**When** `ReplaceAll` receives different contents of the same count
+**And** it later receives the element-for-element identical non-empty contents
+**Then** each call emits exactly one Reset and no `Count` notification
+**And** VMx does not compare elements to suppress either call
+
+### COL-043 — empty replacement cases
+
+**Given** an empty `ObservableList<T>`
+**When** `ReplaceAll` receives an empty input
+**Then** no content or event changes
+**But given** a non-empty list receives an empty input
+**Then** it becomes empty and emits Reset followed by `PropertyChanged("Count")`
+
+### COL-044 — replacement input snapshot
+
+**Given** a non-empty `ObservableList<T>`
+**When** `ReplaceAll` receives the list itself or a live view over it
+**Then** the input is fully materialized before the backing list changes
+**And** the final contents equal the input snapshot
+**And** exactly one Reset fires
+
+### COL-045 — replacement inside an existing batch
+
+**Given** an `ObservableList<T>` with an open batch
+**When** `ReplaceAll` performs an effective replacement
+**Then** nothing is emitted before the outermost batch exits
+**And** outermost exit emits exactly one Reset and `Count` only if cardinality changed
+
+### COL-046 — exceptional batch exit
+
+**Given** a batch body performs `ReplaceAll` and then fails
+**When** the original failure propagates
+**Then** every entered batch scope has closed
+**And** the completed mutation emits the usual one Reset and optional `Count`
+**And** a later replacement publishes normally outside the former batch
+
+### COL-047 — replacement notification ordering and visibility
+
+**Given** Reset and `PropertyChanged("Count")` observers read the list in their handlers
+**When** `ReplaceAll` changes cardinality
+**Then** Reset fires before `PropertyChanged("Count")`
+**And** both handlers observe the complete final snapshot
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles

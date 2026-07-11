@@ -62,6 +62,7 @@ ServicedObservableCollection<T>:
     Add(item: T) : void
     Remove(item: T) : bool
     Replace(index: int, item: T) : void
+    ReplaceAll(items: Iterable<T>) : void
     Clear() : void
     Count : int
     Items : Iterable<T>
@@ -223,9 +224,37 @@ active on the list:
 Consumers who need per-item granularity inside a batch must collect mutations
 themselves.
 
-### 3.6 Conformance
+If a batch body exits exceptionally, every entered scope MUST still close. If
+the body mutated the list, the outermost exit MUST publish the same Reset and
+optional `Count` sequence before the original failure propagates, and later
+mutations MUST behave outside that completed scope.
 
-`COL-005` through `COL-009` and `COL-023` in `12-conformance.md`.
+### 3.6 Whole-list replacement
+
+`ObservableList<T>` exposes flavor-idiomatic `ReplaceAll(items)` /
+`replace_all(items)` / `replaceAll(items)`. It MUST fully materialize the input
+before mutating the backing list. Passing the list itself or a view over it is
+therefore safe. In flavors where input iteration can fail, materialization
+failure MUST propagate without changing contents or emitting an event.
+
+Empty-to-empty replacement is a no-op and emits nothing. Every other invocation
+is an effective bulk mutation, including an equal-count replacement and an
+element-for-element identical non-empty replacement. Implementations MUST NOT
+require or invoke element equality to decide whether to publish.
+
+An effective replacement emits no granular item events and exactly one Reset.
+If `Count` changed, `PropertyChanged("Count")` MUST follow Reset; otherwise no
+`Count` notification is emitted. Both notifications observe the complete final
+snapshot.
+
+Inside an existing list batch, replacement only marks that batch dirty. It
+emits nothing immediately, and only the outermost batch exit emits the single
+Reset and cardinality-dependent `Count` notification defined in §3.5.
+
+### 3.7 Conformance
+
+`COL-005` through `COL-009`, `COL-023`, and `COL-040` through `COL-047` in
+`12-conformance.md`.
 
 ## 4. `ObservableDictionary`
 

@@ -4,6 +4,21 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-07-10
+
+Implements `spec-v3.9.0` and keeps Rust at full library parity: 332/332
+conformance IDs covered.
+
+### Added
+
+- `ObservableList::replace_all(...)` snapshots iterator input and emits one
+  Reset plus cardinality-dependent `Count` (`COL-040..047`).
+
+### Fixed
+
+- `ObservableList::batch_update` now restores nesting after panics and suppresses
+  `Count` for count-preserving batches before resuming the original panic.
+
 ## [0.8.0] — 2026-07-10
 
 Implements `spec-v3.8.0` and keeps Rust at full library parity: 324/324

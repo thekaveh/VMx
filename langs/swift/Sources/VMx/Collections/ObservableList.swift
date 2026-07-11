@@ -2,7 +2,7 @@
 // ObservableList.swift — generic observable list with granular per-mutation events.
 //
 // See spec/21-collections.md §3 and ADR-0026.
-// Conforms to: COL-005, COL-006, COL-007, COL-008, COL-009, COL-023.
+// Conforms to: COL-005..009, COL-023, COL-040..047.
 //
 // NOTE: `propertyChanged` emits the literal string "Count" (capital C) —
 // a spec-documented cross-flavor exception (spec/21 §3.3 and CLAUDE.md).
@@ -153,6 +153,21 @@ public final class ObservableList<T> {
         onReplaced(newItem: newItem, oldItem: oldItem, index: index)
     }
 
+    /// Replace the complete contents from a snapshot of `newItems`.
+    /// Empty-to-empty is the only no-op. Every other replacement emits one
+    /// reset, followed by `"Count"` only when cardinality changes.
+    public func replaceAll<S: Sequence>(_ newItems: S) where S.Element == T {
+        let snapshot = Array(newItems)
+        let oldCount = items.count
+        if oldCount == 0 && snapshot.isEmpty { return }
+
+        items = snapshot
+        onReset()
+        if oldCount != snapshot.count && batchDepth == 0 {
+            propertyChangedSubject.send("Count")
+        }
+    }
+
     /// Remove all items and emit `reset` (and `propertyChanged("Count")` if the
     /// count changed).
     public func clear() {
@@ -174,7 +189,8 @@ public final class ObservableList<T> {
     ///   - No mutations → nothing emitted.
     ///   - Mutations occurred → `reset` fires; if the count changed,
     ///     `propertyChanged("Count")` fires after `reset`.
-    public func withBatch(_ body: () -> Void) {
+    @discardableResult
+    public func withBatch<Result>(_ body: () throws -> Result) rethrows -> Result {
         if batchDepth == 0 {
             countAtBatchStart = items.count
             mutatedInBatch = false
@@ -191,7 +207,7 @@ public final class ObservableList<T> {
                 }
             }
         }
-        body()
+        return try body()
     }
 
     // MARK: - Private helpers

@@ -41,7 +41,7 @@ export interface ItemReplacedEvent<T> {
 // ── ObservableList ────────────────────────────────────────────────────────────
 
 export class ObservableList<T> {
-  readonly #items: T[] = [];
+  #items: T[] = [];
   #batchDepth = 0;
   #mutatedInBatch = false;
   #countAtBatchStart = 0;
@@ -169,6 +169,23 @@ export class ObservableList<T> {
     const oldItem = this.#itemAt(index);
     this.#items[index] = newItem;
     this.#onReplaced(newItem, oldItem, index);
+  }
+
+  /**
+   * Replace the complete contents from a snapshot of *items*.
+   * Empty-to-empty is the only no-op; every other replacement emits one reset,
+   * followed by "Count" only when the cardinality changed.
+   */
+  replaceAll(items: Iterable<T>): void {
+    const snapshot = [...items];
+    const oldCount = this.#items.length;
+    if (oldCount === 0 && snapshot.length === 0) return;
+
+    this.#items = snapshot;
+    this.#onReset();
+    if (oldCount !== snapshot.length && this.#batchDepth === 0) {
+      this.#propertyChanged.next("Count");
+    }
   }
 
   /** Remove all items and emit reset (and "Count" when it changed). */

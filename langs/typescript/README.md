@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v3.8.0** — implements `spec-v3.8.0` end-to-end. 324/324 library conformance IDs
+**v3.9.0** — implements `spec-v3.9.0` end-to-end. 332/332 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -18,7 +18,7 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 
 ## 2. Install
 
-The source tree currently implements v3.8.0. The scoped npm package has not
+The source tree currently implements v3.9.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -182,7 +182,7 @@ Key exports:
 | `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
 | `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)    |
-| `ObservableList<T>`             | Granular per-mutation events (spec v2.1)         |
+| `ObservableList<T>`             | Granular events + atomic `replaceAll`            |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
@@ -200,7 +200,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 324 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 332 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -225,6 +225,8 @@ v3.4   DISP-001..006
 v3.5   COL-032..039
 v3.6   CMD-014..019
 v3.7   FORM-024..029
+v3.8   HIER-023..030
+v3.9   COL-040..047
 ```
 
 Run the suite:

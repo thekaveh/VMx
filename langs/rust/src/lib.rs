@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.8.0";
+pub const MIN_SPEC_VERSION: &str = "3.9.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -1822,6 +1822,7 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     owner_id: usize,
     batch_depth: Arc<Mutex<usize>>,
     batch_dirty: Arc<Mutex<bool>>,
+    batch_count_at_start: Arc<Mutex<usize>>,
 }
 
 impl<T: Clone + Send + 'static> ObservableList<T> {
@@ -1832,6 +1833,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             owner_id,
             batch_depth: Arc::new(Mutex::new(0)),
             batch_dirty: Arc::new(Mutex::new(false)),
+            batch_count_at_start: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -1858,7 +1860,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             inner.push(item);
             index
         };
-        self.publish(CollectionChangeAction::Add, None, Some(index));
+        self.publish(CollectionChangeAction::Add, None, Some(index), true);
     }
 
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
@@ -1868,7 +1870,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         }
         inner.insert(index, item);
         drop(inner);
-        self.publish(CollectionChangeAction::Add, None, Some(index));
+        self.publish(CollectionChangeAction::Add, None, Some(index), true);
         Ok(())
     }
 
@@ -1882,7 +1884,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             }
         };
         if item.is_some() {
-            self.publish(CollectionChangeAction::Remove, Some(index), None);
+            self.publish(CollectionChangeAction::Remove, Some(index), None, true);
         }
         item
     }
@@ -1895,8 +1897,36 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             }
             std::mem::replace(&mut inner[index], item)
         };
-        self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+        self.publish(
+            CollectionChangeAction::Replace,
+            Some(index),
+            Some(index),
+            false,
+        );
         Ok(old)
+    }
+
+    pub fn replace_all<I>(&self, items: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let snapshot: Vec<T> = items.into_iter().collect();
+        let new_count = snapshot.len();
+        let old_count = {
+            let mut inner = lock(&self.inner);
+            let old_count = inner.len();
+            if old_count == 0 && snapshot.is_empty() {
+                return;
+            }
+            *inner = snapshot;
+            old_count
+        };
+        self.publish(
+            CollectionChangeAction::Reset,
+            None,
+            None,
+            old_count != new_count,
+        );
     }
 
     fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
@@ -1917,6 +1947,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             CollectionChangeAction::Move,
             Some(from_index),
             Some(to_index),
+            false,
         );
         Ok(())
     }
@@ -1929,7 +1960,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             changed
         };
         if changed {
-            self.publish(CollectionChangeAction::Reset, None, None);
+            self.publish(CollectionChangeAction::Reset, None, None, true);
         }
     }
 
@@ -1937,8 +1968,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     where
         F: FnOnce(),
     {
-        *lock(&self.batch_depth) += 1;
-        action();
+        let mut depth = lock(&self.batch_depth);
+        if *depth == 0 {
+            *lock(&self.batch_count_at_start) = self.len();
+        }
+        *depth += 1;
+        drop(depth);
+        let result = catch_unwind(AssertUnwindSafe(action));
         let mut depth = lock(&self.batch_depth);
         *depth -= 1;
         if *depth == 0 {
@@ -1950,8 +1986,12 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 changed
             };
             if changed {
-                self.publish(CollectionChangeAction::Reset, None, None);
+                let count_changed = self.len() != *lock(&self.batch_count_at_start);
+                self.publish(CollectionChangeAction::Reset, None, None, count_changed);
             }
+        }
+        if let Err(error) = result {
+            resume_unwind(error);
         }
     }
 
@@ -1960,6 +2000,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         action: CollectionChangeAction,
         old_index: Option<usize>,
         new_index: Option<usize>,
+        count_changed: bool,
     ) {
         if *lock(&self.batch_depth) > 0 {
             *lock(&self.batch_dirty) = true;
@@ -1973,10 +2014,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 old_index,
                 new_index,
             }));
-        if !matches!(
-            action,
-            CollectionChangeAction::Replace | CollectionChangeAction::Move
-        ) {
+        if count_changed {
             self.hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.owner_id,
