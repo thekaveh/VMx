@@ -10,6 +10,26 @@ This rule removes the need for host-side “already disposed” flags. It does n
 make all later API calls behave alike: each type keeps its documented
 post-dispose behavior.
 
+## Modeled Assignment After Disposal
+
+Modeled assignment has one portable terminal rule across all five flavors. If
+an assignment begins after the VM is disposed, it returns before candidate
+equality, retained-model or snapshot mutation, modeled-hint work, validation,
+command-state recomputation, consumer callbacks, local notifications, or hub
+messages. The last accepted model and every derived state value remain
+readable and unchanged.
+
+This admission guard covers modeled components and `FormVM`. Swift's internal
+read-only modeled-component update and forwarding wrappers delegate to the same
+guarded path. Modeled composites do not expose a settable retained model—their
+model input configures a child factory—so they need no separate guard.
+
+An assignment admitted before disposal keeps its ordinary completion and
+notification contract. Continue cancelling network requests, renderer work,
+tasks, and other application operations when their resources are no longer
+needed; the VM guard prevents late state admission but does not replace
+resource cancellation.
+
 ## The Six Disposal Families
 
 | Family                        | Representative surfaces                                             | Cross-cutting ID | Existing detailed coverage                        |
@@ -165,4 +185,5 @@ Do not add a second consumer-side disposed flag merely to serialize those
 paths. Keep ownership explicit: dispose the root and any independently owned
 services, but do not dispose caller-owned objects through non-owning wrappers.
 
-The owned-resource contract is covered by `DISP-007..013` and ADR-0090.
+The owned-resource contract is covered by `DISP-007..013` and ADR-0090. Inert
+modeled assignment is covered by `DISP-014` and ADR-0091.
