@@ -437,6 +437,7 @@ export class FormVM<TM> {
   /**
    * Replaces the current model. May change `isDirty`; in strict mode fires
    * `approveCommand.canExecuteChanged` on dirty transitions.
+   * A call begun after disposal returns before inspecting the candidate.
    */
   setModel(model: TM): void {
     if (this.#disposed) return;

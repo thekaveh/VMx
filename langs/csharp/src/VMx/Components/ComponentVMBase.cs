@@ -691,7 +691,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// completion observes a concurrently in-progress <see cref="Dispose()"/> and
     /// aborts its transition rather than resurrecting the VM (VMX-001/054).
     /// </summary>
-    private bool IsDisposed()
+    protected bool IsDisposed()
     {
         lock (_gate)
         {

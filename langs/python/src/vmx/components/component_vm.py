@@ -154,7 +154,7 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
         return self._modeled_hint
 
     def _set_model(self, value: M) -> None:
-        """Apply equality-guarded model update per spec/05-component-vm.md."""
+        """Apply terminal- and equality-guarded update per spec/05-component-vm.md."""
         if self._is_disposed():
             return
         if self._model == value:

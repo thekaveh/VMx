@@ -165,6 +165,7 @@ public final class FormVM<Model> {
     /// Replaces the current model. The snapshot is unaffected.
     /// In strict mode fires `approveCommand.canExecuteChanged` when `isDirty`
     /// transitions so that UI bindings can re-evaluate the approve button state.
+    /// A call begun after disposal returns before inspecting the candidate.
     public func setModel(_ newModel: Model) {
         guard !_disposed else { return }
         let wasDirty = isDirty
