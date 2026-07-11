@@ -321,9 +321,10 @@ public class FormVMTests
         var revert = messages.OfType<FormRevertedMessage>().Single();
         revert.Sender.Should().BeSameAs(sut);
 
-        var propChange = messages.OfType<PropertyChangedMessage<FormVM<Model>>>().Single();
-        propChange.Sender.Should().BeSameAs(sut);
-        propChange.PropertyName.Should().Be("Model");
+        var propChanges = messages.OfType<PropertyChangedMessage<FormVM<Model>>>().ToList();
+        propChanges.Should().HaveCount(2, "set-model and deny each publish the settled model");
+        propChanges.Should().OnlyContain(message =>
+            ReferenceEquals(message.Sender, sut) && message.PropertyName == "Model");
     }
 
     // ── Dispose races ─────────────────────────────────────────────────────────
