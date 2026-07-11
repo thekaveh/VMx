@@ -1,17 +1,17 @@
 # 2. Installation
 
-VMx has five full-parity source flavors. The source tree implements v3.7.0 for
-C#, Python, TypeScript, and Swift; Rust declares `MIN_SPEC_VERSION = "3.7.0"`
-from crate version 0.7.0. Public package availability can lag the source tree;
+VMx has five full-parity source flavors. The source tree implements v3.8.0 for
+C#, Python, TypeScript, and Swift; Rust declares `MIN_SPEC_VERSION = "3.8.0"`
+from crate version 0.8.0. Public package availability can lag the source tree;
 check the flavor README and registry before pinning a release.
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
-| C#         | v3.7.0        | NuGet package not published yet     |
-| Python     | v3.7.0        | `vmx` latest published: 3.1.0       |
-| TypeScript | v3.7.0        | npm package not published yet       |
-| Swift      | v3.7.0        | SwiftPM tag not published yet       |
-| Rust       | 0.7.0         | crates.io package not published yet |
+| C#         | v3.8.0        | NuGet package not published yet     |
+| Python     | v3.8.0        | `vmx` latest published: 3.1.0       |
+| TypeScript | v3.8.0        | npm package not published yet       |
+| Swift      | v3.8.0        | SwiftPM tag not published yet       |
+| Rust       | 0.8.0         | crates.io package not published yet |
 
 === "C#"
 

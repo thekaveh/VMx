@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v3.7.0** — implements `spec-v3.7.0` end-to-end. 316/316 library conformance IDs
+**v3.8.0** — implements `spec-v3.8.0` end-to-end. 324/324 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -18,7 +18,7 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 
 ## 2. Install
 
-The source tree currently implements v3.7.0. The scoped npm package has not
+The source tree currently implements v3.8.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -177,7 +177,7 @@ Key exports:
 | `SearchableState<T>`            | Debounced filter helper (spec v2.0)              |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)             |
 | 22× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in v2.0+ |
-| `HierarchicalVM<TModel, TVM>`   | Recursive tree-structured VM (spec v2.1)         |
+| `HierarchicalVM<TModel, TVM>`   | Recursive tree VM with key-aware `attachMany`    |
 | `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)  |
 | `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
@@ -200,7 +200,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 316 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 324 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

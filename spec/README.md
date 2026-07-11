@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (321 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (329 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -394,11 +394,22 @@ single-observer approval error split. `FORM-024..029` raise the catalog from
 
 See ADR-0087 and chapter 20 §5.1.
 
-### 1.17 Supporting artefacts
+### 1.17 v3.7.0 → v3.8.0 changes
 
-- `VERSION` — current spec SemVer (`3.7.0`).
+v3.8.0 adds consumer-keyed batch hydration to `HierarchicalVM` in all five
+flavors. Stable fixpoint scans resolve child-before-parent windows without
+forcing lazy subtrees; duplicates never replace an existing VM; missing parents
+can park across batches or reject immediately; cycles and failures return typed
+per-item results. `HIER-023..030` raise the catalog from 321 to 329 total IDs
+(324 library + 5 THEME scenario IDs).
+
+See ADR-0088 and chapter 18 §6.
+
+### 1.18 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.8.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0087); see
+- `ADRs/` — Architecture Decision Records (0001-0088); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

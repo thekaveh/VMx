@@ -43,6 +43,51 @@ public enum HierarchyError: Error {
     case invalidReparent
 }
 
+/// Missing-parent retention policy for batch hierarchy ingestion.
+public enum MissingParentPolicy: Equatable {
+    case park
+    case reject
+}
+
+/// Typed reason why one batch item was not attached.
+public enum BatchAttachRejectionReason: Equatable {
+    case duplicateExistingKey
+    case duplicateBatchKey
+    case alreadyAttached
+    case missingParent
+    case cycle
+    case selectorFailed
+    case attachmentFailed
+}
+
+/// One typed, non-throwing batch-attachment rejection.
+public struct BatchAttachRejection<TVM> {
+    public let item: TVM
+    public let reason: BatchAttachRejectionReason
+    public let detail: String?
+
+    init(item: TVM, reason: BatchAttachRejectionReason, detail: String? = nil) {
+        self.item = item
+        self.reason = reason
+        self.detail = detail
+    }
+}
+
+/// Structured result of one batch-attachment attempt.
+public struct BatchAttachResult<TVM> {
+    public let added: [TVM]
+    public let duplicates: [TVM]
+    public let orphans: [TVM]
+    public let rejections: [BatchAttachRejection<TVM>]
+}
+
+private struct BatchAttachCandidate<TVM, Key: Hashable> {
+    let item: TVM
+    let key: Key
+    let parentKey: Key?
+    let retainIfMissing: Bool
+}
+
 /// Abstract recursive tree ViewModel. Concrete subclasses follow the CRTP
 /// shape, e.g. `final class MyNode: HierarchicalVM<MyModel, MyNode>`.
 ///
@@ -85,6 +130,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// Cached root→self path. `nil` until first access. (Invalidation on
     /// reparent is added with the structural-mutation task.)
     private var _pathCache: [TVM]?
+
+    /// Missing-parent items retained on this structural root.
+    private var parkedAttachItems: [TVM] = []
 
     // ── CRTP downcasts (isolated; see file header) ──────────────────────
 
@@ -277,6 +325,140 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         ))
     }
 
+    /// Number of missing-parent items retained on the structural root.
+    public var parkedAttachCount: Int {
+        node(treeRoot()).parkedAttachItems.count
+    }
+
+    /// Attaches an out-of-order, consumer-keyed batch beneath the structural
+    /// root. A nil parent key means a direct child of that root. Ordinary
+    /// ingestion anomalies are returned as typed rejections.
+    public func attachMany<Key: Hashable>(
+        _ items: [TVM],
+        keyOf: (TVM) throws -> Key,
+        parentKeyOf: (TVM) throws -> Key?,
+        onMissingParent: MissingParentPolicy = .park
+    ) -> BatchAttachResult<TVM> {
+        let rootNode = treeRoot()
+        let root = node(rootNode)
+        let parked = root.parkedAttachItems
+        root.parkedAttachItems.removeAll()
+        var added: [TVM] = []
+        var duplicates: [TVM] = []
+        var orphans: [TVM] = []
+        var rejections: [BatchAttachRejection<TVM>] = []
+        var existing: [Key: TVM] = [:]
+
+        do {
+            for materialized in root.materializedSubtree() {
+                let key = try keyOf(materialized)
+                if existing[key] == nil { existing[key] = materialized }
+            }
+        } catch {
+            root.parkedAttachItems.append(contentsOf: parked)
+            rejections.append(contentsOf: (parked + items).map {
+                BatchAttachRejection(
+                    item: $0,
+                    reason: .selectorFailed,
+                    detail: String(describing: error)
+                )
+            })
+            return BatchAttachResult(
+                added: added,
+                duplicates: duplicates,
+                orphans: orphans,
+                rejections: rejections
+            )
+        }
+
+        var candidates: [BatchAttachCandidate<TVM, Key>] = []
+        var candidateKeys = Set<Key>()
+        let active = parked.map { ($0, true) } + items.map { ($0, false) }
+        for (item, wasParked) in active {
+            let key: Key
+            let parentKey: Key?
+            do {
+                key = try keyOf(item)
+                parentKey = try parentKeyOf(item)
+            } catch {
+                if wasParked { root.parkedAttachItems.append(item) }
+                rejections.append(BatchAttachRejection(
+                    item: item,
+                    reason: .selectorFailed,
+                    detail: String(describing: error)
+                ))
+                continue
+            }
+
+            if existing[key] != nil {
+                duplicates.append(item)
+                rejections.append(BatchAttachRejection(item: item, reason: .duplicateExistingKey))
+                continue
+            }
+            if candidateKeys.contains(key) {
+                duplicates.append(item)
+                rejections.append(BatchAttachRejection(item: item, reason: .duplicateBatchKey))
+                continue
+            }
+            if node(item).parent != nil {
+                rejections.append(BatchAttachRejection(item: item, reason: .alreadyAttached))
+                continue
+            }
+            candidateKeys.insert(key)
+            candidates.append(BatchAttachCandidate(
+                item: item,
+                key: key,
+                parentKey: parentKey,
+                retainIfMissing: wasParked || onMissingParent == .park
+            ))
+        }
+
+        var unresolved = candidates
+        while !unresolved.isEmpty {
+            var next: [BatchAttachCandidate<TVM, Key>] = []
+            var progressed = false
+            for candidate in unresolved {
+                let parent: TVM?
+                if let parentKey = candidate.parentKey {
+                    parent = existing[parentKey]
+                } else {
+                    parent = rootNode
+                }
+                guard let parent = parent else {
+                    next.append(candidate)
+                    continue
+                }
+
+                // After selector evaluation, Swift's addChild path is
+                // non-throwing; fallible flavors wrap and roll back this step.
+                node(parent).addChild(candidate.item)
+                existing[candidate.key] = candidate.item
+                added.append(candidate.item)
+                progressed = true
+            }
+            unresolved = next
+            if !progressed { break }
+        }
+
+        let unresolvedByKey = Dictionary(uniqueKeysWithValues: unresolved.map { ($0.key, $0) })
+        for candidate in unresolved {
+            let isCycle = batchParentChainCycles(candidate, unresolved: unresolvedByKey)
+            let reason: BatchAttachRejectionReason = isCycle ? .cycle : .missingParent
+            rejections.append(BatchAttachRejection(item: candidate.item, reason: reason))
+            if !isCycle {
+                orphans.append(candidate.item)
+                if candidate.retainIfMissing { root.parkedAttachItems.append(candidate.item) }
+            }
+        }
+
+        return BatchAttachResult(
+            added: added,
+            duplicates: duplicates,
+            orphans: orphans,
+            rejections: rejections
+        )
+    }
+
     /// Drops this node's materialized child cache. The next `children` access
     /// invokes the children factory again. Invalidating an unmaterialized node
     /// is a no-op.
@@ -299,6 +481,11 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         invalidateChildren()
     }
 
+    open override func _onDispose() {
+        parkedAttachItems.removeAll()
+        super._onDispose()
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     /// Runs the factory and seeds each produced child's `parent` to this node
@@ -309,6 +496,38 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             node(child).parent = selfNode
         }
         return result
+    }
+
+    private func treeRoot() -> TVM {
+        var current = selfNode
+        while let parent = node(current).parent { current = parent }
+        return current
+    }
+
+    private func materializedSubtree() -> [TVM] {
+        var result: [TVM] = []
+        var stack: [TVM] = [selfNode]
+        while let current = stack.popLast() {
+            result.append(current)
+            if let cached = node(current)._children {
+                stack.append(contentsOf: cached.reversed())
+            }
+        }
+        return result
+    }
+
+    private func batchParentChainCycles<Key: Hashable>(
+        _ candidate: BatchAttachCandidate<TVM, Key>,
+        unresolved: [Key: BatchAttachCandidate<TVM, Key>]
+    ) -> Bool {
+        var seen = Set<Key>()
+        var current: BatchAttachCandidate<TVM, Key>? = candidate
+        while let value = current {
+            if !seen.insert(value.key).inserted { return true }
+            guard let parentKey = value.parentKey else { return false }
+            current = unresolved[parentKey]
+        }
+        return false
     }
 
     /// Walks up the `parent` chain from this node, then reverses so the root

@@ -32,6 +32,50 @@ export interface HierarchicalVMOptions<TModel, TVM> {
   eagerChildren?: boolean;
 }
 
+/** Missing-parent retention policy for {@link HierarchicalVM.attachMany}. */
+export enum MissingParentPolicy {
+  Park = "park",
+  Reject = "reject",
+}
+
+/** Typed reason why one batch item was not attached. */
+export enum BatchAttachRejectionReason {
+  DuplicateExistingKey = "duplicate_existing_key",
+  DuplicateBatchKey = "duplicate_batch_key",
+  AlreadyAttached = "already_attached",
+  MissingParent = "missing_parent",
+  Cycle = "cycle",
+  SelectorFailed = "selector_failed",
+  AttachmentFailed = "attachment_failed",
+}
+
+export interface BatchAttachOptions<TVM, TKey> {
+  keyOf: (item: TVM) => TKey;
+  /** A null parent key attaches the item directly beneath the structural root. */
+  parentKeyOf: (item: TVM) => TKey | null;
+  onMissingParent?: MissingParentPolicy;
+}
+
+export interface BatchAttachRejection<TVM> {
+  item: TVM;
+  reason: BatchAttachRejectionReason;
+  detail?: string;
+}
+
+export interface BatchAttachResult<TVM> {
+  added: readonly TVM[];
+  duplicates: readonly TVM[];
+  orphans: readonly TVM[];
+  rejections: readonly BatchAttachRejection<TVM>[];
+}
+
+interface BatchAttachCandidate<TVM, TKey> {
+  item: TVM;
+  key: TKey;
+  parentKey: TKey | null;
+  retainIfMissing: boolean;
+}
+
 /**
  * Abstract recursive tree ViewModel. Concrete subclasses must satisfy the
  * recursive generic constraint: `class MyNode extends HierarchicalVM<MyModel, MyNode>`.
@@ -49,6 +93,7 @@ export abstract class HierarchicalVM<
   #hierarchicalParent: TVM | null = null;
   #children: TVM[] | null = null;
   #pathCache: readonly TVM[] | null = null;
+  #parkedAttachItems: TVM[] = [];
 
   readonly #model: TModel;
 
@@ -266,6 +311,144 @@ export abstract class HierarchicalVM<
     );
   }
 
+  /** Number of missing-parent items retained on this node's structural root. */
+  get parkedAttachCount(): number {
+    return this.#treeRoot().#parkedAttachItems.length;
+  }
+
+  /**
+   * Attach an out-of-order, consumer-keyed batch beneath the structural root.
+   * Ordinary ingestion anomalies are returned as typed rejections and never
+   * replace an already-materialized node with the same key.
+   */
+  attachMany<TKey>(
+    items: Iterable<TVM>,
+    options: BatchAttachOptions<TVM, TKey>,
+  ): BatchAttachResult<TVM> {
+    const root = this.#treeRoot();
+    const incoming = Array.from(items);
+    const parked = [...root.#parkedAttachItems];
+    root.#parkedAttachItems = [];
+    const added: TVM[] = [];
+    const duplicates: TVM[] = [];
+    const orphans: TVM[] = [];
+    const rejections: BatchAttachRejection<TVM>[] = [];
+    const policy = options.onMissingParent ?? MissingParentPolicy.Park;
+
+    const existing = new Map<TKey, TVM>();
+    try {
+      for (const node of root.#materializedSubtree()) {
+        const key = options.keyOf(node);
+        this.#validateBatchKey(key);
+        if (!existing.has(key)) existing.set(key, node);
+      }
+    } catch (error) {
+      root.#parkedAttachItems.push(...parked);
+      for (const item of [...parked, ...incoming]) {
+        rejections.push(this.#rejection(
+          item,
+          BatchAttachRejectionReason.SelectorFailed,
+          error,
+        ));
+      }
+      return { added, duplicates, orphans, rejections };
+    }
+
+    const candidates: BatchAttachCandidate<TVM, TKey>[] = [];
+    const candidateKeys = new Set<TKey>();
+    const activeItems: Array<readonly [TVM, boolean]> = [
+      ...parked.map((item) => [item, true] as const),
+      ...incoming.map((item) => [item, false] as const),
+    ];
+    for (const [item, wasParked] of activeItems) {
+      let key: TKey;
+      let parentKey: TKey | null;
+      try {
+        key = options.keyOf(item);
+        this.#validateBatchKey(key);
+        parentKey = options.parentKeyOf(item);
+        if (parentKey !== null) this.#validateBatchKey(parentKey);
+      } catch (error) {
+        if (wasParked) root.#parkedAttachItems.push(item);
+        rejections.push(this.#rejection(
+          item,
+          BatchAttachRejectionReason.SelectorFailed,
+          error,
+        ));
+        continue;
+      }
+
+      if (existing.has(key)) {
+        duplicates.push(item);
+        rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateExistingKey });
+        continue;
+      }
+      if (candidateKeys.has(key)) {
+        duplicates.push(item);
+        rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateBatchKey });
+        continue;
+      }
+      if (item.#hierarchicalParent !== null) {
+        rejections.push({ item, reason: BatchAttachRejectionReason.AlreadyAttached });
+        continue;
+      }
+
+      candidateKeys.add(key);
+      candidates.push({
+        item,
+        key,
+        parentKey,
+        retainIfMissing: wasParked || policy === MissingParentPolicy.Park,
+      });
+    }
+
+    let unresolved = candidates;
+    while (unresolved.length > 0) {
+      const next: BatchAttachCandidate<TVM, TKey>[] = [];
+      let progressed = false;
+      for (const candidate of unresolved) {
+        const parent = candidate.parentKey === null
+          ? root
+          : existing.get(candidate.parentKey);
+        if (parent === undefined) {
+          next.push(candidate);
+          continue;
+        }
+        try {
+          parent.addChild(candidate.item);
+        } catch (error) {
+          this.#rollbackBatchAttach(parent, candidate.item);
+          rejections.push(this.#rejection(
+            candidate.item,
+            BatchAttachRejectionReason.AttachmentFailed,
+            error,
+          ));
+          continue;
+        }
+        existing.set(candidate.key, candidate.item);
+        added.push(candidate.item);
+        progressed = true;
+      }
+      unresolved = next;
+      if (!progressed) break;
+    }
+
+    const unresolvedByKey = new Map(unresolved.map((candidate) => [candidate.key, candidate]));
+    for (const candidate of unresolved) {
+      const isCycle = this.#batchParentChainCycles(candidate, unresolvedByKey);
+      const reason = isCycle
+        ? BatchAttachRejectionReason.Cycle
+        : BatchAttachRejectionReason.MissingParent;
+      rejections.push({ item: candidate.item, reason });
+      if (!isCycle) {
+        orphans.push(candidate.item);
+        if (candidate.retainIfMissing) root.#parkedAttachItems.push(candidate.item);
+      }
+    }
+
+    return { added, duplicates, orphans, rejections };
+  }
+
   /**
    * Drops this node's materialized child cache. The next `children` access
    * invokes `childrenFactory` again. Invalidating an unmaterialized node is a
@@ -292,6 +475,11 @@ export abstract class HierarchicalVM<
     this.invalidateChildren();
   }
 
+  protected override _onDispose(): void {
+    this.#parkedAttachItems = [];
+    super._onDispose();
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────
 
   #materializeChildren(): TVM[] {
@@ -302,6 +490,61 @@ export abstract class HierarchicalVM<
       child.#hierarchicalParent = this.#self;
     }
     return children;
+  }
+
+  #treeRoot(): TVM {
+    let node = this.#self;
+    while (node.#hierarchicalParent !== null) node = node.#hierarchicalParent;
+    return node;
+  }
+
+  #materializedSubtree(): TVM[] {
+    const nodes: TVM[] = [];
+    const stack: TVM[] = [this.#self];
+    while (stack.length > 0) {
+      const node = stack.pop() as TVM;
+      nodes.push(node);
+      if (node.#children !== null) stack.push(...[...node.#children].reverse());
+    }
+    return nodes;
+  }
+
+  #validateBatchKey(key: unknown): void {
+    if (key == null) throw new Error("keyOf must not return null or undefined");
+  }
+
+  #batchParentChainCycles<TKey>(
+    candidate: BatchAttachCandidate<TVM, TKey>,
+    unresolved: Map<TKey, BatchAttachCandidate<TVM, TKey>>,
+  ): boolean {
+    const seen = new Set<TKey>();
+    let current: BatchAttachCandidate<TVM, TKey> | undefined = candidate;
+    while (current !== undefined) {
+      if (seen.has(current.key)) return true;
+      seen.add(current.key);
+      if (current.parentKey === null) return false;
+      current = unresolved.get(current.parentKey);
+    }
+    return false;
+  }
+
+  #rollbackBatchAttach(parent: TVM, child: TVM): void {
+    if (parent.#children !== null) {
+      const index = parent.#children.indexOf(child);
+      if (index >= 0) parent.#children.splice(index, 1);
+    }
+    child.#hierarchicalParent = null;
+    child.#pathCache = null;
+    child.#invalidatePathCacheDescendants();
+  }
+
+  #rejection(
+    item: TVM,
+    reason: BatchAttachRejectionReason,
+    error: unknown,
+  ): BatchAttachRejection<TVM> {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { item, reason, detail };
   }
 
   #ensureChildrenMaterialized(): void {
