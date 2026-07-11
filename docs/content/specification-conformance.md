@@ -23,9 +23,9 @@ implementation.
 
 The current catalog contains:
 
-- 310 library IDs implemented by all five full-parity source flavors
+- 316 library IDs implemented by all five full-parity source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
-- 315 total IDs in the published catalog
+- 321 total IDs in the published catalog
 
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).

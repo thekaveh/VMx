@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.6.0";
+pub const MIN_SPEC_VERSION: &str = "3.7.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -4213,6 +4213,7 @@ impl NullDialogService {
 
 type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
 type FormSnapshotter<M> = Arc<dyn Fn(&M) -> M + Send + Sync>;
+type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
 type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, String> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
@@ -4222,12 +4223,15 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,
     persister: FormPersister<M>,
+    snapshotter: FormSnapshotter<M>,
+    reset_on_approved: Option<FormResetOnApproved<M>>,
     strict: Arc<Mutex<bool>>,
     errors: Arc<Mutex<BTreeMap<String, String>>>,
     field_validators: Arc<Mutex<BTreeMap<String, FieldValidator<M>>>>,
     model_validators: Arc<Mutex<Vec<ModelValidator<M>>>>,
     errors_changed: MessageHub,
     approve_errors: MessageHub,
+    approve_can_execute_changed: MessageHub,
     approved_callbacks: Arc<Mutex<Vec<ApprovedCallback<M>>>>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
@@ -4254,12 +4258,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             component,
             snapshot: Arc::new(Mutex::new(model)),
             persister: Arc::new(persister),
+            snapshotter: Arc::new(|model| model.clone()),
+            reset_on_approved: None,
             strict: Arc::new(Mutex::new(strict)),
             errors: Arc::new(Mutex::new(BTreeMap::new())),
             field_validators: Arc::new(Mutex::new(BTreeMap::new())),
             model_validators: Arc::new(Mutex::new(Vec::new())),
             errors_changed: MessageHub::new(),
             approve_errors: MessageHub::new(),
+            approve_can_execute_changed: MessageHub::new(),
             approved_callbacks: Arc::new(Mutex::new(Vec::new())),
             disposed: Arc::new(Mutex::new(false)),
             hub,
@@ -4276,6 +4283,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(&M) -> Vec<String> + Send + Sync + 'static,
     {
+        let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(move |model| {
             validator(model)
                 .into_iter()
@@ -4284,6 +4292,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 .collect()
         }));
         self.validate();
+        self.publish_approve_state_change(could_approve);
         self
     }
 
@@ -4291,16 +4300,20 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
     {
+        let could_approve = self.can_approve();
         lock(&self.field_validators).insert(field.into(), Arc::new(validator));
         self.validate();
+        self.publish_approve_state_change(could_approve);
     }
 
     pub fn with_model_validator<F>(&self, validator: F)
     where
         F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
     {
+        let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
         self.validate();
+        self.publish_approve_state_change(could_approve);
     }
 
     pub fn model(&self) -> M {
@@ -4311,8 +4324,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
+        let could_approve = self.can_approve();
         self.component.set_model(model);
         self.validate();
+        self.publish_approve_state_change(could_approve);
     }
 
     pub fn snapshot(&self) -> M {
@@ -4352,7 +4367,32 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         let model = self.model();
         (self.persister)(&model)?;
-        *lock(&self.snapshot) = model.clone();
+        if *lock(&self.disposed) {
+            return Ok(());
+        }
+        let could_approve = self.can_approve();
+        if let Some(reset_on_approved) = &self.reset_on_approved {
+            // Prepare the complete transition before mutating local state. The
+            // callback or either snapshot operation may fail/panic without a
+            // partial assignment.
+            let reset = reset_on_approved(&model)?;
+            let next_model = (self.snapshotter)(&reset);
+            let next_snapshot = (self.snapshotter)(&reset);
+            let next_errors = self.validation_errors_for(&next_model);
+
+            // Install every derived field before ComponentVm publishes its
+            // model-change notification, so synchronous observers cannot see
+            // a reset model paired with the previous snapshot or errors.
+            *lock(&self.snapshot) = next_snapshot;
+            let errors_changed = self.replace_validation_errors(next_errors);
+            self.component.set_model(next_model);
+            if errors_changed {
+                self.publish_validation_changed();
+            }
+        } else {
+            *lock(&self.snapshot) = (self.snapshotter)(&model);
+        }
+        self.publish_approve_state_change(could_approve);
         for callback in lock(&self.approved_callbacks).iter() {
             callback(model.clone());
         }
@@ -4363,7 +4403,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        self.component.set_model(lock(&self.snapshot).clone());
+        let could_approve = self.can_approve();
+        let restored = (self.snapshotter)(&lock(&self.snapshot));
+        self.component.set_model(restored);
         self.hub.send(Message::FormReverted(FormRevertedMessage {
             sender_id: self.component.id(),
         }));
@@ -4373,22 +4415,26 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 property_name: "Model".to_string(),
             }));
         self.validate();
+        self.publish_approve_state_change(could_approve);
     }
 
     pub fn approve_command(&self) -> RelayCommand {
         let form = self.clone();
-        RelayCommand::new(move || {
-            if let Err(error) = form.approve() {
-                form.approve_errors.send(Message::Custom {
-                    sender_id: form.component.id(),
-                    name: error.to_string(),
-                });
-            }
-        })
-        .with_can_execute({
-            let form = self.clone();
-            move || form.can_approve()
-        })
+        RelayCommandBuilder::default()
+            .action(move || {
+                if let Err(error) = form.approve() {
+                    form.approve_errors.send(Message::Custom {
+                        sender_id: form.component.id(),
+                        name: error.to_string(),
+                    });
+                }
+            })
+            .can_execute({
+                let form = self.clone();
+                move || form.can_approve()
+            })
+            .trigger(self.approve_can_execute_changed.clone())
+            .build()
     }
 
     pub fn deny_command(&self) -> RelayCommand {
@@ -4420,17 +4466,31 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     fn validate(&self) {
-        let model = self.model();
+        let next = self.validation_errors_for(&self.model());
+        self.commit_validation(next);
+    }
+
+    fn validation_errors_for(&self, model: &M) -> BTreeMap<String, String> {
         let mut next = BTreeMap::new();
         for (field, validator) in lock(&self.field_validators).iter() {
-            if let Some(error) = validator(&model) {
+            if let Some(error) = validator(model) {
                 next.insert(field.clone(), error);
             }
         }
         for validator in lock(&self.model_validators).iter() {
-            next.extend(validator(&model));
+            next.extend(validator(model));
         }
-        let changed = {
+        next
+    }
+
+    fn commit_validation(&self, next: BTreeMap<String, String>) {
+        if self.replace_validation_errors(next) {
+            self.publish_validation_changed();
+        }
+    }
+
+    fn replace_validation_errors(&self, next: BTreeMap<String, String>) -> bool {
+        {
             let mut errors = lock(&self.errors);
             if *errors == next {
                 false
@@ -4438,17 +4498,27 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 *errors = next;
                 true
             }
-        };
-        if changed {
-            self.errors_changed.send(Message::Custom {
+        }
+    }
+
+    fn publish_validation_changed(&self) {
+        self.errors_changed.send(Message::Custom {
+            sender_id: self.component.id(),
+            name: "errors_changed".to_string(),
+        });
+        self.hub
+            .send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id: self.component.id(),
-                name: "errors_changed".to_string(),
+                property_name: "is_valid".to_string(),
+            }));
+    }
+
+    fn publish_approve_state_change(&self, previous: bool) {
+        if self.can_approve() != previous {
+            self.approve_can_execute_changed.send(Message::Custom {
+                sender_id: self.component.id(),
+                name: "can_execute_changed".to_string(),
             });
-            self.hub
-                .send(Message::PropertyChanged(PropertyChangedMessage {
-                    sender_id: self.component.id(),
-                    property_name: "is_valid".to_string(),
-                }));
         }
     }
 }
@@ -4460,6 +4530,7 @@ pub struct FormVmBuilder<M: Clone + PartialEq + Send + 'static> {
     strict: bool,
     hub: MessageHub,
     snapshotter: FormSnapshotter<M>,
+    reset_on_approved: Option<FormResetOnApproved<M>>,
     field_validators: BTreeMap<String, FieldValidator<M>>,
     model_validators: Vec<ModelValidator<M>>,
 }
@@ -4472,6 +4543,7 @@ impl<M: Clone + PartialEq + Send + 'static> Default for FormVmBuilder<M> {
             strict: false,
             hub: NullMessageHub::hub(),
             snapshotter: Arc::new(|model| model.clone()),
+            reset_on_approved: None,
             field_validators: BTreeMap::new(),
             model_validators: Vec::new(),
         }
@@ -4514,6 +4586,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
         self
     }
 
+    /// Derives the next pristine model from the captured value after a
+    /// successful persist.
+    pub fn reset_on_approved<F>(mut self, reset_on_approved: F) -> Self
+    where
+        F: Fn(&M) -> VmxResult<M> + Send + Sync + 'static,
+    {
+        self.reset_on_approved = Some(Arc::new(reset_on_approved));
+        self
+    }
+
     pub fn validator<F>(mut self, field: impl Into<String>, validator: F) -> Self
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
@@ -4548,12 +4630,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             ),
             snapshot: Arc::new(Mutex::new(snapshot)),
             persister,
+            snapshotter: self.snapshotter,
+            reset_on_approved: self.reset_on_approved,
             strict: Arc::new(Mutex::new(self.strict)),
             errors: Arc::new(Mutex::new(BTreeMap::new())),
             field_validators: Arc::new(Mutex::new(self.field_validators)),
             model_validators: Arc::new(Mutex::new(self.model_validators)),
             errors_changed: MessageHub::new(),
             approve_errors: MessageHub::new(),
+            approve_can_execute_changed: MessageHub::new(),
             approved_callbacks: Arc::new(Mutex::new(Vec::new())),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,

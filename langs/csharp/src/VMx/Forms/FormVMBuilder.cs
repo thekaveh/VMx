@@ -27,6 +27,7 @@ public sealed class FormVMBuilder<TM>
     private readonly Func<TM, TM>? _snapshotter;
     private readonly Dictionary<string, Func<TM, string?>> _validators;
     private readonly Func<TM, IReadOnlyDictionary<string, string?>>? _modelValidator;
+    private readonly Func<TM, TM>? _resetOnApproved;
 
     /// <summary>Empty starting builder.</summary>
     public static readonly FormVMBuilder<TM> Empty = new();
@@ -44,7 +45,8 @@ public sealed class FormVMBuilder<TM>
         bool strict,
         Func<TM, TM>? snapshotter,
         Dictionary<string, Func<TM, string?>> validators,
-        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator)
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator,
+        Func<TM, TM>? resetOnApproved)
     {
         _initial = initial;
         _initialSet = initialSet;
@@ -54,6 +56,7 @@ public sealed class FormVMBuilder<TM>
         _snapshotter = snapshotter;
         _validators = validators;
         _modelValidator = modelValidator;
+        _resetOnApproved = resetOnApproved;
     }
 
     // ── Fluent setters ───────────────────────────────────────────────────────
@@ -107,6 +110,13 @@ public sealed class FormVMBuilder<TM>
         Func<TM, IReadOnlyDictionary<string, string?>> modelValidator)
         => With(modelValidator: modelValidator);
 
+    /// <summary>
+    /// Sets an optional post-persist callback that derives the next pristine
+    /// model from the captured approved value.
+    /// </summary>
+    public FormVMBuilder<TM> ResetOnApproved(Func<TM, TM> resetOnApproved)
+        => With(resetOnApproved: resetOnApproved);
+
     // ── Build ────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -127,7 +137,8 @@ public sealed class FormVMBuilder<TM>
             _strict,
             _snapshotter,
             _validators,
-            _modelValidator);
+            _modelValidator,
+            _resetOnApproved);
     }
 
     // ── Wither ───────────────────────────────────────────────────────────────
@@ -140,7 +151,8 @@ public sealed class FormVMBuilder<TM>
         bool? strict = null,
         Func<TM, TM>? snapshotter = null,
         Dictionary<string, Func<TM, string?>>? validators = null,
-        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null)
+        Func<TM, IReadOnlyDictionary<string, string?>>? modelValidator = null,
+        Func<TM, TM>? resetOnApproved = null)
         => new(
             initialSet == true ? initial : _initial,
             initialSet ?? _initialSet,
@@ -149,5 +161,6 @@ public sealed class FormVMBuilder<TM>
             strict ?? _strict,
             snapshotter ?? _snapshotter,
             validators ?? _validators,
-            modelValidator ?? _modelValidator);
+            modelValidator ?? _modelValidator,
+            resetOnApproved ?? _resetOnApproved);
 }

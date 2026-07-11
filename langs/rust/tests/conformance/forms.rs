@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 
 use vmx::{
     Command, DialogService, FormVm, Message, MessageHub, ModalVm, NullDialogService, VmxError,
@@ -396,4 +396,268 @@ fn clearing_errors_enables_approval() {
 
     assert!(form.is_valid());
     assert!(form.approve_command().can_execute());
+}
+
+/// FORM-024 — Reset runs after persistence and OnApproved receives the captured model
+#[test]
+fn reset_runs_after_persist_and_approved_uses_captured_model() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let persist_order = order.clone();
+    let reset_order = order.clone();
+    let form = FormVm::builder()
+        .initial("initial".to_string())
+        .persister(move |model| {
+            persist_order
+                .lock()
+                .unwrap()
+                .push(format!("persist:{model}"));
+            Ok(())
+        })
+        .reset_on_approved(move |model| {
+            reset_order.lock().unwrap().push(format!("reset:{model}"));
+            Ok("reset".to_string())
+        })
+        .build()
+        .unwrap();
+    let approved_order = order.clone();
+    let observed_form = form.clone();
+    form.on_approved(move |model| {
+        assert_eq!(observed_form.model(), "reset");
+        assert_eq!(observed_form.snapshot(), "reset");
+        assert!(!observed_form.is_dirty());
+        approved_order
+            .lock()
+            .unwrap()
+            .push(format!("approved:{model}"));
+    });
+    form.set_model("saved".to_string());
+
+    form.approve().unwrap();
+
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec!["persist:saved", "reset:saved", "approved:saved"]
+    );
+    assert_eq!(form.model(), "reset");
+    assert_eq!(form.snapshot(), "reset");
+    assert!(!form.is_dirty());
+}
+
+#[derive(Clone, Debug)]
+struct ResetModel {
+    value: String,
+    nested: Arc<Mutex<Vec<i32>>>,
+}
+
+impl PartialEq for ResetModel {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && *self.nested.lock().unwrap() == *other.nested.lock().unwrap()
+    }
+}
+
+/// FORM-025 — Reset output is snapshotted twice, independent, revalidated, and strict-clean
+#[test]
+fn reset_is_snapshotted_twice_and_revalidated() {
+    let calls = Arc::new(Mutex::new(0));
+    let calls_inner = calls.clone();
+    let form = FormVm::builder()
+        .initial(ResetModel {
+            value: "initial".into(),
+            nested: Arc::new(Mutex::new(vec![])),
+        })
+        .persister(|_| Ok(()))
+        .strict(true)
+        .snapshotter(move |model| {
+            *calls_inner.lock().unwrap() += 1;
+            ResetModel {
+                value: model.value.clone(),
+                nested: Arc::new(Mutex::new(model.nested.lock().unwrap().clone())),
+            }
+        })
+        .validator("value", |model| {
+            model.value.is_empty().then(|| "required".to_string())
+        })
+        .reset_on_approved(|_| {
+            Ok(ResetModel {
+                value: String::new(),
+                nested: Arc::new(Mutex::new(vec![1])),
+            })
+        })
+        .build()
+        .unwrap();
+    *calls.lock().unwrap() = 0;
+    let approve_command = form.approve_command();
+    form.set_model(ResetModel {
+        value: "saved".into(),
+        nested: Arc::new(Mutex::new(vec![])),
+    });
+    let notifications_before_approve = approve_command.can_execute_changed().history().len();
+
+    form.approve().unwrap();
+
+    assert_eq!(*calls.lock().unwrap(), 2);
+    assert!(!Arc::ptr_eq(&form.model().nested, &form.snapshot().nested));
+    assert_eq!(form.field_error("value"), Some("required".to_string()));
+    assert!(!form.is_valid());
+    assert!(!approve_command.can_execute());
+    assert_eq!(
+        approve_command.can_execute_changed().history().len(),
+        notifications_before_approve + 1
+    );
+}
+
+/// FORM-026 — Post-persist reset failure is atomic and observed exactly once
+#[test]
+fn reset_failure_is_atomic_and_singly_observed() {
+    let persisted = Arc::new(Mutex::new(0));
+    let persisted_inner = persisted.clone();
+    let direct = FormVm::builder()
+        .initial("initial".to_string())
+        .persister(move |_| {
+            *persisted_inner.lock().unwrap() += 1;
+            Ok(())
+        })
+        .reset_on_approved(|_| Err(VmxError::Other("reset failed".to_string())))
+        .build()
+        .unwrap();
+    direct.set_model("saved".to_string());
+    assert!(direct.approve().is_err());
+    assert_eq!(*persisted.lock().unwrap(), 1);
+    assert_eq!(direct.model(), "saved");
+    assert_eq!(direct.snapshot(), "initial");
+    assert!(direct.approve_errors().history().is_empty());
+
+    let command = FormVm::builder()
+        .initial("initial".to_string())
+        .persister(|_| Ok(()))
+        .reset_on_approved(|_| Err(VmxError::Other("reset failed".to_string())))
+        .build()
+        .unwrap();
+    command.set_model("saved".to_string());
+    command.approve_command().execute();
+    assert_eq!(command.approve_errors().history().len(), 1);
+}
+
+/// FORM-027 — Reset is skipped without successful approval
+#[test]
+fn reset_is_skipped_without_successful_approval() {
+    let calls = Arc::new(Mutex::new(0));
+    let reset = {
+        let calls = calls.clone();
+        move |model: &i32| {
+            *calls.lock().unwrap() += 1;
+            Ok(*model)
+        }
+    };
+    let invalid = FormVm::builder()
+        .initial(0)
+        .persister(|_| Ok(()))
+        .validator("value", |model| {
+            (*model == 0).then(|| "required".to_string())
+        })
+        .reset_on_approved(reset)
+        .build()
+        .unwrap();
+    assert!(invalid.approve().is_err());
+    let failed_calls = calls.clone();
+    let failed = FormVm::builder()
+        .initial(1)
+        .persister(|_| Err(VmxError::Other("persist failed".to_string())))
+        .reset_on_approved(move |model| {
+            *failed_calls.lock().unwrap() += 1;
+            Ok(*model)
+        })
+        .build()
+        .unwrap();
+    assert!(failed.approve().is_err());
+    let denied_calls = calls.clone();
+    let denied = FormVm::builder()
+        .initial(1)
+        .persister(|_| Ok(()))
+        .reset_on_approved(move |model| {
+            *denied_calls.lock().unwrap() += 1;
+            Ok(*model)
+        })
+        .build()
+        .unwrap();
+    denied.set_model(2);
+    denied.deny_command().execute();
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+/// FORM-028 — Disposal during persistence suppresses reset and notification
+#[test]
+fn disposal_during_persist_suppresses_reset() {
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let persist_entered = entered.clone();
+    let persist_release = release.clone();
+    let resets = Arc::new(Mutex::new(0));
+    let resets_inner = resets.clone();
+    let form = FormVm::builder()
+        .initial(1)
+        .persister(move |_| {
+            persist_entered.wait();
+            persist_release.wait();
+            Ok(())
+        })
+        .reset_on_approved(move |model| {
+            *resets_inner.lock().unwrap() += 1;
+            Ok(*model)
+        })
+        .build()
+        .unwrap();
+    form.set_model(2);
+    let worker_form = form.clone();
+    let worker = std::thread::spawn(move || worker_form.approve());
+    entered.wait();
+    form.dispose();
+    release.wait();
+    worker.join().unwrap().unwrap();
+
+    assert_eq!(*resets.lock().unwrap(), 0);
+    assert_eq!(form.model(), 2);
+    assert_eq!(form.snapshot(), 1);
+}
+
+/// FORM-029 — Reset is authoritative over a racing model mutation
+#[test]
+fn reset_wins_racing_model_mutation() {
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let persist_entered = entered.clone();
+    let persist_release = release.clone();
+    let reset_inputs = Arc::new(Mutex::new(Vec::new()));
+    let reset_inputs_inner = reset_inputs.clone();
+    let form = FormVm::builder()
+        .initial("initial".to_string())
+        .persister(move |_| {
+            persist_entered.wait();
+            persist_release.wait();
+            Ok(())
+        })
+        .validator("value", |model| {
+            model.is_empty().then(|| "required".to_string())
+        })
+        .reset_on_approved(move |model| {
+            reset_inputs_inner.lock().unwrap().push(model.clone());
+            Ok(format!("reset:{model}"))
+        })
+        .build()
+        .unwrap();
+    let approve_command = form.approve_command();
+    form.set_model("saved".to_string());
+    let worker_form = form.clone();
+    let worker = std::thread::spawn(move || worker_form.approve());
+    entered.wait();
+    form.set_model(String::new());
+    release.wait();
+    worker.join().unwrap().unwrap();
+
+    assert_eq!(*reset_inputs.lock().unwrap(), vec!["saved"]);
+    assert_eq!(form.model(), "reset:saved");
+    assert_eq!(form.snapshot(), "reset:saved");
+    assert!(!form.is_dirty());
+    assert!(approve_command.can_execute());
+    assert_eq!(approve_command.can_execute_changed().history().len(), 2);
 }

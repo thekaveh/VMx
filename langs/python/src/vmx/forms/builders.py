@@ -50,6 +50,7 @@ class FormVMBuilder(Generic[TM]):
     _model_validator: Callable[[Any], Mapping[str, str | None]] | None = dataclasses.field(
         default=None
     )
+    _reset_on_approved: Callable[[Any], Any] | None = dataclasses.field(default=None)
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -93,6 +94,10 @@ class FormVMBuilder(Generic[TM]):
         """Register a model-level validator returning field-name errors."""
         return dataclasses.replace(self, _model_validator=value)
 
+    def reset_on_approved(self, value: Callable[[TM], TM]) -> FormVMBuilder[TM]:
+        """Derive the next pristine model after persistence succeeds."""
+        return dataclasses.replace(self, _reset_on_approved=value)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> FormVM[TM]:
@@ -121,6 +126,7 @@ class FormVMBuilder(Generic[TM]):
             snapshotter=self._snapshotter,
             validators=self._validators,
             model_validator=self._model_validator,
+            reset_on_approved=self._reset_on_approved,
         )
 
 

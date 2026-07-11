@@ -34,6 +34,7 @@ public final class FormVM<Model> {
     private let equals: (Model, Model) -> Bool
     private let validators: [String: (Model) -> String?]
     private let modelValidator: ((Model) -> [String: String?])?
+    private let resetOnApproved: ((Model) throws -> Model)?
     private var _errors: [String: String]
 
     // ── Reactive channels (sealed) ────────────────────────────────────────────
@@ -59,6 +60,8 @@ public final class FormVM<Model> {
     ///     (Swift structs are copied on assignment).
     ///   - equals: Equality predicate for dirty-tracking.
     ///     `isDirty == !equals(model, snapshot)`.
+    ///   - resetOnApproved: Optional throwing callback that derives the next
+    ///     pristine model from the captured value after persistence succeeds.
     public init(
         initial: Model,
         persister: @escaping (Model) async throws -> Void,
@@ -67,6 +70,7 @@ public final class FormVM<Model> {
         snapshotter: @escaping (Model) -> Model = { $0 },
         validators: [String: (Model) -> String?] = [:],
         modelValidator: ((Model) -> [String: String?])? = nil,
+        resetOnApproved: ((Model) throws -> Model)? = nil,
         equals: @escaping (Model, Model) -> Bool
     ) {
         self._model = initial
@@ -77,6 +81,7 @@ public final class FormVM<Model> {
         self.equals = equals
         self.validators = validators
         self.modelValidator = modelValidator
+        self.resetOnApproved = resetOnApproved
         // Capture snapshot at construction via snapshotter.
         self._snapshot = snapshotter(initial)
         self._errors = Self.validate(
@@ -191,10 +196,32 @@ public final class FormVM<Model> {
 
         guard !_disposed else { return }
 
-        // Success: advance snapshot then notify.
+        // Success: atomically install the configured reset state, or preserve
+        // the legacy snapshot-advance behavior when no reset is configured.
         let wasDirty = isDirty
-        _snapshot = snapshotter(current)
-        if strict && isDirty != wasDirty {
+        let wasValid = isValid
+        if let resetOnApproved {
+            // Prepare the callback result, independent live/snapshot values,
+            // and validation before committing local state.
+            let reset = try resetOnApproved(current)
+            let nextModel = snapshotter(reset)
+            let nextSnapshot = snapshotter(reset)
+            let nextErrors = Self.validate(
+                nextModel,
+                validators: validators,
+                modelValidator: modelValidator
+            )
+
+            _model = nextModel
+            _snapshot = nextSnapshot
+            if nextErrors != _errors {
+                _errors = nextErrors
+                _errorsChanged.send(nextErrors)
+            }
+        } else {
+            _snapshot = snapshotter(current)
+        }
+        if (strict && isDirty != wasDirty) || isValid != wasValid {
             _approveCanExecSubject.send(())
         }
         _onApproved.send(current)
@@ -320,7 +347,8 @@ extension FormVM where Model: Equatable {
         strict: Bool = false,
         snapshotter: @escaping (Model) -> Model = { $0 },
         validators: [String: (Model) -> String?] = [:],
-        modelValidator: ((Model) -> [String: String?])? = nil
+        modelValidator: ((Model) -> [String: String?])? = nil,
+        resetOnApproved: ((Model) throws -> Model)? = nil
     ) {
         self.init(
             initial: initial,
@@ -330,6 +358,7 @@ extension FormVM where Model: Equatable {
             snapshotter: snapshotter,
             validators: validators,
             modelValidator: modelValidator,
+            resetOnApproved: resetOnApproved,
             equals: ==
         )
     }

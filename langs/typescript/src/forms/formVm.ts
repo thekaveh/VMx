@@ -22,6 +22,9 @@ export type Persister<TM> = (model: TM) => Promise<void>;
  */
 export type Snapshotter<TM> = (model: TM) => TM;
 
+/** Derives the next pristine model from the captured, persisted value. */
+export type ResetOnApproved<TM> = (model: TM) => TM;
+
 /** Field-level validator. Return a string error, or null/undefined when valid. */
 export type FieldValidator<TM> = (model: TM) => string | null | undefined;
 
@@ -35,7 +38,12 @@ export type ModelValidator<TM> = (model: TM) => Record<string, string | null | u
  */
 export type ModelEquals<TM> = (a: TM, b: TM) => boolean;
 
-type SnapshotPhase = "construction" | "approve snapshot advance" | "deny/revert";
+type SnapshotPhase =
+  | "construction"
+  | "approve snapshot advance"
+  | "approve reset model"
+  | "approve reset snapshot"
+  | "deny/revert";
 
 function hasReachableEnumerableAccessor(
   value: unknown,
@@ -268,6 +276,8 @@ export interface FormVMOptions<TM> {
   validators?: Record<string, FieldValidator<TM>>;
   /** Optional model-level validator returning field-name errors. */
   modelValidator?: ModelValidator<TM>;
+  /** Optional post-persist callback that derives the next pristine model. */
+  resetOnApproved?: ResetOnApproved<TM>;
 }
 
 /**
@@ -283,6 +293,7 @@ export class FormVM<TM> {
   readonly #equals: ModelEquals<TM>;
   readonly #validators: Record<string, FieldValidator<TM>>;
   readonly #modelValidator: ModelValidator<TM> | null;
+  readonly #resetOnApproved: ResetOnApproved<TM> | null;
   readonly #strict: boolean;
   readonly #hub: IMessageHub;
 
@@ -318,6 +329,7 @@ export class FormVM<TM> {
       equals,
       validators,
       modelValidator,
+      resetOnApproved,
     } = options;
 
     if (initial === null || initial === undefined) {
@@ -336,6 +348,7 @@ export class FormVM<TM> {
     this.#equals = equals ?? ((a: TM, b: TM) => deepEquals(a, b));
     this.#validators = { ...(validators ?? {}) };
     this.#modelValidator = modelValidator ?? null;
+    this.#resetOnApproved = resetOnApproved ?? null;
 
     this.#model = initial;
     this.#snapshot = this.#takeSnapshot(initial, "construction");
@@ -462,11 +475,31 @@ export class FormVM<TM> {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (this.#disposed) return;
 
-    // Success: advance snapshot and notify.
+    // Success: atomically install the configured reset state, or preserve the
+    // legacy snapshot-advance behavior when no reset is configured.
     const wasDirty = this.isDirty;
-    this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
+    const wasValid = Object.keys(this.#errors).length === 0;
+    let validityChanged = false;
+    if (this.#resetOnApproved !== null) {
+      // Prepare callback output, two independent values, and validation before
+      // committing any local field. A failure therefore leaves state intact.
+      const reset = this.#resetOnApproved(current);
+      const nextModel = this.#takeSnapshot(reset, "approve reset model");
+      const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
+      const nextErrors = this.#validate(nextModel);
+      validityChanged = (Object.keys(nextErrors).length === 0) !== wasValid;
 
-    if (this.#strict && this.isDirty !== wasDirty) {
+      this.#model = nextModel;
+      this.#snapshot = nextSnapshot;
+      if (!sameErrors(nextErrors, this.#errors)) {
+        this.#errors = nextErrors;
+        this.#errorsChanged.next({ ...nextErrors });
+      }
+    } else {
+      this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
+    }
+
+    if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
       this.#canExecuteTrigger.next();
     }
 
@@ -580,6 +613,7 @@ export class FormVMBuilder<TM> {
   #equals: ModelEquals<TM> | null = null;
   #validators: Record<string, FieldValidator<TM>> = {};
   #modelValidator: ModelValidator<TM> | null = null;
+  #resetOnApproved: ResetOnApproved<TM> | null = null;
 
   constructor(from?: FormVMBuilder<TM>) {
     if (from) {
@@ -592,6 +626,7 @@ export class FormVMBuilder<TM> {
       this.#equals = from.#equals;
       this.#validators = { ...from.#validators };
       this.#modelValidator = from.#modelValidator;
+      this.#resetOnApproved = from.#resetOnApproved;
     }
   }
 
@@ -660,6 +695,13 @@ export class FormVMBuilder<TM> {
     return b;
   }
 
+  /** Derive the next pristine model after persistence succeeds. */
+  resetOnApproved(value: ResetOnApproved<TM>): FormVMBuilder<TM> {
+    const b = new FormVMBuilder<TM>(this);
+    b.#resetOnApproved = value;
+    return b;
+  }
+
   /**
    * Validate required fields and construct a {@link FormVM}.
    *
@@ -679,6 +721,7 @@ export class FormVMBuilder<TM> {
     if (this.#equals !== null) options.equals = this.#equals;
     if (Object.keys(this.#validators).length > 0) options.validators = { ...this.#validators };
     if (this.#modelValidator !== null) options.modelValidator = this.#modelValidator;
+    if (this.#resetOnApproved !== null) options.resetOnApproved = this.#resetOnApproved;
 
     return new FormVM<TM>(options);
   }

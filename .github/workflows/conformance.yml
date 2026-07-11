@@ -101,7 +101,7 @@ jobs:
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift + rust)
         # All five flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 310-ID library catalog. Swift and Rust use
+        # 100% coverage of the full 316-ID library catalog. Swift and Rust use
         # doc-comment markers attached to real test functions, so this coverage
         # check does not need either toolchain. The tool exits non-zero if any
         # required language falls below full catalog coverage.

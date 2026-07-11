@@ -50,6 +50,9 @@ class FormVM(Generic[TM]):
         model is visible to :attr:`is_dirty` and restored by ``deny``/revert.
         Inject a custom snapshotter as the escape hatch for models that
         ``deepcopy`` cannot handle (e.g. live handles, unpicklable objects).
+    reset_on_approved:
+        Optional synchronous callback that derives the next pristine model
+        from the captured value after persistence succeeds.
     """
 
     def __init__(
@@ -61,6 +64,7 @@ class FormVM(Generic[TM]):
         snapshotter: Callable[[TM], TM] | None = None,
         validators: Mapping[str, FieldValidator[TM]] | None = None,
         model_validator: ModelValidator[TM] | None = None,
+        reset_on_approved: Callable[[TM], TM] | None = None,
     ) -> None:
         if initial is None:
             raise ValueError("initial must not be None")
@@ -75,6 +79,7 @@ class FormVM(Generic[TM]):
         )
         self._validators: dict[str, FieldValidator[TM]] = dict(validators or {})
         self._model_validator = model_validator
+        self._reset_on_approved = reset_on_approved
 
         self._model: TM = initial
         self._snapshot: TM = self._snapshotter(initial)
@@ -218,11 +223,27 @@ class FormVM(Generic[TM]):
         if self._disposed:
             return
 
-        # Success: advance snapshot and notify.
+        # Success: atomically install the configured reset state, or preserve
+        # the legacy snapshot-advance behavior when no reset is configured.
         was_dirty = self.is_dirty
-        self._snapshot = self._snapshotter(current)
+        was_valid = self.is_valid
+        if self._reset_on_approved is not None:
+            # Prepare callback output, independent live/snapshot values, and
+            # validation before committing any local state.
+            reset = self._reset_on_approved(current)
+            next_model = self._snapshotter(reset)
+            next_snapshot = self._snapshotter(reset)
+            next_errors = self._validate(next_model)
 
-        if self._strict and self.is_dirty != was_dirty:
+            self._model = next_model
+            self._snapshot = next_snapshot
+            if next_errors != self._errors:
+                self._errors = next_errors
+                self._errors_changed.on_next(dict(next_errors))
+        else:
+            self._snapshot = self._snapshotter(current)
+
+        if (self._strict and self.is_dirty != was_dirty) or self.is_valid != was_valid:
             self._can_execute_trigger.on_next(None)
 
         # Emit the value that was actually persisted (parity with C#'s

@@ -1701,9 +1701,9 @@ def forms_dialogs_notifications() -> Diagram:
         boxes=(
             Box(120, 170, 420, 128, "FormVM<TM>", ("Snapshot captured at construct()", "Model mutates via SetModel()", "IsDirty derives from Model vs Snapshot"), "frontend"),
             Box(120, 336, 200, 118, "DenyCommand", ("revert Model to Snapshot", "publish property changes"), "bus"),
-            Box(340, 336, 200, 118, "ApproveCommand", ("fire-and-forget entry point", "calls ApproveAsync()", "errors -> ApproveErrors"), "bus"),
+            Box(340, 336, 200, 118, "ApproveCommand", ("persist captured model", "optional reset -> pristine", "errors -> ApproveErrors"), "bus"),
             Box(120, 494, 420, 142, "Validation surface", ("field validators + model validator", "Errors / FieldError(field)", "IsValid gates approval", "strict mode = IsDirty && IsValid"), "database"),
-            Box(120, 678, 420, 146, "Success + failure channels", ("OnApproved emits persisted model", "ApproveAsync throws to awaiter", "command path surfaces failures on ApproveErrors"), "security"),
+            Box(120, 678, 420, 146, "Success + failure channels", ("reset commits before OnApproved", "OnApproved emits persisted model", "one failure observer per entry path"), "security"),
             Box(670, 210, 370, 128, "IDialogService", ("PickFileToOpen / PickFileToSave", "Confirm(message, title?)", "Notify(message, severity?)", "Present(modalVM) for VM-backed modals"), "security"),
             Box(670, 392, 370, 124, "ConfirmationDecoratorCommand", ("wraps delete or deny commands", "confirm delegate can call dialogService.Confirm()", "same pattern works for file/export prompts"), "bus"),
             Box(670, 570, 370, 140, "NullDialogService + cancellation", ("safe defaults: PickFile* -> null", "Confirm -> false, Notify -> no-op", "cancellation completes with safe default"), "generic"),
@@ -1745,7 +1745,7 @@ def forms_dialogs_notifications() -> Diagram:
                 "FormVM",
                 (
                     "FormVM is an edit-lifecycle primitive, not a persistence framework.",
-                    "Snapshot, dirty tracking, validation, and success/error channels all live on the VM surface.",
+                    "Snapshot, dirty tracking, validation, declarative reset, and success/error channels all live on the VM surface.",
                     "Dialog confirmation is documented composition, not a hard dependency.",
                 ),
             ),
