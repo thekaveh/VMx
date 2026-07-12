@@ -38,13 +38,20 @@ It contains no mutators, selection, batching, lifecycle, or ownership. Normal
 VM collections and both serviced collection types implement it without making
 caller-owned serviced values into VM children.
 
+It is additive and separate from every existing public collection interface,
+protocol, and trait. `IVmCollection`, `VmCollectionProto`, TypeScript
+`IVmCollection`, Swift `VMCollection`, and Rust `VmCollection` do not inherit or
+gain requirements. VMx's concrete composite/group and serviced
+sources conform directly; external collection implementations remain source
+and binary compatible and may opt into the new capability independently.
+
 The public capability and built-in adapters are explicit:
 
 | Flavor     | Capability                                       | Snapshot                      | Structural subscription                         |
 | ---------- | ------------------------------------------------ | ----------------------------- | ----------------------------------------------- |
 | C#         | `IObservableMembershipSource<T>`                 | `IReadOnlyList<T> Snapshot()` | `IDisposable SubscribeMembership(Action)`       |
 | Python     | `ObservableMembershipSource[T]` protocol         | `snapshot() -> tuple[T, ...]` | `subscribe_membership(callback) -> Disposable`  |
-| TypeScript | `ObservableMembershipSource<T extends object>`   | `snapshot(): readonly T[]`    | `subscribeMembership(callback): Subscription`   |
+| TypeScript | `ObservableMembershipSource<T>`                  | `snapshot(): readonly T[]`    | `subscribeMembership(callback): Subscription`   |
 | Swift      | `ObservableMembershipSource` (`Item: AnyObject`) | `snapshot() -> [Item]`        | `subscribeMembership(_:) -> AnyCancellable`     |
 | Rust       | `ObservableMembershipSource<T: VmNode>`          | `snapshot() -> Vec<T>`        | `subscribe_membership(handler) -> Subscription` |
 
@@ -73,13 +80,13 @@ all other item types use the selector overload.
 
 Their signatures return the same aggregate type and merely supply the selector:
 
-| Flavor     | Convenience signature                                                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| C#         | `static AggregateChangeStream<T> ForComponents(IObservableMembershipSource<T> source) where T : class, IComponentVM`                                                                 |
-| Python     | `AggregateChangeStream.for_components(source: ObservableMembershipSource[TComponent]) -> AggregateChangeStream[TComponent]`, with `TComponent` bound to the component protocol       |
-| TypeScript | `static forComponents<T extends ComponentVMBase>(source: ObservableMembershipSource<T>): AggregateChangeStream<T>`                                                                   |
-| Swift      | `static func forComponents<S>(_ source: S) -> AggregateChangeStream<S.Item> where S: ObservableMembershipSource, S.Item: ComponentVMBase`                                            |
-| Rust       | `AggregateChangeStream::for_components(source)` where the source implements `ObservableMembershipSource<T>` and `T` implements the additive `ObservablePropertySource: VmNode` trait |
+| Flavor     | Convenience signature                                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C#         | `AggregateChangeStream.ForComponents<T>(IObservableMembershipSource<T> source) -> AggregateChangeStream<T> where T : class, IComponentVM`                                             |
+| Python     | `AggregateChangeStream.for_components(source: ObservableMembershipSource[TComponent]) -> AggregateChangeStream[TComponent]`, with `TComponent` bound to the component protocol        |
+| TypeScript | `static forComponents<T extends ComponentVMBase>(source: ObservableMembershipSource<T>): AggregateChangeStream<T>`                                                                    |
+| Swift      | constrained extension on `AggregateChangeStream where Item: ComponentVMBase`: `static func forComponents<S>(_ source: S) -> Self where S: ObservableMembershipSource, S.Item == Item` |
+| Rust       | `AggregateChangeStream::for_components(source)` where the source implements `ObservableMembershipSource<T>` and `T` implements the additive `ObservablePropertySource: VmNode` trait  |
 
 Selected item streams are required to be non-failing. Swift uses `Failure == Never`, and Rust's local stream has no error channel. In the Rx flavors, an
 unexpected selected-stream error terminates only that item's current membership
@@ -120,11 +127,19 @@ Membership is tracked by stable object identity:
 - reference identity in C#, Python, TypeScript, and Swift;
 - `VmNode::id()` in Rust.
 
-The reference-flavor generic bounds reject value types at construction/compile
-time. Rust treats `VmNode::id()` uniqueness as the existing VM identity
-contract; two simultaneously present objects with the same ID are the same
-logical member and therefore share one refcounted subscription. The aggregate
-does not add equality or hashing fallbacks.
+The membership capability itself remains unconstrained in C# and TypeScript so
+existing generic serviced collections keep value-type/primitive compatibility;
+only `AggregateChangeStream<T>` applies the reference/object bound. Swift uses
+conditional conformance for reference-item serviced collections. Rust treats
+`VmNode::id()` uniqueness as the existing VM identity contract; two
+simultaneously present objects with the same ID are the same logical member and
+therefore share one refcounted subscription. The aggregate does not add
+equality or hashing fallbacks.
+
+C# supplies explicit capability methods on composite/group bases and both
+serviced types; `IVmCollection` remains unchanged. Its aggregate uses a private comparer
+implemented with `ReferenceEquals` and `RuntimeHelpers.GetHashCode`, not the
+newer BCL `ReferenceEqualityComparer`.
 
 Null members are invalid. Swift and Rust cannot express them and strict
 TypeScript excludes them statically; all flavors still validate snapshots at
@@ -148,10 +163,16 @@ language requires type erasure.
 ```csharp
 var aggregate = new AggregateChangeStream<Node>(
     source,
-    node => node.Model.State.PropertyChanged);
+    node => Observable
+        .FromEventPattern<PropertyChangedEventHandler, PropertyChangedEventArgs>(
+            handler => node.Model.State.PropertyChanged += handler,
+            handler => node.Model.State.PropertyChanged -= handler)
+        .Select(_ => Unit.Default));
 IObservable<AggregateChange<Node>> changes = aggregate.Observe(emitInitial: true);
 aggregate.Batch(() => Mutate());
 aggregate.Dispose();
+
+var componentAggregate = AggregateChangeStream.ForComponents(componentSource);
 ```
 
 ```python
@@ -284,11 +305,14 @@ subscriptions beyond what the host reactive library already specifies.
 The item-change selector is a total, nonthrowing precondition (Swift and Rust
 make that explicit in the type). C#, Python, and TypeScript build all newly
 required selected subscriptions into a temporary set before committing a
-membership resynchronization. If selection or subscription throws, temporary
-subscriptions are disposed, the aggregate atomically disposes itself, and the
-exception escapes the synchronous construction/structural callback. It never
-continues with a live but unobserved current member, and it invents no secondary
-error stream.
+membership resynchronization. If selection or subscription fails, temporary
+subscriptions are disposed and the aggregate atomically terminates with that
+error on its existing output error channel. Construction-time failure throws
+synchronously because no aggregate is returned. A later callback may also
+surface the exception to the mutator only where the host reactive primitive
+does so; RxJS reports observer exceptions through its own host mechanism, so
+portable callers rely on the terminal output error. No live but unobserved
+current member survives, and no secondary error stream is introduced.
 
 ## 6. Completion, disposal, and ownership
 
@@ -315,13 +339,15 @@ Add `AGCH-001..010` as one ten-ID catalog family:
 1. membership event resynchronizes before delivery;
 1. current selected item stream emits an item-identity event;
 1. members removed/replaced to a zero identity refcount become silent, while a
-   same-identity Replace remains observed;
+   same-identity Replace remains observed; selected-stream completion/error
+   terminates only the current positive-refcount epoch;
 1. Reset rebuilds membership without leaks or missed members;
 1. duplicate identity refcounting subscribes once and detaches last;
 1. nested explicit batch emits one final batch event, including failure exit;
 1. empty batch and Move subscription stability;
 1. reentrant membership mutation preserves FIFO consistency;
-1. idempotent disposal, ownership, and subscriber-failure isolation rules.
+1. null/selector transactional failure, terminal output error, idempotent
+   disposal, ownership, and subscriber-failure isolation rules.
 
 Coverage must exercise normal VM collections, unkeyed serviced collections,
 and keyed serviced collections across all five flavors. Tests use counted
@@ -329,11 +355,12 @@ selectors/subscriptions rather than timing-based leak assertions.
 
 ## 8. Consumer pilots and documentation
 
-Disposable Tableau validation must prove initial derived computation, one
-post-tree-attachment pulse, nested state updates, removed/reset silence,
-duplicate refcounting, and one final explicit-batch pulse. It should remove the
-revision counter, sender set, broad hub filter, and manual defer depth where the
-new scope substitutes directly.
+Disposable Tableau validation must aggregate the supported internal
+`cellComposite` source (not its `ObservableList` mirror) and prove initial
+derived computation, one post-tree-attachment pulse, nested state updates,
+removed/reset silence, duplicate refcounting, and one final explicit-batch
+pulse. It should remove the revision counter, sender set, broad hub filter, and
+manual defer depth while preserving post-tree-attachment timing explicitly.
 
 Disposable DayDreams validation keeps precise collection add/remove handling
 but replaces broad property-message casting with aggregate `item` events. It
@@ -348,10 +375,12 @@ and regenerate the in-repo, `.io`, and native wiki surfaces.
 Release metadata is part of the same change: bump `spec/VERSION`, every flavor's
 package and minimum-spec declarations, lockfiles/manifests, compatibility
 matrix, all flavor changelogs, and version/count claims in the root/spec/flavor
-READMEs. The normative library catalog rises from 363 to 373 IDs and the total
-including scenarios from 368 to 378. Generated `.io` and native-wiki outputs
-must be regenerated from the canonical documentation source and pass drift/link
-checks.
+READMEs and `AGENTS.md`. "Every minimum-spec" means the five core flavors;
+independently versioned C# companion packages keep their existing floors unless
+their own code changes. The normative library catalog rises from 363 to 373 IDs
+and the total including scenarios from 368 to 378. Generated `.io` and
+native-wiki outputs must be regenerated from the canonical documentation source
+and pass drift/link checks.
 
 ## 9. Rejected alternatives
 
