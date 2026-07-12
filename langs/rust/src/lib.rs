@@ -4568,6 +4568,8 @@ pub struct SearchableState<T: Clone + Send + Sync + 'static> {
     search_term: Arc<Mutex<String>>,
     predicate: SearchPredicate<T>,
     filtered_changed: MessageHub,
+    source_changes_subscription: Arc<Mutex<Option<Subscription>>>,
+    disposed: Arc<AtomicBool>,
 }
 
 impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
@@ -4575,7 +4577,14 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
     where
         F: Fn(&T, &str) -> bool + Send + Sync + 'static,
     {
-        Self::from_items(move || source.clone(), predicate)
+        Self::build(move || source.clone(), predicate, None)
+    }
+
+    pub fn new_with_changes<F>(source: Vec<T>, predicate: F, source_changes: MessageHub) -> Self
+    where
+        F: Fn(&T, &str) -> bool + Send + Sync + 'static,
+    {
+        Self::build(move || source.clone(), predicate, Some(source_changes))
     }
 
     pub fn from_items<S, F>(source: S, predicate: F) -> Self
@@ -4583,12 +4592,59 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         S: Fn() -> Vec<T> + Send + Sync + 'static,
         F: Fn(&T, &str) -> bool + Send + Sync + 'static,
     {
-        Self {
-            source: Arc::new(source),
+        Self::build(source, predicate, None)
+    }
+
+    pub fn from_items_with_changes<S, F>(
+        source: S,
+        predicate: F,
+        source_changes: MessageHub,
+    ) -> Self
+    where
+        S: Fn() -> Vec<T> + Send + Sync + 'static,
+        F: Fn(&T, &str) -> bool + Send + Sync + 'static,
+    {
+        Self::build(source, predicate, Some(source_changes))
+    }
+
+    fn build<S, F>(source: S, predicate: F, source_changes: Option<MessageHub>) -> Self
+    where
+        S: Fn() -> Vec<T> + Send + Sync + 'static,
+        F: Fn(&T, &str) -> bool + Send + Sync + 'static,
+    {
+        let source: ItemsProvider<T> = Arc::new(source);
+        if source_changes.is_some() {
+            // First half of snapshot/attach reconciliation. The Rust facade is
+            // pull-based, so the constructor does not retain this projection.
+            let _ = source();
+        }
+        let state = Self {
+            source,
             search_term: Arc::new(Mutex::new(String::new())),
             predicate: Arc::new(predicate),
             filtered_changed: MessageHub::new(),
+            source_changes_subscription: Arc::new(Mutex::new(None)),
+            disposed: Arc::new(AtomicBool::new(false)),
+        };
+        if let Some(source_changes) = source_changes {
+            let filtered_changed = state.filtered_changed.clone();
+            let disposed = state.disposed.clone();
+            let subscription = source_changes.subscribe(move |_| {
+                if disposed.load(Ordering::Acquire) {
+                    return;
+                }
+                filtered_changed.send(Message::Custom {
+                    sender_id: 0,
+                    name: "filtered".to_string(),
+                });
+            });
+            *lock(&state.source_changes_subscription) = Some(subscription);
+
+            // Second half of reconciliation: anything that changed before
+            // attachment is visible to the first post-construction pull.
+            let _ = state.filtered();
         }
+        state
     }
 
     pub fn search_term(&self) -> String {
@@ -4596,6 +4652,9 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
     }
 
     pub fn set_search_term(&self, term: impl Into<String>) {
+        if self.disposed.load(Ordering::Acquire) {
+            return;
+        }
         let changed = {
             let mut current = lock(&self.search_term);
             let next = term.into();
@@ -4632,6 +4691,14 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
 
     pub fn filtered_changed(&self) -> MessageHub {
         self.filtered_changed.clone()
+    }
+
+    pub fn dispose(&self) {
+        if self.disposed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        lock(&self.source_changes_subscription).take();
+        self.filtered_changed.dispose();
     }
 }
 
