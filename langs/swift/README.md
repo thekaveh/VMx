@@ -5,9 +5,9 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.15.0 — total parity.** Covers **all 346 of 346** library conformance IDs
-from `spec-v3.15.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **351 total**, at
+**v3.16.0 — total parity.** Covers **all 354 of 354** library conformance IDs
+from `spec-v3.16.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **359 total**, at
 full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -22,7 +22,7 @@ batch-attachment IDs via ADR-0088; +8 whole-list replacement IDs via ADR-0089;
 +7 owned-resource/public-hub IDs via ADR-0090; +1 inert modeled-assignment ID
 via ADR-0091; +1 settled FormVM model-publication ID via ADR-0092; +1 explicit
 modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
-subscription IDs via ADR-0095):
+subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096):
 the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
@@ -48,7 +48,7 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.15.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.16.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -197,9 +197,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (351)
+## 5. Conformance — total parity (359)
 
-This flavor implements **all 346 library conformance IDs** from the
+This flavor implements **all 354 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -398,6 +398,7 @@ CMD-014..019    imperative relay-command requery notification (ADR-0086)
 COL-024..031    TokenPagedComposition cursor flow and source observation (ADR-0069)
 COL-032..039    shared VM collection move semantics (ADR-0085)
 COL-040..047    ObservableList atomic replaceAll semantics (ADR-0089)
+COL-048..055    complete serviced collection mutation parity (ADR-0096)
 COMP-028..037   FilteredCompositeVM and ScoredFilteredCompositeVM (ADR-0070)
 FORM-016..023   declarative FormVM field/model validation (ADR-0071)
 FORM-024..029   declarative post-persist FormVM reset (ADR-0087)
@@ -421,7 +422,7 @@ SUBV-001..004   fixed-source selected-state subscription (ADR-0095)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 346 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (351) with C#, Python, TypeScript, and Rust.**
+**All 354 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (359) with C#, Python, TypeScript, and Rust.**
 
 Run the suite:
 

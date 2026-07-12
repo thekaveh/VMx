@@ -4,6 +4,26 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.16.0] — 2026-07-12
+
+Implements `spec-v3.16.0` and keeps TypeScript at full library parity: 354/354
+conformance IDs covered.
+
+### Added
+
+- `ServicedObservableCollection<T>` adds first-match `remove`, strict
+  `removeAt`, named `replace`, snapshot-based `replaceAll`, and atomic `move`
+  while retaining `setAt`, splice, and array conveniences (`COL-048..055`,
+  ADR-0096).
+- Collection-change messages retain `index` and add precise `oldIndex` /
+  `newIndex` positions, including one Move delivered locally before the
+  optional hub sees the final state.
+
+### Changed
+
+- Empty clear, empty-to-empty replacement, and same-index move no-ops are
+  notification-free; serviced mutations never acquire item lifecycle ownership.
+
 ## [3.15.0] — 2026-07-11
 
 Implements `spec-v3.15.0` and keeps TypeScript at full library parity: 346/346

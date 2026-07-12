@@ -4,6 +4,26 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.16.0] — 2026-07-12
+
+Implements `spec-v3.16.0` and keeps C# at full library parity: 354/354
+conformance IDs covered.
+
+### Added
+
+- `ServicedObservableCollection<T>` adds named `Replace` and atomic,
+  snapshot-based `ReplaceAll`; inherited remove, indexed remove, replace, move,
+  and clear operations now expose the complete serviced mutation contract
+  (`COL-048..055`, ADR-0096).
+- Collection-change hub messages retain `Index` and add precise `OldIndex` /
+  `NewIndex` positions, including one forwarded Move message after local
+  observers receive the final state.
+
+### Changed
+
+- Empty clear and same-index move are true no-ops; reset/move operations never
+  acquire item lifecycle ownership.
+
 ## [3.15.0] — 2026-07-11
 
 Implements `spec-v3.15.0` and keeps C# at full library parity: 346/346
