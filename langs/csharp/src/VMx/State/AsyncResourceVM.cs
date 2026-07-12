@@ -212,6 +212,7 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         lock (_resourceGate)
         {
             if (_resourceDisposed) return;
+            if (externalToken.IsCancellationRequested) return;
             if (intent == StartIntent.Load && _state.Status != AsyncResourceStatus.Idle) return;
             if (intent == StartIntent.Reload && _state.Status == AsyncResourceStatus.Idle) return;
 
@@ -230,7 +231,6 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             var baseline = _stableState;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
             operation = new ResourceOperation(_operationIdentity, baseline, cts);
-            operation.Registration = cts.Token.Register(() => HandleCancellation(operation));
             _operation = operation;
 
             _state = _retention == AsyncResourceRetention.RetainPrevious &&
@@ -242,6 +242,11 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         previousOperation?.Cancel();
         if (cleanupDiscarded) Cleanup(discarded!);
         NotifyStateChanged();
+        // Register only after Loading has been published. Registration invokes
+        // synchronously if cancellation raced admission, so the handler then
+        // publishes the restored baseline in the correct visible order.
+        operation.Registration = operation.Cancellation.Token.Register(
+            () => HandleCancellation(operation));
 
         if (operation.Cancelled.Task.IsCompleted)
         {
@@ -420,9 +425,12 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
 
         public void Cancel()
         {
-            Cancelled.TrySetResult(true);
             try { Cancellation.Cancel(); }
             catch (ObjectDisposedException) { }
+            // The token callback restores the stable baseline before the
+            // prompt-return sentinel can release StartAsync. Otherwise a fast
+            // loader cancellation can dispose this registration first.
+            Cancelled.TrySetResult(true);
         }
 
         public void Dispose()

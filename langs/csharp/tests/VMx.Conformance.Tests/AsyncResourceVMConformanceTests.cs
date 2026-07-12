@@ -122,6 +122,18 @@ public sealed class AsyncResourceVMConformanceTests
         vm.State.Error.Should().BeNull();
         vm.Cancel();
         vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+
+        using var alreadyCancelled = new CancellationTokenSource();
+        alreadyCancelled.Cancel();
+        var invoked = false;
+        var preCancelled = Create(hub, _ =>
+        {
+            invoked = true;
+            return Task.FromResult(1);
+        });
+        await preCancelled.LoadAsync(alreadyCancelled.Token);
+        invoked.Should().BeFalse();
+        preCancelled.State.Status.Should().Be(AsyncResourceStatus.Idle);
     }
 
     [Fact, Trait("Conformance", "ARES-006")]
