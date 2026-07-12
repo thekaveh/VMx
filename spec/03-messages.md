@@ -409,9 +409,10 @@ fan-in, or automatic resubscription. Those remain issue #136. See ADR-0095.
 
 ## 8. Conformance
 
-`HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, and the null-object
-IDs `NULL-001` (NullMessageHub is a safe no-op) and `NULL-003` (paired null
-variants exist for the core service contracts) in `12-conformance.md` cover:
+`HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, `SUBV-001` through
+`SUBV-004`, and the null-object IDs `NULL-001` (NullMessageHub is a safe no-op)
+and `NULL-003` (paired null variants exist for the core service contracts) in
+`12-conformance.md` cover:
 
 - `Send` delivers to current subscribers synchronously
 - late subscribers do not see prior messages (no replay)
@@ -428,3 +429,11 @@ variants exist for the core service contracts) in `12-conformance.md` cover:
 - unchanged synchronous semantics for ordinary non-batch sends
 - `PropertyChangedMessage` emitted on real changes only (not on same-value sets)
 - sender identity / property name / sender name correctness
+- fixed-source selected-state subscription with initial/current/previous values,
+  optional immediate delivery, and default equality
+- custom equality with exactly one selector/equality evaluation per matching
+  property message
+- re-entrant FIFO delivery, batch final-state suppression, and deterministic
+  disposal including disposal during a callback
+- synchronous setup failure propagation and delivery-time subscriber failure
+  isolation with the selected baseline retained
