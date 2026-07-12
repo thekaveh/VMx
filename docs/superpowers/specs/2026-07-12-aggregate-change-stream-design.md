@@ -256,7 +256,10 @@ The aggregate owns a synchronous, ref-counted batch/defer scope:
 - the outermost exit emits exactly one `batch` event when dirty;
 - an empty batch emits nothing; and
 - if the body fails after a change, the final batch event is emitted and the
-  original error is rethrown. Cleanup failure must not replace that error.
+  original error is rethrown. If synchronous final-event delivery itself throws,
+  that cleanup exception is suppressed so it cannot replace the body error.
+  With no body error active, subscriber failure follows the host reactive
+  contract as usual.
 
 Native collection batches already publish one Reset, so they naturally cause
 one `membership` event. Current `hub.batch()` implementations expose neither an
@@ -285,6 +288,10 @@ Construction attaches the structural subscription under the serialized gate
 before taking the first snapshot. Structural callbacks during setup mark the
 snapshot stale; reconciliation repeats until it commits a snapshot with no
 intervening structural callback. Selected streams are staged before commit.
+This setup race publishes no `membership` history because the output is hot and
+not yet externally subscribable; a later subscriber may request its private
+`initial` readiness seed. Only structural pulses after construction publish a
+`membership` envelope.
 Synchronous item emissions during staging are buffered: after later structural
 reconciliation they queue behind its `membership` envelope, while during initial
 construction they are discarded as pre-existing state and the optional
@@ -307,12 +314,14 @@ make that explicit in the type). C#, Python, and TypeScript build all newly
 required selected subscriptions into a temporary set before committing a
 membership resynchronization. If selection or subscription fails, temporary
 subscriptions are disposed and the aggregate atomically terminates with that
-error on its existing output error channel. Construction-time failure throws
-synchronously because no aggregate is returned. A later callback may also
-surface the exception to the mutator only where the host reactive primitive
-does so; RxJS reports observer exceptions through its own host mechanism, so
-portable callers rely on the terminal output error. No live but unobserved
-current member survives, and no secondary error stream is introduced.
+error on its existing output error channel. Terminal failure detaches the
+structural subscription plus every staged and already admitted item
+subscription. Construction-time failure throws synchronously because no
+aggregate is returned. A later callback may also surface the exception to the
+mutator only where the host reactive primitive does so; RxJS reports observer
+exceptions through its own host mechanism, so portable callers rely on the
+terminal output error. No live but unobserved current member or subscription
+behind a dead output survives, and no secondary error stream is introduced.
 
 ## 6. Completion, disposal, and ownership
 
@@ -336,18 +345,21 @@ Add `AGCH-001..010` as one ten-ID catalog family:
 
 1. atomic per-subscriber optional initial event, no replay, and no synthetic
    revision state;
-1. membership event resynchronizes before delivery;
+1. setup races commit without replay while post-construction membership events
+   resynchronize before delivery;
 1. current selected item stream emits an item-identity event;
 1. members removed/replaced to a zero identity refcount become silent, while a
    same-identity Replace remains observed; selected-stream completion/error
    terminates only the current positive-refcount epoch;
 1. Reset rebuilds membership without leaks or missed members;
 1. duplicate identity refcounting subscribes once and detaches last;
-1. nested explicit batch emits one final batch event, including failure exit;
+1. nested explicit batch emits one final batch event, including body-failure
+   exit with original-error precedence;
 1. empty batch and Move subscription stability;
 1. reentrant membership mutation preserves FIFO consistency;
-1. null/selector transactional failure, terminal output error, idempotent
-   disposal, ownership, and subscriber-failure isolation rules.
+1. null/selector transactional failure with full subscription cleanup, terminal
+   output error, idempotent disposal, ownership, and subscriber-failure
+   isolation rules.
 
 Coverage must exercise normal VM collections, unkeyed serviced collections,
 and keyed serviced collections across all five flavors. Tests use counted
