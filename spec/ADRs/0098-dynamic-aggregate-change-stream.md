@@ -32,6 +32,24 @@ traits gain no requirement. The first release supports four source families:
 1. `ServicedObservableCollection`; and
 1. `KeyedServicedObservableCollection`.
 
+Rust's exact additive source contract is:
+
+```rust
+pub trait ObservableMembershipSource<T>: Clone + Send + Sync + 'static
+where
+    T: VmNode,
+{
+    fn snapshot(&self) -> Vec<T>;
+    fn subscribe_membership<F>(&self, handler: F) -> Subscription
+    where
+        F: Fn() + Send + Sync + 'static;
+}
+```
+
+`Clone` denotes a shared source handle, not a copied collection. `VmNode`,
+`VmCollection`, and all other existing Rust collection traits remain unchanged;
+external implementations gain no requirement.
+
 Normal VM collections map Add, Remove, Replace, Move, and Reset to a structural
 pulse. The serviced sources map their existing local collection notification.
 No adapter changes the source's item ownership.
@@ -43,6 +61,18 @@ local change stream. This permits nested state such as `item.model.state`, not
 only changes on the member itself. Each flavor also exposes an idiomatic
 `forComponents` / `ForComponents` convenience for the standard component
 property-change stream.
+
+Rust's `for_components` convenience uses a second independent additive trait:
+
+```rust
+pub trait ObservablePropertySource: VmNode {
+    fn property_changed(&self) -> PropertyChangedStream;
+}
+```
+
+The general selector overload requires no `ObservablePropertySource` bound.
+Adding the convenience does not extend `VmNode` or change existing external
+`VmNode` implementations.
 
 The hot output carries an `AggregateChange<T>` envelope with one reason:
 

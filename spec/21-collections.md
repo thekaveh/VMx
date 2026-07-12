@@ -922,6 +922,24 @@ The exact idiomatic capability surface is:
 | Swift      | `ObservableMembershipSource` (`Item: AnyObject`) | `snapshot() -> [Item]`        | `subscribeMembership(_:) -> AnyCancellable`     |
 | Rust       | `ObservableMembershipSource<T: VmNode>`          | `snapshot() -> Vec<T>`        | `subscribe_membership(handler) -> Subscription` |
 
+Rust's exact additive contract, including its handler bounds, is:
+
+```rust
+pub trait ObservableMembershipSource<T>: Clone + Send + Sync + 'static
+where
+    T: VmNode,
+{
+    fn snapshot(&self) -> Vec<T>;
+    fn subscribe_membership<F>(&self, handler: F) -> Subscription
+    where
+        F: Fn() + Send + Sync + 'static;
+}
+```
+
+The source's `Clone` is a shared handle, not a copied collection. `VmNode`,
+`VmCollection`, and all other existing Rust collection traits remain unchanged;
+external implementations gain no requirement.
+
 The capability is independent of every existing collection interface,
 protocol, and trait. Existing external implementations gain no requirement.
 VMx supplies it directly on these source families:
@@ -949,6 +967,19 @@ change stream. It MAY select nested state rather than the member's own property
 stream. Every flavor also provides an idiomatically named `ForComponents` /
 `for_components` / `forComponents` convenience that selects the standard
 component property-change stream.
+
+Rust's `for_components` convenience is constrained by this separate additive
+trait:
+
+```rust
+pub trait ObservablePropertySource: VmNode {
+    fn property_changed(&self) -> PropertyChangedStream;
+}
+```
+
+The general selector overload does not require `ObservablePropertySource`.
+This trait does not extend or modify `VmNode`, so existing external `VmNode`
+implementations remain source compatible.
 
 The aggregate output is hot. Each envelope has exactly one reason:
 
