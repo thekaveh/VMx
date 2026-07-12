@@ -47,6 +47,10 @@ export { BatchUpdateHandle, type IBatchable } from "./collections/batchUpdateHan
 export type { IVmCollection, ISelectableVmCollection } from "./collections/vmCollection.js";
 export { ServicedObservableCollection } from "./collections/servicedObservableCollection.js";
 export {
+  KeyedServicedObservableCollection,
+  type KeyedServicedObservableCollectionOptions,
+} from "./collections/keyedServicedObservableCollection.js";
+export {
   ObservableList,
   type ItemAddedEvent,
   type ItemRemovedEvent,
