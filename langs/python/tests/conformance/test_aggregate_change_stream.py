@@ -475,6 +475,43 @@ def test_AGCH_008_empty_batch_and_move_are_stable_and_all_sources_adapt() -> Non
     assert pending_observed == []
     pending.dispose()
 
+    recipient_item = Item("recipient-item")
+    recipient_source = _TestSource(recipient_item)
+    recipient_aggregate = aggregate(recipient_source)
+    early_changes: list[AggregateChange[Item]] = []
+    late_changes: list[AggregateChange[Item]] = []
+    recipient_aggregate.observe().subscribe(early_changes.append)
+    with recipient_aggregate.batch():
+        recipient_item.changes.emit()
+        recipient_aggregate.observe().subscribe(late_changes.append)
+    assert [change.reason for change in early_changes] == [AggregateChangeReason.BATCH]
+    assert late_changes == []
+    recipient_aggregate.dispose()
+
+    union_item = Item("union-item")
+    union_source = _TestSource(union_item)
+    union_aggregate = aggregate(union_source)
+    union_early: list[AggregateChange[Item]] = []
+    union_late: list[AggregateChange[Item]] = []
+    union_aggregate.observe().subscribe(union_early.append)
+    with union_aggregate.batch():
+        union_item.changes.emit()
+        union_aggregate.observe().subscribe(union_late.append)
+        union_item.changes.emit()
+    assert [change.reason for change in union_early] == [AggregateChangeReason.BATCH]
+    assert [change.reason for change in union_late] == [AggregateChangeReason.BATCH]
+    union_aggregate.dispose()
+
+    inactive_item = Item("inactive-item")
+    inactive_aggregate = aggregate(_TestSource(inactive_item))
+    inactive_changes: list[AggregateChange[Item]] = []
+    inactive_subscription = inactive_aggregate.observe().subscribe(inactive_changes.append)
+    with inactive_aggregate.batch():
+        inactive_item.changes.emit()
+        inactive_subscription.dispose()
+    assert inactive_changes == []
+    inactive_aggregate.dispose()
+
 
 @pytest.mark.conformance("AGCH-009")
 def test_AGCH_009_reentrant_work_is_fifo_and_readd_gets_a_fresh_epoch() -> None:

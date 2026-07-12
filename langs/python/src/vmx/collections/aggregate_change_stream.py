@@ -113,6 +113,7 @@ class AggregateChangeStream(Generic[T]):
         self._terminal_error: Exception | None = None
         self._batch_depth = 0
         self._batch_dirty = False
+        self._batch_recipients: dict[int, _Registration[T]] = {}
 
         with self._gate:
             try:
@@ -214,12 +215,13 @@ class AggregateChangeStream(Generic[T]):
             if self._completed or self._terminal_error is not None or setup_activity:
                 return
             coalesced = self._batch_depth > 0
+            recipients = self._current_registrations_locked()
             if coalesced:
-                self._batch_dirty = True
+                self._admit_batch_change_locked(recipients)
             self._work.append(
                 _Work(
                     "structural",
-                    recipients=self._current_registrations_locked(),
+                    recipients=recipients,
                     coalesced=coalesced,
                 )
             )
@@ -243,12 +245,13 @@ class AggregateChangeStream(Generic[T]):
                 entry.buffered_items += 1
                 return
             coalesced = self._batch_depth > 0
+            recipients = self._current_registrations_locked()
             if coalesced:
-                self._batch_dirty = True
+                self._admit_batch_change_locked(recipients)
             self._work.append(
                 _Work(
                     "item",
-                    recipients=self._current_registrations_locked(),
+                    recipients=recipients,
                     coalesced=coalesced,
                     entry=entry,
                     epoch=entry.epoch,
@@ -459,10 +462,12 @@ class AggregateChangeStream(Generic[T]):
         start = False
         with self._gate:
             self._batch_depth -= 1
-            if self._batch_depth == 0 and self._batch_dirty:
+            if self._batch_depth == 0:
+                dirty = self._batch_dirty
                 self._batch_dirty = False
-                if not self._completed and self._terminal_error is None:
-                    recipients = self._current_registrations_locked()
+                recipients = tuple(self._batch_recipients.values())
+                self._batch_recipients.clear()
+                if dirty and not self._completed and self._terminal_error is None:
                     if recipients:
                         self._work.append(
                             _Work(
@@ -546,9 +551,16 @@ class AggregateChangeStream(Generic[T]):
             self._safe_dispose(entry.subscription)
             entry.subscription = None
         self._entries.clear()
+        self._batch_dirty = False
+        self._batch_recipients.clear()
 
     def _current_registrations_locked(self) -> tuple[_Registration[T], ...]:
         return tuple(registration for registration in self._registrations if registration.active)
+
+    def _admit_batch_change_locked(self, recipients: tuple[_Registration[T], ...]) -> None:
+        self._batch_dirty = True
+        for registration in recipients:
+            self._batch_recipients.setdefault(id(registration), registration)
 
     def _start_processing_locked(self) -> bool:
         if self._processing or not self._work:
