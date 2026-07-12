@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Specialized;
+using System.Reactive.Disposables;
+using VMx.Collections;
 using VMx.Components;
 using VMx.Lifecycle;
 using VMx.Services;
@@ -15,7 +17,8 @@ namespace VMx.Composites;
 /// See spec/06-composite-vm.md.
 /// </summary>
 /// <typeparam name="VM">The child viewmodel type.</typeparam>
-public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, IParentCompositeVM
+public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
+    IParentCompositeVM, IObservableMembershipSource<VM>
     where VM : class, IComponentVM
 {
     private readonly bool _asyncSelection;
@@ -36,6 +39,22 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>, I
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<VM> Snapshot() => _children.ToArray();
+
+    /// <inheritdoc/>
+    public IDisposable SubscribeMembership(Action callback)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(callback);
+#else
+        if (callback is null) throw new ArgumentNullException(nameof(callback));
+#endif
+        NotifyCollectionChangedEventHandler handler = (_, _) => callback();
+        CollectionChanged += handler;
+        return Disposable.Create(() => CollectionChanged -= handler);
+    }
 
     // ── ICompositeVM: Current ─────────────────────────────────────────────────
 
