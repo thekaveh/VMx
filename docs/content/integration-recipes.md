@@ -58,8 +58,10 @@ Dispose the bridge with the adapter that owns `material`:
 exposureSubscription.unsubscribe();
 ```
 
-The immediate callback establishes the uniform before the first frame and
-receives the selected value as both current and previous. Later callbacks
+When installed during adapter setup, the immediate callback establishes the
+uniform before that adapter starts its first frame. Unconditionally, VMx invokes
+the immediate callback synchronously before attaching the hub subscription. It
+receives the selected value as both current and previous; later callbacks
 receive the changed current value and the prior selected value. The selector is
 reevaluated after any property message from this fixed `cameraVm`; `Object.is`
 suppresses unchanged selections by default, and the `equality` option can
