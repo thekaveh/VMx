@@ -45,12 +45,14 @@ remain issue #136.
    attachment. A mutation it performs is not replayed, and setup is not an
    atomic transaction with unrelated concurrent producers.
 
-1. For each matching property message, evaluate the selector once into `next`
-   and equality once as `(current, next)`. An equal result ends that delivery.
-   Otherwise retain the old value as `previous`, update the current baseline to
-   `next`, and only then call `callback(next, previous)`. Updating first ensures
-   a re-entrant source change compares against the newest baseline when the
-   hub's iterative FIFO drain reaches it.
+1. For each matching property message, evaluate the selector at most once into
+   `next`. If it returns successfully, evaluate equality exactly once as
+   `(current, next)`; selector failure evaluates equality zero times. An equal
+   result ends that delivery. Otherwise retain the old value as `previous`,
+   update the current baseline to `next`, and only then call
+   `callback(next, previous)`. Updating first ensures a re-entrant source change
+   compares against the newest baseline when the hub's iterative FIFO drain
+   reaches it.
 
 1. Default equality follows the flavor's normal value equality:
 
@@ -64,7 +66,8 @@ remain issue #136.
 
    Every flavor supports custom equality. Swift and Rust custom-comparator
    shapes do not require the default equality constraint. A comparator is
-   evaluated once per matching message.
+   evaluated exactly once after successful selector evaluation and zero times
+   if the selector fails.
 
 1. Initial-selector and immediate-callback failures propagate synchronously and
    attach no subscription. Delivery-time selector, equality, and callback

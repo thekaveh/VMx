@@ -375,7 +375,9 @@ Default equality is idiomatic:
 
 Every flavor also accepts custom equality; Swift and Rust expose a
 custom-comparator shape that does not require the default equality constraint.
-The selector and equality are each evaluated exactly once per matching message.
+The selector is evaluated at most once per matching message. Equality is
+evaluated exactly once after the selector returns successfully, and zero times
+if the selector fails.
 
 An initial-selector or immediate-callback failure propagates synchronously and
 no subscription is attached. A delivery-time selector, equality, or callback
