@@ -38,6 +38,31 @@ local.unsubscribe();
 equal-index move and empty clear are no-ops. Collection messages carry legacy
 `index` plus `oldIndex` / `newIndex`. Items remain caller-owned.
 
+Use `KeyedServicedObservableCollection<TKey,TItem>` when that ordered list also
+needs captured-key access:
+
+```typescript
+const notesById = new KeyedServicedObservableCollection<string, Note>({
+  keyOf: note => note.id,
+  hub,
+});
+notesById.push(first);
+const note = notesById.get(first.id);
+const added = notesById.upsert(revised); // false: Replace at stable position
+const removed = notesById.delete(first.id);
+```
+
+`has` tests membership. `pop` and native `splice` behavior remain available;
+splice projects inserted items and validates the complete candidate atomically
+before commit. Captured membership keys do not follow mutable item properties;
+use indexed replacement or delete-then-add to rekey explicitly. Upserting the
+same mutated instance can add a second membership under its new projected key.
+Duplicate/projector failure preserves state and emits nothing. Lookup and
+target discovery are expected O(1), append is amortized O(1), and ordered
+middle shifts remain O(n). Local delivery precedes optional hub publication;
+hub transactions defer only the latter. The collection has no batch, VM
+lifecycle interface, or ownership of stored items.
+
 ## Imperative Engine Bridge
 
 `subscribeValue` returns an RxJS `Subscription` and uses `Object.is` unless an

@@ -182,6 +182,7 @@ Key exports:
 | `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index (spec v3.17) |
 | `ObservableList<T>`             | Granular events + atomic `replaceAll`            |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
@@ -214,6 +215,26 @@ Indexed operations reject invalid positions atomically. Same-index move, empty
 clear, and empty-to-empty replacement are no-ops. Messages retain `index` and
 add `oldIndex` / `newIndex`; items remain caller-owned. Choose
 `ObservableList<T>` for list-local batching and the `Count` channel.
+
+Choose `KeyedServicedObservableCollection<TKey,TItem>` for stable-key access
+without changing the ordered message shape:
+
+```ts
+const notesById = new KeyedServicedObservableCollection<string, Note>({
+  keyOf: note => note.id,
+  hub,
+});
+notesById.push(first);
+const note = notesById.get(first.id);
+const added = notesById.upsert(revised); // false: Replace at stable position
+const removed = notesById.delete(first.id);
+```
+
+`has` tests membership; `pop` and atomic final-result `splice` remain available.
+Keys are captured until indexed replacement or delete-then-add. Duplicate and
+projector failures preserve state. Lookup/target discovery are expected O(1),
+while ordered middle shifts remain O(n). Local delivery stays immediate before
+optional hub delivery, and stored items remain caller-owned.
 
 ### 4.2 Raw message predicates
 

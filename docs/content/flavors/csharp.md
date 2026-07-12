@@ -19,7 +19,7 @@ companion assemblies for DI and notifications.
 
 `ServicedObservableCollection<T>` is an `ObservableCollection<T>` with normal
 local `CollectionChanged` delivery plus equivalent messages on an optional
-hub. Its v3.16 surface includes inherited `Add`, `Remove`, `RemoveAt`, `Move`,
+hub. Its complete surface includes inherited `Add`, `Remove`, `RemoveAt`, `Move`,
 `Clear`, the indexer, and named `Replace` / `ReplaceAll`:
 
 ```csharp
@@ -34,6 +34,28 @@ notes.ReplaceAll(serverSnapshot); // one Reset
 Invalid indices throw before mutation; equal-index Move and empty Clear are
 no-ops. Removal targets the first equal value and returns `false` when absent.
 The collection never disposes or reparents its items.
+
+Add `KeyedServicedObservableCollection<TKey,TItem>` when that same ordered,
+caller-owned list also needs stable-key access:
+
+```csharp
+var notesById = new KeyedServicedObservableCollection<Guid, Note>(
+    note => note.Id,
+    hub);
+notesById.Add(first);
+bool found = notesById.TryGetValue(first.Id, out Note? note);
+bool added = notesById.Upsert(revised); // false: Replace at the same position
+bool removed = notesById.RemoveKey(first.Id);
+```
+
+`ContainsKey` tests membership; an optional comparer follows the hub argument.
+The projected key is captured until indexed replacement or delete-then-add, so
+mutating `Id` does not silently rekey the membership. Duplicate projection and
+projector failure occur before mutation. Key lookup and target discovery are
+expected O(1), append is amortized O(1), and ordered middle shifts remain O(n).
+Local delivery is immediate and precedes optional hub publication; an existing
+hub transaction defers only the hub message. The keyed type still has no batch,
+`Count` notification channel, VM lifecycle interface, or item ownership.
 
 ## Imperative Engine Bridge
 

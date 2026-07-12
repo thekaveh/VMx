@@ -62,7 +62,9 @@ guarantee repeated and re-entrant disposal on their supported execution model.
   reference counting.
 - Command decorators and composites do not dispose caller-owned inner commands
   unless their type-specific contract explicitly says they own them.
-- `ServicedObservableCollection` never owns or disposes its items.
+- `ServicedObservableCollection` and `KeyedServicedObservableCollection` never
+  own or dispose their items and do not implement VM child-collection lifecycle
+  interfaces.
 - Subscription and batch handles release only the registration or batch scope
   they represent.
 

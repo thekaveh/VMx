@@ -173,6 +173,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
 | `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
 | `ServicedObservableCollection[T]`                 | Complete local-before-hub mutation surface (spec v3.16)                              |
+| `KeyedServicedObservableCollection[TKey, T]`      | Ordered serviced surface plus captured-key index (spec v3.17)                        |
 | `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
 | `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
@@ -203,6 +204,23 @@ out-of-range positions with `IndexError`. Empty Clear and empty-to-empty
 replacement are no-ops. Messages expose `index`, `old_index`, and `new_index`;
 the collection does not batch or own items. Use `ObservableList[T]` when you
 need batch scopes and the `Count` channel.
+
+Choose `KeyedServicedObservableCollection[TKey, T]` for one stable domain-key
+index without giving up list order or the full `MutableSequence` surface:
+
+```python
+notes_by_id = KeyedServicedObservableCollection[str, Note](lambda note: note.id, hub)
+notes_by_id.append(first)
+note = notes_by_id.get(first.id)
+added = notes_by_id.upsert(revised)  # False: Replace at stable position
+removed = notes_by_id.delete(first.id)
+```
+
+`contains_key` tests membership. Keys are captured until indexed replacement
+or delete-then-add; slice mutations and `reverse()` are atomic. Duplicate and
+projector failures preserve state. Lookup/target discovery are expected O(1),
+while ordered middle shifts remain O(n). Local delivery stays immediate even
+when an external hub transaction defers hub messages. Items remain caller-owned.
 
 ### 4.2 Imperative engine bridge
 

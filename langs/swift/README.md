@@ -169,6 +169,7 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `KeyedServicedObservableCollection<Key, T>` | Ordered serviced surface plus captured-key index (spec v3.17) |
 | `ObservableList<T>`             | Granular events, batch scopes, and atomic `replaceAll` |
 | `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` (spec v3.15) |
 
@@ -194,6 +195,24 @@ absent. `removeAt` / `replace` retain array-precondition bounds behavior;
 empty-to-empty replacement are no-ops. Messages expose `index`, `oldIndex`,
 and `newIndex`; the collection never owns items. Use `ObservableList<T>` for
 batching and `Count` notifications.
+
+Choose `KeyedServicedObservableCollection<Key,T>` for stable-key access while
+retaining the ordered message contract:
+
+```swift
+let notesByID = KeyedServicedObservableCollection<String, Note>(
+    keyOf: { $0.id }, hub: hub)
+try notesByID.append(first)
+let note = notesByID.get(first.id)
+let added = try notesByID.upsert(revised) // false: Replace at stable position
+let removed = notesByID.delete(first.id)
+```
+
+`containsKey` tests membership. Projecting mutations throw and commit
+atomically. Keys are captured until indexed replacement or delete-then-add.
+Lookup/target discovery are expected O(1), while ordered middle shifts remain
+O(n). Local Combine delivery stays immediate before optional hub publication;
+the collection never batches or owns item lifecycle.
 
 ### 4.2 Imperative engine bridge
 

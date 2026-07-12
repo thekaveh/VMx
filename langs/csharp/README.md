@@ -190,6 +190,7 @@ The public API lives under the `VMx.*` namespaces:
 | `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index (spec v3.17) |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
@@ -219,6 +220,24 @@ ReplaceAll are no-ops. Messages retain `Index` and add `OldIndex` / `NewIndex`;
 the collection never disposes or reparents its items. Choose `ObservableList<T>`
 instead for list-local batching and the `Count` channel, or a Group/Composite
 child collection for VM lifecycle ownership.
+
+Choose `KeyedServicedObservableCollection<TKey,TItem>` when that same ordered
+surface needs one stable domain-key index:
+
+```csharp
+var notesById = new KeyedServicedObservableCollection<Guid, Note>(
+    note => note.Id, hub);
+notesById.Add(first);
+notesById.TryGetValue(first.Id, out Note? note);
+bool added = notesById.Upsert(revised); // false: Replace at stable position
+bool removed = notesById.RemoveKey(first.Id);
+```
+
+`ContainsKey` tests membership. Keys are captured until indexed replacement or
+delete-then-add; mutating an item does not silently rekey it. Duplicate and
+projector failures are atomic. Lookup/target discovery are expected O(1), while
+ordered middle shifts remain O(n). Local delivery remains immediate before
+optional hub delivery, and the collection never batches or owns item lifecycle.
 
 ### 4.2 Imperative engine bridge
 

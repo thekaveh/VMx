@@ -37,6 +37,31 @@ old item, and report a resolved nonnegative message position. `move` rejects
 negative and out-of-range positions with `IndexError`. Empty Clear is a no-op,
 and the caller retains item lifecycle ownership.
 
+Use `KeyedServicedObservableCollection[TKey, T]` when the same sequence needs
+captured-key lookup and upsert without snapshot scans:
+
+```python
+notes_by_id = KeyedServicedObservableCollection[str, Note](
+    lambda note: note.id,
+    hub,
+)
+notes_by_id.append(first)
+note = notes_by_id.get(first.id)
+added = notes_by_id.upsert(revised)  # False: Replace at the same position
+removed = notes_by_id.delete(first.id)
+```
+
+`contains_key` tests membership. The type retains the full `MutableSequence`
+integer and slice surface; slice assignment/deletion and `reverse()` validate
+and commit atomically. A key is captured per membership, so mutating `id` does
+not silently rekey it; indexed replacement or delete-then-add is explicit.
+Duplicate keys, projector failures, and invalid slice shapes preserve state and
+emit nothing. A same mutated instance can occupy both its old and newly
+projected memberships. Lookup and target discovery are expected O(1), append is
+amortized O(1), and ordered middle shifts remain O(n). Local changes are
+immediate even when an external hub transaction defers hub publication. Items
+remain caller-owned, and the collection has no batch or VM lifecycle role.
+
 ## Imperative Engine Bridge
 
 `subscribe_value` returns Reactivex's `DisposableBase` and uses `==` unless an
