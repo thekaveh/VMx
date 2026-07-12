@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Reactive.Disposables;
 using VMx.Messages;
 using VMx.Services;
 
@@ -19,7 +20,7 @@ namespace VMx.Collections;
 /// See spec/21-collections.md §2, ADR-0024, and ADR-0096.
 /// </summary>
 /// <typeparam name="T">Element type.</typeparam>
-public class ServicedObservableCollection<T> : ObservableCollection<T>
+public class ServicedObservableCollection<T> : ObservableCollection<T>, IObservableMembershipSource<T>
 {
     private readonly IMessageHub? _hub;
 
@@ -30,6 +31,22 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>
     public ServicedObservableCollection(IMessageHub? hub = null)
     {
         _hub = hub;
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<T> Snapshot() => this.ToArray();
+
+    /// <inheritdoc/>
+    public IDisposable SubscribeMembership(Action callback)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(callback);
+#else
+        if (callback is null) throw new ArgumentNullException(nameof(callback));
+#endif
+        NotifyCollectionChangedEventHandler handler = (_, _) => callback();
+        CollectionChanged += handler;
+        return Disposable.Create(() => CollectionChanged -= handler);
     }
 
     /// <summary>Replaces the item at <paramref name="index"/>.</summary>

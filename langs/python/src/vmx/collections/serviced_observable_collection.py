@@ -5,11 +5,12 @@ See spec/21-collections.md §2 and ADR-0024.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, MutableSequence
+from collections.abc import Callable, Iterable, Iterator, MutableSequence
 from typing import Generic, TypeVar, overload
 
 import reactivex as rx
 from reactivex import operators as ops
+from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx.messages.collection_changed import CollectionChangedMessage
@@ -55,6 +56,14 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         internal stream (VMX-013).
         """
         return self._subject.pipe(ops.as_observable())
+
+    def snapshot(self) -> tuple[T, ...]:
+        """Return the current ordered membership snapshot."""
+        return tuple(self._items)
+
+    def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
+        """Subscribe to payload-free structural membership pulses."""
+        return self.on_collection_changed.subscribe(lambda _message: callback())
 
     # ── MutableSequence ABC ───────────────────────────────────────────────────
 

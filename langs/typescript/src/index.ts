@@ -45,6 +45,13 @@ export type {
 export { makeCollectionChangedEvent } from "./collections/collectionChangedEvent.js";
 export { BatchUpdateHandle, type IBatchable } from "./collections/batchUpdateHandle.js";
 export type { IVmCollection, ISelectableVmCollection } from "./collections/vmCollection.js";
+export type { ObservableMembershipSource } from "./collections/observableMembership.js";
+export {
+  AggregateChangeReason,
+  AggregateChangeStream,
+  type AggregateChange,
+  type AggregateObserveOptions,
+} from "./collections/aggregateChangeStream.js";
 export { ServicedObservableCollection } from "./collections/servicedObservableCollection.js";
 export {
   KeyedServicedObservableCollection,

@@ -10,6 +10,7 @@ from typing import Generic, TypeVar, overload
 
 import reactivex as rx
 from reactivex import operators as ops
+from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx.messages.collection_changed import CollectionChangedMessage
@@ -43,6 +44,14 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
     def on_collection_changed(self) -> rx.Observable[CollectionChangedMessage[T]]:
         """Hot, read-only stream of committed collection changes."""
         return self._subject.pipe(ops.as_observable())
+
+    def snapshot(self) -> tuple[T, ...]:
+        """Return the current ordered membership snapshot."""
+        return tuple(self._items)
+
+    def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
+        """Subscribe to payload-free structural membership pulses."""
+        return self.on_collection_changed.subscribe(lambda _message: callback())
 
     def __len__(self) -> int:
         return len(self._items)

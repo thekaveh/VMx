@@ -7,11 +7,12 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
+- Current source line: `vmx-rs` 0.18.0 implementing spec 3.18.0
 - Publication status: crates.io release channel not published yet
 - Reactive primitive: VMx-owned facade over `rxrust`
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 363 library IDs are covered by behavioral Rust tests
+- Conformance: all 373 library IDs are covered by behavioral Rust tests
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
 

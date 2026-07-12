@@ -27,11 +27,17 @@ import type {
   CollectionChangedEvent,
   IBatchable,
   ISelectableVmCollection,
+  ObservableMembershipSource,
 } from "../collections/index.js";
+import type { Subscription } from "rxjs";
 
 export abstract class CompositeVMBase<VM extends ComponentVMBase>
   extends ComponentVMBase
-  implements IParentVM, IBatchable, ISelectableVmCollection<VM>
+  implements
+    IParentVM,
+    IBatchable,
+    ISelectableVmCollection<VM>,
+    ObservableMembershipSource<VM>
 {
   readonly supportsChildSelection = true;
   readonly #asyncSelection: boolean;
@@ -140,6 +146,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   [Symbol.iterator](): Iterator<VM> {
     return this._children[Symbol.iterator]();
+  }
+
+  snapshot(): readonly VM[] {
+    return [...this._children];
+  }
+
+  subscribeMembership(callback: () => void): Subscription {
+    return this.#collectionChangedSubject.subscribe(() => callback());
   }
 
   at(index: number): VM {

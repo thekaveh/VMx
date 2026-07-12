@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.17.0** — implements `spec-v3.17.0` end-to-end. 363/363 library conformance IDs
+**v3.18.0** — implements `spec-v3.18.0` end-to-end. 373/373 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.17.0. The latest public PyPI package may
+The source tree currently implements v3.18.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -174,6 +174,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
 | `ServicedObservableCollection[T]`                 | Complete local-before-hub mutation surface (spec v3.16)                              |
 | `KeyedServicedObservableCollection[TKey, T]`      | Ordered serviced surface plus captured-key index (spec v3.17)                        |
+| `ObservableMembershipSource[T]` / `AggregateChangeStream[T]` | Dynamic membership-and-item fan-in with provenance (spec v3.18)          |
 | `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
 | `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
@@ -266,7 +267,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 363 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 373 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -299,6 +300,7 @@ v3.12  FORM-030
 v3.15  SUBV-001..004
 v3.16  COL-048..055
 v3.17  COL-056..064
+v3.18  AGCH-001..010
 ```
 
 Run the suite:

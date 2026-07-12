@@ -17,6 +17,7 @@ from typing import Generic, TypeVar
 
 import reactivex as rx
 from reactivex import operators as ops
+from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
@@ -113,6 +114,14 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         stream (VMX-013). The public type is ``Observable`` (was ``Subject``).
         """
         return self._collection_changed_subject.pipe(ops.as_observable())
+
+    def snapshot(self) -> tuple[VM, ...]:
+        """Return the current ordered child-membership snapshot."""
+        return tuple(self._children)
+
+    def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
+        """Subscribe to payload-free structural child-membership pulses."""
+        return self.on_collection_changed.subscribe(lambda _event: callback())
 
     # ── MutableSequence-like interface ───────────────────────────────────────
 

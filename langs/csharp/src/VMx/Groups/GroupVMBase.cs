@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Specialized;
+using System.Reactive.Disposables;
+using VMx.Collections;
 using VMx.Components;
 using VMx.Lifecycle;
 using VMx.Services;
@@ -18,7 +20,8 @@ namespace VMx.Groups;
 /// See spec/07-group-vm.md.
 /// </summary>
 /// <typeparam name="VM">The child viewmodel type.</typeparam>
-public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCompositeVM
+public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
+    IParentCompositeVM, IObservableMembershipSource<VM>
     where VM : class, IComponentVM
 {
     private readonly bool _autoConstructOnAdd;
@@ -33,6 +36,22 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>, IParentCo
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<VM> Snapshot() => _children.ToArray();
+
+    /// <inheritdoc/>
+    public IDisposable SubscribeMembership(Action callback)
+    {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(callback);
+#else
+        if (callback is null) throw new ArgumentNullException(nameof(callback));
+#endif
+        NotifyCollectionChangedEventHandler handler = (_, _) => callback();
+        CollectionChanged += handler;
+        return Disposable.Create(() => CollectionChanged -= handler);
+    }
 
     // ── Constructor ───────────────────────────────────────────────────────────
 

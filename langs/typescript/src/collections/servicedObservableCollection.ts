@@ -11,12 +11,16 @@
  * See spec/21-collections.md §2, ADR-0024, and ADR-0096.
  */
 import { Observable, Subject } from "rxjs";
+import type { Subscription } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
+import type { ObservableMembershipSource } from "./observableMembership.js";
 
 export { CollectionChangedMessage };
 
-export class ServicedObservableCollection<T> {
+export class ServicedObservableCollection<T>
+  implements ObservableMembershipSource<T>
+{
   readonly #hub: IMessageHub | null;
   #items: T[] = [];
   readonly #subject = new Subject<CollectionChangedMessage<T>>();
@@ -48,6 +52,14 @@ export class ServicedObservableCollection<T> {
 
   [Symbol.iterator](): IterableIterator<T> {
     return this.#items[Symbol.iterator]();
+  }
+
+  snapshot(): readonly T[] {
+    return this.toArray();
+  }
+
+  subscribeMembership(callback: () => void): Subscription {
+    return this.#subject.subscribe(() => callback());
   }
 
   // ── Mutations ───────────────────────────────────────────────────────────

@@ -17,6 +17,11 @@ observable views. See spec/21-collections.md §4 and ADR-0025.
 
 from __future__ import annotations
 
+from vmx.collections.aggregate_change_stream import (
+    AggregateChange,
+    AggregateChangeReason,
+    AggregateChangeStream,
+)
 from vmx.collections.batch import BatchUpdateHandle
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.collections.keyed_serviced_observable_collection import (
@@ -24,17 +29,22 @@ from vmx.collections.keyed_serviced_observable_collection import (
 )
 from vmx.collections.observable_dictionary import ObservableDictionary
 from vmx.collections.observable_list import ObservableList
+from vmx.collections.observable_membership import ObservableMembershipSource
 from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.protocols import SelectableVmCollectionProto, VmCollectionProto
 from vmx.collections.serviced_observable_collection import ServicedObservableCollection
 from vmx.collections.token_paged_composition import TokenPagedComposition
 
 __all__ = [
+    "AggregateChange",
+    "AggregateChangeReason",
+    "AggregateChangeStream",
     "BatchUpdateHandle",
     "CollectionChangedEvent",
     "KeyedServicedObservableCollection",
     "ObservableDictionary",
     "ObservableList",
+    "ObservableMembershipSource",
     "PagedComposition",
     "SelectableVmCollectionProto",
     "ServicedObservableCollection",
