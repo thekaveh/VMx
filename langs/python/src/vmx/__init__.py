@@ -131,6 +131,7 @@ from vmx.messages import (
     TreeStructureChangedMessage,
     TypedMessage,
     property_value_changed_messages_for,
+    subscribe_value,
     when_property_changed,
 )
 from vmx.properties import (
@@ -286,6 +287,7 @@ __all__ = [
     "from_two",
     "precede_with",
     "property_value_changed_messages_for",
+    "subscribe_value",
     "succeed_with",
     "walk",
     "walk_expanded",
