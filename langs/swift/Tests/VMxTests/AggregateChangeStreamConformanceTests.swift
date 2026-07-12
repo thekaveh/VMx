@@ -205,10 +205,10 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
     private func observe(
         _ aggregate: AggregateChangeStream<AggregateTestItem>,
         emitInitial: Bool = false,
-        into changes: inout [AggregateChange<AggregateTestItem>]
+        receiveValue: @escaping (AggregateChange<AggregateTestItem>) -> Void
     ) {
         aggregate.observe(emitInitial: emitInitial)
-            .sink { changes.append($0) }
+            .sink(receiveValue: receiveValue)
             .store(in: &cancellables)
     }
 
@@ -218,7 +218,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         let sut = aggregate(source)
         var plain: [AggregateChange<AggregateTestItem>] = []
         var seeded: [AggregateChange<AggregateTestItem>] = []
-        observe(sut, into: &plain)
+        observe(sut) { plain.append($0) }
 
         sut.observe(emitInitial: true).sink { change in
             seeded.append(change)
@@ -254,7 +254,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         XCTAssertEqual(raced.changes.subscribeCount, 1)
 
         var observed: [AggregateChange<AggregateTestItem>] = []
-        observe(sut, into: &observed)
+        observe(sut) { observed.append($0) }
         let synchronous = AggregateTestItem("synchronous")
         synchronous.changes.emitOnSubscribe = true
         source.add(synchronous)
@@ -322,7 +322,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         let item = AggregateTestItem("nested")
         let sut = aggregate(AggregateTestSource([item]))
         var observed: [AggregateChange<AggregateTestItem>] = []
-        observe(sut, into: &observed)
+        observe(sut) { observed.append($0) }
 
         item.changes.emit()
 
@@ -389,7 +389,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         let source = AggregateTestSource([item, item])
         let sut = aggregate(source)
         var observed: [AggregateChange<AggregateTestItem>] = []
-        observe(sut, into: &observed)
+        observe(sut) { observed.append($0) }
 
         XCTAssertEqual(item.changes.subscribeCount, 1)
         item.changes.emit()
@@ -407,7 +407,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         let source = AggregateTestSource([item])
         let sut = aggregate(source)
         var observed: [AggregateChange<AggregateTestItem>] = []
-        observe(sut, into: &observed)
+        observe(sut) { observed.append($0) }
 
         XCTAssertThrowsError(try sut.withBatch {
             item.changes.emit()
@@ -423,7 +423,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         var late: [AggregateChange<AggregateTestItem>] = []
         sut.withBatch {
             item.changes.emit()
-            observe(sut, into: &late)
+            observe(sut) { late.append($0) }
         }
         XCTAssertEqual(observed.map(\.reason), [.batch])
         XCTAssertTrue(late.isEmpty, "a late subscriber must not receive historical batch work")
@@ -443,7 +443,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
             }
         )
         var terminalObserved: [AggregateChange<AggregateTestItem>] = []
-        observe(terminalAggregate, into: &terminalObserved)
+        observe(terminalAggregate) { terminalObserved.append($0) }
         terminalAggregate.withBatch { terminalItem.changes.emit() }
         XCTAssertTrue(
             terminalObserved.isEmpty,
