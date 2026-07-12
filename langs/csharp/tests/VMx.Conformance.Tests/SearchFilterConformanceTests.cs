@@ -1,3 +1,8 @@
+using Microsoft.Reactive.Testing;
+using System.Reactive;
+using System.Reactive.Disposables;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Capabilities;
 using Xunit;
@@ -10,6 +15,17 @@ namespace VMx.Conformance.Tests;
 /// </summary>
 public class SearchFilterConformanceTests
 {
+    private sealed class OwnedSearchItem : IDisposable
+    {
+        public OwnedSearchItem(string value) => Value = value;
+
+        public string Value { get; }
+
+        public int DisposeCount { get; private set; }
+
+        public void Dispose() => DisposeCount++;
+    }
+
     private static bool CISubstr(string item, string term) =>
         term.Length == 0 || item.ToLowerInvariant().Contains(term.ToLowerInvariant(), StringComparison.Ordinal);
 
@@ -176,5 +192,199 @@ public class SearchFilterConformanceTests
         s.SearchTerm = "appl";  // same value
         snap.Count.Should().Be(afterFirst,
             "setting SearchTerm to the same value must NOT trigger a recompute");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-001")]
+    public void SRCH_001_Source_Signal_Refreshes_Unchanged_Term()
+    {
+        var items = new List<string> { "one" };
+        using var sourceChanges = new Subject<Unit>();
+        using var s = new SearchableState<string>(
+            () => items,
+            (_, _) => true,
+            debounce: TimeSpan.Zero,
+            sourceChanged: sourceChanges);
+        var snapshots = new List<IReadOnlyList<string>>();
+        using var subscription = s.Filtered.Subscribe(snapshots.Add);
+        var before = snapshots.Count;
+
+        items.Add("two");
+        sourceChanges.OnNext(Unit.Default);
+
+        snapshots.Should().HaveCount(before + 1);
+        snapshots.Last().Should().Equal("one", "two");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-002")]
+    public void SRCH_002_Source_Signal_Reads_Each_Latest_Ordered_Snapshot()
+    {
+        var items = new List<string> { "a", "b", "c" };
+        using var sourceChanges = new Subject<Unit>();
+        using var s = new SearchableState<string>(
+            () => items,
+            (_, _) => true,
+            debounce: TimeSpan.Zero,
+            sourceChanged: sourceChanges);
+        var snapshots = new List<IReadOnlyList<string>>();
+        using var subscription = s.Filtered.Subscribe(snapshots.Add);
+
+        items.RemoveAt(1);
+        sourceChanges.OnNext(Unit.Default);
+        snapshots.Last().Should().Equal("a", "c");
+
+        items[1] = "replacement";
+        sourceChanges.OnNext(Unit.Default);
+        snapshots.Last().Should().Equal("a", "replacement");
+
+        items.Clear();
+        items.Add("reset-1");
+        items.Add("reset-2");
+        items.Add("reset-3");
+        sourceChanges.OnNext(Unit.Default);
+        snapshots.Last().Should().Equal("reset-1", "reset-2", "reset-3");
+
+        items.Reverse();
+        sourceChanges.OnNext(Unit.Default);
+        snapshots.Last().Should().Equal("reset-3", "reset-2", "reset-1");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-003")]
+    public void SRCH_003_Pulses_Preserve_Equality_And_Upstream_Coalescing()
+    {
+        var items = new List<string> { "same" };
+        using var sourceChanges = new Subject<Unit>();
+        using var s = new SearchableState<string>(
+            () => items,
+            (_, _) => true,
+            debounce: TimeSpan.Zero,
+            sourceChanged: sourceChanges);
+        var snapshots = new List<IReadOnlyList<string>>();
+        using var subscription = s.Filtered.Subscribe(snapshots.Add);
+        var before = snapshots.Count;
+
+        sourceChanges.OnNext(Unit.Default);
+        sourceChanges.OnNext(Unit.Default);
+        snapshots.Should().HaveCount(before + 2);
+
+        items.Add("batched-1");
+        items.Add("batched-2");
+        sourceChanges.OnNext(Unit.Default);
+        snapshots.Should().HaveCount(before + 3);
+        snapshots.Last().Should().Equal("same", "batched-1", "batched-2");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-004")]
+    public void SRCH_004_Source_Refresh_Does_Not_Reset_Pending_Term_Debounce()
+    {
+        var scheduler = new TestScheduler();
+        var items = new List<string> { "alpha", "beta" };
+        using var sourceChanges = new Subject<Unit>();
+        using var s = new SearchableState<string>(
+            () => items,
+            CISubstr,
+            debounce: TimeSpan.FromTicks(10),
+            scheduler: scheduler,
+            sourceChanged: sourceChanges);
+        var snapshots = new List<IReadOnlyList<string>>();
+        using var subscription = s.Filtered.Subscribe(snapshots.Add);
+
+        s.SearchTerm = "alp";
+        items.Add("alpine");
+        var beforeSignal = snapshots.Count;
+        sourceChanges.OnNext(Unit.Default);
+
+        snapshots.Should().HaveCount(beforeSignal + 1);
+        snapshots.Last().Should().Equal("alpha", "alpine");
+
+        scheduler.AdvanceBy(9);
+        snapshots.Should().HaveCount(beforeSignal + 1);
+        scheduler.AdvanceBy(1);
+        snapshots.Should().HaveCount(beforeSignal + 2);
+        snapshots.Last().Should().Equal("alpha", "alpine");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-005")]
+    public void SRCH_005_Source_Error_Is_Isolated_From_Manual_Search()
+    {
+        var items = new List<string> { "one" };
+        using var sourceChanges = new Subject<Unit>();
+        using var s = new SearchableState<string>(
+            () => items,
+            (_, _) => true,
+            debounce: TimeSpan.Zero,
+            sourceChanged: sourceChanges);
+        var snapshots = new List<IReadOnlyList<string>>();
+        var filteredErrored = false;
+        var filteredCompleted = false;
+        using var subscription = s.Filtered.Subscribe(
+            snapshots.Add,
+            _ => filteredErrored = true,
+            () => filteredCompleted = true);
+
+        sourceChanges.OnError(new InvalidOperationException("source failed"));
+        items.Add("two");
+        s.Search();
+
+        filteredErrored.Should().BeFalse();
+        filteredCompleted.Should().BeFalse();
+        snapshots.Last().Should().Equal("one", "two");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-006")]
+    public void SRCH_006_Dispose_Cancels_Source_Once_Without_Owning_It()
+    {
+        var subscribeCount = 0;
+        var disposeCount = 0;
+        IObserver<Unit>? sourceObserver = null;
+        var sourceChanges = Observable.Create<Unit>(observer =>
+        {
+            subscribeCount++;
+            sourceObserver = observer;
+            return Disposable.Create(() => disposeCount++);
+        });
+        var items = new List<string> { "one" };
+        var s = new SearchableState<string>(
+            () => items,
+            (_, _) => true,
+            debounce: TimeSpan.Zero,
+            sourceChanged: sourceChanges);
+        var snapshots = new List<IReadOnlyList<string>>();
+        using var filteredSubscription = s.Filtered.Subscribe(snapshots.Add);
+
+        s.Dispose();
+        s.Dispose();
+        sourceObserver!.OnNext(Unit.Default);
+
+        subscribeCount.Should().Be(1);
+        disposeCount.Should().Be(1);
+        snapshots.Should().HaveCount(1);
+
+        using var independentSubscription = sourceChanges.Subscribe(_ => { });
+        subscribeCount.Should().Be(2, "disposing SearchableState must not dispose the signal");
+    }
+
+    [Fact, Trait("Conformance", "SRCH-007")]
+    public void SRCH_007_Omitted_Signal_Preserves_Explicit_Refresh_And_Item_Ownership()
+    {
+        var first = new OwnedSearchItem("one");
+        var second = new OwnedSearchItem("two");
+        var items = new List<OwnedSearchItem> { first };
+        var s = new SearchableState<OwnedSearchItem>(
+            () => items,
+            (_, _) => true,
+            debounce: TimeSpan.Zero);
+        var snapshots = new List<IReadOnlyList<OwnedSearchItem>>();
+        using var subscription = s.Filtered.Subscribe(snapshots.Add);
+        var beforeMutation = snapshots.Count;
+
+        items.Add(second);
+        snapshots.Should().HaveCount(beforeMutation);
+
+        s.Search();
+        snapshots.Last().Should().Equal(first, second);
+        s.Dispose();
+
+        first.DisposeCount.Should().Be(0);
+        second.DisposeCount.Should().Be(0);
     }
 }
