@@ -314,6 +314,42 @@ public sealed class AggregateChangeStreamConformanceTests
         pendingAggregate.Batch(() => { });
         Assert.Empty(pendingObserved);
 
+        var eligibilityItem = new TestItem("eligibility-item");
+        var eligibilitySource = new TestSource<TestItem>(eligibilityItem);
+        using var eligibilityAggregate = CreateAggregate(eligibilitySource);
+        var earlyBatchChanges = new List<AggregateChange<TestItem>>();
+        var lateBatchChanges = new List<AggregateChange<TestItem>>();
+        using var earlyBatchSubscription = eligibilityAggregate.Observe()
+            .Subscribe(earlyBatchChanges.Add);
+        IDisposable? lateBatchSubscription = null;
+
+        eligibilityAggregate.Batch(() =>
+        {
+            eligibilityItem.Changes.Emit();
+            lateBatchSubscription = eligibilityAggregate.Observe().Subscribe(lateBatchChanges.Add);
+        });
+
+        Assert.Single(earlyBatchChanges);
+        Assert.Equal(AggregateChangeReason.Batch, earlyBatchChanges[0].Reason);
+        Assert.Empty(lateBatchChanges);
+        lateBatchSubscription!.Dispose();
+
+        earlyBatchChanges.Clear();
+        var joinedBeforeSecondChange = new List<AggregateChange<TestItem>>();
+        IDisposable? joinedBeforeSecondSubscription = null;
+        eligibilityAggregate.Batch(() =>
+        {
+            eligibilityItem.Changes.Emit();
+            joinedBeforeSecondSubscription = eligibilityAggregate.Observe()
+                .Subscribe(joinedBeforeSecondChange.Add);
+            eligibilityItem.Changes.Emit();
+        });
+
+        Assert.Single(earlyBatchChanges);
+        Assert.Single(joinedBeforeSecondChange);
+        Assert.Equal(AggregateChangeReason.Batch, joinedBeforeSecondChange[0].Reason);
+        joinedBeforeSecondSubscription!.Dispose();
+
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
         var child = ComponentVM<string>.Builder()

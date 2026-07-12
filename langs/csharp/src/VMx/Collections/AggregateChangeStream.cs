@@ -61,6 +61,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
     private readonly Dictionary<T, Entry> _entries = new(ReferenceComparer.Instance);
     private readonly List<Registration> _registrations = new();
     private readonly LinkedList<Work> _work = new();
+    private readonly HashSet<Registration> _batchRecipients = new();
 
     private IDisposable? _membershipSubscription;
     private long _nextEpoch;
@@ -229,8 +230,9 @@ public sealed class AggregateChangeStream<T> : IDisposable
             if (setupActivity) return;
 
             bool coalesced = _batchDepth > 0;
-            if (coalesced) _batchDirty = true;
-            _work.AddLast(Work.Structural(coalesced, CurrentRegistrationsLocked()));
+            Registration[] recipients = CurrentRegistrationsLocked();
+            if (coalesced) MarkBatchDirtyLocked(recipients);
+            _work.AddLast(Work.Structural(coalesced, recipients));
             start = StartProcessingLocked();
         }
 
@@ -254,12 +256,13 @@ public sealed class AggregateChangeStream<T> : IDisposable
             }
 
             bool coalesced = _batchDepth > 0;
-            if (coalesced) _batchDirty = true;
+            Registration[] recipients = CurrentRegistrationsLocked();
+            if (coalesced) MarkBatchDirtyLocked(recipients);
             _work.AddLast(Work.Item(
                 entry,
                 entry.Epoch,
                 coalesced,
-                CurrentRegistrationsLocked()));
+                recipients));
             start = StartProcessingLocked();
         }
 
@@ -510,11 +513,6 @@ public sealed class AggregateChangeStream<T> : IDisposable
         // Coalesced work marked the active batch dirty when the source event
         // occurred. Processing it after ExitBatch must not dirty the next batch.
         if (coalesced) return;
-        if (_batchDepth > 0)
-        {
-            _batchDirty = true;
-            return;
-        }
 
         if (recipients.Length == 0) return;
         for (int index = changes.Count - 1; index >= 0; index--)
@@ -534,12 +532,17 @@ public sealed class AggregateChangeStream<T> : IDisposable
         lock (_gate)
         {
             _batchDepth--;
-            if (_batchDepth == 0 && _batchDirty)
+            if (_batchDepth == 0)
             {
+                Registration[] recipients = _batchRecipients
+                    .Where(registration => registration.Active)
+                    .ToArray();
+                _batchRecipients.Clear();
+                if (!_batchDirty) return;
+
                 _batchDirty = false;
                 if (!_completed && _terminalError is null)
                 {
-                    Registration[] recipients = CurrentRegistrationsLocked();
                     if (recipients.Length > 0)
                     {
                         _work.AddLast(Work.Notification(
@@ -651,10 +654,18 @@ public sealed class AggregateChangeStream<T> : IDisposable
         }
 
         _entries.Clear();
+        _batchRecipients.Clear();
+        _batchDirty = false;
     }
 
     private Registration[] CurrentRegistrationsLocked() =>
         _registrations.Where(registration => registration.Active).ToArray();
+
+    private void MarkBatchDirtyLocked(IEnumerable<Registration> recipients)
+    {
+        _batchDirty = true;
+        foreach (Registration recipient in recipients) _batchRecipients.Add(recipient);
+    }
 
     private bool StartProcessingLocked()
     {
