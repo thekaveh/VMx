@@ -263,16 +263,56 @@ projector, key lookup and membership, upsert, and keyed deletion:
 
 | Flavor     | Construction / projector                                                                                               | Lookup / membership                                        | Upsert                                         | Keyed deletion                |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- | ----------------------------- |
-| C#         | `(Func<TItem, TKey> keySelector, IMessageHub? hub = null, IEqualityComparer<TKey>? comparer = null)`, `TKey : notnull` | `TryGetValue(TKey, out TItem?)`, `ContainsKey(TKey)`       | `bool Upsert(TItem)` (`true` means Add)        | `bool RemoveKey(TKey)`        |
+| C#         | `(Func<TItem, TKey> keySelector, IMessageHub? hub = null, IEqualityComparer<TKey>? comparer = null)`, `TKey : notnull` | `TryGetValue`, `ContainsKey(TKey)`                         | `bool Upsert(TItem)` (`true` means Add)        | `bool RemoveKey(TKey)`        |
 | Python     | `(key_of: Callable[[T], TKey], hub = None)`; keys are hashable                                                         | `get(key) -> Optional[T]`, `contains_key(key) -> bool`     | `upsert(item) -> bool` (`True` means Add)      | `delete(key) -> bool`         |
 | TypeScript | options with `keyOf: (item: T) => TKey` and optional nullable `hub`                                                    | `get(key)` returns `T` or `undefined`; `has(key): boolean` | `upsert(item): boolean` (`true` means Add)     | `delete(key): boolean`        |
 | Swift      | `(keyOf: @escaping (T) throws -> Key, hub: MessageHubProtocol? = nil)`, `Key: Hashable`                                | `get(_:) -> T?`, `containsKey(_:) -> Bool`                 | `upsert(_:) throws -> Bool` (`true` means Add) | `delete(_:) -> Bool`          |
-| Rust       | `(owner_id, key_of: Fn(&T) -> VmxResult<K>)` / `with_hub`, `K: Eq + Hash`                                              | `get(&K) -> Option<T>`, `contains_key(&K) -> bool`         | `upsert(T) -> VmxResult<bool>` (`true` = Add)  | `remove_key(&K) -> Option<T>` |
+| Rust       | `new(owner_id, key_of)` / `with_hub(owner_id, hub, key_of)`, `K: Eq + Hash`                                            | `get(&K) -> Option<T>`, `contains_key(&K) -> bool`         | `upsert(T) -> VmxResult<bool>` (`true` = Add)  | `remove_key(&K) -> Option<T>` |
 
 The exact Python miss annotation is `get(key) -> T | None`. The exact
 TypeScript options shape is
 `{ keyOf: (item: T) => TKey; hub?: IMessageHub | null }`, and its lookup is
 `get(key): T | undefined`.
+
+C# lookup has the exact nullable-flow contract
+`bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TItem item)`: `true`
+means `item` is the stored value, while `false` permits the out value to be
+null/default. The attribute is
+`System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute` (or the repository's
+target-framework polyfill).
+
+Rust's exact constructor and newly fallible projecting signatures are:
+
+```rust
+pub fn new<F>(owner_id: usize, key_of: F) -> Self
+where F: Fn(&T) -> VmxResult<K> + Send + Sync + 'static;
+
+pub fn with_hub<F>(owner_id: usize, hub: MessageHub, key_of: F) -> Self
+where F: Fn(&T) -> VmxResult<K> + Send + Sync + 'static;
+
+pub fn push(&self, item: T) -> VmxResult<()>;
+pub fn replace(&self, index: usize, item: T) -> VmxResult<T>;
+pub fn replace_all<I>(&self, items: I) -> VmxResult<()>
+where I: IntoIterator<Item = T>;
+pub fn upsert(&self, item: T) -> VmxResult<bool>;
+```
+
+Its existing `remove_at` and `move_item` bounds failures remain `VmxResult`;
+nonprojecting `remove`, `remove_key`, and `clear` retain their non-fallible
+signatures.
+
+Swift's projector can fail, so its exact newly throwing mutator surface is:
+
+```swift
+func append(_ item: T) throws
+func replace(at index: Int, with newItem: T) throws
+func setAt(_ index: Int, _ newItem: T) throws
+func replaceAll<S: Sequence>(_ newItems: S) throws where S.Element == T
+func upsert(_ item: T) throws -> Bool
+```
+
+Removal, move, and clear retain the unkeyed signatures because they use
+captured keys and do not invoke the projector.
 
 A missing keyed deletion is a false / `None` no-op. Rust returns the removed
 value because ownership-returning removal is its established idiom. An upsert
@@ -344,6 +384,29 @@ projector is explicitly throwing, so operations that project new items are
 throwing. Rust projectors return `VmxResult<K>`, and operations that project
 new items return `VmxResult`. All projection, unsupported-key, and duplicate
 failures complete preflight before collection-owned state changes.
+
+Duplicate-key failure types are exact: C# throws `ArgumentException`, Python
+raises `ValueError`, TypeScript throws `Error`, Swift throws
+`KeyedServicedCollectionError.duplicateKey`, and Rust returns
+`Err(VmxError::InvalidArgument(_))`. Projector errors propagate unchanged
+instead of being rewritten as duplicate errors.
+
+Python slice assignment and deletion, and TypeScript `splice`, preflight the
+operation's complete final result. They first materialize inserted input,
+project every inserted item, apply native index/slice normalization to a
+candidate ordered item/captured-key sequence, and validate uniqueness across
+that candidate. Retained memberships keep their captured keys; removed keys
+are absent from final-result validation and MAY be reused by an item inserted
+by the same operation. Python's extended-slice cardinality rules and
+TypeScript's normalized `start` / `deleteCount` behavior remain native.
+
+Only after successful final-result validation does the operation atomically
+commit items, captured keys, and the index. Duplicate, projection, input
+iteration, or native slice-shape failure changes nothing and emits nothing.
+On success, Python slice mutation emits its established Reset. TypeScript
+`splice` returns the removed items and preserves the unkeyed notification
+rule: a removal of exactly one item with no inserts emits Remove, any other
+effective splice emits Reset, and removal/insertion of nothing emits nothing.
 
 This atomicity promise does not roll back arbitrary side effects inside user
 projector/equality/hash code, allocation failure, process abort, or a subscriber
@@ -778,13 +841,20 @@ events and emits a single `Reset` on completion (per §3.5). A
 its page slice. The recomputation happens once after the batch, not once per
 item.
 
-### 7.3 `ServicedObservableCollection<T>` with composition helpers
+### 7.3 Serviced collections with composition helpers
 
 `ServicedObservableCollection<T>` publishes `CollectionChangedMessage` to the
 hub on every mutation, even when wrapped by `SearchableState` or
 `PagedComposition`. The hub publication is triggered by the mutation, not by
 the downstream view's state. Consumers observing the hub receive the raw change
 regardless of what filtering or paging is applied on top.
+
+`KeyedServicedObservableCollection<TKey, TItem>` composes with the same helpers
+through its ordinary ordered read and collection-change surface. Filtering and
+paging operate on stored items in insertion order; the captured-key index is an
+additional lookup facility and requires no adapter, special-case projection,
+or dictionary-entry wrapper. Hub observers likewise receive the raw
+list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 

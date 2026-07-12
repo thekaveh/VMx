@@ -2404,6 +2404,9 @@ construct, dispose, reparent, or otherwise manage any contained item
 **When** `b`'s key-like property is mutated without replacing its membership
 **Then** the old captured key still resolves to `b`, the newly projectable key
 misses, and no collection or hub message is emitted
+**And** a C# miss returns `false` through
+`[MaybeNullWhen(false)] out TItem item`, while the other flavors return their
+specified `None` / `undefined` / optional miss value
 
 ### COL-057 — keyed serviced insert uniqueness and projection failure are atomic
 
@@ -2411,13 +2414,23 @@ misses, and no collection or hub message is emitted
 **And** snapshots of its items, captured-key behavior, and lookup results
 **When** append or a flavor-exposed insert receives an item whose projected key
 is already captured
-**Then** a flavor-idiomatic duplicate-key error is raised before mutation
+**Then** C# throws `ArgumentException`, Python raises `ValueError`, TypeScript
+throws `Error`, Swift throws
+`KeyedServicedCollectionError.duplicateKey`, and Rust returns
+`Err(VmxError::InvalidArgument(_))`
+**And** the same exact error mapping applies when indexed replacement,
+whole-list replacement, or slice/splice final-result validation discovers a
+duplicate
 **And** items, lookup results, captured keys, and both notification channels
 remain unchanged
 **When** a projector throws or returns its documented failure for a candidate
 item
 **Then** the failure propagates according to the flavor idiom with the same
 unchanged-state and no-notification guarantees
+**And** Swift's append, replace/setAt, replaceAll, and upsert have their exact
+throwing signatures, while Rust's `new(owner_id, key_of)` /
+`with_hub(owner_id, hub, key_of)` compile and push, replace, replace_all, and
+upsert return their specified `VmxResult`
 
 ### COL-058 — keyed serviced upsert distinguishes Add from stable-position Replace
 
@@ -2486,9 +2499,25 @@ captured-key lookups, and silent channels
 
 **Given** a keyed serviced collection containing caller-owned,
 lifecycle-observable items
-**When** a valid move and the flavor's remaining list convenience mutators are
-exercised
-**Then** each ordinary serviced message has the specified action and old/new
+**And** Python / TypeScript fixtures containing captured keys `[a, b, c]`
+**When** Python slice assignment or TypeScript `splice` removes `b` and inserts
+a replacement that projects key `b` in the same operation
+**Then** inserted input is materialized/projected, the removed key is reusable,
+the final order and lookup index commit atomically, and the ordinary Reset
+notification is emitted
+**When** the same operation inserts duplicate keys or a key retained outside
+the removed range, or its input/projector fails
+**Then** the former ordered items, captured keys, lookup index, and both
+notification channels remain unchanged
+**When** Python slice deletion or a TypeScript splice deletion succeeds
+**Then** the deleted memberships' captured keys stop resolving and later
+positions resolve correctly without reprojecting retained items
+**And** TypeScript returns the removed items and uses Remove only for exactly
+one removal with no insertion, Reset for every other effective splice, and no
+message for removal/insertion of nothing; Python slice mutation uses Reset
+**When** a valid move, pop/removeLast, and the remaining flavor conveniences
+are exercised
+**Then** each ordinary serviced message has its specified action and old/new
 position, and every post-mutation lookup matches the ordered snapshot
 **When** equal-index move, empty clear, or another documented convenience no-op
 is exercised

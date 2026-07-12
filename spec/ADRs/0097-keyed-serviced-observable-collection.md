@@ -51,6 +51,12 @@ external hub, message shape, and caller-owned item lifecycle. It adds:
   `with_hub` variant and `K: Eq + Hash`; `get`, `contains_key`, `upsert`, and
   `remove_key`.
 
+C# lookup is exactly
+`bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TItem item)`, matching
+the repository's nullable-flow dictionary contract. Rust construction is
+exactly `new(owner_id, key_of)` and `with_hub(owner_id, hub, key_of)`, retaining
+the unkeyed type's leading `owner_id, hub` order.
+
 Upsert returns `true` for Add and `false` for Replace. A missing keyed deletion
 is a false / `None` no-op. Rust's `remove_key` returns `Option<T>` because
 ownership-returning removal is its established idiom.
@@ -61,6 +67,12 @@ Python keeps its `MutableSequence` integer and slice surface; TypeScript keeps
 pop and splice; Swift keeps removeLast and its Equatable value-removal
 extension; Rust keeps the unkeyed type's surface without inventing positional
 insert. Every preserved path maintains the keyed index.
+
+Swift's newly projecting append, replace/setAt, replaceAll, and upsert methods
+are throwing. Rust's exact newly fallible methods are
+`push(T) -> VmxResult<()>`, `replace(usize, T) -> VmxResult<T>`,
+`replace_all(I) -> VmxResult<()>`, and `upsert(T) -> VmxResult<bool>`; its
+projector generic is `Fn(&T) -> VmxResult<K> + Send + Sync + 'static`.
 
 ### 2.2 Capture one key per membership
 
@@ -103,6 +115,21 @@ projectors and projecting operations return `VmxResult`. This promise excludes
 arbitrary side effects inside consumer projector/equality/hash code, allocation
 failure, process abort, and subscriber failure after commit.
 
+Duplicate candidates fail as `ArgumentException` in C#, `ValueError` in
+Python, `Error` in TypeScript,
+`KeyedServicedCollectionError.duplicateKey` in Swift, and
+`VmxError::InvalidArgument` in Rust. Projector failures propagate unchanged.
+
+Python slice assignment/deletion and TypeScript splice build and validate the
+complete candidate result before commit. Inserted input is materialized and
+projected; retained memberships keep captured keys; keys removed by the same
+operation are available to its inserted items. Native slice/splice index and
+shape rules apply to the candidate. Any duplicate, projection, iteration, or
+shape failure preserves state and emits nothing. A successful Python slice
+mutation emits Reset. TypeScript preserves its existing splice result and
+message rules: return removed items, use Remove for one removal and no inserts,
+Reset for any other effective splice, and no event for no mutation.
+
 ### 2.4 Preserve ordered mutation and message semantics
 
 An effective operation synchronizes the ordered item store, captured-key
@@ -144,6 +171,10 @@ hub messages are deferred in original hub order and are not collapsed to Reset.
 The collection never constructs, disposes, destructs, reparents, or otherwise
 owns contained items. Projection and indexing do not alter caller lifecycle
 responsibility.
+
+The keyed type supplies the same ordered read and collection-change surface to
+`SearchableState` and `PagedComposition`; its index requires no adapter or
+dictionary-entry wrapper.
 
 ### 2.7 Conformance
 
