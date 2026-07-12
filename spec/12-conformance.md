@@ -36,6 +36,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
 | `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
 | `DISC-NNN`  | DiscriminatorVM (single active-key coordinator)      | `22-discriminator-vm.md`                      |
+| `ARES-NNN`  | AsyncResourceVM (single async value, spec v3.20)     | `23-async-resource-vm.md`                     |
 | `THEME-NNN` | Theme as a VM concern (scenario contract, v2.4)      | `proposals/2026-06-02-theme-vm-scenario.md`   |
 
 Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
@@ -3732,3 +3733,108 @@ otherwise owned by the aggregate
 **Then** membership bookkeeping and unrelated item subscriptions remain valid
 beyond only the host reactive primitive's documented subscriber behavior
 **And** message-hub subscriber isolation is not implied
+
+## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
+
+### ARES-001 — Initial state and command eligibility
+
+**Given** a newly created async resource VM
+**Then** its immutable state is `Idle` with no value or error
+**And** load is enabled while reload and cancel are disabled
+**And** no loader call or state notification occurred during construction
+
+### ARES-002 — Successful load publishes one ready state
+
+**Given** an idle async resource VM and observers of its ordinary local and hub
+property-change surfaces
+**When** load starts and the current loader succeeds with a value
+**Then** state progresses from `Loading` to `Ready(value)`
+**And** each visible transition publishes exactly one ordinary idiomatic state
+property pair
+**And** reload is enabled while load and cancel are disabled after success
+
+### ARES-003 — Loader failure has one presentation-state route
+
+**Given** an idle async resource VM whose loader fails with a non-cancellation
+error
+**When** load is awaited or invoked through its fire-and-forget command
+**Then** state becomes `Error` with that host error and no value
+**And** the awaitable completes normally
+**And** the same loader error is not also emitted by the async command error
+channel
+**And** reload is enabled for retry
+
+### ARES-004 — Retry replaces error with ready
+
+**Given** an async resource VM in `Error` after a failed load
+**When** reload starts and its current loader succeeds
+**Then** state progresses through `Loading` to `Ready(newValue)`
+**And** the prior error is absent from both later snapshots
+
+### ARES-005 — Initial cancellation restores idle
+
+**Given** an initial load in progress with observed idiomatic cancellation
+**When** cancel is invoked, including through the cancel command
+**Then** the loader receives cancellation and the current state returns to
+`Idle`
+**And** no error state or async-command error is emitted
+**And** repeated cancel while idle is inert
+
+### ARES-006 — Retained reload exposes and restores the previous value
+
+**Given** a retain-previous VM in `Ready(oldValue)`
+**When** reload starts
+**Then** `Loading` carries `oldValue`
+**When** that current reload is cancelled
+**Then** state restores `Ready(oldValue)` without cleaning it
+**When** a later reload fails
+**Then** `Error` carries `oldValue` and the current host error
+
+### ARES-007 — Discard reload relinquishes the previous value at start
+
+**Given** a default discard-previous VM in `Ready(oldValue)` with cleanup
+**When** reload starts
+**Then** `oldValue` is cleaned exactly once before value-less `Loading` is
+observable
+**And** cancellation restores `Idle`
+**And** a later current failure is a value-less `Error`
+
+### ARES-008 — Overlapping starts are latest-start-wins
+
+**Given** an operation in `Loading`
+**When** reload admits a newer operation before the older loader settles
+**Then** the older loader receives cancellation and the newer identity is current
+**When** both loaders later settle in either order
+**Then** only the newer success or failure determines the final state
+**And** the older completion causes no state or command notification
+
+### ARES-009 — Stale success is cleaned without publication
+
+**Given** cleanup and an older loader that returns a value despite cancellation
+**When** a newer operation has already become current or completed
+**Then** the stale returned ownership unit is cleaned exactly once
+**And** it is never exposed by state, installed as stable state, or represented
+by a property/command notification
+
+### ARES-010 — Replacement and disposal clean every accepted ownership unit once
+
+**Given** cleanup and successive current successful loads
+**When** a newer value replaces a retained accepted value
+**Then** the older ownership unit is cleaned exactly once
+**When** the VM is disposed repeatedly
+**Then** the current ownership unit is cleaned exactly once
+**And** without cleanup no value is reflectively or implicitly disposed
+
+### ARES-011 — Disposal cancels and makes late work inert
+
+**Given** an async resource VM with work in progress and counted state/command
+notifications
+**When** the VM is disposed one or more times
+**Then** current loader and async commands receive cancellation exactly once as
+their host contract permits
+**And** every command and direct intent is disabled or inert
+**When** the old loader later succeeds or fails despite cancellation
+**Then** no state mutation, ordinary notification, command notification, or
+application callback occurs
+**And** a newly returned ownership unit is cleaned exactly once when cleanup is
+configured

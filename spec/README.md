@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (385 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (396 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -51,6 +51,8 @@ before any flavor releases a stable version.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
 - `22-discriminator-vm.md` — active-key / modal-overlay state coordinator.
+- `23-async-resource-vm.md` — one-value asynchronous presentation lifecycle,
+  cancellation, stale-result suppression, retention, and optional cleanup.
 
 The following existing chapters were also extended in v2.1:
 
@@ -532,11 +534,23 @@ THEME scenario IDs).
 
 See ADR-0099 and chapter 06 §8.
 
-### 1.29 Supporting artefacts
+### 1.29 v3.19.0 → v3.20.0 changes
 
-- `VERSION` — current spec SemVer (`3.19.0`).
+v3.20.0 adds `AsyncResourceVM<T>` as a UI- and transport-neutral component for
+one asynchronously acquired value. Immutable idle/loading/ready/error state,
+existing async relay command cancellation, monotonic latest-start-wins
+admission, discard-by-default or retained previous values, and acquisition-based
+optional cleanup replace repeated consumer-owned race policy. `ARES-001..011`
+raise the catalog from 385 to 396 total IDs (391 library + 5 THEME scenario
+IDs).
+
+See ADR-0100 and chapter 23.
+
+### 1.30 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.20.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0099); see
+- `ADRs/` — Architecture Decision Records (0001-0100); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
