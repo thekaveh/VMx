@@ -5635,7 +5635,7 @@ pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
 }
 
 pub fn lifecycle_transition_fixture() -> &'static str {
-    include_str!("../../../spec/fixtures/lifecycle-transitions.json")
+    include_str!("fixtures/lifecycle-transitions.json")
 }
 
 pub trait Selectable {

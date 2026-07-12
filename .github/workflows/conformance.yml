@@ -83,6 +83,9 @@ jobs:
       - name: Check Python fixture sync
         run: uv --project langs/python run python tools/check-python-fixture-sync.py
 
+      - name: Check Rust fixture sync
+        run: uv --project langs/python run python tools/check-rust-fixture-sync.py
+
       - name: mdformat check (spec/ + docs/)
         # CI backstop for the pre-commit mdformat hook — contributors without
         # hooks installed could otherwise land mis-formatted markdown. Pinned
