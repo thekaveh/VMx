@@ -12,6 +12,7 @@ Public API
 - :class:`FormRevertedMessage` — emitted when a FormVM reverts its Model to Snapshot
 - :func:`property_value_changed_messages_for` — convenience helper returning an
   ``Observable[Any]`` of property values rather than full message envelopes (ADR-0032)
+- :func:`subscribe_value` — imperative selected-state bridge over one fixed VM
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from vmx.messages.protocols import (
     PropertyChangedMessageProto,
     TypedMessage,
 )
+from vmx.messages.subscribe_value import subscribe_value
 from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
 from vmx.messages.when_property_changed import when_property_changed
 
@@ -42,5 +44,6 @@ __all__ = [
     "TreeStructureChangedMessage",
     "TypedMessage",
     "property_value_changed_messages_for",
+    "subscribe_value",
     "when_property_changed",
 ]

@@ -15,6 +15,28 @@ TypeScript is the best fit when you want browser-safe VMx usage with modern
 bundlers, React-style external-store wiring, or a shared VM layer across web
 and desktop webview hosts.
 
+## Imperative Engine Bridge
+
+`subscribeValue` returns an RxJS `Subscription` and uses `Object.is` unless an
+`equality` option is supplied:
+
+```typescript
+const exposureSubscription = subscribeValue(
+  cameraVm,
+  vm => vm.model.exposure,
+  exposure => { material.uniforms.exposure.value = exposure; },
+  { fireImmediately: true },
+);
+
+// Host adapter disposal:
+exposureSubscription.unsubscribe();
+```
+
+The callback receives `(current, previous)`; immediate delivery uses the
+initial value for both. The host adapter owns the subscription, and the
+selector reevaluates after every property message from this fixed VM rather
+than on every render frame.
+
 ## Raw Message Predicates
 
 The package root and message barrel export three filter-safe type predicates:

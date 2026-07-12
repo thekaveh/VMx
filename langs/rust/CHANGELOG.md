@@ -4,6 +4,19 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] — 2026-07-11
+
+Implements `spec-v3.15.0` and keeps Rust at full library parity: 346/346
+conformance IDs covered.
+
+### Added
+
+- `MessageHub::subscribe_value(...)` observes selected state for one fixed sender
+  ID, supports `PartialEq` or custom equality and optional immediate delivery,
+  reports current/previous values, and returns a `Subscription` teardown handle.
+  Re-entrant ordering, batching, unsubscription, and subscriber panic isolation
+  follow the existing hub contract (`SUBV-001..004`, ADR-0095).
+
 ## [0.14.0] — 2026-07-11
 
 Implements `spec-v3.14.0` and keeps Rust at full library parity: 342/342

@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.14.0** implements `spec-v3.14.0` at full source parity: all 342 library
+**v0.15.0** implements `spec-v3.15.0` at full source parity: all 346 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -28,6 +28,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
 - `VmCollection<T>` unifies groups and composites, while
   `SelectableVmCollection<T>` adds composite-only selection and `move_item`
   preserves child identity;
+- `MessageHub::subscribe_value(...)` pushes selected fixed-source state into
+  imperative hosts and returns a host-owned `Subscription`;
 - UI integrations should live in examples or adapter crates, not in the core crate.
 
 ## Commands
@@ -54,3 +56,32 @@ fn main() -> VmxResult<()> {
     Ok(())
 }
 ```
+
+## Imperative Engine Bridge
+
+Rust identifies the fixed source as `hub + sender_id`. Use
+`SubscribeValueOptions::default()` for `PartialEq` equality or
+`SubscribeValueOptions::with_equality(...)` for a custom comparator:
+
+```rust
+use vmx::{SubscribeValueOptions, Subscription};
+
+let selector_vm = camera_vm.clone();
+let material_for_subscription = material.clone();
+let exposure_subscription: Subscription = hub.subscribe_value(
+    camera_vm.id(),
+    move || selector_vm.model().exposure,
+    move |exposure, _previous_exposure| {
+        material_for_subscription.set_exposure(exposure);
+    },
+    SubscribeValueOptions::default().fire_immediately(true),
+);
+
+// When the host adapter is disposed:
+exposure_subscription.dispose();
+```
+
+The callback receives `(current, previous)` by value; immediate delivery passes
+the initial value for both. The selector runs after every property message for
+this fixed sender ID. The host owns the returned `Subscription`; VMx does not
+attach it to the observed VM's lifetime.

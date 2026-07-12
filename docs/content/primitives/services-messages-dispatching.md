@@ -118,6 +118,57 @@ current property value instead. The raw predicates are the appropriate choice
 when classifying a mixed message stream or array, especially when one pipeline
 must recognize several message families.
 
+## Imperative Selected-State Bridge
+
+Use `subscribeValue` when a renderer, audio engine, canvas host, shader bridge,
+or other imperative consumer needs selected state from one fixed VM. It
+evaluates a selector after every property message from that VM and invokes the
+callback only when the selected value changes. This is a change-driven bridge,
+not a frame-polling loop.
+
+The idiomatic entry points and teardown handles are:
+
+| Flavor     | Entry point                                                                                                     | Returned handle   | Teardown          |
+| ---------- | --------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------- |
+| C#         | `source.SubscribeValue(selector, callback, equalityComparer?, fireImmediately?)`                                | `IDisposable`     | `Dispose()`       |
+| Python     | `subscribe_value(source, selector, callback, *, equality=None, fire_immediately=False)`                         | `DisposableBase`  | `dispose()`       |
+| TypeScript | `subscribeValue(source, selector, callback, { equality?, fireImmediately? })`                                   | `Subscription`    | `unsubscribe()`   |
+| Swift      | `subscribeValue(source, selector:, callback:, isEqual:, fireImmediately:)` or the `Equatable` overload          | `AnyCancellable`  | `cancel()`        |
+| Rust       | `hub.subscribe_value(sender_id, selector, callback, options)`                                                   | `Subscription`    | `dispose()`       |
+
+Setup is synchronous. The selector runs once to establish the initial value.
+With immediate delivery enabled, the callback receives `(initial, initial)`
+before the hub subscription is attached. A later change invokes it as
+`(current, previous)`. The baseline is updated before the callback, so a
+re-entrant source mutation compares against the newest value.
+
+Every matching property message reevaluates the selector once, even when a
+different source property triggered the message. Equality then decides whether
+to call the callback. Defaults are `EqualityComparer<TValue>.Default`, `==`,
+`Object.is`, Swift `Equatable.==`, and Rust `PartialEq`; every flavor also
+accepts custom equality. Messages from other senders and non-property message
+families never evaluate the selector.
+
+Hub batches stay lossless: the helper examines every matching message. Because
+the selector reads current state at delivery time, several queued messages may
+all observe the same final snapshot, and equality may reduce those observations
+to one callback. That is final-snapshot suppression, not message coalescing.
+
+Initial selector and immediate-callback failures propagate synchronously, and
+no subscription is attached. Delivery-time selector, equality, and callback
+failures follow the flavor's HUB-007 subscriber-failure path; they cannot break
+the hub or another subscriber. A failed callback does not roll back the already
+updated baseline.
+
+The callback and everything it captures belong to the host. VMx does not
+automatically register the returned handle with the observed VM. Dispose or
+cancel it with the host adapter; after teardown, no later message invokes the
+selector, equality, or callback.
+
+The source set is deliberately fixed. `subscribeValue` does not discover
+collection members, track selector dependencies, or resubscribe when membership
+changes. Dynamic member fan-in remains VMx issue #136.
+
 ## Hub Transactions
 
 Use a hub transaction when one logical operation mutates several viewmodels and

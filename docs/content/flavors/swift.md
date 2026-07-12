@@ -14,6 +14,34 @@ Swift is the right fit when you want the same VMx lifecycle and conformance
 surface in a SwiftPM package, with SwiftUI adapters kept outside the core
 library boundary.
 
+## Imperative Engine Bridge
+
+The `Equatable` overload of `subscribeValue` uses `==`; the `isEqual:` overload
+accepts custom equality without an `Equatable` constraint. Both return
+`AnyCancellable`:
+
+```swift
+import Combine
+import VMx
+
+let exposureSubscription: AnyCancellable = try subscribeValue(
+    cameraVM,
+    selector: { $0.model.exposure },
+    callback: { exposure, _ in
+        material.uniforms.exposure.value = exposure
+    },
+    fireImmediately: true
+)
+
+// Host adapter disposal:
+exposureSubscription.cancel()
+```
+
+The callback receives `(current, previous)`; immediate delivery uses the
+initial value for both. The host adapter owns the cancellable, and the selector
+reevaluates after every property message from this fixed VM rather than on
+every render frame.
+
 ## Pointers
 
 - Flavor README:

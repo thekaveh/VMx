@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.14.0** — implements `spec-v3.14.0` end-to-end. 342/342 library conformance IDs
+**v3.15.0** — implements `spec-v3.15.0` end-to-end. 346/346 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.14.0. The latest public PyPI package may
+The source tree currently implements v3.15.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -178,6 +178,39 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
 | Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
 | `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots (spec v2.1)           |
+| `subscribe_value`                                 | Fixed-VM selected-state bridge returning `DisposableBase` (spec v3.15)              |
+
+### 4.1 Imperative engine bridge
+
+Use `subscribe_value` to push selected VM state into a renderer or other
+imperative host without polling it every frame:
+
+```python
+from reactivex.abc import DisposableBase
+
+from vmx import subscribe_value
+
+
+def apply_exposure(exposure: float, _previous_exposure: float) -> None:
+    material.uniforms.exposure.value = exposure
+
+
+exposure_subscription: DisposableBase = subscribe_value(
+    camera_vm,
+    lambda vm: vm.model.exposure,
+    apply_exposure,
+    fire_immediately=True,
+)
+
+# When the host adapter is disposed:
+exposure_subscription.dispose()
+```
+
+The callback receives `(current, previous)`; immediate delivery passes the
+initial value for both. The selector runs after every property message from
+this fixed VM, and `==` suppresses unchanged selections. Pass `equality=` for
+custom equality. The host owns the returned `DisposableBase`; VMx does not
+attach it to the observed VM's lifetime.
 
 The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
@@ -191,7 +224,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 342 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 346 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -221,6 +254,7 @@ v3.9   COL-040..047
 v3.10  DISP-007..013
 v3.11  DISP-014
 v3.12  FORM-030
+v3.15  SUBV-001..004
 ```
 
 Run the suite:
