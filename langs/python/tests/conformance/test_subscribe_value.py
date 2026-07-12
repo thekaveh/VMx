@@ -85,15 +85,19 @@ def test_SUBV_002_custom_equality_and_single_evaluation() -> None:
         selector_calls += 1
         return source.model.value
 
-    def equal(current: float, next_value: float) -> bool:
-        comparisons.append((current, next_value))
-        return math.floor(current) == math.floor(next_value)
+    class FalseyEquality:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, current: float, next_value: float) -> bool:
+            comparisons.append((current, next_value))
+            return math.floor(current) == math.floor(next_value)
 
     sub = subscribe_value(
         vm,
         select,
         lambda current, previous: seen.append((current, previous)),
-        equality=equal,
+        equality=FalseyEquality(),
     )
 
     vm.model = _Model(1.9)
@@ -225,3 +229,90 @@ def test_SUBV_004_setup_and_delivery_failures(
     assert "MessageHub subscriber raised" in caplog.text
 
     sub.dispose()
+
+    selector_delivery_vm = _make_vm(hub, "selector-delivery-source", 0)
+    selector_seen: list[tuple[float, float]] = []
+    selector_calls = 0
+    selector_equality_calls = 0
+    selector_healthy_deliveries = 0
+    fail_next_selector = False
+
+    def selector_delivery(source: ComponentVMOf[_Model]) -> float:
+        nonlocal fail_next_selector, selector_calls
+        selector_calls += 1
+        if fail_next_selector:
+            fail_next_selector = False
+            raise RuntimeError("delivery selector failed")
+        return source.model.value
+
+    def selector_equality(current: float, next_value: float) -> bool:
+        nonlocal selector_equality_calls
+        selector_equality_calls += 1
+        return current == next_value
+
+    def selector_healthy_subscriber(message: Message) -> None:
+        nonlocal selector_healthy_deliveries
+        if getattr(message, "sender", None) is selector_delivery_vm:
+            selector_healthy_deliveries += 1
+
+    selector_healthy_sub = hub.messages.subscribe(selector_healthy_subscriber)
+    selector_sub = subscribe_value(
+        selector_delivery_vm,
+        selector_delivery,
+        lambda current, previous: selector_seen.append((current, previous)),
+        equality=selector_equality,
+    )
+
+    fail_next_selector = True
+    selector_delivery_vm.model = _Model(1)
+    selector_delivery_vm.model = _Model(2)
+
+    assert selector_calls == 3
+    assert selector_equality_calls == 1
+    assert selector_seen == [(2, 0)]
+    assert selector_healthy_deliveries == 2
+
+    selector_sub.dispose()
+    selector_healthy_sub.dispose()
+
+    equality_delivery_vm = _make_vm(hub, "equality-delivery-source", 0)
+    equality_seen: list[tuple[float, float]] = []
+    equality_selector_calls = 0
+    equality_calls = 0
+    equality_healthy_deliveries = 0
+
+    def equality_selector(source: ComponentVMOf[_Model]) -> float:
+        nonlocal equality_selector_calls
+        equality_selector_calls += 1
+        return source.model.value
+
+    def fail_first_equality(current: float, next_value: float) -> bool:
+        nonlocal equality_calls
+        equality_calls += 1
+        if equality_calls == 1:
+            raise RuntimeError("delivery equality failed")
+        return current == next_value
+
+    def equality_healthy_subscriber(message: Message) -> None:
+        nonlocal equality_healthy_deliveries
+        if getattr(message, "sender", None) is equality_delivery_vm:
+            equality_healthy_deliveries += 1
+
+    equality_healthy_sub = hub.messages.subscribe(equality_healthy_subscriber)
+    equality_sub = subscribe_value(
+        equality_delivery_vm,
+        equality_selector,
+        lambda current, previous: equality_seen.append((current, previous)),
+        equality=fail_first_equality,
+    )
+
+    equality_delivery_vm.model = _Model(1)
+    equality_delivery_vm.model = _Model(2)
+
+    assert equality_selector_calls == 3
+    assert equality_calls == 2
+    assert equality_seen == [(2, 0)]
+    assert equality_healthy_deliveries == 2
+
+    equality_sub.dispose()
+    equality_healthy_sub.dispose()

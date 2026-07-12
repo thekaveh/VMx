@@ -239,5 +239,90 @@ describe("SUBV-004", () => {
     expect(healthyDeliveries).toBe(2);
 
     sub.unsubscribe();
+
+    const selectorDeliveryVm = makeVm(hub, "selector-delivery-source", 0);
+    const selectorSeen: Array<[number, number]> = [];
+    let selectorCalls = 0;
+    let selectorEqualityCalls = 0;
+    let selectorHealthyDeliveries = 0;
+    let failNextSelector = false;
+    const selectorHealthySub = hub.messages.subscribe((message) => {
+      if ("sender" in message && message.sender === selectorDeliveryVm) {
+        selectorHealthyDeliveries += 1;
+      }
+    });
+    const selectorSub = subscribeValue(
+      selectorDeliveryVm,
+      (source: ComponentVMOf<TestModel>): number => {
+        selectorCalls += 1;
+        if (failNextSelector) {
+          failNextSelector = false;
+          throw new Error("delivery selector failed");
+        }
+        return source.model.value;
+      },
+      (current: number, previous: number): void => {
+        selectorSeen.push([current, previous]);
+      },
+      {
+        equality: (current: number, next: number): boolean => {
+          selectorEqualityCalls += 1;
+          return current === next;
+        },
+      },
+    );
+
+    failNextSelector = true;
+    selectorDeliveryVm.model = { value: 1 };
+    selectorDeliveryVm.model = { value: 2 };
+
+    expect(selectorCalls).toBe(3);
+    expect(selectorEqualityCalls).toBe(1);
+    expect(selectorSeen).toEqual([[2, 0]]);
+    expect(selectorHealthyDeliveries).toBe(2);
+
+    selectorSub.unsubscribe();
+    selectorHealthySub.unsubscribe();
+
+    const equalityDeliveryVm = makeVm(hub, "equality-delivery-source", 0);
+    const equalitySeen: Array<[number, number]> = [];
+    let equalitySelectorCalls = 0;
+    let equalityCalls = 0;
+    let equalityHealthyDeliveries = 0;
+    const equalityHealthySub = hub.messages.subscribe((message) => {
+      if ("sender" in message && message.sender === equalityDeliveryVm) {
+        equalityHealthyDeliveries += 1;
+      }
+    });
+    const equalitySub = subscribeValue(
+      equalityDeliveryVm,
+      (source: ComponentVMOf<TestModel>): number => {
+        equalitySelectorCalls += 1;
+        return source.model.value;
+      },
+      (current: number, previous: number): void => {
+        equalitySeen.push([current, previous]);
+      },
+      {
+        equality: (current: number, next: number): boolean => {
+          equalityCalls += 1;
+          if (equalityCalls === 1) {
+            throw new Error("delivery equality failed");
+          }
+          return current === next;
+        },
+      },
+    );
+
+    equalityDeliveryVm.model = { value: 1 };
+    equalityDeliveryVm.model = { value: 2 };
+
+    expect(equalitySelectorCalls).toBe(3);
+    expect(equalityCalls).toBe(2);
+    expect(equalitySeen).toEqual([[2, 0]]);
+    expect(equalityHealthyDeliveries).toBe(2);
+
+    equalitySub.unsubscribe();
+    equalityHealthySub.unsubscribe();
   });
 });

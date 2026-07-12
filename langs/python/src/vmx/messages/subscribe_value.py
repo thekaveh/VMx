@@ -29,7 +29,7 @@ def subscribe_value(
     current = selector(source)
     if fire_immediately:
         callback(current, current)
-    equality_fn: Callable[[TValue, TValue], bool] = equality or operator.eq
+    equality_fn: Callable[[TValue, TValue], bool] = operator.eq if equality is None else equality
 
     def on_message(message: object) -> None:
         nonlocal current

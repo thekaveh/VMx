@@ -1,5 +1,5 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use vmx::{ComponentVm, Message, MessageHub, NullDispatcher, SubscribeValueOptions, Subscription};
 
@@ -253,4 +253,89 @@ fn subscribe_value_propagates_setup_panics_and_isolates_delivery_panics() {
 
     assert_eq!(*observations.lock().unwrap(), vec![(1, 0), (2, 1)]);
     assert_eq!(healthy_deliveries.load(Ordering::SeqCst), 2);
+
+    let selector_delivery_vm = make_vm(&hub, "selector-delivery", 0);
+    let selector_observations = Arc::new(Mutex::new(Vec::new()));
+    let selector_calls = Arc::new(AtomicUsize::new(0));
+    let selector_equality_calls = Arc::new(AtomicUsize::new(0));
+    let selector_healthy_deliveries = Arc::new(AtomicUsize::new(0));
+    let fail_next_selector = Arc::new(AtomicBool::new(false));
+    let selector_vm_id = selector_delivery_vm.id();
+    let healthy_calls = selector_healthy_deliveries.clone();
+    let _selector_healthy_subscription = hub.subscribe(move |message| {
+        if matches!(message, Message::PropertyChanged(change) if change.sender_id == selector_vm_id)
+        {
+            healthy_calls.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let selected_vm = selector_delivery_vm.clone();
+    let calls = selector_calls.clone();
+    let fail_next = fail_next_selector.clone();
+    let equality_calls = selector_equality_calls.clone();
+    let seen = selector_observations.clone();
+    let _selector_subscription = hub.subscribe_value(
+        selector_delivery_vm.id(),
+        move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            if fail_next.swap(false, Ordering::SeqCst) {
+                panic!("delivery selector failed");
+            }
+            selected_vm.model().value
+        },
+        move |current, previous| seen.lock().unwrap().push((current, previous)),
+        SubscribeValueOptions::with_equality(move |current: &i32, next: &i32| {
+            equality_calls.fetch_add(1, Ordering::SeqCst);
+            current == next
+        }),
+    );
+
+    fail_next_selector.store(true, Ordering::SeqCst);
+    selector_delivery_vm.set_model(SelectedModel { value: 1 });
+    selector_delivery_vm.set_model(SelectedModel { value: 2 });
+
+    assert_eq!(selector_calls.load(Ordering::SeqCst), 3);
+    assert_eq!(selector_equality_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(*selector_observations.lock().unwrap(), vec![(2, 0)]);
+    assert_eq!(selector_healthy_deliveries.load(Ordering::SeqCst), 2);
+
+    let equality_delivery_vm = make_vm(&hub, "equality-delivery", 0);
+    let equality_observations = Arc::new(Mutex::new(Vec::new()));
+    let equality_selector_calls = Arc::new(AtomicUsize::new(0));
+    let equality_calls = Arc::new(AtomicUsize::new(0));
+    let equality_healthy_deliveries = Arc::new(AtomicUsize::new(0));
+    let equality_vm_id = equality_delivery_vm.id();
+    let healthy_calls = equality_healthy_deliveries.clone();
+    let _equality_healthy_subscription = hub.subscribe(move |message| {
+        if matches!(message, Message::PropertyChanged(change) if change.sender_id == equality_vm_id)
+        {
+            healthy_calls.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let selected_vm = equality_delivery_vm.clone();
+    let selector_calls = equality_selector_calls.clone();
+    let compared = equality_calls.clone();
+    let seen = equality_observations.clone();
+    let _equality_subscription = hub.subscribe_value(
+        equality_delivery_vm.id(),
+        move || {
+            selector_calls.fetch_add(1, Ordering::SeqCst);
+            selected_vm.model().value
+        },
+        move |current, previous| seen.lock().unwrap().push((current, previous)),
+        SubscribeValueOptions::with_equality(move |current: &i32, next: &i32| {
+            let call = compared.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                panic!("delivery equality failed");
+            }
+            current == next
+        }),
+    );
+
+    equality_delivery_vm.set_model(SelectedModel { value: 1 });
+    equality_delivery_vm.set_model(SelectedModel { value: 2 });
+
+    assert_eq!(equality_selector_calls.load(Ordering::SeqCst), 3);
+    assert_eq!(equality_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(*equality_observations.lock().unwrap(), vec![(2, 0)]);
+    assert_eq!(equality_healthy_deliveries.load(Ordering::SeqCst), 2);
 }
