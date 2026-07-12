@@ -11,9 +11,39 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Reactive primitive: VMx-owned facade over `rxrust`
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 342 library IDs are covered by behavioral Rust tests
+- Conformance: all 346 library IDs are covered by behavioral Rust tests
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
+
+## Imperative Engine Bridge
+
+Rust expresses the fixed source as `hub + sender_id`. `subscribe_value` returns
+VMx's `Subscription`; `SubscribeValueOptions::default()` uses `PartialEq`, while
+`SubscribeValueOptions::with_equality(...)` accepts custom equality without
+that bound:
+
+```rust
+use vmx::{SubscribeValueOptions, Subscription};
+
+let selector_vm = camera_vm.clone();
+let material_for_subscription = material.clone();
+let exposure_subscription: Subscription = hub.subscribe_value(
+    camera_vm.id(),
+    move || selector_vm.model().exposure,
+    move |exposure, _previous_exposure| {
+        material_for_subscription.set_exposure(exposure);
+    },
+    SubscribeValueOptions::default().fire_immediately(true),
+);
+
+// Host adapter disposal:
+exposure_subscription.dispose();
+```
+
+The callback receives `(current, previous)` by value; immediate delivery uses
+the initial value for both. The host adapter owns the subscription, and the
+selector reevaluates after every property message carrying this fixed sender
+ID rather than on every render frame.
 
 ## Local Use
 

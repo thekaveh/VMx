@@ -5,9 +5,9 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.14.0 — total parity.** Covers **all 342 of 342** library conformance IDs
-from `spec-v3.14.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **347 total**, at
+**v3.15.0 — total parity.** Covers **all 346 of 346** library conformance IDs
+from `spec-v3.15.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **351 total**, at
 full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -21,7 +21,8 @@ requery IDs via ADR-0086; +6 FormVM reset IDs via ADR-0087; +8 hierarchical
 batch-attachment IDs via ADR-0088; +8 whole-list replacement IDs via ADR-0089;
 +7 owned-resource/public-hub IDs via ADR-0090; +1 inert modeled-assignment ID
 via ADR-0091; +1 settled FormVM model-publication ID via ADR-0092; +1 explicit
-modeled-component republish ID via ADR-0093):
+modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
+subscription IDs via ADR-0095):
 the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
@@ -47,7 +48,7 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.14.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.15.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -166,10 +167,39 @@ Key exports:
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
+| `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` (spec v3.15) |
 
-## 5. Conformance — total parity (347)
+### 4.1 Imperative engine bridge
 
-This flavor implements **all 342 library conformance IDs** from the
+Use `subscribeValue` to push selected VM state into a renderer or other
+imperative host without polling it every frame:
+
+```swift
+import Combine
+import VMx
+
+let exposureSubscription: AnyCancellable = try subscribeValue(
+    cameraVM,
+    selector: { $0.model.exposure },
+    callback: { exposure, _ in
+        material.uniforms.exposure.value = exposure
+    },
+    fireImmediately: true
+)
+
+// When the host adapter is disposed:
+exposureSubscription.cancel()
+```
+
+The callback receives `(current, previous)`; immediate delivery passes the
+initial value for both. The selector runs after every property message from
+this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
+for custom equality. The host owns the returned `AnyCancellable`; VMx does not
+attach it to the observed VM's lifetime.
+
+## 5. Conformance — total parity (351)
+
+This flavor implements **all 346 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -382,6 +412,7 @@ DISP-007..013   disposal-lifetime ownership and public non-owned hub baseline
                 (ADR-0084)
 DISP-014        inert modeled assignment after disposal (ADR-0091)
 FORM-030        settled FormVM model hub publication (ADR-0092)
+SUBV-001..004   fixed-source selected-state subscription (ADR-0095)
 ```
 
 **THEME scenario IDs (example app — not scraped by the library coverage gate):**
@@ -390,7 +421,7 @@ FORM-030        settled FormVM model hub publication (ADR-0092)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 342 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (347) with C#, Python, TypeScript, and Rust.**
+**All 346 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (351) with C#, Python, TypeScript, and Rust.**
 
 Run the suite:
 

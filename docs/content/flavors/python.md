@@ -14,6 +14,37 @@ Python is the most direct fit when you want a typed but lightweight VM layer
 for services, CLIs, TUIs, or desktop adapters without leaving idiomatic
 dataclass and protocol-based code.
 
+## Imperative Engine Bridge
+
+`subscribe_value` returns Reactivex's `DisposableBase` and uses `==` unless an
+`equality=` callable is supplied:
+
+```python
+from reactivex.abc import DisposableBase
+
+from vmx import subscribe_value
+
+
+def apply_exposure(exposure: float, _previous_exposure: float) -> None:
+    material.uniforms.exposure.value = exposure
+
+
+exposure_subscription: DisposableBase = subscribe_value(
+    camera_vm,
+    lambda vm: vm.model.exposure,
+    apply_exposure,
+    fire_immediately=True,
+)
+
+# Host adapter disposal:
+exposure_subscription.dispose()
+```
+
+The callback receives `(current, previous)`; immediate delivery uses the
+initial value for both. The host adapter owns the handle, and the selector
+reevaluates after every property message from this fixed VM rather than on
+every engine frame.
+
 ## Pointers
 
 - Flavor README:

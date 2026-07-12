@@ -226,13 +226,16 @@ tests; a stand-in when the hub injection chain is being torn down.
 
 The null variant is conformance-tested by `NULL-001`.
 
-## 7. Convenience helpers (informative)
+## 7. Subscription helpers
 
 Each flavor ships two small helpers over the hub for the single most common cross-VM
 subscription pattern — observing one property of one *specific* sender. Both are
 **informative**: neither carries a conformance ID, because the underlying `Messages`
 stream (§3) is the conformance-tested contract (ADR-0032). They differ only in what
 they emit — the property *value* versus the matching *message*.
+
+Sections 7.1–7.3 are informative convenience APIs. Section 7.4 defines the
+normative cross-flavor `subscribeValue` behavior.
 
 ### 7.1 `PropertyValueChangedMessagesFor` — project the value (spec v2.1)
 
@@ -310,11 +313,106 @@ requirement for the other flavors. Existing §7.1 and §7.2 helpers remain the
 higher-level choices when the hub, sender, and property are already known. See
 ADR-0094 for the exact matching and overload decisions.
 
+### 7.4 `subscribeValue` — imperative selected-state bridge
+
+`subscribeValue` observes selected state from one fixed VM and delivers it to an
+imperative consumer without a render loop. The language-neutral shape is
+`subscribeValue(source, selector, callback, options?) -> teardown handle`:
+
+- `source` is one fixed VM with an injected message hub. Rust expresses the same
+  identity as `hub + sender_id` because Rust messages are ID-based.
+- `selector` maps the source's current state to `TValue`.
+- `callback` receives `(current, previous)`.
+- Options provide custom equality and `fireImmediately`.
+- The result is the flavor's established subscription or disposable type.
+
+The exact idiomatic entry points are:
+
+| Flavor     | Shape                                                                                                           |
+| ---------- | --------------------------------------------------------------------------------------------------------------- |
+| C#         | `source.SubscribeValue(selector, callback, equalityComparer?, fireImmediately?)`                                |
+| Python     | `subscribe_value(source, selector, callback, *, equality=None, fire_immediately=False)`                         |
+| TypeScript | `subscribeValue(source, selector, callback, { equality?, fireImmediately? })`                                   |
+| Swift      | `subscribeValue(source, selector:, callback:, isEqual:, fireImmediately:)` plus an `Equatable` default overload |
+| Rust       | `hub.subscribe_value(sender_id, selector, callback, options)` with a default-`PartialEq` convenience shape      |
+
+Setup and delivery follow this state machine exactly:
+
+```text
+initial = selector(source)
+if fireImmediately: callback(initial, initial)
+current = initial
+on each property message from source:
+    next = selector(source)
+    if equality(current, next): stop this delivery
+    previous = current
+    current = next
+    callback(current, previous)
+```
+
+Setup is synchronous. Arguments are validated where the flavor normally does
+so, and the initial selector is evaluated exactly once. When requested, the
+immediate callback runs before hub attachment. A mutation performed by that
+callback is therefore not replayed; consumers treat it as initial
+synchronization rather than a mutation hook. Setup is not an atomic transaction
+with unrelated concurrent producers.
+
+C#, Python, TypeScript, and Swift accept only `PropertyChangedMessage` events
+whose sender is object-identical to `source`. Rust accepts only the property
+message variant for which `message.sender_id == sender_id` on the supplied hub.
+Messages from other senders and non-property message families do not evaluate
+the selector.
+
+Default equality is idiomatic:
+
+| Flavor     | Default equality                     |
+| ---------- | ------------------------------------ |
+| C#         | `EqualityComparer<TValue>.Default`   |
+| Python     | `==`                                 |
+| TypeScript | `Object.is`                          |
+| Swift      | `==` on the `Equatable` overload     |
+| Rust       | `PartialEq` on the convenience shape |
+
+Every flavor also accepts custom equality; Swift and Rust expose a
+custom-comparator shape that does not require the default equality constraint.
+The selector is evaluated at most once per matching message. Equality is
+evaluated exactly once after the selector returns successfully, and zero times
+if the selector fails.
+
+An initial-selector or immediate-callback failure propagates synchronously and
+no subscription is attached. A delivery-time selector, equality, or callback
+failure follows the flavor's existing HUB-007 subscriber-error route and cannot
+break the hub or another subscriber. The baseline is updated before a delivery
+callback, so callback failure does not roll it back.
+
+Swift selectors and callbacks may throw and are isolated by
+`MessageHubProtocol.subscribe`; Rust panics are isolated by the hub. The other
+flavors retain their existing observer boundaries.
+
+Updating the baseline before invoking the callback also defines re-entrancy. If
+the callback changes the source, the hub's existing iterative FIFO drain reaches
+that message after the current callback and compares it with the newest
+baseline. A batch remains lossless: the helper examines every delivered matching
+property message, but the selector reads state at delivery time. When several
+queued messages all observe the same final selected value, equality naturally
+reduces them to one callback; this is not message coalescing.
+
+Disposing, cancelling, or unsubscribing the returned handle is idempotent under
+the flavor's established subscription contract. No later message invokes the
+selector, equality, or callback. Disposal during a callback does not abort that
+callback, but prevents subsequent queued or re-entrant messages from reaching
+the subscription. The helper is not automatically registered as a resource of
+the observed VM; the imperative consumer owns its lifetime.
+
+The bridge does not perform dependency tracking, dynamic collection-member
+fan-in, or automatic resubscription. Those remain issue #136. See ADR-0095.
+
 ## 8. Conformance
 
-`HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, and the null-object
-IDs `NULL-001` (NullMessageHub is a safe no-op) and `NULL-003` (paired null
-variants exist for the core service contracts) in `12-conformance.md` cover:
+`HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, `SUBV-001` through
+`SUBV-004`, and the null-object IDs `NULL-001` (NullMessageHub is a safe no-op)
+and `NULL-003` (paired null variants exist for the core service contracts) in
+`12-conformance.md` cover:
 
 - `Send` delivers to current subscribers synchronously
 - late subscribers do not see prior messages (no replay)
@@ -331,3 +429,11 @@ variants exist for the core service contracts) in `12-conformance.md` cover:
 - unchanged synchronous semantics for ordinary non-batch sends
 - `PropertyChangedMessage` emitted on real changes only (not on same-value sets)
 - sender identity / property name / sender name correctness
+- fixed-source selected-state subscription with initial/current/previous values,
+  optional immediate delivery, and default equality
+- custom equality with exactly one selector/equality evaluation per matching
+  property message
+- re-entrant FIFO delivery, batch final-state suppression, and deterministic
+  disposal including disposal during a callback
+- synchronous setup failure propagation and delivery-time subscriber failure
+  isolation with the selected baseline retained

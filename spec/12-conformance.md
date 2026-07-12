@@ -294,7 +294,7 @@ outer transaction then sends `C`
 
 ______________________________________________________________________
 
-## 5. Property change (`PROP-NNN`)
+## 5. Property change and selected-state subscription (`PROP-NNN`, `SUBV-NNN`)
 
 ### PROP-001 — Setting a property to a different value publishes PropertyChangedMessage
 
@@ -326,6 +326,57 @@ the `vm` instance
 **When** `vm.Model = m2`
 **Then** the observed message's `PropertyName` is exactly `"Model"`
 **And** the message's `SenderName` is `"n1"`
+
+### SUBV-001 — Fixed-source selection uses initial/current/previous values and default equality
+
+**Given** one source VM and another sender share a message hub
+**And** `subscribeValue` selects an initial value from the source with immediate
+delivery enabled
+**When** the hub delivers non-property messages, property messages from the other
+sender, and property messages from the source whose selected values are unchanged
+and then changed twice
+**Then** the initial callback receives `(initial, initial)` before attachment
+**And** messages outside the fixed source's property-message channel do not
+evaluate the selector
+**And** default equality suppresses the unchanged selected value
+**And** the changed callbacks receive `(first, initial)` and `(second, first)` in
+order
+
+### SUBV-002 — Custom equality evaluates selector and comparator exactly once per matching message
+
+**Given** a `subscribeValue` bridge with a custom equality function
+**When** the source publishes matching property messages whose selected values
+are custom-equal and then custom-unequal to the retained value
+**Then** the selector is evaluated exactly once per matching message
+**And** custom equality is evaluated exactly once per successfully selected value
+**And** only the custom-unequal value invokes the callback
+**And** the custom-comparator shape does not require the selected type to support
+the flavor's default equality
+
+### SUBV-003 — Re-entrant delivery, batch suppression, and disposal are deterministic
+
+**Given** a `subscribeValue` callback that changes its fixed source re-entrantly
+**When** a source property message invokes that callback
+**Then** the re-entrant message is delivered later in the hub's iterative FIFO
+drain and compares against the baseline updated before the callback
+**And** a lossless hub batch whose messages all observe one final selected value
+invokes the callback once and equality-suppresses the remaining deliveries
+**And** disposing the returned handle prevents all later selector, equality, and
+callback work
+**And** disposal during a callback allows that callback to finish but prevents
+subsequent queued or re-entrant delivery to the bridge
+
+### SUBV-004 — Setup failures propagate and delivery failures remain subscriber-isolated
+
+**Given** a `subscribeValue` bridge whose selector, equality function, or callback
+can fail
+**When** the initial selector or immediate callback fails during setup
+**Then** that failure propagates synchronously and no subscription is attached
+**When** selector, equality, or callback work fails during message delivery
+**Then** the existing `HUB-007` subscriber-error route isolates the failure from
+the hub and other subscribers
+**And** a delivery callback failure retains the already-updated selected baseline
+for the next matching message
 
 ______________________________________________________________________
 

@@ -24,6 +24,10 @@ export type { IMessage, ITypedMessage } from "./messages/types.js";
 export { PropertyChangedMessage } from "./messages/propertyChanged.js";
 export { propertyValueChangedMessagesFor } from "./messages/propertyValueChanged.js";
 export { whenPropertyChanged } from "./messages/whenPropertyChanged.js";
+export {
+  subscribeValue,
+  type SubscribeValueOptions,
+} from "./messages/subscribeValue.js";
 export { ConstructionStatusChangedMessage } from "./messages/constructionStatusChanged.js";
 export {
   isCollectionChanged,

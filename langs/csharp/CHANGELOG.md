@@ -4,6 +4,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.15.0] — 2026-07-11
+
+Implements `spec-v3.15.0` and keeps C# at full library parity: 346/346
+conformance IDs covered.
+
+### Added
+
+- `source.SubscribeValue(...)` observes selected state from one fixed VM through
+  its hub, supports default or custom equality and optional immediate delivery,
+  reports current/previous values, and returns an `IDisposable` teardown handle.
+  Re-entrant ordering, batching, disposal, and subscriber failure behavior follow
+  the existing hub contract (`SUBV-001..004`, ADR-0095).
+
 ## [3.14.0] — 2026-07-11
 
 Implements `spec-v3.14.0` and keeps C# at full library parity: 342/342

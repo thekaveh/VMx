@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.14.0";
+pub const MIN_SPEC_VERSION: &str = "3.15.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -181,6 +181,36 @@ struct MessageHubInner {
     disposed: bool,
 }
 
+type ValueEquality<T> = Arc<dyn Fn(&T, &T) -> bool + Send + Sync>;
+
+pub struct SubscribeValueOptions<T> {
+    pub fire_immediately: bool,
+    equality: ValueEquality<T>,
+}
+
+impl<T: PartialEq> Default for SubscribeValueOptions<T> {
+    fn default() -> Self {
+        Self::with_equality(|current, next| current == next)
+    }
+}
+
+impl<T> SubscribeValueOptions<T> {
+    pub fn with_equality<F>(equality: F) -> Self
+    where
+        F: Fn(&T, &T) -> bool + Send + Sync + 'static,
+    {
+        Self {
+            fire_immediately: false,
+            equality: Arc::new(equality),
+        }
+    }
+
+    pub fn fire_immediately(mut self, value: bool) -> Self {
+        self.fire_immediately = value;
+        self
+    }
+}
+
 impl MessageHub {
     pub fn new() -> Self {
         Self::default()
@@ -201,6 +231,45 @@ impl MessageHub {
             id,
             hub: Arc::downgrade(&self.inner),
         }
+    }
+
+    pub fn subscribe_value<T, S, C>(
+        &self,
+        sender_id: usize,
+        selector: S,
+        callback: C,
+        options: SubscribeValueOptions<T>,
+    ) -> Subscription
+    where
+        T: Clone + Send + 'static,
+        S: Fn() -> T + Send + Sync + 'static,
+        C: Fn(T, T) + Send + Sync + 'static,
+    {
+        let initial = selector();
+        if options.fire_immediately {
+            callback(initial.clone(), initial.clone());
+        }
+
+        let current = Arc::new(Mutex::new(initial));
+        let equality = options.equality;
+        self.subscribe(move |message| {
+            if !matches!(message, Message::PropertyChanged(change) if change.sender_id == sender_id)
+            {
+                return;
+            }
+
+            let next = selector();
+            let previous = {
+                let mut current = lock(&current);
+                if equality(&current, &next) {
+                    return;
+                }
+                let previous = current.clone();
+                *current = next.clone();
+                previous
+            };
+            callback(next, previous);
+        })
     }
 
     pub fn send(&self, message: Message) {
@@ -5566,7 +5635,7 @@ pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
 }
 
 pub fn lifecycle_transition_fixture() -> &'static str {
-    include_str!("../../../spec/fixtures/lifecycle-transitions.json")
+    include_str!("fixtures/lifecycle-transitions.json")
 }
 
 pub trait Selectable {

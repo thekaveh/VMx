@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (347 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (351 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -473,11 +473,21 @@ message semantics or create an other-flavor requirement, so the catalog remains
 
 See ADR-0094 and chapter 03 §7.3.
 
-### 1.24 Supporting artefacts
+### 1.24 v3.14.0 → v3.15.0 changes
 
-- `VERSION` — current spec SemVer (`3.14.0`).
+v3.15.0 adds the cross-flavor `subscribeValue` imperative selected-state bridge
+for one fixed VM, with idiomatic equality, optional immediate delivery,
+current/previous callback values, deterministic teardown, and existing hub
+ordering and failure isolation. `SUBV-001..004` raise the catalog from 347 to
+351 total IDs (346 library + 5 THEME scenario IDs).
+
+See ADR-0095 and chapter 03 §7.4/§8.
+
+### 1.25 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.15.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0094); see
+- `ADRs/` — Architecture Decision Records (0001-0095); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
