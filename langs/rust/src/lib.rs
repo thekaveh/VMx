@@ -15,10 +15,14 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 mod aggregate_change_stream;
+mod async_resource_vm;
 pub use aggregate_change_stream::{
     AggregateChange, AggregateChangeObservable, AggregateChangeReason, AggregateChangeStream,
     AggregateChangeSubscription, AggregateObserveOptions, ObservableMembershipSource,
     ObservablePropertySource,
+};
+pub use async_resource_vm::{
+    AsyncResourceRetention, AsyncResourceState, AsyncResourceStatus, AsyncResourceVm,
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
