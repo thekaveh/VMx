@@ -1,4 +1,5 @@
 mod conformance {
+    mod aggregate_change_stream;
     mod aggregate_vm;
     mod builders;
     mod capabilities;

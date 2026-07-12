@@ -4,6 +4,27 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.18.0] — 2026-07-12
+
+Implements `spec-v3.18.0` and keeps TypeScript at full library parity: 373/373
+conformance IDs covered.
+
+### Added
+
+- `ObservableMembershipSource<T>` and `AggregateChangeStream<T>` follow
+  committed membership in composites, groups, and both serviced collection
+  families while reporting `Initial`, `Membership`, `Item`, or `Batch`
+  provenance (`AGCH-001..010`, ADR-0098).
+- `forComponents` selects standard component property changes; the general
+  selector can observe nested local state.
+
+### Changed
+
+- Duplicate occurrences of the same object identity share one selected
+  subscription; distinct identities each have their own. Explicit nested
+  batches coalesce aggregate output, and idempotent disposal detaches only
+  aggregate-owned subscriptions without owning source items.
+
 ## [3.17.0] — 2026-07-12
 
 Implements `spec-v3.17.0` and keeps TypeScript at full library parity: 363/363

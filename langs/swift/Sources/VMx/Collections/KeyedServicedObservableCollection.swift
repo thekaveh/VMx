@@ -279,3 +279,15 @@ extension KeyedServicedObservableCollection where T: Equatable {
         return true
     }
 }
+
+// MARK: - Aggregate membership source (reference items only)
+
+extension KeyedServicedObservableCollection: ObservableMembershipSource where T: AnyObject {
+    public typealias Item = T
+
+    public func snapshot() -> [T] { toArray() }
+
+    public func subscribeMembership(_ callback: @escaping () -> Void) -> AnyCancellable {
+        collectionChanged.sink { _ in callback() }
+    }
+}

@@ -50,7 +50,8 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
 }
 
 open class CompositeVM<Child: ComponentVMBase>:
-    ComponentVMBase, ParentVM, _Batchable, SelectableVMCollection {
+    ComponentVMBase, ParentVM, _Batchable, SelectableVMCollection,
+    ObservableMembershipSource {
     private var children: [Child] = []
     private var _current: Child?
     private let childrenFactory: (() -> [Child])?
@@ -157,6 +158,12 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func makeIterator() -> AnyIterator<Child> {
         var iterator = children.makeIterator()
         return AnyIterator { iterator.next() }
+    }
+
+    public func snapshot() -> [Child] { children }
+
+    public func subscribeMembership(_ callback: @escaping () -> Void) -> AnyCancellable {
+        collectionChanged.sink { _ in callback() }
     }
 
     /// The selected child, or `nil`.

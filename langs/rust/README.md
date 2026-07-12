@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.17.0** implements `spec-v3.17.0` at full source parity: all 363 library
+**v0.18.0** implements `spec-v3.18.0` at full source parity: all 373 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -30,6 +30,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   publication without batching or item ownership;
 - `KeyedServicedObservableCollection<K, T>` adds captured-key lookup, upsert,
   and deletion without requiring `K: Clone` or changing ordered messages;
+- `AggregateChangeStream<T>` follows dynamic membership and selected member
+  streams with typed provenance and explicit coalescing;
 - `VmCollection<T>` unifies groups and composites, while
   `SelectableVmCollection<T>` adds composite-only selection and `move_item`
   preserves child identity;

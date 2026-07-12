@@ -7,15 +7,19 @@
  * See spec/21-collections.md §§2.8–2.15 and ADR-0097.
  */
 import { Observable, Subject } from "rxjs";
+import type { Subscription } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
+import type { ObservableMembershipSource } from "./observableMembership.js";
 
 export interface KeyedServicedObservableCollectionOptions<TKey, TItem> {
   readonly keyOf: (item: TItem) => TKey;
   readonly hub?: IMessageHub | null;
 }
 
-export class KeyedServicedObservableCollection<TKey, TItem> {
+export class KeyedServicedObservableCollection<TKey, TItem>
+  implements ObservableMembershipSource<TItem>
+{
   readonly #keyOf: (item: TItem) => TKey;
   readonly #hub: IMessageHub | null;
   readonly #subject = new Subject<CollectionChangedMessage<TItem>>();
@@ -46,6 +50,14 @@ export class KeyedServicedObservableCollection<TKey, TItem> {
 
   [Symbol.iterator](): IterableIterator<TItem> {
     return this.#items[Symbol.iterator]();
+  }
+
+  snapshot(): readonly TItem[] {
+    return this.toArray();
+  }
+
+  subscribeMembership(callback: () => void): Subscription {
+    return this.#subject.subscribe(() => callback());
   }
 
   get(key: TKey): TItem | undefined {
