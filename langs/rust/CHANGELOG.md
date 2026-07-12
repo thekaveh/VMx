@@ -4,6 +4,26 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] — 2026-07-12
+
+Implements `spec-v3.16.0` and keeps Rust at full library parity: 354/354
+conformance IDs covered.
+
+### Added
+
+- A distinct `ServicedObservableCollection<T>` provides local and optional
+  external hub delivery for push, first-match value removal, indexed removal,
+  replacement, snapshot-based whole-list replacement, move, and clear; it is
+  not an alias for `ObservableList<T>` (`COL-001..004`, `COL-048..055`,
+  ADR-0096).
+- Effective mutations publish the existing non-generic collection message with
+  precise optional old/new positions after local observers see final state.
+
+### Changed
+
+- Empty clear, empty-to-empty replacement, and same-index move no-ops are
+  notification-free; serviced mutations never acquire item lifecycle ownership.
+
 ## [0.15.0] — 2026-07-11
 
 Implements `spec-v3.15.0` and keeps Rust at full library parity: 346/346

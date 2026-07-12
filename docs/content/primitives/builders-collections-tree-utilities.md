@@ -40,11 +40,25 @@ have type-specific terminal behavior cataloged in the
 [Disposal Contract](disposal-contract.md). Serviced collections remain
 non-owning and never dispose their items.
 
+## Choosing A Collection
+
+| Need                                                                          | Choose                                      |
+| ----------------------------------------------------------------------------- | ------------------------------------------- |
+| Local granular item streams, a `Count` channel, and nested batch scopes       | `ObservableList<T>`                         |
+| Local collection changes plus equivalent messages on an optional external hub | `ServicedObservableCollection<T>`           |
+| Child construction/destruction, parent membership, or composite selection     | `GroupVM` / `CompositeVM` child collections |
+
+These contracts are deliberately separate. A serviced collection does not
+batch, does not publish `Count`, and does not own item lifecycle. A VM child
+collection owns membership and lifecycle; use it when contained values are
+children rather than caller-owned data.
+
 ## Cross-Language Surface
 
 | Primitive                                                      | Purpose                                        |
 | -------------------------------------------------------------- | ---------------------------------------------- |
 | Builders                                                       | immutable fluent construction with validation  |
+| `ServicedObservableCollection<T>`                              | local changes plus optional hub publication    |
 | `ObservableList<T>`                                            | granular events plus atomic whole-list replace |
 | `ObservableDictionary<K1, K2, V>`                              | dual-key observable lookup plus live key views |
 | `PagedComposition<TVM>` / `TokenPagedComposition<TVM, TToken>` | paging helpers                                 |
@@ -59,9 +73,56 @@ Representative traversal contract:
 - `walk_expanded(root)` respects `IExpandable` boundaries
 
 On the collection side, the Notes Workspace note lists and notifications layers
-are the practical references for observable-list and paging composition.
+are practical references for observable-list and paging composition.
 
-### Whole-list refresh
+### Serviced mutation contract
+
+The complete mutation surface is add, remove by value, remove by index,
+replace, replace all, move, and clear. See
+[Cross-Language Naming](../flavors/cross-language-naming.md) for exact names.
+
+- Value removal targets the first equal match. A missing value returns `false`
+  in C#, TypeScript, Swift, and Rust. Python keeps list behavior: successful
+  removal returns `None`, while a missing value raises `ValueError`.
+- Indexed remove and replace reject invalid bounds before mutation. Python also
+  accepts normal negative list indices and reports the resolved nonnegative
+  position. Swift's nonthrowing indexed mutators use array preconditions. Rust
+  uses `usize`, so negative indices are not representable. Python and Rust
+  return the removed or old item from their newly named indexed methods;
+  established returns in the other flavors are unchanged.
+- `ReplaceAll` first snapshots its input. Iteration failure therefore leaves
+  state and streams unchanged. Empty-to-empty is its only no-op; even identical
+  non-empty contents produce one Reset.
+- `Move` treats both arguments as strict pre-move positions in
+  `[0, count)`. Equal positions do nothing; a real move preserves identity and
+  emits one Move. Python does not accept negative move indices, and Swift move
+  bounds failures throw `VMCollectionIndexError`.
+- `Clear` does nothing when already empty and otherwise emits one Reset.
+
+For C#, Python, TypeScript, and Swift, collection messages retain `index` and
+add explicit old/new positions:
+
+| Action  | `index`     | old position | new position | Typed items               |
+| ------- | ----------- | ------------ | ------------ | ------------------------- |
+| Add     | insertion   | `-1`         | insertion    | new                       |
+| Remove  | old index   | old index    | `-1`         | old                       |
+| Replace | same index  | same index   | same index   | old and new               |
+| Move    | destination | source       | destination  | moved item as old and new |
+| Reset   | `-1`        | `-1`         | `-1`         | none                      |
+
+The member names follow each language's casing idiom (`OldIndex`,
+`old_index`, or `oldIndex`). Rust intentionally keeps its existing non-generic
+hub payload: `action`, `old_index: Option<usize>`, and
+`new_index: Option<usize>` plus sender/property identity. It has no legacy
+`index` field and no item payload.
+
+Every effective mutation changes state first, notifies the local stream second,
+and publishes to the optional external hub third. Both observer classes can
+read the final state. Delivery is immediate and non-batched. Removing,
+replacing, resetting, moving, or clearing never disposes or reparents an item;
+the caller keeps lifecycle ownership.
+
+### ObservableList whole-list refresh
 
 Use the flavor-idiomatic `replaceAll` / `replace_all` / `ReplaceAll` when one
 semantic refresh supplies a complete snapshot. VMx materializes the input
@@ -91,6 +152,8 @@ only and was not pushed to NNx Studio.
   instances.
 - Assuming `ObservableList` batch scopes also suppress `CompositeVM` or
   `GroupVM` collection events. They do not.
+- Expecting a serviced collection to batch, emit a `Count` channel, or manage
+  item lifecycle. Those are intentionally outside its contract.
 - Rebuilding a complete list with `clear` plus repeated adds. That produces
   O(n) adapter notifications; use whole-list replacement for one Reset.
 - Rewriting custom tree walkers when the built-in helpers already express the

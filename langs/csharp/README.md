@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.15.0** — implements `spec-v3.15.0` end-to-end. 346/346 library conformance IDs
+**v3.16.0** — implements `spec-v3.16.0` end-to-end. 354/354 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.15.0. The NuGet package has not been
+The source tree currently implements v3.16.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -189,7 +189,7 @@ The public API lives under the `VMx.*` namespaces:
 | `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
 | `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)     |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
@@ -197,7 +197,30 @@ The public API lives under the `VMx.*` namespaces:
 | `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
 | `SubscribeValue`                | Fixed-VM selected-state bridge returning `IDisposable` (spec v3.15) |
 
-### 4.1 Imperative engine bridge
+### 4.1 Serviced collections
+
+Use `ServicedObservableCollection<T>` when an ordered, caller-owned collection
+needs normal local `CollectionChanged` events plus equivalent messages on an
+optional hub. It supports inherited `Add`, first-match `Remove`, `RemoveAt`,
+the indexer, `Move`, and `Clear`, plus named `Replace` and snapshot-based
+`ReplaceAll`:
+
+```csharp
+var notes = new ServicedObservableCollection<Note>(hub);
+notes.Add(first);
+notes.Add(second);
+notes.Replace(0, revised);
+notes.Move(0, notes.Count - 1);    // one Move locally, then on the hub
+notes.ReplaceAll(serverSnapshot); // one Reset, even for identical non-empty input
+```
+
+Indexed failures are atomic. Equal-index Move, empty Clear, and empty-to-empty
+ReplaceAll are no-ops. Messages retain `Index` and add `OldIndex` / `NewIndex`;
+the collection never disposes or reparents its items. Choose `ObservableList<T>`
+instead for list-local batching and the `Count` channel, or a Group/Composite
+child collection for VM lifecycle ownership.
+
+### 4.2 Imperative engine bridge
 
 Use `SubscribeValue` to push selected VM state into a renderer or other
 imperative host without polling it every frame:
@@ -238,7 +261,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 346 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 354 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -269,6 +292,7 @@ v3.10  DISP-007..013
 v3.11  DISP-014
 v3.12  FORM-030
 v3.15  SUBV-001..004
+v3.16  COL-048..055
 ```
 
 Run the suite:

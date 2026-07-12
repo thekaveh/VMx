@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.15.0** — implements `spec-v3.15.0` end-to-end. 346/346 library conformance IDs
+**v3.16.0** — implements `spec-v3.16.0` end-to-end. 354/354 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.15.0. The latest public PyPI package may
+The source tree currently implements v3.16.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -172,7 +172,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `TreeStructureChangedMessage`                     | Tree-structural-change notification (spec v2.1)                                     |
 | `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
 | `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
-| `ServicedObservableCollection[T]`                 | Hub-aware observable collection (spec v2.1)                                         |
+| `ServicedObservableCollection[T]`                 | Complete local-before-hub mutation surface (spec v3.16)                              |
 | `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
 | `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
@@ -180,7 +180,31 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots (spec v2.1)           |
 | `subscribe_value`                                 | Fixed-VM selected-state bridge returning `DisposableBase` (spec v3.15)              |
 
-### 4.1 Imperative engine bridge
+### 4.1 Serviced collections
+
+Use `ServicedObservableCollection[T]` for a caller-owned sequence with local
+`on_collection_changed` delivery and optional hub publication:
+
+```python
+notes = ServicedObservableCollection[Note](hub)
+notes.append(first)
+notes.append(second)
+removed = notes.remove_at(-1)
+old = notes.replace(-1, revised)
+notes.append(second)
+notes.move(0, len(notes) - 1)       # strict, nonnegative positions
+notes.replace_all(server_snapshot)  # one Reset
+```
+
+List-style `remove(value)` removes the first match, returns `None`, and raises
+`ValueError` when missing. `remove_at` / `replace` accept normal negative list
+indices and return the removed / old item; `move` rejects negative or
+out-of-range positions with `IndexError`. Empty Clear and empty-to-empty
+replacement are no-ops. Messages expose `index`, `old_index`, and `new_index`;
+the collection does not batch or own items. Use `ObservableList[T]` when you
+need batch scopes and the `Count` channel.
+
+### 4.2 Imperative engine bridge
 
 Use `subscribe_value` to push selected VM state into a renderer or other
 imperative host without polling it every frame:
@@ -224,7 +248,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 346 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 354 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -255,6 +279,7 @@ v3.10  DISP-007..013
 v3.11  DISP-014
 v3.12  FORM-030
 v3.15  SUBV-001..004
+v3.16  COL-048..055
 ```
 
 Run the suite:

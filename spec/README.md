@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (351 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (359 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -483,11 +483,23 @@ ordering and failure isolation. `SUBV-001..004` raise the catalog from 347 to
 
 See ADR-0095 and chapter 03 §7.4/§8.
 
-### 1.25 Supporting artefacts
+### 1.25 v3.15.0 → v3.16.0 changes
 
-- `VERSION` — current spec SemVer (`3.15.0`).
+v3.16.0 completes the serviced observable collection mutation surface across
+all five flavors. Value and indexed removal, replacement, snapshot-based
+whole-list replacement, move, and clear now share precise position payloads,
+no-op rules, local-before-hub delivery, and caller-owned item lifecycle. Rust
+gains a distinct serviced collection rather than aliasing `ObservableList`.
+`COL-048..055` raise the catalog from 351 to 359 total IDs (354 library + 5
+THEME scenario IDs).
+
+See ADR-0096 and chapter 21 §2/§8.
+
+### 1.26 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.16.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0095); see
+- `ADRs/` — Architecture Decision Records (0001-0096); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

@@ -20,13 +20,18 @@ class CollectionChangedMessage(Generic[T]):
     sender:
         The collection that changed.
     action:
-        One of ``"add"``, ``"remove"``, ``"replace"``, or ``"reset"``.
+        One of ``"add"``, ``"remove"``, ``"replace"``, ``"move"``, or
+        ``"reset"``.
     new_items:
         Items added (or the replacement value on replace). Empty on remove/reset.
     old_items:
         Items removed (or the replaced value on replace). Empty on add/reset.
     index:
         Index of the change, or -1 for reset.
+    old_index:
+        Previous index of the item, or -1 when there is no old position.
+    new_index:
+        Current index of the item, or -1 when there is no new position.
     """
 
     sender: object
@@ -34,6 +39,8 @@ class CollectionChangedMessage(Generic[T]):
     new_items: tuple[T, ...] = field(default_factory=tuple)
     old_items: tuple[T, ...] = field(default_factory=tuple)
     index: int = -1
+    old_index: int = -1
+    new_index: int = -1
 
     @property
     def sender_name(self) -> str:
@@ -61,6 +68,8 @@ class CollectionChangedMessage(Generic[T]):
             new_items=(item,),
             old_items=(),
             index=index,
+            old_index=-1,
+            new_index=index,
         )
 
     @classmethod
@@ -77,6 +86,8 @@ class CollectionChangedMessage(Generic[T]):
             new_items=(),
             old_items=(item,),
             index=index,
+            old_index=index,
+            new_index=-1,
         )
 
     @classmethod
@@ -94,6 +105,27 @@ class CollectionChangedMessage(Generic[T]):
             new_items=(new_item,),
             old_items=(old_item,),
             index=index,
+            old_index=index,
+            new_index=index,
+        )
+
+    @classmethod
+    def for_move(
+        cls,
+        sender: object,
+        item: T,
+        old_index: int,
+        new_index: int,
+    ) -> CollectionChangedMessage[T]:
+        """Create a Move message."""
+        return cls(
+            sender=sender,
+            action="move",
+            new_items=(item,),
+            old_items=(item,),
+            index=new_index,
+            old_index=old_index,
+            new_index=new_index,
         )
 
     @classmethod
@@ -108,4 +140,6 @@ class CollectionChangedMessage(Generic[T]):
             new_items=(),
             old_items=(),
             index=-1,
+            old_index=-1,
+            new_index=-1,
         )

@@ -14,6 +14,28 @@ Swift is the right fit when you want the same VMx lifecycle and conformance
 surface in a SwiftPM package, with SwiftUI adapters kept outside the core
 library boundary.
 
+## Serviced Collections
+
+`ServicedObservableCollection<T>` publishes locally through Combine, then to
+an optional external hub:
+
+```swift
+let notes = ServicedObservableCollection<Note>(hub: hub)
+let changes = notes.collectionChanged.sink { message in render(message) }
+
+notes.append(first)
+notes.append(second)
+notes.replace(at: 0, with: revised)  // setAt remains available
+try notes.move(from: 0, to: notes.count - 1)
+notes.replaceAll(serverSnapshot)     // one Reset
+```
+
+Value removal is available when `T: Equatable`, removes the first match, and
+returns `false` when absent. `removeAt` and `replace` retain Swift's established
+array-precondition bounds behavior; `move` instead throws the catchable
+`VMCollectionIndexError`. Equal-index move and empty clear are no-ops. The
+caller owns both the Combine cancellable and every stored item.
+
 ## Imperative Engine Bridge
 
 The `Equatable` overload of `subscribeValue` uses `==`; the `isEqual:` overload
