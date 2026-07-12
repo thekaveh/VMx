@@ -551,9 +551,9 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     with pytest.raises(SelectorError):
         AggregateChangeStream(
             construction_source,
-            lambda item: (_ for _ in ()).throw(SelectorError())
-            if item is bad
-            else item.changes.observable,
+            lambda item: (
+                (_ for _ in ()).throw(SelectorError()) if item is bad else item.changes.observable
+            ),
         )
     assert construction_source.handlers == []
     assert valid.changes.dispose_count == 1
@@ -564,11 +564,13 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     with pytest.raises(SubscriptionError) as raised_subscription_error:
         AggregateChangeStream(
             subscription_source,
-            lambda item: _FailingSelectedStream(  # type: ignore[return-value]
-                subscription_error
-            )
-            if item is subscription_bad
-            else item.changes.observable,
+            lambda item: (
+                _FailingSelectedStream(  # type: ignore[return-value]
+                    subscription_error
+                )
+                if item is subscription_bad
+                else item.changes.observable
+            ),
         )
     assert raised_subscription_error.value is subscription_error
     assert subscription_source.handlers == []
@@ -578,9 +580,9 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     later_source = _TestSource(later_valid)
     later = AggregateChangeStream(
         later_source,
-        lambda item: (_ for _ in ()).throw(SelectorError())
-        if item is later_bad
-        else item.changes.observable,
+        lambda item: (
+            (_ for _ in ()).throw(SelectorError()) if item is later_bad else item.changes.observable
+        ),
     )
     errors: list[Exception] = []
     later.observe().subscribe(on_next=lambda _: None, on_error=errors.append)
