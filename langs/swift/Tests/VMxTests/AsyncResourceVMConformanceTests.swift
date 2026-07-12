@@ -9,6 +9,12 @@ private final class DeferredValue<Value>: @unchecked Sendable {
     private var continuation: CheckedContinuation<Value, Never>?
     private var resolved: Value?
 
+    var isWaiting: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return continuation != nil
+    }
+
     func get() async -> Value {
         await withCheckedContinuation { continuation in
             lock.lock()
@@ -198,6 +204,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let vm = makeAsyncResourceVM(loader: queue.load)
         let older = Task { await vm.load() }
         await eventually { vm.state.status == .loading }
+        await eventually { first.isWaiting }
         let newer = Task { await vm.reload() }
         second.resolve(2)
         await newer.value
@@ -222,6 +229,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let cancellable = vm.propertyChanged.sink { _ in notifications += 1 }
         let older = Task { await vm.load() }
         await eventually { vm.state.status == .loading }
+        await eventually { first.isWaiting }
         let newer = Task { await vm.reload() }
         second.resolve(2)
         await newer.value
