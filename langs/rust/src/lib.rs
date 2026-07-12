@@ -1958,6 +1958,255 @@ impl<C: Command + Clone> Command for ConfirmationDecoratorCommand<C> {
     }
 }
 
+#[derive(Default)]
+struct ServicedCollectionDelivery {
+    state: Mutex<ServicedCollectionDeliveryState>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct ServicedCollectionDeliveryState {
+    pending: VecDeque<Message>,
+    draining_owner: Option<ThreadId>,
+}
+
+/// Hub-aware observable collection with a local change stream.
+///
+/// Effective mutations update the backing state, publish to the local stream,
+/// and then publish the same message to the optional external hub.
+#[derive(Clone)]
+pub struct ServicedObservableCollection<T>
+where
+    T: Clone + Send + 'static,
+{
+    inner: Arc<Mutex<Vec<T>>>,
+    local_hub: MessageHub,
+    external_hub: Option<MessageHub>,
+    delivery: Arc<ServicedCollectionDelivery>,
+    owner_id: usize,
+}
+
+impl<T> ServicedObservableCollection<T>
+where
+    T: Clone + Send + 'static,
+{
+    /// Creates an empty collection without an external message hub.
+    pub fn new(owner_id: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+            local_hub: MessageHub::new(),
+            external_hub: None,
+            delivery: Arc::new(ServicedCollectionDelivery::default()),
+            owner_id,
+        }
+    }
+
+    /// Creates an empty collection that also publishes changes to `hub`.
+    pub fn with_hub(owner_id: usize, hub: MessageHub) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+            local_hub: MessageHub::new(),
+            external_hub: Some(hub),
+            delivery: Arc::new(ServicedCollectionDelivery::default()),
+            owner_id,
+        }
+    }
+
+    /// Returns the always-present local collection-change stream.
+    pub fn collection_changed(&self) -> MessageHub {
+        self.local_hub.clone()
+    }
+
+    pub fn len(&self) -> usize {
+        lock(&self.inner).len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        lock(&self.inner).get(index).cloned()
+    }
+
+    pub fn to_vec(&self) -> Vec<T> {
+        lock(&self.inner).clone()
+    }
+
+    pub fn push(&self, item: T) {
+        let index = {
+            let mut inner = lock(&self.inner);
+            let index = inner.len();
+            inner.push(item);
+            index
+        };
+        self.publish(CollectionChangeAction::Add, None, Some(index));
+    }
+
+    /// Removes the first item equal to `item`.
+    pub fn remove(&self, item: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        let index = {
+            let mut inner = lock(&self.inner);
+            let Some(index) = inner.iter().position(|candidate| candidate == item) else {
+                return false;
+            };
+            inner.remove(index);
+            index
+        };
+        self.publish(CollectionChangeAction::Remove, Some(index), None);
+        true
+    }
+
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let removed = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            inner.remove(index)
+        };
+        self.publish(CollectionChangeAction::Remove, Some(index), None);
+        Ok(removed)
+    }
+
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let old = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            std::mem::replace(&mut inner[index], item)
+        };
+        self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+        Ok(old)
+    }
+
+    pub fn replace_all<I>(&self, items: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let snapshot = items.into_iter().collect::<Vec<_>>();
+        {
+            let mut inner = lock(&self.inner);
+            if inner.is_empty() && snapshot.is_empty() {
+                return;
+            }
+            *inner = snapshot;
+        }
+        self.publish(CollectionChangeAction::Reset, None, None);
+    }
+
+    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        {
+            let mut inner = lock(&self.inner);
+            if from_index >= inner.len() || to_index >= inner.len() {
+                return Err(VmxError::InvalidArgument(
+                    "move index out of range".to_string(),
+                ));
+            }
+            if from_index == to_index {
+                return Ok(());
+            }
+            let item = inner.remove(from_index);
+            inner.insert(to_index, item);
+        }
+        self.publish(
+            CollectionChangeAction::Move,
+            Some(from_index),
+            Some(to_index),
+        );
+        Ok(())
+    }
+
+    pub fn clear(&self) {
+        {
+            let mut inner = lock(&self.inner);
+            if inner.is_empty() {
+                return;
+            }
+            inner.clear();
+        }
+        self.publish(CollectionChangeAction::Reset, None, None);
+    }
+
+    fn publish(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+    ) {
+        let message = Message::CollectionChanged(CollectionChangedMessage {
+            sender_id: self.owner_id,
+            property_name: "items".to_string(),
+            action,
+            old_index,
+            new_index,
+        });
+
+        let current = thread::current().id();
+        let mut delivery = lock(&self.delivery.state);
+        while delivery
+            .draining_owner
+            .is_some_and(|owner| owner != current)
+        {
+            delivery = wait(&self.delivery.ready, delivery);
+        }
+        delivery.pending.push_back(message);
+        if delivery.draining_owner == Some(current) {
+            return;
+        }
+        delivery.draining_owner = Some(current);
+        drop(delivery);
+
+        let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
+        if let Err(error) = result {
+            let mut delivery = lock(&self.delivery.state);
+            delivery.pending.clear();
+            if delivery.draining_owner == Some(current) {
+                delivery.draining_owner = None;
+            }
+            self.delivery.ready.notify_all();
+            drop(delivery);
+            resume_unwind(error);
+        }
+    }
+
+    fn drain_delivery(&self, current: ThreadId) {
+        loop {
+            let message = {
+                let mut delivery = lock(&self.delivery.state);
+                debug_assert_eq!(delivery.draining_owner, Some(current));
+                let Some(message) = delivery.pending.pop_front() else {
+                    delivery.draining_owner = None;
+                    self.delivery.ready.notify_all();
+                    return;
+                };
+                message
+            };
+
+            self.local_hub.send(message.clone());
+            if let Some(hub) = &self.external_hub {
+                hub.send(message);
+            }
+        }
+    }
+}
+
+impl<T> IntoIterator for &ServicedObservableCollection<T>
+where
+    T: Clone + Send + 'static,
+{
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
+    }
+}
+
 #[derive(Clone)]
 pub struct ObservableList<T: Clone + Send + 'static> {
     inner: Arc<Mutex<Vec<T>>>,
