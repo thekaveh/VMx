@@ -4,7 +4,7 @@
  * See spec/07-group-vm.md.
  */
 import { Subject } from "rxjs";
-import type { Observable } from "rxjs";
+import type { Observable, Subscription } from "rxjs";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IParentVM } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
@@ -16,7 +16,12 @@ import {
   makeCollectionChangedEvent,
   BatchUpdateHandle,
 } from "../collections/index.js";
-import type { CollectionChangedEvent, IBatchable, IVmCollection } from "../collections/index.js";
+import type {
+  CollectionChangedEvent,
+  IBatchable,
+  IVmCollection,
+  ObservableMembershipSource,
+} from "../collections/index.js";
 
 /** GroupVM parent adaptor — no selection concept. */
 class GroupParent implements IParentVM {
@@ -28,7 +33,7 @@ class GroupParent implements IParentVM {
 
 export class GroupVM<VM extends ComponentVMBase>
   extends ComponentVMBase
-  implements IBatchable, IVmCollection<VM>
+  implements IBatchable, IVmCollection<VM>, ObservableMembershipSource<VM>
 {
   readonly #autoConstructOnAdd: boolean;
   readonly #childrenFactory: (() => Iterable<VM>) | null;
@@ -72,6 +77,14 @@ export class GroupVM<VM extends ComponentVMBase>
 
   [Symbol.iterator](): Iterator<VM> {
     return this._children[Symbol.iterator]();
+  }
+
+  snapshot(): readonly VM[] {
+    return [...this._children];
+  }
+
+  subscribeMembership(callback: () => void): Subscription {
+    return this.#collectionChangedSubject.subscribe(() => callback());
   }
 
   at(index: number): VM {
