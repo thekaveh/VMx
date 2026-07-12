@@ -42,7 +42,7 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>
     /// Empty-to-empty is a no-op.
     /// </summary>
     /// <param name="items">Items that will form the complete new contents.</param>
-    public void ReplaceAll(IEnumerable<T> items)
+    public virtual void ReplaceAll(IEnumerable<T> items)
     {
 #if NET8_0_OR_GREATER
         ArgumentNullException.ThrowIfNull(items);
