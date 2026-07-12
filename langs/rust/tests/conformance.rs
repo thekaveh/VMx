@@ -29,6 +29,7 @@ mod conformance {
     mod post_dispose_modeled_assignment;
     mod property_change;
     mod search_filter;
+    mod subscribe_value;
     mod threading;
     mod tree_utils;
     mod vm_collection_move;
