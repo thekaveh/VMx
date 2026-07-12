@@ -21,6 +21,7 @@
 - Setup-race reconciliation publishes no history; only post-construction structural pulses emit `Membership`, while a requested subscriber-local `Initial` represents ready state.
 - Terminal null/selector/subscription failure detaches structural, staged, and admitted subscriptions before output error/throw.
 - On exceptional batch exit, a synchronous final-delivery failure is suppressed so the original body error wins; otherwise subscriber failures follow the host contract.
+- Batch recipients are the union of subscriptions active when dirtying changes are admitted; later cancellations are filtered and subscribers joining after the last change receive no history.
 - Behavior changes begin in `spec/`; ADR-0098 and all five conformance suites must land in this issue branch.
 - Canonical docs under `docs/content/` must regenerate both `generated/site/` and `generated/wiki/`; do not hand-edit generated output.
 - Preserve the user's primary VMx checkout and both consumer checkouts; pilots run only in disposable clones/worktrees and their patches/reports are retained outside those repositories.

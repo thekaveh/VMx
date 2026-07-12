@@ -1088,6 +1088,14 @@ Outside a batch, every admitted structural or item change emits immediately.
 Inside any batch depth, changes only mark the aggregate dirty. The outermost
 exit emits exactly one `Batch` if dirty. An empty batch emits nothing.
 
+Batch delivery preserves the hot/no-history rule. At each coalesced change,
+the aggregate unions the output subscriptions that are active at that change's
+admission. Outermost exit offers the final `Batch` only to that union, after
+discarding subscriptions cancelled before delivery. A subscriber joining after
+all dirtying changes receives no historical `Batch`; if another change is
+admitted after it joins but before exit, it becomes eligible for that final
+envelope.
+
 If a body admits a change and then fails, outermost cleanup emits the one
 `Batch` and rethrows the original failure. Cleanup MUST NOT replace the body
 failure. A native collection batch that publishes one Reset naturally causes

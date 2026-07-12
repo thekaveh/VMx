@@ -146,6 +146,10 @@ aggregate.withBatch(() =>
 Equivalent APIs are `Batch` in C#, the `batch()` context manager in Python,
 `withBatch` in Swift, and `batch` in Rust. Empty scopes emit nothing; a dirty
 outermost scope emits one `Batch` even when its body exits with an error.
+That envelope goes only to subscriptions active when at least one coalesced
+change was admitted. A subscriber joining after all dirtying changes receives
+no batch history; it becomes eligible only if a later change occurs before the
+outer scope exits.
 
 The host owns the aggregate and its output subscription. Call `dispose` when
 the adapter stops: disposal is idempotent and detaches the structural and

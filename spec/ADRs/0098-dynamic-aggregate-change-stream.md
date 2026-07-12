@@ -137,6 +137,11 @@ batch, changes mark it dirty; the outermost exit emits exactly one `Batch` when
 dirty. Empty batches emit nothing. If a body changes state and then fails, the
 final batch event is emitted and the original failure is rethrown.
 
+The final envelope is delivered to the union of subscriptions active when each
+coalesced change was admitted, excluding any cancelled before delivery. A
+subscriber that joins after all dirtying changes receives no historical
+`Batch`; one present for a later dirtying change joins the union.
+
 If synchronous subscriber delivery of that final `Batch` also throws while the
 body failure is active, cleanup suppresses the delivery exception so the
 original body failure wins. When the body succeeds, a synchronous subscriber

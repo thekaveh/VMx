@@ -3616,6 +3616,11 @@ delivery publishes normally
 **Given** an aggregate with counted subscriptions and an explicit batch scope
 **When** a batch admits no change
 **Then** it emits no `Batch` or other envelope
+**When** a change dirties a batch before a new subscriber joins
+**Then** the early subscriber receives the final `Batch` and the late subscriber
+receives no historical envelope
+**But when** another change is admitted after the late subscriber joins
+**Then** both still-active subscribers receive the one final `Batch`
 **When** a Move reorders a current identity without changing the identity
 multiset
 **Then** one `Membership` event reflects the committed order

@@ -255,6 +255,9 @@ The aggregate owns a synchronous, ref-counted batch/defer scope:
 - inside nested batches, changes mark the aggregate dirty;
 - the outermost exit emits exactly one `batch` event when dirty;
 - an empty batch emits nothing; and
+- the final event targets the union of subscribers active at each dirtying
+  change, excluding later cancellations, so late subscribers receive no
+  history unless another change occurs after they join; and
 - if the body fails after a change, the final batch event is emitted and the
   original error is rethrown. If synchronous final-event delivery itself throws,
   that cleanup exception is suppressed so it cannot replace the body error.
