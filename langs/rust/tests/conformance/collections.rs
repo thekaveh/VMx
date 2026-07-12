@@ -1,7 +1,8 @@
 use vmx::{
-    CollectionChangeAction, Command, ComponentVm, ConstructionStatus, Message, MessageHub,
-    ObservableDictionary, ObservableList, ObservableMultiDictionary, PagedComposition,
-    SearchableState, ServicedObservableCollection, TokenPagedComposition, VmxError,
+    CollectionChangeAction, Command, ComponentVm, ConstructionStatus,
+    KeyedServicedObservableCollection, Message, MessageHub, ObservableDictionary, ObservableList,
+    ObservableMultiDictionary, PagedComposition, SearchableState, ServicedObservableCollection,
+    TokenPagedComposition, VmxError,
 };
 
 fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
@@ -605,6 +606,413 @@ fn serviced_collection_clear_and_mutations_preserve_caller_ownership() {
     let removed = non_equatable.remove_at(1).unwrap();
     assert!(std::sync::Arc::ptr_eq(&removed.0, &one.0));
     non_equatable.clear();
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct KeyedItem {
+    key: &'static str,
+    value: i32,
+}
+
+fn keyed_item(key: &'static str, value: i32) -> KeyedItem {
+    KeyedItem { key, value }
+}
+
+/// COL-056 — keyed serviced lookup uses captured keys and preserves order
+#[test]
+fn keyed_serviced_lookup_uses_captured_keys_without_reprojection() {
+    let projections = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = projections.clone();
+    let list = KeyedServicedObservableCollection::new(
+        21,
+        move |item: &std::sync::Arc<std::sync::Mutex<KeyedItem>>| {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(item.lock().unwrap().key)
+        },
+    );
+    let a = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("a", 1)));
+    let b = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("b", 2)));
+    let c = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("c", 3)));
+    list.push(a.clone()).unwrap();
+    list.push(b.clone()).unwrap();
+    list.push(c.clone()).unwrap();
+    let message_count = list.collection_changed().history().len();
+
+    for key in ["a", "b", "c"] {
+        assert!(list.contains_key(&key));
+        assert!(list.get_by_key(&key).is_some());
+    }
+    assert_eq!(projections.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert!(std::sync::Arc::ptr_eq(&list.get(1).unwrap(), &b));
+    assert_eq!(
+        (&list)
+            .into_iter()
+            .map(|item| item.lock().unwrap().value)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+
+    b.lock().unwrap().key = "renamed";
+    assert!(std::sync::Arc::ptr_eq(&list.get_by_key(&"b").unwrap(), &b));
+    assert!(list.get_by_key(&"renamed").is_none());
+    assert_eq!(projections.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(list.collection_changed().history().len(), message_count);
+}
+
+/// COL-057 — keyed serviced insert uniqueness and projection failure are atomic
+#[test]
+fn keyed_serviced_projection_and_duplicate_failures_are_atomic() {
+    let hub = MessageHub::new();
+    let list =
+        KeyedServicedObservableCollection::with_hub(22, hub.clone(), |item: &KeyedItem| match item
+            .key
+        {
+            "fail" => Err(VmxError::Other("projection failed".to_string())),
+            key => Ok(key),
+        });
+    list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
+        .unwrap();
+    let local_count = list.collection_changed().history().len();
+    let hub_count = hub.history().len();
+
+    assert!(matches!(
+        list.push(keyed_item("a", 9)),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        list.replace(0, keyed_item("b", 9)),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        list.replace_all([keyed_item("x", 1), keyed_item("x", 2)]),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    assert_eq!(
+        list.push(keyed_item("fail", 9)),
+        Err(VmxError::Other("projection failed".to_string()))
+    );
+    assert_eq!(
+        list.upsert(keyed_item("fail", 9)),
+        Err(VmxError::Other("projection failed".to_string()))
+    );
+    assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
+    assert_eq!(list.collection_changed().history().len(), local_count);
+    assert_eq!(hub.history().len(), hub_count);
+}
+
+/// COL-058 — keyed serviced upsert distinguishes Add from stable-position Replace
+#[test]
+fn keyed_serviced_upsert_adds_or_replaces_at_the_stable_position() {
+    let hub = MessageHub::new();
+    let list = KeyedServicedObservableCollection::with_hub(
+        23,
+        hub.clone(),
+        |item: &std::sync::Arc<KeyedItem>| Ok(item.key),
+    );
+    let a = std::sync::Arc::new(keyed_item("a", 1));
+    let b = std::sync::Arc::new(keyed_item("b", 2));
+    list.push(a).unwrap();
+    list.push(b.clone()).unwrap();
+    let before = collection_messages(&hub).len();
+
+    assert!(list
+        .upsert(std::sync::Arc::new(keyed_item("c", 3)))
+        .unwrap());
+    assert!(!list
+        .upsert(std::sync::Arc::new(keyed_item("b", 20)))
+        .unwrap());
+    assert!(!list.upsert(list.get_by_key(&"b").unwrap()).unwrap());
+
+    let changes = &collection_messages(&hub)[before..];
+    assert_eq!(
+        changes
+            .iter()
+            .map(|change| change.action.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Replace,
+            CollectionChangeAction::Replace,
+        ]
+    );
+    assert_eq!(changes[0].new_index, Some(2));
+    assert_eq!(
+        (changes[1].old_index, changes[1].new_index),
+        (Some(1), Some(1))
+    );
+    assert_eq!(
+        (changes[2].old_index, changes[2].new_index),
+        (Some(1), Some(1))
+    );
+    assert_eq!(list.get(1).unwrap().value, 20);
+}
+
+/// COL-059 — keyed deletion reports success and the pre-removal position
+#[test]
+fn keyed_serviced_deletion_returns_the_item_and_repairs_positions() {
+    let hub = MessageHub::new();
+    let list = KeyedServicedObservableCollection::with_hub(24, hub.clone(), |item: &KeyedItem| {
+        Ok(item.key)
+    });
+    list.replace_all([keyed_item("a", 1), keyed_item("b", 2), keyed_item("c", 3)])
+        .unwrap();
+    let before = collection_messages(&hub).len();
+
+    assert_eq!(list.remove_key(&"b"), Some(keyed_item("b", 2)));
+    assert_eq!(list.remove_key(&"missing"), None);
+    assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("c", 3)]);
+    assert_eq!(list.get_by_key(&"c"), Some(keyed_item("c", 3)));
+    let changes = &collection_messages(&hub)[before..];
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].action, CollectionChangeAction::Remove);
+    assert_eq!(changes[0].old_index, Some(1));
+}
+
+/// COL-060 — every removal and explicit rekey keeps the captured index synchronized
+#[test]
+fn keyed_serviced_removals_and_explicit_rekeys_keep_the_index_synchronized() {
+    let list = KeyedServicedObservableCollection::new(25, |item: &KeyedItem| Ok(item.key));
+    list.replace_all([keyed_item("a", 1), keyed_item("b", 2), keyed_item("c", 3)])
+        .unwrap();
+    assert!(list.remove(&keyed_item("a", 1)));
+    assert_eq!(list.remove_at(0).unwrap(), keyed_item("b", 2));
+    assert_eq!(list.get_by_key(&"c"), Some(keyed_item("c", 3)));
+    assert_eq!(
+        list.replace(0, keyed_item("renamed", 30)).unwrap(),
+        keyed_item("c", 3)
+    );
+    assert!(!list.contains_key(&"c"));
+    assert_eq!(list.get_by_key(&"renamed"), Some(keyed_item("renamed", 30)));
+
+    let mutable = KeyedServicedObservableCollection::new(
+        26,
+        |item: &std::sync::Arc<std::sync::Mutex<KeyedItem>>| Ok(item.lock().unwrap().key),
+    );
+    let item = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("old", 1)));
+    mutable.push(item.clone()).unwrap();
+    item.lock().unwrap().key = "new";
+    assert!(mutable.upsert(item.clone()).unwrap());
+    assert_eq!(mutable.len(), 2);
+    assert!(std::sync::Arc::ptr_eq(
+        &mutable.get_by_key(&"old").unwrap(),
+        &item
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &mutable.get_by_key(&"new").unwrap(),
+        &item
+    ));
+}
+
+/// COL-061 — keyed whole-list replacement preflights keys and self input
+#[test]
+fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
+    let hub = MessageHub::new();
+    let list = KeyedServicedObservableCollection::with_hub(27, hub.clone(), |item: &KeyedItem| {
+        if item.key == "fail" {
+            Err(VmxError::Other("projection failed".to_string()))
+        } else {
+            Ok(item.key)
+        }
+    });
+    list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
+        .unwrap();
+    let before_self = collection_messages(&hub).len();
+    list.replace_all(&list).unwrap();
+    assert_eq!(collection_messages(&hub).len(), before_self + 1);
+    let before_failure = collection_messages(&hub).len();
+
+    assert!(matches!(
+        list.replace_all([keyed_item("x", 1), keyed_item("x", 2)]),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    assert_eq!(
+        list.replace_all([keyed_item("fail", 1)]),
+        Err(VmxError::Other("projection failed".to_string()))
+    );
+    assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
+    assert_eq!(collection_messages(&hub).len(), before_failure);
+
+    let empty = KeyedServicedObservableCollection::new(28, |item: &KeyedItem| Ok(item.key));
+    empty.replace_all(std::iter::empty()).unwrap();
+    assert!(empty.collection_changed().history().is_empty());
+}
+
+/// COL-062 — keyed move, clear, and convenience mutations preserve invariants and ownership
+#[test]
+fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct OwnedItem(&'static str, std::sync::Arc<()>);
+
+    let a = OwnedItem("a", std::sync::Arc::new(()));
+    let b = OwnedItem("b", std::sync::Arc::new(()));
+    let c = OwnedItem("c", std::sync::Arc::new(()));
+    let list = KeyedServicedObservableCollection::new(29, |item: &OwnedItem| Ok(item.0));
+    list.replace_all([a.clone(), b.clone(), c.clone()]).unwrap();
+    list.move_item(0, 2).unwrap();
+    assert_eq!(list.to_vec(), vec![b.clone(), c.clone(), a.clone()]);
+    assert_eq!(list.get_by_key(&"a"), Some(a.clone()));
+    let messages = list.collection_changed().history().len();
+    list.move_item(1, 1).unwrap();
+    assert_eq!(list.collection_changed().history().len(), messages);
+    list.clear();
+    assert!(list.is_empty());
+    assert!(!list.contains_key(&"a"));
+    assert!(std::sync::Arc::strong_count(&a.1) >= 1);
+    assert!(std::sync::Arc::strong_count(&b.1) >= 1);
+    assert!(std::sync::Arc::strong_count(&c.1) >= 1);
+}
+
+/// COL-063 — keyed delivery is local-before-hub and respects an existing hub transaction
+#[test]
+fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
+    let hub = MessageHub::new();
+    let list = KeyedServicedObservableCollection::with_hub(30, hub.clone(), |item: &KeyedItem| {
+        Ok(item.key)
+    });
+    let trace = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let local_trace = trace.clone();
+    let local_list = list.clone();
+    let _local = list.collection_changed().subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            local_trace.lock().unwrap().push((
+                "local",
+                change.action.clone(),
+                local_list.contains_key(&"b"),
+            ));
+        }
+    });
+    let external_trace = trace.clone();
+    let external_list = list.clone();
+    let _external = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            external_trace.lock().unwrap().push((
+                "hub",
+                change.action.clone(),
+                external_list.contains_key(&"b"),
+            ));
+        }
+    });
+
+    hub.batch(|| {
+        list.push(keyed_item("a", 1)).unwrap();
+        list.push(keyed_item("b", 2)).unwrap();
+        assert_eq!(trace.lock().unwrap().len(), 2);
+    });
+    assert_eq!(
+        trace
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.0)
+            .collect::<Vec<_>>(),
+        vec!["local", "local", "hub", "hub"]
+    );
+    assert_eq!(
+        trace
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.2)
+            .collect::<Vec<_>>(),
+        vec![false, true, true, true]
+    );
+}
+
+/// COL-064 — reentrant keyed mutation preserves index consistency and per-operation ordering
+#[test]
+fn keyed_serviced_reentrant_mutation_preserves_consistent_index_and_delivery_pairs() {
+    let hub = MessageHub::new();
+    let list = KeyedServicedObservableCollection::with_hub(31, hub.clone(), |item: &KeyedItem| {
+        Ok(item.key)
+    });
+    let trace = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let local_trace = trace.clone();
+    let local_list = list.clone();
+    let nested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let nested_guard = nested.clone();
+    let _local = list.collection_changed().subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            let consistent = local_list.get_by_key(&"outer").is_some()
+                && (local_list.contains_key(&"nested") == (local_list.len() == 2));
+            local_trace
+                .lock()
+                .unwrap()
+                .push(("local", change.new_index, consistent));
+            if !nested_guard.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                local_list.upsert(keyed_item("nested", 2)).unwrap();
+            }
+        }
+    });
+    let external_trace = trace.clone();
+    let external_list = list.clone();
+    let _external = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            let consistent = external_list.get_by_key(&"outer").is_some()
+                && (external_list.contains_key(&"nested") == (external_list.len() == 2));
+            external_trace
+                .lock()
+                .unwrap()
+                .push(("hub", change.new_index, consistent));
+        }
+    });
+
+    list.push(keyed_item("outer", 1)).unwrap();
+
+    assert_eq!(
+        list.to_vec(),
+        vec![keyed_item("outer", 1), keyed_item("nested", 2)]
+    );
+    let trace = trace.lock().unwrap();
+    for index in [Some(0), Some(1)] {
+        let local_position = trace
+            .iter()
+            .position(|entry| entry.0 == "local" && entry.1 == index)
+            .unwrap();
+        let hub_position = trace
+            .iter()
+            .position(|entry| entry.0 == "hub" && entry.1 == index)
+            .unwrap();
+        assert!(local_position < hub_position);
+    }
+    assert!(trace.iter().all(|entry| entry.2));
+}
+
+// Concurrency regression for COL-058/COL-064: Add positions are captured while
+// the keyed state is locked rather than recomputed from a later collection length.
+#[test]
+fn keyed_serviced_concurrent_upserts_publish_each_committed_add_position() {
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct ConcurrentItem(usize);
+
+    let list = KeyedServicedObservableCollection::new(32, |item: &ConcurrentItem| Ok(item.0));
+    let start = std::sync::Arc::new(std::sync::Barrier::new(33));
+    let mut workers = Vec::new();
+    for key in 0..32 {
+        let worker_list = list.clone();
+        let worker_start = start.clone();
+        workers.push(std::thread::spawn(move || {
+            worker_start.wait();
+            assert!(worker_list.upsert(ConcurrentItem(key)).unwrap());
+        }));
+    }
+    start.wait();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    assert_eq!(list.len(), 32);
+    for key in 0..32 {
+        assert_eq!(list.get_by_key(&key), Some(ConcurrentItem(key)));
+    }
+    let mut positions = collection_messages(&list.collection_changed())
+        .into_iter()
+        .map(|message| {
+            assert_eq!(message.action, CollectionChangeAction::Add);
+            message.new_index.unwrap()
+        })
+        .collect::<Vec<_>>();
+    positions.sort_unstable();
+    assert_eq!(positions, (0..32).collect::<Vec<_>>());
 }
 
 /// COL-005 — ObservableList<T> ItemAdded payload shape
