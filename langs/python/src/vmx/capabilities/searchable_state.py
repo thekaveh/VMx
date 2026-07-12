@@ -33,6 +33,9 @@ class SearchableState(ISearchable, Generic[T]):
         scheduler: optional scheduler for the debounce (default:
             TimeoutScheduler — required for real time delays; pass a
             TestScheduler in tests that exercise debounce timing).
+        source_changes: optional payload-free invalidation stream. Each value
+            immediately re-reads ``items`` with the current term. Completion or
+            failure stops automatic refresh without terminating ``filtered``.
     """
 
     def __init__(
@@ -41,6 +44,7 @@ class SearchableState(ISearchable, Generic[T]):
         predicate: Callable[[T, str], bool],
         debounce_seconds: float = 1.0,
         scheduler: SchedulerBase | None = None,
+        source_changes: Observable[object] | None = None,
     ) -> None:
         self._items_source = items
         self._predicate = predicate
@@ -56,10 +60,24 @@ class SearchableState(ISearchable, Generic[T]):
             debounced = self._term_subject
 
         force = self._force_search.pipe(ops.map(lambda _: self._term_subject.value))
-        recompute = rx.merge(debounced, force)
+        source = (
+            source_changes.pipe(
+                ops.map(lambda _: self._term_subject.value),
+                ops.catch(self._isolate_source_failure),
+            )
+            if source_changes is not None
+            else rx.empty()
+        )
+        recompute = rx.merge(debounced, force, source)
         self._subscription = recompute.subscribe(
             on_next=lambda term: self._filtered_subject.on_next(self._apply_filter(term))
         )
+
+        # Close the initial snapshot/attach gap. This constructor-only first
+        # value cannot be observed by callers; signals after attachment flow
+        # through the merged subscription above.
+        if source_changes is not None:
+            self._filtered_subject.on_next(self._apply_filter(self._term_subject.value))
 
     @property
     def search_term(self) -> str:
@@ -100,6 +118,10 @@ class SearchableState(ISearchable, Generic[T]):
 
     def _apply_filter(self, term: str) -> list[T]:
         return [item for item in self._items_source() if self._predicate(item, term)]
+
+    @staticmethod
+    def _isolate_source_failure(_error: Exception, _source: Observable[str]) -> Observable[str]:
+        return rx.empty()
 
     def dispose(self) -> None:
         """Tear down internal subscriptions and complete the streams. Idempotent."""

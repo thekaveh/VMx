@@ -235,7 +235,7 @@ Behavior:
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 
-## 8. Search / filter (spec v2.0)
+## 8. Search / filter (spec v2.0, source reactivity v3.19)
 
 A composite (or group) MAY opt into search/filter via the `SearchableState`
 helper, which implements `ISearchable` from chapter 14 (designed in ADR-0014):
@@ -246,8 +246,10 @@ SearchableState<TItem>:
     SearchTermChanged : Observable<string>        # debounced (default 1s, configurable)
     Predicate : (TItem, string) -> bool           # user-supplied
     Items : Iterable<TItem>                       # current source set
+    SourceChanged : Observable<void>?             # optional invalidation signal
     Filtered : Observable<list<TItem>>            # filtered set, recomputed on
-                                                 # debounced SearchTerm change or Items change
+                                                 # debounced SearchTerm change,
+                                                 # SourceChanged, or search()
     can_search() : bool
     search() : void                              # force immediate recompute
 ```
@@ -265,6 +267,50 @@ Behavior:
 - `search()` forces an immediate recompute, bypassing the debounce.
 - `can_search()` returns `true` when at least one item is present (helpers
   MAY relax this).
+- When an optional `SourceChanged` signal is supplied, every signal immediately
+  re-reads `Items`, applies the current `SearchTerm`, and emits one filtered
+  snapshot. The signal payload is ignored.
+
+### 8.1 Source-change timing and batching (spec v3.19)
+
+The source-change signal is independent of the search-term debounce. A signal
+uses the current term immediately and MUST NOT cancel, restart, or otherwise
+consume a pending debounced term delivery. That pending delivery still occurs
+after its original quiet window. Each source signal produces one recompute even
+when the resulting sequence is value-equal to the preceding snapshot.
+
+`SearchableState` adds no source-change debounce or batch scope. It is
+transparent to the supplied signal: N signals produce N recomputes. A source
+collection, hub, or `AggregateChangeStream` that coalesces a mutation batch into
+one signal therefore produces one recompute. Consumers needing both membership
+and current-member changes SHOULD map the `AggregateChangeStream` from chapter
+21 §9 to this signal; `SearchableState` MUST NOT create a second member registry.
+
+The item supplier remains authoritative and MAY return a different collection
+instance. The next source signal or explicit `search()` reads that replacement.
+The signal subscription itself is fixed for the helper's lifetime.
+
+### 8.2 Setup, termination, and ownership (spec v3.19)
+
+When `SourceChanged` is present, construction MUST install its subscription and
+then reconcile from `Items` again before returning. This closes the ordinary
+initial-snapshot/attach gap without exposing constructor-only intermediate
+snapshots. The supplier and source retain their own threading requirements;
+`SearchableState` does not make concurrent mutation of an unsafe source safe.
+
+Source completion stops automatic source-triggered recomputation only. A source
+error, in flavors whose signal type can fail, has the same isolated effect: it
+is not forwarded to `Filtered`. Term changes and explicit `search()` remain
+operational until helper disposal. Swift encodes the signal with
+`Failure == Never`; Rust's message-hub signal likewise has no error channel.
+
+The helper owns only the subscription it creates. It MUST NOT dispose the source
+signal, item collection, supplied items, predicate, or an upstream aggregate.
+Disposal cancels the owned subscription exactly once, completes the
+helper-owned filtered output according to the existing flavor contract, and
+makes later source signals inert. Omitting `SourceChanged` preserves the
+supplier-only compatibility path: source mutation alone emits nothing and an
+explicit `search()` refreshes the view.
 
 Consumers wire `SearchableState` to a composite by passing
 `composite as Iterable<TItem>` as `Items`. The helper is opt-in; the base
@@ -309,7 +355,8 @@ forces a recompute when external score state changes.
 `COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, (the
 modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
 the builder hooks `COMP-025` and `COMP-026` (see below), plus filtered/scored
-view IDs `COMP-028` through `COMP-037`, in
+view IDs `COMP-028` through `COMP-037`, plus source-reactivity IDs `SRCH-001`
+through `SRCH-007`, in
 `12-conformance.md` cover:
 
 - collection-change events on add/remove
@@ -327,6 +374,8 @@ view IDs `COMP-028` through `COMP-037`, in
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
 - filtered visible projections and visible-domain current
 - scored filtering with stable score ordering
+- optional source-change refresh, independent debounce timing, termination,
+  batching transparency, and subscription-only ownership
 
 The builder hooks introduced in §3.2 are covered by:
 

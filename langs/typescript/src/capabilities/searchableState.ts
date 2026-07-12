@@ -6,7 +6,9 @@
 import {
   asyncScheduler,
   BehaviorSubject,
+  catchError,
   debounceTime,
+  EMPTY,
   map,
   merge,
   type Observable,
@@ -22,6 +24,8 @@ export interface SearchableStateOptions<T> {
   predicate: (item: T, term: string) => boolean;
   debounceMs?: number; // default: 1000; pass 0 to disable
   scheduler?: SchedulerLike;
+  /** Optional invalidation signal; payloads are ignored. */
+  sourceChanges?: Observable<unknown>;
 }
 
 export class SearchableState<T> implements ISearchable {
@@ -51,10 +55,26 @@ export class SearchableState<T> implements ISearchable {
     const forceFilter = this.#forceSearchSubject.pipe(
       map(() => this.#termSubject.value),
     );
+    const sourceFilter: Observable<string> =
+      opts.sourceChanges?.pipe(
+        map(() => this.#termSubject.value),
+        catchError(() => EMPTY),
+      ) ?? EMPTY;
 
-    this.#subscription = merge(debouncedTerm, forceFilter).subscribe((term) => {
+    this.#subscription = merge(
+      debouncedTerm,
+      forceFilter,
+      sourceFilter,
+    ).subscribe((term) => {
       this.#filteredSubject.next(this.#applyFilter(term));
     });
+
+    // Close the initial snapshot/attach gap. Callers cannot observe the
+    // constructor-only first value; later source pulses flow through the
+    // subscription above.
+    if (opts.sourceChanges !== undefined) {
+      this.#filteredSubject.next(this.#applyFilter(this.#termSubject.value));
+    }
   }
 
   get searchTerm(): string {
@@ -76,14 +96,10 @@ export class SearchableState<T> implements ISearchable {
   }
 
   /**
-   * The current filtered view, recomputed on each *term* change (debounced)
-   * and on each explicit {@link search} call.
-   *
-   * VMX-093: `filtered` does NOT react to mutations of the underlying source —
-   * `items` is read lazily only when the term changes or `search()` is called.
-   * After mutating the source collection (add/remove/replace) while the term is
-   * unchanged, callers MUST call {@link search} to refresh this view. (This
-   * differs from `PagedComposition`, which observes its source.)
+   * The current filtered view, recomputed on each debounced term change,
+   * explicit {@link search} call, and optional `sourceChanges` pulse. Source
+   * completion or failure stops automatic refresh without terminating this
+   * observable.
    */
   get filtered(): Observable<readonly T[]> {
     return this.#filteredSubject.asObservable();
