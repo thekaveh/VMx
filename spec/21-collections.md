@@ -51,22 +51,29 @@ types.
 
 ## 2. `ServicedObservableCollection<T>`
 
-Per ADR-0024.
+Per ADR-0024 and ADR-0096.
 
 ### 2.1 Shape
 
-```
-ServicedObservableCollection<T>:
-    constructor(hub?: IMessageHub)     # hub is optional; absence is a safe no-op
-    CollectionChanged : event/Observable  # standard per-flavor collection change
-    Add(item: T) : void
-    Remove(item: T) : bool
-    Replace(index: int, item: T) : void
-    ReplaceAll(items: Iterable<T>) : void
-    Clear() : void
-    Count : int
-    Items : Iterable<T>
-```
+The collection accepts an optional `IMessageHub`, exposes the established
+per-flavor local collection-change event/Observable, supports indexed and
+iterable reads, and provides this idiomatic conceptual mutation surface:
+
+| Concept      | C#                  | Python        | TypeScript                   | Swift                                  | Rust          |
+| ------------ | ------------------- | ------------- | ---------------------------- | -------------------------------------- | ------------- |
+| Add          | `Add`               | `append`      | `push`                       | `append`                               | `push`        |
+| Remove value | `Remove`            | `remove`      | `remove`                     | `remove`                               | `remove`      |
+| Remove index | `RemoveAt`          | `remove_at`   | `removeAt`                   | `removeAt`                             | `remove_at`   |
+| Replace      | indexer / `Replace` | `replace`     | `replace` (`setAt` retained) | `replace(at:with:)` (`setAt` retained) | `replace`     |
+| Replace all  | `ReplaceAll`        | `replace_all` | `replaceAll`                 | `replaceAll`                           | `replace_all` |
+| Move         | `Move`              | `move`        | `move`                       | `move(from:to:)`                       | `move_item`   |
+| Clear        | `Clear`             | `clear`       | `clear`                      | `clear`                                | `clear`       |
+
+Size and iteration follow the host collection idiom (`Count`, `len`/`count`,
+`length`, and native iteration or established indexed access). Existing
+indexers, `setAt`, `splice`, `pop`, `at`, and `toArray` affordances remain
+source-compatible; see ADR-0009. Rust provides a distinct real
+`ServicedObservableCollection<T>`, not an alias for `ObservableList<T>`.
 
 ### 2.2 Hub injection
 
@@ -81,35 +88,139 @@ plain platform `ObservableCollection<T>`:
 This is the **null-hub fallback**. It preserves backward compatibility and
 removes the need for a null-hub guard at every call site.
 
-### 2.3 Mutation ordering
+### 2.3 Mutation semantics
 
-When a hub is injected, every mutation follows this ordering:
+#### 2.3.1 Value and indexed removal
 
-1. Perform the mutation on the backing store.
-1. Raise the local `CollectionChanged` event.
-1. Call `hub.Send(CollectionChangedMessage{…})`.
+Value removal targets the first equal occurrence only. A missing value changes
+nothing and returns false except in Python: Python preserves the standard
+`MutableSequence.remove` behavior, returning `None` on success and raising
+`ValueError` when the value is absent.
 
-The two notifications always occur in this order: local subscribers observe the
-change before hub subscribers. This is normative.
+Indexed removal emits exactly one Remove. In C#, Python, TypeScript, and Swift,
+the message contains the removed item and its pre-removal position. Rust emits
+Remove with `old_index == Some(pre-removal)` and `new_index == None`, without an
+item payload.
+
+C#, TypeScript, and Swift accept only indices in `[0, Count)` and reject an
+invalid index before mutation. Rust's index type is `usize`, so a negative value
+is unrepresentable; a value at or above `Count` is rejected before mutation.
+Python preserves normal negative-index resolution for named indexed removal:
+the message reports the resolved nonnegative position, while an excessively
+negative or positive index raises `IndexError` atomically. Swift's established
+nonthrowing indexed mutators preserve their array-precondition failure behavior.
+Newly named Python and Rust indexed operations return the removed item;
+established flavor returns remain unchanged.
+
+#### 2.3.2 Replacement
+
+Named replacement emits exactly one Replace. In C#, Python, TypeScript, and
+Swift, its message contains the old item, new item, and replaced position. Rust
+emits Replace with equal present optional old/new positions and no item payload.
+Replacing an item with the identical or equal item still emits Replace; this
+unconstrained generic does not compare items to suppress an explicit
+replacement. Indexed bounds and per-flavor divergence behavior match §2.3.1.
+Newly named Python and Rust operations return the old item; established flavor
+returns remain unchanged.
+
+#### 2.3.3 Whole-list replacement and clear
+
+Whole-list replacement fully materializes its input before changing the backing
+store. Passing the collection itself or a live view is safe. In flavors where
+input iteration can fail, materialization failure leaves contents and both
+notification channels unchanged.
+
+Empty-to-empty is the only replacement no-op. Every other call, including
+element-for-element identical non-empty contents, emits exactly one Reset and no
+granular messages. A serviced collection has no `Count` property-change
+channel; Reset is its sole bulk notification.
+
+Clearing an empty collection is a true no-op. Clearing a non-empty collection
+emits exactly one Reset. Serviced collections have no batch mechanism: every
+effective mutation delivers immediately.
+
+#### 2.3.4 Move
+
+Move reuses the portable ADR-0085 index contract. Both indices address the
+pre-move collection and MUST lie in `[0, Count)`. Invalid indices raise a
+flavor-idiomatic catchable bounds error before mutation. C#, Python, TypeScript,
+and Swift reject negative Move indices; Rust's `usize` indices make negative
+values unrepresentable. Python's strict Move behavior differs from its indexed
+remove and replace operations. Swift Move failures use the existing catchable
+`VMCollectionIndexError` rather than its nonthrowing indexed-mutator precondition
+path.
+
+Equal Move indices are a true no-op. A successful move preserves item identity,
+places that item at the destination, and emits exactly one Move containing the
+same item as old and new payload in C#, Python, TypeScript, and Swift. Rust's
+non-generic message identifies the move through its action and positions only.
+Move does not construct, dispose, reparent, detach, or otherwise manage the
+item.
 
 ### 2.4 `CollectionChangedMessage`
 
-A `CollectionChangedMessage` is emitted for each mutation:
+A `CollectionChangedMessage` is emitted for each mutation. C#, Python,
+TypeScript, and Swift use the typed item-payload shape:
 
 ```
 CollectionChangedMessage:
-    Action  : <flavor action type>   # Add | Remove | Replace | Reset
+    Action  : <flavor action type>   # Add | Remove | Replace | Move | Reset
     NewItems : T[]               # items after the change (empty for Remove/Reset)
     OldItems : T[]               # items before the change (empty for Add/Reset)
     Index   : int                # -1 for Reset
+    OldIndex : int               # -1 when there is no old position
+    NewIndex : int               # -1 when there is no new position
 ```
 
-The action member's type is per-flavor idiom (ADR-0006): C# reuses the BCL
-`NotifyCollectionChangedAction`, Python uses the action string literals,
-TypeScript a `CollectionMutationAction` union. The index member is `Index` /
-`index` in every flavor. (Member names corrected in v2.5.0 via ADR-0038.)
+Their action member's type is per-flavor idiom (ADR-0006): C# reuses the BCL
+`NotifyCollectionChangedAction`, Python uses action string literals, TypeScript
+uses a `CollectionMutationAction` union, and Swift uses
+`CollectionChangedAction`. Member casing follows ADR-0006 (`OldIndex` /
+`old_index` / `oldIndex`). The existing `Index` / `index` member and
+constructor/factory defaults remain compatible in these four flavors.
 
-### 2.5 Threading
+| Action  |     `index` |  `oldIndex` |  `newIndex` | Item payload                        |
+| ------- | ----------: | ----------: | ----------: | ----------------------------------- |
+| Add     |   insertion |          -1 |   insertion | new item                            |
+| Remove  | pre-removal | pre-removal |          -1 | old item                            |
+| Replace |    replaced |    replaced |    replaced | old and new item                    |
+| Move    | destination |      source | destination | identical moved item as old and new |
+| Reset   |          -1 |          -1 |          -1 | none                                |
+
+Rust preserves its established non-generic, hub-oriented message shape:
+
+```
+CollectionChangedMessage:
+    sender_id    : usize
+    property_name: String
+    action       : CollectionChangeAction
+    old_index    : Option<usize>
+    new_index    : Option<usize>
+```
+
+| Action  | `old_index`         | `new_index`         |
+| ------- | ------------------- | ------------------- |
+| Add     | `None`              | `Some(insertion)`   |
+| Remove  | `Some(pre-removal)` | `None`              |
+| Replace | `Some(replaced)`    | `Some(replaced)`    |
+| Move    | `Some(source)`      | `Some(destination)` |
+| Reset   | `None`              | `None`              |
+
+Rust has no legacy `index` member and carries no typed old/new item payloads.
+Its optional positions encode absence with `None`, not an integer sentinel.
+
+### 2.5 Mutation ordering and threading
+
+Every effective mutation follows this order:
+
+1. Change the backing state.
+1. Deliver the local collection-change notification.
+1. Publish the equivalent `CollectionChangedMessage` to the optional hub.
+
+Local delivery always precedes hub delivery, and subscribers to both channels
+can read the complete final state. Subscriber failures follow the flavor's
+established local-reactive and message-hub delivery rules; this primitive adds
+no new failure policy.
 
 Publication happens **on the same thread as the mutation**. The collection does
 not marshal to any scheduler and does not observe any `IDispatcher`. Consumers
@@ -124,15 +235,16 @@ dispose the items it contains. "Serviced" means "optionally publishes
 collection-change messages to a service" (`IMessageHub`), not "service-managed
 lifecycle."
 
-Removing, replacing, clearing, or popping an item only mutates the collection and
-emits collection-change notifications. If the items are disposable VMs, the
-caller remains responsible for their lifecycle. Consumers that need
-lifecycle-cascading VM ownership should use `CompositeVM` / `GroupVM` or an
-explicit owner wrapper.
+Removing, replacing, resetting, moving, clearing, or popping an item only
+mutates the collection and emits collection-change notifications. If the items
+are disposable VMs, the caller remains responsible for their lifecycle.
+Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
+`GroupVM` or an explicit owner wrapper.
 
 ### 2.7 Conformance
 
-`COL-001` through `COL-004` in `12-conformance.md`.
+`COL-001` through `COL-004` and `COL-048` through `COL-055` in
+`12-conformance.md`.
 
 ## 3. `ObservableList<T>`
 
@@ -510,8 +622,9 @@ regardless of what filtering or paging is applied on top.
 
 ## 8. Conformance
 
-`COL-001` through `COL-031` in `12-conformance.md`. Applicable ADRs:
-ADR-0024 (§2), ADR-0026 (§3), ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6).
+`COL-001` through `COL-055` in `12-conformance.md`. Applicable ADRs:
+ADR-0024 and ADR-0096 (§2), ADR-0026 and ADR-0089 (§3), ADR-0025 (§4),
+ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move semantics).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, and projection helpers that expose disposal. It
