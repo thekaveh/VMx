@@ -4,6 +4,23 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.20.0] — 2026-07-12
+
+Implements `spec-v3.20.0` and keeps Python at full library parity: 391/391
+conformance IDs covered.
+
+### Added
+
+- `AsyncResourceVM[T]` models one cancellable async value with immutable
+  Idle/Loading/Ready/Error state and load, reload, and cancel commands
+  (`ARES-001..011`, ADR-0100).
+
+### Changed
+
+- Latest-start-wins admission rejects stale completion, optional retention
+  keeps the accepted value visible, and acquisition-based cleanup releases
+  discarded, replaced, stale, and terminal values exactly once.
+
 ## [3.19.0] — 2026-07-12
 
 Implements `spec-v3.19.0` and keeps Python at full library parity: 380/380

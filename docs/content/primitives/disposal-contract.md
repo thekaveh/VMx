@@ -30,7 +30,7 @@ tasks, and other application operations when their resources are no longer
 needed; the VM guard prevents late state admission but does not replace
 resource cancellation.
 
-## The Six Disposal Families
+## The Seven Disposal Families
 
 | Family                        | Representative surfaces                                             | Cross-cutting ID | Existing detailed coverage                        |
 | ----------------------------- | ------------------------------------------------------------------- | ---------------- | ------------------------------------------------- |
@@ -40,6 +40,7 @@ resource cancellation.
 | Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`     |
 | Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`, `COMP-035`, `CVM-009`                |
 | Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `GRP-006`, `COL-024..031`, `COMP-035` |
+| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                |
 
 Only types already documented as thread-safe promise racing disposal. Those
 types atomically claim terminal work. Single-threaded flavors and helpers still
@@ -67,6 +68,9 @@ guarantee repeated and re-entrant disposal on their supported execution model.
   interfaces.
 - Subscription and batch handles release only the registration or batch scope
   they represent.
+- `AsyncResourceVM` cancels active acquisition and releases its last accepted
+  value on disposal. A loader that completes late cannot publish or become
+  current; its acquired value is cleaned exactly once.
 
 ## C# Inventory
 

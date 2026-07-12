@@ -160,7 +160,19 @@ from vmx.services import (
     RxDispatcher,
     TransactionalMessageHubProto,
 )
-from vmx.state import DiscriminatorVM
+from vmx.state import (
+    AsyncResourceError,
+    AsyncResourceErrorWithValue,
+    AsyncResourceIdle,
+    AsyncResourceLoading,
+    AsyncResourceLoadingWithValue,
+    AsyncResourceReady,
+    AsyncResourceRetention,
+    AsyncResourceState,
+    AsyncResourceStatus,
+    AsyncResourceVM,
+    DiscriminatorVM,
+)
 from vmx.tree import find, walk, walk_expanded
 
 __all__ = [
@@ -185,6 +197,16 @@ __all__ = [
     "AggregateVM6Builder",
     "AsyncRelayCommand",
     "AsyncRelayCommandBuilder",
+    "AsyncResourceError",
+    "AsyncResourceErrorWithValue",
+    "AsyncResourceIdle",
+    "AsyncResourceLoading",
+    "AsyncResourceLoadingWithValue",
+    "AsyncResourceReady",
+    "AsyncResourceRetention",
+    "AsyncResourceState",
+    "AsyncResourceStatus",
+    "AsyncResourceVM",
     "BatchAttachRejection",
     "BatchAttachRejectionReason",
     "BatchAttachResult",
