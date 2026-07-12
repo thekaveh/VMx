@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.19.0** — implements `spec-v3.19.0` end-to-end. 380/380 library conformance IDs
+**v3.20.0** — implements `spec-v3.20.0` end-to-end. 391/391 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.19.0. The NuGet package has not been
+The source tree currently implements v3.20.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -183,6 +183,7 @@ The public API lives under the `VMx.*` namespaces:
 | `DerivedProperty<TValue>`       | N-source computed value (spec v2.0)               |
 | `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)   |
 | `SearchableState<TItem>`        | Debounced filter + optional source signal (v3.19) |
+| `AsyncResourceVM<T>`            | Cancellable latest-wins async value state (v3.20) |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)              |
 | 22× capability interfaces       | `VMx.Capabilities.*` — opt-in (spec v2.0+)        |
 | `HierarchicalVM<TModel, TVM>`   | Recursive tree VM with key-aware `AttachMany`     |
@@ -281,7 +282,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 380 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 391 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

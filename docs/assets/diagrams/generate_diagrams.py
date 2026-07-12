@@ -675,7 +675,7 @@ def system_architecture() -> Diagram:
             Box(550, 288, 220, 110, "Commands", ("RelayCommand", "decorators", "ModeledCrudCommands"), "bus"),
             Box(790, 288, 250, 110, "Capabilities", (f"{facts.capability_count} micro-interfaces", "selection / CRUD / paging", "opt-in behavior"), "security"),
             Box(1150, 152, 220, 110, "Services", ("MessageHub", "Dispatcher", "IDialogService", "ILocalizer"), "security"),
-            Box(1390, 152, 220, 110, "Collections + state", ("VMCollection capability", "ObservableList", "DerivedProperty / SearchableState"), "database"),
+            Box(1390, 152, 220, 110, "Collections + state", ("ObservableList / VMCollection", "DerivedProperty / SearchableState", "AsyncResourceVM"), "database"),
             Box(1150, 288, 220, 110, "Paging primitives", ("PagedComposition", "TokenPagedComposition", "filtered ordering"), "database"),
             Box(1390, 288, 220, 110, "Notifications", ("INotificationHub", "NotificationVM", "ConfirmationVM"), "security"),
             Box(150, 536, 210, 136, "C#", ("PascalCase surface", "System.Reactive", "NuGet packages"), "frontend"),
@@ -881,7 +881,7 @@ def viewmodel_families() -> Diagram:
             Box(680, 170, 240, 132, "Fixed-arity containers", ("AggregateVM1..6", "heterogeneous components", "typed ComponentN slots"), "frontend"),
             Box(680, 336, 240, 116, "Recursive container", ("HierarchicalVM<TModel,TVM>", "Parent / Depth / Path", "structural messages"), "frontend"),
             Box(970, 170, 240, 132, "Forwarding decorators", ("ForwardingComponentVM", "ForwardingCompositeVM", "instrumentation / overrides"), "frontend"),
-            Box(1260, 170, 260, 132, "Specialized VMs", ("FormVM", "NotificationVM", "ConfirmationVM", "DiscriminatorVM"), "security"),
+            Box(1260, 170, 260, 132, "Specialized VMs", ("FormVM / DiscriminatorVM", "NotificationVM / ConfirmationVM", "AsyncResourceVM"), "security"),
             Box(
                 390,
                 514,
@@ -895,10 +895,10 @@ def viewmodel_families() -> Diagram:
                 ),
                 "security",
             ),
-            Box(680, 514, 240, 128, "State helpers", ("DerivedProperty", "ExpandableState", "SearchableState"), "database"),
+            Box(680, 514, 240, 128, "State helpers", ("DerivedProperty", "ExpandableState / SearchableState", "AsyncResourceVM"), "database"),
             Box(970, 514, 240, 128, "Paging helpers", ("PagedComposition", "TokenPagedComposition", "filtered/scored views"), "database"),
             Box(1260, 514, 260, 128, "Services + messages", ("MessageHub", "IDialogService", "INotificationHub", "PropertyChangedMessage"), "bus"),
-            Box(240, 694, 1240, 86, "Flavor surface", ("C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only."), "generic"),
+            Box(240, 694, 1240, 86, "Flavor surface", ("C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only.",), "generic"),
         ),
         lines=(
             Polyline(((230, 276), (230, 320)), color="#22d3ee", label="extends", label_xy=(278, 300)),
@@ -2321,12 +2321,15 @@ def write_triplet(diagram: Diagram, html_name: str, svg_name: str, png_name: str
         )
         subprocess.run(
             [
-                "magick",
+                "pngquant",
+                "--force",
+                "--output",
+                str(png_path),
+                "--quality",
+                "70-95",
+                "--speed",
+                "1",
                 str(tmp_path),
-                "-strip",
-                "-colors",
-                "256",
-                f"PNG8:{png_path}",
             ],
             check=True,
         )

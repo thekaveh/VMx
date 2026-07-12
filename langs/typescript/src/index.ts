@@ -98,6 +98,13 @@ export { NullDispatcher } from "./services/nullDispatcher.js";
 
 // State helpers
 export { DiscriminatorVM } from "./state/discriminatorVM.js";
+export {
+  AsyncResourceRetention,
+  AsyncResourceStatus,
+  AsyncResourceVM,
+  type AsyncResourceState,
+  type AsyncResourceVMOptions,
+} from "./state/asyncResourceVM.js";
 
 // Commands
 export type { ICommand, ICommandOf, IAsyncCommand } from "./commands/types.js";
