@@ -3530,13 +3530,15 @@ snapshot, or global initial event
 
 **Given** an aggregate whose structural source is observed before its first
 snapshot
-**When** Add, Remove, Replace, or another structural pulse changes membership,
-including a pulse during setup and a selected stream that emits synchronously
-while a new subscription is staged
-**Then** reconciliation repeats as needed and commits the complete ordered
-snapshot before exactly one `Membership` is delivered
-**And** every current distinct identity is observed and every zero-refcount
-identity is detached before that envelope
+**When** a structural pulse races initial setup
+**Then** reconciliation repeats as needed and construction commits the latest
+complete ordered membership
+**And** construction emits no replayable `Membership`; optional
+subscriber-local `Initial` represents readiness
+**When** Add, Remove, Replace, or another structural pulse changes membership
+after construction
+**Then** every current distinct identity is observed and every zero-refcount
+identity is detached before exactly one `Membership` is delivered
 **And** a staged synchronous value during later reconciliation is queued behind
 `Membership`, while one during initial construction is discarded as
 pre-existing state
@@ -3599,7 +3601,15 @@ body then fails
 **And** the outermost exit emits exactly one `Batch`
 **And** every batch depth is closed and the original body failure propagates
 unchanged
-**And** a later outside change publishes normally
+**When** delivery of that final `Batch` also throws synchronously from a
+subscriber
+**Then** the delivery exception is suppressed and the original body failure
+still propagates unchanged
+**But when** the body succeeds and final `Batch` delivery throws
+**Then** the failure follows the host reactive convention without implying
+general subscriber isolation
+**And** after exceptional cleanup, a later outside change with nonthrowing
+delivery publishes normally
 
 ### AGCH-008 — empty batches and Move preserve silence or subscription stability
 
@@ -3630,9 +3640,11 @@ the new membership
 **Given** aggregate construction or later reconciliation encounters a null
 member or a selector/subscription failure
 **When** the failure occurs
-**Then** construction throws before returning an aggregate, or later
-reconciliation disposes all staged work and terminates the existing output with
-the same error according to the host reactive convention
+**Then** counted structural, staged-item, and previously admitted-item
+subscriptions all detach exactly once before construction throws or before the
+existing output receives the same terminal error
+**And** construction returns no aggregate, while later failure makes the
+aggregate inert according to the host reactive convention
 **And** no partial membership containing a live but unobserved current member is
 committed
 **Given** a valid aggregate with lifecycle-observable source items and multiple

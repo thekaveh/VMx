@@ -104,16 +104,20 @@ so stale work cannot be attributed to a later membership.
 
 The structural subscription attaches before the first snapshot. If a
 structural callback races setup, snapshots repeat until one commits without an
-intervening callback. Every later structural pulse likewise resnapshots before
-the aggregate publishes `Membership`.
+intervening callback. Construction commits only the latest membership and emits
+no replayable `Membership`; the optional subscriber-local `Initial` represents
+readiness. Every structural pulse admitted after construction likewise
+resnapshots before the aggregate publishes exactly one `Membership`.
 
 New selected subscriptions are staged transactionally. Synchronous selected
 emissions during initial construction are discarded as pre-existing state;
 those during later reconciliation are buffered behind the membership event.
-Null or selector/subscription failure disposes staged work and leaves no live
-but unobserved current member. Construction failure throws before returning an
-aggregate. Later failure terminates the existing output with that error
-according to the host reactive convention.
+Null or selector/subscription failure is terminal for the aggregate. Before
+throwing or notifying the output error, it detaches the structural subscription
+and every staged and admitted item subscription. Construction failure then
+throws before returning an aggregate; later failure terminates the existing
+output with that error according to the host reactive convention. No live but
+unobserved current member survives.
 
 Selected-stream completion, and unexpected selected-stream error in Rx
 flavors, terminates only that item's current positive-refcount epoch and emits
@@ -132,6 +136,12 @@ batch, every admitted structural or item change emits immediately. Inside a
 batch, changes mark it dirty; the outermost exit emits exactly one `Batch` when
 dirty. Empty batches emit nothing. If a body changes state and then fails, the
 final batch event is emitted and the original failure is rethrown.
+
+If synchronous subscriber delivery of that final `Batch` also throws while the
+body failure is active, cleanup suppresses the delivery exception so the
+original body failure wins. When the body succeeds, a synchronous subscriber
+failure follows the host reactive convention. This precedence rule is batch
+cleanup behavior, not general subscriber-failure isolation.
 
 Hub batching has no portable end-of-batch or idle callback, so it is not
 detected automatically. A consumer needing one combined pulse explicitly nests

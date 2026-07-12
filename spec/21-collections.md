@@ -1035,7 +1035,11 @@ stale callback can therefore never become an `Item` event for a later re-add.
 Construction subscribes to structural changes under the serialized gate before
 taking its first snapshot. If a structural callback occurs during setup, the
 snapshot is stale and reconciliation repeats until it commits a snapshot with
-no intervening structural callback.
+no intervening structural callback. This construction-time reconciliation
+commits only the latest membership. It queues no `Membership` event for replay;
+the optional subscriber-local `Initial` envelope represents readiness. A
+structural pulse admitted after construction queues exactly one `Membership`
+after its successful resynchronization.
 
 For every structural pulse, the aggregate snapshots and stages all newly
 required selected subscriptions before changing its admitted table. Retained
@@ -1058,11 +1062,13 @@ recursively mutating the membership table.
 
 The selector is a total, nonthrowing precondition. C#, Python, and TypeScript
 nevertheless handle a selector or selected-subscription failure
-transactionally: dispose all staged work, admit no partial membership, and
-terminate the existing aggregate output with the same error. A construction
-failure throws synchronously before an aggregate is returned. Later mutator
-propagation follows the host reactive convention; portable callers rely on the
-terminal output error.
+transactionally. Null, selector, or selected-subscription failure is terminal:
+before throwing or delivering the output error, the aggregate detaches its
+structural subscription and every staged and admitted item subscription. It
+admits no partial membership and becomes inert. A construction failure throws
+synchronously before an aggregate is returned. Later failure terminates the
+existing output with the same error; mutator propagation follows the host
+reactive convention, so portable callers rely on the terminal output error.
 
 Selected streams are non-failing in Swift and Rust. In Rx flavors, unexpected
 selected-stream error has the same item-epoch-only effect as completion: no
@@ -1084,6 +1090,13 @@ If a body admits a change and then fails, outermost cleanup emits the one
 `Batch` and rethrows the original failure. Cleanup MUST NOT replace the body
 failure. A native collection batch that publishes one Reset naturally causes
 one `Membership` event.
+
+If delivery of the final `Batch` synchronously throws from a subscriber while
+the body failure is already active, cleanup MUST suppress that delivery
+exception and rethrow the original body failure. If the body succeeded, a
+synchronous subscriber failure follows the host reactive convention. This is
+only an exception-precedence rule for batch cleanup; it does not promise general
+subscriber isolation.
 
 Hub batching has no portable end-boundary or idle callback and is not detected
 automatically. A consumer that requires one pulse nests scopes explicitly:
