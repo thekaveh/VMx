@@ -2209,8 +2209,8 @@ where
 
 struct KeyedServicedCollectionState<K, T> {
     items: Vec<T>,
-    keys: Vec<K>,
-    index_by_key: HashMap<K, usize>,
+    keys: Vec<Arc<K>>,
+    index_by_key: HashMap<Arc<K>, usize>,
 }
 
 impl<K, T> Default for KeyedServicedCollectionState<K, T> {
@@ -2230,10 +2230,9 @@ type KeyProjector<K, T> = Arc<dyn Fn(&T) -> VmxResult<K> + Send + Sync + 'static
 /// The projector runs only when a membership is added or explicitly replaced.
 /// Lookup, removal, and movement use the captured key and never reproject stored
 /// items. Contained items remain owned by the caller.
-#[derive(Clone)]
 pub struct KeyedServicedObservableCollection<K, T>
 where
-    K: Clone + Eq + Hash + Send + 'static,
+    K: Eq + Hash + Send + 'static,
     T: Clone + Send + 'static,
 {
     inner: Arc<Mutex<KeyedServicedCollectionState<K, T>>>,
@@ -2244,9 +2243,26 @@ where
     owner_id: usize,
 }
 
+impl<K, T> Clone for KeyedServicedObservableCollection<K, T>
+where
+    K: Eq + Hash + Send + 'static,
+    T: Clone + Send + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            key_of: Arc::clone(&self.key_of),
+            local_hub: self.local_hub.clone(),
+            external_hub: self.external_hub.clone(),
+            delivery: Arc::clone(&self.delivery),
+            owner_id: self.owner_id,
+        }
+    }
+}
+
 impl<K, T> KeyedServicedObservableCollection<K, T>
 where
-    K: Clone + Eq + Hash + Send + 'static,
+    K: Eq + Hash + Send + 'static,
     T: Clone + Send + 'static,
 {
     /// Creates an empty keyed collection without an external message hub.
@@ -2316,15 +2332,15 @@ where
     }
 
     pub fn push(&self, item: T) -> VmxResult<()> {
-        let key = (self.key_of)(&item)?;
+        let key = Arc::new((self.key_of)(&item)?);
         let position = {
             let mut inner = lock(&self.inner);
-            if inner.index_by_key.contains_key(&key) {
+            if inner.index_by_key.contains_key(key.as_ref()) {
                 return Err(Self::duplicate_key_error());
             }
             let position = inner.items.len();
             inner.items.push(item);
-            inner.keys.push(key.clone());
+            inner.keys.push(Arc::clone(&key));
             inner.index_by_key.insert(key, position);
             position
         };
@@ -2373,7 +2389,7 @@ where
     }
 
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
-        let key = (self.key_of)(&item)?;
+        let key = Arc::new((self.key_of)(&item)?);
         let old = {
             let mut inner = lock(&self.inner);
             if index >= inner.items.len() {
@@ -2381,14 +2397,14 @@ where
             }
             if inner
                 .index_by_key
-                .get(&key)
+                .get(key.as_ref())
                 .is_some_and(|owner| *owner != index)
             {
                 return Err(Self::duplicate_key_error());
             }
-            let old_key = inner.keys[index].clone();
-            inner.index_by_key.remove(&old_key);
-            inner.keys[index] = key.clone();
+            let old_key = Arc::clone(&inner.keys[index]);
+            inner.index_by_key.remove(old_key.as_ref());
+            inner.keys[index] = Arc::clone(&key);
             inner.index_by_key.insert(key, index);
             std::mem::replace(&mut inner.items[index], item)
         };
@@ -2404,8 +2420,8 @@ where
         let mut keys = Vec::with_capacity(snapshot.len());
         let mut index_by_key = HashMap::with_capacity(snapshot.len());
         for (index, item) in snapshot.iter().enumerate() {
-            let key = (self.key_of)(item)?;
-            if index_by_key.insert(key.clone(), index).is_some() {
+            let key = Arc::new((self.key_of)(item)?);
+            if index_by_key.insert(Arc::clone(&key), index).is_some() {
                 return Err(Self::duplicate_key_error());
             }
             keys.push(key);
@@ -2427,20 +2443,20 @@ where
     ///
     /// Returns `true` for Add and `false` for Replace.
     pub fn upsert(&self, item: T) -> VmxResult<bool> {
-        let key = (self.key_of)(&item)?;
+        let key = Arc::new((self.key_of)(&item)?);
         let (added, index) = {
             let mut inner = lock(&self.inner);
-            if let Some(index) = inner.index_by_key.get(&key).copied() {
-                let old_key = inner.keys[index].clone();
-                inner.index_by_key.remove(&old_key);
-                inner.keys[index] = key.clone();
+            if let Some(index) = inner.index_by_key.get(key.as_ref()).copied() {
+                let old_key = Arc::clone(&inner.keys[index]);
+                inner.index_by_key.remove(old_key.as_ref());
+                inner.keys[index] = Arc::clone(&key);
                 inner.index_by_key.insert(key, index);
                 inner.items[index] = item;
                 (false, index)
             } else {
                 let index = inner.items.len();
                 inner.items.push(item);
-                inner.keys.push(key.clone());
+                inner.keys.push(Arc::clone(&key));
                 inner.index_by_key.insert(key, index);
                 (true, index)
             }
@@ -2506,7 +2522,9 @@ where
 
     fn repair_indices(inner: &mut KeyedServicedCollectionState<K, T>, start: usize) {
         for index in start..inner.keys.len() {
-            inner.index_by_key.insert(inner.keys[index].clone(), index);
+            inner
+                .index_by_key
+                .insert(Arc::clone(&inner.keys[index]), index);
         }
     }
 
@@ -2575,7 +2593,7 @@ where
 
 impl<K, T> IntoIterator for &KeyedServicedObservableCollection<K, T>
 where
-    K: Clone + Eq + Hash + Send + 'static,
+    K: Eq + Hash + Send + 'static,
     T: Clone + Send + 'static,
 {
     type Item = T;

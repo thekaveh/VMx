@@ -618,6 +618,31 @@ fn keyed_item(key: &'static str, value: i32) -> KeyedItem {
     KeyedItem { key, value }
 }
 
+#[test]
+fn keyed_serviced_accepts_keys_without_clone() {
+    #[derive(Debug, PartialEq, Eq, Hash)]
+    struct NonCloneKey(String);
+
+    let list = KeyedServicedObservableCollection::new(33, |item: &KeyedItem| {
+        Ok(NonCloneKey(item.key.to_string()))
+    });
+    list.push(keyed_item("a", 1)).unwrap();
+    list.push(keyed_item("b", 2)).unwrap();
+    let clone = list.clone();
+
+    assert_eq!(
+        clone.get_by_key(&NonCloneKey("b".to_string())),
+        Some(keyed_item("b", 2))
+    );
+    clone.move_item(1, 0).unwrap();
+    assert!(clone.contains_key(&NonCloneKey("a".to_string())));
+    assert_eq!(
+        clone.remove_key(&NonCloneKey("b".to_string())),
+        Some(keyed_item("b", 2))
+    );
+    assert_eq!(clone.to_vec(), vec![keyed_item("a", 1)]);
+}
+
 /// COL-056 — keyed serviced lookup uses captured keys and preserves order
 #[test]
 fn keyed_serviced_lookup_uses_captured_keys_without_reprojection() {
