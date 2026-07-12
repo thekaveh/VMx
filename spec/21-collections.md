@@ -1045,7 +1045,9 @@ For every structural pulse, the aggregate snapshots and stages all newly
 required selected subscriptions before changing its admitted table. Retained
 identities keep their epoch and subscription. Only after complete staging
 succeeds does it commit the new identity multiset, detach zero-refcount entries,
-and queue `Membership`.
+and settle the reconciliation. That commit queues `Membership` only when the
+structural pulse was admitted after construction; setup-race reconciliation
+remains silent.
 
 Selected streams MAY emit synchronously while their subscriptions are staged.
 During initial construction, those values are pre-existing state and are
