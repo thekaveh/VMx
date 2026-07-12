@@ -167,9 +167,34 @@ Key exports:
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `ObservableList<T>`             | Granular events, batch scopes, and atomic `replaceAll` |
 | `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` (spec v3.15) |
 
-### 4.1 Imperative engine bridge
+### 4.1 Serviced collections
+
+Use `ServicedObservableCollection<T>` for a caller-owned sequence whose
+changes publish through Combine locally and then through an optional hub:
+
+```swift
+let notes = ServicedObservableCollection<Note>(hub: hub)
+let changes = notes.collectionChanged.sink { message in render(message) }
+
+notes.append(first)
+notes.append(second)
+notes.replace(at: 0, with: revised) // setAt remains available
+try notes.move(from: 0, to: notes.count - 1)
+notes.replaceAll(serverSnapshot)    // one Reset
+```
+
+Equatable value removal targets the first match and returns `false` when
+absent. `removeAt` / `replace` retain array-precondition bounds behavior;
+`move` throws `VMCollectionIndexError`. Same-index move, empty clear, and
+empty-to-empty replacement are no-ops. Messages expose `index`, `oldIndex`,
+and `newIndex`; the collection never owns items. Use `ObservableList<T>` for
+batching and `Count` notifications.
+
+### 4.2 Imperative engine bridge
 
 Use `subscribeValue` to push selected VM state into a renderer or other
 imperative host without polling it every frame:

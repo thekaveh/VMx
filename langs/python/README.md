@@ -172,7 +172,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `TreeStructureChangedMessage`                     | Tree-structural-change notification (spec v2.1)                                     |
 | `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
 | `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
-| `ServicedObservableCollection[T]`                 | Hub-aware observable collection (spec v2.1)                                         |
+| `ServicedObservableCollection[T]`                 | Complete local-before-hub mutation surface (spec v3.16)                              |
 | `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
 | `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
@@ -180,7 +180,31 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots (spec v2.1)           |
 | `subscribe_value`                                 | Fixed-VM selected-state bridge returning `DisposableBase` (spec v3.15)              |
 
-### 4.1 Imperative engine bridge
+### 4.1 Serviced collections
+
+Use `ServicedObservableCollection[T]` for a caller-owned sequence with local
+`on_collection_changed` delivery and optional hub publication:
+
+```python
+notes = ServicedObservableCollection[Note](hub)
+notes.append(first)
+notes.append(second)
+removed = notes.remove_at(-1)
+old = notes.replace(-1, revised)
+notes.append(second)
+notes.move(0, len(notes) - 1)       # strict, nonnegative positions
+notes.replace_all(server_snapshot)  # one Reset
+```
+
+List-style `remove(value)` removes the first match, returns `None`, and raises
+`ValueError` when missing. `remove_at` / `replace` accept normal negative list
+indices and return the removed / old item; `move` rejects negative or
+out-of-range positions with `IndexError`. Empty Clear and empty-to-empty
+replacement are no-ops. Messages expose `index`, `old_index`, and `new_index`;
+the collection does not batch or own items. Use `ObservableList[T]` when you
+need batch scopes and the `Count` channel.
+
+### 4.2 Imperative engine bridge
 
 Use `subscribe_value` to push selected VM state into a renderer or other
 imperative host without polling it every frame:

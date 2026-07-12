@@ -14,6 +14,21 @@ names shift only to match the host language idiom.
 | Status property    | `Status`                   | `status`                      | `status`                   | `status`                   | `status()`                     |
 | Null hub singleton | `NullMessageHub.Instance`  | `NULL_MESSAGE_HUB`            | `NullMessageHub.INSTANCE`  | `NullMessageHub.INSTANCE`  | `NullMessageHub::hub()`        |
 
+## Serviced Collection Mutations
+
+`ServicedObservableCollection` has the same seven mutation concepts in every
+flavor. Existing array- or indexer-style aliases remain available where shown.
+
+| Concept      | C#                  | Python        | TypeScript                   | Swift                                  | Rust          |
+| ------------ | ------------------- | ------------- | ---------------------------- | -------------------------------------- | ------------- |
+| Add          | `Add`               | `append`      | `push`                       | `append`                               | `push`        |
+| Remove value | `Remove`            | `remove`      | `remove`                     | `remove`                               | `remove`      |
+| Remove index | `RemoveAt`          | `remove_at`   | `removeAt`                   | `removeAt`                             | `remove_at`   |
+| Replace      | indexer / `Replace` | `replace`     | `replace` (`setAt` retained) | `replace(at:with:)` (`setAt` retained) | `replace`     |
+| Replace all  | `ReplaceAll`        | `replace_all` | `replaceAll`                 | `replaceAll`                           | `replace_all` |
+| Move         | `Move`              | `move`        | `move`                       | `move(from:to:)`                       | `move_item`   |
+| Clear        | `Clear`             | `clear`       | `clear`                      | `clear`                                | `clear`       |
+
 ## Practical Notes
 
 - The modeled-type name is the one structural divergence: C# keeps the generic
@@ -24,6 +39,11 @@ names shift only to match the host language idiom.
   Swift. Rust uses snake_case strings such as `"is_valid"`.
 - The collections `"Count"` channel is a deliberate spec-literal exception; it
   does not get translated to the local casing style.
+- Python keeps list-style `remove`: it returns `None` and raises `ValueError`
+  when the value is missing. Value removal returns `bool` in the other flavors.
+- Rust's serviced collection is a distinct type with an always-present local
+  message stream and an optional external hub; it is not an alias for
+  `ObservableList`.
 
 ## How To Use This Page
 

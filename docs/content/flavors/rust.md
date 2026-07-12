@@ -15,6 +15,32 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
 
+## Serviced Collections
+
+Rust's `ServicedObservableCollection<T>` is distinct from `ObservableList<T>`.
+It owns an always-present local `MessageHub` stream and may also forward to an
+external hub:
+
+```rust
+let notes = ServicedObservableCollection::with_hub(owner_id, hub.clone());
+let local = notes.collection_changed();
+let subscription = local.subscribe(|message| render(message));
+
+notes.push(first);
+notes.push(second);
+let old = notes.replace(0, revised)?;
+notes.move_item(0, notes.len() - 1)?;     // one Move locally, then externally
+notes.replace_all(server_snapshot);       // one Reset
+```
+
+`remove` removes the first equal value and returns `false` when absent;
+`remove_at` and `replace` return the removed or old item. Indices are `usize`,
+and out-of-range indexed operations fail atomically with `VmxResult`. Empty
+clear and same-index move are no-ops. Rust messages carry action plus optional
+old/new positions, sender ID, and property name; they intentionally carry no
+legacy `index` or item payload. The caller owns the subscription and stored
+items.
+
 ## Imperative Engine Bridge
 
 Rust expresses the fixed source as `hub + sender_id`. `subscribe_value` returns

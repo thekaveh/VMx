@@ -25,6 +25,9 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   consumer keys, non-replacing dedupe, and park/reject orphan policy;
 - `ObservableList::replace_all(...)` snapshots a full refresh and emits one
   reset with cardinality-correct `Count` notification;
+- `ServicedObservableCollection<T>` provides the complete mutation surface,
+  an always-present local stream, and optional local-before-external hub
+  publication without batching or item ownership;
 - `VmCollection<T>` unifies groups and composites, while
   `SelectableVmCollection<T>` adds composite-only selection and `move_item`
   preserves child identity;
@@ -56,6 +59,33 @@ fn main() -> VmxResult<()> {
     Ok(())
 }
 ```
+
+## Serviced Collections
+
+Rust keeps `ServicedObservableCollection<T>` distinct from
+`ObservableList<T>`: the serviced type owns an always-present local
+`MessageHub` stream and can also publish to an external hub.
+
+```rust
+let notes = ServicedObservableCollection::with_hub(owner_id, hub.clone());
+let local = notes.collection_changed();
+let subscription = local.subscribe(|message| render(message));
+
+notes.push(first);
+notes.push(second);
+let old = notes.replace(0, revised)?;
+notes.move_item(0, notes.len() - 1)?; // one Move locally, then externally
+notes.replace_all(server_snapshot);   // one Reset
+```
+
+`remove` deletes the first equal value and returns `false` when absent;
+`remove_at` and `replace` return the removed / old item. `usize` indices make
+negative positions unrepresentable, and out-of-range operations fail
+atomically with `VmxResult`. Same-index move, empty clear, and empty-to-empty
+replacement are no-ops. Messages carry action, optional old/new positions,
+sender ID, and property name—never a legacy `index` or typed item payload. The
+caller owns the subscription and stored items. Choose `ObservableList<T>` for
+granular streams, batching, and `Count` notifications.
 
 ## Imperative Engine Bridge
 

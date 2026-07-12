@@ -181,7 +181,7 @@ Key exports:
 | `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)  |
 | `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)    |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
 | `ObservableList<T>`             | Granular events + atomic `replaceAll`            |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
@@ -191,7 +191,31 @@ Key exports:
 | `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages (spec v3.14) |
 | `subscribeValue`                | Fixed-VM selected-state bridge returning an RxJS `Subscription` (spec v3.15) |
 
-### 4.1 Raw message predicates
+### 4.1 Serviced collections
+
+Use `ServicedObservableCollection<T>` for local `collectionChanged` delivery
+plus optional hub publication:
+
+```ts
+const notes = new ServicedObservableCollection<Note>(hub);
+const local = notes.collectionChanged.subscribe(render);
+
+notes.push(first);
+notes.push(second);
+notes.replace(0, revised);        // setAt remains an alias
+notes.move(0, notes.length - 1);  // one Move locally, then on the hub
+notes.replaceAll(serverSnapshot); // one Reset
+
+local.unsubscribe();
+```
+
+`remove` deletes the first `indexOf` match and returns `false` when absent.
+Indexed operations reject invalid positions atomically. Same-index move, empty
+clear, and empty-to-empty replacement are no-ops. Messages retain `index` and
+add `oldIndex` / `newIndex`; items remain caller-owned. Choose
+`ObservableList<T>` for list-local batching and the `Count` channel.
+
+### 4.2 Raw message predicates
 
 All three predicates accept an `IMessage` and narrow it to an existing concrete
 message type. Each has a unary overload for direct use with `Array.filter` or
@@ -267,7 +291,7 @@ gap without changing message semantics; other flavors already use their
 idiomatic nominal/runtime checks, so ADR-0094 adds no artificial cross-flavor
 surface or conformance ID.
 
-### 4.2 Imperative engine bridge
+### 4.3 Imperative engine bridge
 
 Use `subscribeValue` to update an engine uniform only when selected VM state
 changes:

@@ -189,7 +189,7 @@ The public API lives under the `VMx.*` namespaces:
 | `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
 | `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection<T>` | Hub-aware observable collection (spec v2.1)     |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
@@ -197,7 +197,30 @@ The public API lives under the `VMx.*` namespaces:
 | `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
 | `SubscribeValue`                | Fixed-VM selected-state bridge returning `IDisposable` (spec v3.15) |
 
-### 4.1 Imperative engine bridge
+### 4.1 Serviced collections
+
+Use `ServicedObservableCollection<T>` when an ordered, caller-owned collection
+needs normal local `CollectionChanged` events plus equivalent messages on an
+optional hub. It supports inherited `Add`, first-match `Remove`, `RemoveAt`,
+the indexer, `Move`, and `Clear`, plus named `Replace` and snapshot-based
+`ReplaceAll`:
+
+```csharp
+var notes = new ServicedObservableCollection<Note>(hub);
+notes.Add(first);
+notes.Add(second);
+notes.Replace(0, revised);
+notes.Move(0, notes.Count - 1);    // one Move locally, then on the hub
+notes.ReplaceAll(serverSnapshot); // one Reset, even for identical non-empty input
+```
+
+Indexed failures are atomic. Equal-index Move, empty Clear, and empty-to-empty
+ReplaceAll are no-ops. Messages retain `Index` and add `OldIndex` / `NewIndex`;
+the collection never disposes or reparents its items. Choose `ObservableList<T>`
+instead for list-local batching and the `Count` channel, or a Group/Composite
+child collection for VM lifecycle ownership.
+
+### 4.2 Imperative engine bridge
 
 Use `SubscribeValue` to push selected VM state into a renderer or other
 imperative host without polling it every frame:
