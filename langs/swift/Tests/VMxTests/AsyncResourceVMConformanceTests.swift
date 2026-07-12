@@ -228,6 +228,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let acceptedNotifications = notifications
         first.resolve(1)
         await older.value
+        await eventually { cleaned == [1] }
 
         XCTAssertEqual(cleaned, [1])
         XCTAssertEqual(notifications, acceptedNotifications)
