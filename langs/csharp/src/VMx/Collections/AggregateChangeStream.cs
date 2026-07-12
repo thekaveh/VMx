@@ -52,6 +52,9 @@ public sealed class AggregateChange<T>
 public sealed class AggregateChangeStream<T> : IDisposable
     where T : class
 {
+    private const long SetupFlag = 1;
+    private const long StructuralVersionIncrement = 2;
+
     private readonly object _gate = new();
     private readonly IObservableMembershipSource<T> _source;
     private readonly Func<T, IObservable<Unit>> _observeItem;
@@ -61,8 +64,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
 
     private IDisposable? _membershipSubscription;
     private long _nextEpoch;
-    private long _structuralVersion;
-    private bool _initializing = true;
+    private long _structuralState = SetupFlag;
     private bool _processing;
     private bool _completed;
     private Exception? _terminalError;
@@ -92,7 +94,6 @@ public sealed class AggregateChangeStream<T> : IDisposable
             {
                 _membershipSubscription = _source.SubscribeMembership(OnMembershipChanged);
                 InitializeLocked();
-                _initializing = false;
             }
             catch (Exception error)
             {
@@ -180,9 +181,9 @@ public sealed class AggregateChangeStream<T> : IDisposable
     {
         while (true)
         {
-            long version = Volatile.Read(ref _structuralVersion);
+            long version = Volatile.Read(ref _structuralState);
             IReadOnlyList<T> snapshot = GetValidatedSnapshot();
-            if (version != Volatile.Read(ref _structuralVersion)) continue;
+            if (version != Volatile.Read(ref _structuralState)) continue;
 
             SnapshotPlan plan = BuildPlanLocked(snapshot);
             try
@@ -195,28 +196,37 @@ public sealed class AggregateChangeStream<T> : IDisposable
                 throw;
             }
 
-            if (version != Volatile.Read(ref _structuralVersion))
+            if (version != Volatile.Read(ref _structuralState))
             {
                 DisposeStagedLocked(plan);
                 continue;
             }
 
             CommitPlanLocked(plan);
-            if (version != Volatile.Read(ref _structuralVersion)) continue;
+            if (version != Volatile.Read(ref _structuralState)) continue;
 
             DiscardBufferedItemsLocked();
-            return;
+            if (Interlocked.CompareExchange(
+                    ref _structuralState,
+                    version & ~SetupFlag,
+                    version) == version)
+            {
+                return;
+            }
         }
     }
 
     private void OnMembershipChanged()
     {
-        Interlocked.Increment(ref _structuralVersion);
+        // Version publication and setup classification are one atomic handoff:
+        // either setup reconciliation sees this increment, or this is post-setup work.
+        long state = Interlocked.Add(ref _structuralState, StructuralVersionIncrement);
+        bool setupActivity = (state & SetupFlag) != 0;
         bool start = false;
         lock (_gate)
         {
             if (_completed || _terminalError is not null) return;
-            if (_initializing) return;
+            if (setupActivity) return;
 
             bool coalesced = _batchDepth > 0;
             if (coalesced) _batchDirty = true;
@@ -229,10 +239,14 @@ public sealed class AggregateChangeStream<T> : IDisposable
 
     private void OnItem(Entry entry)
     {
+        // Synchronous/background values begun during initial staging are
+        // pre-existing state even when they acquire the gate after construction.
+        bool setupActivity = (Volatile.Read(ref _structuralState) & SetupFlag) != 0;
         bool start = false;
         lock (_gate)
         {
             if (_completed || _terminalError is not null || entry.Terminal) return;
+            if (setupActivity) return;
             if (!entry.Admitted)
             {
                 entry.BufferedItems++;
@@ -323,9 +337,9 @@ public sealed class AggregateChangeStream<T> : IDisposable
         {
             while (true)
             {
-                long version = Volatile.Read(ref _structuralVersion);
+                long version = Volatile.Read(ref _structuralState);
                 IReadOnlyList<T> snapshot = GetValidatedSnapshot();
-                if (version != Volatile.Read(ref _structuralVersion)) continue;
+                if (version != Volatile.Read(ref _structuralState)) continue;
 
                 SnapshotPlan plan = BuildPlanLocked(snapshot);
                 try
@@ -338,14 +352,14 @@ public sealed class AggregateChangeStream<T> : IDisposable
                     throw;
                 }
 
-                if (version != Volatile.Read(ref _structuralVersion))
+                if (version != Volatile.Read(ref _structuralState))
                 {
                     DisposeStagedLocked(plan);
                     continue;
                 }
 
                 CommitPlanLocked(plan);
-                if (version != Volatile.Read(ref _structuralVersion)) continue;
+                if (version != Volatile.Read(ref _structuralState)) continue;
 
                 var changes = new List<PendingChange>
                 {
@@ -493,7 +507,10 @@ public sealed class AggregateChangeStream<T> : IDisposable
         Registration[] recipients)
     {
         if (changes.Count == 0) return;
-        if (coalesced || _batchDepth > 0)
+        // Coalesced work marked the active batch dirty when the source event
+        // occurred. Processing it after ExitBatch must not dirty the next batch.
+        if (coalesced) return;
+        if (_batchDepth > 0)
         {
             _batchDirty = true;
             return;

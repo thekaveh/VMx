@@ -92,6 +92,51 @@ public sealed class AggregateChangeStreamConformanceTests
             new[] { AggregateChangeReason.Membership, AggregateChangeReason.Item },
             observed.Select(change => change.Reason));
         Assert.Same(synchronous, observed[1].Item);
+
+        var setupStructuralObserved = new List<AggregateChange<TestItem>>();
+        var setupStructuralFirst = new TestItem("setup-structural-first");
+        var setupStructuralRaced = new TestItem("setup-structural-raced");
+        var setupStructuralSource = new TestSource<TestItem>(setupStructuralFirst);
+        IDisposable? setupStructuralSubscription = null;
+        Thread? setupStructuralThread = null;
+        var runStructuralRace = true;
+        setupStructuralSource.SnapshotOverride = () =>
+        {
+            TestItem[] snapshot = setupStructuralSource.Items.ToArray();
+            if (!runStructuralRace) return snapshot;
+
+            runStructuralRace = false;
+            setupStructuralSource.AddWithoutPulse(setupStructuralRaced);
+            var constructingAggregate = Assert.IsType<AggregateChangeStream<TestItem>>(
+                setupStructuralSource.CallbackTarget);
+            setupStructuralSubscription = constructingAggregate.Observe()
+                .Subscribe(setupStructuralObserved.Add);
+            setupStructuralThread = setupStructuralSource.PulseOnBackgroundAndWaitUntilBlocked();
+            return snapshot;
+        };
+
+        using var setupStructuralAggregate = CreateAggregate(setupStructuralSource);
+        Assert.True(setupStructuralThread!.Join(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, setupStructuralRaced.Changes.SubscribeCount);
+        Assert.Empty(setupStructuralObserved);
+        setupStructuralSubscription!.Dispose();
+
+        var setupItemObserved = new List<AggregateChange<TestItem>>();
+        var setupItem = new TestItem("setup-item");
+        var setupItemSource = new TestSource<TestItem>(setupItem);
+        IDisposable? setupItemSubscription = null;
+        setupItem.Changes.BeforeBackgroundEmitOnSubscribe = () =>
+        {
+            var constructingAggregate = Assert.IsType<AggregateChangeStream<TestItem>>(
+                setupItemSource.CallbackTarget);
+            setupItemSubscription = constructingAggregate.Observe().Subscribe(setupItemObserved.Add);
+        };
+        setupItem.Changes.EmitFromBackgroundOnSubscribe = true;
+
+        using var setupItemAggregate = CreateAggregate(setupItemSource);
+        Assert.True(setupItem.Changes.BackgroundEmitThread!.Join(TimeSpan.FromSeconds(5)));
+        Assert.Empty(setupItemObserved);
+        setupItemSubscription!.Dispose();
     }
 
     [Fact, Trait("Conformance", "AGCH-003")]
@@ -247,6 +292,27 @@ public sealed class AggregateChangeStreamConformanceTests
         Assert.Equal(AggregateChangeReason.Membership, observed[0].Reason);
         Assert.Equal(1, first.Changes.SubscribeCount);
         Assert.Equal(0, first.Changes.DisposeCount);
+
+        var pendingItem = new TestItem("pending-item");
+        var pendingSource = new TestSource<TestItem>(pendingItem);
+        using var pendingAggregate = CreateAggregate(pendingSource);
+        var pendingObserved = new List<AggregateChange<TestItem>>();
+        var drivePendingBatch = true;
+        using var pendingSubscription = pendingAggregate.Observe().Subscribe(change =>
+        {
+            pendingObserved.Add(change);
+            if (!drivePendingBatch || change.Reason != AggregateChangeReason.Item) return;
+            drivePendingBatch = false;
+            pendingAggregate.Batch(() => pendingSource.Add(new TestItem("pending-added")));
+        });
+
+        pendingItem.Changes.Emit();
+        Assert.Equal(
+            new[] { AggregateChangeReason.Item, AggregateChangeReason.Batch },
+            pendingObserved.Select(change => change.Reason));
+        pendingObserved.Clear();
+        pendingAggregate.Batch(() => { });
+        Assert.Empty(pendingObserved);
 
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
@@ -444,6 +510,8 @@ public sealed class AggregateChangeStreamConformanceTests
 
         internal int StructuralSubscriberCount => _handlers.Count;
 
+        internal object? CallbackTarget { get; private set; }
+
         public IReadOnlyList<T> Snapshot()
         {
             SnapshotCount++;
@@ -452,6 +520,7 @@ public sealed class AggregateChangeStreamConformanceTests
 
         public IDisposable SubscribeMembership(Action callback)
         {
+            CallbackTarget = callback.Target;
             _handlers.Add(callback);
             return Disposable.Create(() => _handlers.Remove(callback));
         }
@@ -482,6 +551,16 @@ public sealed class AggregateChangeStreamConformanceTests
         {
             foreach (Action handler in _handlers.ToArray()) handler();
         }
+
+        internal Thread PulseOnBackgroundAndWaitUntilBlocked()
+        {
+            var thread = new Thread(Pulse);
+            thread.Start();
+            Assert.True(SpinWait.SpinUntil(
+                () => (thread.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                TimeSpan.FromSeconds(5)));
+            return thread;
+        }
     }
 
     private sealed class TestItem : IDisposable
@@ -507,6 +586,12 @@ public sealed class AggregateChangeStreamConformanceTests
 
         internal bool EmitOnSubscribe { get; set; }
 
+        internal bool EmitFromBackgroundOnSubscribe { get; set; }
+
+        internal Action? BeforeBackgroundEmitOnSubscribe { get; set; }
+
+        internal Thread? BackgroundEmitThread { get; private set; }
+
         internal Exception? SubscribeError { get; set; }
 
         public IDisposable Subscribe(IObserver<Unit> observer)
@@ -516,6 +601,15 @@ public sealed class AggregateChangeStreamConformanceTests
             var observation = new Observation(observer);
             _observations.Add(observation);
             if (EmitOnSubscribe) observer.OnNext(Unit.Default);
+            if (EmitFromBackgroundOnSubscribe)
+            {
+                BeforeBackgroundEmitOnSubscribe?.Invoke();
+                BackgroundEmitThread = new Thread(() => observer.OnNext(Unit.Default));
+                BackgroundEmitThread.Start();
+                Assert.True(SpinWait.SpinUntil(
+                    () => (BackgroundEmitThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                    TimeSpan.FromSeconds(5)));
+            }
             return Disposable.Create(() =>
             {
                 if (!observation.Active) return;
