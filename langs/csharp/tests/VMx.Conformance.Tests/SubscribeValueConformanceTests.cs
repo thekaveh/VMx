@@ -219,6 +219,48 @@ public class SubscribeValueConformanceTests
         observedMessages.Should().Be(2,
             "a failing bridge callback must not block another hub subscriber");
         delivered.Should().Equal((1, 0), (2, 1));
+
+        var selectorSource = BuildVm(hub, dispatcher, "selector-delivery", 0);
+        var selectorComparer = new CountingComparer();
+        var selectorDelivered = new List<(int Current, int Previous)>();
+        var failNextSelector = false;
+        using var selectorSubscription = selectorSource.SubscribeValue(
+            vm =>
+            {
+                if (failNextSelector)
+                {
+                    failNextSelector = false;
+                    throw new InvalidOperationException("delivery selector");
+                }
+
+                return vm.Model.Value;
+            },
+            (current, previous) => selectorDelivered.Add((current, previous)),
+            selectorComparer);
+
+        failNextSelector = true;
+        Action failingSelectorDelivery = () => selectorSource.Model = new Model(1);
+        failingSelectorDelivery.Should().NotThrow();
+        selectorSource.Model = new Model(2);
+
+        selectorComparer.Calls.Should().Be(1,
+            "equality is skipped when delivery-time selection fails");
+        selectorDelivered.Should().Equal((2, 0));
+
+        var comparerSource = BuildVm(hub, dispatcher, "comparer-delivery", 0);
+        var throwingComparer = new ThrowOnceComparer();
+        var comparerDelivered = new List<(int Current, int Previous)>();
+        using var comparerSubscription = comparerSource.SubscribeValue(
+            vm => vm.Model.Value,
+            (current, previous) => comparerDelivered.Add((current, previous)),
+            throwingComparer);
+
+        Action failingComparerDelivery = () => comparerSource.Model = new Model(1);
+        failingComparerDelivery.Should().NotThrow();
+        comparerSource.Model = new Model(2);
+
+        throwingComparer.Calls.Should().Be(2);
+        comparerDelivered.Should().Equal((2, 0));
     }
 
     private static ComponentVM<Model> BuildVm(
@@ -250,6 +292,33 @@ public class SubscribeValueConformanceTests
         {
             Calls++;
             return x % 2 == y % 2;
+        }
+
+        public int GetHashCode(int obj) => obj.GetHashCode();
+    }
+
+    private sealed class CountingComparer : IEqualityComparer<int>
+    {
+        public int Calls { get; private set; }
+
+        public bool Equals(int x, int y)
+        {
+            Calls++;
+            return x == y;
+        }
+
+        public int GetHashCode(int obj) => obj.GetHashCode();
+    }
+
+    private sealed class ThrowOnceComparer : IEqualityComparer<int>
+    {
+        public int Calls { get; private set; }
+
+        public bool Equals(int x, int y)
+        {
+            Calls++;
+            if (Calls == 1) throw new InvalidOperationException("delivery comparer");
+            return x == y;
         }
 
         public int GetHashCode(int obj) => obj.GetHashCode();
