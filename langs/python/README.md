@@ -178,6 +178,39 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
 | Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
 | `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots (spec v2.1)           |
+| `subscribe_value`                                 | Fixed-VM selected-state bridge returning `DisposableBase` (spec v3.15)              |
+
+### 4.1 Imperative engine bridge
+
+Use `subscribe_value` to push selected VM state into a renderer or other
+imperative host without polling it every frame:
+
+```python
+from reactivex.abc import DisposableBase
+
+from vmx import subscribe_value
+
+
+def apply_exposure(exposure: float, _previous_exposure: float) -> None:
+    material.uniforms.exposure.value = exposure
+
+
+exposure_subscription: DisposableBase = subscribe_value(
+    camera_vm,
+    lambda vm: vm.model.exposure,
+    apply_exposure,
+    fire_immediately=True,
+)
+
+# When the host adapter is disposed:
+exposure_subscription.dispose()
+```
+
+The callback receives `(current, previous)`; immediate delivery passes the
+initial value for both. The selector runs after every property message from
+this fixed VM, and `==` suppresses unchanged selections. Pass `equality=` for
+custom equality. The host owns the returned `DisposableBase`; VMx does not
+attach it to the observed VM's lifetime.
 
 The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 

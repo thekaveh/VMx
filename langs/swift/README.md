@@ -167,6 +167,35 @@ Key exports:
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
+| `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` (spec v3.15) |
+
+### 4.1 Imperative engine bridge
+
+Use `subscribeValue` to push selected VM state into a renderer or other
+imperative host without polling it every frame:
+
+```swift
+import Combine
+import VMx
+
+let exposureSubscription: AnyCancellable = try subscribeValue(
+    cameraVM,
+    selector: { $0.model.exposure },
+    callback: { exposure, _ in
+        material.uniforms.exposure.value = exposure
+    },
+    fireImmediately: true
+)
+
+// When the host adapter is disposed:
+exposureSubscription.cancel()
+```
+
+The callback receives `(current, previous)`; immediate delivery passes the
+initial value for both. The selector runs after every property message from
+this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
+for custom equality. The host owns the returned `AnyCancellable`; VMx does not
+attach it to the observed VM's lifetime.
 
 ## 5. Conformance — total parity (351)
 

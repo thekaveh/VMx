@@ -195,6 +195,30 @@ The public API lives under the `VMx.*` namespaces:
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
 | Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` (spec v2.1) |
 | `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
+| `SubscribeValue`                | Fixed-VM selected-state bridge returning `IDisposable` (spec v3.15) |
+
+### 4.1 Imperative engine bridge
+
+Use `SubscribeValue` to push selected VM state into a renderer or other
+imperative host without polling it every frame:
+
+```csharp
+using VMx.Messages;
+
+IDisposable exposureSubscription = cameraVm.SubscribeValue(
+    vm => vm.Model.Exposure,
+    (exposure, _) => material.Uniforms.Exposure.Value = exposure,
+    fireImmediately: true);
+
+// When the host adapter is disposed:
+exposureSubscription.Dispose();
+```
+
+The callback receives `(current, previous)`; immediate delivery passes the
+initial value for both. The selector runs after every property message from
+this fixed VM, and `EqualityComparer<TValue>.Default` suppresses unchanged
+selections. Pass `equalityComparer:` for custom equality. The host owns the
+returned `IDisposable`; VMx does not attach it to the observed VM's lifetime.
 
 The companion package `VMx.Extensions.DependencyInjection` adds:
 

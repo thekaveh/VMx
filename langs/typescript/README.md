@@ -189,6 +189,7 @@ Key exports:
 | `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
 | `whenPropertyChanged`           | Hub helper yielding matching property-change messages |
 | `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages (spec v3.14) |
+| `subscribeValue`                | Fixed-VM selected-state bridge returning an RxJS `Subscription` (spec v3.15) |
 
 ### 4.1 Raw message predicates
 
@@ -265,6 +266,29 @@ This API is intentionally TypeScript-only. It fills a TypeScript type-narrowing
 gap without changing message semantics; other flavors already use their
 idiomatic nominal/runtime checks, so ADR-0094 adds no artificial cross-flavor
 surface or conformance ID.
+
+### 4.2 Imperative engine bridge
+
+Use `subscribeValue` to update an engine uniform only when selected VM state
+changes:
+
+```typescript
+const exposureSubscription = subscribeValue(
+  cameraVm,
+  vm => vm.model.exposure,
+  exposure => { material.uniforms.exposure.value = exposure; },
+  { fireImmediately: true },
+);
+
+// When the host adapter is disposed:
+exposureSubscription.unsubscribe();
+```
+
+The callback receives `(current, previous)`; immediate delivery passes the
+initial value for both. The selector runs after every property message from
+this fixed VM, and `Object.is` suppresses unchanged selections. Pass an
+`equality` option for custom equality. The host owns the returned RxJS
+`Subscription`; VMx does not attach it to the observed VM's lifetime.
 
 The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
