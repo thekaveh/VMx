@@ -48,7 +48,8 @@ private final class GroupParent: ParentVM {
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
 }
 
-open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable, VMCollection {
+open class GroupVM<Child: ComponentVMBase>:
+    ComponentVMBase, _Batchable, VMCollection, ObservableMembershipSource {
     private var children: [Child] = []
     private let childrenFactory: (() -> [Child])?
     private var populated = false
@@ -119,6 +120,12 @@ open class GroupVM<Child: ComponentVMBase>: ComponentVMBase, _Batchable, VMColle
     public func makeIterator() -> AnyIterator<Child> {
         var iterator = children.makeIterator()
         return AnyIterator { iterator.next() }
+    }
+
+    public func snapshot() -> [Child] { children }
+
+    public func subscribeMembership(_ callback: @escaping () -> Void) -> AnyCancellable {
+        collectionChanged.sink { _ in callback() }
     }
 
     public func add(_ child: Child) {
