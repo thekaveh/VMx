@@ -14,6 +14,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
+mod aggregate_change_stream;
+pub use aggregate_change_stream::{
+    AggregateChange, AggregateChangeObservable, AggregateChangeReason, AggregateChangeStream,
+    AggregateChangeSubscription, AggregateObserveOptions, ObservableMembershipSource,
+    ObservablePropertySource,
+};
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MIN_SPEC_VERSION: &str = "3.17.0";
 
@@ -464,6 +471,7 @@ impl Drop for Subscription {
 }
 
 type PropertyChangedSubscriber = Arc<dyn Fn(&str) + Send + Sync + 'static>;
+type PropertyChangedCompletion = Arc<dyn Fn() + Send + Sync + 'static>;
 
 /// Hot, per-viewmodel property-name stream used by local binding adapters.
 #[derive(Clone, Default)]
@@ -475,6 +483,7 @@ pub struct PropertyChangedStream {
 struct PropertyChangedStreamInner {
     next_subscription_id: usize,
     subscribers: BTreeMap<usize, PropertyChangedSubscriber>,
+    completion_subscribers: BTreeMap<usize, PropertyChangedCompletion>,
     disposed: bool,
     active_notifications: usize,
     teardown_pending: bool,
@@ -492,6 +501,32 @@ impl PropertyChangedStream {
         inner.next_subscription_id += 1;
         let id = inner.next_subscription_id;
         inner.subscribers.insert(id, Arc::new(handler));
+        PropertyChangedSubscription {
+            id,
+            stream: Arc::downgrade(&self.inner),
+        }
+    }
+
+    fn subscribe_with_completion<F, C>(
+        &self,
+        handler: F,
+        completion: C,
+    ) -> PropertyChangedSubscription
+    where
+        F: Fn(&str) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        let completion: PropertyChangedCompletion = Arc::new(completion);
+        let mut inner = lock(&self.inner);
+        if inner.disposed {
+            drop(inner);
+            completion();
+            return PropertyChangedSubscription::noop();
+        }
+        inner.next_subscription_id += 1;
+        let id = inner.next_subscription_id;
+        inner.subscribers.insert(id, Arc::new(handler));
+        inner.completion_subscribers.insert(id, completion);
         PropertyChangedSubscription {
             id,
             stream: Arc::downgrade(&self.inner),
@@ -528,12 +563,24 @@ impl PropertyChangedStream {
     }
 
     fn dispose(&self) {
-        let mut inner = lock(&self.inner);
-        inner.disposed = true;
-        if inner.active_notifications == 0 {
-            inner.subscribers.clear();
-        } else {
-            inner.teardown_pending = true;
+        let completions = {
+            let mut inner = lock(&self.inner);
+            if inner.disposed {
+                return;
+            }
+            inner.disposed = true;
+            let completions = std::mem::take(&mut inner.completion_subscribers)
+                .into_values()
+                .collect::<Vec<_>>();
+            if inner.active_notifications == 0 {
+                inner.subscribers.clear();
+            } else {
+                inner.teardown_pending = true;
+            }
+            completions
+        };
+        for completion in completions {
+            let _ = catch_unwind(AssertUnwindSafe(|| completion()));
         }
     }
 }
@@ -553,7 +600,9 @@ impl PropertyChangedSubscription {
 
     pub fn dispose(&self) {
         if let Some(stream) = self.stream.upgrade() {
-            lock(&stream).subscribers.remove(&self.id);
+            let mut stream = lock(&stream);
+            stream.subscribers.remove(&self.id);
+            stream.completion_subscribers.remove(&self.id);
         }
     }
 }
