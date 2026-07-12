@@ -7,6 +7,8 @@ Global all-notes search is the scenario path that demonstrates
 
 - forward-only token paging through repository-backed search
 - search results that are independent of the currently focused notebook
+- source-change refresh with an unchanged search term before token paging reads
+  the new filtered projection
 - the same conceptual flow across C#, Python, TypeScript, and Swift
 
 ## Where It Lives

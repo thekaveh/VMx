@@ -4,6 +4,23 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.19.0] — 2026-07-12
+
+Implements `spec-v3.19.0` and keeps Swift at full library parity: 380/380
+conformance IDs covered.
+
+### Added
+
+- `SearchableState<T>` accepts an optional non-failing `sourceChanges`
+  publisher that refreshes the current term after source mutations
+  (`SRCH-001..007`, ADR-0099).
+
+### Changed
+
+- Source pulses bypass without resetting term debounce, preserve upstream batch
+  boundaries and value-equal emissions, isolate source completion, and cancel
+  only the helper-owned subscription on disposal.
+
 ## [3.18.0] — 2026-07-12
 
 Implements `spec-v3.18.0` and keeps Swift at full library parity: 373/373

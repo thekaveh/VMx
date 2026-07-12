@@ -29,11 +29,16 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     /// delays without blocking the calling thread. Pass <see cref="ImmediateScheduler.Instance"/>
     /// or a <c>TestScheduler</c> in tests that need synchronous / virtual-time
     /// behaviour).</param>
+    /// <param name="sourceChanged">Optional payload-free invalidation signal.
+    /// Each value immediately re-reads <paramref name="items"/> with the current
+    /// term. Completion or failure stops automatic source refresh without
+    /// terminating <see cref="Filtered"/>.</param>
     public SearchableState(
         Func<IEnumerable<TItem>> items,
         Func<TItem, string, bool> predicate,
         TimeSpan? debounce = null,
-        IScheduler? scheduler = null)
+        IScheduler? scheduler = null,
+        IObservable<Unit>? sourceChanged = null)
     {
         _itemsSource = items;
         _predicate = predicate;
@@ -47,12 +52,23 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
             : _termSubject.AsObservable();
 
         var forceFilter = _forceSearchSubject.Select(_ => _termSubject.Value);
-        var recomputeStream = debouncedTerm.Merge(forceFilter);
+        var sourceFilter = sourceChanged is null
+            ? Observable.Empty<string>()
+            : sourceChanged
+                .Select(_ => _termSubject.Value)
+                .Catch<string, Exception>(_ => Observable.Empty<string>());
+        var recomputeStream = debouncedTerm.Merge(forceFilter).Merge(sourceFilter);
 
         _subscription = recomputeStream.Subscribe(term =>
         {
             _filteredSubject.OnNext(ApplyFilter(term));
         });
+
+        // Close the initial snapshot/attach gap. No caller can observe the
+        // constructor-only first value, while a signal arriving after the
+        // subscription is installed is handled by the merged stream.
+        if (sourceChanged is not null)
+            _filteredSubject.OnNext(ApplyFilter(_termSubject.Value));
     }
 
     /// <inheritdoc/>

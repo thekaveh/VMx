@@ -31,6 +31,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `LOC-NNN`   | Localization hooks                                   | `17-localization.md`                          |
 | `COL-NNN`   | Collection primitives (spec v2.1)                    | `21-collections.md`                           |
 | `AGCH-NNN`  | Dynamic aggregate change stream (spec v3.18)         | `21-collections.md`                           |
+| `SRCH-NNN`  | SearchableState source reactivity (spec v3.19)       | `06-composite-vm.md`                          |
 | `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
 | `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
 | `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
@@ -1613,8 +1614,9 @@ elapses
 **Given** a `SearchableState` over an initial list `["one"]` with predicate
 "any match" and a search term of `"x"`
 **And** a subscriber to `Filtered`
-**When** the items source is updated to `["one", "two"]` and the helper is
-notified (via `search()` / explicit refresh)
+**And** no optional source-change signal was supplied
+**When** the items source is updated to `["one", "two"]` and `search()` is
+called explicitly
 **Then** the subscriber observes a snapshot containing two items
 
 ### COMP-019 — CreateNewCommand invokes create-new action
@@ -1762,6 +1764,73 @@ because `c` no longer has a `Parent` to delegate to
 **Given** a scored filtered composite view whose scorer reads external score state
 **When** that score state changes and `RefreshScores()` is called
 **Then** the visible projection is reordered from the latest scores
+
+### SRCH-001 — source signal refreshes an unchanged search term
+
+**Given** a `SearchableState` over `["one"]` with an optional source-change
+signal, an empty unchanged term, and a subscriber to the filtered output
+**When** `"two"` is added to the supplier's collection and the source emits one
+signal
+**Then** exactly one new filtered notification is observed
+**And** its latest projection is `["one", "two"]`
+
+### SRCH-002 — remove, replace, reset, and reorder read the latest source
+
+**Given** a signaled `SearchableState` over an ordered mutable source and a term
+that matches every item
+**When** the source is removed from, replaced in place, reset to a different
+sequence, and reordered, with one signal after each committed mutation
+**Then** each notification contains or exposes the exact latest ordered supplier
+snapshot
+**And** no removed or replaced value remains in a later projection
+
+### SRCH-003 — source pulses are transparent to equality and upstream batching
+
+**Given** a signaled `SearchableState` whose supplier result is value-equal to
+its previous result
+**When** the source emits two separate pulses
+**Then** two filtered notifications are observed
+**When** several committed mutations are represented by one upstream-coalesced
+pulse
+**Then** exactly one additional filtered notification is observed
+
+### SRCH-004 — source refresh is independent of pending term work
+
+**Given** a signaled `SearchableState` with a non-zero term debounce
+**When** a new term is set and, before its debounce window elapses, the source is
+mutated and emits a pulse
+**Then** the source pulse immediately refreshes using the current new term
+**And** the pending term delivery is neither canceled nor restarted and remains
+eligible at its original deadline
+**And** a flavor whose established reactive facade delivers term notifications
+synchronously proves the source and term notifications remain independent
+
+### SRCH-005 — source completion or failure is isolated
+
+**Given** a signaled `SearchableState` with an active filtered subscriber
+**When** an error-capable source signal fails, or a non-failing signal completes
+or is disposed
+**Then** automatic source refresh stops without failing the filtered output
+**When** the supplier changes and explicit `search()` is invoked
+**Then** the latest projection remains available and a new filtered notification
+is produced where the flavor exposes a pushed filtered output
+
+### SRCH-006 — disposal cancels source observation exactly once
+
+**Given** a signaled `SearchableState` and an observer of its filtered output
+**When** the helper is disposed twice and the source later emits
+**Then** the source subscription has been canceled exactly once
+**And** no post-disposal filtered notification occurs
+**And** the source signal and supplied items have not been disposed by the helper
+
+### SRCH-007 — omitting the signal preserves explicit-refresh compatibility
+
+**Given** a `SearchableState` constructed without a source-change signal
+**When** its supplier's collection changes while the term is unchanged
+**Then** no automatic filtered notification occurs
+**When** `search()` is called
+**Then** the latest supplier projection is returned or emitted
+**And** the helper owns neither the supplier collection nor its items
 
 ______________________________________________________________________
 

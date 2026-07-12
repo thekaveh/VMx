@@ -28,12 +28,9 @@ public protocol Searchable {
 /// item source and a `(item, term) -> Bool` predicate. Mirrors
 /// `searchableState.ts` (ADR-0014).
 ///
-/// `filtered` is recomputed on each *term* change (debounced) and on each
-/// explicit `search()` call. It does NOT react to mutations of the underlying
-/// source — `items` is read lazily only when the term changes or `search()` is
-/// called, so after mutating the source while the term is unchanged callers
-/// MUST call `search()` to refresh the view. (This differs from a paged
-/// composition, which observes its source.)
+/// `filtered` is recomputed on each debounced term change, explicit `search()`
+/// call, and optional source-change pulse. Source completion stops automatic
+/// refresh without completing `filtered`.
 public final class SearchableState<T>: Searchable {
     private let itemsProvider: () -> [T]
     private let predicate: (T, String) -> Bool
@@ -49,11 +46,14 @@ public final class SearchableState<T>: Searchable {
     ///   - debounce: delay applied to term-change recomputes (default 1s);
     ///     `search()` recomputes immediately, bypassing the debounce.
     ///   - scheduler: scheduler the debounce runs on (default `.main`).
+    ///   - sourceChanges: optional payload-free invalidation publisher. Each
+    ///     value immediately re-reads `items` with the current term.
     public init(
         items: @escaping () -> [T],
         predicate: @escaping (T, String) -> Bool,
         debounce: DispatchQueue.SchedulerTimeType.Stride = .seconds(1),
-        scheduler: DispatchQueue = .main
+        scheduler: DispatchQueue = .main,
+        sourceChanges: AnyPublisher<Void, Never>? = nil
     ) {
         self.itemsProvider = items
         self.predicate = predicate
@@ -65,12 +65,23 @@ public final class SearchableState<T>: Searchable {
         let forcedTerm = forceSearchSubject
             .map { [weak self] _ in self?.termSubject.value ?? "" }
             .eraseToAnyPublisher()
+        let sourceTerm = (sourceChanges
+            ?? Empty<Void, Never>(completeImmediately: false).eraseToAnyPublisher())
+            .map { [weak self] _ in self?.termSubject.value ?? "" }
+            .eraseToAnyPublisher()
 
-        self.subscription = Publishers.Merge(debouncedTerm, forcedTerm)
+        self.subscription = Publishers.Merge3(debouncedTerm, forcedTerm, sourceTerm)
             .sink { [weak self] term in
                 guard let self, !self.disposed else { return }
                 self.filteredSubject.send(self.applyFilter(term))
             }
+
+        // Close the initial snapshot/attach gap. Callers cannot observe the
+        // constructor-only first value; later pulses flow through the merged
+        // subscription above.
+        if sourceChanges != nil {
+            filteredSubject.send(applyFilter(termSubject.value))
+        }
     }
 
     /// The current search term. Reads empty once disposed — parity with
@@ -91,8 +102,9 @@ public final class SearchableState<T>: Searchable {
         }
     }
 
-    /// The current filtered view, recomputed on each debounced term change and
-    /// on each explicit `search()`. Completes on `dispose()`.
+    /// The current filtered view, recomputed on each debounced term change,
+    /// explicit `search()`, and optional source-change pulse. Completes only on
+    /// `dispose()`.
     public var filtered: AnyPublisher<[T], Never> {
         filteredSubject.eraseToAnyPublisher()
     }

@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.18.0** — implements `spec-v3.18.0` end-to-end. 373/373 library conformance IDs
+**v3.19.0** — implements `spec-v3.19.0` end-to-end. 380/380 library conformance IDs
 pass. Supports Python 3.10–3.13.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -17,7 +17,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.18.0. The latest public PyPI package may
+The source tree currently implements v3.19.0. The latest public PyPI package may
 lag this source tree; pin a version when reproducing released behavior.
 
 ```bash
@@ -165,7 +165,7 @@ from vmx import ...  # see vmx/__init__.py for the full list
 | `find(root, predicate)`                           | Short-circuit tree search                                                           |
 | `DerivedProperty[TValue]` / `from_sources(...)`   | N-source computed value (spec v2.0)                                                 |
 | `ExpandableState`                                 | `IExpandable`+`ICollapsible` helper (spec v2.0)                                     |
-| `SearchableState[T]`                              | Debounced filter helper (spec v2.0)                                                 |
+| `SearchableState[T]`                              | Debounced filter + optional source signal (spec v3.19)                              |
 | `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default (v2.0)                                                     |
 | 22× capability ABCs                               | `vmx.capabilities.*` — opt-in (spec v2.0+)                                          |
 | `HierarchicalVM[TModel, TVM]`                     | Recursive tree VM with key-aware `attach_many`                                      |
@@ -267,7 +267,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 373 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 380 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

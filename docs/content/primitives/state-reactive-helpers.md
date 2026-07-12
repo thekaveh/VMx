@@ -19,6 +19,50 @@ The main helpers in this area are:
 These primitives own subscriptions and derived state, but they are usually
 composed inside a larger VM rather than used as the outer VM boundary.
 
+## Reactive Search Sources
+
+`SearchableState<TItem>` always keeps its existing lazy item supplier. Add the
+optional source-change signal when the supplier can mutate while the search
+term stays unchanged. Every signal immediately re-reads the supplier with the
+current term; it does not wait for, cancel, or restart term debounce.
+
+| Flavor     | Optional source input                          |
+| ---------- | ---------------------------------------------- |
+| C#         | `IObservable<Unit> sourceChanged`              |
+| Python     | `Observable[object] source_changes`            |
+| TypeScript | `Observable<unknown> sourceChanges`            |
+| Swift      | `AnyPublisher<Void, Never> sourceChanges`      |
+| Rust       | `new_with_changes` / `from_items_with_changes` |
+
+The signal is transparent to batching: two pulses cause two refreshes, while
+one upstream-coalesced pulse after many mutations causes one. A value-equal
+result still emits because the pulse may represent meaningful external state.
+Signal completion—and signal failure in the error-capable Rx flavors—stops only
+automatic refresh; explicit search remains available.
+
+For membership plus current-member changes, compose the aggregate stream rather
+than installing item subscriptions inside search:
+
+```typescript
+import { map } from "rxjs";
+import { AggregateChangeStream, SearchableState } from "@thekaveh/vmx";
+
+const aggregate = AggregateChangeStream.forComponents(components);
+const search = new SearchableState({
+  items: () => components.snapshot(),
+  predicate: (item, term) => item.title.includes(term),
+  sourceChanges: aggregate.observe().pipe(map(() => undefined)),
+});
+
+// Search owns its pulse subscription; the consumer still owns the aggregate.
+search.dispose();
+aggregate.dispose();
+```
+
+Membership-only consumers can map their collection's structural event directly.
+When no signal is supplied, mutation remains intentionally explicit: call
+`search()` to refresh, preserving compatibility with earlier releases.
+
 ## Lifecycle And Messaging
 
 The lifecycle rule is simple: if a helper owns subscriptions, dispose it with
@@ -58,6 +102,10 @@ That composition style is the norm in VMx.
 - Re-implementing reactive glue with hand-managed subscriptions instead of
   composing a helper.
 - Forgetting to dispose helper-owned subscriptions.
+- Mutating a search supplier without either providing a source-change signal or
+  calling `search()` explicitly.
+- Creating a second per-item registry instead of mapping
+  `AggregateChangeStream` when member-property changes matter.
 - Using `DerivedProperty` as an imperative setter shortcut instead of letting it
   stay source-driven.
 

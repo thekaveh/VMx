@@ -4,6 +4,23 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.19.0] — 2026-07-12
+
+Implements `spec-v3.19.0` and keeps Rust at full library parity: 380/380
+conformance IDs covered.
+
+### Added
+
+- `SearchableState::new_with_changes` and `from_items_with_changes` accept a
+  `MessageHub` source signal; shared idempotent `dispose()` cancels the owned
+  subscription (`SRCH-001..007`, ADR-0099).
+
+### Changed
+
+- Source pulses emit one `filtered_changed` invalidation without suppressing
+  equal projections or owning the source/items. Source-hub disposal remains
+  isolated from explicit pull search.
+
 ## [0.18.0] — 2026-07-12
 
 Implements `spec-v3.18.0` and keeps Rust at full library parity: 373/373
