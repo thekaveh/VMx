@@ -20,9 +20,10 @@ conformance IDs covered.
 
 ### Changed
 
-- Distinct identities share one selected subscription, explicit nested batches
-  coalesce aggregate output, and idempotent disposal detaches only
-  aggregate-owned subscriptions without owning source items.
+- Duplicate occurrences of the same identity share one selected subscription;
+  distinct identities each have their own. Explicit nested batches coalesce
+  aggregate output, and idempotent disposal detaches only aggregate-owned
+  subscriptions without owning source items.
 
 ## [3.17.0] — 2026-07-12
 

@@ -116,11 +116,19 @@ repeating that selector:
 | Swift      | `AggregateChangeStream.forComponents(source)`   |
 | Rust       | `AggregateChangeStream::for_components(source)` |
 
-Selected streams are expected to be non-failing. Swift and Rust encode that in
-their stream types. In the Rx flavors, an unexpected selected-stream error (or
-normal completion) ends only that member's current membership epoch; it does
-not fail the aggregate or affect other members. Final removal followed by
-re-add is what establishes a fresh epoch and subscription.
+Selector or selected-subscription setup failure has aggregate-wide terminal
+semantics. During construction it throws before an aggregate is returned.
+During a later membership reconciliation, VMx transactionally detaches the
+structural, staged, and already admitted subscriptions before terminating the
+aggregate output with that failure; no partially observed membership remains.
+
+That setup path is different from an event after a selected subscription was
+admitted. Selected streams are expected to be non-failing, and Swift and Rust
+encode that in their stream types. In the Rx flavors, an unexpected
+selected-stream error (or normal completion) ends only that member's current
+membership epoch; it does not fail the aggregate or affect other members.
+Final removal followed by re-add is what establishes a fresh epoch and
+subscription.
 
 Aggregate coalescing is explicit and nested. Hub batching has no portable
 completion callback, so combine the scopes at the mutation boundary when one
@@ -148,7 +156,7 @@ removes, or otherwise owns source items.
 excluded because their public element identity or visible-membership meaning
 needs a separate projection contract. This dynamic fan-in is the decision in
 [ADR-0098](../../../spec/ADRs/0098-dynamic-aggregate-change-stream.md). It is
-different from [ADR-0095](../../../spec/ADRs/0095-imperative-selected-state-subscription.md)
+different from [ADR-0095](../../../spec/ADRs/0095-cross-flavor-subscribe-value.md)
 `subscribeValue`, which reevaluates selected state for one fixed sender and
 does not track changing collection membership.
 
