@@ -55,6 +55,7 @@ from vmx.capabilities import (
 from vmx.collections import (
     BatchUpdateHandle,
     CollectionChangedEvent,
+    KeyedServicedObservableCollection,
     ObservableDictionary,
     ObservableList,
     PagedComposition,
@@ -237,6 +238,7 @@ __all__ = [
     "ISelectable",
     "ISelectionTogglable",
     "IUpdatable",
+    "KeyedServicedObservableCollection",
     "Message",
     "MessageHub",
     "MessageHubProto",
