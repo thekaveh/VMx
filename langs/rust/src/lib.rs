@@ -26,7 +26,7 @@ pub use async_resource_vm::{
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.19.0";
+pub const MIN_SPEC_VERSION: &str = "3.20.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 

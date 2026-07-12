@@ -4,7 +4,8 @@
 
 Use these helpers when the VM shape is already correct, but you need reusable
 reactive behavior layered onto it: search, expand/collapse state, derived
-values, active-key coordination, or edit/revert state.
+values, active-key coordination, edit/revert state, or one asynchronously
+acquired presentation value.
 
 ## Shape And Ownership
 
@@ -15,9 +16,57 @@ The main helpers in this area are:
 - `DerivedProperty<TValue>` for N-source computed values
 - `DiscriminatorVM<TKey>` for one active key with modal precedence
 - `FormVM<TM>` for snapshot/revert/approve flows
+- `AsyncResourceVM<T>` for cancellable Idle/Loading/Ready/Error acquisition
 
-These primitives own subscriptions and derived state, but they are usually
-composed inside a larger VM rather than used as the outer VM boundary.
+Most of these primitives are composed inside a larger VM. `AsyncResourceVM`
+is itself a component VM and may be the outer binding boundary for one remote
+or otherwise expensive value.
+
+## Async Resource State
+
+`AsyncResourceVM<T>` standardizes the state and commands around one async
+loader without choosing a transport, cache, route, scheduler policy, or paging
+model. Its immutable `state` / `State` snapshot has four statuses:
+
+| Status    | Value                                       | Error   |
+| --------- | ------------------------------------------- | ------- |
+| `Idle`    | absent                                      | absent  |
+| `Loading` | absent, or the retained last accepted value | absent  |
+| `Ready`   | current accepted value                      | absent  |
+| `Error`   | absent, or the retained last accepted value | present |
+
+The `LoadCommand` is eligible only from Idle. `ReloadCommand` is eligible from
+Loading, Ready, or Error, and `CancelCommand` only while Loading. Direct reload
+may supersede active work: the latest admitted start wins, so a loader that
+ignores cancellation cannot overwrite newer state. Loader faults become Error
+state and do not also escape through the async command error channel.
+
+Retention defaults to `DiscardPrevious`, which releases an accepted value
+before the replacement load. `RetainPrevious` keeps that value visible while
+loading and restores it on cancellation. An optional cleanup callback makes
+ownership acquisition-based: discarded, replaced, stale, late-after-dispose,
+and terminal accepted values are each cleaned exactly once.
+
+```typescript
+const profile = new AsyncResourceVM({
+  name: "profile",
+  hub,
+  dispatcher,
+  loader: signal => api.loadProfile(userId, signal),
+  retention: AsyncResourceRetention.RetainPrevious,
+  cleanupValue: value => value.dispose(),
+});
+
+await profile.load();
+if (profile.state.status === AsyncResourceStatus.Ready) {
+  render(profile.state.value);
+}
+profile.dispose();
+```
+
+Use `PagedComposition` or `TokenPagedComposition` when the domain is a page or
+cursor sequence. Keep product-specific client construction and caching outside
+this primitive and inject them through the loader closure.
 
 ## Reactive Search Sources
 
@@ -67,7 +116,7 @@ When no signal is supplied, mutation remains intentionally explicit: call
 
 The lifecycle rule is simple: if a helper owns subscriptions, dispose it with
 its owner. That matters especially for `DerivedProperty`, `SearchableState`, and
-`DiscriminatorVM`.
+`DiscriminatorVM`, and `AsyncResourceVM`.
 
 `DerivedProperty` is also the standard replacement for older ad hoc
 initialization-token patterns: subscribe once, multicast value changes, and tear
@@ -85,6 +134,7 @@ disposal, which last values remain readable, and which streams complete.
 | `DerivedProperty<TValue>` | value, value-changed, optional write-back        |
 | `DiscriminatorVM<TKey>`   | active key, modal stack helpers                  |
 | `FormVM<TM>`              | model, snapshot, dirty/valid state, approve/deny |
+| `AsyncResourceVM<T>`      | state snapshot, load/reload/cancel commands      |
 
 ## Example
 
@@ -108,6 +158,8 @@ That composition style is the norm in VMx.
   `AggregateChangeStream` when member-property changes matter.
 - Using `DerivedProperty` as an imperative setter shortcut instead of letting it
   stay source-driven.
+- Treating `AsyncResourceVM` as a cache, transport client, or paging owner.
+- Forgetting cleanup when the loaded value owns a handle or subscription.
 
 ## Related Primitives
 

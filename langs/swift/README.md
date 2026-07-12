@@ -5,9 +5,9 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.19.0 — total parity.** Covers **all 380 of 380** library conformance IDs
-from `spec-v3.19.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **385 total**, at
+**v3.20.0 — total parity.** Covers **all 391 of 391** library conformance IDs
+from `spec-v3.20.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **396 total**, at
 full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -24,7 +24,8 @@ via ADR-0091; +1 settled FormVM model-publication ID via ADR-0092; +1 explicit
 modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
 subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096;
 +9 keyed serviced-collection IDs via ADR-0097; +10 dynamic aggregate change
-stream IDs via ADR-0098):
+stream IDs via ADR-0098; +7 searchable source-reactivity IDs via ADR-0099;
++11 async-resource IDs via ADR-0100):
 the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
@@ -42,6 +43,7 @@ lazy/eager construction, structural mutation, builder, capability composition),
 threading contracts (`ManualScheduler`, `VirtualTimeScheduler`, foreground
 dispatch, async selection), `SearchableState` (composite/group contexts plus
 optional source-change refresh),
+`AsyncResourceVM` (cancellable latest-wins async value state),
 message hub semantics, `FormVM` (snapshot/dirty/approve/deny/reset lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
@@ -51,7 +53,7 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.19.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.20.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -245,9 +247,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (385)
+## 5. Conformance — total parity (396)
 
-This flavor implements **all 380 library conformance IDs** from the
+This flavor implements **all 391 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -257,7 +259,9 @@ Inc-6: +19 composite/group IDs per ADR-0064;
 Inc-7: +44 v3.1 upstream-consumer IDs per ADR-0068..ADR-0079;
 Inc-8: +6 transactional-hub IDs per ADR-0082;
 Inc-9: +3 dual-channel property-notification IDs per ADR-0083;
-Inc-10: +6 cross-cutting disposal IDs per ADR-0084). The covered IDs are:
+Inc-10: +6 cross-cutting disposal IDs per ADR-0084; subsequent increments
+through ADR-0099 bring the catalog to 380; Inc-28: +11 async-resource IDs per
+ADR-0100). The covered IDs are:
 
 ```
 LIFE-001..014   lifecycle state machine + fixture-driven transition table
@@ -464,6 +468,8 @@ DISP-014        inert modeled assignment after disposal (ADR-0091)
 FORM-030        settled FormVM model hub publication (ADR-0092)
 SUBV-001..004   fixed-source selected-state subscription (ADR-0095)
 AGCH-001..010   dynamic aggregate membership-and-item change stream (ADR-0098)
+SRCH-001..007   source-reactive SearchableState refresh (ADR-0099)
+ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
 ```
 
 **THEME scenario IDs (example app — not scraped by the library coverage gate):**
@@ -472,7 +478,7 @@ AGCH-001..010   dynamic aggregate membership-and-item change stream (ADR-0098)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 380 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (385) with C#, Python, TypeScript, and Rust.**
+**All 391 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (396) with C#, Python, TypeScript, and Rust.**
 
 Run the suite:
 

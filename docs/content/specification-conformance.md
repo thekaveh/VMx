@@ -14,7 +14,7 @@ implementation.
 
 ## What Lives In The Spec
 
-- 23 numbered chapters from `00-overview.md` through `22-discriminator-vm.md`
+- 24 numbered chapters from `00-overview.md` through `23-async-resource-vm.md`
 - ADRs describing behavior and design decisions
 - shared JSON fixtures consumed by the language flavors
 - the cross-language conformance catalog in `spec/12-conformance.md`
@@ -23,9 +23,9 @@ implementation.
 
 The current catalog contains:
 
-- 354 library IDs implemented by all five full-parity source flavors
+- 391 library IDs implemented by all five full-parity source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
-- 359 total IDs in the published catalog
+- 396 total IDs in the published catalog
 
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).
