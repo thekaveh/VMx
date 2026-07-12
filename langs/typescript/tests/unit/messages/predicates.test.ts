@@ -41,6 +41,12 @@ const collection = CollectionChangedMessage.forAdd(
   "item",
   0,
 );
+const movedCollection = CollectionChangedMessage.forMove(
+  collectionSource,
+  "item",
+  0,
+  1,
+);
 const status = ConstructionStatusChangedMessage.create(
   sender,
   "sender",
@@ -227,6 +233,20 @@ describe("raw message predicates", () => {
         CollectionChangedMessage<unknown>[]
       >
     >(additionsByOpaqueSource);
+  });
+
+  it("classifies move collection changes through the public action union", () => {
+    const moveAction: CollectionMutationAction = "move";
+
+    expect(
+      isCollectionChanged(movedCollection, {
+        source: collectionSource,
+        action: moveAction,
+      }),
+    ).toBe(true);
+    expect(
+      isCollectionChanged(movedCollection, { action: "replace" }),
+    ).toBe(false);
   });
 
   it("classifies construction status changes and narrows the stream", () => {
