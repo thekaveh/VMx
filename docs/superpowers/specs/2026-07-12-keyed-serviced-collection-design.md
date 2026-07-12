@@ -51,13 +51,13 @@ add, value removal, indexed removal, replacement, whole-list replacement,
 move, clear, count, indexed reads, snapshots, insertion-order iteration, local
 change delivery, optional hub publication, and caller-owned items. It adds:
 
-| Flavor     | Construction/projector                                                                                                | Lookup/membership                                     | Upsert                                        | Keyed delete                  |
-| ---------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------- | ----------------------------- |
-| C#         | `(Func<TItem,TKey> keySelector, IMessageHub? hub = null, IEqualityComparer<TKey>? comparer = null)`, `TKey : notnull` | `TryGetValue`, `ContainsKey(TKey)`                    | `bool Upsert(TItem)` (`true` = Add)           | `bool RemoveKey(TKey)`        |
-| Python     | `(key_of: Callable[[T], TKey], hub = None)`, keys must be hashable                                                    | `get(key)` returns `T` or `None`; `contains_key(key)` | `upsert(item) -> bool` (`True` = Add)         | `delete(key) -> bool`         |
-| TypeScript | options with `keyOf` and optional nullable `hub`, native `Map` keys                                                   | `get(key)` returns `T` or `undefined`; `has(key)`     | `upsert(item): boolean` (`true` = Add)        | `delete(key): boolean`        |
-| Swift      | `(keyOf: @escaping (T) throws -> Key, hub: MessageHubProtocol? = nil)`, `Key: Hashable`                               | `get(_:) -> T?`, `containsKey(_:) -> Bool`            | `upsert(_:) throws -> Bool` (`true` = Add)    | `delete(_:) -> Bool`          |
-| Rust       | `new(owner_id, key_of)` / `with_hub(owner_id, hub, key_of)`, `K: Eq + Hash`                                           | `get(&K) -> Option<T>`, `contains_key(&K) -> bool`    | `upsert(T) -> VmxResult<bool>` (`true` = Add) | `remove_key(&K) -> Option<T>` |
+| Flavor     | Construction/projector                                                                                                | Lookup/membership                                         | Upsert                                        | Keyed delete                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------- | ----------------------------- |
+| C#         | `(Func<TItem,TKey> keySelector, IMessageHub? hub = null, IEqualityComparer<TKey>? comparer = null)`, `TKey : notnull` | `TryGetValue`, `ContainsKey(TKey)`                        | `bool Upsert(TItem)` (`true` = Add)           | `bool RemoveKey(TKey)`        |
+| Python     | `(key_of: Callable[[T], TKey], hub = None)`, keys must be hashable                                                    | `get(key)` returns `T` or `None`; `contains_key(key)`     | `upsert(item) -> bool` (`True` = Add)         | `delete(key) -> bool`         |
+| TypeScript | options with `keyOf` and optional nullable `hub`, native `Map` keys                                                   | `get(key)` returns `T` or `undefined`; `has(key)`         | `upsert(item): boolean` (`true` = Add)        | `delete(key): boolean`        |
+| Swift      | `(keyOf: @escaping (T) throws -> Key, hub: MessageHubProtocol? = nil)`, `Key: Hashable`                               | `get(_:) -> T?`, `containsKey(_:) -> Bool`                | `upsert(_:) throws -> Bool` (`true` = Add)    | `delete(_:) -> Bool`          |
+| Rust       | `new(owner_id, key_of)` / `with_hub(owner_id, hub, key_of)`, `K: Eq + Hash`                                           | `get_by_key(&K) -> Option<T>`, `contains_key(&K) -> bool` | `upsert(T) -> VmxResult<bool>` (`true` = Add) | `remove_key(&K) -> Option<T>` |
 
 C# lookup is exactly
 `bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TItem item)`. Python
@@ -89,6 +89,10 @@ updates the index atomically:
   replace/setAt, replaceAll, move, and clear;
 - Rust: push, PartialEq value removal, indexed remove, replace, replace-all,
   move, and clear (the unkeyed Rust type has no positional insert convenience).
+
+Rust retains the unkeyed `get(usize) -> Option<T>` indexed read and spells the
+additional keyed lookup `get_by_key(&K)`. Rust has no method overloading, so two
+unrelated `get` parameter types would otherwise collide when `K` is `usize`.
 
 ## 4. Key contract
 

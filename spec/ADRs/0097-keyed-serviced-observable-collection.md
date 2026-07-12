@@ -48,8 +48,13 @@ external hub, message shape, and caller-owned item lifecycle. It adds:
 - Swift: a throwing `keyOf` closure, optional hub, and `Key: Hashable`; `get`,
   `containsKey`, `upsert`, and `delete`; and
 - Rust: `owner_id` plus a `Fn(&T) -> VmxResult<K>` projector, with a
-  `with_hub` variant and `K: Eq + Hash`; `get`, `contains_key`, `upsert`, and
-  `remove_key`.
+  `with_hub` variant and `K: Eq + Hash`; indexed `get(usize)`, keyed
+  `get_by_key(&K)`, `contains_key`, `upsert`, and `remove_key`.
+
+Rust uses `get_by_key` because the complete inherited surface already uses
+`get(usize)` for positional reads and Rust has no method overloading. This
+preserves both concepts without generic dispatch machinery or ambiguity for a
+`usize` key and is an ADR-0006 naming adaptation, not a behavioral divergence.
 
 C# lookup is exactly
 `bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TItem item)`, matching

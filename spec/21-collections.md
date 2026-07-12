@@ -267,7 +267,7 @@ projector, key lookup and membership, upsert, and keyed deletion:
 | Python     | `(key_of: Callable[[T], TKey], hub = None)`; keys are hashable                                                         | `get(key) -> Optional[T]`, `contains_key(key) -> bool`     | `upsert(item) -> bool` (`True` means Add)      | `delete(key) -> bool`         |
 | TypeScript | options with `keyOf: (item: T) => TKey` and optional nullable `hub`                                                    | `get(key)` returns `T` or `undefined`; `has(key): boolean` | `upsert(item): boolean` (`true` means Add)     | `delete(key): boolean`        |
 | Swift      | `(keyOf: @escaping (T) throws -> Key, hub: MessageHubProtocol? = nil)`, `Key: Hashable`                                | `get(_:) -> T?`, `containsKey(_:) -> Bool`                 | `upsert(_:) throws -> Bool` (`true` means Add) | `delete(_:) -> Bool`          |
-| Rust       | `new(owner_id, key_of)` / `with_hub(owner_id, hub, key_of)`, `K: Eq + Hash`                                            | `get(&K) -> Option<T>`, `contains_key(&K) -> bool`         | `upsert(T) -> VmxResult<bool>` (`true` = Add)  | `remove_key(&K) -> Option<T>` |
+| Rust       | `new(owner_id, key_of)` / `with_hub(owner_id, hub, key_of)`, `K: Eq + Hash`                                            | `get_by_key(&K) -> Option<T>`, `contains_key(&K) -> bool`  | `upsert(T) -> VmxResult<bool>` (`true` = Add)  | `remove_key(&K) -> Option<T>` |
 
 The exact Python miss annotation is `get(key) -> T | None`. The exact
 TypeScript options shape is
@@ -333,6 +333,12 @@ preserved and keeps the key index synchronized:
 - Rust: push, PartialEq value removal, indexed removal, replace, replace-all,
   move, and clear. The unkeyed Rust type has no positional-insert convenience,
   so the keyed type does not invent one.
+
+Rust retains the unkeyed `get(usize) -> Option<T>` indexed read and names the
+additional keyed lookup `get_by_key(&K) -> Option<T>`. Rust has no method
+overloading, and keeping both concepts as `get` would be ambiguous when the key
+type is `usize`. This is an idiomatic naming adaptation under ADR-0006, not a
+semantic divergence.
 
 Host-language naming, bounds, equality, return values, and typed versus
 non-generic message payloads remain those in §§2.1–2.4 and ADR-0009.
