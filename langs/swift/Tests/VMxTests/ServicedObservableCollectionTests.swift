@@ -7,8 +7,8 @@
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
 //
-import XCTest
 import Combine
+import XCTest
 @testable import VMx
 
 final class ServicedObservableCollectionTests: XCTestCase {
@@ -55,6 +55,8 @@ final class ServicedObservableCollectionTests: XCTestCase {
         XCTAssertEqual(localEvents[0].action, .add)
         XCTAssertEqual(localEvents[0].newItems, ["alpha"])
         XCTAssertEqual(localEvents[0].index, 0)
+        XCTAssertEqual(localEvents[0].oldIndex, -1)
+        XCTAssertEqual(localEvents[0].newIndex, 0)
 
         // Hub message is the same object.
         XCTAssertEqual(hubMessages.count, 1)
@@ -63,6 +65,8 @@ final class ServicedObservableCollectionTests: XCTestCase {
         XCTAssertEqual(msg?.action, .add)
         XCTAssertEqual(msg?.newItems, ["alpha"])
         XCTAssertEqual(msg?.index, 0)
+        XCTAssertEqual(msg?.oldIndex, -1)
+        XCTAssertEqual(msg?.newIndex, 0)
     }
 
     // ── COL-002 ──────────────────────────────────────────────────────────────
@@ -92,10 +96,16 @@ final class ServicedObservableCollectionTests: XCTestCase {
         XCTAssertEqual(localEvents.count, 1)
         XCTAssertEqual(localEvents[0].action, .remove)
         XCTAssertEqual(localEvents[0].oldItems, ["b"])
+        XCTAssertEqual(localEvents[0].index, 1)
+        XCTAssertEqual(localEvents[0].oldIndex, 1)
+        XCTAssertEqual(localEvents[0].newIndex, -1)
 
         XCTAssertEqual(hubMessages.count, 1)
         XCTAssertEqual(hubMessages[0].action, .remove)
         XCTAssertEqual(hubMessages[0].oldItems, ["b"])
+        XCTAssertEqual(hubMessages[0].index, 1)
+        XCTAssertEqual(hubMessages[0].oldIndex, 1)
+        XCTAssertEqual(hubMessages[0].newIndex, -1)
 
         localEvents.removeAll()
         hubMessages.removeAll()
@@ -107,11 +117,17 @@ final class ServicedObservableCollectionTests: XCTestCase {
         XCTAssertEqual(localEvents[0].action, .replace)
         XCTAssertEqual(localEvents[0].newItems, ["a_replaced"])
         XCTAssertEqual(localEvents[0].oldItems, ["a"])
+        XCTAssertEqual(localEvents[0].index, 0)
+        XCTAssertEqual(localEvents[0].oldIndex, 0)
+        XCTAssertEqual(localEvents[0].newIndex, 0)
 
         XCTAssertEqual(hubMessages.count, 1)
         XCTAssertEqual(hubMessages[0].action, .replace)
         XCTAssertEqual(hubMessages[0].newItems, ["a_replaced"])
         XCTAssertEqual(hubMessages[0].oldItems, ["a"])
+        XCTAssertEqual(hubMessages[0].index, 0)
+        XCTAssertEqual(hubMessages[0].oldIndex, 0)
+        XCTAssertEqual(hubMessages[0].newIndex, 0)
     }
 
     // ── COL-003 ──────────────────────────────────────────────────────────────
@@ -132,7 +148,7 @@ final class ServicedObservableCollectionTests: XCTestCase {
         sut.setAt(0, 99)   // replace 1 with 99
         sut.clear()
 
-        // Five mutations → five local events; no hub message and no crash.
+        // All five mutations are effective because the collection contains 99 before clear.
         XCTAssertEqual(localEvents.count, 5)
     }
 
