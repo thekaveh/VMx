@@ -11,7 +11,8 @@ Three groups live here:
 
 - immutable fluent builders and additive `create` helpers
 - opt-in collection primitives such as `ServicedObservableCollection`,
-  `ObservableList`, `ObservableDictionary`, `PagedComposition`, and
+  `KeyedServicedObservableCollection`, `ObservableList`,
+  `ObservableDictionary`, `PagedComposition`, and
   `TokenPagedComposition`
 - traversal helpers such as `walk`, `find`, and `walk_expanded`
 
@@ -33,6 +34,8 @@ The main operational rules:
   before mutation and emits one Reset instead of clear-plus-N-add churn
 - `ServicedObservableCollection` publishes local collection events before hub
   messages
+- `KeyedServicedObservableCollection` adds a captured-key index without
+  changing the ordered serviced message contract
 - tree utilities are pure reads; they do not trigger lifecycle transitions
 
 Batch handles, paging helpers, disposable collections, and frozen projections
@@ -42,27 +45,38 @@ non-owning and never dispose their items.
 
 ## Choosing A Collection
 
-| Need                                                                          | Choose                                      |
-| ----------------------------------------------------------------------------- | ------------------------------------------- |
-| Local granular item streams, a `Count` channel, and nested batch scopes       | `ObservableList<T>`                         |
-| Local collection changes plus equivalent messages on an optional external hub | `ServicedObservableCollection<T>`           |
-| Child construction/destruction, parent membership, or composite selection     | `GroupVM` / `CompositeVM` child collections |
+| Need                                                                       | Choose                                           |
+| -------------------------------------------------------------------------- | ------------------------------------------------ |
+| Local granular item streams, a `Count` channel, and nested batch scopes    | `ObservableList<T>`                              |
+| Ordered caller-owned items with local changes and optional hub publication | `ServicedObservableCollection<T>`                |
+| The same ordered contract plus stable-key lookup, upsert, and deletion     | `KeyedServicedObservableCollection<TKey, TItem>` |
+| Two independent keys, dictionary-entry iteration, and live key views       | `ObservableDictionary<TKey1, TKey2, TValue>`     |
+| Child construction/destruction, parent membership, or composite selection  | `GroupVM` / `CompositeVM` child collections      |
 
-These contracts are deliberately separate. A serviced collection does not
-batch, does not publish `Count`, and does not own item lifecycle. A VM child
-collection owns membership and lifecycle; use it when contained values are
-children rather than caller-owned data.
+These contracts are deliberately separate. Choose the unkeyed serviced type
+when positional access and ordered iteration are sufficient. Choose the keyed
+serviced type when callers would otherwise snapshot and scan that same ordered
+list by one stable domain key. Choose `ObservableDictionary` when the public
+shape really is a two-key dictionary: it iterates entries rather than bare
+stored values and does not substitute for list-compatible positions and
+messages.
+
+Neither serviced type batches, publishes a `Count` channel, implements the VM
+child-collection lifecycle interfaces, or owns its items. A `GroupVM` or
+`CompositeVM` child collection does own membership and lifecycle; use it when
+contained values are children rather than caller-owned data.
 
 ## Cross-Language Surface
 
-| Primitive                                                      | Purpose                                        |
-| -------------------------------------------------------------- | ---------------------------------------------- |
-| Builders                                                       | immutable fluent construction with validation  |
-| `ServicedObservableCollection<T>`                              | local changes plus optional hub publication    |
-| `ObservableList<T>`                                            | granular events plus atomic whole-list replace |
-| `ObservableDictionary<K1, K2, V>`                              | dual-key observable lookup plus live key views |
-| `PagedComposition<TVM>` / `TokenPagedComposition<TVM, TToken>` | paging helpers                                 |
-| `walk`, `find`, `walk_expanded`                                | tree traversal helpers                         |
+| Primitive                                                      | Purpose                                          |
+| -------------------------------------------------------------- | ------------------------------------------------ |
+| Builders                                                       | immutable fluent construction with validation    |
+| `ServicedObservableCollection<T>`                              | local changes plus optional hub publication      |
+| `KeyedServicedObservableCollection<TKey, TItem>`               | ordered serviced changes plus captured-key index |
+| `ObservableList<T>`                                            | granular events plus atomic whole-list replace   |
+| `ObservableDictionary<K1, K2, V>`                              | dual-key observable lookup plus live key views   |
+| `PagedComposition<TVM>` / `TokenPagedComposition<TVM, TToken>` | paging helpers                                   |
+| `walk`, `find`, `walk_expanded`                                | tree traversal helpers                           |
 
 ## Example
 
@@ -122,6 +136,67 @@ read the final state. Delivery is immediate and non-batched. Removing,
 replacing, resetting, moving, or clearing never disposes or reparents an item;
 the caller keeps lifecycle ownership.
 
+### Keyed serviced mutation contract
+
+`KeyedServicedObservableCollection` preserves the complete ordered mutation
+surface above and adds one projected, unique key per membership. Construction
+and the four keyed operations use the host-language idiom:
+
+| Flavor     | Construction                                                       | Lookup / membership           | Upsert   | Delete       |
+| ---------- | ------------------------------------------------------------------ | ----------------------------- | -------- | ------------ |
+| C#         | `new KeyedServicedObservableCollection<TKey,T>(keySelector, hub?)` | `TryGetValue` / `ContainsKey` | `Upsert` | `RemoveKey`  |
+| Python     | `KeyedServicedObservableCollection(key_of, hub=None)`              | `get` / `contains_key`        | `upsert` | `delete`     |
+| TypeScript | `new KeyedServicedObservableCollection({ keyOf, hub? })`           | `get` / `has`                 | `upsert` | `delete`     |
+| Swift      | `KeyedServicedObservableCollection(keyOf:hub:)`                    | `get` / `containsKey`         | `upsert` | `delete`     |
+| Rust       | `new(owner_id, key_of)` / `with_hub(owner_id, hub, key_of)`        | `get_by_key` / `contains_key` | `upsert` | `remove_key` |
+
+Rust retains `get(usize)` for positional reads and uses `get_by_key(&K)` for
+keyed lookup because Rust cannot overload the two meanings of `get`. Its
+captured keys require `Eq + Hash + Send`, not `Clone`; VMx stores them behind
+shared ownership internally. The other flavors retain their usual indexed
+read spellings alongside the keyed operations.
+
+The projector runs before an add or explicit replacement and its result is
+captured for that membership. Lookup, movement, and removal do not run it
+again. Mutating a key-like property on an item therefore does not silently
+rekey the collection: the old captured key continues to resolve. Indexed
+replacement is the explicit atomic rekey operation and keeps the same ordered
+position. Delete followed by add/upsert is the other explicit rekey path.
+Passing the same mutated instance to upsert can append a second membership
+under its newly projected key while the old-key membership remains; VMx does
+not impose portable object-identity uniqueness.
+
+All add/insert/replace/whole-list paths reject duplicate captured keys before
+commit. Projector, iteration, shape, and duplicate-key failures preserve the
+items, keys, index, local stream, and hub stream. `replaceAll` materializes and
+validates the entire candidate first, including self input. Python integer and
+slice mutation keeps the full `MutableSequence` surface; slice assignment,
+slice deletion, and `reverse` are atomic. TypeScript keeps `pop` and native
+`splice` normalization while validating the final candidate atomically.
+
+Upsert returns `true` when it appends a missing key with Add and `false` when it
+replaces a present key at its stable position. Missing keyed deletion is a
+no-op (`false`, or `None` in Rust); Rust returns the removed item in `Option<T>`.
+The remaining messages are identical to the unkeyed serviced contract: Remove
+uses the pre-removal position, indexed replacement emits Replace at one stable
+position, Move emits one Move, and effective clear/whole-list replacement emit
+Reset. Same-index move, empty clear, missing keyed deletion, and
+empty-to-empty replacement emit nothing.
+
+State settles before observers run. Each effective operation delivers its
+local message immediately and then the equivalent message to the optional
+external hub. If that hub is already inside a transaction, only the external
+message is deferred in hub order; the local stream remains immediate and
+granular. The collection has no batch scope of its own and never constructs,
+disposes, reparents, or otherwise manages stored-item lifecycle.
+
+Key lookup, membership checks, keyed-delete target discovery, and present-key
+upsert target discovery are expected O(1) under the host hash map. Append is
+expected amortized O(1) after projection and lookup. Preserving contiguous
+ordered positions still makes middle insertion, deletion, movement, and the
+associated index repair O(n); keyed deletion removes the caller's extra scan,
+not the ordered-store shift.
+
 ### ObservableList whole-list refresh
 
 Use the flavor-idiomatic `replaceAll` / `replace_all` / `ReplaceAll` when one
@@ -152,8 +227,14 @@ only and was not pushed to NNx Studio.
   instances.
 - Assuming `ObservableList` batch scopes also suppress `CompositeVM` or
   `GroupVM` collection events. They do not.
-- Expecting a serviced collection to batch, emit a `Count` channel, or manage
-  item lifecycle. Those are intentionally outside its contract.
+- Expecting a serviced collection to batch, emit a `Count` channel, implement
+  VM child-collection lifecycle interfaces, or manage item lifecycle. Those
+  are intentionally outside its contract.
+- Mutating an item's key-like property and expecting lookup to follow it.
+  Membership keys are captured; replace the indexed membership or delete and
+  add it explicitly.
+- Treating expected O(1) keyed target discovery as an O(1) middle deletion.
+  Ordered positions still require O(n) shifting and index repair.
 - Rebuilding a complete list with `clear` plus repeated adds. That produces
   O(n) adapter notifications; use whole-list replacement for one Reset.
 - Rewriting custom tree walkers when the built-in helpers already express the

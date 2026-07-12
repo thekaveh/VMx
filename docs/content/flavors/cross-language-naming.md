@@ -29,6 +29,40 @@ flavor. Existing array- or indexer-style aliases remain available where shown.
 | Move         | `Move`              | `move`        | `move`                       | `move(from:to:)`                       | `move_item`   |
 | Clear        | `Clear`             | `clear`       | `clear`                      | `clear`                                | `clear`       |
 
+The keyed serviced type inherits this ordered shape. Host-specific conveniences
+also remain available: C# `Insert`, Python integer/slice `MutableSequence`
+operations and `reverse`, TypeScript `pop` and `splice`, Swift `removeLast` and
+Equatable value removal, and Rust's existing surface without a new positional
+insert.
+
+## Keyed Serviced Collections
+
+| Concept            | C#                           | Python         | TypeScript | Swift         | Rust           |
+| ------------------ | ---------------------------- | -------------- | ---------- | ------------- | -------------- |
+| Projector argument | `keySelector`                | `key_of`       | `keyOf`    | `keyOf`       | `key_of`       |
+| Indexed read       | indexer                      | `items[i]`     | `at`       | `at`          | `get(usize)`   |
+| Keyed lookup       | `TryGetValue`                | `get`          | `get`      | `get`         | `get_by_key`   |
+| Membership         | `ContainsKey`                | `contains_key` | `has`      | `containsKey` | `contains_key` |
+| Add-or-replace     | `Upsert`                     | `upsert`       | `upsert`   | `upsert`      | `upsert`       |
+| Keyed deletion     | `RemoveKey`                  | `delete`       | `delete`   | `delete`      | `remove_key`   |
+| Missing delete     | `false`                      | `false`        | `false`    | `false`       | `None`         |
+| Upsert result      | `true` Add / `false` Replace | same           | same       | same          | same           |
+
+Construction is `new ...(keySelector, hub?, comparer?)` in C#,
+`...(key_of, hub=None)` in Python, `new ...({ keyOf, hub? })` in TypeScript,
+`...(keyOf:hub:)` in Swift, and `new(owner_id, key_of)` or
+`with_hub(owner_id, hub, key_of)` in Rust. Rust's keyed spelling is
+`get_by_key(&K)` because its inherited `get(usize)` already means indexed read
+and Rust does not overload methods. Rust keys need `Eq + Hash + Send`, not
+`Clone`.
+
+In every flavor the projector result is captured per membership. Mutating an
+item does not change that captured key; indexed replacement is an explicit
+rekey at the same position. Upserting the same instance after its projected
+key changes may therefore add a second membership. Duplicate or projector
+failure is atomic. A successful operation commits items, keys, and the index,
+then delivers locally before publishing to the optional external hub.
+
 ## Practical Notes
 
 - The modeled-type name is the one structural divergence: C# keeps the generic
@@ -44,6 +78,10 @@ flavor. Existing array- or indexer-style aliases remain available where shown.
 - Rust's serviced collection is a distinct type with an always-present local
   message stream and an optional external hub; it is not an alias for
   `ObservableList`.
+- Both serviced collection types are caller-owned data containers. They do not
+  implement VM child-collection lifecycle interfaces, dispose stored items, or
+  gain a collection batch scope. An external hub transaction defers only hub
+  delivery; local changes remain immediate.
 
 ## How To Use This Page
 

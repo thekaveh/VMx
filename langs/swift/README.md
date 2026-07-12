@@ -5,9 +5,9 @@ spec-compatible with the C# / Python / TypeScript flavors.
 
 ## 1. Status
 
-**v3.16.0 — total parity.** Covers **all 354 of 354** library conformance IDs
-from `spec-v3.16.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **359 total**, at
+**v3.17.0 — total parity.** Covers **all 363 of 363** library conformance IDs
+from `spec-v3.17.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **368 total**, at
 full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -22,7 +22,8 @@ batch-attachment IDs via ADR-0088; +8 whole-list replacement IDs via ADR-0089;
 +7 owned-resource/public-hub IDs via ADR-0090; +1 inert modeled-assignment ID
 via ADR-0091; +1 settled FormVM model-publication ID via ADR-0092; +1 explicit
 modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
-subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096):
+subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096;
++9 keyed serviced-collection IDs via ADR-0097):
 the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
@@ -48,7 +49,7 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.16.0. SwiftPM consumes VMx from git
+The source tree currently implements v3.17.0. SwiftPM consumes VMx from git
 tags; use the versioned dependency after a `swift-v*` release publishes it.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -168,6 +169,7 @@ Key exports:
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `KeyedServicedObservableCollection<Key, T>` | Ordered serviced surface plus captured-key index (spec v3.17) |
 | `ObservableList<T>`             | Granular events, batch scopes, and atomic `replaceAll` |
 | `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` (spec v3.15) |
 
@@ -193,6 +195,24 @@ absent. `removeAt` / `replace` retain array-precondition bounds behavior;
 empty-to-empty replacement are no-ops. Messages expose `index`, `oldIndex`,
 and `newIndex`; the collection never owns items. Use `ObservableList<T>` for
 batching and `Count` notifications.
+
+Choose `KeyedServicedObservableCollection<Key,T>` for stable-key access while
+retaining the ordered message contract:
+
+```swift
+let notesByID = KeyedServicedObservableCollection<String, Note>(
+    keyOf: { $0.id }, hub: hub)
+try notesByID.append(first)
+let note = notesByID.get(first.id)
+let added = try notesByID.upsert(revised) // false: Replace at stable position
+let removed = notesByID.delete(first.id)
+```
+
+`containsKey` tests membership. Projecting mutations throw and commit
+atomically. Keys are captured until indexed replacement or delete-then-add.
+Lookup/target discovery are expected O(1), while ordered middle shifts remain
+O(n). Local Combine delivery stays immediate before optional hub publication;
+the collection never batches or owns item lifecycle.
 
 ### 4.2 Imperative engine bridge
 
@@ -222,9 +242,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (359)
+## 5. Conformance — total parity (368)
 
-This flavor implements **all 354 library conformance IDs** from the
+This flavor implements **all 363 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -424,6 +444,7 @@ COL-024..031    TokenPagedComposition cursor flow and source observation (ADR-00
 COL-032..039    shared VM collection move semantics (ADR-0085)
 COL-040..047    ObservableList atomic replaceAll semantics (ADR-0089)
 COL-048..055    complete serviced collection mutation parity (ADR-0096)
+COL-056..064    keyed serviced collection identity and mutation (ADR-0097)
 COMP-028..037   FilteredCompositeVM and ScoredFilteredCompositeVM (ADR-0070)
 FORM-016..023   declarative FormVM field/model validation (ADR-0071)
 FORM-024..029   declarative post-persist FormVM reset (ADR-0087)
@@ -447,7 +468,7 @@ SUBV-001..004   fixed-source selected-state subscription (ADR-0095)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 354 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (359) with C#, Python, TypeScript, and Rust.**
+**All 363 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (368) with C#, Python, TypeScript, and Rust.**
 
 Run the suite:
 

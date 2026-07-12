@@ -4,6 +4,24 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] — 2026-07-12
+
+Implements `spec-v3.17.0` and keeps Rust at full library parity: 363/363
+conformance IDs covered.
+
+### Added
+
+- `KeyedServicedObservableCollection<K, T>` adds captured-key `get_by_key`,
+  `contains_key`, `upsert`, and `remove_key` while preserving indexed `get` and
+  ordered serviced collection operations (`COL-056..064`, ADR-0097).
+- Duplicate-key validation and final-result preflight make whole-list
+  replacement and indexed rekeying atomic without requiring cloneable keys.
+
+### Changed
+
+- Key lookup and present-key upsert use the captured-key index; item lifecycle
+  remains caller-owned and external transactions still defer only hub delivery.
+
 ## [0.16.0] — 2026-07-12
 
 Implements `spec-v3.16.0` and keeps Rust at full library parity: 354/354
