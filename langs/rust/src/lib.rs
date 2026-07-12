@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.16.0";
+pub const MIN_SPEC_VERSION: &str = "3.17.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 

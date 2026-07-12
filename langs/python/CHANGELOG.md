@@ -4,6 +4,24 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.17.0] — 2026-07-12
+
+Implements `spec-v3.17.0` and keeps Python at full library parity: 363/363
+conformance IDs covered.
+
+### Added
+
+- `KeyedServicedObservableCollection[TKey, T]` adds captured-key `get`,
+  `contains_key`, `upsert`, and `delete` while retaining the full mutable
+  sequence surface and serviced delivery (`COL-056..064`, ADR-0097).
+- Duplicate-key validation and final-result preflight make slice assignment,
+  `replace_all`, reverse, and indexed rekeying atomic.
+
+### Changed
+
+- Key lookup and present-key upsert use the captured-key index; item lifecycle
+  remains caller-owned and external transactions still defer only hub delivery.
+
 ## [3.16.0] — 2026-07-12
 
 Implements `spec-v3.16.0` and keeps Python at full library parity: 354/354
