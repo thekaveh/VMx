@@ -22,7 +22,7 @@ pub use aggregate_change_stream::{
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.18.0";
+pub const MIN_SPEC_VERSION: &str = "3.19.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 

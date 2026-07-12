@@ -4,6 +4,23 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.19.0] — 2026-07-12
+
+Implements `spec-v3.19.0` and keeps C# at full library parity: 380/380
+conformance IDs covered.
+
+### Added
+
+- `SearchableState<T>` accepts an optional `IObservable<Unit> sourceChanged`
+  signal that refreshes the current term after source mutations
+  (`SRCH-001..007`, ADR-0099).
+
+### Changed
+
+- Source pulses bypass without resetting term debounce, preserve upstream batch
+  boundaries and value-equal emissions, isolate signal failure/completion, and
+  cancel only the helper-owned subscription on disposal.
+
 ## [3.18.0] — 2026-07-12
 
 Implements `spec-v3.18.0` and keeps C# at full library parity: 373/373

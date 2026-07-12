@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (378 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (385 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -519,11 +519,24 @@ THEME scenario IDs).
 
 See ADR-0098 and chapter 21 §9.
 
-### 1.28 Supporting artefacts
+### 1.28 v3.18.0 → v3.19.0 changes
 
-- `VERSION` — current spec SemVer (`3.18.0`).
+v3.19.0 makes `SearchableState` source-reactive without breaking the existing
+lazy supplier or explicit-refresh path. An optional source-change signal now
+recomputes immediately with the current term, remains independent of term
+debounce, preserves upstream batch boundaries, isolates signal termination, and
+owns only its subscription. Consumers needing member-property invalidation map
+the ADR-0098 aggregate stream instead of creating another dynamic registry.
+`SRCH-001..007` raise the catalog from 378 to 385 total IDs (380 library + 5
+THEME scenario IDs).
+
+See ADR-0099 and chapter 06 §8.
+
+### 1.29 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.19.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0098); see
+- `ADRs/` — Architecture Decision Records (0001-0099); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
