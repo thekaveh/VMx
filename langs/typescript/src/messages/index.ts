@@ -8,6 +8,10 @@ export type { TreeStructureChange } from "./treeStructureChanged.js";
 export { FormRevertedMessage } from "./formReverted.js";
 export { propertyValueChangedMessagesFor } from "./propertyValueChanged.js";
 export {
+  subscribeValue,
+  type SubscribeValueOptions,
+} from "./subscribeValue.js";
+export {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
