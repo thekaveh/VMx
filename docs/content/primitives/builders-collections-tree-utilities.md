@@ -43,6 +43,115 @@ have type-specific terminal behavior cataloged in the
 [Disposal Contract](disposal-contract.md). Serviced collections remain
 non-owning and never dispose their items.
 
+## Dynamic Aggregate Change Stream
+
+Use `AggregateChangeStream<T>` when one host adapter must invalidate for both a
+live collection's membership and a selected local stream from every current
+distinct member. It is a standalone, read-only fan-in helper: it does not add
+mutation methods to a collection, create synthetic revision state, or route
+member changes through the message hub.
+
+VMx supplies the additive `ObservableMembershipSource<T>` capability on four
+source families:
+
+| Supported source                    | Membership meaning                         |
+| ----------------------------------- | ------------------------------------------ |
+| `CompositeVM`                       | Ordered selectable child membership        |
+| `GroupVM`                           | Ordered non-selectable child membership    |
+| `ServicedObservableCollection`      | Ordered caller-owned item membership       |
+| `KeyedServicedObservableCollection` | Ordered caller-owned keyed item membership |
+
+The capability exposes only an ordered snapshot and a disposable structural
+subscription. Every structural pulse causes a committed resnapshot. Add,
+remove, replace, move, and reset therefore share one portable path, including
+duplicate-reference refcounts and final-removal detachment.
+
+Each output is an `AggregateChange<T>` provenance envelope:
+
+| Reason       | Item    | Meaning                                                            |
+| ------------ | ------- | ------------------------------------------------------------------ |
+| `Initial`    | absent  | Optional subscriber-local seed after current observation is ready  |
+| `Membership` | absent  | One committed structural resynchronization                         |
+| `Item`       | present | The identified current member's selected stream emitted            |
+| `Batch`      | absent  | One or more changes coalesced by an explicit outer aggregate batch |
+
+The envelope is not a membership snapshot or domain value. An invalidation-only
+consumer can ignore its fields; a renderer that needs the changed member can
+use `Item` provenance directly.
+
+Construction accepts a selector, so the observed stream may belong to nested
+state rather than to the member itself. For example, TypeScript can follow a
+cell's nested model state:
+
+```typescript
+import {
+  AggregateChangeReason,
+  AggregateChangeStream,
+} from "@thekaveh/vmx";
+
+const aggregate = new AggregateChangeStream(
+  cells,
+  (cell) => cell.model.state.propertyChanged,
+);
+
+const subscription = aggregate
+  .observe({ emitInitial: true })
+  .subscribe((change) => {
+    if (change.reason === AggregateChangeReason.Item) {
+      invalidateCell(change.item);
+    } else {
+      invalidateCanvas();
+    }
+  });
+```
+
+When the member itself is a component, use the standard convenience instead of
+repeating that selector:
+
+| Flavor     | Component convenience                           |
+| ---------- | ----------------------------------------------- |
+| C#         | `AggregateChangeStream.ForComponents(source)`   |
+| Python     | `AggregateChangeStream.for_components(source)`  |
+| TypeScript | `AggregateChangeStream.forComponents(source)`   |
+| Swift      | `AggregateChangeStream.forComponents(source)`   |
+| Rust       | `AggregateChangeStream::for_components(source)` |
+
+Selected streams are expected to be non-failing. Swift and Rust encode that in
+their stream types. In the Rx flavors, an unexpected selected-stream error (or
+normal completion) ends only that member's current membership epoch; it does
+not fail the aggregate or affect other members. Final removal followed by
+re-add is what establishes a fresh epoch and subscription.
+
+Aggregate coalescing is explicit and nested. Hub batching has no portable
+completion callback, so combine the scopes at the mutation boundary when one
+aggregate pulse and ordered hub delivery must cover the same operation:
+
+```typescript
+aggregate.withBatch(() =>
+  hub.batch(() => {
+    cells.replaceAll(nextCells);
+    selected.model.state.refresh();
+  }),
+);
+```
+
+Equivalent APIs are `Batch` in C#, the `batch()` context manager in Python,
+`withBatch` in Swift, and `batch` in Rust. Empty scopes emit nothing; a dirty
+outermost scope emits one `Batch` even when its body exits with an error.
+
+The host owns the aggregate and its output subscription. Call `dispose` when
+the adapter stops: disposal is idempotent and detaches the structural and
+selected subscriptions owned by the aggregate. It never disposes, reparents,
+removes, or otherwise owns source items.
+
+`ObservableDictionary`, paging projections, and filtered projections are
+excluded because their public element identity or visible-membership meaning
+needs a separate projection contract. This dynamic fan-in is the decision in
+[ADR-0098](../../../spec/ADRs/0098-dynamic-aggregate-change-stream.md). It is
+different from [ADR-0095](../../../spec/ADRs/0095-imperative-selected-state-subscription.md)
+`subscribeValue`, which reevaluates selected state for one fixed sender and
+does not track changing collection membership.
+
 ## Choosing A Collection
 
 | Need                                                                       | Choose                                           |

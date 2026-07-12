@@ -6,7 +6,8 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.17.x | 3.17.0[^current] | 3.17.0[^current] | 3.17.0[^current] | 3.17.0[^current] | 0.17.0[^rust] |
+| 3.18.x | 3.18.0[^current] | 3.18.0[^current] | 3.18.0[^current] | 3.18.0[^current] | 0.18.0[^rust] |
+| 3.17.x | —               | —               | —               | —               | 0.17.0[^rust-source] |
 | 3.16.x | —               | —               | —               | —               | 0.16.0[^rust-source] |
 | 3.15.x | —               | —               | —               | —               | 0.15.0[^rust-source] |
 | 3.14.x | —               | —               | —               | —               | 0.14.0[^rust-source] |
@@ -47,8 +48,8 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**363 of 363 library conformance IDs + 5 `THEME-00x` scenario IDs = 368 total
-(total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0097** (library IDs: base 44 per
+**373 of 373 library conformance IDs + 5 `THEME-00x` scenario IDs = 378 total
+(total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0098** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 +40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
@@ -64,22 +65,23 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +4 fixed-source selected-state subscription IDs per ADR-0095;
 +8 serviced-collection parity IDs per ADR-0096;
 +9 keyed serviced-collection IDs per ADR-0097;
++10 dynamic aggregate-change-stream IDs per ADR-0098;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: 3.17.0 — current in-development source line and not yet tagged or
+[^current]: 3.18.0 — current in-development source line and not yet tagged or
 published. Python's latest PyPI release remains 3.1.0; the other stable flavor
 registries also remain pending. The C#/TypeScript release jobs deliberately
 refuse to green-skip a publish without `NUGET_API_KEY` / `NPM_TOKEN`.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-declares `MIN_SPEC_VERSION = "3.17.0"` and carries behavioral tests for all 363
+declares `MIN_SPEC_VERSION = "3.18.0"` and carries behavioral tests for all 373
 library conformance IDs. It has not yet been published to crates.io.
 
-[^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, and `0.16.0` record
-historical source-tree parity for spec 3.13.x, 3.14.x, 3.15.x, and 3.16.x
-respectively. They were not published to crates.io and do not imply
+[^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, and `0.17.0`
+record historical source-tree parity for spec 3.13.x, 3.14.x, 3.15.x, 3.16.x,
+and 3.17.x respectively. They were not published to crates.io and do not imply
 corresponding `rust-v*` tags or releases.
 
 ## 3. C# companion packages
@@ -97,6 +99,6 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.17.0 core project, so a
-> published companion would carry a `VMx >= 3.17.0` NuGet dependency — the raised floor to record in
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.18.0 core project, so a
+> published companion would carry a `VMx >= 3.18.0` NuGet dependency — the raised floor to record in
 > the C# `CHANGELOG.md` when the first C# packages are cut.
