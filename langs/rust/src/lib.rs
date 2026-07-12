@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.16.0";
+pub const MIN_SPEC_VERSION: &str = "3.17.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -2197,6 +2197,403 @@ where
 
 impl<T> IntoIterator for &ServicedObservableCollection<T>
 where
+    T: Clone + Send + 'static,
+{
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
+    }
+}
+
+struct KeyedServicedCollectionState<K, T> {
+    items: Vec<T>,
+    keys: Vec<Arc<K>>,
+    index_by_key: HashMap<Arc<K>, usize>,
+}
+
+impl<K, T> Default for KeyedServicedCollectionState<K, T> {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            keys: Vec::new(),
+            index_by_key: HashMap::new(),
+        }
+    }
+}
+
+type KeyProjector<K, T> = Arc<dyn Fn(&T) -> VmxResult<K> + Send + Sync + 'static>;
+
+/// An insertion-ordered serviced collection with a captured-key hash index.
+///
+/// The projector runs only when a membership is added or explicitly replaced.
+/// Lookup, removal, and movement use the captured key and never reproject stored
+/// items. Contained items remain owned by the caller.
+pub struct KeyedServicedObservableCollection<K, T>
+where
+    K: Eq + Hash + Send + 'static,
+    T: Clone + Send + 'static,
+{
+    inner: Arc<Mutex<KeyedServicedCollectionState<K, T>>>,
+    key_of: KeyProjector<K, T>,
+    local_hub: MessageHub,
+    external_hub: Option<MessageHub>,
+    delivery: Arc<ServicedCollectionDelivery>,
+    owner_id: usize,
+}
+
+impl<K, T> Clone for KeyedServicedObservableCollection<K, T>
+where
+    K: Eq + Hash + Send + 'static,
+    T: Clone + Send + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            key_of: Arc::clone(&self.key_of),
+            local_hub: self.local_hub.clone(),
+            external_hub: self.external_hub.clone(),
+            delivery: Arc::clone(&self.delivery),
+            owner_id: self.owner_id,
+        }
+    }
+}
+
+impl<K, T> KeyedServicedObservableCollection<K, T>
+where
+    K: Eq + Hash + Send + 'static,
+    T: Clone + Send + 'static,
+{
+    /// Creates an empty keyed collection without an external message hub.
+    pub fn new<F>(owner_id: usize, key_of: F) -> Self
+    where
+        F: Fn(&T) -> VmxResult<K> + Send + Sync + 'static,
+    {
+        Self {
+            inner: Arc::new(Mutex::new(KeyedServicedCollectionState::default())),
+            key_of: Arc::new(key_of),
+            local_hub: MessageHub::new(),
+            external_hub: None,
+            delivery: Arc::new(ServicedCollectionDelivery::default()),
+            owner_id,
+        }
+    }
+
+    /// Creates an empty keyed collection that also publishes changes to `hub`.
+    pub fn with_hub<F>(owner_id: usize, hub: MessageHub, key_of: F) -> Self
+    where
+        F: Fn(&T) -> VmxResult<K> + Send + Sync + 'static,
+    {
+        Self {
+            inner: Arc::new(Mutex::new(KeyedServicedCollectionState::default())),
+            key_of: Arc::new(key_of),
+            local_hub: MessageHub::new(),
+            external_hub: Some(hub),
+            delivery: Arc::new(ServicedCollectionDelivery::default()),
+            owner_id,
+        }
+    }
+
+    /// Returns the always-present local collection-change stream.
+    pub fn collection_changed(&self) -> MessageHub {
+        self.local_hub.clone()
+    }
+
+    pub fn len(&self) -> usize {
+        lock(&self.inner).items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the item at `index`, preserving the unkeyed collection's read API.
+    pub fn get(&self, index: usize) -> Option<T> {
+        lock(&self.inner).items.get(index).cloned()
+    }
+
+    /// Returns the item whose membership captured `key`.
+    pub fn get_by_key(&self, key: &K) -> Option<T> {
+        let inner = lock(&self.inner);
+        inner
+            .index_by_key
+            .get(key)
+            .and_then(|index| inner.items.get(*index))
+            .cloned()
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        lock(&self.inner).index_by_key.contains_key(key)
+    }
+
+    pub fn to_vec(&self) -> Vec<T> {
+        lock(&self.inner).items.clone()
+    }
+
+    pub fn push(&self, item: T) -> VmxResult<()> {
+        let key = Arc::new((self.key_of)(&item)?);
+        let position = {
+            let mut inner = lock(&self.inner);
+            if inner.index_by_key.contains_key(key.as_ref()) {
+                return Err(Self::duplicate_key_error());
+            }
+            let position = inner.items.len();
+            inner.items.push(item);
+            inner.keys.push(Arc::clone(&key));
+            inner.index_by_key.insert(key, position);
+            position
+        };
+        self.publish(CollectionChangeAction::Add, None, Some(position));
+        Ok(())
+    }
+
+    /// Removes the first item equal to `item`.
+    pub fn remove(&self, item: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        let position = {
+            let mut inner = lock(&self.inner);
+            let Some(position) = inner.items.iter().position(|candidate| candidate == item) else {
+                return false;
+            };
+            Self::remove_membership(&mut inner, position);
+            position
+        };
+        self.publish(CollectionChangeAction::Remove, Some(position), None);
+        true
+    }
+
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let removed = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.items.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            Self::remove_membership(&mut inner, index)
+        };
+        self.publish(CollectionChangeAction::Remove, Some(index), None);
+        Ok(removed)
+    }
+
+    pub fn remove_key(&self, key: &K) -> Option<T> {
+        let (position, removed) = {
+            let mut inner = lock(&self.inner);
+            let position = *inner.index_by_key.get(key)?;
+            let removed = Self::remove_membership(&mut inner, position);
+            (position, removed)
+        };
+        self.publish(CollectionChangeAction::Remove, Some(position), None);
+        Some(removed)
+    }
+
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let key = Arc::new((self.key_of)(&item)?);
+        let old = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.items.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            if inner
+                .index_by_key
+                .get(key.as_ref())
+                .is_some_and(|owner| *owner != index)
+            {
+                return Err(Self::duplicate_key_error());
+            }
+            let old_key = Arc::clone(&inner.keys[index]);
+            inner.index_by_key.remove(old_key.as_ref());
+            inner.keys[index] = Arc::clone(&key);
+            inner.index_by_key.insert(key, index);
+            std::mem::replace(&mut inner.items[index], item)
+        };
+        self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+        Ok(old)
+    }
+
+    pub fn replace_all<I>(&self, items: I) -> VmxResult<()>
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let snapshot = items.into_iter().collect::<Vec<_>>();
+        let mut keys = Vec::with_capacity(snapshot.len());
+        let mut index_by_key = HashMap::with_capacity(snapshot.len());
+        for (index, item) in snapshot.iter().enumerate() {
+            let key = Arc::new((self.key_of)(item)?);
+            if index_by_key.insert(Arc::clone(&key), index).is_some() {
+                return Err(Self::duplicate_key_error());
+            }
+            keys.push(key);
+        }
+        {
+            let mut inner = lock(&self.inner);
+            if inner.items.is_empty() && snapshot.is_empty() {
+                return Ok(());
+            }
+            inner.items = snapshot;
+            inner.keys = keys;
+            inner.index_by_key = index_by_key;
+        }
+        self.publish(CollectionChangeAction::Reset, None, None);
+        Ok(())
+    }
+
+    /// Adds a missing key or replaces the existing membership in place.
+    ///
+    /// Returns `true` for Add and `false` for Replace.
+    pub fn upsert(&self, item: T) -> VmxResult<bool> {
+        let key = Arc::new((self.key_of)(&item)?);
+        let (added, index) = {
+            let mut inner = lock(&self.inner);
+            if let Some(index) = inner.index_by_key.get(key.as_ref()).copied() {
+                let old_key = Arc::clone(&inner.keys[index]);
+                inner.index_by_key.remove(old_key.as_ref());
+                inner.keys[index] = Arc::clone(&key);
+                inner.index_by_key.insert(key, index);
+                inner.items[index] = item;
+                (false, index)
+            } else {
+                let index = inner.items.len();
+                inner.items.push(item);
+                inner.keys.push(Arc::clone(&key));
+                inner.index_by_key.insert(key, index);
+                (true, index)
+            }
+        };
+        if added {
+            self.publish(CollectionChangeAction::Add, None, Some(index));
+            Ok(true)
+        } else {
+            self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+            Ok(false)
+        }
+    }
+
+    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        {
+            let mut inner = lock(&self.inner);
+            if from_index >= inner.items.len() || to_index >= inner.items.len() {
+                return Err(VmxError::InvalidArgument(
+                    "move index out of range".to_string(),
+                ));
+            }
+            if from_index == to_index {
+                return Ok(());
+            }
+            let item = inner.items.remove(from_index);
+            let key = inner.keys.remove(from_index);
+            inner.items.insert(to_index, item);
+            inner.keys.insert(to_index, key);
+            Self::repair_indices(&mut inner, from_index.min(to_index));
+        }
+        self.publish(
+            CollectionChangeAction::Move,
+            Some(from_index),
+            Some(to_index),
+        );
+        Ok(())
+    }
+
+    pub fn clear(&self) {
+        {
+            let mut inner = lock(&self.inner);
+            if inner.items.is_empty() {
+                return;
+            }
+            inner.items.clear();
+            inner.keys.clear();
+            inner.index_by_key.clear();
+        }
+        self.publish(CollectionChangeAction::Reset, None, None);
+    }
+
+    fn duplicate_key_error() -> VmxError {
+        VmxError::InvalidArgument("duplicate key".to_string())
+    }
+
+    fn remove_membership(inner: &mut KeyedServicedCollectionState<K, T>, index: usize) -> T {
+        let removed = inner.items.remove(index);
+        let old_key = inner.keys.remove(index);
+        inner.index_by_key.remove(&old_key);
+        Self::repair_indices(inner, index);
+        removed
+    }
+
+    fn repair_indices(inner: &mut KeyedServicedCollectionState<K, T>, start: usize) {
+        for index in start..inner.keys.len() {
+            inner
+                .index_by_key
+                .insert(Arc::clone(&inner.keys[index]), index);
+        }
+    }
+
+    fn publish(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+    ) {
+        let message = Message::CollectionChanged(CollectionChangedMessage {
+            sender_id: self.owner_id,
+            property_name: "items".to_string(),
+            action,
+            old_index,
+            new_index,
+        });
+
+        let current = thread::current().id();
+        let mut delivery = lock(&self.delivery.state);
+        while delivery
+            .draining_owner
+            .is_some_and(|owner| owner != current)
+        {
+            delivery = wait(&self.delivery.ready, delivery);
+        }
+        delivery.pending.push_back(message);
+        if delivery.draining_owner == Some(current) {
+            return;
+        }
+        delivery.draining_owner = Some(current);
+        drop(delivery);
+
+        let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
+        if let Err(error) = result {
+            let mut delivery = lock(&self.delivery.state);
+            delivery.pending.clear();
+            if delivery.draining_owner == Some(current) {
+                delivery.draining_owner = None;
+            }
+            self.delivery.ready.notify_all();
+            drop(delivery);
+            resume_unwind(error);
+        }
+    }
+
+    fn drain_delivery(&self, current: ThreadId) {
+        loop {
+            let message = {
+                let mut delivery = lock(&self.delivery.state);
+                debug_assert_eq!(delivery.draining_owner, Some(current));
+                let Some(message) = delivery.pending.pop_front() else {
+                    delivery.draining_owner = None;
+                    self.delivery.ready.notify_all();
+                    return;
+                };
+                message
+            };
+
+            self.local_hub.send(message.clone());
+            if let Some(hub) = &self.external_hub {
+                hub.send(message);
+            }
+        }
+    }
+}
+
+impl<K, T> IntoIterator for &KeyedServicedObservableCollection<K, T>
+where
+    K: Eq + Hash + Send + 'static,
     T: Clone + Send + 'static,
 {
     type Item = T;

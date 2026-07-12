@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, and Swift flavors.
 
 ## 1. Status
 
-**v3.16.0** — implements `spec-v3.16.0` end-to-end. 354/354 library conformance IDs
+**v3.17.0** — implements `spec-v3.17.0` end-to-end. 363/363 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
@@ -17,7 +17,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree currently implements v3.16.0. The NuGet package has not been
+The source tree currently implements v3.17.0. The NuGet package has not been
 published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
@@ -190,6 +190,7 @@ The public API lives under the `VMx.*` namespaces:
 | `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index (spec v3.17) |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
@@ -219,6 +220,24 @@ ReplaceAll are no-ops. Messages retain `Index` and add `OldIndex` / `NewIndex`;
 the collection never disposes or reparents its items. Choose `ObservableList<T>`
 instead for list-local batching and the `Count` channel, or a Group/Composite
 child collection for VM lifecycle ownership.
+
+Choose `KeyedServicedObservableCollection<TKey,TItem>` when that same ordered
+surface needs one stable domain-key index:
+
+```csharp
+var notesById = new KeyedServicedObservableCollection<Guid, Note>(
+    note => note.Id, hub);
+notesById.Add(first);
+notesById.TryGetValue(first.Id, out Note? note);
+bool added = notesById.Upsert(revised); // false: Replace at stable position
+bool removed = notesById.RemoveKey(first.Id);
+```
+
+`ContainsKey` tests membership. Keys are captured until indexed replacement or
+delete-then-add; mutating an item does not silently rekey it. Duplicate and
+projector failures are atomic. Lookup/target discovery are expected O(1), while
+ordered middle shifts remain O(n). Local delivery remains immediate before
+optional hub delivery, and the collection never batches or owns item lifecycle.
 
 ### 4.2 Imperative engine bridge
 
@@ -261,7 +280,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 354 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 363 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -293,6 +312,7 @@ v3.11  DISP-014
 v3.12  FORM-030
 v3.15  SUBV-001..004
 v3.16  COL-048..055
+v3.17  COL-056..064
 ```
 
 Run the suite:

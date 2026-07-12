@@ -19,6 +19,9 @@ from __future__ import annotations
 
 from vmx.collections.batch import BatchUpdateHandle
 from vmx.collections.collection_changed import CollectionChangedEvent
+from vmx.collections.keyed_serviced_observable_collection import (
+    KeyedServicedObservableCollection,
+)
 from vmx.collections.observable_dictionary import ObservableDictionary
 from vmx.collections.observable_list import ObservableList
 from vmx.collections.paged_composition import PagedComposition
@@ -29,6 +32,7 @@ from vmx.collections.token_paged_composition import TokenPagedComposition
 __all__ = [
     "BatchUpdateHandle",
     "CollectionChangedEvent",
+    "KeyedServicedObservableCollection",
     "ObservableDictionary",
     "ObservableList",
     "PagedComposition",

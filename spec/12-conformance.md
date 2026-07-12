@@ -1897,7 +1897,8 @@ ______________________________________________________________________
 Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
-ADR-0096 (serviced collection parity).
+ADR-0096 (serviced collection parity), and ADR-0097 (keyed serviced
+collection).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -2390,6 +2391,174 @@ payloads and `index == oldIndex == newIndex == -1`
 legacy `index`, and no typed item payload
 **And** value/index removal, replacement, ReplaceAll, move, and clear never
 construct, dispose, reparent, or otherwise manage any contained item
+
+### COL-056 — keyed serviced lookup uses captured keys and preserves order
+
+**Given** a `KeyedServicedObservableCollection` containing items `a`, `b`, and
+`c` in that insertion order
+**And** an instrumented projector records every projection
+**When** lookup and membership are queried repeatedly for all three keys
+**Then** each lookup returns the corresponding stored value
+**And** lookup and membership do not invoke the projector again
+**And** indexed reads, iteration, and snapshots remain `[a, b, c]`
+**When** `b`'s key-like property is mutated without replacing its membership
+**Then** the old captured key still resolves to `b`, the newly projectable key
+misses, and no collection or hub message is emitted
+**And** a C# miss returns `false` through
+`[MaybeNullWhen(false)] out TItem item`, while the other flavors return their
+specified `None` / `undefined` / optional miss value
+
+### COL-057 — keyed serviced insert uniqueness and projection failure are atomic
+
+**Given** a keyed serviced collection with its local and hub channels observed
+**And** snapshots of its items, captured-key behavior, and lookup results
+**When** append or a flavor-exposed insert receives an item whose projected key
+is already captured
+**Then** C# throws `ArgumentException`, Python raises `ValueError`, TypeScript
+throws `Error`, Swift throws
+`KeyedServicedCollectionError.duplicateKey`, and Rust returns
+`Err(VmxError::InvalidArgument(_))`
+**And** the same exact error mapping applies when indexed replacement,
+whole-list replacement, or slice/splice final-result validation discovers a
+duplicate
+**And** items, lookup results, captured keys, and both notification channels
+remain unchanged
+**When** a projector throws or returns its documented failure for a candidate
+item
+**Then** the failure propagates according to the flavor idiom with the same
+unchanged-state and no-notification guarantees
+**And** Swift's append, replace/setAt, replaceAll, and upsert have their exact
+throwing signatures, while Rust's `new(owner_id, key_of)` /
+`with_hub(owner_id, hub, key_of)` compile and push, replace, replace_all, and
+upsert return their specified `VmxResult`
+
+### COL-058 — keyed serviced upsert distinguishes Add from stable-position Replace
+
+**Given** a keyed serviced collection containing `[a, b]`
+**When** `upsert(c)` projects a missing key
+**Then** it returns the Add outcome, appends `c` at index `2`, and emits exactly
+one Add with the ordinary serviced item and position payload
+**When** `upsert(b2)` projects `b`'s existing key
+**Then** it returns the Replace outcome, leaves that membership at index `1`,
+and emits exactly one Replace carrying the ordinary serviced old/new item and
+stable-position payload
+**When** upsert receives the identical instance currently stored for a present
+key
+**Then** it still emits one Replace at that stable position
+**And** after every notification the captured-key lookup and ordered snapshot
+already reflect the complete mutation
+
+### COL-059 — keyed deletion reports success and the pre-removal position
+
+**Given** a keyed serviced collection containing `[a, b, c]`
+**When** deletion is requested for `b`'s captured key
+**Then** the final order is `[a, c]`, the key no longer resolves, and exactly
+one Remove names pre-removal index `1` using the flavor's ordinary serviced
+message payload
+**And** C#, Python, TypeScript, and Swift report success, while Rust returns the
+removed `b` value
+**When** deletion is requested for a missing key
+**Then** it reports false / `None`, changes nothing, and emits no local or hub
+message
+
+### COL-060 — every removal and explicit rekey keeps the captured index synchronized
+
+**Given** keyed serviced collections with mutable-key item fixtures
+**When** first-equal value removal and indexed removal are exercised
+**Then** each removes the targeted membership's captured key without
+reprojecting stored items
+**And** all later key lookups resolve the shifted ordered positions correctly
+**When** an item's key-like property changes and indexed replacement installs
+that same item at its existing position
+**Then** the old captured key stops resolving, the newly projected key resolves
+at that position, and exactly one Replace is emitted
+**And** attempting that rekey to a key owned by another position fails
+atomically
+**But given** a fresh collection containing one item whose key-like property is
+mutated after insertion
+**When** that same instance is upserted under its now-missing projected key
+**Then** a second membership is appended and both old and new captured keys
+resolve to the identical item instance
+
+### COL-061 — keyed whole-list replacement preflights keys and self input
+
+**Given** a non-empty keyed serviced collection with both channels observed
+**When** whole-list replacement receives new unique-key items
+**Then** it materializes and projects every item before commit, installs the
+new ordered items and captured keys atomically, and emits exactly one Reset
+**When** whole-list replacement receives the collection itself
+**Then** self input is safe and exactly one Reset is emitted for the valid
+non-empty replacement
+**When** replacement input contains duplicate projected keys or projection /
+input iteration fails
+**Then** the failure occurs before mutation and preserves the former items,
+captured-key lookups, and silent channels
+**And** empty-to-empty is the only valid replacement no-op
+
+### COL-062 — keyed move, clear, and convenience mutations preserve invariants and ownership
+
+**Given** a keyed serviced collection containing caller-owned,
+lifecycle-observable items
+**And** Python / TypeScript fixtures containing captured keys `[a, b, c]`
+**When** Python slice assignment or TypeScript `splice` removes `b` and inserts
+a replacement that projects key `b` in the same operation
+**Then** inserted input is materialized/projected, the removed key is reusable,
+the final order and lookup index commit atomically, and the ordinary Reset
+notification is emitted
+**When** the same operation inserts duplicate keys or a key retained outside
+the removed range, or its input/projector fails
+**Then** the former ordered items, captured keys, lookup index, and both
+notification channels remain unchanged
+**When** Python slice deletion or a TypeScript splice deletion succeeds
+**Then** the deleted memberships' captured keys stop resolving and later
+positions resolve correctly without reprojecting retained items
+**And** TypeScript returns the removed items and uses Remove only for exactly
+one removal with no insertion, Reset for every other effective splice, and no
+message for removal/insertion of nothing; Python slice mutation uses Reset
+**When** Python reverse is called for zero or one membership
+**Then** it is a silent no-op without reprojection
+**When** Python reverse is called for two or more memberships
+**Then** items and captured keys reverse atomically without reprojection and
+exactly one Reset is emitted
+**When** a valid move, pop/removeLast, and the remaining flavor conveniences
+are exercised
+**Then** each ordinary serviced message has its specified action and old/new
+position, and every post-mutation lookup matches the ordered snapshot
+**When** equal-index move, empty clear, or another documented convenience no-op
+is exercised
+**Then** items, captured keys, and both channels remain unchanged
+**When** a non-empty collection is cleared
+**Then** all key lookups miss and exactly one Reset is emitted
+**And** no move, removal, replacement, reset, or clear constructs, disposes,
+destructs, reparents, or otherwise manages any item
+
+### COL-063 — keyed delivery is local-before-hub and respects an existing hub transaction
+
+**Given** a keyed serviced collection with local and hub observers that inspect
+ordered items and key lookups
+**When** an effective mutation occurs outside a hub transaction
+**Then** all item/key/index state commits first, local delivery precedes the
+equivalent hub message, and both observers see consistent final state
+**Given** the injected hub is already inside its transaction/batch
+**When** multiple keyed mutations occur
+**Then** local notifications remain immediate and granular while hub delivery
+is deferred
+**And** transaction completion delivers the same hub messages in original hub
+order without collapsing them into Reset
+**And** the collection exposes no independent collection batch scope
+
+### COL-064 — reentrant keyed mutation preserves index consistency and per-operation ordering
+
+**Given** a keyed serviced local observer that performs a second keyed mutation
+while handling the first
+**And** local and hub deliveries are tagged by their originating operation
+**When** the outer mutation triggers the reentrant mutation
+**Then** every observer invocation sees ordered items, captured-key lookup, and
+key-to-index state in one consistent committed state
+**And** for each individual operation its local delivery precedes its hub
+delivery
+**And** no portable assertion requires one global interleaving order across the
+outer and nested operations
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, and Swift flavors.
 
 ## 1. Status
 
-**v3.16.0** — implements `spec-v3.16.0` end-to-end. 354/354 library conformance IDs
+**v3.17.0** — implements `spec-v3.17.0` end-to-end. 363/363 library conformance IDs
 pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
 TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
 sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
@@ -18,7 +18,7 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 
 ## 2. Install
 
-The source tree currently implements v3.16.0. The scoped npm package has not
+The source tree currently implements v3.17.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -182,6 +182,7 @@ Key exports:
 | `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
 | `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
+| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index (spec v3.17) |
 | `ObservableList<T>`             | Granular events + atomic `replaceAll`            |
 | `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
 | `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
@@ -214,6 +215,26 @@ Indexed operations reject invalid positions atomically. Same-index move, empty
 clear, and empty-to-empty replacement are no-ops. Messages retain `index` and
 add `oldIndex` / `newIndex`; items remain caller-owned. Choose
 `ObservableList<T>` for list-local batching and the `Count` channel.
+
+Choose `KeyedServicedObservableCollection<TKey,TItem>` for stable-key access
+without changing the ordered message shape:
+
+```ts
+const notesById = new KeyedServicedObservableCollection<string, Note>({
+  keyOf: note => note.id,
+  hub,
+});
+notesById.push(first);
+const note = notesById.get(first.id);
+const added = notesById.upsert(revised); // false: Replace at stable position
+const removed = notesById.delete(first.id);
+```
+
+`has` tests membership; `pop` and atomic final-result `splice` remain available.
+Keys are captured until indexed replacement or delete-then-add. Duplicate and
+projector failures preserve state. Lookup/target discovery are expected O(1),
+while ordered middle shifts remain O(n). Local delivery stays immediate before
+optional hub delivery, and stored items remain caller-owned.
 
 ### 4.2 Raw message predicates
 
@@ -326,7 +347,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 354 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 363 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -358,6 +379,7 @@ v3.11  DISP-014
 v3.12  FORM-030
 v3.15  SUBV-001..004
 v3.16  COL-048..055
+v3.17  COL-056..064
 ```
 
 Run the suite:

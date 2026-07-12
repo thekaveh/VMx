@@ -11,7 +11,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Reactive primitive: VMx-owned facade over `rxrust`
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 354 library IDs are covered by behavioral Rust tests
+- Conformance: all 363 library IDs are covered by behavioral Rust tests
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
 
@@ -40,6 +40,33 @@ clear and same-index move are no-ops. Rust messages carry action plus optional
 old/new positions, sender ID, and property name; they intentionally carry no
 legacy `index` or item payload. The caller owns the subscription and stored
 items.
+
+`KeyedServicedObservableCollection<K,T>` adds captured-key access while
+preserving that ordered surface. Rust keeps positional `get(usize)` and names
+the keyed operation `get_by_key(&K)` because methods cannot be overloaded:
+
+```rust
+let notes_by_id = KeyedServicedObservableCollection::with_hub(
+    owner_id,
+    hub.clone(),
+    |note: &Note| Ok(note.id.clone()),
+);
+notes_by_id.push(first)?;
+let note = notes_by_id.get_by_key(&first_id);
+let added = notes_by_id.upsert(revised)?; // false: Replace at stable position
+let removed = notes_by_id.remove_key(&first_id); // Option<Note>
+```
+
+Without an external hub, construct it with `new(owner_id, key_of)`.
+`contains_key` tests membership. Keys require `Eq + Hash + Send`, not `Clone`.
+Projector and duplicate-key failures are atomic `VmxResult` failures. Captured
+keys do not follow mutable item properties; indexed `replace` or
+remove-then-push rekeys explicitly, and a same mutated instance can occupy two
+memberships. Lookup and target discovery are expected O(1), push is amortized
+O(1), and ordered middle shifts remain O(n). Local delivery precedes optional
+hub publication; a hub transaction defers only external delivery. The keyed
+type has no batch or VM lifecycle interface and never owns stored-item
+lifecycle.
 
 ## Imperative Engine Bridge
 

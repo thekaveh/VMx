@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.16.0** implements `spec-v3.16.0` at full source parity: all 354 library
+**v0.17.0** implements `spec-v3.17.0` at full source parity: all 363 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -28,6 +28,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
 - `ServicedObservableCollection<T>` provides the complete mutation surface,
   an always-present local stream, and optional local-before-external hub
   publication without batching or item ownership;
+- `KeyedServicedObservableCollection<K, T>` adds captured-key lookup, upsert,
+  and deletion without requiring `K: Clone` or changing ordered messages;
 - `VmCollection<T>` unifies groups and composites, while
   `SelectableVmCollection<T>` adds composite-only selection and `move_item`
   preserves child identity;
@@ -86,6 +88,28 @@ replacement are no-ops. Messages carry action, optional old/new positions,
 sender ID, and property name—never a legacy `index` or typed item payload. The
 caller owns the subscription and stored items. Choose `ObservableList<T>` for
 granular streams, batching, and `Count` notifications.
+
+Use `KeyedServicedObservableCollection<K,T>` when the same ordered surface needs
+one stable domain-key index:
+
+```rust
+let notes_by_id = KeyedServicedObservableCollection::with_hub(
+    owner_id,
+    hub.clone(),
+    |note: &Note| Ok(note.id.clone()),
+);
+notes_by_id.push(first)?;
+let note = notes_by_id.get_by_key(&first_id);
+let added = notes_by_id.upsert(revised)?; // false: Replace at stable position
+let removed = notes_by_id.remove_key(&first_id); // Option<Note>
+```
+
+Use `new(owner_id, key_of)` without an external hub. Positional `get(usize)` is
+unchanged; keyed lookup is `get_by_key(&K)`, membership is `contains_key`, and
+keys need `Eq + Hash + Send`, not `Clone`. Keys stay captured until indexed
+replacement or remove-then-push. Failures are atomic; lookup/target discovery
+are expected O(1), while ordered middle shifts remain O(n). The type never
+batches or owns stored-item lifecycle.
 
 ## Imperative Engine Bridge
 

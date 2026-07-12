@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (359 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (368 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -495,11 +495,22 @@ THEME scenario IDs).
 
 See ADR-0096 and chapter 21 §2/§8.
 
-### 1.26 Supporting artefacts
+### 1.26 v3.16.0 → v3.17.0 changes
 
-- `VERSION` — current spec SemVer (`3.16.0`).
+v3.17.0 adds a distinct keyed serviced observable collection across all five
+flavors. The primitive preserves ordered sequence behavior and standard
+local-before-hub collection messages while adding captured-key lookup,
+duplicate prevention, upsert, key removal, indexed rekeying, and atomic bulk
+validation. `COL-056..064` raise the catalog from 359 to 368 total IDs (363
+library + 5 THEME scenario IDs).
+
+See ADR-0097 and chapter 21 §2.2/§8.
+
+### 1.27 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.17.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0096); see
+- `ADRs/` — Architecture Decision Records (0001-0097); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published

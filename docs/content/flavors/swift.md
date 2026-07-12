@@ -36,6 +36,31 @@ array-precondition bounds behavior; `move` instead throws the catchable
 `VMCollectionIndexError`. Equal-index move and empty clear are no-ops. The
 caller owns both the Combine cancellable and every stored item.
 
+Use `KeyedServicedObservableCollection<Key,T>` for captured-key access while
+retaining the same ordered message contract:
+
+```swift
+let notesByID = KeyedServicedObservableCollection<String, Note>(
+    keyOf: { $0.id },
+    hub: hub
+)
+try notesByID.append(first)
+let note = notesByID.get(first.id)
+let added = try notesByID.upsert(revised) // false: Replace at stable position
+let removed = notesByID.delete(first.id)
+```
+
+`containsKey` tests membership. The projector is throwing, so append,
+replacement, whole-list replacement, and upsert are throwing and atomic.
+Captured membership keys do not follow mutable properties; indexed replacement
+or delete-then-add rekeys explicitly. The same mutated instance can occupy its
+old and newly projected memberships. Duplicate/projector failure preserves
+state and emits nothing. Lookup and target discovery are expected O(1), append
+is amortized O(1), and ordered middle shifts remain O(n). Local Combine
+delivery stays immediate when an external hub transaction defers only hub
+publication. Items remain caller-owned; the keyed type adds no batch or VM
+lifecycle interface.
+
 ## Imperative Engine Bridge
 
 The `Equatable` overload of `subscribeValue` uses `==`; the `isEqual:` overload
