@@ -325,7 +325,7 @@ preserved and keeps the key index synchronized:
 - C#: inherited Add, Insert, value Remove, RemoveAt, indexer replacement, Move,
   and Clear, plus Replace and ReplaceAll;
 - Python: the full `MutableSequence` integer/slice surface, insert, append,
-  clear, value/index removal, replacement, replace-all, and move;
+  clear, value/index removal, replacement, replace-all, move, and reverse;
 - TypeScript: push, pop, value/index removal, splice, replace/setAt,
   replaceAll, move, and clear;
 - Swift: append, removeLast, Equatable value removal, indexed removal,
@@ -426,6 +426,10 @@ unkeyed action, item, and old/new position semantics from §§2.3–2.4:
 - move emits Move with the source and destination positions; and
 - clear and whole-list replacement emit Reset.
 
+Python reverse atomically reverses the ordered items and their captured keys
+without reprojecting them. Lengths zero and one are no-ops; reversing two or
+more memberships emits exactly one Reset.
+
 Value removal follows the base flavor's first-equal-occurrence and
 missing-value idiom, and uses that membership's captured key rather than
 reprojecting the item. Equal-index move, empty clear, missing keyed deletion,
@@ -442,6 +446,10 @@ array/list snapshots require O(n) shifting and key-to-index repair after a
 middle insertion, deletion, or move. The keyed type eliminates a consumer's
 extra snapshot allocation and linear target scan; it does not promise an
 impossible constant-time ordered-list deletion.
+
+After projection and hash lookup, Python append and present-key upsert do not
+scan or rebuild existing memberships; their collection-owned work is expected
+amortized O(1).
 
 Expected O(1) lookup is a design and source-review requirement. Conformance MAY
 use countable equality/hash probes where a host makes that reliable, but MUST

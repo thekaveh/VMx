@@ -287,8 +287,14 @@ def test_COL_062_slice_move_clear_and_conveniences_preserve_invariants_and_owner
     assert list(sut) == [c, a]
     assert sut.get("a") is a
     assert sut.get("c") is c
-    assert sut.pop() is a
-    assert list(sut) == [c]
+    sut.reverse()
+    assert list(sut) == [a, c]
+    assert local[-1].action == "reset"
+    assert sut.pop() is c
+    assert list(sut) == [a]
+    before_noop = len(local)
+    sut.reverse()
+    assert len(local) == before_noop
     sut.move(0, 0)
     sut.clear()
     sut.clear()

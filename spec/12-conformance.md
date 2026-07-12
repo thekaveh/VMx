@@ -2515,6 +2515,11 @@ positions resolve correctly without reprojecting retained items
 **And** TypeScript returns the removed items and uses Remove only for exactly
 one removal with no insertion, Reset for every other effective splice, and no
 message for removal/insertion of nothing; Python slice mutation uses Reset
+**When** Python reverse is called for zero or one membership
+**Then** it is a silent no-op without reprojection
+**When** Python reverse is called for two or more memberships
+**Then** items and captured keys reverse atomically without reprojection and
+exactly one Reset is emitted
 **When** a valid move, pop/removeLast, and the remaining flavor conveniences
 are exercised
 **Then** each ordinary serviced message has its specified action and old/new

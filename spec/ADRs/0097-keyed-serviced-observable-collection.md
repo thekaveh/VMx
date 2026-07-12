@@ -63,10 +63,11 @@ ownership-returning removal is its established idiom.
 
 Every convenience mutator exposed by the corresponding unkeyed serviced type
 is either preserved or deliberately inapplicable. C# keeps inherited Insert;
-Python keeps its `MutableSequence` integer and slice surface; TypeScript keeps
-pop and splice; Swift keeps removeLast and its Equatable value-removal
-extension; Rust keeps the unkeyed type's surface without inventing positional
-insert. Every preserved path maintains the keyed index.
+Python keeps its `MutableSequence` integer and slice surface, including atomic
+reverse; TypeScript keeps pop and splice; Swift keeps removeLast and its
+Equatable value-removal extension; Rust keeps the unkeyed type's surface
+without inventing positional insert. Every preserved path maintains the keyed
+index.
 
 Swift's newly projecting append, replace/setAt, replaceAll, and upsert methods
 are throwing. Rust's exact newly fallible methods are
@@ -139,6 +140,9 @@ pre-removal position. Indexed replacement and present-key upsert emit Replace
 at the stable position. Move emits one Move. Clear and whole-list replacement
 emit Reset.
 
+Python reverse retains captured keys without reprojection. Lengths zero and
+one are no-ops; reversing two or more memberships emits exactly one Reset.
+
 Value removal uses the base flavor's first-equal-occurrence and missing-value
 idiom. Equal-index move, empty clear, missing keyed deletion, and empty-to-empty
 replacement are true no-ops. Bounds, typed/non-generic payloads, old/new
@@ -151,6 +155,10 @@ delete and upsert, subject to the native hash map. Ordered-list shifts and
 key-to-index repair remain O(n) for middle insertion, deletion, and move. This
 eliminates the consumer's extra snapshot allocation and linear target scan
 without promising constant-time physical mutation.
+
+After projection and hash lookup, Python append and present-key upsert do not
+scan or rebuild existing memberships; their collection-owned work is expected
+amortized O(1).
 
 Expected O(1) lookup is reviewed structurally. Countable equality/hash probes
 may support host-specific tests, but wall-clock benchmarks are not portable

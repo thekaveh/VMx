@@ -35,6 +35,10 @@ promises expected O(1) `get`/`has`, expected O(1) target discovery for keyed
 delete and upsert, and the existing O(n) ordered-list mutation cost. This still
 eliminates the consumer's extra O(n) snapshot allocation and scan.
 
+After projection and hash lookup, Python append and present-key upsert do not
+scan or rebuild existing memberships; their collection-owned work is expected
+amortized O(1).
+
 ## 3. Decision
 
 Add a distinct, additive `KeyedServicedObservableCollection<TKey, TItem>` in
@@ -78,7 +82,7 @@ updates the index atomically:
 - C#: inherited Add/Insert/value Remove/RemoveAt/indexer/Move/Clear plus
   `Replace` and `ReplaceAll`;
 - Python: the full `MutableSequence` integer/slice surface, insert, append,
-  clear, value/index removal, replace, replace-all, and move;
+  clear, value/index removal, replace, replace-all, move, and reverse;
 - TypeScript: push, pop, value/index removal, splice, replace/setAt,
   replaceAll, move, and clear;
 - Swift: append, removeLast, Equatable value removal, indexed remove,
@@ -154,6 +158,9 @@ old/new index semantics are exactly those of `ServicedObservableCollection`:
 - indexed replacement and existing-key upsert: Replace at the stable position;
 - move: Move with source and destination positions;
 - clear and whole-list replacement: Reset.
+
+Python reverse is atomic and does not reproject retained memberships. Lengths
+zero and one are no-ops; reversing two or more memberships emits one Reset.
 
 Equal-index move, empty clear, missing keyed delete, and empty-to-empty
 replacement are true no-ops. Value removal follows the base flavor's equality

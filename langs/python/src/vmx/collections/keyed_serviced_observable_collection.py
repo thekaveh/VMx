@@ -126,7 +126,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
     def append(self, value: T) -> None:
         """Append one uniquely keyed membership."""
-        self.insert(len(self._items), value)
+        key = self._key_of(value)
+        self._append_projected(value, key)
 
     def clear(self) -> None:
         """Remove every membership without managing any item lifecycle."""
@@ -198,6 +199,16 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         self._commit(candidate_items, candidate_keys, candidate_index)
         self._emit(CollectionChangedMessage.for_move(self, item, from_index, to_index))
 
+    def reverse(self) -> None:
+        """Reverse memberships atomically without reprojecting captured keys."""
+        if len(self._items) < 2:
+            return
+        candidate_items = list(reversed(self._items))
+        candidate_keys = list(reversed(self._keys))
+        candidate_index = self._build_index(candidate_keys)
+        self._commit(candidate_items, candidate_keys, candidate_index)
+        self._emit(CollectionChangedMessage.for_reset(self))
+
     def upsert(self, item: T) -> bool:
         """Append a missing key or replace its stable position.
 
@@ -206,21 +217,18 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         key = self._key_of(item)
         index = self._index_by_key.get(key)
         if index is None:
-            candidate_items = [*self._items, item]
-            candidate_keys = [*self._keys, key]
-            candidate_index = self._build_index(candidate_keys)
-            insertion_index = len(self._items)
-            self._commit(candidate_items, candidate_keys, candidate_index)
-            self._emit(CollectionChangedMessage.for_add(self, item, insertion_index))
+            self._append_projected(item, key, key_is_missing=True)
             return True
 
         old_item = self._items[index]
-        candidate_items = self._items.copy()
-        candidate_keys = self._keys.copy()
-        candidate_items[index] = item
-        candidate_keys[index] = key
-        candidate_index = self._build_index(candidate_keys)
-        self._commit(candidate_items, candidate_keys, candidate_index)
+        old_key = self._keys[index]
+        # ``dict[key] = index`` alone retains the former equal key object.
+        # Removing it first makes this an explicit recapture operation while
+        # preserving expected-O(1) present-key replacement.
+        del self._index_by_key[old_key]
+        self._index_by_key[key] = index
+        self._items[index] = item
+        self._keys[index] = key
         self._emit(CollectionChangedMessage.for_replace(self, item, old_item, index))
         return False
 
@@ -242,6 +250,21 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         # invalid target never invokes the user projector.
         self._items[index]
         return index + len(self._items) if index < 0 else index
+
+    def _append_projected(
+        self,
+        item: T,
+        key: TKey,
+        *,
+        key_is_missing: bool = False,
+    ) -> None:
+        if not key_is_missing and key in self._index_by_key:
+            raise ValueError("duplicate key in KeyedServicedObservableCollection")
+        index = len(self._items)
+        self._items.append(item)
+        self._keys.append(key)
+        self._index_by_key[key] = index
+        self._emit(CollectionChangedMessage.for_add(self, item, index))
 
     def _build_index(self, keys: list[TKey]) -> dict[TKey, int]:
         result: dict[TKey, int] = {}
