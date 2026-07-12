@@ -94,6 +94,7 @@ export class AggregateChangeStream<T extends object> {
   #terminalError: unknown = noTerminalError;
   #batchDepth = 0;
   #batchDirty = false;
+  readonly #batchRecipients = new Set<Registration<T>>();
 
   constructor(
     source: ObservableMembershipSource<T>,
@@ -224,9 +225,10 @@ export class AggregateChangeStream<T extends object> {
     }
 
     const coalesced = this.#batchDepth > 0;
-    if (coalesced) this.#batchDirty = true;
+    const recipients = this.#currentRegistrations();
+    if (coalesced) this.#admitBatchRecipients(recipients);
     this.#work.push(
-      this.#makeWork("structural", this.#currentRegistrations(), {
+      this.#makeWork("structural", recipients, {
         coalesced,
       }),
     );
@@ -249,9 +251,10 @@ export class AggregateChangeStream<T extends object> {
     }
 
     const coalesced = this.#batchDepth > 0;
-    if (coalesced) this.#batchDirty = true;
+    const recipients = this.#currentRegistrations();
+    if (coalesced) this.#admitBatchRecipients(recipients);
     this.#work.push(
-      this.#makeWork("item", this.#currentRegistrations(), {
+      this.#makeWork("item", recipients, {
         coalesced,
         entry,
         epoch: entry.epoch,
@@ -473,10 +476,6 @@ export class AggregateChangeStream<T extends object> {
     recipients: readonly Registration<T>[],
   ): void {
     if (changes.length === 0 || coalesced) return;
-    if (this.#batchDepth > 0) {
-      this.#batchDirty = true;
-      return;
-    }
     if (recipients.length === 0) return;
     for (let index = changes.length - 1; index >= 0; index--) {
       const pending = changes[index];
@@ -495,8 +494,9 @@ export class AggregateChangeStream<T extends object> {
     this.#batchDepth--;
     if (this.#batchDepth !== 0 || !this.#batchDirty) return;
     this.#batchDirty = false;
+    const recipients = [...this.#batchRecipients];
+    this.#batchRecipients.clear();
     if (this.#completed || this.#terminalError !== noTerminalError) return;
-    const recipients = this.#currentRegistrations();
     if (recipients.length === 0) return;
     this.#work.push(
       this.#makeWork("notification", recipients, {
@@ -568,6 +568,17 @@ export class AggregateChangeStream<T extends object> {
       entry.subscription = null;
     }
     this.#entries.clear();
+    this.#batchDirty = false;
+    this.#batchRecipients.clear();
+  }
+
+  #admitBatchRecipients(recipients: readonly Registration<T>[]): void {
+    this.#batchDirty = true;
+    for (const registration of recipients) {
+      if (registration.active && !registration.observer.closed) {
+        this.#batchRecipients.add(registration);
+      }
+    }
   }
 
   #currentRegistrations(): readonly Registration<T>[] {

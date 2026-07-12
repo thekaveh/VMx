@@ -353,6 +353,51 @@ describe("AGCH-008", () => {
     pending.withBatch(() => undefined);
     expect(pendingObserved).toEqual([]);
     pending.dispose();
+
+    const batchItem = new Item("batch-recipients");
+    const batchSource = new TestSource(batchItem);
+    const batch = aggregate(batchSource);
+    const early: AggregateChange<Item>[] = [];
+    const late: AggregateChange<Item>[] = [];
+    const earlySubscription = batch
+      .observe()
+      .subscribe((change) => early.push(change));
+    let lateSubscription: Subscription | undefined;
+    batch.withBatch(() => {
+      batchItem.changes.emit();
+      lateSubscription = batch
+        .observe()
+        .subscribe((change) => late.push(change));
+    });
+    expect(reasons(early)).toEqual([AggregateChangeReason.Batch]);
+    expect(late).toEqual([]);
+
+    early.length = 0;
+    late.length = 0;
+    const joinedBeforeSecond: AggregateChange<Item>[] = [];
+    let joinedBeforeSecondSubscription: Subscription | undefined;
+    batch.withBatch(() => {
+      batchItem.changes.emit();
+      joinedBeforeSecondSubscription = batch
+        .observe()
+        .subscribe((change) => joinedBeforeSecond.push(change));
+      batchItem.changes.emit();
+    });
+    expect(reasons(early)).toEqual([AggregateChangeReason.Batch]);
+    expect(reasons(late)).toEqual([AggregateChangeReason.Batch]);
+    expect(reasons(joinedBeforeSecond)).toEqual([AggregateChangeReason.Batch]);
+    joinedBeforeSecondSubscription?.unsubscribe();
+
+    early.length = 0;
+    late.length = 0;
+    batch.withBatch(() => {
+      batchItem.changes.emit();
+      earlySubscription.unsubscribe();
+    });
+    expect(early).toEqual([]);
+    expect(reasons(late)).toEqual([AggregateChangeReason.Batch]);
+    lateSubscription?.unsubscribe();
+    batch.dispose();
   });
 });
 
