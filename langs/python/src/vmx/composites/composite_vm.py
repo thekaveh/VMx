@@ -10,7 +10,7 @@ from typing import Generic, TypeVar, overload
 
 import reactivex as rx
 from reactivex import operators as ops
-from reactivex.abc import SchedulerBase
+from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
@@ -108,6 +108,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         stream (VMX-013).
         """
         return self._collection_changed_subject.pipe(ops.as_observable())
+
+    def snapshot(self) -> tuple[VM, ...]:
+        """Return the current ordered child-membership snapshot."""
+        return tuple(self._children)
+
+    def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
+        """Subscribe to payload-free structural child-membership pulses."""
+        return self.on_collection_changed.subscribe(lambda _event: callback())
 
     # ── current property ─────────────────────────────────────────────────────
 
