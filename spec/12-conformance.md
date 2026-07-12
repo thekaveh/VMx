@@ -30,6 +30,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `EXP-NNN`   | Expand / collapse state                              | `05-component-vm.md` + `13-tree-utilities.md` |
 | `LOC-NNN`   | Localization hooks                                   | `17-localization.md`                          |
 | `COL-NNN`   | Collection primitives (spec v2.1)                    | `21-collections.md`                           |
+| `AGCH-NNN`  | Dynamic aggregate change stream (spec v3.18)         | `21-collections.md`                           |
 | `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
 | `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
 | `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
@@ -3505,3 +3506,143 @@ validation, callbacks, retained state, and notification or command signals
 **When** each VM is disposed and a late completion attempts modeled assignment
 **Then** the attempt performs none of that work
 **And** every retained value and signal remains unchanged
+
+## 31. Dynamic aggregate change stream (`AGCH-NNN`) — spec v3.18
+
+These cases verify ADR-0098 and `spec/21-collections.md` §9. Across the family,
+each flavor MUST exercise normal VM collections, unkeyed serviced collections,
+and keyed serviced collections. Counted selectors and subscriptions are used
+instead of timing-based leak assertions.
+
+### AGCH-001 — optional initial delivery is atomic and subscriber-local
+
+**Given** an aggregate over current members with one observer that requests an
+initial event and another that does not
+**When** each observer subscribes, including a structural or item change racing
+the requesting observer's registration
+**Then** the requesting observer receives exactly one `Initial` before every
+later change admitted for it
+**And** the other observer receives no `Initial`
+**And** neither observer receives replayed history or a synthetic revision,
+snapshot, or global initial event
+
+### AGCH-002 — structural delivery follows committed membership resynchronization
+
+**Given** an aggregate whose structural source is observed before its first
+snapshot
+**When** Add, Remove, Replace, or another structural pulse changes membership,
+including a pulse during setup and a selected stream that emits synchronously
+while a new subscription is staged
+**Then** reconciliation repeats as needed and commits the complete ordered
+snapshot before exactly one `Membership` is delivered
+**And** every current distinct identity is observed and every zero-refcount
+identity is detached before that envelope
+**And** a staged synchronous value during later reconciliation is queued behind
+`Membership`, while one during initial construction is discarded as
+pre-existing state
+
+### AGCH-003 — current selected changes carry item identity
+
+**Given** an aggregate with a current member whose selector observes that
+member or nested member state
+**When** the selected stream emits
+**Then** exactly one aggregate envelope has reason `Item`
+**And** its item is the identical current member whose selected stream emitted
+**And** no membership snapshot, revision, or domain value is synthesized
+
+### AGCH-004 — zero-refcount and terminal membership epochs are silent
+
+**Given** an aggregate observing current distinct identities with counted item
+subscriptions
+**When** an identity is removed or replaced until its refcount reaches zero
+**Then** its item subscription is detached before the corresponding
+`Membership` event and later callbacks from that epoch produce no `Item`
+**But when** Replace retains the same identity at positive refcount
+**Then** its existing epoch and subscription remain active
+**When** a current selected stream completes, or unexpectedly errors in an Rx
+flavor
+**Then** only that identity's current positive-refcount epoch terminates,
+without an aggregate event or failure of the aggregate or other members
+**And** Move, identity-retaining Reset, and duplicate add do not resubscribe it
+**And** only final removal followed by re-add creates one fresh subscription
+and epoch
+
+### AGCH-005 — Reset rebuilds membership transactionally
+
+**Given** an aggregate whose source can replace or clear its contents with a
+Reset notification
+**When** Reset changes the ordered identity multiset
+**Then** the aggregate resnapshots and transactionally installs every new
+distinct member before one `Membership` event
+**And** retained identities keep their epochs and subscriptions
+**And** removed identities detach without leaks while newly current identities
+are not missed
+
+### AGCH-006 — duplicate identities share one refcounted subscription
+
+**Given** the same reference identity, or Rust logical VM ID, appears more than
+once in a source snapshot
+**When** the aggregate reconciles that membership and the selected stream emits
+**Then** the selector is subscribed exactly once and exactly one `Item` event is
+delivered
+**When** one occurrence is removed
+**Then** the subscription remains active
+**When** the final occurrence is removed
+**Then** that one subscription is detached before `Membership`
+
+### AGCH-007 — nested exceptional batches emit one final batch without masking failure
+
+**Given** an aggregate with nested explicit batch scopes
+**When** structural and item changes are admitted at multiple depths and the
+body then fails
+**Then** no intermediate aggregate envelope escapes the scopes
+**And** the outermost exit emits exactly one `Batch`
+**And** every batch depth is closed and the original body failure propagates
+unchanged
+**And** a later outside change publishes normally
+
+### AGCH-008 — empty batches and Move preserve silence or subscription stability
+
+**Given** an aggregate with counted subscriptions and an explicit batch scope
+**When** a batch admits no change
+**Then** it emits no `Batch` or other envelope
+**When** a Move reorders a current identity without changing the identity
+multiset
+**Then** one `Membership` event reflects the committed order
+**And** the moved identity keeps its existing epoch and selected subscription
+without detach or resubscribe
+
+### AGCH-009 — reentrant FIFO delivery rejects stale epochs
+
+**Given** an aggregate observer that performs a reentrant membership mutation
+while handling an aggregate envelope
+**And** an item callback from an epoch can already be queued
+**When** the reentrant mutation removes that identity to zero refcount and MAY
+later re-add it
+**Then** reentrant work appends behind the current envelope in serialized FIFO
+order and every observer sees committed membership bookkeeping
+**And** queued item work from the removed epoch is discarded
+**And** a re-add receives a fresh epoch, so no stale callback is attributed to
+the new membership
+
+### AGCH-010 — failure, disposal, ownership, and subscriber behavior are bounded
+
+**Given** aggregate construction or later reconciliation encounters a null
+member or a selector/subscription failure
+**When** the failure occurs
+**Then** construction throws before returning an aggregate, or later
+reconciliation disposes all staged work and terminates the existing output with
+the same error according to the host reactive convention
+**And** no partial membership containing a live but unobserved current member is
+committed
+**Given** a valid aggregate with lifecycle-observable source items and multiple
+output subscribers
+**When** the aggregate is disposed repeatedly
+**Then** structural and item subscriptions detach once, output completes at
+most once where supported, and later source activity is inert
+**And** no item is constructed, destructed, disposed, reparented, removed, or
+otherwise owned by the aggregate
+**When** an output subscriber fails
+**Then** membership bookkeeping and unrelated item subscriptions remain valid
+beyond only the host reactive primitive's documented subscriber behavior
+**And** message-hub subscriber isolation is not implied

@@ -9,7 +9,7 @@ The shared `CompositeVM` / `GroupVM` child-collection capability and its atomic
 identity-preserving `Move` operation are core hierarchy contracts, not
 standalone helpers; see chapter 01 §1.4, chapters 06–07, and ADR-0085.
 
-This chapter covers six primitives:
+This chapter covers seven primitives:
 
 - `ServicedObservableCollection<T>` — hub-aware observable collection
 - `KeyedServicedObservableCollection<TKey, TItem>` — ordered, hub-aware
@@ -18,6 +18,8 @@ This chapter covers six primitives:
 - `ObservableDictionary` — multi-key observable dictionary
 - `PagedComposition<TVM>` — finite, index-based paged composition helper
 - `TokenPagedComposition<TVM, TToken>` — accumulated, forward-only token paging
+- `AggregateChangeStream<T>` — dynamic membership and current-member change
+  fan-in
 
 Paging and filtering capabilities (`IPageable` / `IFilterable<TItem>`) are defined
 in `14-capabilities.md`. `PagedComposition<TVM>` implements `IPageable` as
@@ -872,11 +874,212 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-064` in `12-conformance.md`. Applicable ADRs:
+`COL-001` through `COL-064` and `AGCH-001` through `AGCH-010` in
+`12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, and ADR-0097 (§2), ADR-0026 and ADR-0089 (§3),
 ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move
-semantics).
+semantics), and ADR-0098 (§9).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
-collection, paging, batch, and projection helpers that expose disposal. It
-retains the in-flight token-page rule in §6 and the non-ownership rule in §2.6.
+collection, paging, batch, aggregate, and projection helpers that expose
+disposal. It retains the in-flight token-page rule in §6 and the non-ownership
+rule in §2.6.
+
+## 9. Dynamic aggregate change stream
+
+Per ADR-0098, `AggregateChangeStream<T>` observes one live membership source
+and the selected local change stream of every current distinct member. It is a
+standalone helper, not a collection, a hub extension, or application revision
+state.
+
+### 9.1 Read-only membership source
+
+VMx defines an additive read-only capability with this portable shape:
+
+```text
+ObservableMembershipSource<T>:
+    snapshot() -> ordered snapshot<T>
+    subscribe_membership(callback) -> disposable subscription
+
+AggregateChange<T>:
+    Reason : Initial | Membership | Item | Batch
+    Item   : T?  # present only for Item
+
+AggregateChangeStream<T>:
+    constructor(source, observe_item)
+    observe(emit_initial = false) -> hot observable/publisher
+    batch()/withBatch(callback) -> explicit ref-counted coalescing scope
+    dispose()
+```
+
+The exact idiomatic capability surface is:
+
+| Flavor     | Capability                                       | Snapshot                      | Structural subscription                         |
+| ---------- | ------------------------------------------------ | ----------------------------- | ----------------------------------------------- |
+| C#         | `IObservableMembershipSource<T>`                 | `IReadOnlyList<T> Snapshot()` | `IDisposable SubscribeMembership(Action)`       |
+| Python     | `ObservableMembershipSource[T]` protocol         | `snapshot() -> tuple[T, ...]` | `subscribe_membership(callback) -> Disposable`  |
+| TypeScript | `ObservableMembershipSource<T>`                  | `snapshot(): readonly T[]`    | `subscribeMembership(callback): Subscription`   |
+| Swift      | `ObservableMembershipSource` (`Item: AnyObject`) | `snapshot() -> [Item]`        | `subscribeMembership(_:) -> AnyCancellable`     |
+| Rust       | `ObservableMembershipSource<T: VmNode>`          | `snapshot() -> Vec<T>`        | `subscribe_membership(handler) -> Subscription` |
+
+The capability is independent of every existing collection interface,
+protocol, and trait. Existing external implementations gain no requirement.
+VMx supplies it directly on these source families:
+
+1. `CompositeVM`;
+1. `GroupVM`;
+1. `ServicedObservableCollection`; and
+1. `KeyedServicedObservableCollection`.
+
+Its snapshot is ordered. Its subscription emits a payload-free structural
+pulse for Add, Remove, Replace, Move, or Reset on normal VM collections and for
+the corresponding existing local notification on serviced sources. The
+aggregate resnapshots committed membership on every pulse; it does not
+interpret an event payload. The capability has no mutation, selection,
+lifecycle, batching, or ownership surface.
+
+`ObservableDictionary`, paging projections, and filtered projections do not
+participate. Their element or visible-membership projection requires a separate
+decision.
+
+### 9.2 Selected change streams and envelope
+
+Construction requires `observe_item`, a selector for each member's local
+change stream. It MAY select nested state rather than the member's own property
+stream. Every flavor also provides an idiomatically named `ForComponents` /
+`for_components` / `forComponents` convenience that selects the standard
+component property-change stream.
+
+The aggregate output is hot. Each envelope has exactly one reason:
+
+| Reason       | Item    | Meaning                                                                |
+| ------------ | ------- | ---------------------------------------------------------------------- |
+| `Initial`    | absent  | Optional subscriber-local seed after current state is ready            |
+| `Membership` | absent  | Ordered membership has committed a structural resynchronization        |
+| `Item`       | present | The named current distinct member's selected change stream emitted     |
+| `Batch`      | absent  | One or more admitted changes were coalesced by an explicit outer batch |
+
+The envelope reports provenance only. It is not a membership snapshot,
+revision counter, or domain value. Consumers needing only invalidation MAY
+ignore its fields.
+
+Initial delivery is selected per output subscription, not at aggregate
+construction. Registration and the one private `Initial` envelope occur under
+the same serialized gate as normal delivery. The seed therefore precedes every
+later admitted change for that subscriber. It does not enter the shared hot
+stream, replay history, or reach subscribers that did not request it.
+
+### 9.3 Identity multiset and epochs
+
+Membership uses reference identity in C#, Python, TypeScript, and Swift, and
+`VmNode::id()` in Rust. Equal-but-distinct reference objects remain distinct.
+Rust treats equal IDs as one logical member under its existing VM identity
+contract. The aggregate supports identity-bearing reference/VM items; it does
+not define value identity for primitive or copy-only serviced items.
+
+Null members are invalid. C# and Python reject them with an idiomatic
+argument/value error, strict TypeScript excludes them statically and validates
+runtime input, and Swift and Rust make null unrepresentable.
+
+Repeated occurrences of one identity increment a refcount and share exactly
+one selected-stream subscription. One selected notification emits one `Item`,
+not one per occurrence. Removing one duplicate preserves observation. Removing
+the final occurrence detaches it before delivering the corresponding
+`Membership` event.
+
+Every admitted identity has a monotonically increasing membership epoch.
+Identity-retaining Replace, Reset, Move, and duplicate add preserve that epoch
+and subscription. Selected-stream completion or unexpected selected-stream
+error terminates the current positive-refcount epoch without changing source
+membership or emitting an aggregate event. It does not resubscribe on Move,
+Reset with identity retained, or duplicate add. Only final removal followed by
+re-add creates a new epoch and selected subscription.
+
+Queued item work carries its epoch. The serialized drain discards it when the
+identity reached zero refcount or that epoch's selected stream terminated. A
+stale callback can therefore never become an `Item` event for a later re-add.
+
+### 9.4 Setup and structural reconciliation
+
+Construction subscribes to structural changes under the serialized gate before
+taking its first snapshot. If a structural callback occurs during setup, the
+snapshot is stale and reconciliation repeats until it commits a snapshot with
+no intervening structural callback.
+
+For every structural pulse, the aggregate snapshots and stages all newly
+required selected subscriptions before changing its admitted table. Retained
+identities keep their epoch and subscription. Only after complete staging
+succeeds does it commit the new identity multiset, detach zero-refcount entries,
+and queue `Membership`.
+
+Selected streams MAY emit synchronously while their subscriptions are staged.
+During initial construction, those values are pre-existing state and are
+discarded; the optional `Initial` seed represents readiness. During a later
+structural resynchronization, staged values are buffered and queued behind that
+resynchronization's `Membership` envelope after commit.
+
+### 9.5 Ordering, reentrancy, and failure
+
+All aggregate envelopes use one serialized FIFO drain. State and subscription
+changes settle before an envelope is queued. Reentrant structural or item
+activity appends behind the envelope currently being delivered rather than
+recursively mutating the membership table.
+
+The selector is a total, nonthrowing precondition. C#, Python, and TypeScript
+nevertheless handle a selector or selected-subscription failure
+transactionally: dispose all staged work, admit no partial membership, and
+terminate the existing aggregate output with the same error. A construction
+failure throws synchronously before an aggregate is returned. Later mutator
+propagation follows the host reactive convention; portable callers rely on the
+terminal output error.
+
+Selected streams are non-failing in Swift and Rust. In Rx flavors, unexpected
+selected-stream error has the same item-epoch-only effect as completion: no
+aggregate event, no failure of the aggregate, and no effect on other members.
+
+Subscriber failures follow the established host reactive primitive. They MUST
+NOT corrupt membership bookkeeping or detach unrelated item subscriptions
+beyond host-library behavior; message-hub subscriber isolation is not promised
+for this local stream.
+
+### 9.6 Explicit batching and hub composition
+
+The aggregate owns a synchronous, nested, ref-counted batch/defer scope.
+Outside a batch, every admitted structural or item change emits immediately.
+Inside any batch depth, changes only mark the aggregate dirty. The outermost
+exit emits exactly one `Batch` if dirty. An empty batch emits nothing.
+
+If a body admits a change and then fails, outermost cleanup emits the one
+`Batch` and rethrows the original failure. Cleanup MUST NOT replace the body
+failure. A native collection batch that publishes one Reset naturally causes
+one `Membership` event.
+
+Hub batching has no portable end-boundary or idle callback and is not detected
+automatically. A consumer that requires one pulse nests scopes explicitly:
+
+```text
+aggregate.withBatch(() => hub.batch(() => mutate()))
+```
+
+Hub batching retains its own lossless message ordering; the aggregate batch
+controls only aggregate output.
+
+### 9.7 Completion, disposal, and ownership
+
+The aggregate owns only its structural and selected-item subscriptions.
+Explicit disposal is idempotent, detaches all of them, completes aggregate
+output where the host convention supports completion, and makes later source
+activity inert. It never constructs, destructs, disposes, reparents, removes,
+or otherwise manages a source item.
+
+The supported source families expose no common source-completion signal.
+Source lifetime therefore does not replace explicit aggregate disposal.
+
+### 9.8 Conformance
+
+`AGCH-001` through `AGCH-010` in `12-conformance.md` cover atomic
+subscriber-local initial delivery, committed membership resynchronization,
+item provenance, zero-refcount and terminal-epoch silence, Reset, duplicate
+refcounts, nested exceptional batching, empty batches and Move stability,
+reentrant FIFO and stale epochs, transactional failure, disposal, ownership,
+and subscriber isolation.
