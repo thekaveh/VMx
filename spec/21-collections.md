@@ -9,9 +9,11 @@ The shared `CompositeVM` / `GroupVM` child-collection capability and its atomic
 identity-preserving `Move` operation are core hierarchy contracts, not
 standalone helpers; see chapter 01 §1.4, chapters 06–07, and ADR-0085.
 
-This chapter covers four primitives:
+This chapter covers six primitives:
 
 - `ServicedObservableCollection<T>` — hub-aware observable collection
+- `KeyedServicedObservableCollection<TKey, TItem>` — ordered, hub-aware
+  collection with a captured-key index
 - `ObservableList<T>` — granular per-mutation events
 - `ObservableDictionary` — multi-key observable dictionary
 - `PagedComposition<TVM>` — finite, index-based paged composition helper
@@ -49,11 +51,11 @@ None of the primitives in this chapter are instantiated automatically by any
 core VM type. Every use is explicit. There are no breaking changes to existing
 types.
 
-## 2. `ServicedObservableCollection<T>`
+## 2. Serviced observable collections
 
-Per ADR-0024 and ADR-0096.
+Per ADR-0024, ADR-0096, and ADR-0097.
 
-### 2.1 Shape
+### 2.1 Unkeyed shape
 
 The collection accepts an optional `IMessageHub`, exposes the established
 per-flavor local collection-change event/Observable, supports indexed and
@@ -245,6 +247,170 @@ Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
 
 `COL-001` through `COL-004` and `COL-048` through `COL-055` in
 `12-conformance.md`.
+
+### 2.8 `KeyedServicedObservableCollection<TKey, TItem>` shape
+
+Per ADR-0097, every flavor exposes a distinct, additive keyed serviced type.
+It is not a mode or constructor overload on the unkeyed type: choosing the
+keyed type makes the stable-key requirement explicit and leaves all existing
+unkeyed construction and generic signatures source-compatible.
+
+The keyed type preserves the complete ordered-list contract in §§2.1–2.6:
+add, value removal, indexed removal, replacement, whole-list replacement,
+move, clear, count, indexed reads, snapshots, insertion-order iteration, local
+change delivery, optional hub publication, and caller-owned items. It adds a
+projector, key lookup and membership, upsert, and keyed deletion:
+
+| Flavor     | Construction / projector                                                                                               | Lookup / membership                                        | Upsert                                         | Keyed deletion                |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- | ----------------------------- |
+| C#         | `(Func<TItem, TKey> keySelector, IMessageHub? hub = null, IEqualityComparer<TKey>? comparer = null)`, `TKey : notnull` | `TryGetValue(TKey, out TItem?)`, `ContainsKey(TKey)`       | `bool Upsert(TItem)` (`true` means Add)        | `bool RemoveKey(TKey)`        |
+| Python     | `(key_of: Callable[[T], TKey], hub = None)`; keys are hashable                                                         | `get(key) -> Optional[T]`, `contains_key(key) -> bool`     | `upsert(item) -> bool` (`True` means Add)      | `delete(key) -> bool`         |
+| TypeScript | options with `keyOf: (item: T) => TKey` and optional nullable `hub`                                                    | `get(key)` returns `T` or `undefined`; `has(key): boolean` | `upsert(item): boolean` (`true` means Add)     | `delete(key): boolean`        |
+| Swift      | `(keyOf: @escaping (T) throws -> Key, hub: MessageHubProtocol? = nil)`, `Key: Hashable`                                | `get(_:) -> T?`, `containsKey(_:) -> Bool`                 | `upsert(_:) throws -> Bool` (`true` means Add) | `delete(_:) -> Bool`          |
+| Rust       | `(owner_id, key_of: Fn(&T) -> VmxResult<K>)` / `with_hub`, `K: Eq + Hash`                                              | `get(&K) -> Option<T>`, `contains_key(&K) -> bool`         | `upsert(T) -> VmxResult<bool>` (`true` = Add)  | `remove_key(&K) -> Option<T>` |
+
+The exact Python miss annotation is `get(key) -> T | None`. The exact
+TypeScript options shape is
+`{ keyOf: (item: T) => TKey; hub?: IMessageHub | null }`, and its lookup is
+`get(key): T | undefined`.
+
+A missing keyed deletion is a false / `None` no-op. Rust returns the removed
+value because ownership-returning removal is its established idiom. An upsert
+of a missing key returns the Add outcome; an upsert of a present key returns
+the replacement outcome.
+
+Every list convenience exposed by the corresponding unkeyed serviced type is
+preserved and keeps the key index synchronized:
+
+- C#: inherited Add, Insert, value Remove, RemoveAt, indexer replacement, Move,
+  and Clear, plus Replace and ReplaceAll;
+- Python: the full `MutableSequence` integer/slice surface, insert, append,
+  clear, value/index removal, replacement, replace-all, and move;
+- TypeScript: push, pop, value/index removal, splice, replace/setAt,
+  replaceAll, move, and clear;
+- Swift: append, removeLast, Equatable value removal, indexed removal,
+  replace/setAt, replaceAll, move, and clear; and
+- Rust: push, PartialEq value removal, indexed removal, replace, replace-all,
+  move, and clear. The unkeyed Rust type has no positional-insert convenience,
+  so the keyed type does not invent one.
+
+Host-language naming, bounds, equality, return values, and typed versus
+non-generic message payloads remain those in §§2.1–2.4 and ADR-0009.
+
+### 2.9 Captured-key contract
+
+The projector runs before a candidate item is committed. Its result is stored
+as that membership's captured key and is not recomputed by lookup, membership,
+move, or removal. Mutating a key-like property on a stored item therefore does
+not silently reindex it: lookup by the captured key continues to return the
+item, while lookup by the newly projectable key misses.
+
+Callers explicitly rekey a membership through indexed replacement,
+whole-list replacement, or delete followed by add/upsert. Indexed replacement
+removes the old captured key and installs the newly projected key at the same
+position atomically, provided another position does not already own that key.
+Whole-list replacement captures a fresh key for every replacement membership.
+
+Passing the same stored item instance to upsert after mutating its key-like
+property projects the new key. If that key is absent, upsert appends a second
+membership for the same instance and emits Add; generic value types do not
+permit a portable identity-uniqueness rule. If the projected key is already
+present, upsert replaces that membership at its existing position and emits
+Replace, even when the old and new item are the identical instance.
+
+Captured keys MUST retain stable equality and hashing while stored. The key
+universe and optional/null-like key behavior are the host hash map's concern,
+not a portable absence sentinel. Unsupported or unhashable keys fail before
+mutation where the host can report such failure.
+
+### 2.10 Uniqueness, preflight, and atomicity
+
+Add and, where exposed, insert reject a key already captured by another
+membership. Indexed replacement may change a key only when no other position
+owns the new key. Upsert is the deliberate exception: a present projected key
+selects replacement at that key's existing position rather than reporting a
+duplicate.
+
+Whole-list replacement first materializes all input, projects every key, and
+validates uniqueness before commit. Passing the collection itself is safe.
+Empty-to-empty is its only no-op; every other valid invocation emits exactly
+one Reset, including identical non-empty contents. A duplicate, input
+iteration failure, or projection failure emits nothing and preserves the old
+ordered items, captured-key sequence, key-to-index map, and both notification
+channels.
+
+C#, Python, and TypeScript propagate exceptions from user projectors. Swift's
+projector is explicitly throwing, so operations that project new items are
+throwing. Rust projectors return `VmxResult<K>`, and operations that project
+new items return `VmxResult`. All projection, unsupported-key, and duplicate
+failures complete preflight before collection-owned state changes.
+
+This atomicity promise does not roll back arbitrary side effects inside user
+projector/equality/hash code, allocation failure, process abort, or a subscriber
+failure after state has committed.
+
+### 2.11 Ordered mutations and messages
+
+Every effective mutation synchronizes the ordered item store, captured-key
+sequence, and key-to-index map before observers run. It then uses exactly the
+unkeyed action, item, and old/new position semantics from §§2.3–2.4:
+
+- add, insert, and missing-key upsert emit Add at the insertion position;
+- value, index, and key removal emit Remove for the stored item at its
+  pre-removal position;
+- indexed replacement and present-key upsert emit Replace at the stable
+  position;
+- move emits Move with the source and destination positions; and
+- clear and whole-list replacement emit Reset.
+
+Value removal follows the base flavor's first-equal-occurrence and
+missing-value idiom, and uses that membership's captured key rather than
+reprojecting the item. Equal-index move, empty clear, missing keyed deletion,
+and empty-to-empty replacement are true no-ops. Invalid positions and duplicate
+keys fail before mutation or notification.
+
+### 2.12 Complexity boundary
+
+Key lookup and membership are expected O(1), as is target discovery for keyed
+delete and upsert, subject to the host hash map's equality and hashing behavior.
+This does not make every complete mutation O(1). Contiguous indexing,
+insertion-order iteration, precise pre-removal positions, and ordinary
+array/list snapshots require O(n) shifting and key-to-index repair after a
+middle insertion, deletion, or move. The keyed type eliminates a consumer's
+extra snapshot allocation and linear target scan; it does not promise an
+impossible constant-time ordered-list deletion.
+
+Expected O(1) lookup is a design and source-review requirement. Conformance MAY
+use countable equality/hash probes where a host makes that reliable, but MUST
+NOT use wall-clock timing as a portable assertion.
+
+### 2.13 Delivery, reentrancy, and hub transactions
+
+The complete backing state and key index change first, then the local channel
+fires, then the optional external hub receives the equivalent message.
+Reentrant observers see a consistent item/key/index state. Subscriber failures
+retain the unkeyed serviced collection's committed-state policy.
+
+The keyed collection has no collection batch scope. If the injected hub is
+already inside its own transaction/batch, local notifications remain immediate
+and granular while hub delivery is deferred in original hub order. Hub batching
+does not collapse keyed changes into Reset and does not weaken key-index
+atomicity. For reentrant mutations, each individual operation preserves its
+local-before-hub partial order; no one portable global ordering of nested local
+and external events is required.
+
+### 2.14 Ownership
+
+The keyed collection never constructs, disposes, destructs, reparents, or
+otherwise owns an item. Key projection and index maintenance do not change the
+caller-owned lifecycle rule in §2.6.
+
+### 2.15 Keyed conformance
+
+`COL-056` through `COL-064` in `12-conformance.md` cover captured lookup,
+uniqueness and failure atomicity, upsert, keyed deletion, synchronization and
+explicit rekeying, whole-list replacement, move/clear/ownership, delivery and
+hub transactions, and reentrant consistency.
 
 ## 3. `ObservableList<T>`
 
@@ -622,9 +788,10 @@ regardless of what filtering or paging is applied on top.
 
 ## 8. Conformance
 
-`COL-001` through `COL-055` in `12-conformance.md`. Applicable ADRs:
-ADR-0024 and ADR-0096 (§2), ADR-0026 and ADR-0089 (§3), ADR-0025 (§4),
-ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move semantics).
+`COL-001` through `COL-064` in `12-conformance.md`. Applicable ADRs:
+ADR-0024, ADR-0096, and ADR-0097 (§2), ADR-0026 and ADR-0089 (§3),
+ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move
+semantics).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, and projection helpers that expose disposal. It
