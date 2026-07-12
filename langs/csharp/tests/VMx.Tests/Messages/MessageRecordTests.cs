@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using FluentAssertions;
 using VMx.Lifecycle;
 using VMx.Messages;
@@ -36,5 +37,51 @@ public class MessageRecordTests
         msg.SenderName.Should().Be("vm1");
         msg.Status.Should().Be(ConstructionStatus.Constructed);
         msg.SenderObject.Should().BeSameAs(sender);
+    }
+
+    [Fact]
+    public void CollectionChangedMessage_FiveParameterConstructionAndDeconstructionRemainCompatible()
+    {
+        var sender = new object();
+        var message = new CollectionChangedMessage<int>(
+            sender,
+            NotifyCollectionChangedAction.Add,
+            new List<int> { 1 },
+            Array.Empty<int>(),
+            0);
+
+        var (actualSender, action, newItems, oldItems, index) = message;
+
+        actualSender.Should().BeSameAs(sender);
+        action.Should().Be(NotifyCollectionChangedAction.Add);
+        newItems.Should().Equal(1);
+        oldItems.Should().BeEmpty();
+        index.Should().Be(0);
+        message.OldIndex.Should().Be(-1);
+        message.NewIndex.Should().Be(-1);
+    }
+
+    [Fact]
+    public void CollectionChangedMessage_LegacyInterfaceImplementerReceivesCompatiblePositionDefaults()
+    {
+        ICollectionChangedMessage<int> message = new LegacyCollectionChangedMessage();
+
+        message.OldIndex.Should().Be(4);
+        message.NewIndex.Should().Be(4);
+    }
+
+    private sealed class LegacyCollectionChangedMessage : ICollectionChangedMessage<int>
+    {
+        public string SenderName => "legacy";
+
+        public object SenderObject => this;
+
+        public NotifyCollectionChangedAction Action => NotifyCollectionChangedAction.Replace;
+
+        public IReadOnlyList<int> NewItems => new[] { 2 };
+
+        public IReadOnlyList<int> OldItems => new[] { 1 };
+
+        public int Index => 4;
     }
 }

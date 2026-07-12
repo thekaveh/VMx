@@ -14,6 +14,29 @@ Python is the most direct fit when you want a typed but lightweight VM layer
 for services, CLIs, TUIs, or desktop adapters without leaving idiomatic
 dataclass and protocol-based code.
 
+## Serviced Collections
+
+`ServicedObservableCollection[T]` exposes local
+`on_collection_changed` events and optionally forwards the same change to a
+hub:
+
+```python
+notes = ServicedObservableCollection[Note](hub)
+notes.append(first)
+notes.append(second)
+removed = notes.remove_at(-1)      # negative list index is accepted
+old = notes.replace(-1, revised)   # returns the former item
+notes.append(second)
+notes.move(0, len(notes) - 1)      # move indices are strict and nonnegative
+notes.replace_all(server_snapshot) # one Reset
+```
+
+List-style `remove(value)` returns `None` and raises `ValueError` when missing.
+`remove_at` and `replace` accept normal negative indices, return the removed or
+old item, and report a resolved nonnegative message position. `move` rejects
+negative and out-of-range positions with `IndexError`. Empty Clear is a no-op,
+and the caller retains item lifecycle ownership.
+
 ## Imperative Engine Bridge
 
 `subscribe_value` returns Reactivex's `DisposableBase` and uses `==` unless an

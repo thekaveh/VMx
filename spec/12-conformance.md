@@ -1896,15 +1896,21 @@ ______________________________________________________________________
 
 Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
-ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
+ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
+ADR-0096 (serviced collection parity).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
 **Given** a `ServicedObservableCollection<T>` constructed with a hub
-**And** a subscriber that records the order of local `CollectionChanged` and hub `CollectionChangedMessage` receipts
+**And** subscribers that record the order of local collection-change and
+external-hub `CollectionChangedMessage` receipts
 **When** an item is added
-**Then** the local `CollectionChanged` event fires before the hub message is published
-**And** the hub `CollectionChangedMessage` carries `Action == Add` and the correct `NewItems` and `Index`
+**Then** the local collection-change channel fires before the external-hub
+message is published
+**And** in C#, Python, TypeScript, and Swift the hub message carries Add, the
+added item, `index == newIndex == insertion`, and `oldIndex == -1`
+**And** in Rust it carries Add, `old_index == None`, and
+`new_index == Some(insertion)`, with no legacy `index` or typed item payload
 
 ### COL-002 — `ServicedObservableCollection<T>` publishes on remove and replace
 
@@ -1912,7 +1918,12 @@ ADR-0026 (`ObservableList<T>`), and ADR-0023 (`PagedComposition<TVM>`).
 **When** an item is removed, then another is replaced
 **Then** each mutation publishes exactly one `CollectionChangedMessage` to the hub
 **And** the `Action` field equals `Remove` for the removal and `Replace` for the replacement
-**And** `OldItems` is populated for the removal and both `OldItems` / `NewItems` are populated for the replacement
+**And** in C#, Python, TypeScript, and Swift the removal carries its old item,
+`index == oldIndex`, and `newIndex == -1`, while replacement carries both items
+and equal present integer positions
+**And** in Rust removal carries a present `old_index` and absent `new_index`,
+while replacement carries equal present optional positions; neither message has
+a legacy `index` or typed item payload
 
 ### COL-003 — Null-hub fallback: no hub means no publication, no error
 
@@ -2272,6 +2283,113 @@ indexed/iterable reads, observation, mutation, move, and batching
 **When** `ReplaceAll` changes cardinality
 **Then** Reset fires before `PropertyChanged("Count")`
 **And** both handlers observe the complete final snapshot
+
+### COL-048 — serviced value removal targets the first duplicate
+
+**Given** a `ServicedObservableCollection<T>` containing `[a, b, a]`
+**When** value removal is requested for `a`
+**Then** only the first `a` is removed and the final contents are `[b, a]`
+**And** in C#, Python, TypeScript, and Swift exactly one Remove message carries
+`a`, `index == oldIndex == 0`, and `newIndex == -1`
+**And** in Rust exactly one Remove message has `old_index == Some(0)` and
+`new_index == None`, with no legacy `index` or typed item payload
+**When** removal is requested for a missing value
+**Then** contents and notification channels stay unchanged
+**And** C#, TypeScript, Swift, and Rust return false, while Python raises its
+documented list-style `ValueError`
+
+### COL-049 — serviced indexed removal resolves or rejects before mutation
+
+**Given** a `ServicedObservableCollection<T>` containing `[a, b, c]`
+**When** the item at index `1` is removed
+**Then** the operation returns according to the flavor idiom
+**And** in C#, Python, TypeScript, and Swift exactly one Remove message carries
+`b`, `index == oldIndex == 1`, and `newIndex == -1`
+**And** in Rust exactly one Remove message has `old_index == Some(1)` and
+`new_index == None`, with no legacy `index` or typed item payload
+**And** each in-range negative Python index resolves to its nonnegative message
+position, including `remove_at(-2)` resolving to `1`
+**And** Python rejects excessively negative indices, while C#, TypeScript, and
+Swift reject every negative index
+**And** Rust's `usize` index type makes negative values unrepresentable
+**And** all flavors reject indices at or above the count according to their
+documented bounds behavior without partial mutation or publication
+
+### COL-050 — serviced replacement is explicit and atomic
+
+**Given** a `ServicedObservableCollection<T>` containing `[a, b]`
+**When** index `1` is replaced by `c`
+**Then** in C#, Python, TypeScript, and Swift exactly one Replace message carries
+old item `b`, new item `c`, and `index == oldIndex == newIndex == 1`
+**And** in Rust exactly one Replace message has
+`old_index == new_index == Some(1)`, with no legacy `index` or typed item
+payload
+**When** the replacement item is identical or equal to the current item
+**Then** exactly one Replace is still emitted without an equality precheck
+**And** an invalid index follows the documented flavor bounds behavior without
+changing contents or either notification channel
+
+### COL-051 — serviced whole-list replacement uses one snapshot Reset
+
+**Given** a `ServicedObservableCollection<T>` whose notification channels are
+observed
+**When** `ReplaceAll` receives the collection itself, a live view, or new input
+**Then** the input is fully materialized before mutation and the final contents
+equal that snapshot
+**And** in C#, Python, TypeScript, and Swift every effective call emits exactly
+one Reset with empty item payloads and `index == oldIndex == newIndex == -1`
+**And** in Rust every effective call emits exactly one Reset with
+`old_index == new_index == None`, no legacy `index`, and no typed item payload
+**And** no flavor emits a granular message
+**And** identical non-empty input remains effective, while empty-to-empty emits
+nothing
+**And** input iteration failure leaves contents and both channels unchanged
+
+### COL-052 — serviced move preserves identity and precise positions
+
+**Given** a `ServicedObservableCollection<T>` containing `[a, b, c]`
+**When** `move(0, 2)` and, on a fresh collection, `move(2, 0)` are called
+**Then** the final orders are `[b, c, a]` and `[c, a, b]`, respectively
+**And** in C#, Python, TypeScript, and Swift each call emits exactly one Move
+whose `index` equals the destination, whose integer `oldIndex` and `newIndex`
+name the source and destination, and whose old/new payloads carry the identical
+moved item
+**And** in Rust each call emits exactly one Move whose present `old_index` and
+`new_index` name the source and destination, with no legacy `index` or typed
+item payload
+
+### COL-053 — serviced move no-ops and bounds are strict
+
+**Given** a `ServicedObservableCollection<T>` containing `[a, b, c]`
+**When** `move(1, 1)` is called
+**Then** contents and both notification channels remain unchanged
+**When** either representable index is outside `[0, 3)`, including a negative
+Python index
+**Then** a flavor-idiomatic catchable bounds error is raised before mutation
+and neither channel publishes
+
+### COL-054 — serviced delivery is local-before-hub with final-state visibility
+
+**Given** a `ServicedObservableCollection<T>` with local and hub subscribers
+that inspect contents and record delivery order
+**When** each effective add, remove, replace, ReplaceAll, move, and clear
+operation is performed
+**Then** backing state changes before notification, local delivery precedes the
+equivalent hub message, and both subscribers observe the complete final state
+**And** each operation delivers immediately without a serviced batch mechanism
+
+### COL-055 — serviced clear and mutations preserve caller ownership
+
+**Given** an empty serviced collection and lifecycle-observable item fixtures
+**When** the empty collection is cleared
+**Then** no local or hub notification is emitted
+**When** a non-empty collection is cleared
+**Then** C#, Python, TypeScript, and Swift emit exactly one Reset with empty item
+payloads and `index == oldIndex == newIndex == -1`
+**And** Rust emits exactly one Reset with `old_index == new_index == None`, no
+legacy `index`, and no typed item payload
+**And** value/index removal, replacement, ReplaceAll, move, and clear never
+construct, dispose, reparent, or otherwise manage any contained item
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

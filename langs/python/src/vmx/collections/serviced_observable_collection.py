@@ -88,26 +88,15 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
             self._items[index] = list(items)
             self._emit(CollectionChangedMessage.for_reset(self))
         else:
-            old_item: T = self._items[index]
             new_item: T = value  # type: ignore[assignment]
-            # Emit the actual position; a negative index counts from the end
-            # (mirrors insert).
-            resolved_index = index + len(self._items) if index < 0 else index
-            self._items[index] = new_item
-            self._emit(
-                CollectionChangedMessage.for_replace(self, new_item, old_item, resolved_index)
-            )
+            self.replace(index, new_item)
 
     def __delitem__(self, index: int | slice) -> None:
         if isinstance(index, slice):
             del self._items[index]
             self._emit(CollectionChangedMessage.for_reset(self))
         else:
-            item: T = self._items[index]
-            # Emit the actual position; a negative index counts from the end.
-            resolved_index = index + len(self._items) if index < 0 else index
-            del self._items[index]
-            self._emit(CollectionChangedMessage.for_remove(self, item, resolved_index))
+            self.remove_at(index)
 
     def insert(self, index: int, value: T) -> None:
         """Insert *value* before *index* (stdlib semantics: negative indexes
@@ -132,14 +121,52 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def clear(self) -> None:
         """Remove all items and emit a Reset event."""
+        if not self._items:
+            return
         self._items.clear()
         self._emit(CollectionChangedMessage.for_reset(self))
 
     def remove(self, value: T) -> None:
         """Remove the first occurrence of *value*."""
         index = self._items.index(value)
+        item = self._items[index]
         del self._items[index]
-        self._emit(CollectionChangedMessage.for_remove(self, value, index))
+        self._emit(CollectionChangedMessage.for_remove(self, item, index))
+
+    def remove_at(self, index: int) -> T:
+        """Remove and return the item at *index* using Python index semantics."""
+        item = self._items[index]
+        resolved_index = index + len(self._items) if index < 0 else index
+        del self._items[index]
+        self._emit(CollectionChangedMessage.for_remove(self, item, resolved_index))
+        return item
+
+    def replace(self, index: int, new_item: T) -> T:
+        """Replace the item at *index* and return the former item."""
+        old_item = self._items[index]
+        resolved_index = index + len(self._items) if index < 0 else index
+        self._items[index] = new_item
+        self._emit(CollectionChangedMessage.for_replace(self, new_item, old_item, resolved_index))
+        return old_item
+
+    def replace_all(self, values: Iterable[T]) -> None:
+        """Replace all contents with a fully materialized snapshot of *values*."""
+        replacement = list(values)
+        if not self._items and not replacement:
+            return
+        self._items = replacement
+        self._emit(CollectionChangedMessage.for_reset(self))
+
+    def move(self, from_index: int, to_index: int) -> None:
+        """Move one item between strict pre-move indices."""
+        count = len(self._items)
+        if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
+            raise IndexError("collection move index out of range")
+        if from_index == to_index:
+            return
+        item = self._items.pop(from_index)
+        self._items.insert(to_index, item)
+        self._emit(CollectionChangedMessage.for_move(self, item, from_index, to_index))
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

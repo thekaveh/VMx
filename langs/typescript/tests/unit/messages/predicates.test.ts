@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CollectionChangedMessage,
   type CollectionMutationAction,
+  type ICollectionChangedMessage,
   ConstructionStatus,
   ConstructionStatusChangedMessage,
   type IMessage,
@@ -41,6 +42,12 @@ const collection = CollectionChangedMessage.forAdd(
   "item",
   0,
 );
+const movedCollection = CollectionChangedMessage.forMove(
+  collectionSource,
+  "item",
+  0,
+  1,
+);
 const status = ConstructionStatusChangedMessage.create(
   sender,
   "sender",
@@ -73,6 +80,19 @@ function _assertForgedCollectionPayloadRemainsUnknown(): void {
 }
 
 describe("raw message predicates", () => {
+  it("keeps legacy structural collection-message implementations assignable", () => {
+    const legacyMessage = {
+      sender: collectionSource,
+      senderName: "legacy",
+      action: "reset" as const,
+      newItems: [] as readonly string[],
+      oldItems: [] as readonly string[],
+      index: -1,
+    } satisfies ICollectionChangedMessage<string>;
+
+    expect(legacyMessage.index).toBe(-1);
+  });
+
   it("classifies property changes and narrows their sender type", () => {
     expect(isPropertyChanged(property)).toBe(true);
     expect(isPropertyChangedFromMessages(property)).toBe(true);
@@ -227,6 +247,20 @@ describe("raw message predicates", () => {
         CollectionChangedMessage<unknown>[]
       >
     >(additionsByOpaqueSource);
+  });
+
+  it("classifies move collection changes through the public action union", () => {
+    const moveAction: CollectionMutationAction = "move";
+
+    expect(
+      isCollectionChanged(movedCollection, {
+        source: collectionSource,
+        action: moveAction,
+      }),
+    ).toBe(true);
+    expect(
+      isCollectionChanged(movedCollection, { action: "replace" }),
+    ).toBe(false);
   });
 
   it("classifies construction status changes and narrows the stream", () => {

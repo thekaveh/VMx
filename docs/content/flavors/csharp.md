@@ -15,6 +15,26 @@ C# is the most direct fit when you want .NET host integration, `ICommand`-style
 UI binding, or desktop MVVM with WPF or Avalonia. The README also documents
 companion assemblies for DI and notifications.
 
+## Serviced Collections
+
+`ServicedObservableCollection<T>` is an `ObservableCollection<T>` with normal
+local `CollectionChanged` delivery plus equivalent messages on an optional
+hub. Its v3.16 surface includes inherited `Add`, `Remove`, `RemoveAt`, `Move`,
+`Clear`, the indexer, and named `Replace` / `ReplaceAll`:
+
+```csharp
+var notes = new ServicedObservableCollection<Note>(hub);
+notes.Add(first);
+notes.Add(second);
+notes.Replace(0, revised);
+notes.Move(0, notes.Count - 1);    // one Move locally, then on the hub
+notes.ReplaceAll(serverSnapshot); // one Reset
+```
+
+Invalid indices throw before mutation; equal-index Move and empty Clear are
+no-ops. Removal targets the first equal value and returns `false` when absent.
+The collection never disposes or reparents its items.
+
 ## Imperative Engine Bridge
 
 `SubscribeValue` returns `IDisposable` and uses

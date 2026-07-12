@@ -8,7 +8,7 @@
  * Ownership stays with the caller: removing, replacing, or clearing an item does
  * not call dispose/destruct or any VM lifecycle method on that item.
  *
- * See spec/21-collections.md §2 and ADR-0024.
+ * See spec/21-collections.md §2, ADR-0024, and ADR-0096.
  */
 import { Observable, Subject } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
@@ -18,7 +18,7 @@ export { CollectionChangedMessage };
 
 export class ServicedObservableCollection<T> {
   readonly #hub: IMessageHub | null;
-  readonly #items: T[] = [];
+  #items: T[] = [];
   readonly #subject = new Subject<CollectionChangedMessage<T>>();
 
   constructor(hub?: IMessageHub | null) {
@@ -69,6 +69,22 @@ export class ServicedObservableCollection<T> {
     return item;
   }
 
+  /** Remove the first indexOf match for *item*. */
+  remove(item: T): boolean {
+    const index = this.#items.indexOf(item);
+    if (index === -1) return false;
+    this.removeAt(index);
+    return true;
+  }
+
+  /** Remove the item at *index*. */
+  removeAt(index: number): void {
+    this.#validateIndex(index);
+    const item = this.#items[index] as T;
+    this.#items.splice(index, 1);
+    this.#emit(CollectionChangedMessage.forRemove(this, item, index));
+  }
+
   /**
    * Remove *count* items starting at *start* and optionally insert *newItems*.
    * Emits a Reset message (coarse-grained) for any multi-item splice.
@@ -100,25 +116,46 @@ export class ServicedObservableCollection<T> {
     return removed;
   }
 
-  /** Replace the item at *index*. */
-  setAt(index: number, newItem: T): void {
-    if (index < 0 || index >= this.#items.length) {
-      throw new RangeError(`Index ${String(index)} out of bounds`);
-    }
-    const oldItem = this.#items[index];
+  /** Replace the item at *index*, emitting even when the value is identical. */
+  replace(index: number, newItem: T): void {
+    this.#validateIndex(index);
+    const oldItem = this.#items[index] as T;
     this.#items[index] = newItem;
     this.#emit(
-      CollectionChangedMessage.forReplace(
-        this,
-        newItem,
-        oldItem as T,
-        index,
-      ),
+      CollectionChangedMessage.forReplace(this, newItem, oldItem, index),
+    );
+  }
+
+  /** Source-compatible alias for replace. */
+  setAt(index: number, newItem: T): void {
+    this.replace(index, newItem);
+  }
+
+  /** Replace the complete contents from a snapshot of *items*. */
+  replaceAll(items: Iterable<T>): void {
+    const snapshot = [...items];
+    if (this.#items.length === 0 && snapshot.length === 0) return;
+    this.#items = snapshot;
+    this.#emit(CollectionChangedMessage.forReset(this));
+  }
+
+  /** Move an item using pre-move source and destination indices. */
+  move(fromIndex: number, toIndex: number): void {
+    this.#validateIndex(fromIndex);
+    this.#validateIndex(toIndex);
+    if (fromIndex === toIndex) return;
+
+    const item = this.#items[fromIndex] as T;
+    this.#items.splice(fromIndex, 1);
+    this.#items.splice(toIndex, 0, item);
+    this.#emit(
+      CollectionChangedMessage.forMove(this, item, fromIndex, toIndex),
     );
   }
 
   /** Remove all items. */
   clear(): void {
+    if (this.#items.length === 0) return;
     this.#items.length = 0;
     this.#emit(CollectionChangedMessage.forReset(this));
   }
@@ -130,5 +167,15 @@ export class ServicedObservableCollection<T> {
     this.#subject.next(msg);
     // 2. Publish to hub (when present).
     this.#hub?.send(msg);
+  }
+
+  #validateIndex(index: number): void {
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= this.#items.length
+    ) {
+      throw new RangeError(`Index ${String(index)} out of bounds`);
+    }
   }
 }

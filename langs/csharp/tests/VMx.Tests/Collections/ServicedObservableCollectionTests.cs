@@ -166,21 +166,19 @@ public class ServicedObservableCollectionTests
         hubCount.Should().Be(N + 1);
     }
 
-    // ── Move action — local event fires, hub publish suppressed ──────────────
+    // ── Move action ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Move is part of inherited ObservableCollection&lt;T&gt; but is not a
-    /// CollectionMutationAction in the spec (chapter 21). The local
-    /// CollectionChanged event still fires; the hub never sees a corrupted
-    /// Reset-shaped message.
+    /// Move remains part of the inherited ObservableCollection&lt;T&gt; surface and
+    /// is forwarded to the hub with its source and destination positions.
     /// </summary>
     [Fact]
-    public void Move_RaisesLocalEvent_DoesNotPublishToHub()
+    public void Move_RaisesLocalEvent_AndPublishesToHub()
     {
         var hub = new TestHub();
         var sut = new ServicedObservableCollection<int>(hub) { 1, 2, 3 };
-        int hubCount = 0;
-        hub.Messages.Subscribe(_ => hubCount++);
+        var messages = new List<IMessage>();
+        hub.Messages.Subscribe(messages.Add);
 
         var localEvents = new List<NotifyCollectionChangedEventArgs>();
         sut.CollectionChanged += (_, args) => localEvents.Add(args);
@@ -190,6 +188,10 @@ public class ServicedObservableCollectionTests
         sut.Should().Equal(2, 3, 1);
         localEvents.Should().ContainSingle()
             .Which.Action.Should().Be(NotifyCollectionChangedAction.Move);
-        hubCount.Should().Be(0, "Move is intentionally not republished to the hub");
+        var message = (CollectionChangedMessage<int>)messages.Should().ContainSingle().Which;
+        message.Action.Should().Be(NotifyCollectionChangedAction.Move);
+        message.Index.Should().Be(2);
+        message.OldIndex.Should().Be(0);
+        message.NewIndex.Should().Be(2);
     }
 }

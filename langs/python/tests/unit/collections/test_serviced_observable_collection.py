@@ -251,3 +251,17 @@ def test_remove_nonexistent_raises_value_error() -> None:
     sut: ServicedObservableCollection[int] = ServicedObservableCollection()
     with pytest.raises(ValueError):
         sut.remove(999)
+
+
+def test_collection_changed_message_direct_construction_keeps_old_defaults() -> None:
+    sender = object()
+
+    message: CollectionChangedMessage[int] = CollectionChangedMessage(sender, "add", (42,), (), 3)
+
+    assert message.sender is sender
+    assert message.action == "add"
+    assert message.new_items == (42,)
+    assert message.old_items == ()
+    assert message.index == 3
+    assert message.old_index == -1
+    assert message.new_index == -1

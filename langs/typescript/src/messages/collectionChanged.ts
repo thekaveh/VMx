@@ -7,13 +7,28 @@
 import type { IMessage } from "./types.js";
 
 /** Mutation action for a serviced collection message. */
-export type CollectionMutationAction = "add" | "remove" | "replace" | "reset";
+export type CollectionMutationAction =
+  | "add"
+  | "remove"
+  | "replace"
+  | "move"
+  | "reset";
 
 export interface ICollectionChangedMessage<T> extends IMessage {
   readonly action: CollectionMutationAction;
   readonly newItems: readonly T[];
   readonly oldItems: readonly T[];
   readonly index: number;
+  /**
+   * Source position when supplied. Optional only so pre-v3.16 third-party
+   * structural implementations remain assignable; VMx messages always set it.
+   */
+  readonly oldIndex?: number;
+  /**
+   * Destination position when supplied. Optional only so pre-v3.16 third-party
+   * structural implementations remain assignable; VMx messages always set it.
+   */
+  readonly newIndex?: number;
 }
 
 export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T> {
@@ -26,6 +41,8 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
   readonly newItems: readonly T[];
   readonly oldItems: readonly T[];
   readonly index: number;
+  readonly oldIndex: number;
+  readonly newIndex: number;
 
   private constructor(
     sender: object,
@@ -33,12 +50,16 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
     newItems: readonly T[],
     oldItems: readonly T[],
     index: number,
+    oldIndex: number,
+    newIndex: number,
   ) {
     this.sender = sender;
     this.action = action;
     this.newItems = newItems;
     this.oldItems = oldItems;
     this.index = index;
+    this.oldIndex = oldIndex;
+    this.newIndex = newIndex;
   }
 
   static forAdd<T>(
@@ -46,7 +67,15 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
     item: T,
     index: number,
   ): CollectionChangedMessage<T> {
-    return new CollectionChangedMessage(sender, "add", [item], [], index);
+    return new CollectionChangedMessage(
+      sender,
+      "add",
+      [item],
+      [],
+      index,
+      -1,
+      index,
+    );
   }
 
   static forRemove<T>(
@@ -54,7 +83,15 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
     item: T,
     index: number,
   ): CollectionChangedMessage<T> {
-    return new CollectionChangedMessage(sender, "remove", [], [item], index);
+    return new CollectionChangedMessage(
+      sender,
+      "remove",
+      [],
+      [item],
+      index,
+      index,
+      -1,
+    );
   }
 
   static forReplace<T>(
@@ -69,10 +106,29 @@ export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T>
       [newItem],
       [oldItem],
       index,
+      index,
+      index,
+    );
+  }
+
+  static forMove<T>(
+    sender: object,
+    item: T,
+    oldIndex: number,
+    newIndex: number,
+  ): CollectionChangedMessage<T> {
+    return new CollectionChangedMessage(
+      sender,
+      "move",
+      [item],
+      [item],
+      newIndex,
+      oldIndex,
+      newIndex,
     );
   }
 
   static forReset<T>(sender: object): CollectionChangedMessage<T> {
-    return new CollectionChangedMessage(sender, "reset", [], [], -1);
+    return new CollectionChangedMessage(sender, "reset", [], [], -1, -1, -1);
   }
 }

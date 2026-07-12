@@ -40,6 +40,8 @@ describe("COL-001", () => {
     expect(localEvents[0]?.action).toBe("add");
     expect(localEvents[0]?.newItems).toEqual(["alpha"]);
     expect(localEvents[0]?.index).toBe(0);
+    expect(localEvents[0]?.oldIndex).toBe(-1);
+    expect(localEvents[0]?.newIndex).toBe(0);
 
     // Hub message
     expect(hubMessages).toHaveLength(1);
@@ -49,6 +51,8 @@ describe("COL-001", () => {
     expect(cm.action).toBe("add");
     expect(cm.newItems).toEqual(["alpha"]);
     expect(cm.index).toBe(0);
+    expect(cm.oldIndex).toBe(-1);
+    expect(cm.newIndex).toBe(0);
   });
 });
 
@@ -74,10 +78,16 @@ describe("COL-002", () => {
     expect(localEvents).toHaveLength(1);
     expect(localEvents[0]?.action).toBe("remove");
     expect(localEvents[0]?.oldItems).toEqual(["a"]);
+    expect(localEvents[0]?.index).toBe(0);
+    expect(localEvents[0]?.oldIndex).toBe(0);
+    expect(localEvents[0]?.newIndex).toBe(-1);
 
     expect(hubMessages).toHaveLength(1);
     expect(hubMessages[0]?.action).toBe("remove");
     expect(hubMessages[0]?.oldItems).toEqual(["a"]);
+    expect(hubMessages[0]?.index).toBe(0);
+    expect(hubMessages[0]?.oldIndex).toBe(0);
+    expect(hubMessages[0]?.newIndex).toBe(-1);
 
     // ── Replace ─────────────────────────────────────────────────────────────
     localEvents.length = 0;
@@ -89,11 +99,17 @@ describe("COL-002", () => {
     expect(localEvents[0]?.action).toBe("replace");
     expect(localEvents[0]?.newItems).toEqual(["b_replaced"]);
     expect(localEvents[0]?.oldItems).toEqual(["b"]);
+    expect(localEvents[0]?.index).toBe(0);
+    expect(localEvents[0]?.oldIndex).toBe(0);
+    expect(localEvents[0]?.newIndex).toBe(0);
 
     expect(hubMessages).toHaveLength(1);
     expect(hubMessages[0]?.action).toBe("replace");
     expect(hubMessages[0]?.newItems).toEqual(["b_replaced"]);
     expect(hubMessages[0]?.oldItems).toEqual(["b"]);
+    expect(hubMessages[0]?.index).toBe(0);
+    expect(hubMessages[0]?.oldIndex).toBe(0);
+    expect(hubMessages[0]?.newIndex).toBe(0);
   });
 });
 

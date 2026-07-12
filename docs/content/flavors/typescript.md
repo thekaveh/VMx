@@ -15,6 +15,29 @@ TypeScript is the best fit when you want browser-safe VMx usage with modern
 bundlers, React-style external-store wiring, or a shared VM layer across web
 and desktop webview hosts.
 
+## Serviced Collections
+
+`ServicedObservableCollection<T>` exposes a local `collectionChanged`
+observable and can forward the same message to an optional hub:
+
+```typescript
+const notes = new ServicedObservableCollection<Note>(hub);
+const local = notes.collectionChanged.subscribe(message => render(message));
+
+notes.push(first);
+notes.push(second);
+notes.replace(0, revised);           // setAt remains an alias
+notes.move(0, notes.length - 1);     // one Move locally, then on the hub
+notes.replaceAll(serverSnapshot);    // one Reset
+
+local.unsubscribe();
+```
+
+`remove` deletes only the first `indexOf` match and returns `false` when absent.
+`removeAt`, `replace`, and `move` require integer positions in range;
+equal-index move and empty clear are no-ops. Collection messages carry legacy
+`index` plus `oldIndex` / `newIndex`. Items remain caller-owned.
+
 ## Imperative Engine Bridge
 
 `subscribeValue` returns an RxJS `Subscription` and uses `Object.is` unless an

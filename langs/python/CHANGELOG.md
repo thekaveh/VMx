@@ -4,6 +4,26 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.16.0] — 2026-07-12
+
+Implements `spec-v3.16.0` and keeps Python at full library parity: 354/354
+conformance IDs covered.
+
+### Added
+
+- `ServicedObservableCollection` adds idiomatic `remove_at`, `replace`,
+  snapshot-based `replace_all`, and strict portable `move` operations while
+  preserving list-style `remove` and negative indexed-operation behavior
+  (`COL-048..055`, ADR-0096).
+- Collection-change messages retain `index` and add precise `old_index` /
+  `new_index` positions, including a single Move delivered locally before the
+  optional hub sees the final state.
+
+### Changed
+
+- Empty clear, empty-to-empty replacement, and same-index move no-ops are
+  notification-free; serviced mutations never acquire item lifecycle ownership.
+
 ## [3.15.0] — 2026-07-11
 
 Implements `spec-v3.15.0` and keeps Python at full library parity: 346/346

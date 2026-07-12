@@ -55,6 +55,8 @@ public class COL_001_to_004_ServicedObservableCollectionTests
         msg.Action.Should().Be(NotifyCollectionChangedAction.Add);
         msg.NewItems.Should().ContainSingle().Which.Should().Be("alpha");
         msg.Index.Should().Be(0);
+        msg.OldIndex.Should().Be(-1);
+        msg.NewIndex.Should().Be(0);
 
         // Ordering: local handler must fire before hub subscriber (ADR-0024 §4)
         callOrder.Should().Equal("local", "hub");
@@ -87,6 +89,9 @@ public class COL_001_to_004_ServicedObservableCollectionTests
         var removeMsg = (CollectionChangedMessage<string>)hubMessages[0];
         removeMsg.Action.Should().Be(NotifyCollectionChangedAction.Remove);
         removeMsg.OldItems.Should().ContainSingle().Which.Should().Be("a");
+        removeMsg.Index.Should().Be(0);
+        removeMsg.OldIndex.Should().Be(0);
+        removeMsg.NewIndex.Should().Be(-1);
 
         // ---- Replace ----
         localEvents.Clear();
@@ -101,6 +106,9 @@ public class COL_001_to_004_ServicedObservableCollectionTests
         replaceMsg.Action.Should().Be(NotifyCollectionChangedAction.Replace);
         replaceMsg.NewItems.Should().ContainSingle().Which.Should().Be("b_replaced");
         replaceMsg.OldItems.Should().ContainSingle().Which.Should().Be("b");
+        replaceMsg.Index.Should().Be(0);
+        replaceMsg.OldIndex.Should().Be(0);
+        replaceMsg.NewIndex.Should().Be(0);
     }
 
     // ── COL-003 ──────────────────────────────────────────────────────────────
