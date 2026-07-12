@@ -58,6 +58,8 @@ def test_COL_001_publishes_to_hub_after_local_event_on_add() -> None:
     assert local_events[0].action == "add"
     assert local_events[0].new_items == ("alpha",)
     assert local_events[0].index == 0
+    assert local_events[0].old_index == -1
+    assert local_events[0].new_index == 0
 
     # Hub message
     assert len(hub_messages) == 1
@@ -66,6 +68,8 @@ def test_COL_001_publishes_to_hub_after_local_event_on_add() -> None:
     assert msg.action == "add"
     assert msg.new_items == ("alpha",)
     assert msg.index == 0
+    assert msg.old_index == -1
+    assert msg.new_index == 0
 
     # Ordering: local handler must fire before hub subscriber (ADR-0024 §4)
     assert call_order == ["local", "hub"]
@@ -95,12 +99,18 @@ def test_COL_002_publishes_on_remove_and_replace() -> None:
     assert len(local_events) == 1
     assert local_events[0].action == "remove"
     assert local_events[0].old_items == ("a",)
+    assert local_events[0].index == 0
+    assert local_events[0].old_index == 0
+    assert local_events[0].new_index == -1
 
     assert len(hub_messages) == 1
     rm = hub_messages[0]
     assert isinstance(rm, CollectionChangedMessage)
     assert rm.action == "remove"
     assert rm.old_items == ("a",)
+    assert rm.index == 0
+    assert rm.old_index == 0
+    assert rm.new_index == -1
 
     # ── Replace ───────────────────────────────────────────────────────────────
     local_events.clear()
@@ -112,6 +122,9 @@ def test_COL_002_publishes_on_remove_and_replace() -> None:
     assert local_events[0].action == "replace"
     assert local_events[0].new_items == ("b_replaced",)
     assert local_events[0].old_items == ("b",)
+    assert local_events[0].index == 0
+    assert local_events[0].old_index == 0
+    assert local_events[0].new_index == 0
 
     assert len(hub_messages) == 1
     rp = hub_messages[0]
@@ -119,6 +132,9 @@ def test_COL_002_publishes_on_remove_and_replace() -> None:
     assert rp.action == "replace"
     assert rp.new_items == ("b_replaced",)
     assert rp.old_items == ("b",)
+    assert rp.index == 0
+    assert rp.old_index == 0
+    assert rp.new_index == 0
 
 
 # ---------------------------------------------------------------------------
