@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CollectionChangedMessage,
   type CollectionMutationAction,
+  type ICollectionChangedMessage,
   ConstructionStatus,
   ConstructionStatusChangedMessage,
   type IMessage,
@@ -79,6 +80,19 @@ function _assertForgedCollectionPayloadRemainsUnknown(): void {
 }
 
 describe("raw message predicates", () => {
+  it("keeps legacy structural collection-message implementations assignable", () => {
+    const legacyMessage = {
+      sender: collectionSource,
+      senderName: "legacy",
+      action: "reset" as const,
+      newItems: [] as readonly string[],
+      oldItems: [] as readonly string[],
+      index: -1,
+    } satisfies ICollectionChangedMessage<string>;
+
+    expect(legacyMessage.index).toBe(-1);
+  });
+
   it("classifies property changes and narrows their sender type", () => {
     expect(isPropertyChanged(property)).toBe(true);
     expect(isPropertyChangedFromMessages(property)).toBe(true);

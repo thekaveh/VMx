@@ -19,8 +19,16 @@ export interface ICollectionChangedMessage<T> extends IMessage {
   readonly newItems: readonly T[];
   readonly oldItems: readonly T[];
   readonly index: number;
-  readonly oldIndex: number;
-  readonly newIndex: number;
+  /**
+   * Source position when supplied. Optional only so pre-v3.16 third-party
+   * structural implementations remain assignable; VMx messages always set it.
+   */
+  readonly oldIndex?: number;
+  /**
+   * Destination position when supplied. Optional only so pre-v3.16 third-party
+   * structural implementations remain assignable; VMx messages always set it.
+   */
+  readonly newIndex?: number;
 }
 
 export class CollectionChangedMessage<T> implements ICollectionChangedMessage<T> {
