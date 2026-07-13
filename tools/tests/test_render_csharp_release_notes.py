@@ -28,7 +28,7 @@ def test_render_selects_plain_core_version_section() -> None:
 
 
 def test_render_fails_when_matching_section_is_absent() -> None:
-    with pytest.raises(ValueError, match="2.1.1"):
+    with pytest.raises(ValueError, match=r"2\.1\.1"):
         notes.render_notes(
             CHANGELOG,
             [{"id": "VMx.Extensions.DependencyInjection", "version": "2.1.1"}],
