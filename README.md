@@ -147,7 +147,7 @@ Each flavor implements the same conceptual stack:
 | C#         | v3.20.0 in source       | NuGet package not published yet                                | System.Reactive        |
 | Python     | v3.20.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
 | TypeScript | v3.21.0 in source       | npm package not published yet                                  | rxjs                   |
-| Swift      | v3.20.0 in source       | SwiftPM tag not published yet; no central registry             | Combine                |
+| Swift      | v3.20.0 released        | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
 | Rust       | v0.20.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
 
 `main` may contain an in-development source version before that version is
@@ -239,7 +239,7 @@ cargo add vmx-rs --path langs/rust
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity as of v3.1.0; see `langs/swift/README.md` §5).
+  at total parity as of v3.20.0; see `langs/swift/README.md` §5).
 - [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
   and a minimal `ComponentVm` example.
 

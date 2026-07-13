@@ -53,18 +53,20 @@ is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-The source tree currently implements v3.20.0. SwiftPM consumes VMx from git
-tags; use the versioned dependency after a `swift-v*` release publishes it.
+VMx Swift 3.20.0 is publicly installable from the repository root. SwiftPM
+resolves the immutable semantic tag `v3.20.0`; the matching operational tag
+`swift-v3.20.0` provides the
+[GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0).
 
 Add VMx as a Swift Package dependency in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "X.Y.Z")
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0")
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
-        .product(name: "VMx", package: "VMx")
+        .product(name: "VMx", package: "vmx")
     ])
 ]
 ```
@@ -75,7 +77,7 @@ For local development from a checked-out clone:
 
 ```swift
 dependencies: [
-    .package(path: "/path/to/VMx/langs/swift")
+    .package(path: "/path/to/VMx")
 ]
 ```
 

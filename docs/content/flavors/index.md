@@ -12,7 +12,7 @@ language.
 | C#         | `VMx` package name reserved in docs; source-tree/local reference today  | `System.Reactive`   | PascalCase   |
 | Python     | `vmx` published on PyPI; source tree may be ahead of latest release     | `reactivex`         | snake_case   |
 | TypeScript | `@thekaveh/vmx` package name defined; source-tree/local workspace today | `rxjs`              | camelCase    |
-| Swift      | SwiftPM package from repo tags after release                            | `Combine`           | camelCase    |
+| Swift      | VMx 3.20.0 released through repository-root SwiftPM tags                | `Combine`           | camelCase    |
 | Rust       | `vmx-rs` crate in source tree; crates.io release not published          | VMx facade / rxrust | snake_case   |
 
 ## Reading Path

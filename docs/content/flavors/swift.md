@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-- Install: add the `langs/swift` package through SwiftPM
-- Publication status: consumed from repo tags after a `swift-v*` release
-  publishes it.
+- Install: `.package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0")`
+- Publication status: 3.20.0 is public through the immutable `v3.20.0`
+  SwiftPM tag and matching `swift-v3.20.0` GitHub Release.
 - Reactive primitive: `Combine`
 - Naming idiom: camelCase
 
@@ -13,6 +13,10 @@
 Swift is the right fit when you want the same VMx lifecycle and conformance
 surface in a SwiftPM package, with SwiftUI adapters kept outside the core
 library boundary.
+
+Use `.product(name: "VMx", package: "vmx")` in the consuming target. The
+lowercase package value is SwiftPM's canonical identity for the repository;
+the imported module and product remain `VMx`.
 
 ## Serviced Collections
 
