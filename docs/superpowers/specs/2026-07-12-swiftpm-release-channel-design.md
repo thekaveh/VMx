@@ -65,7 +65,7 @@ The Swift release job performs these gates in order:
 1. Release-build and test both the root and nested packages on full Xcode.
 1. Confirm all four JSON fixtures exist in each package's built resource bundle.
 1. Clone/resolve the public repository from a completely fresh temporary Swift
-   package using `.package(url: ..., exact: "X.Y.Z")`.
+   package using `.package(url: ..., from: "X.Y.Z")`.
 1. Build and run a consumer executable that imports `VMx`, checks
    `VMxVersion.current`, and completes construct/destruct/dispose. This lifecycle
    round trip loads the bundled lifecycle transition fixture.

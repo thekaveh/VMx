@@ -116,7 +116,7 @@ ______________________________________________________________________
 
 **Interfaces:**
 
-- `render_manifest(url: str, version: str) -> str` uses an exact remote version.
+- `render_manifest(url: str, version: str) -> str` uses the documented remote range.
 
 - `render_main(version: str) -> str` imports VMx and performs a lifecycle round trip.
 
@@ -126,7 +126,7 @@ ______________________________________________________________________
 
 - [ ] **Step 1: Write failing renderer/resource tests**
 
-  Assert the manifest contains `.package(url: ..., exact: "3.20.0")` and a
+  Assert the manifest contains `.package(url: ..., from: "3.20.0")` and a
   `VMx` product dependency. Assert the Swift source checks `VMxVersion.current`,
   constructs/destructs/disposes a `ComponentVM`, and that missing resource
   names produce a precise error.
