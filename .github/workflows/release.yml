@@ -389,12 +389,7 @@ jobs:
             echo "::error::Release tags must point at commits reachable from origin/main." >&2
             exit 1
           fi
-      - name: Build & test
-        # swift test requires full Xcode (XCTest); macos-latest provides it.
-        # Combine is macOS-only so ubuntu-latest cannot run these tests.
-        working-directory: langs/swift
-        run: swift build && swift test --parallel
-      - name: Verify tag matches package version
+      - name: Verify semantic and operational tags
         run: |
           set -euo pipefail
           tag_version="${GITHUB_REF#refs/tags/swift-v}"
@@ -403,7 +398,43 @@ jobs:
             echo "::error::swift-v${tag_version} does not match VMxVersion.current ${declared_version}." >&2
             exit 1
           fi
-          echo "Tag $tag_version matches VMxVersion.current."
+          git fetch --force origin "refs/tags/v${tag_version}:refs/tags/v${tag_version}"
+          semantic_sha="$(git rev-parse "refs/tags/v${tag_version}^{commit}")"
+          if [ "$semantic_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::v${tag_version} points at ${semantic_sha}, not operational tag commit ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+          echo "v${tag_version}, swift-v${tag_version}, and VMxVersion.current agree."
+      - name: Check root and nested manifest parity
+        run: python3 tools/check-swift-package-sync.py
+      - name: Build & test root package
+        # swift test requires full Xcode (XCTest); macos-latest provides it.
+        # Combine is macOS-only so ubuntu-latest cannot run these tests.
+        run: swift build -c release && swift test --parallel
+      - name: Build & test nested package
+        working-directory: langs/swift
+        run: swift build -c release && swift test --parallel
+      - name: Verify fresh public SwiftPM consumer
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/swift-v}"
+          python3 tools/smoke-swiftpm-consumer.py \
+            --url https://github.com/thekaveh/VMx.git \
+            --version "$tag_version"
+      - name: Extract Swift release notes
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/swift-v}"
+          awk -v v="$tag_version" '
+            $0 ~ "^## \\[" v "\\]" { capture = 1; next }
+            capture && /^## \\[/ { exit }
+            capture { print }
+          ' langs/swift/CHANGELOG.md > /tmp/swift-release-notes.md
+          if [ ! -s /tmp/swift-release-notes.md ]; then
+            echo "::error::No Swift CHANGELOG section found for ${tag_version}." >&2
+            exit 1
+          fi
+          echo "Extracted Swift release notes ($(wc -l < /tmp/swift-release-notes.md) lines)."
       - name: Create GitHub Release for SwiftPM consumers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -414,5 +445,5 @@ jobs:
           # not `--generate-notes`, which would depend on prior-release history).
           gh release create "$tag" \
             --title "Swift v${version} (SwiftPM)" \
-            --notes "VMx Swift flavor — see \`langs/swift/CHANGELOG.md\` for the entry." \
+            --notes-file /tmp/swift-release-notes.md \
             --target "$GITHUB_SHA"
