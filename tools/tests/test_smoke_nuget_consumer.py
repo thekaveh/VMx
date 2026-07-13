@@ -1,5 +1,7 @@
 """Unit tests for tools/smoke-nuget-consumer.py."""
 
+from pathlib import Path
+
 import pytest
 import smoke_nuget_consumer as smoke
 
@@ -71,3 +73,15 @@ def test_flat_container_url_normalizes_package_id() -> None:
     assert smoke.flat_container_url("VMx.Extensions.DependencyInjection") == (
         "https://api.nuget.org/v3-flatcontainer/vmx.extensions.dependencyinjection/index.json"
     )
+
+
+def test_discover_packages_reads_current_project_versions(tmp_path: Path) -> None:
+    project = tmp_path / "VMx" / "VMx.csproj"
+    project.parent.mkdir()
+    project.write_text(
+        "<Project><PropertyGroup><PackageId>VMx</PackageId>"
+        "<Version>3.20.0</Version></PropertyGroup></Project>",
+        encoding="utf-8",
+    )
+
+    assert smoke.discover_packages(tmp_path) == {"VMx": "3.20.0"}

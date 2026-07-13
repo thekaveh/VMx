@@ -111,9 +111,7 @@ jobs:
       - name: Verify exact packed consumer
         run: >-
           python3 tools/smoke-nuget-consumer.py
-          --package VMx=3.20.0
-          --package VMx.Notifications=1.2.0
-          --package VMx.Extensions.DependencyInjection=2.1.1
+          --project-root langs/csharp/src
           --framework "${{ matrix.framework }}"
           --package-dir /tmp/vmx-nupkgs
 

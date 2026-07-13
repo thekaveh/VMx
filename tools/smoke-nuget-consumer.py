@@ -13,6 +13,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
@@ -43,6 +44,18 @@ def parse_packages(specifications: list[str]) -> dict[str, str]:
         if existing != CORE_VERSION:
             raise ValueError(f"companions require VMx={CORE_VERSION}")
     return dict(sorted(packages.items()))
+
+
+def discover_packages(project_root: Path) -> dict[str, str]:
+    """Read current package IDs and versions from the public C# projects."""
+    specifications: list[str] = []
+    for project in sorted(project_root.glob("*/*.csproj")):
+        root = ET.parse(project).getroot()
+        package_id = root.findtext("PropertyGroup/PackageId")
+        version = root.findtext("PropertyGroup/Version")
+        if package_id and version:
+            specifications.append(f"{package_id}={version}")
+    return parse_packages(specifications)
 
 
 def render_project(packages: dict[str, str], framework: str) -> str:
@@ -192,12 +205,17 @@ def run_smoke(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", action="append", default=[])
+    parser.add_argument("--project-root", type=Path)
     parser.add_argument("--framework", choices=("net8.0", "netstandard2.0"), required=True)
     parser.add_argument("--package-dir", type=Path)
     parser.add_argument("--poll-timeout", type=float, default=900)
     args = parser.parse_args(argv)
     try:
-        packages = parse_packages(args.package)
+        if bool(args.package) == bool(args.project_root):
+            raise ValueError("use exactly one of --package or --project-root")
+        packages = (
+            parse_packages(args.package) if args.package else discover_packages(args.project_root)
+        )
         run_smoke(
             packages,
             args.framework,
