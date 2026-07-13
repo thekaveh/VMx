@@ -427,7 +427,7 @@ jobs:
           tag_version="${GITHUB_REF#refs/tags/swift-v}"
           awk -v v="$tag_version" '
             $0 ~ "^## \\[" v "\\]" { capture = 1; next }
-            capture && /^## \\[/ { exit }
+            capture && /^## \[/ { exit }
             capture { print }
           ' langs/swift/CHANGELOG.md > /tmp/swift-release-notes.md
           if [ ! -s /tmp/swift-release-notes.md ]; then
