@@ -41,3 +41,47 @@ export interface ConsumerConformanceSuite {
   readonly fixture?: JsonValue;
   readonly cases: readonly ConsumerConformanceCase[];
 }
+
+export interface ConsumerConformanceAdapter {
+  invoke(
+    operation: string,
+    args: readonly JsonValue[],
+  ): void | Promise<void>;
+  snapshot(): JsonValue;
+  drainMessages(): readonly JsonObject[];
+  dispose(): void | Promise<void>;
+}
+
+export interface ConsumerConformanceFactoryContext {
+  readonly suite: ConsumerConformanceSuite;
+  readonly testCase: ConsumerConformanceCase;
+  readonly suiteFixture: JsonValue | undefined;
+  readonly caseFixture: JsonValue | undefined;
+}
+
+export type ConsumerConformanceFactory = (
+  context: ConsumerConformanceFactoryContext,
+) => ConsumerConformanceAdapter | Promise<ConsumerConformanceAdapter>;
+
+export interface ConsumerConformancePassedCaseResult {
+  readonly id: string;
+  readonly status: "passed";
+}
+
+export interface ConsumerConformanceFailedCaseResult {
+  readonly id: string;
+  readonly status: "failed";
+  readonly error: import("./errors.js").ConsumerConformanceExecutionError;
+}
+
+export type ConsumerConformanceCaseResult =
+  | ConsumerConformancePassedCaseResult
+  | ConsumerConformanceFailedCaseResult;
+
+export interface ConsumerConformanceReport {
+  readonly suite: string;
+  readonly total: number;
+  readonly passed: number;
+  readonly failed: number;
+  readonly cases: readonly ConsumerConformanceCaseResult[];
+}
