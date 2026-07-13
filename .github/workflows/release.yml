@@ -314,10 +314,10 @@ jobs:
       contents: read
       id-token: write
     env:
-      # See the rationale on the csharp job's env block — secrets must be
-      # projected to job-level env so that step `if:` can read them.
+      # The bootstrap token is optional after trusted publishing is configured.
+      # Project it only to this discriminator; NODE_AUTH_TOKEN is scoped to the
+      # bootstrap publish step below and is absent from the OIDC step.
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Verify tag commit is on main
@@ -330,22 +330,10 @@ jobs:
           fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
-          cache-dependency-path: langs/typescript/package-lock.json
-      - name: Install
-        working-directory: langs/typescript
-        run: npm ci
-      - name: Build
-        working-directory: langs/typescript
-        run: npm run build
-      - name: Test
-        working-directory: langs/typescript
-        run: npm test
-      - name: Audit
-        working-directory: langs/typescript
-        run: npm audit --package-lock-only --audit-level=low
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@11.5.1
       - name: Verify tag matches package version
         working-directory: langs/typescript
         run: |
@@ -357,16 +345,123 @@ jobs:
             exit 1
           fi
           echo "Tag $tag_version matches package version $pkg_version."
-      - name: Verify npm token is configured
+      - name: Install dependencies
+        working-directory: langs/typescript
+        run: npm ci
+      - name: Sync spec fixtures
+        working-directory: langs/typescript
+        run: npm run sync-fixtures
+      - name: Type-check library
+        working-directory: langs/typescript
+        run: npm run typecheck
+      - name: Type-check tests
+        working-directory: langs/typescript
+        run: npm run typecheck:tests
+      - name: Lint
+        working-directory: langs/typescript
+        run: npm run lint
+      - name: Build
+        working-directory: langs/typescript
+        run: npm run build
+      - name: Test
+        working-directory: langs/typescript
+        run: npm test
+      - name: Audit
+        working-directory: langs/typescript
+        run: npm audit --package-lock-only --audit-level=low
+      - name: Check npm package contents
+        run: python3 tools/check-typescript-package.py
+      - name: Verify packed npm consumer
+        run: >-
+          python3 tools/smoke-npm-consumer.py
+          --package-dir langs/typescript
+          --version "${GITHUB_REF#refs/tags/typescript-v}"
+      - name: Publish initial package with bootstrap token
+        if: env.NPM_TOKEN != ''
+        working-directory: langs/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+      - name: Publish with npm trusted publishing
+        if: env.NPM_TOKEN == ''
+        working-directory: langs/typescript
+        run: npm publish --access public
+
+  typescript-verify-published:
+    needs: typescript
+    if: startsWith(github.ref, 'refs/tags/typescript-v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: "https://registry.npmjs.org"
+      - name: Poll and verify exact public consumer
+        run: >-
+          python3 tools/smoke-npm-consumer.py
+          --version "${GITHUB_REF#refs/tags/typescript-v}"
+          --poll-timeout 600
+      - name: Verify npm provenance attestation
         run: |
           set -euo pipefail
-          if [ -z "${NPM_TOKEN:-}" ]; then
-            echo "::error::NPM_TOKEN is required for typescript-v* releases; refusing to green-skip publish." >&2
+          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
+          for attempt in {1..60}; do
+            attestations="$(npm view "@thekaveh/vmx@${tag_version}" dist.attestations --json || true)"
+            if ATTESTATIONS="$attestations" node -e '
+              try {
+                const value = JSON.parse(process.env.ATTESTATIONS || "null");
+                process.exit(value?.url && value?.provenance?.predicateType ? 0 : 1);
+              } catch {
+                process.exit(1);
+              }
+            '; then
+              echo "$attestations"
+              exit 0
+            fi
+            echo "Waiting for npm provenance attestation (attempt ${attempt}/60)..."
+            sleep 10
+          done
+          echo "::error::npm package has no provenance attestation after 600 seconds." >&2
+          exit 1
+
+  typescript-release-notes:
+    needs: typescript-verify-published
+    if: startsWith(github.ref, 'refs/tags/typescript-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Extract TypeScript release notes
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
+          awk -v v="$tag_version" '
+            $0 ~ "^## \\[" v "\\]" { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' langs/typescript/CHANGELOG.md > /tmp/typescript-release-notes.md
+          if [ ! -s /tmp/typescript-release-notes.md ]; then
+            echo "::error::No TypeScript CHANGELOG section found for ${tag_version}." >&2
             exit 1
           fi
-      - name: Publish to npm
-        working-directory: langs/typescript
-        run: npm publish --access public --provenance
+      - name: Create TypeScript GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#typescript-v}"
+          gh release create "$tag" \
+            --title "TypeScript v${version} (npm)" \
+            --notes-file /tmp/typescript-release-notes.md \
+            --target "$GITHUB_SHA"
 
   swift:
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —

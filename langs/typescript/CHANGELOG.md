@@ -20,6 +20,10 @@ Continues to implement `spec-v3.20.0` with 391/391 library conformance IDs.
 
 - Isolated ESM, CommonJS, and declaration outputs keep Ajv and runner APIs out
   of the root package entry.
+- Release CI validates an explicit package-content allowlist and clean ESM,
+  CommonJS, NodeNext, notifications, and conformance consumers before publish;
+  it supports a one-time token bootstrap followed by npm trusted publishing,
+  public-registry polling, provenance verification, and GitHub release notes.
 
 ## [3.20.0] — 2026-07-12
 
