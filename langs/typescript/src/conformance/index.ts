@@ -4,6 +4,7 @@ export {
   type ConsumerConformanceExecutionErrorOptions,
   type ConsumerConformanceValidationIssue,
 } from "./errors.js";
+export { adaptCommandTruthTableFixture } from "./commandTruthTableAdapter.js";
 export {
   runConsumerConformance,
   runConsumerConformanceCase,
