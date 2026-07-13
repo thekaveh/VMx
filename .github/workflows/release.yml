@@ -6,6 +6,7 @@ on:
       - "csharp-v*"
       - "python-v*"
       - "typescript-v*"
+      - "rust-v*"
       - "swift-v*"
   # No workflow_dispatch: every job gates on `startsWith(github.ref,
   # 'refs/tags/…')`, so a manual dispatch from a branch silently did nothing.
@@ -611,6 +612,202 @@ jobs:
           gh release create "$tag" \
             --title "TypeScript v${version} (npm)" \
             --notes-file /tmp/typescript-release-notes.md \
+            --target "$GITHUB_SHA"
+
+  rust-test:
+    name: rust — release gates (${{ matrix.toolchain }})
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ["1.88.0", "stable"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          fi
+      - name: Verify tag matches crate version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/rust-v}"
+          crate_version="$(sed -nE 's/^version = "([^"]+)"/\1/p' langs/rust/Cargo.toml)"
+          if [ "$tag_version" != "$crate_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match crate version ($crate_version)." >&2
+            exit 1
+          fi
+          echo "Tag $tag_version matches vmx-rs $crate_version."
+      - name: Install Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
+      - name: Clippy
+        run: cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets --all-features -- -D warnings
+      - name: Test all features
+        run: cargo test --manifest-path langs/rust/Cargo.toml --all-features
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --manifest-path langs/rust/Cargo.toml --all-features --no-deps
+      - name: Check package contents
+        run: python3 tools/check-rust-package.py
+      - name: Verify packaged consumer
+        run: >-
+          python3 tools/smoke-rust-consumer.py
+          --package-dir langs/rust
+          --version "${GITHUB_REF#refs/tags/rust-v}"
+
+  rust-conformance:
+    name: rust — five-flavor conformance gate
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          version: "0.11.19"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync tool dependencies
+        run: uv --project langs/python sync --all-extras
+      - name: Check five-flavor conformance coverage
+        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
+      - name: Check Rust fixture sync
+        run: uv --project langs/python run python tools/check-rust-fixture-sync.py
+
+  rust-publish:
+    name: rust — publish vmx-rs
+    needs: [rust-test, rust-conformance]
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: crates-rust
+      url: https://crates.io/crates/vmx-rs
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Only the first release uses this protected-environment token. Remove
+      # it after crates.io trusted publishing is configured for release.yml.
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          fi
+      - name: Verify tag matches crate version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/rust-v}"
+          crate_version="$(sed -nE 's/^version = "([^"]+)"/\1/p' langs/rust/Cargo.toml)"
+          if [ "$tag_version" != "$crate_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match crate version ($crate_version)." >&2
+            exit 1
+          fi
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        with:
+          toolchain: stable
+      - name: Recheck package contents before authentication
+        run: python3 tools/check-rust-package.py
+      - name: Recheck packaged consumer before authentication
+        run: >-
+          python3 tools/smoke-rust-consumer.py
+          --package-dir langs/rust
+          --version "${GITHUB_REF#refs/tags/rust-v}"
+      - name: Authenticate with crates.io trusted publishing
+        id: auth
+        if: env.CRATES_IO_TOKEN == ''
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish initial crate with bootstrap token
+        if: env.CRATES_IO_TOKEN != ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ env.CRATES_IO_TOKEN }}
+        run: cargo publish --manifest-path langs/rust/Cargo.toml
+      - name: Publish with crates.io trusted publishing
+        if: env.CRATES_IO_TOKEN == ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --manifest-path langs/rust/Cargo.toml
+
+  rust-verify-published:
+    name: rust — verify public (${{ matrix.toolchain }})
+    needs: rust-publish
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ["1.88.0", "stable"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Poll crates.io and docs.rs; verify exact public consumer
+        run: >-
+          python3 tools/smoke-rust-consumer.py
+          --version "${GITHUB_REF#refs/tags/rust-v}"
+          --poll-timeout 1800
+
+  rust-release-notes:
+    name: rust — GitHub Release
+    needs: rust-verify-published
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Extract Rust release notes
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/rust-v}"
+          awk -v v="$tag_version" '
+            $0 ~ "^## \\[" v "\\]" { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' langs/rust/CHANGELOG.md > /tmp/rust-release-notes.md
+          if [ ! -s /tmp/rust-release-notes.md ]; then
+            echo "::error::No Rust CHANGELOG section found for ${tag_version}." >&2
+            exit 1
+          fi
+      - name: Create Rust GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#rust-v}"
+          gh release create "$tag" \
+            --title "Rust v${version} (crates.io)" \
+            --notes-file /tmp/rust-release-notes.md \
             --target "$GITHUB_SHA"
 
   swift:
