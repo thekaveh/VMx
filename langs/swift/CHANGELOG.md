@@ -14,6 +14,10 @@ conformance IDs covered.
 - `AsyncResourceVM<Value>` models one cancellable async value with immutable
   Idle/Loading/Ready/Error state and load, reload, and cancel commands
   (`ARES-001..011`, ADR-0100).
+- A repository-root SwiftPM facade exposes the existing VMx target and bundled
+  fixtures from the public git URL. CI structurally compares the root and
+  nested manifests, and the release pipeline requires matching semantic and
+  operational tags plus a fresh public-consumer lifecycle smoke test.
 
 ### Changed
 

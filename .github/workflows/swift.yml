@@ -7,16 +7,20 @@ on:
   push:
     branches: [main, develop]
     paths:
+      - "Package.swift"
       - "langs/swift/**"
       - "examples/swift/**"
       - "spec/**"
+      - "tools/check-swift-package-sync.py"
       - ".github/workflows/swift.yml"
   pull_request:
     branches: [main, develop]
     paths:
+      - "Package.swift"
       - "langs/swift/**"
       - "examples/swift/**"
       - "spec/**"
+      - "tools/check-swift-package-sync.py"
       - ".github/workflows/swift.yml"
   workflow_dispatch:
 
@@ -41,10 +45,16 @@ jobs:
       # breakage, add a pinned-Xcode cell rather than silently raising the floor.
       - name: Show Swift version
         run: swift --version
-      - name: Build
+      - name: Check root and nested manifest parity
+        run: python3 tools/check-swift-package-sync.py
+      - name: Build root package
+        run: swift build -c release
+      - name: Test root package
+        run: swift test --parallel
+      - name: Build nested package
         working-directory: langs/swift
         run: swift build -c release
-      - name: Test
+      - name: Test nested package
         working-directory: langs/swift
         run: swift test --parallel
 
