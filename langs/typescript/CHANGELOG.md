@@ -4,6 +4,23 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.21.0] — 2026-07-12
+
+Continues to implement `spec-v3.20.0` with 391/391 library conformance IDs.
+
+### Added
+
+- `@thekaveh/vmx/conformance` provides the versioned consumer adapter schema,
+  strict validation, ordered factory runner, structural state and exact message
+  assertions, path-addressed diagnostics, and deterministic teardown (ADR-0102).
+- `adaptCommandTruthTableFixture` proves the runner against every unchanged VMx
+  command truth-table row without replacing CMD-007.
+
+### Changed
+
+- Isolated ESM, CommonJS, and declaration outputs keep Ajv and runner APIs out
+  of the root package entry.
+
 ## [3.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps TypeScript at full library parity: 391/391

@@ -551,12 +551,18 @@ ADR-0101 records the standards posture for TC39 Signals without changing the
 Signal adapter or dependency is added at Stage 1, and any future reconsideration
 must satisfy objective standards, implementation, and consumer-evidence gates.
 
+ADR-0102 defines the non-normative consumer conformance adapter schema and the
+TypeScript factory runner. It adds no behavior chapter, spec version bump, or
+conformance ID; the supporting schema versions independently.
+
 ### 1.30 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.20.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0101); see
+- `ADRs/` — Architecture Decision Records (0001-0102); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
+- `schemas/` — versioned supporting machine contracts. The consumer
+  conformance v1 schema is non-normative; see ADR-0102.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
   normative spec**, with one documented exception: a proposal MAY carry a

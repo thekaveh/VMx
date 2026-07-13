@@ -17,12 +17,12 @@ Rules enforced:
      repository release tags.
 
 In-development exemption:
-  The current version — the one that EQUALS ``spec/VERSION`` — is being
-  prepared on the release branch but is not tagged yet (tags are created at
-  release time).  Tags whose embedded version equals ``spec/VERSION`` are
-  therefore reported as "in development, untagged — OK" and do NOT cause a
-  non-zero exit.  All OTHER ``major >= 2`` matrix rows / manifest versions
-  still require a matching tag.
+  ``spec/VERSION`` and each current flavor manifest version recorded in that
+  spec row are being prepared but are not tagged yet. Flavors version
+  independently, so a package version may differ while its min-spec remains
+  ``spec/VERSION``. Those tags are reported as "in development, untagged —
+  OK" and do not cause a non-zero exit. All other ``major >= 2`` matrix rows
+  and manifest versions require matching tags.
 
 Exit codes:
     0  No mismatches detected.
@@ -381,6 +381,36 @@ def find_missing_tags(
     return missing
 
 
+def current_development_versions(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    matrix_rows: list[dict[str, object]],
+) -> set[str]:
+    """Return current untagged spec and independently versioned flavor lines."""
+    versions = {spec_version}
+    spec_parts = spec_version.split(".")
+    current_row = f"{spec_parts[0]}.{spec_parts[1]}.x"
+    row = next(
+        (candidate for candidate in matrix_rows if candidate.get("spec_row") == current_row),
+        None,
+    )
+    if row is None:
+        return versions
+
+    for flavor in FLAVORS:
+        manifest = manifests.get(flavor)
+        if manifest is None or manifest.get("require_current_spec") != "true":
+            continue
+        version = manifest.get("version", "")
+        if (
+            version
+            and manifest.get("min_spec_version") == spec_version
+            and version in row.get(flavor, [])  # type: ignore[operator]
+        ):
+            versions.add(version)
+    return versions
+
+
 # ─── reporting ────────────────────────────────────────────────────────
 
 
@@ -392,8 +422,8 @@ def _render_indev_note(
     """Append the in-development (current, untagged) note to ``lines``."""
     lines.append("")
     lines.append(
-        f"Note: {len(indev_tags)} tag(s) for the current in-development version"
-        f" v{spec_version} absent (== spec/VERSION; tagged at release — OK):"
+        f"Note: {len(indev_tags)} tag(s) for current in-development source lines"
+        f" implementing spec v{spec_version} absent (tagged at release — OK):"
     )
     for tag in sorted(indev_tags):
         reasons = "; ".join(sorted(set(indev_tags[tag])))
@@ -490,11 +520,20 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues = check_min_spec_versions(spec_version, manifests)
     all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
-    # Carve out the current, in-development version first: tags whose embedded
-    # semver equals spec/VERSION are not created until release, so their absence
-    # is expected and must NOT fail the check.
-    indev_missing = {t: r for t, r in all_missing.items() if _tag_version(t) == spec_version}
-    remaining = {t: r for t, r in all_missing.items() if _tag_version(t) != spec_version}
+    # Carve out current source lines first. Flavor package versions can advance
+    # independently while their min-spec and current matrix row stay pinned to
+    # spec/VERSION; none of those tags exists until release.
+    development_versions = current_development_versions(spec_version, manifests, matrix_rows)
+    indev_missing = {
+        tag: reasons
+        for tag, reasons in all_missing.items()
+        if _tag_version(tag) in development_versions
+    }
+    remaining = {
+        tag: reasons
+        for tag, reasons in all_missing.items()
+        if _tag_version(tag) not in development_versions
+    }
 
     # Split the rest into enforced (major >= MIN_ENFORCED_MAJOR) and
     # informational (major < MIN_ENFORCED_MAJOR, e.g. pre-2.0 legacy rows).
