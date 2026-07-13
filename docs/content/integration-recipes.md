@@ -76,6 +76,34 @@ delivery failures use the hub's isolated subscriber-error path.
 This recipe intentionally observes one fixed VM. Collection-member discovery
 and dynamic fan-in remain VMx issue #136.
 
+## Standards-Track JavaScript Signals Posture
+
+As verified on 2026-07-12, the
+[official TC39 Signals proposal](https://github.com/tc39/proposal-signals) and
+[proposal tracker](https://github.com/tc39/proposals/blob/main/stage-1-proposals.md)
+classify Signals as Stage 1. VMx therefore keeps RxJS as its TypeScript reactive
+primitive and does not ship a Signal polyfill, `toSignal` helper, or supported
+Signal subpath. Proposal-repository phases and prototype milestones are project
+planning; only committee-approved TC39 stage advancement is standards status.
+
+The existing interop seams remain the supported path:
+
+- typed hub messages for cross-VM observation, transactions, and isolated
+  subscriber failures;
+- VM-local property streams for an adapter that already owns one VM;
+- `DerivedProperty` for explicit computed reactive state;
+- `subscribeValue` for fixed-source selected state, equality, initial delivery,
+  current/previous values, and deterministic teardown;
+- framework recipes and adapters that translate those notifications into the
+  host's rendering primitive.
+
+ADR-0101 requires three gates before VMx reconsiders supported Signals interop:
+TC39 Stage 2 or later, a stable production-grade implementation, and successful
+pilots in at least two independent VMx consumers or framework adapters. A future
+design must also settle ownership/disposal, batching, equality, scheduling,
+error routing, and duplicate graph/polyfill behavior. Until then, use the
+ordinary VMx seams above rather than creating a second reactive architecture.
+
 ## Worked Examples
 
 - Avalonia Notes Workspace:
