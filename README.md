@@ -115,7 +115,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 100 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 101 ADRs,
   4 JSON fixtures, 396 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -300,7 +300,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0100)
+│   ├── ADRs/              architecture decision records (0001..0101)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
@@ -332,7 +332,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 100 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 101 ADRs,
   4 fixtures, and the 396-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
