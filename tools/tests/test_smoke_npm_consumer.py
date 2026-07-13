@@ -69,7 +69,7 @@ def test_wait_for_version_polls_until_exact_version() -> None:
 
 
 def test_wait_for_version_times_out_when_exact_version_is_absent() -> None:
-    with pytest.raises(TimeoutError, match="@thekaveh/vmx@3.21.0"):
+    with pytest.raises(TimeoutError, match=r"@thekaveh/vmx@3\.21\.0"):
         smoke.wait_for_version(
             "@thekaveh/vmx",
             "3.21.0",
@@ -81,5 +81,5 @@ def test_wait_for_version_times_out_when_exact_version_is_absent() -> None:
 
 @pytest.mark.parametrize("version", ["main", "3.21", "v3.21.0", "3.21.0-beta.1"])
 def test_renderers_reject_non_release_semver(version: str) -> None:
-    with pytest.raises(ValueError, match="X.Y.Z"):
+    with pytest.raises(ValueError, match=r"X\.Y\.Z"):
         smoke.render_esm(version)
