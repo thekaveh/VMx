@@ -35,6 +35,22 @@ generate code, or claim that the adapter schema specifies a viewmodel.
 | YAML model fields | none                                                                   | `vm`, `model`, `types`, `children`, `state`, `dependencies`, `derived`, `lifecycle`, `conformance` | Informative discovery only; only the linked JSON is adapted                  |
 | Code generation   | none                                                                   | prose says Swift may later regenerate                                                              | Explicitly out of scope                                                      |
 
+### 2.1 Artifact field inventory
+
+| Artifact                  | Fields observed                                                                                                                                    | Adapter decision                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| VMx command truth table   | `$schema-version`; cases: `id`, `predicate`, `task`, `trigger_emits`, `can_execute`, `execute_invokes_task`, `can_execute_changed_fires`           | Ship one unchanged-row adapter                          |
+| VMx derived properties    | `$schema-version`, `transforms`; scenarios: `name`, `sources_initial`, `transform`, `mutations`, `expected_values`                                 | Representable, but no v1 adapter                        |
+| VMx lifecycle transitions | `$schema-version`, `states`, `initial_state`, `terminal_states`, `notes`; transitions: `from`, `via`, `legal`, `to_intermediate`, `to_final`       | Needs explicit legal/error normalization; no v1 adapter |
+| VMx message ordering      | `$schema-version`; scenarios: `id`, `description`, producer-send variants, subscriber count, unsubscribe flag, expected-observed variants          | Representable through invokes/messages; no v1 adapter   |
+| VMx catalog               | Prefix/chapter table, stable ID headings, Given/When/Then prose, source ranges                                                                     | Remains normative Markdown/marker metadata              |
+| DayDreams AppVM YAML      | `vm`, `version`, `description`, `model`, `types`, `operations`, `derived`, `lifecycle`, `conformance`                                              | Descriptive only; linked JSON piloted                   |
+| DayDreams GalleryVM YAML  | `vm`, `version`, `description`, `model`, `children`, `state`, `types`, `dependencies`, `operations`, `lifecycle`, `conformance`                    | Descriptive only                                        |
+| DayDreams WorldVM YAML    | `vm`, `version`, `description`, `model`, `children`, `registry`, `heightfields`, `types`, `operations`, `scene_bridge`, `lifecycle`, `conformance` | Descriptive only                                        |
+| DayDreams AppVM JSON      | `initialRoute`; cases: `id`, `description`, bespoke `when`/`then`                                                                                  | AVM-001/002 translated in pilot                         |
+| DayDreams GalleryVM JSON  | `entriesFixture`; cases: `id`, `description`, `when.op`, `when.args`, domain `then`                                                                | Feasible, not included                                  |
+| DayDreams WorldVM JSON    | `sceneFixture`, `cases`, `streamingCases`; case `id`, optional `description`, `assert`/`equals` or domain `world`/`when`/`then`                    | Multiple setup/serializer modes remain consumer-owned   |
+
 ## 3. Canonical schema
 
 Create `spec/schemas/consumer-conformance-v1.schema.json`. Its `$comment`

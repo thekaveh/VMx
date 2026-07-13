@@ -70,6 +70,25 @@ boundary.
 | YAML model fields | None                                                              | `vm`, `model`, `types`, `children`, `state`, `dependencies`, `derived`, `lifecycle`, `conformance` | Discovery input only; not adapter-schema fields                        |
 | Code generation   | None                                                              | Swift generation described as a future goal                                                        | Out of scope                                                           |
 
+### Artifact Field Inventory
+
+The discovery used the following concrete fields. DayDreams fields are pinned
+to consumer commit `8d314dd`; they are evidence, not VMx-owned names.
+
+| Artifact                         | Fields observed                                                                                                                                       | Adapter status                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| VMx `command-truthtable.json`    | `$schema-version`; `cases[]` with `id`, `predicate`, `task`, `trigger_emits`, `can_execute`, `execute_invokes_task`, `can_execute_changed_fires`      | Shipped adapter keeps each row as `case.fixture`, invokes `evaluate`, and asserts the three result fields       |
+| VMx `derived-properties.json`    | `$schema-version`, `transforms`; `scenarios[]` with `name`, `sources_initial`, `transform`, `mutations`, `expected_values`                            | Could map mutations to `invoke` and values to state assertions; no adapter is shipped in v1                     |
+| VMx `lifecycle-transitions.json` | `$schema-version`, `states`, `initial_state`, `terminal_states`, `notes`; `transitions[]` with `from`, `via`, `legal`, `to_intermediate`, `to_final`  | Requires a factory operation per transition and explicit legal/error normalization; no adapter is shipped in v1 |
+| VMx `message-ordering.json`      | `$schema-version`; `scenarios[]` with `id`, `description`, producer-send variants, subscriber count, unsubscribe flag, and expected-observed variants | Can map producer actions to `invoke` and expected arrays to `assert-messages`; no adapter is shipped in v1      |
+| VMx conformance catalog          | Prefix-to-chapter table; stable `XXX-NNN` heading IDs; Given/When/Then prose; source-chapter conformance ranges                                       | Normative metadata remains Markdown and marker-tool input; adapter case IDs do not become catalog IDs           |
+| DayDreams `app.vm.yaml`          | `vm`, `version`, `description`, `model`, `types`, `operations`, `derived`, `lifecycle`, `conformance`                                                 | YAML remains descriptive; only its linked JSON was translated in the pilot                                      |
+| DayDreams `gallery.vm.yaml`      | `vm`, `version`, `description`, `model`, `children`, `state`, `types`, `dependencies`, `operations`, `lifecycle`, `conformance`                       | Not parsed or standardized                                                                                      |
+| DayDreams `world.vm.yaml`        | `vm`, `version`, `description`, `model`, `children`, `registry`, `heightfields`, `types`, `operations`, `scene_bridge`, `lifecycle`, `conformance`    | Not parsed or standardized                                                                                      |
+| DayDreams AppVM JSON             | `initialRoute`; `cases[]` with `id`, `description`, bespoke `when`, and bespoke `then` fields                                                         | AVM-001/002 were translated to suite fixture plus ordered invoke/state/message steps in the no-push pilot       |
+| DayDreams GalleryVM JSON         | `entriesFixture`; `cases[]` with `id`, `description`, `when.op`, `when.args`, and domain-specific `then` fields                                       | Factory/fixture adaptation is feasible but not included                                                         |
+| DayDreams WorldVM JSON           | `sceneFixture`, `cases`, `streamingCases`; cases use `id`, optional `description`, `assert`/`equals` or domain-specific `world`, `when`, and `then`   | Multiple setup modes and domain serializers remain consumer-owned; not included                                 |
+
 ### Suite Shape
 
 Unknown structural fields fail validation. Fixtures, invocation arguments,
