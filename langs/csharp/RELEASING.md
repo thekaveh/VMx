@@ -1,165 +1,146 @@
-# Releasing the `VMx` C# packages
+# Releasing the VMx C# packages
 
-This runbook documents how `VMx` (and its companion packages
-`VMx.Notifications` and `VMx.Extensions.DependencyInjection`) are published
-to NuGet.
+This runbook covers `VMx`, `VMx.Notifications`, and
+`VMx.Extensions.DependencyInjection`. Releases are tag-driven from `main` by
+`.github/workflows/release.yml`; each `csharp-v<X.Y.Z>` run publishes only
+projects whose declared version exactly equals the tag version.
 
-The release pipeline is **manual tag-driven**: push a `csharp-v<X.Y.Z>` tag
-on `main` and `.github/workflows/release.yml` handles the rest. There is no
-automated version-bump PR (release-please is not yet wired for the C#
-component — a follow-up when adopting it, see `langs/python/RELEASING.md`
-§2.2 for the tag-ordering gotcha).
+## 1. One-time owner setup
 
-## 1. Prerequisites (one-time, done by the package owner)
+### 1.1 Protected GitHub environment
 
-### 1.1 NuGet API key
+Create `nuget-csharp` in `thekaveh/VMx` with:
 
-- A NuGet account at <https://www.nuget.org/users/account/LogOn> with 2FA
-  enabled.
-- Create an API key at <https://www.nuget.org/account/apikeys> scoped to the
-  `VMx*` package glob with "Push" permission and a suitable expiration.
-- In the repo's Settings → Secrets and variables → Actions, add the secret
-  as `NUGET_API_KEY`.
+- only `csharp-v*` tag deployments;
+- required maintainer approval; and
+- administrator bypass disabled.
 
-> **Why token-based instead of OIDC?** NuGet Trusted Publishing (OIDC) is
-> not yet available for all publisher configurations. The pipeline uses
-> `--api-key "$NUGET_API_KEY"` for now; uplift to OIDC when NuGet supports
-> it, and update `release.yml:csharp` accordingly.
+Add the nuget.org profile name—not an email address—as the environment secret
+`NUGET_USER`. Although the profile name is not a credential, the environment
+secret keeps account identity and approval in the same protected boundary.
 
-### 1.2 Pre-publish metadata validation
+### 1.2 NuGet trusted-publishing policy
 
-Every URL in the `.csproj` files (`<PackageProjectUrl>`, `<RepositoryUrl>`,
-`<PackageLicenseExpression>`) is rendered on the NuGet package page. Before
-tagging, verify:
+From the authenticated nuget.org account, create a trusted-publishing policy
+owned by the intended individual or organization:
 
-```bash
-grep -r "PackageProjectUrl\|RepositoryUrl" langs/csharp/src/**/*.csproj
-```
+- repository owner: `thekaveh`;
+- repository: `VMx`;
+- workflow filename: `release.yml` (filename only);
+- environment: `nuget-csharp`.
 
-Check each URL is reachable. Also confirm `<Version>` matches the intended tag
-version in every package project you plan to release.
+The publish job has `id-token: write` and uses `NuGet/login` v1.2.0 to exchange
+GitHub OIDC for a one-use, one-hour API key immediately before upload. No
+long-lived NuGet API key belongs in GitHub.
 
-### 1.3 Companion package versioning
+If trusted publishing is unavailable to the account, stop. A least-privilege,
+short-expiry API-key fallback requires a separate reviewed workflow change and
+must be limited to the exact `VMx*` IDs; never add an undocumented token path.
 
-`VMx.Notifications` and `VMx.Extensions.DependencyInjection` version
-independently from `VMx` (per ADR-0009 / ADR-0013). The release workflow finds
-all C# package projects whose `<Version>` equals the `csharp-v*` tag version
-and packs only those projects. Update a companion package's `<Version>` only
-when it has changes to ship.
+## 2. Independent package versions
 
-## 2. Cutting a release
+The current first-publication sequence is deliberate:
 
-### 2.1 Routine release (manual)
+1. `csharp-v3.20.0` publishes `VMx` 3.20.0.
+2. `csharp-v1.2.0` publishes `VMx.Notifications` 1.2.0 after core verifies.
+3. `csharp-v2.1.1` publishes `VMx.Extensions.DependencyInjection` 2.1.1 after
+   core verifies.
 
-1. Land all intended changes on `main`.
-2. Update `<Version>` in the relevant `.csproj` file(s) under
-   `langs/csharp/src/`.
-3. Update `MinSpecVersion` in the same area if the spec version also bumped.
-4. Add a `## [X.Y.Z] — YYYY-MM-DD` section to `langs/csharp/CHANGELOG.md`.
-5. Commit and push directly to `main` (or via a PR).
-6. Tag and push:
+Both companions pack with `VMx >= 3.20.0` for net8.0 and netstandard2.0. DI
+uses packaging-only patch 2.1.1 because `csharp-v2.1.0` is already an immutable
+historical core tag. Never move or reuse that tag.
+
+## 3. Cutting a release
+
+1. Land the intended package version and matching core or package-qualified
+   `langs/csharp/CHANGELOG.md` section on `main` through develop/main PRs.
+2. From a clean current `origin/main`, confirm the tag and NuGet version are
+   absent. For example:
 
    ```bash
-   git checkout main
-   git pull --ff-only origin main
-   grep '<Version>' langs/csharp/src/VMx/VMx.csproj   # confirm version
-   git tag csharp-v2.6.1
-   git push origin csharp-v2.6.1
+   git ls-remote --exit-code --tags origin refs/tags/csharp-v3.20.0 || true
+   curl -fsS https://api.nuget.org/v3-flatcontainer/vmx/index.json || true
    ```
 
-7. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> —
-   the publish pipeline fires on the tag.
-8. The workflow verifies the tag commit is reachable from `origin/main` before
-   it builds. If `NUGET_API_KEY` is missing, the job fails before publish rather
-   than green-skipping the release.
-### 2.2 What the pipeline does
+3. Create the immutable tag on verified main and push it:
 
-The `csharp` job in `release.yml` runs only when the tag starts with
-`csharp-v`. It:
+   ```bash
+   git tag csharp-v3.20.0 origin/main
+   git push origin csharp-v3.20.0
+   ```
 
-1. Checks out the repository and verifies the tag commit is reachable from
-   `origin/main`.
-2. Sets up .NET 8.0.x and 9.0.x, restoring from the packages lockfile.
-3. Runs `dotnet restore VMx.sln --locked-mode`.
-4. Runs `dotnet build VMx.sln -c Release`.
-5. Runs `dotnet test VMx.sln -c Release` (full test suite incl. conformance).
-6. Finds package projects under `langs/csharp/src/*/*.csproj` whose `<Version>`
-   matches the tag and runs `dotnet pack` for those projects only.
-7. Fails if `NUGET_API_KEY` is absent.
-8. Runs `dotnet nuget push /tmp/nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json`
-   with `--skip-duplicate`.
+4. Approve the `nuget-csharp` deployment and watch the Release workflow.
+5. Require the public consumer and GitHub Release to pass before creating the
+   next companion tag.
 
-There is no separate verify-published or release-notes job for C# yet;
-add them alongside adoption of release-please.
+### 3.1 Pre-publish gates
 
-### 2.3 Pre-release (`alpha`, `beta`, `rc`)
+Before entering the protected environment, CI verifies main ancestry and exact
+tag/project selection, locked restore, Release format/build/tests, every public
+project pack, exact `.nupkg` and `.snupkg` allowlists, metadata, repository SHA,
+framework assets, dependency floors, and clean local net8.0 and netstandard2.0
+consumers. Only the tag-selected main/symbol pairs enter the publish artifact.
 
-Use NuGet pre-release SemVer segments in the `.csproj`:
+The protected job downloads that immutable artifact, validates `NUGET_USER`,
+exchanges OIDC, and pushes without `--skip-duplicate`. An existing version is
+an error, not something to hide.
 
-- `<Version>2.7.0-alpha.1</Version>` → `dotnet nuget push`
-  will push a pre-release package. `dotnet add package VMx` (no version pin)
-  will NOT pick it up by default; users must pin or pass `--prerelease`.
+### 3.2 Post-publish gates
 
-## 3. Verifying a release
+Separate net8.0 and netstandard2.0 jobs poll NuGet for the exact selected
+version. They restore into disposable package-only projects, compile core and
+selected companion APIs, and run the net8.0 assembly-version probe. Only after
+both pass does CI create a GitHub Release from the exact matching changelog
+section. Main-package upload also publishes the adjacent `.snupkg`.
 
-```bash
-# NuGet page renders:
-curl -s "https://api.nuget.org/v3-flatcontainer/vmx/index.json" \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['versions'][-1])"
+Pre-releases require a matching SemVer pre-release tag and an explicit workflow
+change because the current stable-tag selector accepts only `X.Y.Z`.
 
-# Install in a test project:
-mkdir /tmp/vmx-cs-verify && cd /tmp/vmx-cs-verify
-dotnet new classlib -n Verify
-cd Verify
-dotnet add package VMx --version X.Y.Z
-```
+## 4. Independent verification
 
-## 4. Failure modes
-
-### 4.1 `dotnet test` failed
-
-The pack and push steps are in the same job and run sequentially; a test
-failure causes the job to abort before push. Fix the failing test on `main`,
-cut a new tag with a bumped patch version.
-
-### 4.2 `NUGET_API_KEY` not set / expired
-
-The job fails before publish when the secret is absent or expired. Regenerate
-the API key on NuGet, update the `NUGET_API_KEY` Actions secret, and re-run the
-failed workflow. If the tag itself was wrong, delete and recreate it on `main`:
+Repeat public checks outside the release job:
 
 ```bash
-git push origin --delete csharp-v2.6.1
-git tag -d csharp-v2.6.1
-git tag csharp-v2.6.1
-git push origin csharp-v2.6.1
+python3 tools/smoke-nuget-consumer.py \
+  --package VMx=3.20.0 --framework net8.0 --poll-timeout 900
+python3 tools/smoke-nuget-consumer.py \
+  --package VMx=3.20.0 --framework netstandard2.0 --poll-timeout 900
+gh release view csharp-v3.20.0 --repo thekaveh/VMx
 ```
 
-> **`--skip-duplicate`**: the push uses `--skip-duplicate` so re-running after
-> fixing a secret issue does not fail if the package was partially uploaded.
+For a companion, pass its exact package/version; the tool pins core 3.20.0 as
+well. Verify the NuGet package page and symbol availability before changing
+documentation or the roadmap item to Done.
 
-### 4.3 Publish succeeded but the release is broken
+## 5. Failure and recovery
 
-NuGet allows unlisting but not deletion. Unlist the bad version at
-<https://www.nuget.org/packages/VMx/X.Y.Z/> (Manage → Unlist). Then publish
-a fix as a new patch version.
+### 5.1 Failure before upload
 
-## 5. Tag scheme and multi-flavor coexistence
+Fix through the normal PR flow. If no NuGet version or GitHub Release exists,
+an unpublished bad tag may be deleted and a new tag created on corrected main.
+Never move a tag after an artifact has been accepted.
 
-C# releases use `csharp-v<X.Y.Z>`. Each flavor tag prefix is independent;
-`release.yml` filters by prefix, so pushing a `csharp-v*` tag never affects
-the Python, TypeScript, or Swift jobs. See `langs/python/RELEASING.md` §5
-for the multi-flavor scheme overview.
+### 5.2 OIDC or account failure
 
-The companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`)
-share the `csharp-v<X.Y.Z>` tag prefix but version independently. If a companion
-package needs a hotfix without bumping the core package, update only that
-project's `<Version>` and push `csharp-v<X.Y.Z>` for the companion version; the
-workflow packs the matching project and does not repack unrelated C# packages.
+Confirm `NUGET_USER` is the profile name and that the policy matches owner,
+repository, `release.yml`, and `nuget-csharp` exactly. A pending policy may have
+a limited activation window; activate it through a successful authorized
+publish. Do not bypass the environment or add a long-lived key.
 
-## 6. Spec compatibility
+### 5.3 Upload succeeded but verification failed
 
-`MinSpecVersion` in the C# source declares the minimum `spec/VERSION` this
-package implements. Bump it manually in the same PR that implements a new spec
-version's behavior. A spec major bump requires a corresponding flavor major
-bump per `README.md` §6.1.
+NuGet versions are immutable. Diagnose the public artifact, fix forward, and
+publish a new patch. If necessary, unlist the broken version from its NuGet
+management page and explain the replacement in release notes. Never silently
+replace a package or reuse its tag.
+
+## 6. Documentation and compatibility
+
+`MinSpecVersion` declares the feature/spec level while companion package
+versions remain independent. A spec major bump requires a core flavor major
+bump under `README.md` §6.1.
+
+After all three public artifacts, symbols, exact consumers, and GitHub Releases
+verify, update canonical repository docs and regenerate the MkDocs `.io` site
+and GitHub wiki through develop and main PRs. Publication claims must never
+precede public evidence.

@@ -10,6 +10,8 @@ on:
       - "langs/csharp/**"
       - "examples/csharp/**"
       - "spec/**"
+      - "tools/check-nuget-package.py"
+      - "tools/smoke-nuget-consumer.py"
       - ".github/workflows/csharp.yml"
   pull_request:
     branches: [main, develop]
@@ -17,6 +19,8 @@ on:
       - "langs/csharp/**"
       - "examples/csharp/**"
       - "spec/**"
+      - "tools/check-nuget-package.py"
+      - "tools/smoke-nuget-consumer.py"
       - ".github/workflows/csharp.yml"
   workflow_dispatch:
 
@@ -70,6 +74,46 @@ jobs:
           files: langs/csharp/TestResults/**/coverage.cobertura.xml
           flags: csharp
           fail_ci_if_error: false
+
+  package:
+    name: package (${{ matrix.framework }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: ["net8.0", "netstandard2.0"]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup .NET 8 + .NET 9
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+          cache: true
+          cache-dependency-path: langs/csharp/**/packages.lock.json
+      - name: Restore
+        run: dotnet restore langs/csharp/VMx.sln --locked-mode
+      - name: Build
+        run: dotnet build langs/csharp/VMx.sln -c Release --no-restore --nologo
+      - name: Pack all public projects
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vmx-nupkgs
+          for project in langs/csharp/src/*/*.csproj; do
+            dotnet pack "$project" -c Release --no-build --nologo -o /tmp/vmx-nupkgs
+          done
+      - name: Check NuGet package contents and metadata
+        run: python3 tools/check-nuget-package.py --package-dir /tmp/vmx-nupkgs
+      - name: Verify exact packed consumer
+        run: >-
+          python3 tools/smoke-nuget-consumer.py
+          --project-root langs/csharp/src
+          --framework "${{ matrix.framework }}"
+          --package-dir /tmp/vmx-nupkgs
 
   examples:
     # Builds + tests the Notes-Showcase Avalonia example (Phase 8 of the

@@ -106,12 +106,16 @@ def parse_csharp_versions(csproj_path: Path) -> dict[str, str]:
     ver_m = re.search(r"<Version>([^<]+)</Version>", text)
     msv_m = re.search(r"<MinSpecVersion>([^<]+)</MinSpecVersion>", text)
     pkg_m = re.search(r"<PackageId>([^<]+)</PackageId>", text)
+    unreleased_m = re.search(r"<IsUnreleased>([^<]+)</IsUnreleased>", text)
     return {
         "package_id": pkg_m.group(1).strip() if pkg_m else csproj_path.stem,
         "version": ver_m.group(1).strip() if ver_m else "",
         "min_spec_version": msv_m.group(1).strip() if msv_m else "",
         "tag_prefix": "csharp",
         "require_current_spec": "true" if csproj_path.stem == "VMx" else "false",
+        "unreleased": (
+            "true" if unreleased_m and unreleased_m.group(1).strip().lower() == "true" else "false"
+        ),
     }
 
 
@@ -388,6 +392,11 @@ def current_development_versions(
 ) -> set[str]:
     """Return current untagged spec and independently versioned flavor lines."""
     versions = {spec_version}
+    versions.update(
+        info["version"]
+        for info in manifests.values()
+        if info.get("unreleased") == "true" and info.get("version")
+    )
     spec_parts = spec_version.split(".")
     current_row = f"{spec_parts[0]}.{spec_parts[1]}.x"
     row = next(
