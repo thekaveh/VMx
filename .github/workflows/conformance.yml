@@ -17,6 +17,8 @@ on:
       - "tools/**"
       - ".pre-commit-config.yaml"
       - ".github/workflows/conformance.yml"
+      - ".github/workflows/swift.yml"
+      - ".github/workflows/release.yml"
       - ".github/workflows/wiki.yml"
   pull_request:
     branches: [main, develop]
@@ -31,6 +33,8 @@ on:
       - "tools/**"
       - ".pre-commit-config.yaml"
       - ".github/workflows/conformance.yml"
+      - ".github/workflows/swift.yml"
+      - ".github/workflows/release.yml"
       - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
