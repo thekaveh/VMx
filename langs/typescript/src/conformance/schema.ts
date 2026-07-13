@@ -23,7 +23,31 @@ export function parseConsumerConformance(
       (validate.errors ?? []).map(toValidationIssue),
     );
   }
-  return input as ConsumerConformanceSuite;
+  const suite = input as ConsumerConformanceSuite;
+  const duplicateIssues = duplicateCaseIdIssues(suite);
+  if (duplicateIssues.length > 0) {
+    throw new ConsumerConformanceValidationError(duplicateIssues);
+  }
+  return suite;
+}
+
+function duplicateCaseIdIssues(
+  suite: ConsumerConformanceSuite,
+): ConsumerConformanceValidationIssue[] {
+  const seen = new Set<string>();
+  const issues: ConsumerConformanceValidationIssue[] = [];
+  suite.cases.forEach((testCase, index) => {
+    if (seen.has(testCase.id)) {
+      issues.push({
+        path: `/cases/${String(index)}/id`,
+        keyword: "uniqueCaseId",
+        message: `must be unique; ${testCase.id} is already used`,
+        schemaPath: "#/$defs/case/properties/id",
+      });
+    }
+    seen.add(testCase.id);
+  });
+  return issues;
 }
 
 function toValidationIssue(

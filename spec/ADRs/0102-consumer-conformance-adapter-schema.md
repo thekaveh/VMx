@@ -31,6 +31,8 @@ The adapter schema versions independently through `$schema-version`. A change
 that invalidates an accepted suite requires a new schema version. Unknown
 structural fields fail validation; JSON data inside fixtures, arguments,
 expected state, and normalized message records remains consumer-owned.
+Case IDs are unique within a suite so reports and diagnostic paths remain
+unambiguous.
 
 ### 2.2 Add a test-framework-neutral TypeScript runner
 

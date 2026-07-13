@@ -58,6 +58,16 @@ describe("consumer conformance schema", () => {
   it("rejects consumer YAML fields instead of treating them as VMx schema", () => {
     expectValidationPath({ ...validSuite, vm: "DemoVM" }, "/vm");
   });
+
+  it("rejects duplicate case IDs at the later case path", () => {
+    expectValidationPath(
+      {
+        ...validSuite,
+        cases: [validSuite.cases[0], validSuite.cases[0]],
+      },
+      "/cases/1/id",
+    );
+  });
 });
 
 function expectValidationPath(input: unknown, expectedPath: string): void {
