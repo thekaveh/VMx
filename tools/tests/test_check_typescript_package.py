@@ -1,5 +1,7 @@
 """Unit tests for tools/check-typescript-package.py."""
 
+import json
+
 import check_typescript_package as ctsp
 
 
@@ -66,3 +68,10 @@ def test_validate_paths_requires_runtime_and_declaration_chunks() -> None:
     assert "missing generated ESM chunk and source map" in errors
     assert "missing generated CommonJS chunk and source map" in errors
     assert "missing generated declaration chunk pair" in errors
+
+
+def test_json_array_ignores_ansi_and_lifecycle_output_before_npm_json() -> None:
+    payload = [{"files": [{"path": "package.json"}]}]
+    output = f"\x1b[36mCLI build [start]\x1b[0m\n{json.dumps(payload)}"
+
+    assert ctsp.json_array(output) == payload

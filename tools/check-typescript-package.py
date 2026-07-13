@@ -63,6 +63,20 @@ def validate_paths(paths: set[str]) -> list[str]:
     return errors
 
 
+def json_array(output: str) -> list[object]:
+    """Return the trailing JSON array after any npm lifecycle output."""
+    for index in range(len(output) - 1, -1, -1):
+        if output[index] != "[":
+            continue
+        try:
+            payload = json.loads(output[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, list):
+            return payload
+    raise ValueError("npm command did not emit a valid JSON array")
+
+
 def package_paths(package_dir: Path) -> set[str]:
     """Run npm's real dry-run pack and return the included file paths."""
     result = subprocess.run(
@@ -72,10 +86,7 @@ def package_paths(package_dir: Path) -> set[str]:
         capture_output=True,
         text=True,
     )
-    json_start = result.stdout.find("[")
-    if json_start < 0:
-        raise ValueError("npm pack did not emit a JSON array")
-    payload = json.loads(result.stdout[json_start:])
+    payload = json_array(result.stdout)
     if not isinstance(payload, list) or len(payload) != 1:
         raise ValueError("npm pack JSON must contain exactly one package")
     package = payload[0]

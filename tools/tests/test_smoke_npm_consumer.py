@@ -52,6 +52,13 @@ def test_typescript_command_uses_package_public_library_floor() -> None:
     assert command[target_index : target_index + 2] == ["--target", "ES2020"]
 
 
+def test_json_array_ignores_ansi_and_lifecycle_output_before_npm_json() -> None:
+    payload = [{"filename": "thekaveh-vmx-3.21.0.tgz"}]
+    output = f"\x1b[36mCLI build [start]\x1b[0m\n{json.dumps(payload)}"
+
+    assert smoke.json_array(output) == payload
+
+
 def test_wait_for_version_polls_until_exact_version() -> None:
     responses = iter([None, "3.21.0"])
     sleeps: list[float] = []

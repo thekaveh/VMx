@@ -149,14 +149,18 @@ def wait_for_version(
         sleeper(interval_seconds)
 
 
-def _json_array(output: str) -> list[object]:
-    start = output.find("[")
-    if start < 0:
-        raise ValueError("npm command did not emit a JSON array")
-    payload = json.loads(output[start:])
-    if not isinstance(payload, list):
-        raise ValueError("npm command JSON is not an array")
-    return payload
+def json_array(output: str) -> list[object]:
+    """Return the trailing JSON array after any npm lifecycle output."""
+    for index in range(len(output) - 1, -1, -1):
+        if output[index] != "[":
+            continue
+        try:
+            payload = json.loads(output[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, list):
+            return payload
+    raise ValueError("npm command did not emit a valid JSON array")
 
 
 def _pack(package_dir: Path, destination: Path) -> Path:
@@ -167,7 +171,7 @@ def _pack(package_dir: Path, destination: Path) -> Path:
         capture_output=True,
         text=True,
     )
-    payload = _json_array(result.stdout)
+    payload = json_array(result.stdout)
     if len(payload) != 1 or not isinstance(payload[0], dict):
         raise ValueError("npm pack JSON must contain exactly one package")
     filename = payload[0].get("filename")
