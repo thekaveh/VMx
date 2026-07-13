@@ -6,7 +6,7 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.20.x | 3.20.0[^current] | 3.20.0[^current] | 3.20.0–3.21.0[^current] | 3.20.0[^current] | 0.20.0[^rust] |
+| 3.20.x | 3.20.0[^current] | 3.20.0[^current] | 3.20.0–3.21.0[^current] | 3.20.0[^swift] | 0.20.0[^rust] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
 | 3.17.x | —               | —               | —               | —               | 0.17.0[^rust-source] |
@@ -75,11 +75,16 @@ THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: C#, Python, and Swift remain on the 3.20.0 in-development source
-line. TypeScript 3.21.0 is an additive tooling release that still implements
-spec 3.20.0. None is tagged or published. Python's latest PyPI release remains
-3.1.0; the other stable flavor registries remain pending. The C#/TypeScript
-release jobs refuse to green-skip a publish without configured credentials.
+[^current]: C# and Python remain on the 3.20.0 in-development source line.
+TypeScript 3.21.0 is an additive tooling release that still implements spec
+3.20.0. Python's latest PyPI release remains 3.1.0; C# and TypeScript public
+packages remain pending. Their release jobs refuse to green-skip a publish
+without configured credentials.
+
+[^swift]: Swift 3.20.0 is publicly installable from the repository root through
+the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
+tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
+point to the same `main` commit.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
 declares `MIN_SPEC_VERSION = "3.20.0"` and carries behavioral tests for all 391

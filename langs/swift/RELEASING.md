@@ -3,6 +3,13 @@
 This runbook documents Swift flavor releases. SwiftPM consumes VMx directly from
 git tags; there is no NuGet/PyPI/npm-style central registry publish step.
 
+The latest verified release is
+[`3.20.0`](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0).
+Its `v3.20.0` semantic tag and `swift-v3.20.0` operational tag both point to
+`b0d023cd0b2903c056c53ef7862d53cfe1507129`; a clean public consumer resolved
+that version, loaded all four bundled fixtures, and completed a VM lifecycle
+round trip.
+
 The repository-root `Package.swift` is the public SwiftPM entry point. It
 references the existing sources, tests, and resources under `langs/swift`; it
 does not copy them. `tools/check-swift-package-sync.py` compares SwiftPM's
@@ -23,7 +30,7 @@ must be pushed together at the same verified `main` commit.
 - `langs/swift/CHANGELOG.md` has the complete release entry. The README,
   compatibility matrix, site, and wiki must remain truthful about source-only
   status until the public tag and clean-consumer checks succeed.
-- The release version has never been tagged. Never move or reuse an existing
+- The intended release version has never been tagged. Never move or reuse an existing
   `v*` or `swift-v*` tag.
 
 ## 2. Cutting a Release

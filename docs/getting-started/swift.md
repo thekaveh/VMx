@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift flavor is at full parity as of v3.8.0: 324/324 library
+> The Swift flavor is at full parity as of v3.20.0: 391/391 library
 > conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
 > Notes Workspace flagship. See
 > [`langs/swift/README.md` §5](../../langs/swift/README.md) for the current
@@ -17,8 +17,9 @@ ______________________________________________________________________
 
 ## 1. Install
 
-The source tree currently implements v3.8.0. SwiftPM consumes VMx from git
-tags; use the versioned dependency after a `swift-v*` release publishes it.
+VMx Swift 3.20.0 is publicly installable from the repository root. SwiftPM
+resolves the immutable semantic tag `v3.20.0`; `swift-v3.20.0` is the matching
+operational tag and GitHub Release.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
 
@@ -32,11 +33,11 @@ let package = Package(
         .iOS(.v16), .macOS(.v13), .tvOS(.v16), .watchOS(.v9),
     ],
     dependencies: [
-        .package(url: "https://github.com/thekaveh/VMx.git", from: "X.Y.Z"),
+        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0"),
     ],
     targets: [
         .target(name: "MyApp", dependencies: [
-            .product(name: "VMx", package: "VMx"),
+            .product(name: "VMx", package: "vmx"),
         ]),
     ]
 )
@@ -45,10 +46,13 @@ let package = Package(
 Or in Xcode: **File → Add Package Dependencies → enter
 `https://github.com/thekaveh/VMx.git`**.
 
+The lowercase `package: "vmx"` value is SwiftPM's canonical repository
+identity. The library product and imported module remain uppercase `VMx`.
+
 For local development from a checked-out clone, use a path dependency:
 
 ```swift
-.package(path: "/path/to/VMx/langs/swift")
+.package(path: "/path/to/VMx")
 ```
 
 The Swift package uses Combine for reactive primitives and Dispatch for
