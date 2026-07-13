@@ -761,6 +761,28 @@ def test_main_exits_zero_when_indev_version_untagged(tmp_path: Path, monkeypatch
     assert rc == 0
 
 
+def test_main_exempts_independently_versioned_current_flavor(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """A current flavor may advance while its min-spec remains spec/VERSION."""
+    _make_repo_v3(tmp_path)
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        matrix.read_text(encoding="utf-8").replace(
+            "| 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) |",
+            "| 3.0.x | 3.0.0  | 3.0.0  | 3.0.0\u20133.1.0 | 3.0.0 (subset) |",
+        ),
+        encoding="utf-8",
+    )
+    package_json = tmp_path / "langs" / "typescript" / "package.json"
+    package_json.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
+    import check_version_consistency as _cvc
+
+    monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert _cvc.main(["--repo-root", str(tmp_path)]) == 0
+
+
 def test_indev_tags_reported_separately() -> None:
     """The 3.0.0 (in-dev) gaps are carved out of enforced_missing in find_missing_tags."""
     rows = [

@@ -115,7 +115,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 101 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 102 ADRs,
   4 JSON fixtures, 396 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -146,7 +146,7 @@ Each flavor implements the same conceptual stack:
 | ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
 | C#         | v3.20.0 in source       | NuGet package not published yet                                | System.Reactive        |
 | Python     | v3.20.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
-| TypeScript | v3.20.0 in source       | npm package not published yet                                  | rxjs                   |
+| TypeScript | v3.21.0 in source       | npm package not published yet                                  | rxjs                   |
 | Swift      | v3.20.0 in source       | SwiftPM tag not published yet; no central registry             | Combine                |
 | Rust       | v0.20.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
 
@@ -171,8 +171,9 @@ The C# flavor multi-targets `netstandard2.0` and
 is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
 in v2.4.0 because the unscoped `vmx` name was unavailable) targets Node
-≥20, emits dual ESM + CJS bundles, and exposes `@thekaveh/vmx/notifications`
-as a sub-path export. The Rust flavor lives under `langs/rust/` as the
+≥20, emits dual ESM + CJS bundles, and exposes notifications plus an isolated
+consumer-conformance tooling subpath. The Rust flavor lives under
+`langs/rust/` as the
 `vmx-rs` crate with the `vmx` import namespace; it has full library conformance
 coverage in source and is awaiting a crates.io release channel.
 
@@ -184,7 +185,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.20.x | 3.20.0 | 3.20.0 | 3.20.0     | 3.20.0         | 0.20.0        |
+| 3.20.x | 3.20.0 | 3.20.0 | 3.20.0–3.21.0 | 3.20.0       | 0.20.0        |
 | 3.19.x | 3.19.0 | 3.19.0 | 3.19.0     | 3.19.0         | 0.19.0        |
 | 3.18.x | 3.18.0 | 3.18.0 | 3.18.0     | 3.18.0         | 0.18.0        |
 | 3.17.x | 3.17.0 | 3.17.0 | 3.17.0     | 3.17.0         | 0.17.0        |
@@ -300,8 +301,9 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0101)
+│   ├── ADRs/              architecture decision records (0001..0102)
 │   ├── fixtures/          JSON test inputs shared across flavors
+│   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
 │   └── VERSION            spec SemVer
 ├── langs/
@@ -332,7 +334,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 101 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 102 ADRs,
   4 fixtures, and the 396-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
