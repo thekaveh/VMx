@@ -104,13 +104,14 @@ version it implements.
 
 | Package                                                                                                    | Current | Spec  |
 | ---------------------------------------------------------------------------------------------------------- | ------- | ----- |
-| [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.1.0   | 2.1.x |
+| [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.1.1   | 2.1.x |
 | [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                                   | 1.2.0   | 2.6.x |
 
 > **Note:** Companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`) version
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.20.0 core project, so a
-> published companion would carry a `VMx >= 3.20.0` NuGet dependency — the raised floor to record in
-> the C# `CHANGELOG.md` when the first C# packages are cut.
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.20.0 core project and
+> pack with a `VMx >= 3.20.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> because the historical core tag `csharp-v2.1.0` is immutable. These source versions do not claim
+> that the packages have been published.

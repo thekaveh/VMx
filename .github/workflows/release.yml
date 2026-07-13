@@ -22,19 +22,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  csharp:
+  csharp-build:
     if: startsWith(github.ref, 'refs/tags/csharp-v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      # Hoisted to job-level so the step-level `if: env.NUGET_API_KEY != ''`
-      # actually sees a value. GitHub evaluates step `if:` against
-      # workflow/job env BEFORE applying step-level `env:`, so a step-local
-      # env mapping is invisible to the same step's `if:`. Secrets cannot
-      # be referenced directly in `if:` either — the documented workaround
-      # is to project secret into job env.
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Verify tag commit is on main
@@ -52,52 +44,210 @@ jobs:
             9.0.x
           cache: true
           cache-dependency-path: langs/csharp/**/packages.lock.json
+      - name: Select exact tag-matching projects
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/csharp-v}"
+          python3 - "$tag_version" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+          import xml.etree.ElementTree as ET
+
+          version = sys.argv[1]
+          if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
+              raise SystemExit(f"invalid stable C# release tag version: {version}")
+          selected = []
+          for project in sorted(pathlib.Path("langs/csharp/src").glob("*/*.csproj")):
+              root = ET.parse(project).getroot()
+              package_id = root.findtext("PropertyGroup/PackageId")
+              project_version = root.findtext("PropertyGroup/Version")
+              if package_id and project_version == version:
+                  selected.append({
+                      "id": package_id,
+                      "version": version,
+                      "nupkg": f"{package_id}.{version}.nupkg",
+                      "snupkg": f"{package_id}.{version}.snupkg",
+                  })
+          if not selected:
+              raise SystemExit(f"no C# package project has Version {version}")
+          pathlib.Path("/tmp/csharp-release-manifest.json").write_text(
+              json.dumps(selected, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          cat /tmp/csharp-release-manifest.json
       - name: Restore
         run: dotnet restore langs/csharp/VMx.sln --locked-mode
+      - name: Format
+        run: dotnet format langs/csharp/VMx.sln --verify-no-changes --no-restore
       - name: Build
         run: dotnet build langs/csharp/VMx.sln -c Release --no-restore --nologo
       - name: Test
         run: dotnet test langs/csharp/VMx.sln -c Release --no-build --nologo
-      - name: Verify tag matches package version
+      - name: Pack all public projects
         run: |
           set -euo pipefail
-          tag_version="${GITHUB_REF#refs/tags/csharp-v}"
-          python3 - "$tag_version" <<'PY' > /tmp/csharp-release-projects.txt
+          mkdir -p /tmp/all-nupkgs
+          for project in langs/csharp/src/*/*.csproj; do
+            dotnet pack "$project" -c Release --no-build --nologo -o /tmp/all-nupkgs
+          done
+      - name: Check all package and symbol contracts
+        run: python3 tools/check-nuget-package.py --package-dir /tmp/all-nupkgs
+      - name: Verify local net8.0 consumer
+        run: >-
+          python3 tools/smoke-nuget-consumer.py
+          --project-root langs/csharp/src
+          --framework net8.0
+          --package-dir /tmp/all-nupkgs
+      - name: Verify local netstandard2.0 consumer
+        run: >-
+          python3 tools/smoke-nuget-consumer.py
+          --project-root langs/csharp/src
+          --framework netstandard2.0
+          --package-dir /tmp/all-nupkgs
+      - name: Stage only selected immutable artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-nupkgs
+          cp /tmp/csharp-release-manifest.json /tmp/release-nupkgs/manifest.json
+          python3 - <<'PY'
+          import json
           import pathlib
-          import sys
-          import xml.etree.ElementTree as ET
+          import shutil
 
-          tag_version = sys.argv[1]
-          for path in sorted(pathlib.Path("langs/csharp/src").glob("*/*.csproj")):
-              version = ET.parse(path).getroot().findtext("PropertyGroup/Version")
-              if version == tag_version:
-                  print(path)
+          source = pathlib.Path("/tmp/all-nupkgs")
+          target = pathlib.Path("/tmp/release-nupkgs")
+          manifest = json.loads(pathlib.Path("/tmp/csharp-release-manifest.json").read_text())
+          for package in manifest:
+              shutil.copy2(source / package["nupkg"], target)
+              shutil.copy2(source / package["snupkg"], target)
           PY
-          if [ ! -s /tmp/csharp-release-projects.txt ]; then
-            echo "::error::No C# package project has Version $tag_version." >&2
+      - name: Upload selected package artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: csharp-release-${{ github.run_id }}
+          path: /tmp/release-nupkgs
+          if-no-files-found: error
+
+  csharp-publish:
+    needs: csharp-build
+    if: startsWith(github.ref, 'refs/tags/csharp-v')
+    runs-on: ubuntu-latest
+    environment:
+      name: nuget-csharp
+      url: https://www.nuget.org/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download selected package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: csharp-release-${{ github.run_id }}
+          path: /tmp/release-nupkgs
+      - name: Verify NuGet profile is configured
+        env:
+          NUGET_USER: ${{ secrets.NUGET_USER }}
+        run: |
+          if [ -z "$NUGET_USER" ]; then
+            echo "::error::The protected environment must define NUGET_USER." >&2
             exit 1
           fi
-          echo "Tag $tag_version matches these C# package project(s):"
-          cat /tmp/csharp-release-projects.txt
-      - name: Pack
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - name: NuGet login (OIDC to temporary API key)
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Push exact selected packages and symbols
         run: |
           set -euo pipefail
-          while IFS= read -r project; do
-            dotnet pack "$project" -c Release --nologo --no-build -o /tmp/nupkgs
-          done < /tmp/csharp-release-projects.txt
-      - name: Verify NuGet API key is configured
+          python3 - <<'PY' > /tmp/csharp-main-packages.txt
+          import json
+          import pathlib
+
+          root = pathlib.Path("/tmp/release-nupkgs")
+          for package in json.loads((root / "manifest.json").read_text()):
+              print(root / package["nupkg"])
+          PY
+          while IFS= read -r package; do
+            dotnet nuget push "$package" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json
+          done < /tmp/csharp-main-packages.txt
+
+  csharp-verify-published:
+    needs: csharp-publish
+    if: startsWith(github.ref, 'refs/tags/csharp-v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: ["net8.0", "netstandard2.0"]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Download release manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: csharp-release-${{ github.run_id }}
+          path: /tmp/release-nupkgs
+      - name: Poll and verify exact public consumer
         run: |
           set -euo pipefail
-          if [ -z "${NUGET_API_KEY:-}" ]; then
-            echo "::error::NUGET_API_KEY is required for csharp-v* releases; refusing to green-skip publish." >&2
-            exit 1
-          fi
-      - name: Push to NuGet
+          packages=()
+          while IFS= read -r specification; do
+            packages+=(--package "$specification")
+          done < <(python3 - <<'PY'
+          import json
+          import pathlib
+
+          manifest = json.loads(pathlib.Path("/tmp/release-nupkgs/manifest.json").read_text())
+          for package in manifest:
+              print(f"{package['id']}={package['version']}")
+          PY
+          )
+          python3 tools/smoke-nuget-consumer.py \
+            "${packages[@]}" \
+            --framework "${{ matrix.framework }}" \
+            --poll-timeout 900
+
+  csharp-release-notes:
+    needs: csharp-verify-published
+    if: startsWith(github.ref, 'refs/tags/csharp-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Download release manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: csharp-release-${{ github.run_id }}
+          path: /tmp/release-nupkgs
+      - name: Render package-specific release notes
+        run: >-
+          python3 tools/render-csharp-release-notes.py
+          --manifest /tmp/release-nupkgs/manifest.json
+          --changelog langs/csharp/CHANGELOG.md
+          --output /tmp/csharp-release-notes.md
+      - name: Create C# GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          dotnet nuget push /tmp/nupkgs/*.nupkg \
-            --api-key "$NUGET_API_KEY" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" \
+            --title "C# NuGet ${tag#csharp-v}" \
+            --notes-file /tmp/csharp-release-notes.md \
+            --target "$GITHUB_SHA"
 
   python-test:
     # Gate: full test matrix before letting the publish job run. Without

@@ -4,6 +4,23 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-07-13
+
+### Changed
+
+- Packaging-only patch for the first public NuGet artifact. The package keeps
+  its 2.1.x API and min-spec declaration while recording the current
+  `VMx >= 3.20.0` dependency floor. Version 2.1.0 is not reused because
+  `csharp-v2.1.0` is an existing immutable historical core tag.
+
+## [VMx.Notifications 1.2.0] — 2026-07-13
+
+### Changed
+
+- Prepared the independently versioned notification package for its first
+  public NuGet artifact, including symbols and the current `VMx >= 3.20.0`
+  dependency floor. No notification behavior or public API changed.
+
 ## [3.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps C# at full library parity: 391/391
@@ -20,6 +37,9 @@ conformance IDs covered.
 - Latest-start-wins admission rejects stale completion, optional retention
   keeps the accepted value visible, and acquisition-based cleanup releases
   discarded, replaced, stale, and terminal values exactly once.
+- Release CI validates exact main/symbol package contents and clean net8.0 and
+  netstandard2.0 consumers before protected NuGet OIDC publication, then polls
+  public artifacts before creating package-specific GitHub release notes.
 
 ## [3.19.0] — 2026-07-12
 
