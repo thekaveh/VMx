@@ -2,6 +2,7 @@
 
 ## Snapshot
 
+- Current source: TypeScript 3.21.0 implementing spec 3.20.0
 - Install: `npm install @thekaveh/vmx rxjs`
 - Publication status: the scoped package name is the supported surface, but it
   has not been published yet; use a local workspace or source reference until a
@@ -115,6 +116,14 @@ These predicates are TypeScript-only type ergonomics, not new message behavior.
 The other flavors already have idiomatic nominal/runtime checks, so ADR-0094
 intentionally adds no artificial cross-flavor API parity requirement and no
 conformance ID.
+
+## Consumer Conformance Adapter
+
+The optional `@thekaveh/vmx/conformance` subpath validates versioned JSON
+operation/assertion suites and executes consumer factories without depending on
+a test framework. It is isolated from the root runtime entry. Full schema,
+factory, teardown, diagnostics, and non-goal guidance lives in
+[Specification & Conformance](../specification-conformance.md).
 
 ## Pointers
 

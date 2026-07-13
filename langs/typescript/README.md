@@ -1,14 +1,15 @@
 # @thekaveh/vmx — TypeScript
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for TypeScript and
-JavaScript, spec-compatible with the C#, Python, and Swift flavors.
+JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.20.0** — implements `spec-v3.20.0` end-to-end. 391/391 library conformance IDs
-pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS bundles;
-TypeScript declarations are bundled — no `@types/vmx` needed. Opt-in
-sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
+**v3.21.0** — implements `spec-v3.20.0` end-to-end. 391/391 library
+conformance IDs pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS
+bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
+Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
+test-framework-neutral `@thekaveh/vmx/conformance` adapter runner.
 
 > **Package rename in v2.4.0:** the npm package is now
 > **`@thekaveh/vmx`** (scoped). The previous unscoped name `vmx` could
@@ -18,7 +19,7 @@ sub-path export `@thekaveh/vmx/notifications` ships an `INotificationHub`.
 
 ## 2. Install
 
-The source tree currently implements v3.20.0. The scoped npm package has not
+The source tree currently implements v3.21.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -346,6 +347,32 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
 | `makeConfirm(hub, prompt)`                                        | Bridge to `ConfirmationDecoratorCommand` |
 | `NotificationVM`                                                  | Render-side VM for `Notification` (spec v2.1) |
 | `ConfirmationVM`                                                  | Render-side VM with Approve/Reject (spec v2.1) |
+
+### 4.4 Consumer conformance adapter
+
+Import `@thekaveh/vmx/conformance` when consumer fixtures need a strict,
+test-runner-neutral operation/assertion harness:
+
+```typescript
+import {
+  parseConsumerConformance,
+  runConsumerConformance,
+  type ConsumerConformanceFactory,
+} from "@thekaveh/vmx/conformance";
+
+const suite = parseConsumerConformance(input);
+const factory: ConsumerConformanceFactory = ({ caseFixture }) =>
+  createConsumerAdapter(caseFixture);
+const report = await runConsumerConformance(suite, factory);
+```
+
+The v1 schema supports ordered awaited operations, RFC 6901 state assertions,
+exact normalized-message assertions, path-addressed diagnostics, and exactly
+one disposal after successful factory creation. The subpath is excluded from
+the root runtime entry and imports no Vitest/Jest API. Consumer YAML, domain
+types, snapshot encoding, and operation dispatch remain consumer-owned; VMx
+does not parse YAML or generate Swift/code from this contract. See
+`spec/schemas/consumer-conformance-v1.schema.json` and ADR-0102.
 
 ## 5. Conformance
 
