@@ -10,6 +10,8 @@ on:
       - "langs/typescript/**"
       - "examples/typescript/**"
       - "spec/**"
+      - "tools/check-typescript-package.py"
+      - "tools/smoke-npm-consumer.py"
       - ".github/workflows/typescript.yml"
   pull_request:
     branches: [main, develop]
@@ -17,6 +19,8 @@ on:
       - "langs/typescript/**"
       - "examples/typescript/**"
       - "spec/**"
+      - "tools/check-typescript-package.py"
+      - "tools/smoke-npm-consumer.py"
       - ".github/workflows/typescript.yml"
   workflow_dispatch:
 
@@ -81,6 +85,38 @@ jobs:
           files: langs/typescript/coverage/coverage-final.json
           flags: typescript
           fail_ci_if_error: false
+
+  package:
+    name: package (node${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: langs/typescript/package-lock.json
+
+      - name: Install package dependencies
+        run: npm ci --prefix langs/typescript
+
+      - name: Check npm package contents
+        run: python3 tools/check-typescript-package.py
+
+      - name: Verify packed npm consumer
+        run: >-
+          python3 tools/smoke-npm-consumer.py
+          --package-dir langs/typescript
+          --version 3.21.0
 
   examples:
     # Installs + tests the Notes-Showcase React example (Phase 8 of the
