@@ -8,6 +8,7 @@ import { execSync } from "node:child_process";
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, "..", "..");
 const require = createRequire(import.meta.url);
+const rootSubpath = "@thekaveh/vmx";
 const conformanceSubpath = "@thekaveh/vmx/conformance";
 
 describe("built consumer conformance entry point", () => {
@@ -28,7 +29,7 @@ describe("built consumer conformance entry point", () => {
   });
 
   it("keeps conformance tooling and Ajv out of the root entry", async () => {
-    const root = (await import("@thekaveh/vmx")) as Record<string, unknown>;
+    const root = (await import(rootSubpath)) as Record<string, unknown>;
     const rootEsm = readFileSync(resolve(packageRoot, "dist", "index.js"), "utf8");
     const rootCjs = readFileSync(resolve(packageRoot, "dist", "index.cjs"), "utf8");
 
