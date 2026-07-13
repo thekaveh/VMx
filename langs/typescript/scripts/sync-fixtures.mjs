@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const srcFixtures = join(__dirname, "..", "..", "..", "spec", "fixtures");
 const destFixtures = join(__dirname, "..", "src", "fixtures");
+const srcSchemas = join(__dirname, "..", "..", "..", "spec", "schemas");
+const destSchemas = join(__dirname, "..", "src", "conformance", "schemas");
 
 if (!existsSync(srcFixtures)) {
   console.error(
@@ -29,3 +31,18 @@ for (const file of files) {
 }
 
 console.log(`sync-fixtures: copied ${files.length} file(s) → src/fixtures/`);
+
+if (!existsSync(srcSchemas)) {
+  console.error(`sync-fixtures: source directory not found: ${srcSchemas}`);
+  process.exit(1);
+}
+
+mkdirSync(destSchemas, { recursive: true });
+const schemas = readdirSync(srcSchemas).filter((f) => f.endsWith(".json"));
+for (const file of schemas) {
+  copyFileSync(join(srcSchemas, file), join(destSchemas, file));
+}
+
+console.log(
+  `sync-fixtures: copied ${schemas.length} file(s) → src/conformance/schemas/`,
+);
