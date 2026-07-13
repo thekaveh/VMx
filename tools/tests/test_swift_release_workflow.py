@@ -51,3 +51,10 @@ def test_swift_release_uses_changelog_notes_after_verification() -> None:
     assert smoke_index < notes_index < release_index
     assert "langs/swift/CHANGELOG.md" in workflow
     assert "--notes-file /tmp/swift-release-notes.md" in workflow
+
+
+def test_release_contract_suite_triggers_on_swift_workflow_changes() -> None:
+    workflow = _workflow("conformance.yml")
+
+    assert '- ".github/workflows/swift.yml"' in workflow
+    assert '- ".github/workflows/release.yml"' in workflow
