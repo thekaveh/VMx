@@ -24,7 +24,9 @@ def test_typescript_ci_verifies_packed_consumers_on_node_20_and_22() -> None:
     assert "python3 tools/check-typescript-package.py" in workflow
     assert "python3 tools/smoke-npm-consumer.py" in workflow
     assert "--package-dir langs/typescript" in workflow
-    assert "--version 3.21.0" in workflow
+    assert 'require("./langs/typescript/package.json").version' in workflow
+    assert '--version "$package_version"' in workflow
+    assert "--version 3.21.0" not in workflow
 
 
 def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:
