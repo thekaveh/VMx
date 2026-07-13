@@ -63,6 +63,13 @@ def test_parse_csharp_versions_different_patch(tmp_path: Path) -> None:
     assert info["min_spec_version"] == "2.7.0"
 
 
+def test_parse_csharp_versions_reads_explicit_unreleased_marker(tmp_path: Path) -> None:
+    csproj = tmp_path / "VMx.Extensions.DependencyInjection.csproj"
+    csproj.write_text("<Version>2.1.1</Version><IsUnreleased>true</IsUnreleased>", encoding="utf-8")
+
+    assert cvc.parse_csharp_versions(csproj)["unreleased"] == "true"
+
+
 def test_collect_manifests_includes_csharp_companion_packages(tmp_path: Path) -> None:
     csharp_src = tmp_path / "langs" / "csharp" / "src"
     core = csharp_src / "VMx"
@@ -120,6 +127,20 @@ def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -
 
     missing = cvc.find_missing_tags("3.1.0", manifests, [], {"csharp-v3.1.0"})
     assert "csharp-v2.1.0" in missing
+
+
+def test_current_development_versions_includes_explicit_unreleased_companion() -> None:
+    manifests = {
+        "csharp/VMx.Extensions.DependencyInjection": {
+            "version": "2.1.1",
+            "unreleased": "true",
+            "require_current_spec": "false",
+        }
+    }
+
+    versions = cvc.current_development_versions("3.20.0", manifests, [])
+
+    assert versions == {"3.20.0", "2.1.1"}
 
 
 # ── parse_python_versions ─────────────────────────────────────────────
