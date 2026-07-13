@@ -13,7 +13,7 @@ def test_render_manifest_uses_public_from_dependency() -> None:
     )
 
     assert '.package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0")' in manifest
-    assert '.product(name: "VMx", package: "VMx")' in manifest
+    assert '.product(name: "VMx", package: "vmx")' in manifest
     assert ".macOS(.v13)" in manifest
 
 

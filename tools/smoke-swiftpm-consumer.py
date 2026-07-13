@@ -47,7 +47,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "VMxSmoke",
-            dependencies: [.product(name: "VMx", package: "VMx")]
+            dependencies: [.product(name: "VMx", package: "vmx")]
         ),
     ]
 )
