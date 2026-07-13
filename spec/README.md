@@ -546,11 +546,16 @@ IDs).
 
 See ADR-0100 and chapter 23.
 
+ADR-0101 records the standards posture for TC39 Signals without changing the
+3.20.0 behavior contract: Rx remains the five-flavor reactive primitive, no
+Signal adapter or dependency is added at Stage 1, and any future reconsideration
+must satisfy objective standards, implementation, and consumer-evidence gates.
+
 ### 1.30 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.20.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0100); see
+- `ADRs/` — Architecture Decision Records (0001-0101); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `proposals/` — planning artifacts (accepted proposals that landed in past
   releases). These are **mostly historical and not part of the published
