@@ -2,15 +2,18 @@
 name = "vmx-rs"
 version = "0.20.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.88"
 description = "Hierarchical, lifecycle-aware MVVM viewmodel framework."
 license = "Apache-2.0"
 authors = ["Kaveh Razavi <kaveh.razavi@gmail.com>"]
 homepage = "https://github.com/thekaveh/VMx"
 repository = "https://github.com/thekaveh/VMx"
+documentation = "https://docs.rs/vmx-rs"
 readme = "README.md"
 keywords = ["mvvm", "viewmodel", "reactive", "lifecycle"]
 categories = ["gui", "asynchronous"]
+publish = ["crates-io"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
 
 [lib]
 name = "vmx"

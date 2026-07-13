@@ -20,6 +20,13 @@ conformance IDs covered.
 - Latest-start-wins admission rejects stale completion, optional retention
   keeps the accepted value visible, and acquisition-based cleanup releases
   discarded, replaced, stale, and terminal values exactly once.
+- Corrected the declared MSRV from Rust 1.82 to 1.88 because the required
+  `rxrust` 1.0.0-rc.5 uses edition-2024 let chains: Cargo 1.82 cannot parse its
+  manifest and Rust 1.85 cannot compile it.
+- Prepared the checked crates.io release channel with a strict package
+  allowlist, Rust 1.88/stable consumers, tag/main/version gates, one-time
+  bootstrap authentication, trusted-publishing migration, and public
+  crates.io/docs.rs verification before release notes.
 
 ## [0.19.0] — 2026-07-12
 
