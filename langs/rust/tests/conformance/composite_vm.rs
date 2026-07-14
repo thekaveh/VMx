@@ -76,6 +76,34 @@ fn construct_constructs_all_children() {
     assert_eq!(b.status(), ConstructionStatus::Constructed);
 }
 
+#[test]
+fn parent_reaches_constructed_only_after_children() {
+    let hub = MessageHub::new();
+    let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
+    let item = Child::with_model("child", "child", hub.clone(), NullDispatcher::new());
+    composite.add(item.clone()).unwrap();
+
+    composite.construct().unwrap();
+
+    let statuses = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change) => Some((change.sender_id, change.status)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        vec![
+            (composite.id(), ConstructionStatus::Constructing),
+            (item.id(), ConstructionStatus::Constructing),
+            (item.id(), ConstructionStatus::Constructed),
+            (composite.id(), ConstructionStatus::Constructed),
+        ]
+    );
+}
+
 /// COMP-005 — Destruct waits until all children reach Destructed
 #[test]
 fn destruct_clears_current_and_destructs_children() {

@@ -297,3 +297,44 @@ fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
         assert_eq!(hub.pending_snapshots().len(), before + 1);
     }
 }
+
+#[test]
+fn post_racing_dispose_never_orphans_its_waiter() {
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
+
+    for iteration in 0..200 {
+        let hub = NotificationHub::new();
+        let notification = Notification::new(NotificationType::Notification, "race");
+        let barrier = Arc::new(Barrier::new(3));
+        let (waiter_tx, waiter_rx) = mpsc::channel();
+        let poster = {
+            let hub = hub.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                waiter_tx.send(hub.post_notification(notification)).unwrap();
+            })
+        };
+        let disposer = {
+            let hub = hub.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                hub.dispose();
+            })
+        };
+        barrier.wait();
+        poster.join().unwrap();
+        disposer.join().unwrap();
+        let waiter = waiter_rx.recv().unwrap();
+        let (reaction_tx, reaction_rx) = mpsc::channel();
+        std::thread::spawn(move || reaction_tx.send(waiter.wait()).unwrap());
+
+        assert_eq!(
+            reaction_rx.recv_timeout(Duration::from_secs(1)),
+            Ok(NotificationReaction::Pending),
+            "iteration {iteration} orphaned a waiter"
+        );
+    }
+}

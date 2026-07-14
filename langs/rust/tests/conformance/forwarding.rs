@@ -69,7 +69,7 @@ fn forwarding_composite_forwards_items() {
     let forwarding = ForwardingCompositeVm::new(composite);
 
     assert_eq!(forwarding.len(), 2);
-    assert_eq!(forwarding.items(), vec![a, b]);
+    assert_eq!((&forwarding).into_iter().collect::<Vec<_>>(), vec![a, b]);
 }
 
 #[test]
@@ -83,6 +83,12 @@ fn forwarding_composite_delegates_complete_collection_and_selection_surface() {
     composite.construct().unwrap();
     let forwarding = ForwardingCompositeVm::new(composite.clone());
 
+    assert_eq!(forwarding.name(), composite.name());
+    assert_eq!(forwarding.hint(), composite.hint());
+    assert!(forwarding.is_constructed());
+    forwarding.reconstruct().unwrap();
+    assert!(forwarding.is_constructed());
+    assert_eq!(forwarding.parent_id(), composite.parent_id());
     assert_eq!(forwarding.get(0), Some(a.clone()));
     forwarding.insert(1, c.clone()).unwrap();
     assert_eq!(forwarding.replace(1, b.clone()).unwrap(), c);

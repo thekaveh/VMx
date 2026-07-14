@@ -736,6 +736,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     hint: Option<String>,
     status: ConstructionStatus,
     transitioning: bool,
+    transition_generation: u64,
     parent_id: Option<usize>,
     hub: MessageHub,
     property_changed: PropertyChangedStream,
@@ -757,6 +758,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 hint: None,
                 status: ConstructionStatus::Destructed,
                 transitioning: false,
+                transition_generation: 0,
                 parent_id: None,
                 hub,
                 property_changed: PropertyChangedStream::default(),
@@ -801,11 +803,15 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     fn transition(&self, operation: LifecycleOperation) -> VmxResult<()> {
-        let (sender_id, hub, foreground, hook, target) = {
+        self.transition_with(operation, || Ok(()))
+    }
+
+    fn transition_with<F>(&self, operation: LifecycleOperation, action: F) -> VmxResult<()>
+    where
+        F: FnOnce() -> VmxResult<()>,
+    {
+        let (sender_id, hub, foreground, hook, target, generation) = {
             let mut inner = lock(&self.inner);
-            if inner.transitioning {
-                return Err(VmxError::ConcurrentOperation);
-            }
             match (inner.status, operation) {
                 (ConstructionStatus::Disposed, LifecycleOperation::Construct) => {
                     return Err(VmxError::Disposed)
@@ -822,6 +828,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
                 _ => {}
             }
+            if inner.transitioning && operation != LifecycleOperation::Dispose {
+                return Err(VmxError::ConcurrentOperation);
+            }
 
             let transition_status = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Constructing,
@@ -833,6 +842,8 @@ impl<D: Dispatcher> ComponentCore<D> {
                 LifecycleOperation::Destruct => ConstructionStatus::Destructed,
                 LifecycleOperation::Dispose => ConstructionStatus::Disposed,
             };
+            inner.transition_generation = inner.transition_generation.wrapping_add(1);
+            let generation = inner.transition_generation;
             inner.transitioning = true;
             inner.status = transition_status;
             let hook = match operation {
@@ -846,6 +857,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 inner.foreground.clone(),
                 hook,
                 target,
+                generation,
             )
         };
 
@@ -856,21 +868,41 @@ impl<D: Dispatcher> ComponentCore<D> {
             },
         ));
 
-        let hook_result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+        let operation_result = hook
+            .map(|hook| (lock(&hook))())
+            .unwrap_or(Ok(()))
+            .and_then(|_| action());
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
             self.property_changed_stream().dispose();
         }
-        if let Err(error) = hook_result {
+        let superseded = {
+            let inner = lock(&self.inner);
+            inner.transition_generation != generation
+                || (operation != LifecycleOperation::Dispose
+                    && inner.status == ConstructionStatus::Disposed)
+        };
+        if superseded {
+            return operation_result;
+        }
+        if let Err(error) = operation_result {
             let rollback = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Destructed,
                 LifecycleOperation::Destruct => ConstructionStatus::Constructed,
                 LifecycleOperation::Dispose => ConstructionStatus::Disposed,
             };
-            {
+            let rolled_back = {
                 let mut inner = lock(&self.inner);
-                inner.status = rollback;
-                inner.transitioning = false;
+                if inner.transition_generation == generation {
+                    inner.status = rollback;
+                    inner.transitioning = false;
+                    true
+                } else {
+                    false
+                }
+            };
+            if !rolled_back {
+                return Err(error);
             }
             foreground.dispatch(Box::new(move || {
                 hub.send(Message::ConstructionStatusChanged(
@@ -885,6 +917,9 @@ impl<D: Dispatcher> ComponentCore<D> {
 
         let property_changed = {
             let mut inner = lock(&self.inner);
+            if inner.transition_generation != generation {
+                return Ok(());
+            }
             inner.status = target;
             inner.transitioning = false;
             (target == ConstructionStatus::Disposed).then(|| inner.property_changed.clone())
@@ -3366,6 +3401,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core.id()
     }
 
+    pub fn name(&self) -> String {
+        self.core.name()
+    }
+
+    pub fn hint(&self) -> Option<String> {
+        self.core.hint()
+    }
+
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
     }
@@ -3545,26 +3588,30 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.core.transition(LifecycleOperation::Construct)?;
-        for item in self.items() {
-            item.construct()?;
-        }
-        if let Some(selector) = lock(&self.current_selector).clone() {
-            if let Some(selected) = selector(self.items()) {
-                if self.items().contains(&selected) {
-                    self.assign_current(selected.into());
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                for item in self.items() {
+                    item.construct()?;
                 }
-            }
-        }
-        Ok(())
+                if let Some(selector) = lock(&self.current_selector).clone() {
+                    if let Some(selected) = selector(self.items()) {
+                        if self.items().contains(&selected) {
+                            self.assign_current(selected.into());
+                        }
+                    }
+                }
+                Ok(())
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.assign_current(None);
-        for item in self.items() {
-            item.destruct()?;
-        }
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            self.assign_current(None);
+            for item in self.items() {
+                item.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
@@ -3576,6 +3623,19 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     pub fn status(&self) -> ConstructionStatus {
         self.core.status()
+    }
+
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.destruct()?;
+        self.construct()
+    }
+
+    pub fn is_constructed(&self) -> bool {
+        self.status() == ConstructionStatus::Constructed
+    }
+
+    pub fn parent_id(&self) -> Option<usize> {
+        self.core.parent_id()
     }
 
     fn assign_current(&self, next: Option<T>) {
@@ -4152,6 +4212,18 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     pub fn status(&self) -> ConstructionStatus {
         self.inner.status()
     }
+
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.inner.reconstruct()
+    }
+
+    pub fn is_constructed(&self) -> bool {
+        self.inner.is_constructed()
+    }
+
+    pub fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmNode
@@ -4457,18 +4529,22 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.core.transition(LifecycleOperation::Construct)?;
-        for item in self.items() {
-            item.construct()?;
-        }
-        Ok(())
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                for item in self.items() {
+                    item.construct()?;
+                }
+                Ok(())
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        for item in self.items() {
-            item.destruct()?;
-        }
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            for item in self.items() {
+                item.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
@@ -5228,14 +5304,19 @@ impl Future for NotificationWaiter {
     }
 }
 
+#[derive(Default)]
+struct NotificationHubState {
+    pending: BTreeMap<u64, Notification>,
+    reactions: HashMap<u64, NotificationReaction>,
+    completions: HashMap<u64, AsyncValue<NotificationReaction>>,
+    pending_snapshots: Vec<Vec<Notification>>,
+    disposed: bool,
+}
+
 #[derive(Clone, Default)]
 pub struct NotificationHub {
-    pending: Arc<Mutex<BTreeMap<u64, Notification>>>,
-    reactions: Arc<Mutex<HashMap<u64, NotificationReaction>>>,
-    completions: Arc<Mutex<HashMap<u64, AsyncValue<NotificationReaction>>>>,
-    pending_snapshots: Arc<Mutex<Vec<Vec<Notification>>>>,
+    state: Arc<Mutex<NotificationHubState>>,
     pending_changed: MessageHub,
-    disposed: Arc<Mutex<bool>>,
 }
 
 impl NotificationHub {
@@ -5244,20 +5325,33 @@ impl NotificationHub {
     }
 
     pub fn post_notification(&self, notification: Notification) -> NotificationWaiter {
-        if *lock(&self.disposed) {
-            lock(&self.reactions).insert(notification.id, NotificationReaction::Pending);
-            return NotificationWaiter {
-                completion: AsyncValue::ready(NotificationReaction::Pending),
-            };
+        let notification_id = notification.id;
+        let (completion, publish) = {
+            let mut state = lock(&self.state);
+            if state.disposed {
+                state
+                    .reactions
+                    .insert(notification_id, NotificationReaction::Pending);
+                (AsyncValue::ready(NotificationReaction::Pending), false)
+            } else if let Some(completion) = state.completions.get(&notification_id).cloned() {
+                (completion, false)
+            } else {
+                let completion = AsyncValue::pending();
+                state.pending.insert(notification_id, notification);
+                state
+                    .reactions
+                    .insert(notification_id, NotificationReaction::Pending);
+                state
+                    .completions
+                    .insert(notification_id, completion.clone());
+                let snapshot = state.pending.values().cloned().collect();
+                state.pending_snapshots.push(snapshot);
+                (completion, true)
+            }
+        };
+        if publish {
+            self.publish_pending();
         }
-        if let Some(completion) = lock(&self.completions).get(&notification.id).cloned() {
-            return NotificationWaiter { completion };
-        }
-        let completion = AsyncValue::pending();
-        lock(&self.pending).insert(notification.id, notification.clone());
-        lock(&self.reactions).insert(notification.id, NotificationReaction::Pending);
-        lock(&self.completions).insert(notification.id, completion.clone());
-        self.publish_pending();
         NotificationWaiter { completion }
     }
 
@@ -5278,18 +5372,25 @@ impl NotificationHub {
     }
 
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
-        let removed = lock(&self.pending).remove(&notification_id).is_some();
-        if removed {
-            lock(&self.reactions).insert(notification_id, reaction);
-            if let Some(completion) = lock(&self.completions).remove(&notification_id) {
-                completion.resolve(reaction);
+        let completion = {
+            let mut state = lock(&self.state);
+            if state.pending.remove(&notification_id).is_none() {
+                return;
             }
-            self.publish_pending();
+            state.reactions.insert(notification_id, reaction);
+            let completion = state.completions.remove(&notification_id);
+            let snapshot = state.pending.values().cloned().collect();
+            state.pending_snapshots.push(snapshot);
+            completion
+        };
+        if let Some(completion) = completion {
+            completion.resolve(reaction);
         }
+        self.publish_pending();
     }
 
     pub fn pending(&self) -> Vec<Notification> {
-        lock(&self.pending).values().cloned().collect()
+        lock(&self.state).pending.values().cloned().collect()
     }
 
     pub fn pending_changed(&self) -> MessageHub {
@@ -5297,43 +5398,44 @@ impl NotificationHub {
     }
 
     pub fn pending_snapshots(&self) -> Vec<Vec<Notification>> {
-        lock(&self.pending_snapshots).clone()
+        lock(&self.state).pending_snapshots.clone()
     }
 
     pub fn reaction(&self, notification_id: u64) -> NotificationReaction {
-        lock(&self.reactions)
+        lock(&self.state)
+            .reactions
             .get(&notification_id)
             .copied()
             .unwrap_or(NotificationReaction::Pending)
     }
 
     pub fn dispose(&self) {
-        let should_dispose = {
-            let mut disposed = lock(&self.disposed);
-            if *disposed {
-                false
-            } else {
-                *disposed = true;
-                true
+        let completions = {
+            let mut state = lock(&self.state);
+            if state.disposed {
+                return;
             }
+            state.disposed = true;
+            let pending_ids = state.pending.keys().copied().collect::<Vec<_>>();
+            for id in pending_ids {
+                state.reactions.insert(id, NotificationReaction::Pending);
+            }
+            let completions = state
+                .completions
+                .drain()
+                .map(|(_, value)| value)
+                .collect::<Vec<_>>();
+            state.pending.clear();
+            state.pending_snapshots.push(Vec::new());
+            completions
         };
-        if !should_dispose {
-            return;
+        for completion in completions {
+            completion.resolve(NotificationReaction::Pending);
         }
-        let pending_ids = lock(&self.pending).keys().copied().collect::<Vec<_>>();
-        for id in pending_ids {
-            lock(&self.reactions).insert(id, NotificationReaction::Pending);
-            if let Some(completion) = lock(&self.completions).remove(&id) {
-                completion.resolve(NotificationReaction::Pending);
-            }
-        }
-        lock(&self.pending).clear();
         self.publish_pending();
     }
 
     fn publish_pending(&self) {
-        let snapshot = self.pending();
-        lock(&self.pending_snapshots).push(snapshot);
         self.pending_changed.send(Message::Custom {
             sender_id: 0,
             name: "pending".to_string(),
@@ -7189,6 +7291,22 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
         self.inner.status()
     }
 
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.inner.reconstruct()
+    }
+
+    pub fn is_constructed(&self) -> bool {
+        self.inner.is_constructed()
+    }
+
+    pub fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+
+    pub fn select_command(&self) -> RelayCommand {
+        self.inner.select_command()
+    }
+
     pub fn select(&self) {
         self.inner.select();
     }
@@ -7234,6 +7352,14 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
 
     pub fn id(&self) -> usize {
         self.inner.id()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn hint(&self) -> Option<String> {
+        self.inner.hint()
     }
 
     pub fn items(&self) -> Vec<T> {
@@ -7323,6 +7449,18 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.status()
     }
 
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.inner.reconstruct()
+    }
+
+    pub fn is_constructed(&self) -> bool {
+        self.inner.is_constructed()
+    }
+
+    pub fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.inner.property_changed()
     }
@@ -7337,6 +7475,24 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> IntoIterator for ForwardingCompositeVm<T, D> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items().into_iter()
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> IntoIterator for &ForwardingCompositeVm<T, D> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items().into_iter()
     }
 }
 

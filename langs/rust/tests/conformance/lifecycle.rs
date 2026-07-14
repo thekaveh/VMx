@@ -163,6 +163,47 @@ fn concurrent_operation_while_transitioning_raises() {
     ));
 }
 
+#[test]
+fn dispose_supersedes_constructing_without_resurrection() {
+    let hub = MessageHub::new();
+    let vm = ComponentVm::with_services("vm", hub.clone(), NullDispatcher::new());
+    let observed = statuses(&hub);
+    let hook_vm = vm.clone();
+    vm.on_construct(move || hook_vm.dispose());
+
+    vm.construct().unwrap();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Disposed
+        ]
+    );
+}
+
+#[test]
+fn dispose_supersedes_destructing_without_resurrection() {
+    let hub = MessageHub::new();
+    let vm = ComponentVm::with_services("vm", hub.clone(), NullDispatcher::new());
+    vm.construct().unwrap();
+    let observed = statuses(&hub);
+    let hook_vm = vm.clone();
+    vm.on_destruct(move || hook_vm.dispose());
+
+    vm.destruct().unwrap();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Disposed
+        ]
+    );
+}
+
 /// LIFE-009 — construct from Constructed is idempotent (no-op)
 #[test]
 fn construct_from_constructed_is_noop() {
