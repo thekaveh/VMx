@@ -4,9 +4,9 @@ This gallery collects the generated architecture diagrams for every committed
 example app. Use the SVG links for source browsing and the PNG exports for
 GitHub-native rendering.
 
-## C#
+## 1. C#
 
-### C# Console HelloVMx
+### 1.1. C# Console HelloVMx
 
 ![C# Console HelloVMx Example](../docs/assets/diagrams/csharp-console-hello-vmx.png)
 
@@ -14,7 +14,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/csharp-console-hello-vmx.svg) |
 [PNG](../docs/assets/diagrams/csharp-console-hello-vmx.png)
 
-### C# WPF Todo App
+### 1.2. C# WPF Todo App
 
 ![C# WPF Todo App Example](../docs/assets/diagrams/csharp-wpf-todo-app.png)
 
@@ -22,7 +22,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/csharp-wpf-todo-app.svg) |
 [PNG](../docs/assets/diagrams/csharp-wpf-todo-app.png)
 
-### C# Avalonia Notes Showcase
+### 1.3. C# Avalonia Notes Showcase
 
 ![C# Avalonia Notes Showcase Example](../docs/assets/diagrams/csharp-avalonia-notes-showcase.png)
 
@@ -30,9 +30,9 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/csharp-avalonia-notes-showcase.svg) |
 [PNG](../docs/assets/diagrams/csharp-avalonia-notes-showcase.png)
 
-## Python
+## 2. Python
 
-### Python Console hello_vmx
+### 2.1. Python Console hello_vmx
 
 ![Python Console hello_vmx Example](../docs/assets/diagrams/python-console-hello-vmx.png)
 
@@ -40,7 +40,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/python-console-hello-vmx.svg) |
 [PNG](../docs/assets/diagrams/python-console-hello-vmx.png)
 
-### Python tkinter Todo App
+### 2.2. Python tkinter Todo App
 
 ![Python tkinter Todo App Example](../docs/assets/diagrams/python-tk-todo-app.png)
 
@@ -48,7 +48,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/python-tk-todo-app.svg) |
 [PNG](../docs/assets/diagrams/python-tk-todo-app.png)
 
-### Python Textual Inspector
+### 2.3. Python Textual Inspector
 
 ![Python Textual Inspector Example](../docs/assets/diagrams/python-textual-inspector.png)
 
@@ -56,7 +56,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/python-textual-inspector.svg) |
 [PNG](../docs/assets/diagrams/python-textual-inspector.png)
 
-### Python Textual Notes Showcase
+### 2.4. Python Textual Notes Showcase
 
 ![Python Textual Notes Showcase Example](../docs/assets/diagrams/python-textual-notes-showcase.png)
 
@@ -64,9 +64,9 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/python-textual-notes-showcase.svg) |
 [PNG](../docs/assets/diagrams/python-textual-notes-showcase.png)
 
-## TypeScript
+## 3. TypeScript
 
-### TypeScript Console hello-vmx
+### 3.1. TypeScript Console hello-vmx
 
 ![TypeScript Console hello-vmx Example](../docs/assets/diagrams/typescript-console-hello-vmx.png)
 
@@ -74,7 +74,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/typescript-console-hello-vmx.svg) |
 [PNG](../docs/assets/diagrams/typescript-console-hello-vmx.png)
 
-### TypeScript React Notes Showcase
+### 3.2. TypeScript React Notes Showcase
 
 ![TypeScript React Notes Showcase Example](../docs/assets/diagrams/typescript-react-notes-showcase.png)
 
@@ -82,9 +82,9 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/typescript-react-notes-showcase.svg) |
 [PNG](../docs/assets/diagrams/typescript-react-notes-showcase.png)
 
-## Swift
+## 4. Swift
 
-### Swift Notes Showcase
+### 4.1. Swift Notes Showcase
 
 ![Swift Notes Showcase Example](../docs/assets/diagrams/swift-notes-showcase.png)
 
@@ -92,9 +92,9 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/swift-notes-showcase.svg) |
 [PNG](../docs/assets/diagrams/swift-notes-showcase.png)
 
-## Rust
+## 5. Rust
 
-### Rust Console hello-vmx
+### 5.1. Rust Console hello-vmx
 
 ![Rust Console hello-vmx Example](../docs/assets/diagrams/rust-console-hello-vmx.png)
 
@@ -102,7 +102,7 @@ GitHub-native rendering.
 [SVG](../docs/assets/diagrams/rust-console-hello-vmx.svg) |
 [PNG](../docs/assets/diagrams/rust-console-hello-vmx.png)
 
-### Rust TUI Notes Showcase
+### 5.2. Rust TUI Notes Showcase
 
 ![Rust TUI Notes Showcase VM Layer](../docs/assets/diagrams/rust-tui-notes-showcase.png)
 

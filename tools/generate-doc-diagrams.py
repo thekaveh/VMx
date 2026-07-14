@@ -348,7 +348,7 @@ def architecture(output_root: Path) -> None:
             220,
             145,
             "Rust Flavor",
-            ("VMx-owned facade", "UI-neutral core", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
+            ("VMx-owned facade", "UI-neutral core", f"{LIBRARY_COUNT} library IDs"),
             "frontend",
         ),
         Box(

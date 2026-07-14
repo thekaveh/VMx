@@ -4,7 +4,11 @@ import re
 from pathlib import Path
 
 from scripts.docs import build_docs
-from scripts.docs.check_docs import _check_descendant_heading_numbers, check
+from scripts.docs.check_docs import (
+    _check_descendant_heading_numbers,
+    check,
+    check_self_containment,
+)
 from scripts.docs.links import is_forbidden
 from scripts.docs.manifest import load_manifest
 from scripts.docs.transforms import build_source_map
@@ -73,6 +77,20 @@ def test_forbidden_link_matrix_keeps_surfaces_self_contained() -> None:
     assert is_forbidden("https://thekaveh.github.io/VMx/quickstart/", "wiki")
     assert is_forbidden("https://github.com/thekaveh/VMx/wiki", "repo")
     assert not is_forbidden("https://example.com/VMx", "site")
+
+
+def test_repo_self_containment_scans_current_facing_markdown(tmp_path: Path) -> None:
+    example = tmp_path / "examples/example.md"
+    example.parent.mkdir(parents=True)
+    example.write_text(
+        "[Published copy](https://thekaveh.github.io/VMx/examples/example/).\n",
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "examples/example.md" in findings[0].message
 
 
 def test_build_generates_self_contained_surfaces() -> None:

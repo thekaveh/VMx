@@ -81,7 +81,8 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertIn("color-scheme: dark;", html)
         self.assertNotIn("@media (prefers-color-scheme: dark)", html)
         self.assertIn("background: var(--page-bg);", html)
-        self.assertIn("follow the labeled relationships between components", html)
+        self.assertNotIn("follow the labeled relationships between components", html)
+        self.assertNotIn("Generated for", html)
         self.assertNotIn("Dark SVG source uses", html)
         self.assertIn("<svg", html)
 
@@ -110,6 +111,34 @@ class GenerateDiagramsTests(unittest.TestCase):
                     box.y + box.h - 2,
                     f"{diagram.title}: {box.title!r} body overflows vertically",
                 )
+
+    def test_class_lineage_routes_do_not_cross_boxes_or_overlap(self) -> None:
+        diagram = self.generator.class_architecture()
+        lineage = diagram.relationships[:5]
+        seen_segments: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+
+        for relationship in lineage:
+            for start, end in zip(relationship.points, relationship.points[1:], strict=False):
+                segment = tuple(sorted((start, end)))
+                self.assertNotIn(segment, seen_segments)
+                seen_segments.add(segment)
+                for box in diagram.boxes:
+                    if start[0] == end[0]:
+                        x = start[0]
+                        low, high = sorted((start[1], end[1]))
+                        crosses = box.x < x < box.x + box.w and max(low, box.y) < min(
+                            high, box.y + box.h
+                        )
+                    else:
+                        y = start[1]
+                        low, high = sorted((start[0], end[0]))
+                        crosses = box.y < y < box.y + box.h and max(low, box.x) < min(
+                            high, box.x + box.w
+                        )
+                    self.assertFalse(
+                        crosses,
+                        f"{relationship.kind} segment {start}->{end} crosses {box.title}",
+                    )
 
     def test_svg_output_is_dark_and_uses_architecture_palette(self) -> None:
         svg = self.generator.svg_doc(self.generator.system_architecture())

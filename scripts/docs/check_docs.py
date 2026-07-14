@@ -11,7 +11,12 @@ from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
-NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*\.)\s+")
+NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
+
+STANDALONE_NUMBERED_DOCS = (
+    Path("langs/rust/README.md"),
+    Path("examples/DIAGRAMS.md"),
+)
 
 
 @dataclass(frozen=True)
@@ -22,6 +27,38 @@ class Finding:
 
 def _scan_markdown(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.md") if path.is_file())
+
+
+def _scan_repo_surface_markdown(repo_root: Path) -> list[Path]:
+    files = [
+        repo_root / name
+        for name in (
+            "README.md",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+            "CODE_OF_CONDUCT.md",
+            "compatibility-matrix.md",
+        )
+        if (repo_root / name).is_file()
+    ]
+    excluded_parts = {
+        ".build",
+        ".venv",
+        "_build",
+        "audit",
+        "bin",
+        "generated",
+        "node_modules",
+        "obj",
+        "superpowers",
+        "target",
+    }
+    for root_name in ("docs/content", "docs/maintenance", "examples", "langs", "tools"):
+        for path in _scan_markdown(repo_root / root_name):
+            if excluded_parts.intersection(path.relative_to(repo_root).parts):
+                continue
+            files.append(path)
+    return sorted(set(files))
 
 
 def check_self_containment(repo_root: Path) -> list[Finding]:
@@ -37,12 +74,14 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
                     findings.append(
                         Finding("error", f"{path}: forbidden {surface} link {link.target}")
                     )
-    readme = repo_root / "README.md"
-    if readme.exists():
-        for link in find_links(readme.read_text(encoding="utf-8")):
+    for path in _scan_repo_surface_markdown(repo_root):
+        for link in find_links(path.read_text(encoding="utf-8")):
             if is_forbidden(link.target, "repo"):
                 findings.append(
-                    Finding("error", f"README.md: forbidden repo-surface link {link.target}")
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}: forbidden repo-surface link {link.target}",
+                    )
                 )
     return findings
 
@@ -79,10 +118,17 @@ def check_heading_numbers(repo_root: Path) -> list[Finding]:
                 )
             )
         findings.extend(_check_descendant_heading_numbers(text, section.number, section.source))
+    for relative_path in STANDALONE_NUMBERED_DOCS:
+        path = repo_root / relative_path
+        findings.extend(
+            _check_descendant_heading_numbers(path.read_text(encoding="utf-8"), None, relative_path)
+        )
     return findings
 
 
-def _check_descendant_heading_numbers(markdown: str, page_number: str, path: Path) -> list[Finding]:
+def _check_descendant_heading_numbers(
+    markdown: str, page_number: str | None, path: Path
+) -> list[Finding]:
     """Validate baked H2-H6 numbering while ignoring fenced examples."""
     findings: list[Finding] = []
     counters = [0, 0, 0, 0, 0]
@@ -114,12 +160,17 @@ def _check_descendant_heading_numbers(markdown: str, page_number: str, path: Pat
         counters[depth] += 1
         for index in range(depth + 1, len(counters)):
             counters[index] = 0
+        page_prefix = f"{page_number}." if page_number else ""
         expected_number = (
-            f"{page_number}." + ".".join(str(value) for value in counters[: depth + 1]) + "."
+            page_prefix + ".".join(str(value) for value in counters[: depth + 1]) + "."
         )
         title = match.group(2)
         actual = NUMBER_PREFIX_RE.match(title)
-        if actual is None or actual.group(1) != expected_number:
+        if (
+            actual is None
+            or actual.group(1) != expected_number.removesuffix(".")
+            or actual.group(2) != "."
+        ):
             findings.append(
                 Finding(
                     "error",

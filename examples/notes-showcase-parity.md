@@ -7,8 +7,8 @@ single-page proof that every spec feature in scope is exercised by every
 UI-backed flavor.
 
 Published walkthroughs:
-[Notes Workspace](https://thekaveh.github.io/VMx/examples/notes-workspace/),
-[VM layer map](https://thekaveh.github.io/VMx/examples/notes-workspace-vm-layer/).
+[Notes Workspace](../docs/content/examples/notes-workspace.md),
+[VM layer map](../docs/content/examples/notes-workspace-vm-layer.md).
 
 ## 1. VM hierarchy
 

@@ -29,7 +29,7 @@ dynamic = ["version"]
 
 [project.urls]
 Repository = "https://github.com/thekaveh/VMx"
-Documentation = "https://github.com/thekaveh/VMx#readme"
+Documentation = "https://thekaveh.github.io/VMx/"
 Issues = "https://github.com/thekaveh/VMx/issues"
 Changelog = "https://github.com/thekaveh/VMx/blob/main/langs/python/CHANGELOG.md"
 

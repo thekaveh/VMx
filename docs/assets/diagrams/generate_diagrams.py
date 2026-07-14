@@ -535,7 +535,7 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       </section>"""
         for index, (title, items) in enumerate(diagram.cards)
     )
-    footer = diagram.footer or f"VMx spec {SPEC_VERSION} · repository contract summary."
+    footer = f"    <footer>{escape(diagram.footer)}</footer>" if diagram.footer else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -593,12 +593,6 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
     }}
     .svg-frame {{ min-width: 1180px; }}
     .svg-frame svg {{ display: block; width: 100%; height: auto; }}
-    .diagram-caption {{
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }}
     .cards {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -632,12 +626,11 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       <div class="svg-frame" role="img" aria-label="{escape(diagram.title)}">
 {inline_svg}
       </div>
-      <p class="diagram-caption">Read left to right by boundary, then follow the labeled relationships between components.</p>
     </div>
     <div class="cards">
 {cards}
     </div>
-    <footer>{escape(footer)}</footer>
+{footer}
   </main>
 </body>
 </html>
@@ -1203,11 +1196,15 @@ def class_architecture() -> Diagram:
             ),
         ),
         relationships=(
-            Relationship("extends", ((500, 202), (330, 202)), (365, 130)),
-            Relationship("extends", ((780, 202), (330, 202)), (635, 130)),
-            Relationship("extends", ((1060, 202), (330, 202)), (920, 130)),
-            Relationship("extends", ((1340, 202), (330, 202)), (1195, 130)),
-            Relationship("extends", ((1620, 202), (330, 202)), (1480, 130)),
+            Relationship("extends", ((500, 262), (500, 278), (150, 278), (150, 258)), (365, 274)),
+            Relationship("extends", ((780, 262), (780, 286), (180, 286), (180, 258)), (635, 282)),
+            Relationship("extends", ((1060, 262), (1060, 294), (210, 294), (210, 258)), (920, 290)),
+            Relationship(
+                "extends", ((1340, 262), (1340, 302), (240, 302), (240, 258)), (1195, 298)
+            ),
+            Relationship(
+                "extends", ((1620, 262), (1620, 310), (270, 310), (270, 258)), (1480, 306)
+            ),
             Relationship(
                 "implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)
             ),
@@ -4383,7 +4380,7 @@ def csharp_console_hello_vmx() -> Diagram:
                 ("Move to WPF or Avalonia examples when bindings and child VMs matter.",),
             ),
         ),
-        footer="Generated for examples/csharp/console/HelloVMx.",
+        footer="",
     )
 
 
@@ -4434,7 +4431,7 @@ def csharp_wpf_todo_app() -> Diagram:
                 ("Build can succeed off Windows.", "Running WPF still requires Windows."),
             ),
         ),
-        footer="Generated for examples/csharp/wpf/TodoApp.",
+        footer="",
     )
 
 
@@ -4482,7 +4479,7 @@ def csharp_avalonia_notes_showcase() -> Diagram:
                 ("Matches Python Textual, TypeScript React, and SwiftUI flagship behavior.",),
             ),
         ),
-        footer="Generated for examples/csharp/avalonia/NotesShowcase.",
+        footer="",
     )
 
 
@@ -4539,7 +4536,7 @@ def python_console_hello_vmx() -> Diagram:
                 ("Move to tkinter Todo for CompositeVM or Textual Inspector for tree traversal.",),
             ),
         ),
-        footer="Generated for examples/python/console/hello_vmx.",
+        footer="",
     )
 
 
@@ -4590,7 +4587,7 @@ def python_tk_todo_app() -> Diagram:
                 ),
             ),
         ),
-        footer="Generated for examples/python/tk/todo_app.",
+        footer="",
     )
 
 
@@ -4635,7 +4632,7 @@ def python_textual_inspector() -> Diagram:
             ),
             ("Learning role", ("Best for understanding state flow and hub traffic.",)),
         ),
-        footer="Generated for examples/python/textual/inspector.",
+        footer="",
     )
 
 
@@ -4687,7 +4684,7 @@ def python_textual_notes_showcase() -> Diagram:
             ),
             ("Parity role", ("Matches the C#, TypeScript, and Swift flagship scenario.",)),
         ),
-        footer="Generated for examples/python/textual/notes_showcase.",
+        footer="",
     )
 
 
@@ -4735,7 +4732,7 @@ def typescript_console_hello_vmx() -> Diagram:
             ),
             ("Next step", ("Move to the React showcase when host hooks and adapters matter.",)),
         ),
-        footer="Generated for examples/typescript/console/hello-vmx.",
+        footer="",
     )
 
 
@@ -4784,7 +4781,7 @@ def typescript_react_notes_showcase() -> Diagram:
             ),
             ("Parity role", ("Matches the C#, Python, and Swift flagship scenario.",)),
         ),
-        footer="Generated for examples/typescript/react/notes-showcase.",
+        footer="",
     )
 
 
@@ -4823,7 +4820,7 @@ def swift_notes_showcase() -> Diagram:
             ),
             ("Parity role", ("Matches the C#, Python, and TypeScript flagship scenario.",)),
         ),
-        footer="Generated for examples/swift/notes-showcase.",
+        footer="",
     )
 
 
@@ -4871,7 +4868,7 @@ def rust_console_hello_vmx() -> Diagram:
             ),
             ("Next step", ("Move to Ratatui Notes Showcase for full MVVM terminal composition.",)),
         ),
-        footer="Generated for examples/rust/console/hello-vmx.",
+        footer="",
     )
 
 

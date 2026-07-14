@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -241,7 +235,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Read left to right by boundary, then follow the labeled relationships between components.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -266,7 +259,7 @@
         <ul><li>The VM layer stays framework-neutral and view-pure checks enforce that split.</li><li>Property, command, collection, dialog, and dispatcher adapters bridge each host toolkit to VMx.</li><li>That separation is why the example portfolio is useful as a documentation reference.</li></ul>
       </section>
     </div>
-    <footer>VMx spec 3.20.0 · repository contract summary.</footer>
+
   </main>
 </body>
 </html>

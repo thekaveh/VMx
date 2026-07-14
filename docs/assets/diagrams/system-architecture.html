@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -88,7 +82,7 @@
   <main>
     <header>
       <div class="header-row"><div class="pulse-dot"></div><h1>VMx System Architecture</h1></div>
-      <p class="subtitle">spec 3.20.0 source of truth -&gt; parity flavors -&gt; host examples</p>
+      <p class="subtitle">spec 3.20.1 source of truth -&gt; parity flavors -&gt; host examples</p>
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="VMx System Architecture">
@@ -107,7 +101,7 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">VMx System Architecture</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.20.0 source of truth -&gt; parity flavors -&gt; host examples</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.20.1 source of truth -&gt; parity flavors -&gt; host examples</text>
   <polyline points="260,200 280,200" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="450,200 550,200" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="450,312 550,312" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
@@ -138,8 +132,8 @@
 <rect x="90" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="175" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">spec/</text>
 <text x="175" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">24 chapters</text>
-<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">104 ADRs</text>
-<text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.20.0</text>
+<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">106 ADRs</text>
+<text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.20.1</text>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="#0f172a"/>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="365" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">fixtures</text>
@@ -276,7 +270,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Read left to right by boundary, then follow the labeled relationships between components.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -301,7 +294,7 @@
         <ul><li>The flagship Notes Workspace exercises 19 framework features plus THEME scenarios.</li><li>Coverage, spec discipline, and example checks keep docs claims tied to repository state.</li><li>Compatibility and release surfaces are versioned per flavor but tracked against the spec.</li></ul>
       </section>
     </div>
-    <footer>VMx spec 3.20.0 · repository contract summary.</footer>
+
   </main>
 </body>
 </html>

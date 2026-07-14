@@ -3,11 +3,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from scripts.docs.check_docs import ATX_HEADING_RE, NUMBER_PREFIX_RE
+from scripts.docs.check_docs import (
+    ATX_HEADING_RE,
+    NUMBER_PREFIX_RE,
+    STANDALONE_NUMBERED_DOCS,
+)
 from scripts.docs.manifest import load_manifest
 
 
-def number_descendant_headings(markdown: str, page_number: str) -> str:
+def number_descendant_headings(markdown: str, page_number: str | None) -> str:
     """Return Markdown with deterministic hierarchical H2-H6 prefixes."""
     counters = [0, 0, 0, 0, 0]
     output: list[str] = []
@@ -37,8 +41,11 @@ def number_descendant_headings(markdown: str, page_number: str) -> str:
         counters[depth] += 1
         for index in range(depth + 1, len(counters)):
             counters[index] = 0
-        number = f"{page_number}." + ".".join(str(value) for value in counters[: depth + 1]) + "."
-        title = NUMBER_PREFIX_RE.sub("", match.group(2), count=1)
+        page_prefix = f"{page_number}." if page_number else ""
+        number = page_prefix + ".".join(str(value) for value in counters[: depth + 1]) + "."
+        title = match.group(2)
+        while NUMBER_PREFIX_RE.match(title) is not None:
+            title = NUMBER_PREFIX_RE.sub("", title, count=1)
         output.append(f"{match.group(1)} {number} {title}{ending}")
 
     return "".join(output)
@@ -55,6 +62,15 @@ def update_pages(repo_root: Path, *, write: bool) -> list[Path]:
         if numbered == original:
             continue
         changed.append(section.source)
+        if write:
+            path.write_text(numbered, encoding="utf-8")
+    for relative_path in STANDALONE_NUMBERED_DOCS:
+        path = repo_root / relative_path
+        original = path.read_text(encoding="utf-8")
+        numbered = number_descendant_headings(original, None)
+        if numbered == original:
+            continue
+        changed.append(relative_path)
         if write:
             path.write_text(numbered, encoding="utf-8")
     return changed

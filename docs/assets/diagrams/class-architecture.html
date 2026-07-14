@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -108,11 +102,11 @@
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Class Architecture Map</text>
   <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source</text>
-  <polyline points="500,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<polyline points="780,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<polyline points="1060,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<polyline points="1340,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
-<polyline points="1620,202 330,202" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+  <polyline points="500,262 500,278 150,278 150,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<polyline points="780,262 780,286 180,286 180,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<polyline points="1060,262 1060,294 210,294 210,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<polyline points="1340,262 1340,302 240,302 240,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
+<polyline points="1620,262 1620,310 270,310 270,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
 <polyline points="500,262 500,330 200,330 200,402" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
 <polyline points="780,262 780,330 800,330 800,402" fill="none" stroke="#34d399" stroke-width="3.0" stroke-dasharray="10 6" marker-end="url(#arrowhead)"/>
 <polyline points="360,450 310,450" fill="none" stroke="#fb923c" stroke-width="3.0" stroke-dasharray="14 4" marker-end="url(#arrowhead)"/>
@@ -299,16 +293,16 @@
 <text x="96" y="1298" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Reading hint</text>
 <text x="96" y="1320" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Helper boxes make interface and delegate endpoints explicit so wraps/decorates/adapts stay literal.</text>
 <text x="96" y="1338" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">The map is cluster-level, but every visible arrow endpoint names a real surface from spec or shipped code.</text>
-<rect x="332" y="118" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="365" y="132" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="602" y="118" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="635" y="132" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="887" y="118" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="920" y="132" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="1162" y="118" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1195" y="132" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="1447" y="118" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1480" y="132" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="332" y="262" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="365" y="276" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="602" y="270" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="635" y="284" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="887" y="278" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="920" y="292" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="1162" y="286" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1195" y="300" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="1447" y="294" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1480" y="308" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
 <rect x="286" y="338" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="330" y="352" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
 <rect x="784" y="338" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
@@ -351,7 +345,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Read left to right by boundary, then follow the labeled relationships between components.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -376,7 +369,7 @@
         <ul><li>RelayCommand is the plain ICommand implementation; DecoratorCommand and ConfirmationDecoratorCommand layer behavior onto an inner ICommand.</li><li>ConfirmHelper adapts INotificationHub into the async bool delegate used by confirmation decorators.</li><li>ModeledCrudCommands packages a command set around selection-driven actions without changing the composite type itself.</li></ul>
       </section>
     </div>
-    <footer>VMx spec 3.20.0 · repository contract summary.</footer>
+
   </main>
 </body>
 </html>
