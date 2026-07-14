@@ -156,7 +156,7 @@ def _package(package_dir: Path, version: str, cargo: str) -> Path:
     tarball = package_dir / "target" / "package" / f"{PACKAGE_NAME}-{version}.crate"
     tarball.unlink(missing_ok=True)
     _run(
-        [cargo, "package", "--manifest-path", str(package_dir / "Cargo.toml")],
+        [cargo, "package", "--locked", "--manifest-path", str(package_dir / "Cargo.toml")],
         cwd=package_dir,
     )
     if not tarball.is_file():

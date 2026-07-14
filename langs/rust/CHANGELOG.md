@@ -4,6 +4,26 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `FormVm` and `FormVmBuilder` now live in a focused forms module while
+  retaining their crate-root exports.
+- The disposable package consumer now recreates the crate with the committed
+  lockfile enforced.
+
+### Fixed
+
+- Failed lifecycle hooks publish the rolled-back construction status, and a
+  failing dispose hook still completes the local property-change stream.
+- Form commands are stable handles; form disposal closes commands, channels,
+  callbacks, validators, and the underlying component deterministically.
+- Model hints, form callbacks, validators, and snapshotters execute without
+  holding their backing state locks, allowing safe reentrant reads or updates.
+- Concurrent hierarchy materialization invokes its factory once, and
+  concurrent reparenting preserves exactly one parent-child membership.
+
 ## [0.22.0] — 2026-07-14
 
 Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.

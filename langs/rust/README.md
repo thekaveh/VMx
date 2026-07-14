@@ -50,9 +50,9 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
 ## 1. Commands
 
 ```bash
-cargo test --manifest-path langs/rust/Cargo.toml
+cargo test --locked --manifest-path langs/rust/Cargo.toml
 cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
-cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 ```
 
 ## 2. Minimal Example

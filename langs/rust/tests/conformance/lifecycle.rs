@@ -274,10 +274,19 @@ fn repeated_parent_dispose_emits_one_terminal_transition_per_node() {
 /// LIFE-014 — A throwing construct/destruct hook rolls Status back (transactional)
 #[test]
 fn throwing_lifecycle_hook_rolls_status_back() {
-    let vm = ComponentVm::new("vm");
+    let hub = MessageHub::new();
+    let vm = ComponentVm::with_services("vm", hub.clone(), NullDispatcher::new());
+    let observed = statuses(&hub);
     vm.on_construct(|| Err(VmxError::Other("boom".to_string())));
 
     assert!(vm.construct().is_err());
 
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Destructed
+        ]
+    );
 }

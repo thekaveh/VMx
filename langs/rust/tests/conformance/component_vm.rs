@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 use vmx::{
     Command, ComponentVm, ConstructionStatus, ForwardingComponentVm, Message, MessageHub,
     NullDispatcher, NullMessageHub, ReadonlyComponentVm,
@@ -64,6 +65,31 @@ fn modeled_hint_recomputes_when_model_changes() {
     assert!(hub.history().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "modeled_hint")
     ));
+}
+
+#[test]
+fn modeled_hint_may_read_model_reentrantly() {
+    let holder = Arc::new(Mutex::new(None::<ComponentVm<i32>>));
+    let reentrant_holder = Arc::clone(&holder);
+    let vm = ComponentVm::with_model("vm", 7, MessageHub::new(), NullDispatcher::new())
+        .with_model_hint(move |model| {
+            let vm = reentrant_holder.lock().unwrap().clone().unwrap();
+            assert_eq!(vm.model(), *model);
+            Some(format!("hint:{model}"))
+        });
+    *holder.lock().unwrap() = Some(vm.clone());
+    let (completed, completion) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        completed.send(vm.hint()).unwrap();
+    });
+
+    assert_eq!(
+        completion
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hint callback deadlocked while reading the model"),
+        Some("hint:7".to_string())
+    );
 }
 
 /// CVM-005 — Name and Hint are immutable post-construction

@@ -1,4 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
+use std::time::Duration;
 
 use vmx::{
     walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
@@ -123,6 +125,79 @@ fn children_factory_is_lazy_by_default() {
     assert_eq!(*calls.lock().unwrap(), 0);
     assert_eq!(root.children().len(), 1);
     assert_eq!(*calls.lock().unwrap(), 1);
+}
+
+#[test]
+fn concurrent_children_materialization_runs_factory_once() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(100));
+            vec![leaf("child")]
+        },
+        false,
+        MessageHub::new(),
+    );
+    let start = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let root = root.clone();
+        let start = Arc::clone(&start);
+        workers.push(std::thread::spawn(move || {
+            start.wait();
+            root.children()
+        }));
+    }
+
+    start.wait();
+    for worker in workers {
+        assert_eq!(worker.join().unwrap().len(), 1);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn concurrent_reparenting_keeps_one_parent_child_pair() {
+    const PARENT_COUNT: usize = 32;
+    let child = leaf("child");
+    let parents = (0..PARENT_COUNT)
+        .map(|index| leaf(&format!("parent-{index}")))
+        .collect::<Vec<_>>();
+    let start = Arc::new(Barrier::new(PARENT_COUNT + 1));
+    let mut workers = Vec::new();
+    for parent in &parents {
+        let parent = parent.clone();
+        let child = child.clone();
+        let start = Arc::clone(&start);
+        workers.push(std::thread::spawn(move || {
+            start.wait();
+            parent.add_child(child)
+        }));
+    }
+
+    start.wait();
+    for worker in workers {
+        worker.join().unwrap().unwrap();
+    }
+
+    let parent_id = child.parent().expect("child must remain attached").id();
+    let memberships = parents
+        .iter()
+        .flat_map(HierarchicalVm::children)
+        .filter(|candidate| candidate.id() == child.id())
+        .collect::<Vec<_>>();
+    assert_eq!(memberships.len(), 1);
+    assert!(parents
+        .iter()
+        .find(|parent| parent.id() == parent_id)
+        .unwrap()
+        .children()
+        .iter()
+        .any(|candidate| candidate.id() == child.id()));
 }
 
 /// HIER-008 — Eager child loading via constructor option

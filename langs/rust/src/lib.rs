@@ -13,7 +13,7 @@ use std::hash::Hash;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 use std::task::{Context, Poll};
 use std::thread::{self, ThreadId};
 
@@ -34,6 +34,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MIN_SPEC_VERSION: &str = "3.20.1";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
 
 fn next_id() -> usize {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
@@ -858,6 +859,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         let hook_result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
+            self.property_changed_stream().dispose();
         }
         if let Err(error) = hook_result {
             let rollback = match operation {
@@ -865,9 +867,19 @@ impl<D: Dispatcher> ComponentCore<D> {
                 LifecycleOperation::Destruct => ConstructionStatus::Constructed,
                 LifecycleOperation::Dispose => ConstructionStatus::Disposed,
             };
-            let mut inner = lock(&self.inner);
-            inner.status = rollback;
-            inner.transitioning = false;
+            {
+                let mut inner = lock(&self.inner);
+                inner.status = rollback;
+                inner.transitioning = false;
+            }
+            foreground.dispatch(Box::new(move || {
+                hub.send(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
+                        sender_id,
+                        status: rollback,
+                    },
+                ));
+            }));
             return Err(error);
         }
 
@@ -1088,9 +1100,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     pub fn hint(&self) -> Option<String> {
-        self.core
-            .hint()
-            .or_else(|| (self.model_hint)(&lock(&self.model)))
+        self.core.hint().or_else(|| {
+            let model = lock(&self.model).clone();
+            (self.model_hint)(&model)
+        })
     }
 
     pub fn set_hint(&self, hint: Option<String>) {
@@ -1526,7 +1539,18 @@ impl RelayCommand {
     }
 
     pub fn dispose(&self) {
-        *lock(&self.disposed) = true;
+        let should_dispose = {
+            let mut disposed = lock(&self.disposed);
+            if *disposed {
+                false
+            } else {
+                *disposed = true;
+                true
+            }
+        };
+        if should_dispose {
+            self.can_execute_changed.dispose();
+        }
     }
 
     pub fn confirm<F>(self, confirm: F) -> ConfirmationDecoratorCommand<Self>
@@ -5447,441 +5471,8 @@ impl NullDialogService {
     }
 }
 
-type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
-type FormSnapshotter<M> = Arc<dyn Fn(&M) -> M + Send + Sync>;
-type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
-type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
-type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, String> + Send + Sync>;
-type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
-
-#[derive(Clone)]
-pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
-    component: ComponentVm<M>,
-    snapshot: Arc<Mutex<M>>,
-    persister: FormPersister<M>,
-    snapshotter: FormSnapshotter<M>,
-    reset_on_approved: Option<FormResetOnApproved<M>>,
-    strict: Arc<Mutex<bool>>,
-    errors: Arc<Mutex<BTreeMap<String, String>>>,
-    field_validators: Arc<Mutex<BTreeMap<String, FieldValidator<M>>>>,
-    model_validators: Arc<Mutex<Vec<ModelValidator<M>>>>,
-    errors_changed: MessageHub,
-    approve_errors: MessageHub,
-    approve_can_execute_changed: MessageHub,
-    approved_callbacks: Arc<Mutex<Vec<ApprovedCallback<M>>>>,
-    disposed: Arc<Mutex<bool>>,
-    hub: MessageHub,
-}
-
-impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
-    pub fn new(name: impl Into<String>, model: M) -> Self {
-        Self::with_options(name, model, |_| Ok(()), false, MessageHub::new())
-    }
-
-    pub fn with_options<F>(
-        name: impl Into<String>,
-        model: M,
-        persister: F,
-        strict: bool,
-        hub: MessageHub,
-    ) -> Self
-    where
-        F: Fn(&M) -> VmxResult<()> + Send + Sync + 'static,
-    {
-        let component =
-            ComponentVm::with_model(name, model.clone(), hub.clone(), NullDispatcher::new());
-        let form = Self {
-            component,
-            snapshot: Arc::new(Mutex::new(model)),
-            persister: Arc::new(persister),
-            snapshotter: Arc::new(|model| model.clone()),
-            reset_on_approved: None,
-            strict: Arc::new(Mutex::new(strict)),
-            errors: Arc::new(Mutex::new(BTreeMap::new())),
-            field_validators: Arc::new(Mutex::new(BTreeMap::new())),
-            model_validators: Arc::new(Mutex::new(Vec::new())),
-            errors_changed: MessageHub::new(),
-            approve_errors: MessageHub::new(),
-            approve_can_execute_changed: MessageHub::new(),
-            approved_callbacks: Arc::new(Mutex::new(Vec::new())),
-            disposed: Arc::new(Mutex::new(false)),
-            hub,
-        };
-        form.validate();
-        form
-    }
-
-    pub fn builder() -> FormVmBuilder<M> {
-        FormVmBuilder::new()
-    }
-
-    pub fn with_validator<F>(self, validator: F) -> Self
-    where
-        F: Fn(&M) -> Vec<String> + Send + Sync + 'static,
-    {
-        let could_approve = self.can_approve();
-        lock(&self.model_validators).push(Arc::new(move |model| {
-            validator(model)
-                .into_iter()
-                .enumerate()
-                .map(|(index, error)| (index.to_string(), error))
-                .collect()
-        }));
-        self.validate();
-        self.publish_approve_state_change(could_approve);
-        self
-    }
-
-    pub fn with_field_validator<F>(&self, field: impl Into<String>, validator: F)
-    where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
-    {
-        let could_approve = self.can_approve();
-        lock(&self.field_validators).insert(field.into(), Arc::new(validator));
-        self.validate();
-        self.publish_approve_state_change(could_approve);
-    }
-
-    pub fn with_model_validator<F>(&self, validator: F)
-    where
-        F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
-    {
-        let could_approve = self.can_approve();
-        lock(&self.model_validators).push(Arc::new(validator));
-        self.validate();
-        self.publish_approve_state_change(could_approve);
-    }
-
-    pub fn model(&self) -> M {
-        self.component.model()
-    }
-
-    pub fn set_model(&self, model: M) {
-        if *lock(&self.disposed) {
-            return;
-        }
-        let could_approve = self.can_approve();
-        if !self.component.replace_model(model) {
-            return;
-        }
-        self.validate();
-        self.publish_approve_state_change(could_approve);
-        self.component.notify_property_changed("model");
-    }
-
-    pub fn snapshot(&self) -> M {
-        lock(&self.snapshot).clone()
-    }
-
-    pub fn is_dirty(&self) -> bool {
-        self.model() != *lock(&self.snapshot)
-    }
-
-    pub fn errors(&self) -> Vec<String> {
-        lock(&self.errors).values().cloned().collect()
-    }
-
-    pub fn error_map(&self) -> BTreeMap<String, String> {
-        lock(&self.errors).clone()
-    }
-
-    pub fn field_error(&self, field: &str) -> Option<String> {
-        lock(&self.errors).get(field).cloned()
-    }
-
-    pub fn is_valid(&self) -> bool {
-        lock(&self.errors).is_empty()
-    }
-
-    pub fn can_approve(&self) -> bool {
-        !*lock(&self.disposed) && self.is_valid() && (!*lock(&self.strict) || self.is_dirty())
-    }
-
-    pub fn approve(&self) -> VmxResult<()> {
-        if *lock(&self.disposed) {
-            return Ok(());
-        }
-        if !self.can_approve() {
-            return Err(VmxError::InvalidArgument("form cannot approve".to_string()));
-        }
-        let model = self.model();
-        (self.persister)(&model)?;
-        if *lock(&self.disposed) {
-            return Ok(());
-        }
-        let could_approve = self.can_approve();
-        if let Some(reset_on_approved) = &self.reset_on_approved {
-            // Prepare the complete transition before mutating local state. The
-            // callback or either snapshot operation may fail/panic without a
-            // partial assignment.
-            let reset = reset_on_approved(&model)?;
-            let next_model = (self.snapshotter)(&reset);
-            let next_snapshot = (self.snapshotter)(&reset);
-            let next_errors = self.validation_errors_for(&next_model);
-
-            // Install every derived field before the approval outcome is
-            // published, so synchronous observers cannot see a reset model
-            // paired with the previous snapshot or errors.
-            *lock(&self.snapshot) = next_snapshot;
-            let errors_changed = self.replace_validation_errors(next_errors);
-            self.component.replace_model(next_model);
-            if errors_changed {
-                self.publish_validation_changed();
-            }
-        } else {
-            *lock(&self.snapshot) = (self.snapshotter)(&model);
-        }
-        self.publish_approve_state_change(could_approve);
-        for callback in lock(&self.approved_callbacks).iter() {
-            callback(model.clone());
-        }
-        Ok(())
-    }
-
-    pub fn revert(&self) {
-        if *lock(&self.disposed) {
-            return;
-        }
-        let could_approve = self.can_approve();
-        let restored = (self.snapshotter)(&lock(&self.snapshot));
-        self.component.replace_model(restored);
-        self.validate();
-        self.hub.send(Message::FormReverted(FormRevertedMessage {
-            sender_id: self.component.id(),
-        }));
-        self.component.notify_property_changed("model");
-        self.publish_approve_state_change(could_approve);
-    }
-
-    pub fn approve_command(&self) -> RelayCommand {
-        let form = self.clone();
-        RelayCommandBuilder::default()
-            .action(move || {
-                if let Err(error) = form.approve() {
-                    form.approve_errors.send(Message::Custom {
-                        sender_id: form.component.id(),
-                        name: error.to_string(),
-                    });
-                }
-            })
-            .can_execute({
-                let form = self.clone();
-                move || form.can_approve()
-            })
-            .trigger(self.approve_can_execute_changed.clone())
-            .build()
-    }
-
-    pub fn deny_command(&self) -> RelayCommand {
-        let form = self.clone();
-        RelayCommand::new(move || form.revert())
-    }
-
-    pub fn hub(&self) -> MessageHub {
-        self.hub.clone()
-    }
-
-    pub fn errors_changed(&self) -> MessageHub {
-        self.errors_changed.clone()
-    }
-
-    pub fn approve_errors(&self) -> MessageHub {
-        self.approve_errors.clone()
-    }
-
-    pub fn on_approved<F>(&self, callback: F)
-    where
-        F: Fn(M) + Send + Sync + 'static,
-    {
-        lock(&self.approved_callbacks).push(Arc::new(callback));
-    }
-
-    pub fn dispose(&self) {
-        *lock(&self.disposed) = true;
-    }
-
-    fn validate(&self) {
-        let next = self.validation_errors_for(&self.model());
-        self.commit_validation(next);
-    }
-
-    fn validation_errors_for(&self, model: &M) -> BTreeMap<String, String> {
-        let mut next = BTreeMap::new();
-        for (field, validator) in lock(&self.field_validators).iter() {
-            if let Some(error) = validator(model) {
-                next.insert(field.clone(), error);
-            }
-        }
-        for validator in lock(&self.model_validators).iter() {
-            next.extend(validator(model));
-        }
-        next
-    }
-
-    fn commit_validation(&self, next: BTreeMap<String, String>) {
-        if self.replace_validation_errors(next) {
-            self.publish_validation_changed();
-        }
-    }
-
-    fn replace_validation_errors(&self, next: BTreeMap<String, String>) -> bool {
-        {
-            let mut errors = lock(&self.errors);
-            if *errors == next {
-                false
-            } else {
-                *errors = next;
-                true
-            }
-        }
-    }
-
-    fn publish_validation_changed(&self) {
-        self.errors_changed.send(Message::Custom {
-            sender_id: self.component.id(),
-            name: "errors_changed".to_string(),
-        });
-        self.hub
-            .send(Message::PropertyChanged(PropertyChangedMessage {
-                sender_id: self.component.id(),
-                property_name: "is_valid".to_string(),
-            }));
-    }
-
-    fn publish_approve_state_change(&self, previous: bool) {
-        if self.can_approve() != previous {
-            self.approve_can_execute_changed.send(Message::Custom {
-                sender_id: self.component.id(),
-                name: "can_execute_changed".to_string(),
-            });
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct FormVmBuilder<M: Clone + PartialEq + Send + 'static> {
-    initial: Option<M>,
-    persister: Option<FormPersister<M>>,
-    strict: bool,
-    hub: MessageHub,
-    snapshotter: FormSnapshotter<M>,
-    reset_on_approved: Option<FormResetOnApproved<M>>,
-    field_validators: BTreeMap<String, FieldValidator<M>>,
-    model_validators: Vec<ModelValidator<M>>,
-}
-
-impl<M: Clone + PartialEq + Send + 'static> Default for FormVmBuilder<M> {
-    fn default() -> Self {
-        Self {
-            initial: None,
-            persister: None,
-            strict: false,
-            hub: NullMessageHub::hub(),
-            snapshotter: Arc::new(|model| model.clone()),
-            reset_on_approved: None,
-            field_validators: BTreeMap::new(),
-            model_validators: Vec::new(),
-        }
-    }
-}
-
-impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn initial(mut self, model: M) -> Self {
-        self.initial = Some(model);
-        self
-    }
-
-    pub fn persister<F>(mut self, persister: F) -> Self
-    where
-        F: Fn(&M) -> VmxResult<()> + Send + Sync + 'static,
-    {
-        self.persister = Some(Arc::new(persister));
-        self
-    }
-
-    pub fn strict(mut self, strict: bool) -> Self {
-        self.strict = strict;
-        self
-    }
-
-    pub fn hub(mut self, hub: MessageHub) -> Self {
-        self.hub = hub;
-        self
-    }
-
-    pub fn snapshotter<F>(mut self, snapshotter: F) -> Self
-    where
-        F: Fn(&M) -> M + Send + Sync + 'static,
-    {
-        self.snapshotter = Arc::new(snapshotter);
-        self
-    }
-
-    /// Derives the next pristine model from the captured value after a
-    /// successful persist.
-    pub fn reset_on_approved<F>(mut self, reset_on_approved: F) -> Self
-    where
-        F: Fn(&M) -> VmxResult<M> + Send + Sync + 'static,
-    {
-        self.reset_on_approved = Some(Arc::new(reset_on_approved));
-        self
-    }
-
-    pub fn validator<F>(mut self, field: impl Into<String>, validator: F) -> Self
-    where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
-    {
-        self.field_validators
-            .insert(field.into(), Arc::new(validator));
-        self
-    }
-
-    pub fn model_validator<F>(mut self, validator: F) -> Self
-    where
-        F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
-    {
-        self.model_validators.push(Arc::new(validator));
-        self
-    }
-
-    pub fn build(self) -> VmxResult<FormVm<M>> {
-        let initial = self
-            .initial
-            .ok_or_else(|| VmxError::BuilderValidation("initial is required".to_string()))?;
-        let persister = self
-            .persister
-            .ok_or_else(|| VmxError::BuilderValidation("persister is required".to_string()))?;
-        let snapshot = (self.snapshotter)(&initial);
-        let form = FormVm {
-            component: ComponentVm::with_model(
-                "FormVm",
-                initial,
-                self.hub.clone(),
-                NullDispatcher::new(),
-            ),
-            snapshot: Arc::new(Mutex::new(snapshot)),
-            persister,
-            snapshotter: self.snapshotter,
-            reset_on_approved: self.reset_on_approved,
-            strict: Arc::new(Mutex::new(self.strict)),
-            errors: Arc::new(Mutex::new(BTreeMap::new())),
-            field_validators: Arc::new(Mutex::new(self.field_validators)),
-            model_validators: Arc::new(Mutex::new(self.model_validators)),
-            errors_changed: MessageHub::new(),
-            approve_errors: MessageHub::new(),
-            approve_can_execute_changed: MessageHub::new(),
-            approved_callbacks: Arc::new(Mutex::new(Vec::new())),
-            disposed: Arc::new(Mutex::new(false)),
-            hub: self.hub,
-        };
-        form.validate();
-        Ok(form)
-    }
-}
+mod forms;
+pub use forms::{FormVm, FormVmBuilder};
 
 #[derive(Clone)]
 pub struct DiscriminatorVm<K: Clone + Eq + Hash + Send + 'static> {
@@ -6007,6 +5598,7 @@ struct BatchAttachCandidate<N, K> {
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     component: ComponentVm<M>,
     children: Arc<Mutex<Option<Vec<Self>>>>,
+    materializing_children: Arc<(Mutex<Option<ThreadId>>, Condvar)>,
     parent: Arc<Mutex<Option<Self>>>,
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
@@ -6033,6 +5625,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         Self {
             component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
             children: Arc::new(Mutex::new(None)),
+            materializing_children: Arc::new((Mutex::new(None), Condvar::new())),
             parent: Arc::new(Mutex::new(None)),
             children_factory: Arc::new(children_factory),
             eager_children: Arc::new(Mutex::new(eager_children)),
@@ -6082,6 +5675,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn parent(&self) -> Option<Self> {
+        let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
         lock(&self.parent).clone()
     }
 
@@ -6090,16 +5684,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
+        self.materialize_children();
         let removed = {
+            let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut children = lock(&self.children);
-            let children = children.get_or_insert_with(Vec::new);
-            children
+            let children = children.as_mut().expect("children materialized");
+            let removed = children
                 .iter()
                 .position(|candidate| candidate == child)
-                .map(|index| children.remove(index))
+                .map(|index| children.remove(index));
+            if let Some(removed) = &removed {
+                removed.set_parent_state(None);
+            }
+            removed
         }
         .ok_or(VmxError::NonChild)?;
-        removed.set_parent(None);
+        removed.publish_parent_changed();
         self.hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
@@ -6112,31 +5712,39 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn attach_child(&self, child: &Self) -> VmxResult<()> {
-        self.ensure_not_reparenting_cycle(child)?;
-        if child.parent().as_ref() == Some(self) {
-            return Ok(());
-        }
-
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
-        self.children();
-        let old_parent = child.parent();
-        let old_index = old_parent.as_ref().and_then(|parent| {
-            parent.children();
-            lock(&parent.children)
-                .as_ref()
-                .and_then(|children| children.iter().position(|candidate| candidate == child))
-        });
-        if let (Some(parent), Some(index)) = (old_parent.as_ref(), old_index) {
-            lock(&parent.children)
-                .as_mut()
-                .expect("children materialized")
-                .remove(index);
+        loop {
+            self.materialize_children();
+            let attached = {
+                let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+                if lock(&self.children).is_none() {
+                    None
+                } else {
+                    self.ensure_not_reparenting_cycle_unlocked(child)?;
+                    let old_parent = lock(&child.parent).clone();
+                    if old_parent.as_ref() == Some(self) {
+                        return Ok(());
+                    }
+                    if let Some(parent) = &old_parent {
+                        if let Some(children) = lock(&parent.children).as_mut() {
+                            children.retain(|candidate| candidate != child);
+                        }
+                    }
+                    let mut children = lock(&self.children);
+                    let children = children.as_mut().expect("children materialized");
+                    if !children.iter().any(|candidate| candidate == child) {
+                        children.push(child.clone());
+                    }
+                    child.set_parent_state(Some(self.clone()));
+                    Some(())
+                }
+            };
+            if attached.is_some() {
+                break;
+            }
         }
-        lock(&self.children)
-            .get_or_insert_with(Vec::new)
-            .push(child.clone());
-        child.set_parent(Some(self.clone()));
+        child.publish_parent_changed();
         self.hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
@@ -6335,6 +5943,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn is_children_materialized(&self) -> bool {
+        let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
         lock(&self.children).is_some()
     }
 
@@ -6387,9 +5996,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn invalidate_children(&self) {
-        let was_materialized = lock(&self.children).is_some();
+        let was_materialized = {
+            let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+            let was_materialized = lock(&self.children).is_some();
+            if was_materialized {
+                *lock(&self.children) = None;
+            }
+            was_materialized
+        };
         if was_materialized {
-            *lock(&self.children) = None;
             self.hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.id(),
@@ -6418,16 +6033,51 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn materialize_children(&self) -> Vec<Self> {
-        if let Some(children) = lock(&self.children).clone() {
-            return children;
+        let current = thread::current().id();
+        loop {
+            {
+                let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+                if let Some(children) = lock(&self.children).clone() {
+                    return children;
+                }
+            }
+
+            let (owner, ready) = &*self.materializing_children;
+            let mut owner = lock(owner);
+            if let Some(children) = lock(&self.children).clone() {
+                return children;
+            }
+            match *owner {
+                None => {
+                    *owner = Some(current);
+                    break;
+                }
+                Some(active) if active == current => return Vec::new(),
+                Some(_) => {
+                    drop(wait(ready, owner));
+                }
+            }
         }
-        let children = (self.children_factory)(self)
-            .into_iter()
-            .inspect(|child| {
-                child.set_parent(Some(self.clone()));
-            })
-            .collect::<Vec<_>>();
-        *lock(&self.children) = Some(children.clone());
+
+        let generated = catch_unwind(AssertUnwindSafe(|| (self.children_factory)(self)));
+        let children = match generated {
+            Ok(children) => children,
+            Err(error) => {
+                self.finish_children_materialization();
+                resume_unwind(error);
+            }
+        };
+        {
+            let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+            for child in &children {
+                child.set_parent_state(Some(self.clone()));
+            }
+            *lock(&self.children) = Some(children.clone());
+        }
+        self.finish_children_materialization();
+        for child in &children {
+            child.publish_parent_changed();
+        }
         children
     }
 
@@ -6440,6 +6090,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn materialized_subtree(&self) -> Vec<Self> {
+        let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
         let mut result = Vec::new();
         let mut stack = vec![self.clone()];
         while let Some(current) = stack.pop() {
@@ -6469,18 +6120,21 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn rollback_batch_attach(parent: &Self, child: &Self) {
+        let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
         if let Some(children) = lock(&parent.children).as_mut() {
             children.retain(|item| item.id() != child.id());
         }
-        *lock(&child.parent) = None;
-        child.component.core.set_parent_id(None);
+        child.set_parent_state(None);
     }
 
-    fn set_parent(&self, parent: Option<Self>) {
+    fn set_parent_state(&self, parent: Option<Self>) {
         *lock(&self.parent) = parent.clone();
         self.component
             .core
             .set_parent_id(parent.as_ref().map(|parent| parent.id()));
+    }
+
+    fn publish_parent_changed(&self) {
         self.hub
             .send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id: self.id(),
@@ -6488,13 +6142,28 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             }));
     }
 
-    fn ensure_not_reparenting_cycle(&self, child: &Self) -> VmxResult<()> {
-        if child.id() == self.id() || self.path().iter().any(|ancestor| ancestor == child) {
+    fn ensure_not_reparenting_cycle_unlocked(&self, child: &Self) -> VmxResult<()> {
+        let mut current = Some(self.clone());
+        while let Some(node) = current {
+            if node == *child {
+                return Err(VmxError::InvalidArgument(
+                    "cannot reparent self or ancestor".to_string(),
+                ));
+            }
+            current = lock(&node.parent).clone();
+        }
+        if child.id() == self.id() {
             return Err(VmxError::InvalidArgument(
                 "cannot reparent self or ancestor".to_string(),
             ));
         }
         Ok(())
+    }
+
+    fn finish_children_materialization(&self) {
+        let (owner, ready) = &*self.materializing_children;
+        *lock(owner) = None;
+        ready.notify_all();
     }
 }
 
@@ -8161,6 +7830,42 @@ mod tests {
         assert_eq!(vm.status(), ConstructionStatus::Constructed);
         vm.dispose().unwrap();
         assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    }
+
+    #[test]
+    fn failed_dispose_hook_still_completes_property_changed() {
+        let vm = ComponentVm::new("test");
+        let completions = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&completions);
+        let _subscription = vm.property_changed().subscribe_with_completion(
+            |_| {},
+            move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        vm.on_dispose(|| Err(VmxError::Other("boom".to_string())));
+
+        assert!(vm.dispose().is_err());
+
+        assert_eq!(vm.status(), ConstructionStatus::Disposed);
+        assert_eq!(completions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn form_dispose_completes_component_property_changed() {
+        let form = FormVm::new("form", 1);
+        let completions = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&completions);
+        let _subscription = form.component.property_changed().subscribe_with_completion(
+            |_| {},
+            move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        form.dispose();
+
+        assert_eq!(completions.load(Ordering::SeqCst), 1);
     }
 
     #[test]
