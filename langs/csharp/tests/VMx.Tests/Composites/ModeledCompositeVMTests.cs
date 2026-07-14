@@ -67,6 +67,42 @@ public class ModeledCompositeVMTests
     }
 
     [Fact]
+    public void Failed_Model_Mapping_Rolls_Back_And_Retries()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var models = new[] { new Model(1, "A"), new Model(2, "B") };
+        var attempts = 0;
+        var composite = CompositeVMOfM<Model, ComponentVM<Model>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .ChildrenModels(() => models)
+            .ChildModelToChildViewModel(model =>
+            {
+                if (model.Id == 1) attempts++;
+                if (model.Id == 2 && attempts == 1)
+                    throw new InvalidOperationException("transient mapper failure");
+                return ComponentVM<Model>.Builder()
+                    .Name($"vm-{model.Id}")
+                    .Services(hub, dispatcher)
+                    .Model(model)
+                    .Build();
+            })
+            .Build();
+
+        Action first = composite.Construct;
+        first.Should().Throw<InvalidOperationException>()
+            .WithMessage("transient mapper failure");
+        composite.Status.Should().Be(ConstructionStatus.Destructed);
+        composite.Count.Should().Be(0);
+
+        composite.Construct();
+
+        attempts.Should().Be(2);
+        composite.Select(child => child.Model).Should().Equal(models);
+    }
+
+    [Fact]
     public void Destruct_All_Children_Reach_Destructed()
     {
         var (composite, _, _) = BuildModeled();

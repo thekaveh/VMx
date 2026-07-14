@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
+from vmx.components.component_vm import ComponentVM
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
@@ -59,6 +60,11 @@ def make_vm_of(
     dispatcher = make_dispatcher()
     vm = ComponentVMOfBuilder().name(name).hint(hint).model(model).services(hub, dispatcher).build()
     return vm, hub
+
+
+class _ThrowingDisposeVM(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError("dispose hook failure")
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +185,23 @@ class TestComponentVMLifecycle:
         )
         vm.dispose()  # no-op
         assert len(messages) == 0
+
+    def test_throwing_dispose_hook_still_completes_base_streams(self) -> None:
+        vm = _ThrowingDisposeVM(
+            name="throwing",
+            hint="",
+            hub=make_hub(),
+            dispatcher=make_dispatcher(),
+        )
+        completed: list[bool] = []
+        vm.property_changed.subscribe(on_completed=lambda: completed.append(True))
+
+        with pytest.raises(RuntimeError, match="dispose hook failure"):
+            vm.dispose()
+
+        assert vm.status == ConstructionStatus.DISPOSED
+        assert completed == [True]
+        vm.dispose()
 
     def test_construct_from_disposed_raises(self) -> None:
         vm = make_vm()

@@ -104,10 +104,13 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
     /// </summary>
     public override void Dispose()
     {
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        base.Dispose();
+        var firstError = DisposeChildren([_component1, _component2, _component3]);
+        try { base.Dispose(); }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

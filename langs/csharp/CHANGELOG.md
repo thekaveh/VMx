@@ -4,6 +4,20 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Unit and conformance suites now execute against both .NET 8 and .NET 9.
+
+### Fixed
+
+- Lazy composite children roll back a failed factory attempt so a later access
+  can retry instead of retaining partial state.
+- Component teardown always performs base cleanup after a throwing override,
+  and composite, group, and aggregate disposal isolates child failures while
+  still disposing every sibling and the parent.
+
 ## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-07-13
 
 ### Changed

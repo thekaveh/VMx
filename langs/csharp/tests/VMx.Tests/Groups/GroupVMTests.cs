@@ -3,6 +3,7 @@ using FluentAssertions;
 using VMx.Components;
 using VMx.Groups;
 using VMx.Lifecycle;
+using VMx.Tests.Components;
 using VMx.Tests.Helpers;
 using Xunit;
 
@@ -229,6 +230,43 @@ public class GroupVMTests
         child.Status.Should().Be(ConstructionStatus.Constructed);
     }
 
+    [Fact]
+    public void Failed_Factory_Population_Rolls_Back_And_Retries()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var childA = BuildChild(hub, dispatcher, "a");
+        var childB = BuildChild(hub, dispatcher, "b");
+        var calls = 0;
+
+        IEnumerable<ComponentVM<string>> Children()
+        {
+            calls++;
+            yield return childA;
+            if (calls == 1)
+                throw new InvalidOperationException("transient factory failure");
+            yield return childB;
+        }
+
+        var group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("g")
+            .Services(hub, dispatcher)
+            .Children(Children)
+            .Build();
+
+        Action first = group.Construct;
+        first.Should().Throw<InvalidOperationException>()
+            .WithMessage("transient factory failure");
+        group.Status.Should().Be(ConstructionStatus.Destructed);
+        group.Count.Should().Be(0);
+
+        group.Construct();
+
+        calls.Should().Be(2);
+        group.Should().Equal(childA, childB);
+        group.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
     // ── Builder: validation ──────────────────────────────────────────────────
 
     [Fact]
@@ -283,6 +321,29 @@ public class GroupVMTests
 
         c1.Status.Should().Be(ConstructionStatus.Disposed);
         c2.Status.Should().Be(ConstructionStatus.Disposed);
+        group.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Dispose_Continues_After_Child_Failure_And_Rethrows_First_Error()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var throwing = new ThrowingDisposeVM();
+        var sibling = BuildChild(hub, dispatcher, "sibling");
+        var group = GroupVM<IComponentVM>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [throwing, sibling])
+            .Build();
+        group.Construct();
+
+        Action dispose = group.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>()
+            .WithMessage("dispose hook failure");
+        throwing.Status.Should().Be(ConstructionStatus.Disposed);
+        sibling.Status.Should().Be(ConstructionStatus.Disposed);
         group.Status.Should().Be(ConstructionStatus.Disposed);
     }
 

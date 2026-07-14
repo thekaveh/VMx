@@ -1,14 +1,14 @@
 # vmx — C#
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
-spec-compatible with the Python, TypeScript, and Swift flavors.
+spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
 **v3.20.0** — implements `spec-v3.20.0` end-to-end. 391/391 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
-(`services.AddVMx(...)`) at `2.1.0` and `VMx.Notifications` (opt-in
+(`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
 `INotificationHub`) at `1.2.0` (min spec 2.6.0). Each is independently
 versioned per ADR-0009 / ADR-0013 and stays on its own release line
 (the DI companion does not pull the core bump); see
@@ -88,23 +88,23 @@ The Python and TypeScript flavors mirror this shape: see
 [TypeScript Quick start](../typescript/README.md#3-quick-start) — only the
 identifier casing differs.
 
-See [docs/getting-started/csharp.md](../../docs/getting-started/csharp.md)
+See [Getting Started with VMx — C#](../../docs/content/getting-started/csharp.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The conceptual surface is identical across the four flavors; identifier
+The conceptual surface is identical across the five flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
 
-| Concept             | C#                  | Python             | TypeScript         | Swift              |
-| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                     |
+| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ------------------------ |
+| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`        |
+| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`         |
+| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`               |
+| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`              |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()`  |
 
-C# uses PascalCase, Python uses snake_case, TypeScript and Swift use
+C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
 camelCase. The single substantive divergence is that C# names the modeled
 variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their

@@ -4,6 +4,7 @@ using VMx.Components;
 using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
+using VMx.Tests.Components;
 using VMx.Tests.Helpers;
 using Xunit;
 
@@ -34,6 +35,43 @@ public class CompositeVMTests
     private static ComponentVM<string> BuildChild(TestHub hub, TestDispatcher dispatcher, string name = "child1")
         => ComponentVM<string>.Builder()
             .Name(name).Services(hub, dispatcher).Model("m").Build();
+
+    [Fact]
+    public void Failed_Factory_Population_Rolls_Back_And_Retries()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var childA = BuildChild(hub, dispatcher, "a");
+        var childB = BuildChild(hub, dispatcher, "b");
+        var calls = 0;
+
+        IEnumerable<ComponentVM<string>> Children()
+        {
+            calls++;
+            yield return childA;
+            if (calls == 1)
+                throw new InvalidOperationException("transient factory failure");
+            yield return childB;
+        }
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(Children)
+            .Build();
+
+        Action first = composite.Construct;
+        first.Should().Throw<InvalidOperationException>()
+            .WithMessage("transient factory failure");
+        composite.Status.Should().Be(ConstructionStatus.Destructed);
+        composite.Count.Should().Be(0);
+
+        composite.Construct();
+
+        calls.Should().Be(2);
+        composite.Should().Equal(childA, childB);
+        composite.Status.Should().Be(ConstructionStatus.Constructed);
+    }
 
     // ── Type and identity ────────────────────────────────────────────────────
 
@@ -490,6 +528,29 @@ public class CompositeVMTests
 
         c1.Status.Should().Be(ConstructionStatus.Disposed);
         c2.Status.Should().Be(ConstructionStatus.Disposed);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Dispose_Continues_After_Child_Failure_And_Rethrows_First_Error()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var throwing = new ThrowingDisposeVM();
+        var sibling = BuildChild(hub, dispatcher, "sibling");
+        var composite = CompositeVM<IComponentVM>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [throwing, sibling])
+            .Build();
+        composite.Construct();
+
+        Action dispose = composite.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>()
+            .WithMessage("dispose hook failure");
+        throwing.Status.Should().Be(ConstructionStatus.Disposed);
+        sibling.Status.Should().Be(ConstructionStatus.Disposed);
         composite.Status.Should().Be(ConstructionStatus.Disposed);
     }
 

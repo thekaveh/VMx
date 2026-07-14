@@ -2,8 +2,8 @@
 
 **Status:** Accepted (2026-07-12)
 **Spec version:** 3.20.0 (decision ADR; no API or behavior change)
-**Related:** ADR-0002, ADR-0006, ADR-0011, ADR-0082, ADR-0095, issues #80,
-#93, and #97
+**Related:** ADR-0002, ADR-0006, ADR-0011, ADR-0082, ADR-0095, ADR-0103,
+issues #80, #93, and #97
 
 ## 1. Context
 
@@ -27,7 +27,9 @@ committee-approved stage recorded by TC39 is standards status.
 
 VMx already has deliberate reactive boundaries. ADR-0002 assigns one idiomatic
 Rx implementation to each flavor: System.Reactive, reactivex, RxJS, Combine,
-and the Rust facade over rxrust. Replacing those internals would be a
+and what was then documented as the Rust facade over rxrust. ADR-0103 later
+corrected that unused-backend claim without changing the facade. Replacing the
+observable reactive boundaries would still be a
 cross-flavor architectural change, while TC39 Signals is currently a mutable
 JavaScript-only proposal.
 
@@ -35,8 +37,8 @@ JavaScript-only proposal.
 
 ### 2.1 Keep the current reactive architecture
 
-VMx will not replace its Rx/Combine/reactivex/rxrust internals while TC39
-Signals remains Stage 1. VMx will not add `signal-polyfill`, a `toSignal`
+VMx will not replace its Rx/Combine/reactivex or VMx-owned Rust hot-stream
+internals while TC39 Signals remains Stage 1. VMx will not add `signal-polyfill`, a `toSignal`
 helper, or a supported Signal package subpath under this decision. Framework
 adapters continue translating VMx notifications into their host framework's
 reactivity primitive.

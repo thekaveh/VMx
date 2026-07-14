@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Reflection;
 using FluentAssertions;
 using VMx.Components;
 using VMx.Lifecycle;
@@ -25,6 +26,23 @@ public class ComponentVMTests
             .Model(model)
             .Build();
         return (vm, hub, dispatcher);
+    }
+
+    [Fact]
+    public void Throwing_Dispose_Hook_Still_Completes_Base_Teardown()
+    {
+        var vm = new ThrowingDisposeVM();
+
+        Action dispose = vm.Dispose;
+        dispose.Should().Throw<InvalidOperationException>()
+            .WithMessage("dispose hook failure");
+
+        vm.Status.Should().Be(ConstructionStatus.Disposed);
+        var triggerDisposed = typeof(ComponentVMBase)
+            .GetField("_triggerDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(vm);
+        triggerDisposed.Should().Be(true);
+        vm.Dispose();
     }
 
     // ── Identity ─────────────────────────────────────────────────────────────
@@ -547,4 +565,17 @@ public class ComponentVMTests
         vm.Construct();
         caught.Should().NotBeNull();
     }
+}
+
+internal sealed class ThrowingDisposeVM : ComponentVMBase
+{
+    public ThrowingDisposeVM()
+        : base("throwing", "", new TestHub(), new TestDispatcher(), null, null)
+    {
+    }
+
+    public override ViewModelType Type => ViewModelType.Component;
+
+    protected override void OnDispose()
+        => throw new InvalidOperationException("dispose hook failure");
 }

@@ -354,9 +354,10 @@ AsyncRelayCommand.Builder()
 The task receives a **cancellation channel** appropriate to the flavor (chapter
 11): a `CancellationToken` (C#), idiomatic asyncio task cancellation — a
 `CancelledError` raised at the next await point — (Python), an `AbortSignal`
-(TypeScript), or Swift `Task` cancellation. The channel is linked to both
-`Cancel()` and any cancellation token supplied to `ExecuteAsync` where the
-flavor has an explicit caller-supplied token.
+(TypeScript), Swift `Task` cancellation, or a cooperative VMx
+`CancellationToken` (Rust). The channel is linked to both `Cancel()` and any
+cancellation token supplied to `ExecuteAsync` where the flavor has an explicit
+caller-supplied token.
 
 ### 10.2 In-flight state and `CanExecute`
 
@@ -407,8 +408,8 @@ A task that faults for a non-cancellation reason is **not** swallowed:
 `AsyncRelayCommand` / `IAsyncCommand` is normative in all full-parity
 flavors; the cancellation channel is the
 idiomatic primitive per flavor (`CancellationToken` / asyncio cancellation /
-`AbortSignal` / Swift `Task` cancellation) and the conceptual shape is
-identical. Swift's implementation uses Swift structured concurrency for the
+`AbortSignal` / Swift `Task` cancellation / VMx Rust `CancellationToken`) and
+the conceptual shape is identical. Swift's implementation uses Swift structured concurrency for the
 cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 (ADR-0076).
 

@@ -73,8 +73,19 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
     protected override void PopulateChildren()
     {
         if (_populated || _childrenFactory is null) return;
+        var children = _childrenFactory().ToArray();
+        var initialCount = Count;
+        try
+        {
+            foreach (var child in children)
+                Add(child);
+        }
+        catch
+        {
+            while (Count > initialCount)
+                RemoveAt(Count - 1);
+            throw;
+        }
         _populated = true;
-        foreach (var child in _childrenFactory())
-            Add(child);
     }
 }

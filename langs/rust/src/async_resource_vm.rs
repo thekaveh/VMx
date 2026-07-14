@@ -6,6 +6,7 @@ use crate::{
     lock, AsyncRelayCommand, CancellationToken, ComponentVm, MessageHub, NullDispatcher,
     PropertyChangedStream, RelayCommand, VmxError, VmxResult,
 };
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -360,9 +361,14 @@ where
     let loader_inner = inner.clone();
     let loader_operation = operation.clone();
     thread::spawn(move || {
-        let result = (loader_inner.loader)(loader_operation.token.clone());
-        complete_operation(&loader_inner, &loader_operation, result);
-        let _ = done_send.send(());
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let result = (loader_inner.loader)(loader_operation.token.clone());
+            complete_operation(&loader_inner, &loader_operation, result);
+        }));
+        if outcome.is_err() {
+            rollback_panicked_operation(&loader_inner, &loader_operation);
+        }
+        let _ = done_send.send(outcome);
     });
 
     loop {
@@ -374,9 +380,35 @@ where
             return Ok(());
         }
         match done_receive.recv_timeout(Duration::from_millis(1)) {
-            Ok(()) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(panic)) => resume_unwind(panic),
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("async resource loader worker disconnected before reporting completion")
+            }
             Err(RecvTimeoutError::Timeout) => {}
         }
+    }
+}
+
+fn rollback_panicked_operation<T>(inner: &Inner<T>, operation: &Operation<T>)
+where
+    T: Clone + Send + 'static,
+{
+    let notify = {
+        let mut machine = lock(&inner.machine);
+        if machine.disposed
+            || machine.operation.as_ref().map(|current| current.identity)
+                != Some(operation.identity)
+        {
+            false
+        } else {
+            machine.operation = None;
+            machine.state = state_from_stable(&operation.baseline);
+            true
+        }
+    };
+    if notify {
+        notify_state(inner);
     }
 }
 

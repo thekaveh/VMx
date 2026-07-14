@@ -6,7 +6,7 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.20.x | 3.20.0[^current] | 3.20.0[^current] | 3.20.0–3.21.0[^current] | 3.20.0[^swift] | 0.20.0[^rust] |
+| 3.20.x | 3.20.0[^current] | 3.20.0[^current] | 3.20.0–3.21.0[^current] | 3.20.0[^swift] | 0.20.0–0.21.0[^rust] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
 | 3.17.x | —               | —               | —               | —               | 0.17.0[^rust-source] |

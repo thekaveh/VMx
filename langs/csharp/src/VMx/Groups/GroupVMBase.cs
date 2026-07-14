@@ -299,10 +299,16 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // Depth-first: dispose each child before self. Snapshot with ToArray so a
         // child whose Dispose() reentrantly removes a sibling cannot invalidate the
         // enumerator (parity with OnConstruct/OnDestruct and CompositeVMBase.Dispose).
-        foreach (var child in _children.ToArray())
-            child.Dispose();
-
-        base.Dispose();
+        var firstError = DisposeChildren(_children.ToArray());
+        try
+        {
+            base.Dispose();
+        }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── IComponentVM.Type ─────────────────────────────────────────────────────

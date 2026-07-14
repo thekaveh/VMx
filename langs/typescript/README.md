@@ -85,23 +85,23 @@ The C# and Python flavors mirror this shape: see
 [Python Quick start](../python/README.md#3-quick-start) — only the
 identifier casing differs.
 
-See [docs/getting-started/typescript.md](../../docs/getting-started/typescript.md)
+See [Getting Started with VMx — TypeScript](../../docs/content/getting-started/typescript.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The conceptual surface is identical across the four flavors; identifier
+The conceptual surface is identical across the five flavors; identifier
 casing follows the per-language idiom (see ADR-0006).
 
-| Concept             | C#                  | Python             | TypeScript         | Swift              |
-| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                    |
+| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ----------------------- |
+| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`       |
+| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`              |
+| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`             |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
-C# uses PascalCase, Python uses snake_case, TypeScript and Swift use
+C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
 camelCase. The single substantive divergence is that C# names the modeled
 variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their

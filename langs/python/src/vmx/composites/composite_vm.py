@@ -14,7 +14,11 @@ from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
-from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
+from vmx.components.base import (
+    _ComponentVMBase,
+    _dispose_children_then_self,
+    _ParentCompositeVM,
+)
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -365,8 +369,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         """
         super()._on_construct()
         if not self._populated:
+            initial_count = len(self._children)
+            try:
+                self._populate_children()
+            except Exception:
+                while len(self._children) > initial_count:
+                    self._remove_at(len(self._children) - 1)
+                raise
             self._populated = True
-            self._populate_children()
         # Construct all children.
         for child in list(self._children):
             child.construct()
@@ -386,9 +396,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
-        for child in list(self._children):
-            child.dispose()
-        super().dispose()
+        _dispose_children_then_self(list(self._children), super().dispose)
 
     def _on_dispose(self) -> None:
         """Complete the collection_changed subject."""
@@ -550,7 +558,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
     def _populate_children(self) -> None:
         if self._children_factory is None:
             return
-        for child in self._children_factory():
+        for child in list(self._children_factory()):
             self.append(child)
 
 
@@ -606,8 +614,8 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         return CompositeVMOfBuilder()
 
     def _populate_children(self) -> None:
-        for model in self._children_models():
-            child = self._child_model_to_child_vm(model)
+        children = [self._child_model_to_child_vm(model) for model in self._children_models()]
+        for child in children:
             self.append(child)
 
 

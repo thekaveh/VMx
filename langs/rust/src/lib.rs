@@ -67,6 +67,8 @@ pub enum VmxError {
     ReadonlyModel,
     #[error("dialog already active")]
     DialogReentrancy,
+    #[error("operation cancelled")]
+    Cancelled,
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
     #[error("{0}")]
@@ -1689,6 +1691,29 @@ pub struct AsyncRelayCommand {
     executing: Arc<AtomicBool>,
     active_token: Arc<Mutex<Option<CancellationToken>>>,
     can_execute_changed: MessageHub,
+    errors: MessageHub,
+    throw_on_cancel: bool,
+    trigger_subscriptions: Arc<Mutex<Vec<Subscription>>>,
+}
+
+struct AsyncExecutionGuard {
+    executing: Arc<AtomicBool>,
+    active_token: Arc<Mutex<Option<CancellationToken>>>,
+    can_execute_changed: MessageHub,
+    disposed: Arc<AtomicBool>,
+}
+
+impl Drop for AsyncExecutionGuard {
+    fn drop(&mut self) {
+        *lock(&self.active_token) = None;
+        self.executing.store(false, Ordering::SeqCst);
+        if !self.disposed.load(Ordering::SeqCst) {
+            self.can_execute_changed.send(Message::Custom {
+                sender_id: 0,
+                name: "can_execute_changed".to_string(),
+            });
+        }
+    }
 }
 
 impl AsyncRelayCommand {
@@ -1696,25 +1721,39 @@ impl AsyncRelayCommand {
     where
         F: Fn(CancellationToken) -> VmxResult<()> + Send + Sync + 'static,
     {
-        Self {
-            action: Some(Arc::new(action)),
-            predicate: None,
-            disposed: Arc::new(AtomicBool::new(false)),
-            executing: Arc::new(AtomicBool::new(false)),
-            active_token: Arc::new(Mutex::new(None)),
-            can_execute_changed: MessageHub::new(),
-        }
+        Self::from_parts(Some(Arc::new(action)), None, Vec::new(), false)
     }
 
     pub fn noop() -> Self {
-        Self {
-            action: None,
-            predicate: None,
+        Self::from_parts(None, None, Vec::new(), false)
+    }
+
+    fn from_parts(
+        action: Option<AsyncCommandAction>,
+        predicate: Option<AsyncCommandPredicate>,
+        triggers: Vec<MessageHub>,
+        throw_on_cancel: bool,
+    ) -> Self {
+        let command = Self {
+            action,
+            predicate,
             disposed: Arc::new(AtomicBool::new(false)),
             executing: Arc::new(AtomicBool::new(false)),
             active_token: Arc::new(Mutex::new(None)),
             can_execute_changed: MessageHub::new(),
-        }
+            errors: MessageHub::new(),
+            throw_on_cancel,
+            trigger_subscriptions: Arc::new(Mutex::new(Vec::new())),
+        };
+        let subscriptions = triggers
+            .into_iter()
+            .map(|trigger| {
+                let observed = command.clone();
+                trigger.subscribe(move |_| observed.raise_can_execute_changed())
+            })
+            .collect();
+        *lock(&command.trigger_subscriptions) = subscriptions;
+        command
     }
 
     pub fn with_can_execute<F>(mut self, predicate: F) -> Self
@@ -1732,33 +1771,77 @@ impl AsyncRelayCommand {
     }
 
     pub fn execute(&self) {
-        let _ = self.execute_async();
+        let _ = self.start_execution(true);
     }
 
     pub fn execute_async(&self) -> std::thread::JoinHandle<VmxResult<()>> {
-        if !self.can_execute() {
+        self.start_execution(false)
+    }
+
+    fn start_execution(
+        &self,
+        route_fire_and_forget_errors: bool,
+    ) -> std::thread::JoinHandle<VmxResult<()>> {
+        if self.disposed.load(Ordering::SeqCst)
+            || !self.predicate.as_ref().map(|p| p()).unwrap_or(true)
+            || self
+                .executing
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
             return std::thread::spawn(|| Ok(()));
         }
-        self.executing.store(true, Ordering::SeqCst);
+        if self.disposed.load(Ordering::SeqCst) {
+            self.executing.store(false, Ordering::SeqCst);
+            return std::thread::spawn(|| Ok(()));
+        }
         let token = CancellationToken::new();
         *lock(&self.active_token) = Some(token.clone());
+        if self.disposed.load(Ordering::SeqCst) {
+            token.cancel();
+            *lock(&self.active_token) = None;
+            self.executing.store(false, Ordering::SeqCst);
+            return std::thread::spawn(|| Ok(()));
+        }
         self.raise_can_execute_changed();
         let action = self.action.clone();
-        let executing = self.executing.clone();
-        let active_token = self.active_token.clone();
-        let can_execute_changed = self.can_execute_changed.clone();
+        let errors = self.errors.clone();
+        let throw_on_cancel = self.throw_on_cancel;
         let disposed = self.disposed.clone();
+        let guard = AsyncExecutionGuard {
+            executing: self.executing.clone(),
+            active_token: self.active_token.clone(),
+            can_execute_changed: self.can_execute_changed.clone(),
+            disposed: self.disposed.clone(),
+        };
         std::thread::spawn(move || {
-            let result = action.map(|action| action(token)).unwrap_or(Ok(()));
-            executing.store(false, Ordering::SeqCst);
-            *lock(&active_token) = None;
-            if !disposed.load(Ordering::SeqCst) {
-                can_execute_changed.send(Message::Custom {
-                    sender_id: 0,
-                    name: "can_execute_changed".to_string(),
-                });
+            let _guard = guard;
+            let result = action.map(|action| action(token.clone())).unwrap_or(Ok(()));
+            let result = match (token.is_cancelled(), result) {
+                (true, Ok(())) | (true, Err(VmxError::Cancelled)) => {
+                    if throw_on_cancel {
+                        Err(VmxError::Cancelled)
+                    } else {
+                        Ok(())
+                    }
+                }
+                (_, result) => result,
+            };
+
+            if route_fire_and_forget_errors {
+                if result.is_err()
+                    && !matches!(&result, Err(VmxError::Cancelled))
+                    && !disposed.load(Ordering::SeqCst)
+                {
+                    errors.send(Message::Custom {
+                        sender_id: 0,
+                        name: "error".to_string(),
+                    });
+                }
+                Ok(())
+            } else {
+                result
             }
-            result
         })
     }
 
@@ -1773,12 +1856,25 @@ impl AsyncRelayCommand {
     }
 
     pub fn dispose(&self) {
-        self.disposed.store(true, Ordering::SeqCst);
+        if self.disposed.swap(true, Ordering::SeqCst) {
+            return;
+        }
         self.cancel();
+        lock(&self.trigger_subscriptions).clear();
+        self.can_execute_changed.dispose();
+        self.errors.dispose();
     }
 
     pub fn can_execute_changed(&self) -> MessageHub {
         self.can_execute_changed.clone()
+    }
+
+    pub fn errors(&self) -> MessageHub {
+        self.errors.clone()
+    }
+
+    pub fn builder() -> AsyncRelayCommandBuilder {
+        AsyncRelayCommandBuilder::default()
     }
 
     pub fn raise_can_execute_changed(&self) {
@@ -1789,6 +1885,51 @@ impl AsyncRelayCommand {
             sender_id: 0,
             name: "can_execute_changed".to_string(),
         });
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct AsyncRelayCommandBuilder {
+    action: Option<AsyncCommandAction>,
+    predicate: Option<AsyncCommandPredicate>,
+    triggers: Vec<MessageHub>,
+    throw_on_cancel: bool,
+}
+
+impl AsyncRelayCommandBuilder {
+    pub fn task<F>(mut self, action: F) -> Self
+    where
+        F: Fn(CancellationToken) -> VmxResult<()> + Send + Sync + 'static,
+    {
+        self.action = Some(Arc::new(action));
+        self
+    }
+
+    pub fn predicate<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn() -> bool + Send + Sync + 'static,
+    {
+        self.predicate = Some(Arc::new(predicate));
+        self
+    }
+
+    pub fn trigger(mut self, trigger: MessageHub) -> Self {
+        self.triggers.push(trigger);
+        self
+    }
+
+    pub fn throw_on_cancel(mut self) -> Self {
+        self.throw_on_cancel = true;
+        self
+    }
+
+    pub fn build(self) -> AsyncRelayCommand {
+        AsyncRelayCommand::from_parts(
+            self.action,
+            self.predicate,
+            self.triggers,
+            self.throw_on_cancel,
+        )
     }
 }
 

@@ -1,7 +1,7 @@
 # VMx — Swift
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for Swift,
-spec-compatible with the C# / Python / TypeScript flavors.
+spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
@@ -133,18 +133,18 @@ The C# / Python / TypeScript flavors mirror this shape — only the
 identifier casing differs (per ADR-0006: Swift uses **camelCase**,
 matching the TypeScript flavor).
 
-See [docs/integration/swiftui.md](../../docs/integration/swiftui.md) for
+See [SwiftUI Integration](../../docs/content/integration/swiftui.md) for
 a one-page SwiftUI integration recipe.
 
 ### 3.1 Cross-language naming
 
-| Concept             | C#                  | Python             | TypeScript         | Swift              |
-| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                    |
+| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ----------------------- |
+| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`       |
+| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`              |
+| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`             |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 ## 4. API surface
 

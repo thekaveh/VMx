@@ -64,11 +64,19 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
     protected override void PopulateChildren()
     {
         if (_populated) return;
-        _populated = true;
-        foreach (var model in _childrenModels())
+        var children = _childrenModels().Select(_childModelToChildViewModel).ToArray();
+        var initialCount = Count;
+        try
         {
-            var child = _childModelToChildViewModel(model);
-            Add(child);
+            foreach (var child in children)
+                Add(child);
         }
+        catch
+        {
+            while (Count > initialCount)
+                RemoveAt(Count - 1);
+            throw;
+        }
+        _populated = true;
     }
 }

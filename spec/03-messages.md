@@ -405,7 +405,8 @@ the subscription. The helper is not automatically registered as a resource of
 the observed VM; the imperative consumer owns its lifetime.
 
 The bridge does not perform dependency tracking, dynamic collection-member
-fan-in, or automatic resubscription. Those remain issue #136. See ADR-0095.
+fan-in, or automatic resubscription. Use `AggregateChangeStream` (ADR-0098) for
+dynamic membership; see ADR-0095 for the fixed-source bridge.
 
 ## 8. Conformance
 

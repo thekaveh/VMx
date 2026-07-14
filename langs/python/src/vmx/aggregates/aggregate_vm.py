@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
-from vmx.components.base import _ComponentVMBase
+from vmx.components.base import _ComponentVMBase, _dispose_children_then_self
 from vmx.components.protocols import ComponentVMProto, ViewModelType
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
@@ -94,9 +94,7 @@ class AggregateVM1(Generic[V1], _ComponentVMBase):
         Mirrors C# / TS / Swift AggregateVM1.Dispose so subscribers observe child
         Disposed transitions before the aggregate's own Disposed transition — a
         single dispose-ordering rule across all aggregate arities."""
-        if self._component1 is not None:
-            self._component1.dispose()
-        super().dispose()
+        _dispose_children_then_self((self._component1,), super().dispose)
 
 
 # ---------------------------------------------------------------------------
@@ -177,11 +175,7 @@ class AggregateVM2(Generic[V1, V2], _ComponentVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        super().dispose()
+        _dispose_children_then_self((self._component1, self._component2), super().dispose)
 
 
 # ---------------------------------------------------------------------------
@@ -278,13 +272,9 @@ class AggregateVM3(Generic[V1, V2, V3], _ComponentVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        super().dispose()
+        _dispose_children_then_self(
+            (self._component1, self._component2, self._component3), super().dispose
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -397,15 +387,15 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _ComponentVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        super().dispose()
+        _dispose_children_then_self(
+            (
+                self._component1,
+                self._component2,
+                self._component3,
+                self._component4,
+            ),
+            super().dispose,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -534,17 +524,16 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _ComponentVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        if self._component5 is not None:
-            self._component5.dispose()
-        super().dispose()
+        _dispose_children_then_self(
+            (
+                self._component1,
+                self._component2,
+                self._component3,
+                self._component4,
+                self._component5,
+            ),
+            super().dispose,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -692,16 +681,14 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _ComponentVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        if self._component5 is not None:
-            self._component5.dispose()
-        if self._component6 is not None:
-            self._component6.dispose()
-        super().dispose()
+        _dispose_children_then_self(
+            (
+                self._component1,
+                self._component2,
+                self._component3,
+                self._component4,
+                self._component5,
+                self._component6,
+            ),
+            super().dispose,
+        )

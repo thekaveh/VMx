@@ -478,7 +478,7 @@ and `CanExecute` returns `true`
 cannot double-run)
 
 > Spec: `04-commands.md §10`, ADR-0056, ADR-0076. Full-parity
-> (C#/Python/TypeScript/Swift).
+> (C#/Python/TypeScript/Swift/Rust).
 
 ### CMD-013 — disposed relay commands are inert
 

@@ -21,7 +21,11 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
-from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
+from vmx.components.base import (
+    _ComponentVMBase,
+    _dispose_children_then_self,
+    _ParentCompositeVM,
+)
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -308,9 +312,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
-        for child in list(self._children):
-            child.dispose()
-        super().dispose()
+        _dispose_children_then_self(list(self._children), super().dispose)
 
     def _on_dispose(self) -> None:
         if not self._collection_changed_subject.is_disposed:
@@ -321,9 +323,16 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         """Evaluate the children factory (idempotent: runs at most once)."""
         if self._populated or self._children_factory is None:
             return
+        children = list(self._children_factory())
+        initial_count = len(self._children)
+        try:
+            for child in children:
+                self.add(child)
+        except Exception:
+            while len(self._children) > initial_count:
+                self.remove_at(len(self._children) - 1)
+            raise
         self._populated = True
-        for child in self._children_factory():
-            self.add(child)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 

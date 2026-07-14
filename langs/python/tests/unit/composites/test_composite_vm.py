@@ -64,6 +64,11 @@ def _build_child(
     return ComponentVMBuilder().name(name).services(h, d).build()  # type: ignore[arg-type]
 
 
+class _ThrowingDisposeChild(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError("dispose hook failure")
+
+
 # ---------------------------------------------------------------------------
 # Collection mutation tests
 # ---------------------------------------------------------------------------
@@ -421,6 +426,38 @@ def test_factory_children_emit_collection_changed_events() -> None:
     assert events[1].new_items == (child_b,)  # type: ignore[attr-defined]
 
 
+def test_failed_factory_population_rolls_back_and_retries() -> None:
+    hub = _hub()
+    disp = _dispatcher()
+    child_a = _build_child("a", hub=hub, dispatcher=disp)
+    child_b = _build_child("b", hub=hub, dispatcher=disp)
+    calls = 0
+
+    def children() -> object:
+        nonlocal calls
+        calls += 1
+        yield child_a
+        if calls == 1:
+            raise RuntimeError("transient factory failure")
+        yield child_b
+
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder().name("comp").services(hub, disp).children(children).build()
+    )
+
+    with pytest.raises(RuntimeError, match="transient factory failure"):
+        comp.construct()
+
+    assert comp.status == ConstructionStatus.DESTRUCTED
+    assert comp.count == 0
+
+    comp.construct()
+
+    assert calls == 2
+    assert list(comp) == [child_a, child_b]
+    assert comp.status == ConstructionStatus.CONSTRUCTED
+
+
 def test_destruct_destructs_children_and_clears_current() -> None:
     hub = _hub()
     disp = _dispatcher()
@@ -459,6 +496,22 @@ def test_dispose_cascade() -> None:
     assert comp.status == ConstructionStatus.DISPOSED
     assert child_a.status == ConstructionStatus.DISPOSED
     assert child_b.status == ConstructionStatus.DISPOSED
+
+
+def test_dispose_continues_after_child_failure_and_reraises_first_error() -> None:
+    comp, hub = _build_composite()
+    dispatcher = _dispatcher()
+    throwing = _ThrowingDisposeChild(name="throwing", hint="", hub=hub, dispatcher=dispatcher)
+    sibling = _build_child("sibling", hub, dispatcher)
+    comp.append(throwing)
+    comp.append(sibling)
+
+    with pytest.raises(RuntimeError, match="dispose hook failure"):
+        comp.dispose()
+
+    assert throwing.status == ConstructionStatus.DISPOSED
+    assert sibling.status == ConstructionStatus.DISPOSED
+    assert comp.status == ConstructionStatus.DISPOSED
 
 
 def test_remove_current_child_clears_current() -> None:

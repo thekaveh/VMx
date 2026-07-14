@@ -88,9 +88,13 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     /// </summary>
     public override void Dispose()
     {
-        _component1?.Dispose();
-        _component2?.Dispose();
-        base.Dispose();
+        var firstError = DisposeChildren([_component1, _component2]);
+        try { base.Dispose(); }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

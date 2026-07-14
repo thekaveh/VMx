@@ -304,8 +304,7 @@ accepted unequal assignment.
 The null/default hub keeps null-object behavior: the local edit transaction still
 settles and no exception is raised. Validator failures retain their existing
 flavor behavior; this contract does not add rollback. Intentional publication of
-an equal/current model is outside this method and is tracked separately by issue
-#89.
+an equal/current FormVM model is outside this method by decision (ADR-0093).
 
 ## 6. Lifecycle state diagram
 

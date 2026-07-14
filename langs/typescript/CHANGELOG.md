@@ -4,6 +4,13 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `AsyncRelayCommand.executeAsync` now detaches an external `AbortSignal`
+  listener after success, fault, or disposal-driven cancellation.
+
 ## [3.21.0] — 2026-07-12
 
 Continues to implement `spec-v3.20.0` with 391/391 library conformance IDs.

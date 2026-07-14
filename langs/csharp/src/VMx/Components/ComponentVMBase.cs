@@ -3,6 +3,7 @@ using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
 using VMx.Lifecycle;
@@ -614,6 +615,32 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     }
 
     // ── Lifecycle: Dispose ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Disposes every child while preserving the first failure for the parent
+    /// override to rethrow after its explicit base cleanup. A failing child
+    /// must not strand its siblings or parent during a LIFE-013 cascade.
+    /// </summary>
+    protected static ExceptionDispatchInfo? DisposeChildren(
+        IEnumerable<IDisposable?> children)
+    {
+        ExceptionDispatchInfo? firstError = null;
+        foreach (var child in children)
+        {
+            if (child is null) continue;
+            try
+            {
+                child.Dispose();
+            }
+            catch (Exception error)
+            {
+                firstError ??= ExceptionDispatchInfo.Capture(error);
+            }
+        }
+
+        return firstError;
+    }
+
     /// <inheritdoc/>
     public virtual void Dispose()
     {
@@ -630,33 +657,38 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // status value or touch hub-published subjects during cleanup.
         try
         {
-            OnDispose();
+            try
+            {
+                OnDispose();
+            }
+            finally
+            {
+                DisposeOwnedResources();
+            }
         }
         finally
         {
-            DisposeOwnedResources();
-        }
-
-        // Tear down the status trigger under _gate so the flag flip and the
-        // Subject disposal cannot interleave with an in-flight background
-        // SetStatus: that transition either completes its guarded OnNext before
-        // this runs, or observes Disposed/_triggerDisposed under the same lock
-        // and skips it — never an OnNext on a disposed Subject (VMX-001).
-        lock (_gate)
-        {
-            if (!_triggerDisposed)
+            // Tear down the status trigger under _gate so the flag flip and the
+            // Subject disposal cannot interleave with an in-flight background
+            // SetStatus: that transition either completes its guarded OnNext before
+            // this runs, or observes Disposed/_triggerDisposed under the same lock
+            // and skips it — never an OnNext on a disposed Subject (VMX-001).
+            lock (_gate)
             {
-                _triggerDisposed = true;
-                _statusTrigger.OnCompleted();
-                _statusTrigger.Dispose();
+                if (!_triggerDisposed)
+                {
+                    _triggerDisposed = true;
+                    _statusTrigger.OnCompleted();
+                    _statusTrigger.Dispose();
+                }
             }
-        }
 
-        (_selectCommand as IDisposable)?.Dispose();
-        (_deselectCommand as IDisposable)?.Dispose();
-        (_selectNextCommand as IDisposable)?.Dispose();
-        (_selectPreviousCommand as IDisposable)?.Dispose();
-        (_reconstructCommand as IDisposable)?.Dispose();
+            (_selectCommand as IDisposable)?.Dispose();
+            (_deselectCommand as IDisposable)?.Dispose();
+            (_selectNextCommand as IDisposable)?.Dispose();
+            (_selectPreviousCommand as IDisposable)?.Dispose();
+            (_reconstructCommand as IDisposable)?.Dispose();
+        }
     }
 
     // ── Selection predicates ────────────────────────────────────────────────

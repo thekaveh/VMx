@@ -4,6 +4,31 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] — 2026-07-13
+
+Implements `spec-v3.20.0` and keeps Rust at full library parity: 391/391
+conformance IDs covered.
+
+### Added
+
+- `AsyncRelayCommandBuilder` now provides `task`, `predicate`, additive
+  `trigger`, and opt-in `throw_on_cancel` setters.
+- `AsyncRelayCommand::errors()` routes non-cancellation fire-and-forget faults;
+  `VmxError::Cancelled` distinguishes the cooperative cancellation result.
+
+### Changed
+
+- Async command admission is atomic, panic-safe teardown always clears the
+  in-flight state, default cancellation completes normally, and throwing mode
+  returns `VmxError::Cancelled` through the join handle (ADR-0104).
+- The Rust reactive primitive is documented and packaged as the directly
+  implemented VMx-owned hot-stream facade; the unused `rxrust` and runtime-only
+  `serde_json` dependencies are removed (ADR-0103).
+- Application examples now commit lockfiles, enforce `--locked` CI execution,
+  and declare an MSRV no lower than the library.
+- A panicking async-resource loader restores the prior stable state and
+  preserves the panic through the public load handle.
+
 ## [0.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps Rust at full library parity: 391/391

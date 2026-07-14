@@ -376,11 +376,16 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     public override void Dispose()
     {
-        // Depth-first: dispose each child before self.
-        foreach (var child in _children.ToArray())
-            child.Dispose();
-
-        base.Dispose();
+        var firstError = DisposeChildren(_children.ToArray());
+        try
+        {
+            base.Dispose();
+        }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── IComponentVM.Type ─────────────────────────────────────────────────────

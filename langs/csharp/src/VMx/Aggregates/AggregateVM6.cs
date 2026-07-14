@@ -155,13 +155,14 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     /// </summary>
     public override void Dispose()
     {
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        _component4?.Dispose();
-        _component5?.Dispose();
-        _component6?.Dispose();
-        base.Dispose();
+        var firstError = DisposeChildren(
+            [_component1, _component2, _component3, _component4, _component5, _component6]);
+        try { base.Dispose(); }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

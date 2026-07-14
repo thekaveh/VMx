@@ -137,7 +137,11 @@ public final class AsyncRelayCommand: AsyncCommand {
         }
 
         do {
-            try await bodyTask.value
+            try await withTaskCancellationHandler {
+                try await bodyTask.value
+            } onCancel: {
+                bodyTask.cancel()
+            }
         } catch is CancellationError {
             // Command-initiated cancel (cancelRequested == true) is swallowed by
             // default (DIA-007 non-throwing alignment).
