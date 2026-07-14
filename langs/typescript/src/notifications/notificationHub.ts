@@ -3,7 +3,7 @@
  *
  * See spec/16-notifications.md and ADR-0013.
  */
-import { BehaviorSubject, type Observable } from "rxjs";
+import { Observable, Subject } from "rxjs";
 import {
   Notification,
   NotificationReaction,
@@ -20,14 +20,49 @@ interface Waiter {
   promise: Promise<NotificationReaction>;
 }
 
+interface PendingSnapshot {
+  readonly sequence: number;
+  readonly notifications: readonly Notification[];
+}
+
+type PendingDelivery =
+  | { readonly type: "snapshot"; readonly snapshot: PendingSnapshot }
+  | { readonly type: "complete" };
+
 export class NotificationHub implements INotificationHub {
   readonly #pending: Notification[] = [];
   readonly #waiters = new Map<Notification, Waiter>();
-  readonly #subject = new BehaviorSubject<readonly Notification[]>([]);
+  readonly #subject = new Subject<PendingSnapshot>();
+  readonly #deliveries: PendingDelivery[] = [];
+  #sequence = 0;
+  #deliveryHead = 0;
+  #draining = false;
   #disposed = false;
 
   get pending(): Observable<readonly Notification[]> {
-    return this.#subject.asObservable();
+    // Subscriber-local replay preserves the BehaviorSubject-like contract
+    // without exposing a stale in-flight snapshot. A listener that subscribes
+    // from another listener's reentrant callback receives current state once,
+    // then only mutation records admitted after it attached.
+    return new Observable((subscriber) => {
+      if (this.#disposed) {
+        subscriber.complete();
+        return;
+      }
+
+      const startSequence = this.#sequence;
+      const initial = [...this.#pending];
+      const subscription = this.#subject.subscribe({
+        next: (snapshot) => {
+          if (snapshot.sequence > startSequence) {
+            subscriber.next(snapshot.notifications);
+          }
+        },
+        complete: () => subscriber.complete(),
+      });
+      subscriber.next(initial);
+      return () => subscription.unsubscribe();
+    });
   }
 
   post(notification: Notification): Promise<NotificationReaction> {
@@ -45,7 +80,7 @@ export class NotificationHub implements INotificationHub {
     });
     this.#pending.push(notification);
     this.#waiters.set(notification, { resolve, promise });
-    this.#subject.next([...this.#pending]);
+    this.#enqueueSnapshot();
     return promise;
   }
 
@@ -58,7 +93,7 @@ export class NotificationHub implements INotificationHub {
     this.#waiters.delete(notification);
     const idx = this.#pending.indexOf(notification);
     if (idx >= 0) this.#pending.splice(idx, 1);
-    this.#subject.next([...this.#pending]);
+    this.#enqueueSnapshot();
     waiter.resolve(reaction);
   }
 
@@ -74,7 +109,43 @@ export class NotificationHub implements INotificationHub {
     const waiters = [...this.#waiters.values()];
     this.#waiters.clear();
     this.#pending.length = 0;
-    this.#subject.complete();
+    this.#sequence += 1;
+    this.#enqueue({ type: "complete" });
     for (const waiter of waiters) waiter.resolve(NotificationReaction.Pending);
+  }
+
+  #enqueueSnapshot(): void {
+    this.#sequence += 1;
+    this.#enqueue({
+      type: "snapshot",
+      snapshot: {
+        sequence: this.#sequence,
+        notifications: [...this.#pending],
+      },
+    });
+  }
+
+  #enqueue(delivery: PendingDelivery): void {
+    this.#deliveries.push(delivery);
+    if (!this.#draining) this.#drain();
+  }
+
+  #drain(): void {
+    // RxJS Subject delivery is reentrant. Serialize snapshots explicitly so a
+    // callback-triggered post/resolve/dispose cannot make later observers see
+    // a newer snapshot before the one currently being delivered.
+    this.#draining = true;
+    try {
+      while (this.#deliveryHead < this.#deliveries.length) {
+        const delivery = this.#deliveries[this.#deliveryHead++];
+        if (delivery === undefined) continue;
+        if (delivery.type === "complete") this.#subject.complete();
+        else this.#subject.next(delivery.snapshot);
+      }
+    } finally {
+      this.#deliveries.length = 0;
+      this.#deliveryHead = 0;
+      this.#draining = false;
+    }
   }
 }

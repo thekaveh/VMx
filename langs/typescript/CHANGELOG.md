@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `FormVM` now completes admitted synchronous assignment, reset, revert, and
+  error-publication work before reentrant disposal tears down its RxJS signals.
+- `NotificationHub` serializes reentrant pending snapshots in mutation order
+  and gives late subscribers one current snapshot without queued history.
+
 ## [3.21.1] — 2026-07-14
 
 Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.

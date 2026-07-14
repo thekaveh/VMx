@@ -301,6 +301,8 @@ export class FormVM<TM> {
   #snapshot: TM;
   #errors: Record<string, string>;
   #disposed = false;
+  #activeSyncOperations = 0;
+  #teardownPending = false;
 
   readonly #onApproved = new Subject<TM>();
   readonly #approveErrors = new Subject<unknown>();
@@ -367,7 +369,16 @@ export class FormVM<TM> {
         // rejection on Node >= 15. Callers who want to await the failure inline
         // use approveAsync() directly.
         void this.approveAsync().catch((err: unknown) => {
-          this.#approveErrors.next(err);
+          // A failure observed after disposal is intentionally dropped. If an
+          // observer disposes reentrantly while this admitted publication is in
+          // flight, defer teardown until every current observer has received it.
+          if (this.#disposed) return;
+          this.#beginSyncOperation();
+          try {
+            this.#approveErrors.next(err);
+          } finally {
+            this.#endSyncOperation();
+          }
         });
       })
       .predicate(() => this.isValid && (!this.#strict || this.isDirty))
@@ -441,18 +452,23 @@ export class FormVM<TM> {
    */
   setModel(model: TM): void {
     if (this.#disposed) return;
-    if (model === null || model === undefined) {
-      throw new Error("model must not be null or undefined");
+    this.#beginSyncOperation();
+    try {
+      if (model === null || model === undefined) {
+        throw new Error("model must not be null or undefined");
+      }
+      if (this.#equals(this.#model, model)) return;
+      const wasDirty = this.isDirty;
+      const wasValid = this.isValid;
+      this.#model = model;
+      this.#revalidate();
+      if ((this.#strict && this.isDirty !== wasDirty) || this.isValid !== wasValid) {
+        this.#canExecuteTrigger.next();
+      }
+      this.#hub.send(PropertyChangedMessage.create(this, "FormVM", "model"));
+    } finally {
+      this.#endSyncOperation();
     }
-    if (this.#equals(this.#model, model)) return;
-    const wasDirty = this.isDirty;
-    const wasValid = this.isValid;
-    this.#model = model;
-    this.#revalidate();
-    if ((this.#strict && this.isDirty !== wasDirty) || this.isValid !== wasValid) {
-      this.#canExecuteTrigger.next();
-    }
-    this.#hub.send(PropertyChangedMessage.create(this, "FormVM", "model"));
   }
 
   // ── Async core ─────────────────────────────────────────────────────────────
@@ -479,38 +495,43 @@ export class FormVM<TM> {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (this.#disposed) return;
 
-    // Success: atomically install the configured reset state, or preserve the
-    // legacy snapshot-advance behavior when no reset is configured.
-    const wasDirty = this.isDirty;
-    const wasValid = Object.keys(this.#errors).length === 0;
-    let validityChanged = false;
-    if (this.#resetOnApproved !== null) {
-      // Prepare callback output, two independent values, and validation before
-      // committing any local field. A failure therefore leaves state intact.
-      const reset = this.#resetOnApproved(current);
-      const nextModel = this.#takeSnapshot(reset, "approve reset model");
-      const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
-      const nextErrors = this.#validate(nextModel);
-      validityChanged = (Object.keys(nextErrors).length === 0) !== wasValid;
+    this.#beginSyncOperation();
+    try {
+      // Success: atomically install the configured reset state, or preserve the
+      // legacy snapshot-advance behavior when no reset is configured.
+      const wasDirty = this.isDirty;
+      const wasValid = Object.keys(this.#errors).length === 0;
+      let validityChanged = false;
+      if (this.#resetOnApproved !== null) {
+        // Prepare callback output, two independent values, and validation before
+        // committing any local field. A failure therefore leaves state intact.
+        const reset = this.#resetOnApproved(current);
+        const nextModel = this.#takeSnapshot(reset, "approve reset model");
+        const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
+        const nextErrors = this.#validate(nextModel);
+        validityChanged = (Object.keys(nextErrors).length === 0) !== wasValid;
 
-      this.#model = nextModel;
-      this.#snapshot = nextSnapshot;
-      if (!sameErrors(nextErrors, this.#errors)) {
-        this.#errors = nextErrors;
-        this.#errorsChanged.next({ ...nextErrors });
+        this.#model = nextModel;
+        this.#snapshot = nextSnapshot;
+        if (!sameErrors(nextErrors, this.#errors)) {
+          this.#errors = nextErrors;
+          this.#errorsChanged.next({ ...nextErrors });
+        }
+      } else {
+        this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
       }
-    } else {
-      this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
-    }
 
-    if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
-      this.#canExecuteTrigger.next();
-    }
+      if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
+        this.#canExecuteTrigger.next();
+      }
 
-    // Emit the value that was actually persisted (parity with C#'s captured
-    // `current`): a SetModel racing the persister await must not swap the
-    // approved payload for a newer un-persisted model.
-    this.#onApproved.next(current);
+      // Emit the value that was actually persisted (parity with C#'s captured
+      // `current`): a SetModel racing the persister await must not swap the
+      // approved payload for a newer un-persisted model.
+      this.#onApproved.next(current);
+    } finally {
+      this.#endSyncOperation();
+    }
   }
 
   // ── Dispose ────────────────────────────────────────────────────────────────
@@ -519,6 +540,14 @@ export class FormVM<TM> {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    if (this.#activeSyncOperations > 0) {
+      this.#teardownPending = true;
+      return;
+    }
+    this.#teardown();
+  }
+
+  #teardown(): void {
     this.#onApproved.complete();
     this.#approveErrors.complete();
     this.#errorsChanged.complete();
@@ -531,18 +560,35 @@ export class FormVM<TM> {
 
   #deny(): void {
     if (this.#disposed) return;
-    const wasDirty = this.isDirty;
-    const wasValid = this.isValid;
-    this.#model = this.#takeSnapshot(this.#snapshot, "deny/revert");
-    this.#revalidate();
+    this.#beginSyncOperation();
+    try {
+      const wasDirty = this.isDirty;
+      const wasValid = this.isValid;
+      this.#model = this.#takeSnapshot(this.#snapshot, "deny/revert");
+      this.#revalidate();
 
-    this.#hub.send(new FormRevertedMessage(this, "FormVM"));
-    this.#hub.send(
-      PropertyChangedMessage.create(this, "FormVM", "model"),
-    );
+      this.#hub.send(new FormRevertedMessage(this, "FormVM"));
+      this.#hub.send(
+        PropertyChangedMessage.create(this, "FormVM", "model"),
+      );
 
-    if ((this.#strict && wasDirty !== this.isDirty) || wasValid !== this.isValid) {
-      this.#canExecuteTrigger.next();
+      if ((this.#strict && wasDirty !== this.isDirty) || wasValid !== this.isValid) {
+        this.#canExecuteTrigger.next();
+      }
+    } finally {
+      this.#endSyncOperation();
+    }
+  }
+
+  #beginSyncOperation(): void {
+    this.#activeSyncOperations += 1;
+  }
+
+  #endSyncOperation(): void {
+    this.#activeSyncOperations -= 1;
+    if (this.#activeSyncOperations === 0 && this.#teardownPending) {
+      this.#teardownPending = false;
+      this.#teardown();
     }
   }
 
