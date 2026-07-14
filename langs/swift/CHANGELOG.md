@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Disposing an executing `AsyncRelayCommand` now records cancellation before
   cancelling the task, so the command body observes the terminal request.
+- Lifecycle status publication, hook completion, property notifications, and
+  terminal cleanup are serialized so concurrent or re-entrant disposal cannot
+  resurrect a component or tear down an admitted notification.
+- `NotificationHub` now publishes concurrent post, resolve, and disposal
+  mutations in FIFO order while late subscribers receive only the current
+  pending snapshot.
+- `FormVM` now serializes model assignment, validation, deny, approval reset,
+  and disposal while allowing admitted mutations to finish their observable
+  contract.
 
 ## [3.20.1] — 2026-07-14
 
