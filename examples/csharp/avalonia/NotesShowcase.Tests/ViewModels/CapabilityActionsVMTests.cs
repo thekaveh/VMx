@@ -137,7 +137,7 @@ public sealed class CapabilityActionsVMTests
         Assert.True(collapse2.Command.CanExecute(null));
     }
 
-    // ── Round-3 Critical-1 parity: capability-bar Delete reuses
+    // ── shared delete-command behavior: capability-bar Delete reuses
     // NoteVM.DeleteCommand (the wrapped ConfirmationDecoratorCommand) so the
     // action-bar Delete cancels on "No" and fires the "Note deleted"
     // notification on "Yes" — identical behaviour to the in-list delete

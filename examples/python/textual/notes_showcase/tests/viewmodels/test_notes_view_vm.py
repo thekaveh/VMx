@@ -215,7 +215,7 @@ def test_dispose_releases_resources() -> None:
     assert vm.status == ConstructionStatus.DISPOSED
 
 
-# ── Audit pass #1, B1/B2 symmetric coverage: delete-with-confirm wiring ───
+# ── delete-confirmation symmetry: delete-with-confirm wiring ───
 
 
 class _AcceptDialog:
@@ -289,8 +289,8 @@ async def test_capability_save_persists_the_focused_note() -> None:
 
     Regression guard: Python previously omitted the ``.on_save`` wiring on the
     per-note builder, so ``NoteVM.save()`` early-returned and the action-bar
-    Save was a silent no-op — while C#/TS/Swift all wired it (real-wiring
-    audit). The existing capability-actions test only asserted the "Save"
+    Save was a silent no-op — while C#/TS/Swift all wired it. The existing
+    capability-actions test only asserted the "Save"
     label was present, not that pressing it persisted.
     """
     import asyncio

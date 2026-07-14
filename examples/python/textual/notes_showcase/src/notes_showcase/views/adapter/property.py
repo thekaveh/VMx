@@ -38,9 +38,9 @@ def _assign(widget: Any, attr: str, value: object) -> None:
     ``attr == "renderable"`` is the adapter's conventional name for "the
     widget's rendered content". Textual's ``Static`` (8.x) has no
     ``renderable`` attribute — a plain ``setattr`` would create a dead
-    instance attribute and the widget would never repaint (real-wiring audit,
-    pass 5). ``Static.update()`` is the supported repaint API, so route
-    through it whenever the target exposes one.
+    instance attribute and the widget would never repaint. ``Static.update()``
+    is the supported repaint API, so route through it whenever the target
+    exposes one.
     """
     if attr == "renderable" and callable(getattr(widget, "update", None)):
         widget.update(value if isinstance(value, str) else str(value))
@@ -162,7 +162,7 @@ def bind_property_two_way(
     # Chain the class-level watcher (if any): an instance-level override
     # otherwise *shadows* it — e.g. ToggleButton.watch_value applies the
     # "-on" CSS class, so swallowing it froze every Checkbox glyph
-    # (real-wiring audit, pass 5).
+    # (runtime behavior).
     cls_watcher = getattr(type(widget), f"watch_{widget_attr}", None)
 
     def _watcher(_old: object, new: object) -> None:

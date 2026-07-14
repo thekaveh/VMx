@@ -137,7 +137,7 @@ export class NotesViewVM extends ComponentVMBase {
     // DerivedProperty caches first value; ensure subscribers see initial state.
     this.#stateSubject.next();
 
-    // Predicates + triggers (real-wiring audit, pass 6): without them
+    // Predicates + triggers are required; without them
     // canExecute() was always true and canExecuteChanged never fired, so
     // the pagination buttons' disabled mirror was vacuous.
     this.#moveFirst = RelayCommand.builder()
@@ -376,7 +376,7 @@ export class NotesViewVM extends ComponentVMBase {
         .model(m)
         .services(this._hub, this._dispatcher)
         .onDelete((vm) => this.#deleteNote(vm))
-        // Real-wiring audit, pass 6: the capability bar projects
+        // Live-binding invariant: the capability bar projects
         // note.saveCommand/closeCommand, but nothing wired the handlers —
         // both actions were silent no-ops.
         .onClose((vm) => {

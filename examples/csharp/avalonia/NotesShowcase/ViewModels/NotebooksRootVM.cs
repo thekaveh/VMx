@@ -164,7 +164,7 @@ public sealed class NotebooksRootVM
         _current = null;
         // Marshal: this continuation runs off the UI thread after
         // ConfigureAwait(false) and Current feeds a TwoWay TreeView binding
-        // (same rationale as the Roots raise below; pass-7 review).
+        // (same rationale as the Roots raise below; failure-recovery review).
         _dispatcher.Foreground.Schedule(() =>
         {
             NotifyPropertyChanged(nameof(Current));

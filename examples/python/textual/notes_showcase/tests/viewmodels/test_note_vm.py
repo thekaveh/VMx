@@ -136,7 +136,7 @@ def test_builder_requires_name_and_model() -> None:
         NoteVM.builder().name("x").build()
 
 
-# ── Audit-round-2 Imp-4: ConfirmationDecoratorCommand parity with C# trio ──
+# ── confirmation-decorator parity: ConfirmationDecoratorCommand parity with C# trio ──
 #
 # These mirror NotesShowcase.Tests.ViewModels.NoteVMTests
 # (DeleteCommand_with_confirm_returning_{false,true}_* + the

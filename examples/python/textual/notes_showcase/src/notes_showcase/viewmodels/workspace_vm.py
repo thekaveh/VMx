@@ -72,7 +72,7 @@ class WorkspaceVM:
         # awaiting the repository. A counter, not an id — an id-keyed
         # marker collides when two outstanding binds target the same
         # notebook (B,A,B: the first B's cleanup erased the second B's
-        # marker and resurrected the race; pass-7 adversarial review).
+        # marker and resurrected the race; overlapping-bind cleanup).
         self._requested_notebook_id: str | None = None
         self._inflight_binds: int = 0
         self._notification_hub = notification_hub
@@ -186,19 +186,19 @@ class WorkspaceVM:
         )
         self._global_search: GlobalSearchVM = global_search
 
-        # Round-3 Critical-2: rebind note_form whenever notes_view.current
+        # current-selection rebinding: rebind note_form whenever notes_view.current
         # changes (e.g. user clicks a different note in the list). Without
         # this the right-pane editor stays empty in the running app. Mirror
         # of the C# WorkspaceVM subscription (parity with the TS view
         # which performs the same wiring inline in NotesList.tsx).
         #
-        # Round-4 Important-1: when current transitions to None (e.g. the
+        # cleared-selection form behavior: when current transitions to None (e.g. the
         # selected note is deleted in NotesViewVM._delete_note_async, or the
         # host explicitly clears selection) the form must be unbound —
         # otherwise the right pane keeps the title/body of the deleted note
         # and approve would attempt to persist a ghost.
         #
-        # Round-4 Important-2: marshal delivery onto the foreground
+        # foreground dispatch: marshal delivery onto the foreground
         # scheduler so bind_to / unbind (which raise PropertyChanged) always
         # fire on the UI thread. Today current is set from the Textual UI
         # thread so this is defensive, but matches the foreground-marshal
@@ -225,7 +225,7 @@ class WorkspaceVM:
             .subscribe(on_next=_on_notes_view_msg)
         )
 
-        # Pass-5 real-wiring audit: the tree view sets notebooks.current on
+        # the tree view sets notebooks.current on
         # node selection, but nothing re-bound the notes view — the centre
         # pane stayed on the first notebook forever. Mirror the
         # construct_async wiring on every notebook-selection change.
@@ -245,7 +245,7 @@ class WorkspaceVM:
             .subscribe(on_next=_on_notebook_msg)
         )
 
-        # Pass-5 real-wiring audit: refresh the saved note's list row (title /
+        # refresh the saved note's list row (title /
         # star marker were construction-time snapshots and went stale after
         # every save).
         self._saved_note_subscription: DisposableBase = note_form.on_saved.pipe(
@@ -431,7 +431,7 @@ class WorkspaceVM:
                 # check matters for A→B→A: with a bind to B mid-await,
                 # "bound is still A" does NOT mean A needs no rebind — the
                 # superseding bind_to_async token must discard B's result
-                # (race confirmed by the pass-6 adversarial probe).
+                # (race confirmed by the overlapping-bind test).
                 return
             self._inflight_binds += 1
             try:

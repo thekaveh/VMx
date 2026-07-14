@@ -74,7 +74,7 @@ export class WorkspaceVM {
   readonly #newNoteCommand: RelayCommand;
   readonly #exportCommand: RelayCommand;
 
-  // Round-3 Critical-2 parity: rebind noteForm whenever notesView.current
+  // current-selection rebinding: rebind noteForm whenever notesView.current
   // changes. The VM-level subscription is the single bridge — views set
   // `notesView.current` and everything downstream flows from here.
   readonly #currentNoteSubscription: Subscription;
@@ -82,7 +82,7 @@ export class WorkspaceVM {
   // Pushed whenever toolbar-command predicates may have flipped
   // (construct completes, notebook selection changes) — without a trigger
   // the commands' canExecuteChanged never fires and useCommand's disabled
-  // mirror stays frozen at first render (real-wiring audit, pass 6).
+  // mirror otherwise stays frozen at first render.
   readonly #commandTrigger = new Subject<void>();
 
   readonly #focusSubject: BehaviorSubject<object | null>;
@@ -195,17 +195,17 @@ export class WorkspaceVM {
       null,
     );
 
-    // Round-3 Critical-2: subscribe to notesView "current" PropertyChanged
+    // current-selection rebinding: subscribe to notesView "current" PropertyChanged
     // and rebind the note form. Captures locals so we don't reference
     // `this.#notesView` / `this.#noteForm` before they're assigned during
     // the rest of the constructor.
     //
-    // Round-4 Important-1: when current transitions to null (e.g. the
+    // cleared-selection form behavior: when current transitions to null (e.g. the
     // selected note is deleted in NotesViewVM.#deleteNoteAsync) the form
     // must be unbound — otherwise the right pane keeps the deleted note's
     // title/body and approve would persist a ghost.
     //
-    // Round-4 Important-2: marshal delivery onto the foreground scheduler
+    // foreground dispatch: marshal delivery onto the foreground scheduler
     // so bindTo / unbind (which raise PropertyChanged for React subscribers
     // via useSyncExternalStore) always run on the rendering thread. Today
     // current is set from React click handlers (already main-thread) so
@@ -232,7 +232,7 @@ export class WorkspaceVM {
         }
       });
 
-    // Real-wiring audit, pass 6: refresh the saved note's list row (title /
+    // Live-binding invariant: refresh the saved note's list row (title /
     // star were construction-time snapshots and went stale after every
     // save). Mirrors the Python flagship's on_saved → refresh_note wiring.
     this.#savedNoteSubscription = this.#noteForm.onSaved
@@ -269,8 +269,7 @@ export class WorkspaceVM {
    * focus, the readonly mirror the capability bar gates on, and rebinds
    * the notes view. The single entry the tree view calls — the readonly
    * mirror was previously set only at construct time, so capability
-   * gating went stale on every selection change (real-wiring audit,
-   * pass 6).
+   * gating otherwise goes stale on every selection change.
    */
   selectNotebook(nb: NotebookVM): void {
     this.#notebooks.current = nb;

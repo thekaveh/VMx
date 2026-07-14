@@ -111,7 +111,7 @@ class VMxInspectorApp(App[None]):
         # hub published on the app thread (the sample tree's immediate
         # dispatcher always does), and the hub swallowed the subscriber error
         # per HUB-007 — so the message log stayed empty and tree labels never
-        # refreshed, silently (real-wiring audit, pass 7).
+        # refreshed, silently (selection-refresh regression).
         self.post_message(HubMessageArrived(msg))
 
     def on_hub_message_arrived(self, event: "HubMessageArrived") -> None:

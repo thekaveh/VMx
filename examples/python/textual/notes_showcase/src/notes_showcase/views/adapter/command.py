@@ -12,7 +12,7 @@ For (2) we monkey-patch ``button.press`` — the single funnel both activation
 paths share in Textual 8.x: a mouse click runs ``_on_click → press()`` and the
 Enter key binding runs ``action_press → press()``. (An earlier revision
 patched ``action_press``, which the click path never calls — every mouse
-click on a bound button was silently dropped; real-wiring audit, pass 5.)
+click on a bound button was silently dropped.)
 Wiring on ``Button.Pressed`` would require a host ``App`` / ``Widget`` to
 install a message handler, which the adapter has no business doing; the
 ``press`` override keeps the bridge UI-thread agnostic and unit-testable in
@@ -43,7 +43,7 @@ def bind_command(button: Any, command: Command) -> DisposableBase:
     Returns a :class:`~reactivex.abc.DisposableBase` for the
     ``can_execute_changed`` subscription. Accepts any :class:`Command`
     (including decorated ones such as ``ConfirmationDecoratorCommand``) —
-    round-3 Critical-1.
+    shared delete-command behavior.
     """
     button.disabled = not command.can_execute()
 

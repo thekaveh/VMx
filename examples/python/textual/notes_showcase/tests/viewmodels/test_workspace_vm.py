@@ -126,7 +126,7 @@ def test_builder_requires_repository() -> None:
         WorkspaceVM.builder().build()
 
 
-# ── Audit pass #1, C1: toolbar-command body coverage ──────────────────────
+# ── toolbar-command coverage: toolbar-command body coverage ──────────────────────
 
 
 class _StubDialogService(IDialogService):
@@ -329,7 +329,7 @@ async def test_export_command_internal_returns_early_when_no_dialog_path() -> No
     assert repo.export_count == 0
 
 
-# ── Round-3 Critical-2: WorkspaceVM observes notes_view.current and rebinds
+# ── current-selection rebinding: WorkspaceVM observes notes_view.current and rebinds
 # the note form so the right-pane editor reflects the selection. Without
 # this subscription, the editor stays empty in the running app.
 
@@ -347,7 +347,7 @@ async def test_setting_notes_view_current_rebinds_note_form() -> None:
     assert ws.note_form.body == first.body
 
 
-# ── Round-4 Important-1: selecting + deleting clears the form ──────────────
+# ── cleared-selection form behavior: selecting + deleting clears the form ──────────────
 #
 # When notes_view.current transitions to None (e.g. the user deletes the
 # selected note), the WorkspaceVM subscription must call note_form.unbind()

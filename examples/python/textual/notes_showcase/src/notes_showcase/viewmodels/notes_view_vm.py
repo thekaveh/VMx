@@ -358,7 +358,7 @@ class NotesViewVM(
                 # TextualDialogService after the App exists, and a
                 # default-arg capture here froze the boot NullDialogService
                 # (confirm -> False) into every NoteVM, making deletion
-                # impossible (real-wiring audit, pass 5). A still-unbound
+                # impossible (runtime behavior). A still-unbound
                 # service falls back to proceed-unconfirmed, matching the
                 # behavior when no service was attached at all.
                 async def _confirm(_vm: NoteVM) -> bool:
@@ -387,7 +387,7 @@ class NotesViewVM(
         Re-seats the persisted model into the matching :class:`NoteVM` and
         re-runs the combined filter so row labels, the starred filter, and
         search results reflect the saved values (rows otherwise kept their
-        construction-time title/star; real-wiring audit, pass 5).
+        construction-time title/star).
         """
         for vm in self._inner:
             if vm.model.id == note.id:
@@ -436,7 +436,7 @@ class NotesViewVM(
         Fire-and-forget: schedules the async save and returns, mirroring the
         C#/TS/Swift showcases (``.OnSave``/``.onSave``). Without this wiring the
         capability bar's Save action was a silent no-op in Python only
-        (real-wiring audit — the other three flavors wired it in pass 6).
+        (cross-flavor live-binding parity).
         """
         import asyncio
 

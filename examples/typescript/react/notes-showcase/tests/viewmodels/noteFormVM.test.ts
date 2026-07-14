@@ -208,7 +208,7 @@ describe("NoteFormVM", () => {
     expect(() => vm.dispose()).not.toThrow();
   });
 
-  // ── Round-3 Important B-I2 parity: bindTo notifies bindings that the
+  // ── stable-command rebinding: bindTo notifies bindings that the
   // denyCommand / approveCommand reference has changed.
   it("bindTo emits PropertyChangedMessage for approveCommand and denyCommand", async () => {
     const { vm, hub } = makeForm();
@@ -225,14 +225,14 @@ describe("NoteFormVM", () => {
   });
 
   it("tagsText renders the draft tags as a comma-joined string", () => {
-    // Round-3 Important C-I1 parity: tagsText flattens the draft tag list
+    // flattened tag binding: tagsText flattens the draft tag list
     // for UI labels (mirrors Py tags_text and C# TagsText).
     const { vm } = makeForm();
     vm.bindTo(aNote({ tags: ["alpha", "beta"] }));
     expect(vm.tagsText).toBe("alpha, beta");
   });
 
-  // ── Round-4 Minor-2 (cross-flavor parity): tagsText must be in the
+  // ── derived-tag notification parity (cross-flavor parity): tagsText must be in the
   // PropertyChanged emission list so consumers that subscribe specifically
   // to "tagsText" (e.g. a chip-strip label) receive notifications after
   // every draft mutation (add / remove tag). C# already emits for

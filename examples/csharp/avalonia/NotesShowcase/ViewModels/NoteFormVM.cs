@@ -119,7 +119,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <summary>
     /// Comma-joined tag list — bind UI text labels to this so the rendered
     /// string is "alpha, beta" instead of an enumerable repr. Mirrors Py
-    /// <c>tags_text</c> (Round-3 Important C-I1) and TS <c>tagsText</c>.
+    /// <c>tags_text</c> (flattened tag binding) and TS <c>tagsText</c>.
     /// </summary>
     public string TagsText => string.Join(", ", Draft.Tags);
 
@@ -141,8 +141,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// unbound). One object for the VM's lifetime — and it re-emits this
     /// VM's own draft channels: the inner FormVM's Deny publishes with
     /// sender = FormVM, which the XAML bindings (keyed on this VM) never
-    /// observe, so the editor kept the edited text on screen (real-wiring
-    /// audit, pass 6).
+    /// observe, so the editor otherwise kept the edited text on screen.
     /// </summary>
     public ICommand DenyCommand { get; }
 
@@ -225,12 +224,12 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// <see cref="FormVM{TM}"/>, resets <see cref="HasBoundNote"/> to
     /// <c>false</c>, and emits PropertyChanged for the bound surface so
     /// widgets re-read (Title / Body / Starred / Tags / TagsText all flip
-    /// to the empty model). Round-4 Important-1: called by
+    /// to the empty model). cleared-selection form behavior: called by
     /// <see cref="WorkspaceVM"/> when <see cref="NotesViewVM.Current"/>
     /// transitions to <c>null</c> (e.g. the selected note is deleted) so
     /// the editor does not display ghost data from the just-removed note.
     ///
-    /// Round-5 Minor: also reset <see cref="TagDraft"/>. The user-typed
+    /// complete form reset: also reset <see cref="TagDraft"/>. The user-typed
     /// tag input buffer is part of the editor state, so a binding
     /// transition must clear it too — otherwise the chip input still shows
     /// the orphan text after the note disappears. Cross-flavor parity with
@@ -261,7 +260,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         await _form.ApproveAsync().ConfigureAwait(false);
         // This continuation runs off the UI thread (ConfigureAwait(false));
         // EmitDraftChanges raises INPC into live XAML bindings, so marshal
-        // (real-wiring audit, pass 6).
+        // (live binding).
         _dispatcher.Foreground.Schedule(() =>
         {
             if (_ownDisposed) return; // queued tail may outlive the VM
@@ -337,7 +336,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         NotifyPropertyChanged(nameof(TagSuggestions));
         NotifyPropertyChanged(nameof(TagSuggestionsText));
         NotifyPropertyChanged(nameof(HasTagSuggestions));
-        // Round-3 Important B-I2: both commands are stable objects now, but
+        // stable-command rebinding: both commands are stable objects now, but
         // consumers that re-resolve on change notifications still expect the
         // signal on rebinds (cross-flavor parity).
         NotifyPropertyChanged(nameof(ApproveCommand));

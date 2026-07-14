@@ -7,7 +7,7 @@ Bindings (Phase 4.b adapter primitives only):
 * ``ListView`` rows ← ``notes_view.visible_items`` (the paged + filtered
   view) via :func:`on_vm_property_change` — binding the raw ``inner`` list
   left search / starred-filter / paging without any visible effect
-  (real-wiring audit, pass 5).
+  (runtime behavior).
 * ``ListView`` selection → ``notes_view.current`` via
   ``on_list_view_selected`` (drives the right-pane editor binding).
 * Pagination buttons ↔ ``move_to_*_page_command`` via :func:`bind_command`.
@@ -15,7 +15,7 @@ Bindings (Phase 4.b adapter primitives only):
 Widget-class discipline: ``compose()`` + ``on_mount()`` + ``on_unmount()``
 only; helper logic lives in module-level functions.
 
-Subscription hygiene (audit round 2 Imp-5): every ``bind_*`` returns a
+Subscription hygiene (subscription ownership): every ``bind_*`` returns a
 ``Disposable`` that we collect into a ``CompositeDisposable`` and dispose
 in ``on_unmount`` so subscriptions don't outlive the widget.
 """

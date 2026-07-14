@@ -126,7 +126,7 @@ def test_approve_command_can_execute_requires_is_dirty_and_is_valid() -> None:
 async def test_approve_persists_and_publishes_notification() -> None:
     vm, nh = _build_vm(with_notification_hub=True)
     assert nh is not None
-    # Round-3 Important C-I2: subscribe BEFORE approve so we actually
+    # notification timing regression: subscribe BEFORE approve so we actually
     # observe the "Saved" notification fire (the prior version only asserted
     # the snapshot advance, leaving the notification side untested).
     from vmx.notifications import Notification
@@ -284,7 +284,7 @@ def test_tags_accessor_proxies_to_draft() -> None:
 
 
 def test_tags_text_derived_renders_comma_joined_string() -> None:
-    """Round-3 Important C-I1: ``tags_text`` is a DerivedProperty that
+    """flattened tag binding: ``tags_text`` is a DerivedProperty that
     re-projects on each draft mutation, so widgets bound through
     ``bind_derived_property`` render "alpha, beta" instead of the raw
     tuple repr. Parity with the C# / TS ``tagsText`` accessor.
@@ -299,11 +299,11 @@ def test_tags_text_derived_renders_comma_joined_string() -> None:
 
 
 def test_bind_to_disposes_prior_hub_subscription() -> None:
-    """Round-3 Important C-I3 (strengthened by Round-4 Minor-1): each
+    """hub-subscription ownership (strengthened by repeated-rebind regression): each
     ``bind_to`` must dispose the previous hub subscription so the prior
     closure (and its FormVM reference) does not leak across rebinds.
 
-    Round-4 Minor-1: the earlier version of this test only asserted that
+    repeated-rebind regression: the earlier version of this test only asserted that
     ``second_sub is not first_sub`` — which would still pass even if
     ``bind_to`` skipped the ``.dispose()`` call (the assignment is always
     fresh). Spy on the actual disposal so removing the disposal would fail
@@ -361,7 +361,7 @@ def test_unbind_clears_tag_draft_buffer() -> None:
 
 
 def test_after_bind_to_deny_command_property_changed_fires() -> None:
-    """Round-3 Important B-I2: bindings on ``deny_command`` must observe
+    """stable-command rebinding: bindings on ``deny_command`` must observe
     the rebind. ``bind_to`` re-emits ``_emit_draft_changes`` which now
     includes ``deny_command`` / ``approve_command`` PropertyChangedMessage.
     """

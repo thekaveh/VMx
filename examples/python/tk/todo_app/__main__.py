@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from reactivex.subject import Subject
 
@@ -328,7 +329,9 @@ class MainWindow:
         self._vm.new_item_title = self._entry_var.get()
 
     def _on_listbox_select(self, _event: object) -> None:
-        sel = self._listbox.curselection()
+        # typeshed leaves this inherited Tk method untyped even though tkinter
+        # consistently returns a tuple of integer indices.
+        sel: tuple[int, ...] = self._listbox.curselection()  # type: ignore[no-untyped-call]
         if sel:
             self._vm.select_by_index(sel[0])
         self._refresh_button_states()
@@ -358,7 +361,8 @@ class MainWindow:
         """Rebuild the Listbox from the VM's items list."""
         # Capture the selected item's identity (not its index) before the rebuild
         # so selection survives reordering, not just append/remove.
-        prev_sel = self._listbox.curselection()
+        # Keep the suppression at the single untyped typeshed boundary.
+        prev_sel: tuple[int, ...] = self._listbox.curselection()  # type: ignore[no-untyped-call]
         prev_item = (
             self._row_items[prev_sel[0]]
             if prev_sel and prev_sel[0] < len(self._row_items)
@@ -382,7 +386,9 @@ class MainWindow:
 
     def _refresh_button_states(self) -> None:
         has_selection = self._vm.composite.current is not None
-        state = tk.NORMAL if has_selection else tk.DISABLED
+        state: Literal["normal", "disabled"] = (
+            tk.NORMAL if has_selection else tk.DISABLED
+        )
         self._toggle_btn.config(state=state)
         self._remove_btn.config(state=state)
 

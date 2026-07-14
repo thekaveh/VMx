@@ -127,7 +127,7 @@ public sealed class NotebooksRootVMTests
         Assert.Empty(specs.Children);
     }
 
-    // ── Audit pass #1, B2: "Notebook added" notification ──────────────────
+    // ── notification coverage: "Notebook added" notification ──────────────────
 
     [Fact]
     public async Task AddNotebookAsync_publishes_Notebook_added_notification_when_hub_wired()

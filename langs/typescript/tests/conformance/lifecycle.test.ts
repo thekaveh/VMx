@@ -457,7 +457,7 @@ describe("LIFE-013", () => {
   // the aggregate's own Disposed transition. Sibling of the Python parametric
   // test_LIFE_013_aggregate_dispose_children_before_parent and the C#
   // LIFE_013_AggregateVMN_Children_Disposed_Before_Parent Theory. Locks in the
-  // cross-flavor invariant the Pass-1 Python bug violated for every arity.
+  // cross-flavor invariant a Python regression violated for every arity.
   it.each([1, 2, 3, 4, 5, 6])(
     "AggregateVM%d disposes every child slot before disposing itself",
     (arity) => {

@@ -204,7 +204,7 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
-  // ── Round-3 Critical-2 parity: setting notesView.current rebinds noteForm
+  // ── current-selection rebinding: setting notesView.current rebinds noteForm
   // via the WorkspaceVM hub subscription (matches the C# + Py flavors).
   it("setting notesView.current rebinds noteForm", async () => {
     const ws = makeWorkspace();
@@ -219,7 +219,7 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
-  // ── Round-4 Important-1: selecting + deleting clears the form ────────────
+  // ── cleared-selection form behavior: selecting + deleting clears the form ────────────
   // When notesView.current transitions to null (e.g. the selected note is
   // deleted) the WorkspaceVM subscription must call noteForm.unbind() so
   // the right pane does not display ghost data from the just-removed note.

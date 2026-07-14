@@ -5,7 +5,7 @@ Each slot is a ``Static`` whose ``renderable`` is bound to a
 subscribes directly to ``value_changed`` (Phase 5.b binding-gap #3 fix), so
 status text updates as soon as the upstream VM emits.
 
-Subscription hygiene (audit round 2 Imp-5): every ``bind_*`` returns a
+Subscription hygiene (subscription ownership): every ``bind_*`` returns a
 ``Disposable`` that this widget collects into a ``CompositeDisposable`` and
 disposes from ``on_unmount`` so subscriptions don't outlive the widget and
 emit into a dead receiver.

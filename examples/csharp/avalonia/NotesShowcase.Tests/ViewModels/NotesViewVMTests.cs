@@ -192,7 +192,7 @@ public sealed class NotesViewVMTests
         Assert.Equal(before, vm.FilteredItems.Count);
     }
 
-    // ── Round-3 Important B-I1: end-to-end delete pathway coverage ────────
+    // ── end-to-end delete-path coverage: end-to-end delete pathway coverage ────────
     // The full pathway (repo.DeleteNoteAsync → remove from _inner → clear
     // Current → dispose) had 0 % coverage. Drive it through NoteVM's
     // DeleteCommand (the only public entry-point to NotesViewVM.DeleteNote).

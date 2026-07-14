@@ -148,7 +148,7 @@ public sealed class NoteVMTests
         Assert.False(vm.CanDelete(vm));
     }
 
-    // ── Audit pass #1, B1: DeleteCommand wraps in ConfirmationDecoratorCommand ──
+    // ── delete-confirmation coverage: DeleteCommand wraps in ConfirmationDecoratorCommand ──
 
     [Fact]
     public async Task DeleteCommand_with_confirm_returning_false_does_NOT_invoke_OnDelete()
@@ -192,7 +192,7 @@ public sealed class NoteVMTests
         Assert.Same(vm, deleted);
     }
 
-    // ── Audit pass #1, B2: NoteVM publishes "Note deleted" notification ──
+    // ── notification coverage: NoteVM publishes "Note deleted" notification ──
 
     [Fact]
     public async Task DeleteCommand_publishes_Note_deleted_notification_on_success()

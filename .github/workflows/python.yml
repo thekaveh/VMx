@@ -143,6 +143,15 @@ jobs:
       - name: Sync examples
         run: uv sync --locked --directory examples/python
 
+      - name: Ruff lint
+        run: uv run --directory examples/python ruff check console tk
+
+      - name: Ruff format check
+        run: uv run --directory examples/python ruff format --check console tk
+
+      - name: Mypy strict
+        run: uv run --directory examples/python mypy --strict console tk
+
       - name: Run console example
         run: uv run --directory examples/python python -m hello_vmx
 

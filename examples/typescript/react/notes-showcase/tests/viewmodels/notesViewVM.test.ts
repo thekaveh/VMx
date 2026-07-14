@@ -286,7 +286,7 @@ describe("NotesViewVM", () => {
     expect(vm.filteredItems.length).toBe(first);
   });
 
-  // ── Round-3 Important B-I1 parity: full delete pathway (repo delete →
+  // ── end-to-end delete-path coverage: full delete pathway (repo delete →
   // remove from inner → clear current → dispose). Mirrors the C# and Py
   // tests of the same shape.
   it("deleteNote removes from inner, clears current, and persists", async () => {

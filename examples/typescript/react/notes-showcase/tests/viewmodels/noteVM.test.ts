@@ -141,7 +141,7 @@ describe("NoteVM", () => {
     expect(() => NoteVM.builder().build()).toThrow();
   });
 
-  // ── Audit-round-2 Imp-4: ConfirmationDecoratorCommand parity (mirrors C# trio) ──
+  // ── confirmation-decorator parity: ConfirmationDecoratorCommand parity (mirrors C# trio) ──
 
   it("deleteCommand with confirm returning false does NOT invoke onDelete", async () => {
     const onDelete = vi.fn();

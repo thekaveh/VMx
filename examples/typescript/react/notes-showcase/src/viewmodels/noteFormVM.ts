@@ -101,7 +101,7 @@ export class NoteFormVM extends ComponentVMBase {
       scheduler: opts.dispatcher.foreground,
     });
 
-    // Stable deny delegate (real-wiring audit, pass 6): the inner FormVM's
+    // Stable deny delegate: the inner FormVM's
     // denyCommand publishes with sender = FormVM, which useVm's sender
     // filter drops — the DOM never re-rendered a revert. One stable command
     // delegates to the live form and re-emits this VM's own draft channels.
@@ -213,7 +213,7 @@ export class NoteFormVM extends ComponentVMBase {
 
   /** Comma-joined tag list — bind UI text labels to this so the rendered
    * string is "alpha, beta" instead of an array repr. Mirrors Py
-   * ``tags_text`` (Round-3 Important C-I1) and C# ``TagsText``. */
+   * ``tags_text`` (flattened tag binding) and C# ``TagsText``. */
   get tagsText(): string {
     return this.draft.tags.join(", ");
   }
@@ -283,13 +283,13 @@ export class NoteFormVM extends ComponentVMBase {
    * FormVM, resets `hasBoundNote` to `false`, and emits PropertyChanged so
    * widgets re-read (draft / snapshot / tagsText flip to EMPTY).
    *
-   * Round-4 Important-1: called by `WorkspaceVM` when `notesView.current`
+   * cleared-selection form behavior: called by `WorkspaceVM` when `notesView.current`
    * transitions to `null` (e.g. the selected note is deleted in
    * `NotesViewVM.#deleteNoteAsync`) so the right-pane editor does not show
    * ghost data from the just-removed note. Mirrors C# `NoteFormVM.Unbind`
    * and Python `NoteFormVM.unbind`.
    *
-   * Round-5 Minor: also reset ``tagDraft``. The user-typed tag input
+   * complete form reset: also reset ``tagDraft``. The user-typed tag input
    * buffer is part of the editor state, so a binding transition must
    * clear it too — otherwise the chip input still shows the orphan text
    * after the note disappears. Cross-flavor parity with C# `TagDraft =
@@ -371,12 +371,12 @@ export class NoteFormVM extends ComponentVMBase {
   }
 
   #emitDraftChanges(): void {
-    // Round-3 Important B-I2 parity: also fire for ``approveCommand`` /
+    // stable-command rebinding: also fire for ``approveCommand`` /
     // ``denyCommand`` whose getters delegate to the inner ``#form`` (and to
     // ``#noopCommand`` before bindTo). Without this, bindings keep the
     // stale references after the form is rebound.
     //
-    // Round-4 Minor-2 (cross-flavor parity): ``tagsText`` is a derived
+    // derived-tag notification parity (cross-flavor parity): ``tagsText`` is a derived
     // accessor that re-projects on every draft mutation; without firing
     // PropertyChanged here any consumer subscribed specifically to
     // ``tagsText`` (e.g. a chip-strip label) would miss notifications.

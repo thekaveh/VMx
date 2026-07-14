@@ -12,7 +12,7 @@ public static class SeedData
     /// <summary>Builds the canonical seed: 5 notebooks (1 nested), 12 notes, 3 starred.</summary>
     public static (IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes) Build()
     {
-        // Deterministic "now" so the audit hash is stable across runs; offsets are
+        // Deterministic "now" so the parity hash is stable across runs; offsets are
         // applied per note below.
         var now = new DateTimeOffset(2026, 5, 29, 12, 0, 0, TimeSpan.Zero);
 

@@ -7,7 +7,7 @@ provides indirectly via the ``ObservableList`` API; here we bypass that
 helper and subscribe through a tiny rebuild closure routed through the
 adapter — the widget class therefore touches no observables directly.
 
-Subscription hygiene (audit round 2 Imp-5): the hub subscription returned
+Subscription hygiene (subscription ownership): the hub subscription returned
 by ``bind_property`` is collected into a ``CompositeDisposable`` and
 disposed in ``on_unmount`` so it doesn't outlive the widget.
 """
@@ -25,7 +25,7 @@ from notes_showcase.views.adapter import bind_property
 
 def _summary(visible: object) -> str:
     """One line per active notification (binding the raw ObservableList
-    rendered its repr at best; real-wiring audit, pass 5)."""
+    rendered its repr at best)."""
     return "\n".join(vm.notification.message for vm in visible)  # type: ignore[attr-defined]
 
 

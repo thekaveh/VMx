@@ -233,7 +233,7 @@ public sealed class NotesViewVM
             if (cts.IsCancellationRequested) return;
             // ReplaceItems raises INPC into live XAML bindings and this
             // continuation runs off the UI thread (ConfigureAwait(false)) —
-            // marshal (real-wiring audit, pass 6). With the test dispatcher
+            // marshal (live binding). With the test dispatcher
             // (Immediate) this runs inline, keeping awaited binds
             // deterministic.
             _dispatcher.Foreground.Schedule(() =>
@@ -288,7 +288,7 @@ public sealed class NotesViewVM
                 .Services(_hub, _dispatcher)
                 .Model(note)
                 .OnDelete(DeleteNote)
-                // Real-wiring audit, pass 6: the capability bar projects
+                // Live-binding invariant: the capability bar projects
                 // NoteVM.SaveCommand/CloseCommand, but nothing wired the
                 // handlers — both actions were silent no-ops.
                 .OnClose(vm =>
@@ -342,7 +342,7 @@ public sealed class NotesViewVM
         }
         // The continuation runs off the UI thread (ConfigureAwait(false));
         // the mutations below raise INPC into live XAML bindings — marshal
-        // (real-wiring audit, pass 6).
+        // (live binding).
         _dispatcher.Foreground.Schedule(() =>
         {
             var index = -1;

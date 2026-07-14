@@ -157,7 +157,7 @@ final class WorkspaceVMTests: XCTestCase {
     }
 
     func testClearingCurrentNote_unbindsTheForm() async throws {
-        // Round-4 Important-1: when Current becomes nil (e.g. after delete),
+        // cleared-selection form behavior: when Current becomes nil (e.g. after delete),
         // the form must be unbound so no ghost data lingers in the right pane.
         let ws = try buildWorkspace(dialogService: AlwaysAcceptDialogService())
         try await ws.constructAsync()
