@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
@@ -16,127 +15,212 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #if DEBUG
     private const int DevelopmentDrainLimit = 10_000;
 #endif
+    [ThreadStatic]
+    private static int s_deliveryDepth;
+
+    private sealed class PendingDelivery(IMessage message)
+    {
+        public IMessage Message { get; } = message;
+        public ManualResetEventSlim Completed { get; } = new(false);
+        public Exception? Error { get; set; }
+    }
+
     private readonly object _gate = new();
-    private readonly Queue<IMessage> _pending = new();
+    private readonly Queue<PendingDelivery> _pending = new();
     private readonly Subject<IMessage> _subject = new();
     private bool _disposed;
-    private bool _draining;
+    private int _drainerThreadId;
+    private int _batchOwnerThreadId;
     private int _batchDepth;
 
     /// <inheritdoc/>
     public IObservable<IMessage> Messages =>
-        // Per HUB-007: wrap each subscription so a handler exception is isolated
-        // per subscriber; the outer subject is never terminated by a bad handler.
-        System.Reactive.Linq.Observable.Create<IMessage>(observer =>
-        {
-            return _subject.Subscribe(
-                onNext: msg =>
+        Observable.Create<IMessage>(observer =>
+            _subject.Subscribe(
+                onNext: message =>
                 {
-                    try { observer.OnNext(msg); }
-                    catch { /* swallow — spec/03-messages.md §Subscriber resilience */ }
+                    try { observer.OnNext(message); }
+                    catch { /* isolate the failing subscriber per HUB-007 */ }
                 },
                 onError: observer.OnError,
-                onCompleted: observer.OnCompleted);
-        });
+                onCompleted: observer.OnCompleted));
 
     /// <inheritdoc/>
     public void Send<TMessage>(TMessage message) where TMessage : IMessage
     {
+        var delivery = new PendingDelivery(message);
+        var caller = Environment.CurrentManagedThreadId;
+        var shouldDrain = false;
         lock (_gate)
         {
-            if (_disposed) return;
-            _pending.Enqueue(message);
-            if (_batchDepth == 0 && !_draining) DrainQueue();
+            while (_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller && !_disposed)
+                Monitor.Wait(_gate);
+            if (_disposed)
+            {
+                delivery.Completed.Dispose();
+                return;
+            }
+
+            _pending.Enqueue(delivery);
+            if (_batchOwnerThreadId == caller) return;
+            if (_drainerThreadId == 0)
+            {
+                _drainerThreadId = caller;
+                shouldDrain = true;
+            }
+            else if (_drainerThreadId == caller || s_deliveryDepth > 0)
+            {
+                return;
+            }
         }
+
+        if (shouldDrain)
+            DrainQueue();
+        else
+            delivery.Completed.Wait();
+        if (delivery.Error is not null)
+            ExceptionDispatchInfo.Capture(delivery.Error).Throw();
+        delivery.Completed.Dispose();
     }
 
     /// <inheritdoc/>
     public void Batch(Action transaction)
     {
         ThrowHelper.ThrowIfNull(transaction, nameof(transaction));
-        ExceptionDispatchInfo? callbackError = null;
-        Exception? drainError = null;
-
+        var caller = Environment.CurrentManagedThreadId;
+        var entered = false;
         lock (_gate)
         {
-            _batchDepth++;
-            try
+            while (_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller && !_disposed)
+                Monitor.Wait(_gate);
+            if (!_disposed)
             {
-                transaction();
+                _batchOwnerThreadId = caller;
+                _batchDepth++;
+                entered = true;
             }
-            catch (Exception error)
-            {
-                callbackError = ExceptionDispatchInfo.Capture(error);
-            }
-            finally
+        }
+
+        ExceptionDispatchInfo? callbackError = null;
+        try { transaction(); }
+        catch (Exception error) { callbackError = ExceptionDispatchInfo.Capture(error); }
+
+        var shouldDrain = false;
+        if (entered)
+        {
+            lock (_gate)
             {
                 _batchDepth--;
-                if (_batchDepth == 0 && !_disposed && !_draining)
+                if (_batchDepth == 0)
                 {
-                    try { DrainQueue(); }
-                    catch (Exception error) { drainError = error; }
+                    _batchOwnerThreadId = 0;
+                    if (!_disposed && _pending.Count > 0 && _drainerThreadId == 0)
+                    {
+                        _drainerThreadId = caller;
+                        shouldDrain = true;
+                    }
+                    Monitor.PulseAll(_gate);
                 }
             }
         }
 
+        ExceptionDispatchInfo? drainError = null;
+        if (shouldDrain)
+        {
+            try { DrainQueue(); }
+            catch (Exception error) { drainError = ExceptionDispatchInfo.Capture(error); }
+        }
         callbackError?.Throw();
-        if (drainError is not null) ExceptionDispatchInfo.Capture(drainError).Throw();
+        drainError?.Throw();
     }
 
     private void DrainQueue()
     {
-        _draining = true;
 #if DEBUG
         var delivered = 0;
         var messageTypes = new HashSet<string>(StringComparer.Ordinal);
 #endif
-        try
+        while (true)
         {
-            while (!_disposed && _pending.Count > 0)
+            PendingDelivery delivery;
+            lock (_gate)
             {
-                var message = _pending.Dequeue();
-#if DEBUG
-                messageTypes.Add(message.GetType().Name);
-#endif
-                try
+                if (_disposed || _pending.Count == 0)
                 {
-                    _subject.OnNext(message);
+                    _drainerThreadId = 0;
+                    Monitor.PulseAll(_gate);
+                    return;
                 }
-                catch (ObjectDisposedException)
-                {
-                    Debug.Assert(_disposed, "A live MessageHub subject was unexpectedly disposed.");
-                    if (!_disposed) throw;
-                }
-#if DEBUG
-                delivered++;
-                if (delivered >= DevelopmentDrainLimit && _pending.Count > 0)
-                {
-                    foreach (var pending in _pending) messageTypes.Add(pending.GetType().Name);
-                    _pending.Clear();
-                    throw new InvalidOperationException(
-                        $"MessageHub drain exceeded {DevelopmentDrainLimit} messages; " +
-                        $"possible publish cycle involving: " +
-                        $"{string.Join(", ", messageTypes.OrderBy(name => name, StringComparer.Ordinal))}");
-                }
-#endif
+                delivery = _pending.Dequeue();
             }
+#if DEBUG
+            messageTypes.Add(delivery.Message.GetType().Name);
+#endif
+            try
+            {
+                s_deliveryDepth++;
+                _subject.OnNext(delivery.Message);
+            }
+            catch (Exception error)
+            {
+                delivery.Error = error;
+                AbandonPending(error);
+                throw;
+            }
+            finally
+            {
+                s_deliveryDepth--;
+                delivery.Completed.Set();
+            }
+#if DEBUG
+            delivered++;
+            lock (_gate)
+            {
+                if (delivered < DevelopmentDrainLimit || _pending.Count == 0) continue;
+                foreach (var pending in _pending)
+                    messageTypes.Add(pending.Message.GetType().Name);
+            }
+            var cycleError = new InvalidOperationException(
+                $"MessageHub drain exceeded {DevelopmentDrainLimit} messages; " +
+                $"possible publish cycle involving: " +
+                $"{string.Join(", ", messageTypes.OrderBy(name => name, StringComparer.Ordinal))}");
+            AbandonPending(cycleError);
+            throw cycleError;
+#endif
         }
-        finally
+    }
+
+    private void AbandonPending(Exception error)
+    {
+        PendingDelivery[] abandoned;
+        lock (_gate)
         {
-            _draining = false;
+            abandoned = _pending.ToArray();
+            _pending.Clear();
+            _drainerThreadId = 0;
+            Monitor.PulseAll(_gate);
+        }
+        foreach (var delivery in abandoned)
+        {
+            delivery.Error = error;
+            delivery.Completed.Set();
         }
     }
 
     /// <summary>Completes and disposes the underlying subject.</summary>
     public void Dispose()
     {
+        PendingDelivery[] abandoned;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
+            abandoned = _pending.ToArray();
             _pending.Clear();
-            _subject.OnCompleted();
-            _subject.Dispose();
+            Monitor.PulseAll(_gate);
         }
+        foreach (var delivery in abandoned) delivery.Completed.Set();
+        _subject.OnCompleted();
+        _subject.Dispose();
     }
 }

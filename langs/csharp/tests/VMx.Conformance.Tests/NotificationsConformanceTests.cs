@@ -224,6 +224,40 @@ public class NotificationsConformanceTests
     }
 
     [Fact]
+    public async Task Opposing_Hub_Callbacks_Do_Not_Deadlock()
+    {
+        var first = new NotificationHub();
+        var second = new NotificationHub();
+        var firstNotification = new Notification(NotificationType.Notification, "first");
+        var secondNotification = new Notification(NotificationType.Notification, "second");
+        using var callbacksReady = new Barrier(2);
+        using var firstSubscription = first.Pending.Subscribe(snapshot =>
+        {
+            if (!snapshot.Contains(firstNotification)) return;
+            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            second.Resolve(secondNotification, NotificationReaction.Approve);
+        });
+        using var secondSubscription = second.Pending.Subscribe(snapshot =>
+        {
+            if (!snapshot.Contains(secondNotification)) return;
+            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            first.Resolve(firstNotification, NotificationReaction.Approve);
+        });
+
+        var posts = new[]
+        {
+            Task.Run(() => first.Post(firstNotification)),
+            Task.Run(() => second.Post(secondNotification)),
+        };
+        var allPosts = Task.WhenAll(posts);
+
+        var completed = await Task.WhenAny(allPosts, Task.Delay(TimeSpan.FromSeconds(1)));
+
+        completed.Should().BeSameAs(allPosts, "opposing callbacks must make progress");
+        await allPosts;
+    }
+
+    [Fact]
     public async Task Duplicate_Same_Instance_Post_Returns_Existing_Waiter()
     {
         var hub = new NotificationHub();

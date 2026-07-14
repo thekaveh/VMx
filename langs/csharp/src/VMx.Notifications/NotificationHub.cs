@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 
 namespace VMx.Notifications;
 
@@ -8,12 +9,25 @@ namespace VMx.Notifications;
 /// </summary>
 public sealed class NotificationHub : INotificationHub, IDisposable
 {
+    [ThreadStatic]
+    private static int s_deliveryDepth;
+
+    private sealed class PendingEmission(IReadOnlyList<Notification>? snapshot = null, bool complete = false)
+    {
+        public IReadOnlyList<Notification>? Snapshot { get; } = snapshot;
+        public bool Complete { get; } = complete;
+        public ManualResetEventSlim Completed { get; } = new(false);
+        public Exception? Error { get; set; }
+    }
+
     private readonly object _lock = new();
     private readonly List<Notification> _pending = new();
     private readonly Dictionary<Notification, TaskCompletionSource<NotificationReaction>> _waiters = new();
     private readonly BehaviorSubject<IReadOnlyList<Notification>> _pendingSubject =
         new(Array.Empty<Notification>());
+    private readonly Queue<PendingEmission> _emissions = new();
     private bool _disposed;
+    private int _emitterThreadId;
 
     /// <inheritdoc/>
     public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject.AsObservable();
@@ -22,11 +36,11 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     public Task<NotificationReaction> Post(Notification notification)
     {
         var tcs = new TaskCompletionSource<NotificationReaction>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PendingEmission emission;
+        bool shouldEmit;
+        bool shouldWait;
         lock (_lock)
         {
-            // Post after Dispose returns Pending and does not enqueue: matches the
-            // shutdown semantics of Dispose() which resolves all in-flight waiters
-            // with Pending. Symmetric with Resolve()'s _waiters guard.
             if (_disposed)
             {
                 tcs.TrySetResult(NotificationReaction.Pending);
@@ -36,12 +50,9 @@ public sealed class NotificationHub : INotificationHub, IDisposable
                 return existing.Task;
             _pending.Add(notification);
             _waiters[notification] = tcs;
-            // Emit while holding the lock: emitting outside raced Dispose()'s
-            // subject disposal (ObjectDisposedException) and let two concurrent
-            // posts publish snapshots out of order, leaving the BehaviorSubject
-            // caching a stale pending list.
-            _pendingSubject.OnNext(_pending.ToArray());
+            (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(_pending.ToArray()));
         }
+        PublishEmission(emission, shouldEmit, shouldWait);
         return tcs.Task;
     }
 
@@ -49,13 +60,16 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     public void Resolve(Notification notification, NotificationReaction reaction)
     {
         TaskCompletionSource<NotificationReaction>? tcs;
+        PendingEmission emission;
+        bool shouldEmit;
+        bool shouldWait;
         lock (_lock)
         {
-            if (!_waiters.TryGetValue(notification, out tcs)) return;
-            _waiters.Remove(notification);
+            if (!_waiters.Remove(notification, out tcs)) return;
             _pending.Remove(notification);
-            _pendingSubject.OnNext(_pending.ToArray());
+            (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(_pending.ToArray()));
         }
+        PublishEmission(emission, shouldEmit, shouldWait);
         tcs.TrySetResult(reaction);
     }
 
@@ -66,6 +80,9 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     public void Dispose()
     {
         TaskCompletionSource<NotificationReaction>[] waiters;
+        PendingEmission emission;
+        bool shouldEmit;
+        bool shouldWait;
         lock (_lock)
         {
             if (_disposed) return;
@@ -73,11 +90,88 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             waiters = _waiters.Values.ToArray();
             _waiters.Clear();
             _pending.Clear();
-            // Complete inside the lock so a racing Post/Resolve can never
-            // observe a disposed subject.
-            _pendingSubject.OnCompleted();
-            _pendingSubject.Dispose();
+            (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(complete: true));
         }
-        foreach (var w in waiters) w.TrySetResult(NotificationReaction.Pending);
+        PublishEmission(emission, shouldEmit, shouldWait);
+        foreach (var waiter in waiters)
+            waiter.TrySetResult(NotificationReaction.Pending);
+    }
+
+    private (PendingEmission Emission, bool ShouldEmit, bool ShouldWait) QueueEmissionLocked(
+        PendingEmission emission)
+    {
+        var caller = Environment.CurrentManagedThreadId;
+        _emissions.Enqueue(emission);
+        if (_emitterThreadId == 0)
+        {
+            _emitterThreadId = caller;
+            return (emission, true, false);
+        }
+        return (emission, false, _emitterThreadId != caller && s_deliveryDepth == 0);
+    }
+
+    private void PublishEmission(PendingEmission emission, bool shouldEmit, bool shouldWait)
+    {
+        if (shouldEmit)
+            DrainEmissions();
+        else if (shouldWait)
+            emission.Completed.Wait();
+        if (emission.Error is not null)
+            ExceptionDispatchInfo.Capture(emission.Error).Throw();
+        emission.Completed.Dispose();
+    }
+
+    private void DrainEmissions()
+    {
+        while (true)
+        {
+            PendingEmission emission;
+            lock (_lock)
+            {
+                if (_emissions.Count == 0)
+                {
+                    _emitterThreadId = 0;
+                    Monitor.PulseAll(_lock);
+                    return;
+                }
+                emission = _emissions.Dequeue();
+            }
+            try
+            {
+                s_deliveryDepth++;
+                if (emission.Complete)
+                {
+                    _pendingSubject.OnCompleted();
+                    _pendingSubject.Dispose();
+                }
+                else
+                {
+                    _pendingSubject.OnNext(emission.Snapshot!);
+                }
+            }
+            catch (Exception error)
+            {
+                emission.Error = error;
+                PendingEmission[] abandoned;
+                lock (_lock)
+                {
+                    abandoned = _emissions.ToArray();
+                    _emissions.Clear();
+                    _emitterThreadId = 0;
+                    Monitor.PulseAll(_lock);
+                }
+                foreach (var item in abandoned)
+                {
+                    item.Error = error;
+                    item.Completed.Set();
+                }
+                throw;
+            }
+            finally
+            {
+                s_deliveryDepth--;
+                emission.Completed.Set();
+            }
+        }
     }
 }

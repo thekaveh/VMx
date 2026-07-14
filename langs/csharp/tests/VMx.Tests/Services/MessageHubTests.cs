@@ -116,6 +116,47 @@ public class MessageHubTests
     }
 
     [Fact]
+    public async Task Opposing_CrossHub_Callbacks_Do_Not_Deadlock()
+    {
+        var first = new MessageHub();
+        var second = new MessageHub();
+        using var callbacksReady = new Barrier(2);
+        var trace = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var firstSubscription = first.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "root")
+            {
+                trace.Add("first:reply");
+                return;
+            }
+            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            second.Send(new Stub("reply"));
+        });
+        using var secondSubscription = second.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "root")
+            {
+                trace.Add("second:reply");
+                return;
+            }
+            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            first.Send(new Stub("reply"));
+        });
+
+        var sends = new[]
+        {
+            Task.Run(() => first.Send(new Stub("root"))),
+            Task.Run(() => second.Send(new Stub("root"))),
+        };
+
+        var allSends = Task.WhenAll(sends);
+        var completed = await Task.WhenAny(allSends, Task.Delay(TimeSpan.FromSeconds(1)));
+        completed.Should().BeSameAs(allSends, "opposing callbacks must make progress");
+        await allSends;
+        trace.Should().BeEquivalentTo(["first:reply", "second:reply"]);
+    }
+
+    [Fact]
     public void Development_Drain_Diagnostic_Names_Message_Type()
     {
 #if DEBUG

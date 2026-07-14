@@ -168,4 +168,37 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         form.Snapshot.Should().Be(new Model("reset:saved"));
         form.IsDirty.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task Reset_Commit_Remains_Pristine_Through_Approved_Publication()
+    {
+        using var form = FormVM<Model>.Builder().Initial(new("initial"))
+            .Persister(_ => Task.CompletedTask)
+            .ResetOnApproved(model => new($"reset:{model.Value}"))
+            .Build();
+        form.SetModel(new("saved"));
+        Task? racingSetter = null;
+        using var setterStarted = new ManualResetEventSlim();
+        using var subscription = form.OnApproved.Subscribe(_ =>
+        {
+            racingSetter = Task.Run(() =>
+            {
+                setterStarted.Set();
+                form.SetModel(new("racing"));
+            });
+            setterStarted.Wait();
+            racingSetter.Wait(TimeSpan.FromMilliseconds(50)).Should().BeFalse(
+                "a racing setter cannot interleave with approval publication");
+            form.Model.Should().Be(new Model("reset:saved"));
+            form.Snapshot.Should().Be(new Model("reset:saved"));
+            form.IsDirty.Should().BeFalse();
+        });
+
+        await form.ApproveAsync();
+        await racingSetter!;
+
+        form.Model.Should().Be(new Model("racing"));
+        form.Snapshot.Should().Be(new Model("reset:saved"));
+        form.IsDirty.Should().BeTrue();
+    }
 }

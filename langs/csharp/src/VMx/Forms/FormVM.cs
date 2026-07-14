@@ -31,11 +31,14 @@ public sealed class FormVM<TM> : IDisposable
     private readonly object _approveErrorGate = new();
     private readonly Subject<IReadOnlyDictionary<string, string>> _errorsChanged = new();
     private readonly Subject<Unit> _canExecuteChangedTrigger = new();
+    private readonly object _stateGate = new();
 
     private TM _model;
     private TM _snapshot;
     private Dictionary<string, string> _errors;
     private volatile bool _disposed;
+    private bool _approvalPublishing;
+    private int _approvalPublisherThreadId;
 
     // ── Builder factory ───────────────────────────────────────────────────────
 
@@ -148,22 +151,25 @@ public sealed class FormVM<TM> : IDisposable
     // ── Properties ────────────────────────────────────────────────────────────
 
     /// <summary>Live, editable model. Set via <see cref="SetModel"/> to mutate.</summary>
-    public TM Model => _model;
+    public TM Model { get { lock (_stateGate) return _model; } }
 
     /// <summary>Read-only snapshot captured at construction (updated after a successful Approve).</summary>
-    public TM Snapshot => _snapshot;
+    public TM Snapshot { get { lock (_stateGate) return _snapshot; } }
 
     /// <summary>
     /// <c>true</c> when <see cref="Model"/> is structurally not equal to <see cref="Snapshot"/>.
     /// Uses <see cref="object.Equals(object?, object?)"/>; record types provide structural equality.
     /// </summary>
-    public bool IsDirty => !Equals(_model, _snapshot);
+    public bool IsDirty { get { lock (_stateGate) return !Equals(_model, _snapshot); } }
 
     /// <summary>Current validation errors keyed by field/property name.</summary>
-    public IReadOnlyDictionary<string, string> Errors => new Dictionary<string, string>(_errors);
+    public IReadOnlyDictionary<string, string> Errors
+    {
+        get { lock (_stateGate) return new Dictionary<string, string>(_errors); }
+    }
 
     /// <summary><c>true</c> when the current model has no validation errors.</summary>
-    public bool IsValid => _errors.Count == 0;
+    public bool IsValid { get { lock (_stateGate) return _errors.Count == 0; } }
 
     /// <summary>
     /// Reverts <see cref="Model"/> to <see cref="Snapshot"/> and publishes
@@ -200,7 +206,11 @@ public sealed class FormVM<TM> : IDisposable
     public IObservable<IReadOnlyDictionary<string, string>> ErrorsChanged => _errorsChanged.AsObservable();
 
     /// <summary>Returns the current validation error for a field, if any.</summary>
-    public string? FieldError(string field) => _errors.TryGetValue(field, out var error) ? error : null;
+    public string? FieldError(string field)
+    {
+        lock (_stateGate)
+            return _errors.TryGetValue(field, out var error) ? error : null;
+    }
 
     /// <summary>
     /// Awaitable entry-point to the approve flow. Invokes the persister, advances
@@ -221,14 +231,33 @@ public sealed class FormVM<TM> : IDisposable
         // Inert after Dispose (like ApproveAsync/Deny): a post-dispose call would
         // otherwise emit on the disposed Revalidate subjects and throw
         // ObjectDisposedException (parity with the TS/Swift no-op).
-        if (_disposed) return;
         ThrowHelper.ThrowIfNull(model, nameof(model));
-        if (Equals(_model, model)) return;
-        var wasDirty = IsDirty;
-        var wasValid = IsValid;
-        _model = model;
-        Revalidate();
-        if ((_strict && IsDirty != wasDirty) || IsValid != wasValid)
+        var caller = Environment.CurrentManagedThreadId;
+        lock (_stateGate)
+        {
+            while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
+                Monitor.Wait(_stateGate);
+            if (_disposed || Equals(_model, model)) return;
+        }
+        var nextErrors = Validate(model);
+        bool errorsChanged;
+        bool canExecuteChanged;
+        lock (_stateGate)
+        {
+            while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
+                Monitor.Wait(_stateGate);
+            if (_disposed || Equals(_model, model)) return;
+            var wasDirty = !Equals(_model, _snapshot);
+            var wasValid = _errors.Count == 0;
+            errorsChanged = !SameErrors(nextErrors, _errors);
+            _model = model;
+            _errors = nextErrors;
+            canExecuteChanged = (_strict && !Equals(_model, _snapshot) != wasDirty) ||
+                (_errors.Count == 0) != wasValid;
+        }
+        if (errorsChanged)
+            _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
+        if (canExecuteChanged)
             _canExecuteChangedTrigger.OnNext(Unit.Default);
         _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(
             this,
@@ -241,10 +270,16 @@ public sealed class FormVM<TM> : IDisposable
     /// <summary>Completes the <see cref="OnApproved"/> observable and disposes resources.</summary>
     public void Dispose()
     {
-        lock (_approveErrorGate)
+        var caller = Environment.CurrentManagedThreadId;
+        lock (_stateGate)
         {
+            while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
+                Monitor.Wait(_stateGate);
             if (_disposed) return;
             _disposed = true;
+        }
+        lock (_approveErrorGate)
+        {
             _approveErrors.OnCompleted();
             _approveErrors.Dispose();
         }
@@ -288,11 +323,12 @@ public sealed class FormVM<TM> : IDisposable
     {
         // A disposed form is a full no-op — the persister must not be
         // invoked (symmetric with the Deny guard).
-        if (_disposed) return;
-        if (!IsValid) return;
-
-        // Capture model to avoid TOCTOU if SetModel is called concurrently.
-        var current = _model;
+        TM current;
+        lock (_stateGate)
+        {
+            if (_disposed || _errors.Count != 0) return;
+            current = _model;
+        }
 
         // May throw — intentional. No state mutation if this throws.
         await _persister(current).ConfigureAwait(false);
@@ -300,39 +336,79 @@ public sealed class FormVM<TM> : IDisposable
         // Dispose() may have run during the await; the subjects below are
         // completed and disposed, so emitting would throw inside an
         // unobserved task.
-        if (_disposed) return;
+        lock (_stateGate)
+        {
+            if (_disposed) return;
+        }
 
         // Success: either atomically install the configured pristine reset
         // state, or preserve the legacy snapshot-advance behavior.
-        var wasDirty = IsDirty;
-        var wasValid = IsValid;
+        TM? nextModel = default;
+        TM nextSnapshot;
+        Dictionary<string, string>? nextErrors = null;
         if (_resetOnApproved is not null)
         {
             // Prepare everything before assigning any field. A reset or
             // snapshotter failure therefore leaves local state untouched even
             // though persistence has already succeeded.
             var reset = _resetOnApproved(current);
-            var nextModel = _snapshotter(reset);
-            var nextSnapshot = _snapshotter(reset);
-            var nextErrors = Validate(nextModel);
-
-            _model = nextModel;
-            _snapshot = nextSnapshot;
-            if (!SameErrors(nextErrors, _errors))
-            {
-                _errors = nextErrors;
-                _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
-            }
+            nextModel = _snapshotter(reset);
+            nextSnapshot = _snapshotter(reset);
+            nextErrors = Validate(nextModel);
         }
         else
         {
-            _snapshot = _snapshotter(current);
+            nextSnapshot = _snapshotter(current);
         }
 
-        if ((_strict && wasDirty != IsDirty) || wasValid != IsValid)
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
+        var caller = Environment.CurrentManagedThreadId;
+        bool errorsChanged;
+        bool canExecuteChanged;
+        IReadOnlyDictionary<string, string>? publishedErrors = null;
+        lock (_stateGate)
+        {
+            while (_approvalPublishing && _approvalPublisherThreadId != caller)
+                Monitor.Wait(_stateGate);
+            if (_disposed) return;
+            _approvalPublishing = true;
+            _approvalPublisherThreadId = caller;
+            var wasDirty = !Equals(_model, _snapshot);
+            var wasValid = _errors.Count == 0;
+            errorsChanged = false;
+            if (_resetOnApproved is not null)
+            {
+                _model = nextModel!;
+                _snapshot = nextSnapshot;
+                if (!SameErrors(nextErrors!, _errors))
+                {
+                    _errors = nextErrors!;
+                    errorsChanged = true;
+                    publishedErrors = new Dictionary<string, string>(_errors);
+                }
+            }
+            else
+            {
+                _snapshot = nextSnapshot;
+            }
+            canExecuteChanged = (_strict && !Equals(_model, _snapshot) != wasDirty) ||
+                (_errors.Count == 0) != wasValid;
+        }
 
-        _onApproved.OnNext(current);
+        try
+        {
+            if (errorsChanged) _errorsChanged.OnNext(publishedErrors!);
+            if (canExecuteChanged) _canExecuteChangedTrigger.OnNext(Unit.Default);
+            _onApproved.OnNext(current);
+        }
+        finally
+        {
+            lock (_stateGate)
+            {
+                _approvalPublishing = false;
+                _approvalPublisherThreadId = 0;
+                Monitor.PulseAll(_stateGate);
+            }
+        }
     }
 
     // Cached per closed generic (one instance per TM): System.Text.Json caches
