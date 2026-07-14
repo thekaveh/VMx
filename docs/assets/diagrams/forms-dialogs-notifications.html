@@ -129,14 +129,14 @@
 <rect x="120" y="336" width="200" height="118" rx="8" fill="#0f172a"/>
 <rect x="120" y="336" width="200" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="220" y="364" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">DenyCommand</text>
-<text x="220" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">revert Model to Snapshot</text>
-<text x="220" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">publish property changes</text>
+<text x="220" y="390" fill="#cbd5e1" font-size="12.02" font-weight="400" text-anchor="middle">revert Model to Snapshot</text>
+<text x="220" y="409" fill="#cbd5e1" font-size="12.02" font-weight="400" text-anchor="middle">publish property changes</text>
 <rect x="340" y="336" width="200" height="118" rx="8" fill="#0f172a"/>
 <rect x="340" y="336" width="200" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="440" y="364" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ApproveCommand</text>
 <text x="440" y="390" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">persist captured model</text>
-<text x="440" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional reset -&gt; pristine</text>
-<text x="440" y="428" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">errors -&gt; ApproveErrors</text>
+<text x="440" y="409" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reset -&gt; pristine</text>
+<text x="440" y="428" fill="#cbd5e1" font-size="12.54" font-weight="400" text-anchor="middle">errors -&gt; ApproveErrors</text>
 <rect x="120" y="494" width="420" height="142" rx="8" fill="#0f172a"/>
 <rect x="120" y="494" width="420" height="142" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
 <text x="330" y="522" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Validation surface</text>
@@ -161,11 +161,11 @@
 <rect x="670" y="392" width="370" height="124" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="855" y="420" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
 <text x="855" y="446" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps delete or deny commands</text>
-<text x="855" y="465" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirm delegate can call dialogService.Confirm()</text>
+<text x="855" y="465" fill="#cbd5e1" font-size="11.57" font-weight="400" text-anchor="middle">confirm delegate can call dialogService.Confirm()</text>
 <text x="855" y="484" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same pattern works for file/export prompts</text>
 <rect x="670" y="570" width="370" height="140" rx="8" fill="#0f172a"/>
 <rect x="670" y="570" width="370" height="140" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
-<text x="855" y="598" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">NullDialogService + cancellation</text>
+<text x="855" y="598" fill="#f8fafc" font-size="17.72" font-weight="700" text-anchor="middle">NullDialogService + cancellation</text>
 <text x="855" y="624" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">safe defaults: PickFile* -&gt; null</text>
 <text x="855" y="643" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Confirm -&gt; false, Notify -&gt; no-op</text>
 <text x="855" y="662" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">cancellation completes with safe default</text>
@@ -179,14 +179,14 @@
 <rect x="1170" y="338" width="200" height="118" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="1270" y="366" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">NotificationVM</text>
 <text x="1270" y="392" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">wraps Notification</text>
-<text x="1270" y="411" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">auto-dismiss at lifespan end</text>
-<text x="1270" y="430" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DismissCommand resolves Approve</text>
+<text x="1270" y="411" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">auto-dismiss at expiry</text>
+<text x="1270" y="430" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Dismiss -&gt; Approve</text>
 <rect x="1400" y="338" width="200" height="118" rx="8" fill="#0f172a"/>
 <rect x="1400" y="338" width="200" height="118" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="1500" y="366" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ConfirmationVM</text>
-<text x="1500" y="392" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">inherits NotificationVM</text>
-<text x="1500" y="411" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ApproveCommand / RejectCommand</text>
-<text x="1500" y="430" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no auto-resolve on timeout</text>
+<text x="1500" y="392" fill="#cbd5e1" font-size="12.54" font-weight="400" text-anchor="middle">inherits NotificationVM</text>
+<text x="1500" y="411" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Approve / Reject</text>
+<text x="1500" y="430" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">timeout stays pending</text>
 <rect x="1170" y="494" width="430" height="140" rx="8" fill="#0f172a"/>
 <rect x="1170" y="494" width="430" height="140" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="1385" y="522" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Bridge helper</text>
@@ -197,7 +197,7 @@
 <rect x="1170" y="678" width="430" height="146" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="1385" y="706" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Responsibility split</text>
 <text x="1385" y="732" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">dialogs: modal request/response</text>
-<text x="1385" y="751" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">notification hub: informational or queued user action</text>
+<text x="1385" y="751" fill="#cbd5e1" font-size="12.55" font-weight="400" text-anchor="middle">notification hub: informational or queued user action</text>
 <text x="1385" y="770" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">both can be injected into the same VM</text>
 <rect x="150" y="896" width="1450" height="86" rx="8" fill="#0f172a"/>
 <rect x="150" y="896" width="1450" height="86" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
@@ -211,8 +211,8 @@
 <text x="608" y="380" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">wrap Deny/Delete</text>
 <rect x="875" y="532" width="158" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
 <text x="954" y="546" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">host modal semantics</text>
-<rect x="1011" y="426" width="214" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
-<text x="1118" y="440" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">alternatively bridge via hub</text>
+<rect x="1077" y="426" width="67" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="1110" y="440" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">via hub</text>
 <rect x="1288" y="466" width="60" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
 <text x="1318" y="480" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">adapts</text>
 </svg>

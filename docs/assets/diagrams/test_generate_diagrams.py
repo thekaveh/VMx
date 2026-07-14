@@ -86,21 +86,25 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertNotIn("Dark SVG source uses", html)
         self.assertIn("<svg", html)
 
-    def test_primary_diagram_box_text_stays_inside_bounds(self) -> None:
-        for diagram in (
-            self.generator.system_architecture(),
-            self.generator.class_architecture(),
-        ):
+    def test_every_diagram_box_text_stays_inside_bounds(self) -> None:
+        for diagram in self.generator.build_diagrams().values():
             for box in diagram.boxes:
                 text_runs = (
                     (box.title, box.title_size),
                     *((line, box.line_size) for line in box.lines),
                 )
                 for text, font_size in text_runs:
-                    estimated_width = len(text) * font_size * 0.61
+                    fitted_size = self.generator.fitted_font_size(
+                        text,
+                        font_size,
+                        self.generator.box_text_width(box),
+                    )
+                    estimated_width = (
+                        len(text) * fitted_size * self.generator.MONO_GLYPH_WIDTH_FACTOR
+                    )
                     self.assertLessEqual(
                         estimated_width,
-                        box.w - 24,
+                        self.generator.box_text_width(box),
                         f"{diagram.title}: {box.title!r} text overflows: {text!r}",
                     )
                 last_line_baseline = (

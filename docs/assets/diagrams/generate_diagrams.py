@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import tempfile
@@ -28,6 +29,7 @@ SPEC_VERSION_PATH = REPO_ROOT / "spec" / "VERSION"
 CONFORMANCE_PATH = REPO_ROOT / "spec" / "12-conformance.md"
 CAPABILITIES_PATH = REPO_ROOT / "spec" / "14-capabilities.md"
 PNG_WIDTH = 3200
+MONO_GLYPH_WIDTH_FACTOR = 0.61
 SVG_FONT_STACK = (
     "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
     "'Liberation Mono', 'Courier New', monospace"
@@ -279,13 +281,13 @@ def svg_text(
     y: int,
     value: str,
     *,
-    size: int = 16,
+    size: float = 16,
     color: str = "#e2e8f0",
     weight: str = "400",
     anchor: str = "middle",
 ) -> str:
     return (
-        f'<text x="{x}" y="{y}" fill="{color}" font-size="{size}" '
+        f'<text x="{x}" y="{y}" fill="{color}" font-size="{size:g}" '
         f'font-weight="{weight}" text-anchor="{anchor}">{escape(value)}</text>'
     )
 
@@ -295,7 +297,7 @@ def multiline_text(
     y: int,
     lines: tuple[str, ...],
     *,
-    size: int = 13,
+    size: float = 13,
     color: str = "#cbd5e1",
     anchor: str = "middle",
     line_height: int = 20,
@@ -306,6 +308,28 @@ def multiline_text(
     )
 
 
+def box_text_width(box: Box) -> int:
+    """Return the horizontal space reserved for one box text run."""
+    return box.w - (36 if box.align == "start" else 24)
+
+
+def fitted_font_size(
+    text: str,
+    preferred_size: int,
+    available_width: int,
+    *,
+    minimum_size: float = 8,
+) -> float:
+    """Fit a monospaced text run to its box without silently clipping it."""
+    if not text:
+        return float(preferred_size)
+    estimated_width = len(text) * preferred_size * MONO_GLYPH_WIDTH_FACTOR
+    if estimated_width <= available_width:
+        return float(preferred_size)
+    fitted = available_width / (len(text) * MONO_GLYPH_WIDTH_FACTOR)
+    return max(minimum_size, math.floor(fitted * 100) / 100)
+
+
 def draw_box(box: Box) -> str:
     fill, stroke = COLORS[box.kind]
     dash = ' stroke-dasharray="8 6"' if box.dashed else ""
@@ -313,6 +337,19 @@ def draw_box(box: Box) -> str:
     text_x = box.x + box.w // 2 if box.align == "middle" else box.x + 18
     body_x = box.x + box.w // 2 if box.align == "middle" else box.x + 18
     body_anchor = "middle" if box.align == "middle" else "start"
+    available_width = box_text_width(box)
+    title_size = fitted_font_size(box.title, box.title_size, available_width)
+    body = "\n".join(
+        svg_text(
+            body_x,
+            box.y + 54 + index * max(18, box.line_size + 6),
+            line,
+            size=fitted_font_size(line, box.line_size, available_width),
+            color=SVG_THEME["body"],
+            anchor=body_anchor,
+        )
+        for index, line in enumerate(box.lines)
+    )
     return "\n".join(
         [
             f'<rect x="{box.x}" y="{box.y}" width="{box.w}" height="{box.h}" rx="8" fill="{SVG_THEME["panel_mask"]}"/>',
@@ -322,20 +359,12 @@ def draw_box(box: Box) -> str:
                 text_x,
                 box.y + 28,
                 box.title,
-                size=box.title_size,
+                size=title_size,
                 color=SVG_THEME["title"],
                 weight="700",
                 anchor=title_anchor,
             ),
-            multiline_text(
-                body_x,
-                box.y + 54,
-                box.lines,
-                size=box.line_size,
-                color=SVG_THEME["body"],
-                anchor=body_anchor,
-                line_height=max(18, box.line_size + 6),
-            ),
+            body,
         ]
     )
 
@@ -3487,7 +3516,7 @@ def forms_dialogs_notifications() -> Diagram:
                 200,
                 118,
                 "ApproveCommand",
-                ("persist captured model", "optional reset -> pristine", "errors -> ApproveErrors"),
+                ("persist captured model", "reset -> pristine", "errors -> ApproveErrors"),
                 "bus",
             ),
             Box(
@@ -3578,8 +3607,8 @@ def forms_dialogs_notifications() -> Diagram:
                 "NotificationVM",
                 (
                     "wraps Notification",
-                    "auto-dismiss at lifespan end",
-                    "DismissCommand resolves Approve",
+                    "auto-dismiss at expiry",
+                    "Dismiss -> Approve",
                 ),
                 "frontend",
             ),
@@ -3591,8 +3620,8 @@ def forms_dialogs_notifications() -> Diagram:
                 "ConfirmationVM",
                 (
                     "inherits NotificationVM",
-                    "ApproveCommand / RejectCommand",
-                    "no auto-resolve on timeout",
+                    "Approve / Reject",
+                    "timeout stays pending",
                 ),
                 "frontend",
             ),
@@ -3648,8 +3677,8 @@ def forms_dialogs_notifications() -> Diagram:
             Polyline(
                 ((1040, 454), (1170, 454)),
                 color="#fb7185",
-                label="alternatively bridge via hub",
-                label_xy=(1118, 438),
+                label="via hub",
+                label_xy=(1110, 438),
             ),
             Polyline(((1385, 298), (1385, 338)), color="#fb7185"),
             Polyline(
@@ -4274,7 +4303,7 @@ def example_app_diagram(
             Box(510, 444, 300, 122, primary[0], primary[1], "database"),
             Box(900, 444, 300, 122, support[0], support[1], "bus"),
             Box(1290, 444, 260, 122, model[0], model[1], "backend"),
-            Box(250, 738, 350, 90, verification[0], verification[1], "generic"),
+            Box(250, 738, 350, 96, verification[0], verification[1], "generic"),
             Box(760, 738, 620, 90, rule[0], rule[1], "generic"),
         ),
         lines=(
