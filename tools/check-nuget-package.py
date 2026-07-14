@@ -133,14 +133,18 @@ def validate_package_pair(
 
 def discover_expected(project_root: Path) -> dict[str, tuple[str, str | None]]:
     """Read package IDs/versions from C# source projects."""
-    expected: dict[str, tuple[str, str | None]] = {}
+    discovered: dict[str, str] = {}
     for project in sorted(project_root.glob("*/*.csproj")):
         root = ET.parse(project).getroot()
         package_id = root.findtext("PropertyGroup/PackageId")
         version = root.findtext("PropertyGroup/Version")
         if package_id and version:
-            expected[package_id] = (version, None if package_id == "VMx" else "3.20.0")
-    return expected
+            discovered[package_id] = version
+    core_version = discovered.get("VMx")
+    return {
+        package_id: (version, None if package_id == "VMx" else core_version)
+        for package_id, version in discovered.items()
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

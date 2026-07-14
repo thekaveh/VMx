@@ -41,12 +41,12 @@ must be limited to the exact `VMx*` IDs; never add an undocumented token path.
 
 The current first-publication sequence is deliberate:
 
-1. `csharp-v3.20.0` publishes `VMx` 3.20.0.
+1. `csharp-v3.20.1` publishes `VMx` 3.20.1.
 2. `csharp-v1.2.0` publishes `VMx.Notifications` 1.2.0 after core verifies.
 3. `csharp-v2.1.1` publishes `VMx.Extensions.DependencyInjection` 2.1.1 after
    core verifies.
 
-Both companions pack with `VMx >= 3.20.0` for net8.0 and netstandard2.0. DI
+Both companions pack with `VMx >= 3.20.1` for net8.0 and netstandard2.0. DI
 uses packaging-only patch 2.1.1 because `csharp-v2.1.0` is already an immutable
 historical core tag. Never move or reuse that tag.
 
@@ -58,15 +58,15 @@ historical core tag. Never move or reuse that tag.
    absent. For example:
 
    ```bash
-   git ls-remote --exit-code --tags origin refs/tags/csharp-v3.20.0 || true
+   git ls-remote --exit-code --tags origin refs/tags/csharp-v3.20.1 || true
    curl -fsS https://api.nuget.org/v3-flatcontainer/vmx/index.json || true
    ```
 
 3. Create the immutable tag on verified main and push it:
 
    ```bash
-   git tag csharp-v3.20.0 origin/main
-   git push origin csharp-v3.20.0
+   git tag csharp-v3.20.1 origin/main
+   git push origin csharp-v3.20.1
    ```
 
 4. Approve the `nuget-csharp` deployment and watch the Release workflow.
@@ -102,13 +102,13 @@ Repeat public checks outside the release job:
 
 ```bash
 python3 tools/smoke-nuget-consumer.py \
-  --package VMx=3.20.0 --framework net8.0 --poll-timeout 900
+  --package VMx=3.20.1 --framework net8.0 --poll-timeout 900
 python3 tools/smoke-nuget-consumer.py \
-  --package VMx=3.20.0 --framework netstandard2.0 --poll-timeout 900
-gh release view csharp-v3.20.0 --repo thekaveh/VMx
+  --package VMx=3.20.1 --framework netstandard2.0 --poll-timeout 900
+gh release view csharp-v3.20.1 --repo thekaveh/VMx
 ```
 
-For a companion, pass its exact package/version; the tool pins core 3.20.0 as
+For a companion, pass its exact package/version; the tool pins core 3.20.1 as
 well. Verify the NuGet package page and symbol availability before changing
 documentation or the roadmap item to Done.
 

@@ -18,7 +18,7 @@ Unlike manually recursing `CompositeVM<M, VM>` (chapter 06), `HierarchicalVM`
 provides:
 
 - built-in parent / depth / path bookkeeping,
-- depth-first construction order mirroring `LIFE-013`,
+- depth-first construction order without implied child-lifetime ownership,
 - hub messages for structural mutations,
 - clean integration with `walk`/`walk_expanded` (chapter 13) and opt-in
   capability composition (chapter 14).
@@ -69,9 +69,12 @@ graph TD
 ## 3. Construction order
 
 **Depth-first.** A parent's `Status` transitions to `Constructed` only after
-every descendant has reached `Constructed`. Mirrors the dispose order
-(`LIFE-013`); preserves the invariant "children exist before parent reports
-ready".
+every descendant has reached `Constructed`; this preserves the invariant
+"children exist before parent reports ready". This construction coordination
+does not imply ownership: disposing a hierarchical node does not dispose,
+destruct, detach, reparent, or otherwise manage its children. Consumers own
+child lifetimes unless they register cleanup explicitly through the ordinary
+owned-resource surface.
 
 Lazy children do NOT participate in construction order until materialized. A node
 with un-materialized children is `Constructed` once it has called `construct()`
@@ -202,6 +205,17 @@ ancestor cycle) raises the flavor's standard invalid-operation error
 unchanged, and publishes no message (HIER-018; added in v2.5.0 via
 ADR-0037 — previously the cycle silently corrupted `Depth`/`Path`/`walk`).
 
+`AddChild` is an attach-or-transfer operation, not a raw list append. It MUST
+preflight the same cycle rule before mutation. Adding an existing child of the
+same parent is a no-op. Adding a child owned by another parent atomically
+removes the identity-equal entry from the old parent's children, appends it to
+the new parent, updates the parent/path state, and publishes one `Reparented`
+message from the new parent. Adding a detached child publishes `Added`. On any
+rejection or attachment failure, both parent collections and the child's parent
+reference remain unchanged. Swift reports `AddChild` rejection through its
+idiomatic `Result`; Rust uses `VmxResult`; the other flavors throw their
+standard invalid-operation error (ADR-0105).
+
 ## 8. `TreeStructureChangedMessage`
 
 ```
@@ -266,8 +280,10 @@ TreeStructureChangedMessage:
   not set: `Hint == ""`, `Name == typeof(TVM).Name` (or the flavor-idiomatic
   equivalent), and `EagerChildren == false` (so the root's children
   materialize lazily on first access).
-- `HIER-018` — `ReparentChild` rejects self- and ancestor-reparenting
-  (added in v2.5.0 via ADR-0037).
+- `HIER-018` — `ReparentChild` and `AddChild` reject self- and
+  ancestor-reparenting without mutation or messages; `AddChild` performs an
+  atomic identity-based transfer when the child already has another parent
+  (extended in v3.20.1 via ADR-0105).
 - `HIER-019` — `InvalidateChildren` drops the cached child list; the next
   `Children` access invokes the factory again.
 - `HIER-020` — `InvalidateChildren` on an unmaterialized node is a no-op and

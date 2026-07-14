@@ -6,6 +6,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [3.20.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
 ### Changed
 
 - Unit and conformance suites now execute against both .NET 8 and .NET 9.
@@ -17,6 +21,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Component teardown always performs base cleanup after a throwing override,
   and composite, group, and aggregate disposal isolates child failures while
   still disposing every sibling and the parent.
+- `HierarchicalVM.AddChild` now preflights cycles and atomically transfers a
+  child from its old parent instead of leaving the identity in two child lists
+  (HIER-018, ADR-0105).
 
 ## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-07-13
 

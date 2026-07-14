@@ -6,6 +6,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.20.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
 ### Fixed
 
 - Lazy composite children roll back a failed factory attempt so a later access
@@ -15,6 +19,11 @@ All notable changes to the Python flavor are documented here. The format is base
   still disposing every sibling and the parent.
 - `ForwardingCompositeVM` now delegates `move` and `batch_update` alongside the
   rest of the mutable composite surface.
+- `HierarchicalVM.add_child` rejects cycles and transfers attached children
+  atomically (HIER-018, ADR-0105).
+- `PagedComposition` snapshots one-shot iterators once so page count and items
+  remain consistent, while reiterable sources stay live.
+- Tree walking no longer swallows a `TypeError` raised during iteration.
 
 ## [3.20.0] — 2026-07-12
 

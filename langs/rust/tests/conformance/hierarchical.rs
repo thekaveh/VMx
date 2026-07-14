@@ -361,7 +361,16 @@ fn reparent_rejects_self_and_ancestor_cycles() {
 
     assert!(leaf_node.reparent_child(&root).is_err());
     assert!(mid.reparent_child(&mid).is_err());
+    assert!(leaf_node.add_child(leaf_node.clone()).is_err());
+    assert!(leaf_node.add_child(root.clone()).is_err());
     assert_eq!(leaf_node.depth(), 2);
+
+    let new_parent = leaf("new-parent");
+    new_parent.add_child(leaf_node.clone()).unwrap();
+    assert!(mid.children().is_empty());
+    let transferred = new_parent.children();
+    assert!(transferred.len() == 1 && transferred[0] == leaf_node);
+    assert!(leaf_node.parent().as_ref() == Some(&new_parent));
 }
 
 /// HIER-019 — InvalidateChildren reloads on next access

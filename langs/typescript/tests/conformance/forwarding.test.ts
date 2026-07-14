@@ -189,4 +189,33 @@ describe("FWD-003", () => {
 
     expect([...composite]).toEqual([vm1, vm3]);
   });
+
+  it("ForwardingCompositeVM delegates the complete composite surface", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const vm1 = ComponentVM.builder().name("vm1").services(hub, disp).build();
+    const vm2 = ComponentVM.builder().name("vm2").services(hub, disp).build();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, disp)
+      .children(() => [vm1, vm2])
+      .build();
+    composite.construct();
+    const fwd = new ForwardingCompositeVM(composite);
+    let membershipChanges = 0;
+    const membership = fwd.subscribeMembership(() => { membershipChanges++; });
+
+    expect(fwd.hub).toBe(hub);
+    expect(fwd.supportsChildSelection).toBe(true);
+    expect(fwd.currentChild).toBeNull();
+    expect(fwd.snapshot()).toEqual([vm1, vm2]);
+    fwd.selectChild(vm1);
+    expect(fwd.currentChild).toBe(vm1);
+    fwd.deselectChild(vm1);
+    expect(fwd.currentChild).toBeNull();
+    fwd.move(0, 1);
+    expect(fwd.snapshot()).toEqual([vm2, vm1]);
+    expect(membershipChanges).toBe(1);
+    membership.unsubscribe();
+  });
 });

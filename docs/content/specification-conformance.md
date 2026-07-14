@@ -39,7 +39,7 @@ The source overview is here:
 
 ## 10.5. Consumer Adapter Suites
 
-VMx TypeScript 3.21.0 adds the optional
+VMx TypeScript 3.21.0 introduced the optional
 `@thekaveh/vmx/conformance` entry point. It validates and executes
 consumer-owned operation/assertion suites without making those suites part of
 the normative VMx behavior catalog. The root `@thekaveh/vmx` entry does not

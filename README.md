@@ -117,7 +117,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 102 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 106 ADRs,
   4 JSON fixtures, 396 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -146,11 +146,11 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Source status           | Public package status                                          | Reactive primitive     |
 | ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
-| C#         | v3.20.0 in source       | NuGet package not published yet                                | System.Reactive        |
-| Python     | v3.20.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
-| TypeScript | v3.21.0 in source       | npm package not published yet                                  | rxjs                   |
-| Swift      | v3.20.0 released        | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
-| Rust       | v0.21.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
+| C#         | v3.20.1 in source       | NuGet package not published yet                                | System.Reactive        |
+| Python     | v3.20.1 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
+| TypeScript | v3.21.1 in source       | npm package not published yet                                  | rxjs                   |
+| Swift      | v3.20.1 in source       | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
+| Rust       | v0.22.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -187,7 +187,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.20.x | 3.20.0 | 3.20.0 | 3.20.0–3.21.0 | 3.20.0       | 0.20.0–0.21.0 |
+| 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1 | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0 | 3.19.0 | 3.19.0     | 3.19.0         | 0.19.0        |
 | 3.18.x | 3.18.0 | 3.18.0 | 3.18.0     | 3.18.0         | 0.18.0        |
 | 3.17.x | 3.17.0 | 3.17.0 | 3.17.0     | 3.17.0         | 0.17.0        |
@@ -241,7 +241,7 @@ cargo add vmx-rs --path langs/rust
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity as of v3.20.0; see `langs/swift/README.md` §5).
+  at total parity on the v3.20.1 source line; see `langs/swift/README.md` §5).
 - [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
   and a minimal `ComponentVm` example.
 
@@ -303,7 +303,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0102)
+│   ├── ADRs/              architecture decision records (0001..0106)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -312,7 +312,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.20.0, total parity — 391 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.20.1 source, total parity — 391 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
@@ -336,7 +336,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 102 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 106 ADRs,
   4 fixtures, and the 396-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
@@ -345,13 +345,14 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.20.0, total parity — 391 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.20.1 source, total parity — 391 library + 5 THEME),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
   [`langs/typescript/CHANGELOG.md`](langs/typescript/CHANGELOG.md),
-  [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md).
+  [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md),
+  [`langs/rust/CHANGELOG.md`](langs/rust/CHANGELOG.md).
 - Per-flavor release runbooks:
   [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md) — NuGet release
   pipeline for `VMx` plus companion packages,
@@ -363,7 +364,9 @@ This README is the entry point; the documents below add focused detail.
   [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md) — npm
   publish with provenance, and
   [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md) — SwiftPM tag +
-  GitHub Release flow. release-please currently automates Python routine
+  GitHub Release flow, and
+  [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md) — crates.io trusted
+  publishing and public-consumer verification. release-please currently automates Python routine
   version bumps + CHANGELOG entries via Conventional Commits.
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md),
@@ -413,10 +416,11 @@ flavors (C# / Python / TypeScript / Swift / Rust) implement the 391 library IDs 
 their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
 `langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
 `langs/swift/Tests/VMxTests`, and `langs/rust/tests/conformance`), and
-`tools/check-conformance-coverage.py` enforces 100% coverage in CI. Stable
-flavors also cover the 5 `THEME-00x` scenario IDs via their respective flagship
-example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Every
-stable flavor is at **total parity: 391 library + 5 THEME = 396**.
+`tools/check-conformance-coverage.py` enforces 100% coverage in CI. The four
+UI-backed flavors also cover the 5 `THEME-00x` scenario IDs via their flagship
+example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Those
+four flavors are at **total parity: 391 library + 5 THEME = 396**; Rust has
+full 391-ID library parity and intentionally has no UI scenario suite yet.
 
 ```bash
 # Verify all full-parity flavors are at full catalog coverage

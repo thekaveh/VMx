@@ -61,11 +61,24 @@ public class HIER_018_ReparentGuard_Tests
         var ancestor = () => leaf.ReparentChild(root);
         ancestor.Should().Throw<InvalidOperationException>().WithMessage("*HIER-018*");
 
+        var addSelf = () => leaf.AddChild(leaf);
+        addSelf.Should().Throw<InvalidOperationException>().WithMessage("*HIER-018*");
+        var addAncestor = () => leaf.AddChild(root);
+        addAncestor.Should().Throw<InvalidOperationException>().WithMessage("*HIER-018*");
+
         // Tree structure unchanged; no message published.
         root.HierarchicalParent.Should().BeNull();
         mid.HierarchicalParent.Should().BeSameAs(root);
         leaf.HierarchicalParent.Should().BeSameAs(mid);
         leaf.Depth.Should().Be(2);
         messages.Should().BeEmpty();
+
+        var newParent = new MyNode(_ => [], hub, "new-parent");
+        newParent.AddChild(leaf);
+        mid.Children.Should().BeEmpty();
+        newParent.Children.Should().ContainSingle().Which.Should().BeSameAs(leaf);
+        leaf.HierarchicalParent.Should().BeSameAs(newParent);
+        messages.Should().ContainSingle(m =>
+            m.Change == TreeStructureChange.Reparented && ReferenceEquals(m.Affected, leaf));
     }
 }

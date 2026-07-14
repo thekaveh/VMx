@@ -6,7 +6,7 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.20.x | 3.20.0[^current] | 3.20.0[^current] | 3.20.0–3.21.0[^current] | 3.20.0[^swift] | 0.20.0–0.21.0[^rust] |
+| 3.20.x | 3.20.0–3.20.1[^current] | 3.20.0–3.20.1[^current] | 3.20.0–3.21.1[^current] | 3.20.0–3.20.1[^swift] | 0.20.0–0.22.0[^rust] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
 | 3.17.x | —               | —               | —               | —               | 0.17.0[^rust-source] |
@@ -52,7 +52,7 @@ service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
 **391 of 391 library conformance IDs + 5 `THEME-00x` scenario IDs = 396 total
-(total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
+(Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 +40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
@@ -75,19 +75,20 @@ THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: C# and Python remain on the 3.20.0 in-development source line.
-TypeScript 3.21.0 is an additive tooling release that still implements spec
-3.20.0. Python's latest PyPI release remains 3.1.0; C# and TypeScript public
+[^current]: C# and Python are on the 3.20.1 in-development source line.
+TypeScript 3.21.1 is an additive tooling release that implements spec
+3.20.1. Python's latest PyPI release remains 3.1.0; C# and TypeScript public
 packages remain pending. Their release jobs refuse to green-skip a publish
 without configured credentials.
 
-[^swift]: Swift 3.20.0 is publicly installable from the repository root through
+[^swift]: Swift 3.20.1 is the current source line. Swift 3.20.0 remains publicly
+installable from the repository root through
 the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
 tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
 point to the same `main` commit.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-declares `MIN_SPEC_VERSION = "3.20.0"` and carries behavioral tests for all 391
+is at source version 0.22.0, declares `MIN_SPEC_VERSION = "3.20.1"`, and carries behavioral tests for all 391
 library conformance IDs. It has not yet been published to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
@@ -111,7 +112,7 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.20.0 core project and
-> pack with a `VMx >= 3.20.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.20.1 core project and
+> pack with a `VMx >= 3.20.1` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
 > because the historical core tag `csharp-v2.1.0` is immutable. These source versions do not claim
 > that the packages have been published.

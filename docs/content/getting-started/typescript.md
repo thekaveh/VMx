@@ -12,7 +12,7 @@ ______________________________________________________________________
 
 ## 3.4.1. Install
 
-The source tree currently implements v3.21.0. The npm package is not published
+The source tree currently implements v3.21.1. The npm package is not published
 yet; use the package command after a `typescript-v*` release publishes it.
 
 ```bash
@@ -36,7 +36,7 @@ ______________________________________________________________________
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### 3.4.2.1. 2.1 Option A — immediate (Node scripts / synchronous tests)
+### 3.4.2.1. Option A — immediate (Node scripts / synchronous tests)
 
 ```ts
 import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
@@ -47,7 +47,7 @@ const dispatcher = RxDispatcher.immediate();
 // Safe for Node scripts and vitest suites with no async event loop.
 ```
 
-### 3.4.2.2. 2.2 Option B — custom schedulers (browser / async environments)
+### 3.4.2.2. Option B — custom schedulers (browser / async environments)
 
 ```ts
 import { asyncScheduler, animationFrameScheduler } from "rxjs";

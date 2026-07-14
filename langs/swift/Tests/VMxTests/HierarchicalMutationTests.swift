@@ -145,6 +145,13 @@ final class HierarchicalMutationTests: XCTestCase {
         XCTAssertThrowsError(try leaf.reparentChild(root),
             "reparentChild(ancestor) should throw HierarchyError.invalidReparent")
 
+        if case .success = leaf.addChild(leaf) {
+            XCTFail("addChild(self) should return HierarchyError.invalidReparent")
+        }
+        if case .success = leaf.addChild(root) {
+            XCTFail("addChild(ancestor) should return HierarchyError.invalidReparent")
+        }
+
         // Tree structure must be completely unchanged.
         XCTAssertNil(root.parent, "root.parent should remain nil")
         XCTAssertTrue(mid.parent === root, "mid.parent should still be root")
@@ -153,5 +160,15 @@ final class HierarchicalMutationTests: XCTestCase {
 
         // No structure messages should have been published.
         XCTAssertEqual(structureCount, 0, "No TreeStructureChangedMessages expected on guard rejection")
+
+        let newParent = makeNode(hub, name: "newParent")
+        guard case .success = newParent.addChild(leaf) else {
+            return XCTFail("cross-parent addChild should succeed")
+        }
+        XCTAssertTrue(mid.children.isEmpty)
+        XCTAssertEqual(newParent.children.count, 1)
+        XCTAssertTrue(newParent.children.first === leaf)
+        XCTAssertTrue(leaf.parent === newParent)
+        XCTAssertEqual(structureCount, 1)
     }
 }

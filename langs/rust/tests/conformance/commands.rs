@@ -34,6 +34,24 @@ fn relay_command_can_execute_returns_predicate_result() {
         .can_execute());
 }
 
+#[test]
+fn command_predicate_panics_map_to_not_executable() {
+    let relay = RelayCommand::noop().with_can_execute(|| panic!("relay predicate"));
+    let parameterized =
+        RelayCommandOf::<i32>::noop().with_can_execute(|_| panic!("parameterized predicate"));
+    let asynchronous = AsyncRelayCommand::noop().with_can_execute(|| panic!("async predicate"));
+    let decorated = RelayCommand::noop().wrap_with(
+        Some(|| panic!("decorator predicate")),
+        None::<fn()>,
+        None::<fn()>,
+    );
+
+    assert!(!relay.can_execute());
+    assert!(!parameterized.can_execute(&1));
+    assert!(!asynchronous.can_execute());
+    assert!(!decorated.can_execute());
+}
+
 /// CMD-004 — Trigger emission fires CanExecuteChanged
 #[test]
 fn relay_command_trigger_can_execute_changed_fires() {
@@ -250,6 +268,35 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
     assert!(observed_cancel.load(Ordering::SeqCst));
     assert!(!command.is_executing());
     assert!(command.can_execute());
+}
+
+#[test]
+fn async_relay_command_immediate_cancel_is_not_lost_during_admission() {
+    const RUNS: usize = 4_096;
+    for run_number in 0..RUNS {
+        let observed_cancel = Arc::new(AtomicBool::new(false));
+        let observed_cancel_clone = observed_cancel.clone();
+        let command = AsyncRelayCommand::new(move |token| {
+            let deadline = std::time::Instant::now() + Duration::from_millis(10);
+            while !token.is_cancelled() && std::time::Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            observed_cancel_clone.store(token.is_cancelled(), Ordering::SeqCst);
+            Ok(())
+        });
+
+        let execution = command.execute_async();
+        while !command.is_executing() {
+            std::thread::yield_now();
+        }
+        command.cancel();
+        execution.join().unwrap().unwrap();
+
+        assert!(
+            observed_cancel.load(Ordering::SeqCst),
+            "cancel was lost while admitting run {run_number}"
+        );
+    }
 }
 
 #[test]

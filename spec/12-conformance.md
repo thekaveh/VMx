@@ -2791,7 +2791,7 @@ but no `Model`
 flavor-idiomatic equivalent), and `node.Children` is materialized **lazily** on first
 access (the default for `EagerChildren = false`)
 
-### HIER-018 — `ReparentChild` rejects self- and ancestor-reparenting — spec v2.5.0
+### HIER-018 — Hierarchy mutators reject cycles and transfer atomically — spec v3.20.1
 
 **Given** a hierarchy `root → mid → leaf`
 **When** `leaf.ReparentChild(root)` is called (reparenting an ancestor under its own
@@ -2801,6 +2801,15 @@ descendant) or `node.ReparentChild(node)` is called (self-reparenting)
 **And** the tree structure is unchanged (`Parent`, `Depth`, and `Path` of every node
 are as before)
 **And** no `TreeStructureChangedMessage` is published
+
+**When** the equivalent cycle is attempted through `AddChild`
+**Then** it is rejected through the flavor's idiomatic failure channel with the
+same no-mutation and no-message guarantees.
+
+**When** `newParent.AddChild(child)` is called for a child owned by `oldParent`
+**Then** the child is removed from `oldParent` by identity, appended once to
+`newParent`, and its parent/path state points only to `newParent`
+**And** one `Reparented` message is published by `newParent`
 
 ### HIER-019 — `InvalidateChildren` reloads on next access
 

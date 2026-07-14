@@ -34,11 +34,11 @@ the [Disposal Contract](../../disposal-contract.md).
 
 ## 6.2.8.6.4. Cross-Language Surface
 
-| Concept          | C#             | Python          | TypeScript     | Swift                  |
-| ---------------- | -------------- | --------------- | -------------- | ---------------------- |
-| Concrete helper  | `ModalVM<T>`   | `ModalVM[T]`    | `ModalVM<T>`   | `BasicModalVM<Result>` |
-| Awaitable result | `Completion`   | `wait_result()` | `completion`   | `waitResult()`         |
-| Dismiss method   | `Dismiss(...)` | `dismiss(...)`  | `dismiss(...)` | `dismiss(...)`         |
+| Concept          | C#             | Python          | TypeScript     | Swift                  | Rust                         |
+| ---------------- | -------------- | --------------- | -------------- | ---------------------- | ---------------------------- |
+| Concrete helper  | `ModalVM<T>`   | `ModalVM[T]`    | `ModalVM<T>`   | `BasicModalVM<Result>` | `ModalVm<T>`                 |
+| Awaitable result | `Completion`   | `wait_result()` | `completion`   | `waitResult()`         | `completion()` → `AsyncValue` |
+| Dismiss method   | `Dismiss(...)` | `dismiss(...)`  | `dismiss(...)` | `dismiss(...)`         | `dismiss(...)`               |
 
 ## 6.2.8.6.5. Example
 
@@ -52,6 +52,7 @@ Relevant shipped surfaces:
 - Python: `vmx.dialogs.ModalVM`
 - TypeScript: `src/dialogs/modalVM.ts`
 - Swift: `ModalVM` protocol plus `BasicModalVM<Result>`
+- Rust: `ModalVm<T>` with executor-neutral `AsyncValue<T>` completion
 
 Use this primitive when you need a VM-backed modal result instead of a fixed
 host dialog verb.
@@ -86,6 +87,15 @@ host dialog verb.
     let modal = BasicModalVM<String>(cancellationResult: "cancel")
     modal.dismiss("save")
     let result = await modal.waitResult()
+    ```
+
+=== "Rust"
+
+    ```rust
+    let modal = ModalVm::new("cancel");
+    let completion = modal.completion();
+    modal.dismiss("save");
+    let result = completion.await;
     ```
 
 ## 6.2.8.6.6. Common Pitfalls

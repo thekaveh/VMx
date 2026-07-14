@@ -8,14 +8,18 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::future::Future;
 use std::hash::Hash;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::task::{Context, Poll};
 use std::thread::{self, ThreadId};
 
 mod aggregate_change_stream;
 mod async_resource_vm;
+mod async_value;
 pub use aggregate_change_stream::{
     AggregateChange, AggregateChangeObservable, AggregateChangeReason, AggregateChangeStream,
     AggregateChangeSubscription, AggregateObserveOptions, ObservableMembershipSource,
@@ -24,9 +28,10 @@ pub use aggregate_change_stream::{
 pub use async_resource_vm::{
     AsyncResourceRetention, AsyncResourceState, AsyncResourceStatus, AsyncResourceVm,
 };
+pub use async_value::AsyncValue;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.20.0";
+pub const MIN_SPEC_VERSION: &str = "3.20.1";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -44,6 +49,10 @@ fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGuard<'a, 
     condition
         .wait(guard)
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn evaluate_command_predicate(predicate: impl FnOnce() -> bool) -> bool {
+    catch_unwind(AssertUnwindSafe(predicate)).unwrap_or(false)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -1522,7 +1531,7 @@ impl RelayCommand {
 
     pub fn confirm<F>(self, confirm: F) -> ConfirmationDecoratorCommand<Self>
     where
-        F: Fn() -> bool + Send + Sync + 'static,
+        F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
     {
         ConfirmationDecoratorCommand::new(self, confirm)
     }
@@ -1552,7 +1561,12 @@ impl RelayCommand {
 
 impl Command for RelayCommand {
     fn can_execute(&self) -> bool {
-        !*lock(&self.disposed) && self.predicate.as_ref().map(|p| p()).unwrap_or(true)
+        !*lock(&self.disposed)
+            && self
+                .predicate
+                .as_ref()
+                .map(|predicate| evaluate_command_predicate(|| predicate()))
+                .unwrap_or(true)
     }
 
     fn execute(&self) {
@@ -1647,7 +1661,7 @@ impl<T: Clone + Send + 'static> CommandOf<T> for RelayCommandOf<T> {
             && self
                 .predicate
                 .as_ref()
-                .map(|p| p(parameter))
+                .map(|predicate| evaluate_command_predicate(|| predicate(parameter)))
                 .unwrap_or(true)
     }
 
@@ -1690,6 +1704,7 @@ pub struct AsyncRelayCommand {
     disposed: Arc<AtomicBool>,
     executing: Arc<AtomicBool>,
     active_token: Arc<Mutex<Option<CancellationToken>>>,
+    cancel_pending: Arc<AtomicBool>,
     can_execute_changed: MessageHub,
     errors: MessageHub,
     throw_on_cancel: bool,
@@ -1699,14 +1714,18 @@ pub struct AsyncRelayCommand {
 struct AsyncExecutionGuard {
     executing: Arc<AtomicBool>,
     active_token: Arc<Mutex<Option<CancellationToken>>>,
+    cancel_pending: Arc<AtomicBool>,
     can_execute_changed: MessageHub,
     disposed: Arc<AtomicBool>,
 }
 
 impl Drop for AsyncExecutionGuard {
     fn drop(&mut self) {
-        *lock(&self.active_token) = None;
+        let mut active_token = lock(&self.active_token);
         self.executing.store(false, Ordering::SeqCst);
+        *active_token = None;
+        self.cancel_pending.store(false, Ordering::SeqCst);
+        drop(active_token);
         if !self.disposed.load(Ordering::SeqCst) {
             self.can_execute_changed.send(Message::Custom {
                 sender_id: 0,
@@ -1740,6 +1759,7 @@ impl AsyncRelayCommand {
             disposed: Arc::new(AtomicBool::new(false)),
             executing: Arc::new(AtomicBool::new(false)),
             active_token: Arc::new(Mutex::new(None)),
+            cancel_pending: Arc::new(AtomicBool::new(false)),
             can_execute_changed: MessageHub::new(),
             errors: MessageHub::new(),
             throw_on_cancel,
@@ -1767,7 +1787,11 @@ impl AsyncRelayCommand {
     pub fn can_execute(&self) -> bool {
         !self.disposed.load(Ordering::SeqCst)
             && !self.executing.load(Ordering::SeqCst)
-            && self.predicate.as_ref().map(|p| p()).unwrap_or(true)
+            && self
+                .predicate
+                .as_ref()
+                .map(|predicate| evaluate_command_predicate(|| predicate()))
+                .unwrap_or(true)
     }
 
     pub fn execute(&self) {
@@ -1783,7 +1807,11 @@ impl AsyncRelayCommand {
         route_fire_and_forget_errors: bool,
     ) -> std::thread::JoinHandle<VmxResult<()>> {
         if self.disposed.load(Ordering::SeqCst)
-            || !self.predicate.as_ref().map(|p| p()).unwrap_or(true)
+            || !self
+                .predicate
+                .as_ref()
+                .map(|predicate| evaluate_command_predicate(|| predicate()))
+                .unwrap_or(true)
             || self
                 .executing
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -1796,7 +1824,13 @@ impl AsyncRelayCommand {
             return std::thread::spawn(|| Ok(()));
         }
         let token = CancellationToken::new();
-        *lock(&self.active_token) = Some(token.clone());
+        {
+            let mut active_token = lock(&self.active_token);
+            *active_token = Some(token.clone());
+            if self.cancel_pending.swap(false, Ordering::SeqCst) {
+                token.cancel();
+            }
+        }
         if self.disposed.load(Ordering::SeqCst) {
             token.cancel();
             *lock(&self.active_token) = None;
@@ -1811,6 +1845,7 @@ impl AsyncRelayCommand {
         let guard = AsyncExecutionGuard {
             executing: self.executing.clone(),
             active_token: self.active_token.clone(),
+            cancel_pending: self.cancel_pending.clone(),
             can_execute_changed: self.can_execute_changed.clone(),
             disposed: self.disposed.clone(),
         };
@@ -1846,8 +1881,17 @@ impl AsyncRelayCommand {
     }
 
     pub fn cancel(&self) {
-        if let Some(token) = lock(&self.active_token).as_ref() {
+        if !self.executing.load(Ordering::SeqCst) {
+            return;
+        }
+        let active_token = lock(&self.active_token);
+        if !self.executing.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(token) = active_token.as_ref() {
             token.cancel();
+        } else {
+            self.cancel_pending.store(true, Ordering::SeqCst);
         }
     }
 
@@ -2038,12 +2082,14 @@ impl CompositeCommand {
 
 impl Command for CompositeCommand {
     fn can_execute(&self) -> bool {
-        self.commands.iter().any(|command| command.can_execute())
+        self.commands
+            .iter()
+            .any(|command| evaluate_command_predicate(|| command.can_execute()))
     }
 
     fn execute(&self) {
         for command in &self.commands {
-            if command.can_execute() {
+            if evaluate_command_predicate(|| command.can_execute()) {
                 command.execute();
             }
         }
@@ -2085,7 +2131,12 @@ impl<C: Command + Clone> DecoratorCommand<C> {
 
 impl<C: Command + Clone> Command for DecoratorCommand<C> {
     fn can_execute(&self) -> bool {
-        self.inner.can_execute() && self.predicate.as_ref().map(|p| p()).unwrap_or(true)
+        evaluate_command_predicate(|| self.inner.can_execute())
+            && self
+                .predicate
+                .as_ref()
+                .map(|predicate| evaluate_command_predicate(|| predicate()))
+                .unwrap_or(true)
     }
 
     fn execute(&self) {
@@ -2109,14 +2160,14 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
 #[derive(Clone)]
 pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     inner: C,
-    confirm: Arc<dyn Fn() -> bool + Send + Sync>,
+    confirm: Arc<dyn Fn() -> AsyncValue<bool> + Send + Sync>,
     errors: MessageHub,
 }
 
-impl<C: Command + Clone> ConfirmationDecoratorCommand<C> {
+impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     pub fn new<F>(inner: C, confirm: F) -> Self
     where
-        F: Fn() -> bool + Send + Sync + 'static,
+        F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
     {
         Self {
             inner,
@@ -2128,22 +2179,46 @@ impl<C: Command + Clone> ConfirmationDecoratorCommand<C> {
     pub fn errors(&self) -> MessageHub {
         self.errors.clone()
     }
+
+    pub fn execute_async(&self) -> std::thread::JoinHandle<()> {
+        let decision = (self.confirm)();
+        let command = self.clone();
+        std::thread::spawn(move || {
+            if decision.wait() {
+                command.inner.execute();
+            }
+        })
+    }
+
+    fn execute_after(&self, confirmed: bool) {
+        if !confirmed {
+            return;
+        }
+        let result = catch_unwind(AssertUnwindSafe(|| self.inner.execute()));
+        if result.is_err() {
+            self.errors.send(Message::Custom {
+                sender_id: 0,
+                name: "error".to_string(),
+            });
+        }
+    }
 }
 
-impl<C: Command + Clone> Command for ConfirmationDecoratorCommand<C> {
+impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
     fn can_execute(&self) -> bool {
-        self.inner.can_execute()
+        evaluate_command_predicate(|| self.inner.can_execute())
     }
 
     fn execute(&self) {
-        if self.can_execute() && (self.confirm)() {
-            let result = catch_unwind(AssertUnwindSafe(|| self.inner.execute()));
-            if result.is_err() {
-                self.errors.send(Message::Custom {
-                    sender_id: 0,
-                    name: "error".to_string(),
-                });
-            }
+        if !self.can_execute() {
+            return;
+        }
+        let decision = (self.confirm)();
+        if let Some(confirmed) = decision.try_get() {
+            self.execute_after(confirmed);
+        } else {
+            let command = self.clone();
+            std::thread::spawn(move || command.execute_after(decision.wait()));
         }
     }
 
@@ -5112,13 +5187,20 @@ impl Notification {
 
 #[derive(Clone)]
 pub struct NotificationWaiter {
-    hub: NotificationHub,
-    notification_id: u64,
+    completion: AsyncValue<NotificationReaction>,
 }
 
 impl NotificationWaiter {
     pub fn wait(&self) -> NotificationReaction {
-        self.hub.reaction(self.notification_id)
+        self.completion.wait()
+    }
+}
+
+impl Future for NotificationWaiter {
+    type Output = NotificationReaction;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.completion).poll(context)
     }
 }
 
@@ -5126,6 +5208,7 @@ impl NotificationWaiter {
 pub struct NotificationHub {
     pending: Arc<Mutex<BTreeMap<u64, Notification>>>,
     reactions: Arc<Mutex<HashMap<u64, NotificationReaction>>>,
+    completions: Arc<Mutex<HashMap<u64, AsyncValue<NotificationReaction>>>>,
     pending_snapshots: Arc<Mutex<Vec<Vec<Notification>>>>,
     pending_changed: MessageHub,
     disposed: Arc<Mutex<bool>>,
@@ -5140,17 +5223,18 @@ impl NotificationHub {
         if *lock(&self.disposed) {
             lock(&self.reactions).insert(notification.id, NotificationReaction::Pending);
             return NotificationWaiter {
-                hub: self.clone(),
-                notification_id: notification.id,
+                completion: AsyncValue::ready(NotificationReaction::Pending),
             };
         }
+        if let Some(completion) = lock(&self.completions).get(&notification.id).cloned() {
+            return NotificationWaiter { completion };
+        }
+        let completion = AsyncValue::pending();
         lock(&self.pending).insert(notification.id, notification.clone());
         lock(&self.reactions).insert(notification.id, NotificationReaction::Pending);
+        lock(&self.completions).insert(notification.id, completion.clone());
         self.publish_pending();
-        NotificationWaiter {
-            hub: self.clone(),
-            notification_id: notification.id,
-        }
+        NotificationWaiter { completion }
     }
 
     pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> Notification {
@@ -5173,6 +5257,9 @@ impl NotificationHub {
         let removed = lock(&self.pending).remove(&notification_id).is_some();
         if removed {
             lock(&self.reactions).insert(notification_id, reaction);
+            if let Some(completion) = lock(&self.completions).remove(&notification_id) {
+                completion.resolve(reaction);
+            }
             self.publish_pending();
         }
     }
@@ -5212,6 +5299,9 @@ impl NotificationHub {
         let pending_ids = lock(&self.pending).keys().copied().collect::<Vec<_>>();
         for id in pending_ids {
             lock(&self.reactions).insert(id, NotificationReaction::Pending);
+            if let Some(completion) = lock(&self.completions).remove(&id) {
+                completion.resolve(NotificationReaction::Pending);
+            }
         }
         lock(&self.pending).clear();
         self.publish_pending();
@@ -5231,16 +5321,8 @@ pub struct NullNotificationHub;
 
 impl NullNotificationHub {
     pub fn post(_notification: Notification) -> NotificationWaiter {
-        let hub = NotificationHub::new();
-        let notification = Notification {
-            id: 0,
-            kind: NotificationType::Notification,
-            message: String::new(),
-        };
-        lock(&hub.reactions).insert(notification.id, NotificationReaction::Approve);
         NotificationWaiter {
-            hub,
-            notification_id: notification.id,
+            completion: AsyncValue::ready(NotificationReaction::Approve),
         }
     }
 
@@ -5250,15 +5332,28 @@ impl NullNotificationHub {
             kind: NotificationType::Notification,
             message: message.into(),
         };
-        let hub = NotificationHub::new();
-        lock(&hub.reactions).insert(notification.id, NotificationReaction::Approve);
         (
             notification,
             NotificationWaiter {
-                hub,
-                notification_id: 0,
+                completion: AsyncValue::ready(NotificationReaction::Approve),
             },
         )
+    }
+}
+
+pub fn make_confirm(
+    hub: NotificationHub,
+    prompt: impl Into<String>,
+) -> impl Fn() -> AsyncValue<bool> + Clone {
+    let prompt = Arc::new(prompt.into());
+    move || {
+        let (_, waiter) = hub.post_with_waiter(NotificationType::Confirmation, (*prompt).clone());
+        let decision = AsyncValue::pending();
+        let resolved = decision.clone();
+        std::thread::spawn(move || {
+            resolved.resolve(waiter.wait() == NotificationReaction::Approve);
+        });
+        decision
     }
 }
 
@@ -5290,15 +5385,24 @@ pub enum NotificationSeverity {
 }
 
 pub trait DialogService: Send + Sync {
-    fn pick_file_to_open(&self, filter: Option<FileFilter>, title: Option<&str>) -> Option<String>;
+    fn pick_file_to_open(
+        &self,
+        filter: Option<FileFilter>,
+        title: Option<&str>,
+    ) -> AsyncValue<Option<String>>;
     fn pick_file_to_save(
         &self,
         filter: Option<FileFilter>,
         title: Option<&str>,
         suggested_name: Option<&str>,
-    ) -> Option<String>;
-    fn confirm(&self, message: &str, title: Option<&str>) -> bool;
-    fn notify(&self, message: &str, title: Option<&str>, severity: NotificationSeverity);
+    ) -> AsyncValue<Option<String>>;
+    fn confirm(&self, message: &str, title: Option<&str>) -> AsyncValue<bool>;
+    fn notify(
+        &self,
+        message: &str,
+        title: Option<&str>,
+        severity: NotificationSeverity,
+    ) -> AsyncValue<()>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -5309,8 +5413,8 @@ impl DialogService for NullDialogService {
         &self,
         _filter: Option<FileFilter>,
         _title: Option<&str>,
-    ) -> Option<String> {
-        None
+    ) -> AsyncValue<Option<String>> {
+        AsyncValue::ready(None)
     }
 
     fn pick_file_to_save(
@@ -5318,19 +5422,26 @@ impl DialogService for NullDialogService {
         _filter: Option<FileFilter>,
         _title: Option<&str>,
         _suggested_name: Option<&str>,
-    ) -> Option<String> {
-        None
+    ) -> AsyncValue<Option<String>> {
+        AsyncValue::ready(None)
     }
 
-    fn confirm(&self, _message: &str, _title: Option<&str>) -> bool {
-        false
+    fn confirm(&self, _message: &str, _title: Option<&str>) -> AsyncValue<bool> {
+        AsyncValue::ready(false)
     }
 
-    fn notify(&self, _message: &str, _title: Option<&str>, _severity: NotificationSeverity) {}
+    fn notify(
+        &self,
+        _message: &str,
+        _title: Option<&str>,
+        _severity: NotificationSeverity,
+    ) -> AsyncValue<()> {
+        AsyncValue::ready(())
+    }
 }
 
 impl NullDialogService {
-    pub fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> T {
+    pub fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> AsyncValue<T> {
         modal.dispose();
         modal.completion()
     }
@@ -5975,16 +6086,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
-        self.ensure_not_reparenting_cycle(&child)?;
-        child.set_parent(Some(self.clone()));
-        let mut children = lock(&self.children);
-        children.get_or_insert_with(Vec::new).push(child);
-        drop(children);
-        self.hub
-            .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
-                sender_id: self.id(),
-            }));
-        Ok(())
+        self.attach_child(&child)
     }
 
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
@@ -6006,14 +6108,35 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
+        self.attach_child(child)
+    }
+
+    fn attach_child(&self, child: &Self) -> VmxResult<()> {
         self.ensure_not_reparenting_cycle(child)?;
-        if let Some(parent) = child.parent() {
-            parent.remove_child(child)?;
+        if child.parent().as_ref() == Some(self) {
+            return Ok(());
         }
-        child.set_parent(Some(self.clone()));
+
+        // Materialize the destination before detaching so a child factory
+        // failure cannot orphan an attached child.
+        self.children();
+        let old_parent = child.parent();
+        let old_index = old_parent.as_ref().and_then(|parent| {
+            parent.children();
+            lock(&parent.children)
+                .as_ref()
+                .and_then(|children| children.iter().position(|candidate| candidate == child))
+        });
+        if let (Some(parent), Some(index)) = (old_parent.as_ref(), old_index) {
+            lock(&parent.children)
+                .as_mut()
+                .expect("children materialized")
+                .remove(index);
+        }
         lock(&self.children)
             .get_or_insert_with(Vec::new)
             .push(child.clone());
+        child.set_parent(Some(self.clone()));
         self.hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
@@ -7448,6 +7571,10 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.items()
     }
 
+    pub fn get(&self, index: usize) -> Option<T> {
+        self.inner.get(index)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -7460,12 +7587,36 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.add(item)
     }
 
+    pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
+        self.inner.insert(index, item)
+    }
+
     pub fn remove(&self, item: &T) -> VmxResult<()> {
         self.inner.remove(item)
     }
 
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        self.inner.remove_at(index)
+    }
+
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        self.inner.replace(index, item)
+    }
+
+    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        self.inner.move_item(from_index, to_index)
+    }
+
+    pub fn clear(&self) {
+        self.inner.clear();
+    }
+
     pub fn current(&self) -> Option<T> {
         self.inner.current()
+    }
+
+    pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        self.inner.set_current(item)
     }
 
     pub fn select_component(&self, item: &T) -> VmxResult<()> {
@@ -7474,6 +7625,17 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
 
     pub fn deselect_component(&self, item: &T) -> VmxResult<()> {
         self.inner.deselect_component(item)
+    }
+
+    pub fn can_select_component(&self, item: &T) -> bool {
+        self.inner.can_select_component(item)
+    }
+
+    pub fn batch_update<F>(&self, action: F)
+    where
+        F: FnOnce(),
+    {
+        self.inner.batch_update(action);
     }
 
     pub fn construct(&self) -> VmxResult<()> {
@@ -7788,6 +7950,7 @@ pub struct ModalVm<T: Clone + Send + 'static> {
     cancellation_result: T,
     result: Arc<Mutex<Option<T>>>,
     dismissed: Arc<Mutex<bool>>,
+    completion: AsyncValue<T>,
 }
 
 impl<T: Clone + Send + 'static> ModalVm<T> {
@@ -7796,6 +7959,7 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
             cancellation_result,
             result: Arc::new(Mutex::new(None)),
             dismissed: Arc::new(Mutex::new(false)),
+            completion: AsyncValue::pending(),
         }
     }
 
@@ -7830,7 +7994,8 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
             }
         };
         if should_set {
-            *lock(&self.result) = Some(result);
+            *lock(&self.result) = Some(result.clone());
+            self.completion.resolve(result);
         }
     }
 
@@ -7838,10 +8003,8 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
         self.dismiss(self.cancellation_result.clone());
     }
 
-    pub fn completion(&self) -> T {
-        lock(&self.result)
-            .clone()
-            .unwrap_or_else(|| self.cancellation_result.clone())
+    pub fn completion(&self) -> AsyncValue<T> {
+        self.completion.clone()
     }
 }
 

@@ -281,19 +281,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """
         if child is None:
             raise ValueError("child must not be None")
-        self._ensure_children_materialized()
-        index = len(self._children_list)  # type: ignore[arg-type]
-        self._children_list.append(child)  # type: ignore[union-attr]
-        child._set_hierarchical_parent(self)
-        self._hub.send(
-            TreeStructureChangedMessage(
-                sender=self,
-                sender_name=self._name,
-                change=TreeStructureChange.ADDED,
-                affected=child,
-                index=index,
-            )
-        )
+        self._attach_child(child, explicit_reparent=False)
 
     def remove_child(self, child: TVM) -> None:
         """Remove *child* from this node's children and publish
@@ -330,6 +318,9 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """
         if child is None:
             raise ValueError("child must not be None")
+        self._attach_child(child, explicit_reparent=True)
+
+    def _attach_child(self, child: TVM, *, explicit_reparent: bool) -> None:
         if child._hierarchical_parent is self:
             return  # already our child — no-op
 
@@ -341,29 +332,48 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 "it is this node or one of its ancestors (HIER-018)."
             )
 
-        # Detach from old parent silently. Detach by identity (not value
-        # equality) to match the HIER-018 cycle check and the TS flavor: a TVM
-        # overriding __eq__ must not cause the wrong sibling to be removed.
+        # Materialize before mutation so factory failure cannot leave a child
+        # detached from its original parent.
+        self._ensure_children_materialized()
         old_parent = child._hierarchical_parent
+        old_index = -1
         if old_parent is not None:
             old_parent._ensure_children_materialized()
             assert old_parent._children_list is not None
             for i, sibling in enumerate(old_parent._children_list):
                 if sibling is child:
-                    del old_parent._children_list[i]
+                    old_index = i
                     break
 
-        # Attach to new parent.
-        self._ensure_children_materialized()
-        self._children_list.append(child)  # type: ignore[union-attr]
-        child._set_hierarchical_parent(self)
+        assert self._children_list is not None
+        new_index = len(self._children_list)
+        if old_index >= 0:
+            assert old_parent is not None and old_parent._children_list is not None
+            del old_parent._children_list[old_index]
+        try:
+            self._children_list.append(child)
+            child._set_hierarchical_parent(self)
+        except BaseException:
+            self._children_list[:] = [
+                candidate for candidate in self._children_list if candidate is not child
+            ]
+            if old_index >= 0:
+                assert old_parent is not None and old_parent._children_list is not None
+                old_parent._children_list.insert(old_index, child)
+            if child._hierarchical_parent is not old_parent:
+                child._set_hierarchical_parent(old_parent)
+            raise
+
+        reparented = explicit_reparent or old_parent is not None
         self._hub.send(
             TreeStructureChangedMessage(
                 sender=self,
                 sender_name=self._name,
-                change=TreeStructureChange.REPARENTED,
+                change=(
+                    TreeStructureChange.REPARENTED if reparented else TreeStructureChange.ADDED
+                ),
                 affected=child,
-                index=-1,
+                index=-1 if reparented else new_index,
             )
         )
 

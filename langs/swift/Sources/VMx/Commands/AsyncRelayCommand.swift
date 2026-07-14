@@ -121,8 +121,12 @@ public final class AsyncRelayCommand: AsyncCommand {
         let bodyTask = Task { [body] in
             try await body?()
         }
-        stateQueue.sync {
+        let cancelDuringAdmission = stateQueue.sync { () -> Bool in
             cancelHandle = { bodyTask.cancel() }
+            return cancelRequested
+        }
+        if cancelDuringAdmission {
+            bodyTask.cancel()
         }
 
         defer {

@@ -17,9 +17,16 @@ import Combine
 
 private actor CancellationObservation {
     private(set) var bodyWasCancelled = false
+    private(set) var missedCancellations = 0
 
     func recordBodyCancellation() {
         bodyWasCancelled = Task.isCancelled
+    }
+
+    func recordAdmissionCancellation() {
+        if !Task.isCancelled {
+            missedCancellations += 1
+        }
     }
 }
 
@@ -130,6 +137,33 @@ final class AsyncRelayCommandTests: XCTestCase {
         XCTAssertTrue(cmd.canExecute(),
                       "canExecute must be true again after cancel (predicate nil → true)")
         cmd.dispose()
+    }
+
+    /// CMD-012 — a cancellation request made immediately after admission must
+    /// reach the body even if its Task cancellation handle is still being installed.
+    func testCmd012ImmediateCancelDuringAdmissionIsNeverLost() async {
+        let observation = CancellationObservation()
+
+        for _ in 0..<2_000 {
+            let cmd = AsyncRelayCommand.builder()
+                .task {
+                    let deadline = ContinuousClock.now + .milliseconds(10)
+                    while !Task.isCancelled && ContinuousClock.now < deadline {
+                        await Task.yield()
+                    }
+                    await observation.recordAdmissionCancellation()
+                }
+                .build()
+            let run = Task<Void, Error> { try await cmd.executeAsync() }
+            while !cmd.isExecuting {
+                await Task.yield()
+            }
+            cmd.cancel()
+            _ = try? await run.value
+            cmd.dispose()
+        }
+
+        XCTAssertEqual(await observation.missedCancellations, 0)
     }
 
     /// CMD-012 — `throwOnCancel()` mode: `cancel()` surfaces `CancellationError`

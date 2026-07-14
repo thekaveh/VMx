@@ -165,3 +165,23 @@ def test_UTIL_003_find_returns_first_match_and_short_circuits() -> None:
     result = find(root, predicate)
     assert result is b1
     assert visited == ["root", "a", "b", "b1"]
+
+
+def test_walk_propagates_type_error_raised_while_advancing_iterator() -> None:
+    h = _hub()
+    d = _dispatcher()
+    child = _leaf("child", h, d)
+
+    class _FailingIterable(_ComponentVMBase):
+        @property
+        def type(self) -> ViewModelType:
+            return ViewModelType.COMPOSITE
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            yield child
+            raise TypeError("iterator body failed")
+
+    root = _FailingIterable(name="root", hint="", hub=h, dispatcher=d)
+
+    with pytest.raises(TypeError, match="iterator body failed"):
+        list(walk(root))

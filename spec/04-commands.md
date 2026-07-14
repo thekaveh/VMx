@@ -260,7 +260,8 @@ dedicated error observable rather than discarding it.
 
 > **Cross-flavor parity (ADR-0006/ADR-0049).** The `errors` channel is normative
 > in every flavor that ships `ConfirmationDecoratorCommand` (C#, Python,
-> TypeScript, Swift). The decorator's `errors` channel is exercised by
+> TypeScript, Swift, Rust). Rust uses `AsyncValue<bool>` for the confirmation
+> awaitable and its VMx-owned hot-stream facade for errors. The decorator's `errors` channel is exercised by
 > `CMDD-010`.
 
 ## 9. Fluent composition (spec v2.1)

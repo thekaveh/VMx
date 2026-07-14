@@ -265,18 +265,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///
     /// 1. `PropertyChangedMessage("parent")` with `sender == child` (HIER-010).
     /// 2. `TreeStructureChangedMessage(.added, …)` (HIER-011).
-    public func addChild(_ child: TVM) {
-        if _children == nil { _ = children } // materialize
-        let index = _children!.count
-        _children!.append(child)
-        setHierarchicalParent(of: child, to: selfNode) // → PropertyChangedMessage
-        hub.send(TreeStructureChangedMessage(
-            sender: selfNode,
-            senderName: name,
-            change: .added,
-            affected: node(child),
-            index: index
-        ))
+    @discardableResult
+    public func addChild(_ child: TVM) -> Result<Void, HierarchyError> {
+        attachChild(child, explicitReparent: false)
     }
 
     /// Removes `child` from this node's children list, clears its parent, invalidates
@@ -301,28 +292,51 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018). On
     ///   rejection the tree is completely unchanged and no message is published.
     public func reparentChild(_ child: TVM) throws {
+        switch attachChild(child, explicitReparent: true) {
+        case .success:
+            return
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    private func attachChild(
+        _ child: TVM,
+        explicitReparent: Bool
+    ) -> Result<Void, HierarchyError> {
         // Already our child → no-op (parity with C#/Python/TS): re-appending would
         // reorder the sibling list and emit a spurious `.reparented` message.
-        if node(child).parent === selfNode { return }
+        if node(child).parent === selfNode { return .success(()) }
         // HIER-018: child is self or one of self's ancestors → cycle.
         if path.contains(where: { $0 === child }) {
-            throw HierarchyError.invalidReparent
+            return .failure(.invalidReparent)
         }
-        // Detach from old parent silently (no PropertyChangedMessage yet).
-        if let oldParent = node(child).parent {
-            node(oldParent)._children?.removeAll(where: { $0 === child })
+
+        // Materialize both lists before mutation so a factory failure cannot
+        // leave the child detached from its original parent.
+        if _children == nil { _ = children }
+        let oldParent = node(child).parent
+        if let oldParent, node(oldParent)._children == nil {
+            _ = node(oldParent).children
         }
-        // Attach to this node.
-        if _children == nil { _ = children } // materialize
+        let oldIndex = oldParent.flatMap { parent in
+            node(parent)._children?.firstIndex(where: { $0 === child })
+        }
+        let newIndex = _children!.count
+        if let oldParent, let oldIndex {
+            node(oldParent)._children!.remove(at: oldIndex)
+        }
         _children!.append(child)
         setHierarchicalParent(of: child, to: selfNode) // → PropertyChangedMessage
+        let reparented = explicitReparent || oldParent != nil
         hub.send(TreeStructureChangedMessage(
             sender: selfNode,
             senderName: name,
-            change: .reparented,
+            change: reparented ? .reparented : .added,
             affected: node(child),
-            index: -1
+            index: reparented ? -1 : newIndex
         ))
+        return .success(())
     }
 
     /// Number of missing-parent items retained on the structural root.

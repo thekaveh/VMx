@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from vmx.hierarchical import HierarchicalVM
-from vmx.messages import TreeStructureChangedMessage
+from vmx.messages import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
@@ -60,9 +60,22 @@ def test_HIER_018_reparent_rejects_self_and_ancestor() -> None:
     with pytest.raises(ValueError, match="HIER-018"):
         leaf.reparent_child(root)
 
+    with pytest.raises(ValueError, match="HIER-018"):
+        leaf.add_child(leaf)
+    with pytest.raises(ValueError, match="HIER-018"):
+        leaf.add_child(root)
+
     # Tree structure unchanged; no message published.
     assert root.parent is None
     assert mid.parent is root
     assert leaf.parent is mid
     assert leaf.depth == 2
     assert messages == []
+
+    new_parent = _Node(hub=hub, name="new-parent")
+    new_parent.add_child(leaf)
+    assert list(mid.children) == []
+    assert list(new_parent.children) == [leaf]
+    assert leaf.parent is new_parent
+    assert len(messages) == 1
+    assert messages[0].change is TreeStructureChange.REPARENTED

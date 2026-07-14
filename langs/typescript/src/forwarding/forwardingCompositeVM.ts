@@ -6,7 +6,7 @@
  *
  * See spec/09-forwarding.md §ForwardingCompositeVM.
  */
-import type { Observable } from "rxjs";
+import type { Observable, Subscription } from "rxjs";
 import type { ConstructionStatus } from "../lifecycle/status.js";
 import type { ViewModelType } from "../components/types.js";
 import type { ICommand } from "../commands/types.js";
@@ -14,6 +14,7 @@ import type { CompositeVMBase } from "../composites/compositeVMBase.js";
 import type { ComponentVMBase } from "../components/componentVMBase.js";
 import type { CollectionChangedEvent } from "../collections/collectionChangedEvent.js";
 import type { BatchUpdateHandle } from "../collections/batchUpdateHandle.js";
+import type { IMessageHub } from "../services/messageHub.js";
 
 export class ForwardingCompositeVM<VM extends ComponentVMBase> {
   protected readonly _wrapped: CompositeVMBase<VM>;
@@ -28,6 +29,7 @@ export class ForwardingCompositeVM<VM extends ComponentVMBase> {
   get isCurrent(): boolean { return this._wrapped.isCurrent; }
   get isConstructed(): boolean { return this._wrapped.isConstructed; }
   get status(): ConstructionStatus { return this._wrapped.status; }
+  get hub(): IMessageHub { return this._wrapped.hub; }
   get propertyChanged(): Observable<string> { return this._wrapped.propertyChanged; }
   get selectCommand(): ICommand { return this._wrapped.selectCommand; }
   get deselectCommand(): ICommand { return this._wrapped.deselectCommand; }
@@ -47,6 +49,11 @@ export class ForwardingCompositeVM<VM extends ComponentVMBase> {
   canDeselect(): boolean { return this._wrapped.canDeselect(); }
   deselect(): void { this._wrapped.deselect(); }
 
+  get supportsChildSelection(): boolean { return this._wrapped.supportsChildSelection; }
+  get currentChild(): ComponentVMBase | null { return this._wrapped.currentChild; }
+  selectChild(vm: ComponentVMBase): void { this._wrapped.selectChild(vm); }
+  deselectChild(vm: ComponentVMBase): void { this._wrapped.deselectChild(vm); }
+
   get current(): VM | null { return this._wrapped.current; }
   set current(value: VM | null) { this._wrapped.current = value; }
 
@@ -59,6 +66,11 @@ export class ForwardingCompositeVM<VM extends ComponentVMBase> {
 
   [Symbol.iterator](): Iterator<VM> { return this._wrapped[Symbol.iterator](); }
 
+  snapshot(): readonly VM[] { return this._wrapped.snapshot(); }
+  subscribeMembership(callback: () => void): Subscription {
+    return this._wrapped.subscribeMembership(callback);
+  }
+
   at(index: number): VM { return this._wrapped.at(index); }
 
   add(item: VM): void { this._wrapped.add(item); }
@@ -67,5 +79,6 @@ export class ForwardingCompositeVM<VM extends ComponentVMBase> {
   remove(item: VM): boolean { return this._wrapped.remove(item); }
   removeAt(index: number): void { this._wrapped.removeAt(index); }
   clear(): void { this._wrapped.clear(); }
+  move(fromIndex: number, toIndex: number): void { this._wrapped.move(fromIndex, toIndex); }
   batchUpdate(): BatchUpdateHandle { return this._wrapped.batchUpdate(); }
 }

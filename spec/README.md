@@ -557,9 +557,9 @@ conformance ID; the supporting schema versions independently.
 
 ### 1.30 Supporting artefacts
 
-- `VERSION` — current spec SemVer (`3.20.0`).
+- `VERSION` — current spec SemVer (`3.20.1`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0102); see
+- `ADRs/` — Architecture Decision Records (0001-0106); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

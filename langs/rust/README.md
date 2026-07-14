@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.21.0** implements `spec-v3.20.0` at full source parity: all 391 library
+**v0.22.0** implements `spec-v3.20.1` at full source parity: all 391 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -19,6 +19,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   invalidation without predicate polling;
 - async relay commands provide an immutable builder, cooperative cancellation,
   additive triggers, an awaitable join handle, and fire-and-forget error routing;
+- `AsyncValue<T>` gives dialogs, notification waiters, modal completion, and
+  confirmation gates an executor-neutral `Future` plus synchronous `wait()`;
 - `FormVm::builder().reset_on_approved(...)` derives a pristine model after a
   successful persist without exposing a mutable form to the persister;
 - `FormVm::set_model(...)` publishes one model hub message only after validation
@@ -45,7 +47,7 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   imperative hosts and returns a host-owned `Subscription`;
 - UI integrations should live in examples or adapter crates, not in the core crate.
 
-## Commands
+## 1. Commands
 
 ```bash
 cargo test --manifest-path langs/rust/Cargo.toml
@@ -53,7 +55,7 @@ cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
 cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 ```
 
-## Minimal Example
+## 2. Minimal Example
 
 ```rust
 use vmx::{ComponentVm, MessageHub, NullDispatcher, VmxResult};
@@ -70,7 +72,7 @@ fn main() -> VmxResult<()> {
 }
 ```
 
-## Serviced Collections
+## 3. Serviced Collections
 
 Rust keeps `ServicedObservableCollection<T>` distinct from
 `ObservableList<T>`: the serviced type owns an always-present local
@@ -119,7 +121,7 @@ replacement or remove-then-push. Failures are atomic; lookup/target discovery
 are expected O(1), while ordered middle shifts remain O(n). The type never
 batches or owns stored-item lifecycle.
 
-## Imperative Engine Bridge
+## 4. Imperative Engine Bridge
 
 Rust identifies the fixed source as `hub + sender_id`. Use
 `SubscribeValueOptions::default()` for `PartialEq` equality or

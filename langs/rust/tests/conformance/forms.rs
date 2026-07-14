@@ -255,7 +255,7 @@ fn repeated_form_and_modal_dispose_preserve_one_terminal_result() {
     modal.dismiss("first");
     modal.dispose();
     modal.dispose();
-    assert_eq!(modal.completion(), "first");
+    assert_eq!(modal.completion().wait(), "first");
 }
 
 /// FORM-015 — ApproveCommand surfaces persister failure on ApproveErrors

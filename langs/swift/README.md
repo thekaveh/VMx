@@ -5,8 +5,8 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.20.0 — total parity.** Covers **all 391 of 391** library conformance IDs
-from `spec-v3.20.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+**v3.20.1 source — total parity.** Covers **all 391 of 391** library conformance IDs
+from `spec-v3.20.1` plus the 5 `THEME-00x` scenario IDs exercised by the
 `examples/swift/notes-showcase/` flagship app (ADR-0067) = **396 total**, at
 full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
@@ -480,7 +480,7 @@ ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 391 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (396) with C#, Python, TypeScript, and Rust.**
+**All 391 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (396) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
 
 Run the suite:
 

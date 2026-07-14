@@ -45,6 +45,10 @@ Important runtime rules from the spec:
 Thread-safe hubs atomically claim teardown, so racing callers still complete
 and clear owned state once. See the [Disposal Contract](disposal-contract.md).
 
+Rust dialog, modal, notification-waiter, and confirmation-gate awaitables use
+`AsyncValue<T>`. The handle implements `Future` for async hosts and `wait()` for
+synchronous hosts, keeping the core independent of Tokio or another executor.
+
 ## 6.6.4. Cross-Language Surface
 
 | Service            | Purpose                                              |

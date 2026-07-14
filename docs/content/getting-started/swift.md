@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift flavor is at full parity as of v3.20.0: 391/391 library
+> The Swift flavor is at full parity on the v3.20.1 source line: 391/391 library
 > conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
 > Notes Workspace flagship. See
 > [`langs/swift/README.md` §5](../../langs/swift/README.md) for the current
@@ -17,7 +17,8 @@ ______________________________________________________________________
 
 ## 3.5.1. Install
 
-VMx Swift 3.20.0 is publicly installable from the repository root. SwiftPM
+VMx Swift 3.20.1 is the current source line. VMx Swift 3.20.0 is publicly
+installable from the repository root. SwiftPM
 resolves the immutable semantic tag `v3.20.0`; `swift-v3.20.0` is the matching
 operational tag and GitHub Release.
 
@@ -65,7 +66,7 @@ ______________________________________________________________________
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### 3.5.2.1. 2.1 Option A — immediate (test suites / synchronous scripts)
+### 3.5.2.1. Option A — immediate (test suites / synchronous scripts)
 
 ```swift
 import VMx
@@ -76,7 +77,7 @@ let dispatcher = ImmediateDispatcher.INSTANCE
 // Safe for XCTest suites with no async event loop.
 ```
 
-### 3.5.2.2. 2.2 Option B — default (SwiftUI / UIKit / AppKit apps)
+### 3.5.2.2. Option B — default (SwiftUI / UIKit / AppKit apps)
 
 ```swift
 import VMx

@@ -6,10 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.20.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
 ### Fixed
 
 - `AsyncRelayCommand` now links parent-task cancellation into its execution
   token so structured-concurrency cancellation reaches the command body.
+- `AsyncRelayCommand.cancel()` can no longer lose a request made while the body
+  task's cancellation handle is being installed.
+- `HierarchicalVM.addChild` returns an ignorable `Result`, rejects cycles, and
+  atomically transfers attached children (HIER-018, ADR-0105).
 
 ## [3.20.0] — 2026-07-12
 

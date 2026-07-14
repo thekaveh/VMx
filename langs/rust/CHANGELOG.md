@@ -4,6 +4,30 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
+### Added
+
+- `AsyncValue<T>` provides executor-neutral `Future` and blocking completion
+  for dialog, notification, modal, and confirmation flows (ADR-0106).
+- `make_confirm` adapts the notification hub to an async confirmation gate.
+
+### Changed
+
+- `DialogService`, `ModalVm::completion`, `NotificationWaiter`, and
+  `ConfirmationDecoratorCommand` now model genuinely pending interactions.
+- `ForwardingCompositeVm` delegates the complete collection and selection
+  surface.
+
+### Fixed
+
+- Async-command cancellation cannot be lost during token admission.
+- Command predicate panics map to `false` instead of unwinding through callers.
+- Hierarchy attachment rejects cycles and transfers attached children without
+  duplicating them across parents (HIER-018, ADR-0105).
+
 ## [0.21.0] — 2026-07-13
 
 Implements `spec-v3.20.0` and keeps Rust at full library parity: 391/391

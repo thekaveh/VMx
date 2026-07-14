@@ -6,10 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.21.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
 ### Fixed
 
 - `AsyncRelayCommand.executeAsync` now detaches an external `AbortSignal`
   listener after success, fault, or disposal-driven cancellation.
+- `HierarchicalVM.addChild` rejects cycles and atomically transfers an attached
+  child (HIER-018, ADR-0105).
+- `ForwardingCompositeVM` delegates hub, parent selection, snapshots,
+  membership subscriptions, and moves in addition to the existing surface.
 
 ## [3.21.0] — 2026-07-12
 

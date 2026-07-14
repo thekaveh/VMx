@@ -12,7 +12,7 @@ ______________________________________________________________________
 
 ## 3.2.1. Install
 
-The source tree currently implements v3.20.0. The NuGet package is not published
+The source tree currently implements v3.20.1. The NuGet package is not published
 yet; use the package command after a `csharp-v*` release publishes it.
 
 ```bash
@@ -35,7 +35,7 @@ ______________________________________________________________________
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your UI thread.
 
-### 3.2.2.1. 2.1 Option A — manual construction (console / tests)
+### 3.2.2.1. Option A — manual construction (console / tests)
 
 ```csharp
 using VMx.Services;
@@ -47,7 +47,7 @@ IDispatcher dispatcher = RxDispatcher.Immediate();
 IMessageHub hub = new MessageHub();
 ```
 
-### 3.2.2.2. 2.2 Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
+### 3.2.2.2. Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
 
 Add the optional DI package:
 
