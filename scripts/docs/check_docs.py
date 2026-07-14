@@ -10,6 +10,8 @@ from scripts.docs.links import find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
+ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
+NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*\.)\s+")
 
 
 @dataclass(frozen=True)
@@ -32,12 +34,16 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
             text = path.read_text(encoding="utf-8")
             for link in find_links(text):
                 if is_forbidden(link.target, surface):
-                    findings.append(Finding("error", f"{path}: forbidden {surface} link {link.target}"))
+                    findings.append(
+                        Finding("error", f"{path}: forbidden {surface} link {link.target}")
+                    )
     readme = repo_root / "README.md"
     if readme.exists():
         for link in find_links(readme.read_text(encoding="utf-8")):
             if is_forbidden(link.target, "repo"):
-                findings.append(Finding("error", f"README.md: forbidden repo-surface link {link.target}"))
+                findings.append(
+                    Finding("error", f"README.md: forbidden repo-surface link {link.target}")
+                )
     return findings
 
 
@@ -50,7 +56,10 @@ def check_completeness(repo_root: Path) -> list[Finding]:
         if "stylesheets" not in path.parts
     }
     missing = sorted(content_sources - manifest_sources)
-    return [Finding("error", f"{path}: content file is not listed in docs/manifest.yaml") for path in missing]
+    return [
+        Finding("error", f"{path}: content file is not listed in docs/manifest.yaml")
+        for path in missing
+    ]
 
 
 def check_heading_numbers(repo_root: Path) -> list[Finding]:
@@ -59,21 +68,82 @@ def check_heading_numbers(repo_root: Path) -> list[Finding]:
     for section in manifest.pages():
         assert section.source is not None
         path = repo_root / section.source
-        first_line = path.read_text(encoding="utf-8").splitlines()[0].strip()
+        text = path.read_text(encoding="utf-8")
+        first_line = text.splitlines()[0].strip()
         expected = f"# {section.label}"
         if first_line != expected:
-            findings.append(Finding("error", f"{section.source}: expected H1 {expected!r}, found {first_line!r}"))
+            findings.append(
+                Finding(
+                    "error",
+                    f"{section.source}: expected H1 {expected!r}, found {first_line!r}",
+                )
+            )
+        findings.extend(_check_descendant_heading_numbers(text, section.number, section.source))
+    return findings
+
+
+def _check_descendant_heading_numbers(markdown: str, page_number: str, path: Path) -> list[Finding]:
+    """Validate baked H2-H6 numbering while ignoring fenced examples."""
+    findings: list[Finding] = []
+    counters = [0, 0, 0, 0, 0]
+    fence: str | None = None
+
+    for line_number, line in enumerate(markdown.splitlines(), start=1):
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            marker = stripped[:3]
+            fence = None if fence == marker else marker if fence is None else fence
+            continue
+        if fence is not None:
+            continue
+
+        match = ATX_HEADING_RE.match(line)
+        if match is None:
+            continue
+        level = len(match.group(1))
+        depth = level - 2
+        if depth > 0 and counters[depth - 1] == 0:
+            findings.append(
+                Finding(
+                    "error",
+                    f"{path}:{line_number}: H{level} skips its H{level - 1} parent",
+                )
+            )
+            continue
+
+        counters[depth] += 1
+        for index in range(depth + 1, len(counters)):
+            counters[index] = 0
+        expected_number = (
+            f"{page_number}." + ".".join(str(value) for value in counters[: depth + 1]) + "."
+        )
+        title = match.group(2)
+        actual = NUMBER_PREFIX_RE.match(title)
+        if actual is None or actual.group(1) != expected_number:
+            findings.append(
+                Finding(
+                    "error",
+                    f"{path}:{line_number}: expected heading number {expected_number!r}",
+                )
+            )
+
     return findings
 
 
 def check_placeholders(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    for root in (repo_root / "docs/content", repo_root / "generated/site", repo_root / "generated/wiki"):
+    for root in (
+        repo_root / "docs/content",
+        repo_root / "generated/site",
+        repo_root / "generated/wiki",
+    ):
         for path in _scan_markdown(root):
             text = path.read_text(encoding="utf-8")
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if PLACEHOLDER_RE.search(line):
-                    findings.append(Finding("error", f"{path}:{line_number}: placeholder text leaked"))
+                    findings.append(
+                        Finding("error", f"{path}:{line_number}: placeholder text leaked")
+                    )
     return findings
 
 

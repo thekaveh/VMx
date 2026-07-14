@@ -3,7 +3,7 @@
 This page is the short routing layer for contributors. The operational source of
 truth remains the repository docs.
 
-## Start With
+## 11.1. Start With
 
 - Contributing guide:
   [CONTRIBUTING.md](../../CONTRIBUTING.md)
@@ -12,14 +12,16 @@ truth remains the repository docs.
 - Compatibility matrix:
   [compatibility-matrix.md](../../compatibility-matrix.md)
 
-## Contribution Flow
+## 11.2. Contribution Flow
 
 - Open an issue for non-trivial work.
-- Branch from `main` and run the relevant flavor checks locally.
+- Branch from `develop`, open the feature PR to `develop`, and run the relevant
+  flavor checks locally.
+- Promote `develop` to protected `main` only through a separate maintainer PR.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 
-## Validation Entry Points
+## 11.3. Validation Entry Points
 
 The main local check families are:
 
@@ -35,7 +37,7 @@ Use the canonical command list in
 [CONTRIBUTING.md](../../CONTRIBUTING.md)
 instead of copying commands from this page into long-lived process docs.
 
-## Spec Discipline
+## 11.4. Spec Discipline
 
 Two repo rules matter most:
 
@@ -46,16 +48,13 @@ Two repo rules matter most:
 Those rules are enforced in CI and described in the contributing guide and
 repository automation.
 
-## Release Shape
+## 11.5. Release Shape
 
-Releases are coordinated through three tag families on the same commit:
-
-- repo-wide: `vX.Y.Z`
-- per-language: `<lang>-vX.Y.Z`
-- spec: `spec-vX.Y.Z`
-
-Companion packages version independently and are tracked in the compatibility
-matrix rather than through their own tag family.
+Flavor packages version independently and release from verified `main` commits
+through `<lang>-vX.Y.Z` operational tags. The spec uses `spec-vX.Y.Z`; Swift
+also pairs its operational tag with the semantic `vX.Y.Z` tag required by
+SwiftPM. Registry-backed channels are protected by environment approval, OIDC,
+public-artifact checks, and fresh-consumer verification.
 
 For the exact release and tagging procedure, use
 [CONTRIBUTING.md#4-releases-and-tagging](../../CONTRIBUTING.md#4-releases-and-tagging).

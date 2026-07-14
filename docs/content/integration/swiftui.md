@@ -1,10 +1,10 @@
-# SwiftUI integration
+# 9.12. SwiftUI Integration
 
 Wire a `ComponentVMOf<Model>` to a SwiftUI view using `@StateObject` /
 `@ObservedObject` plus a tiny Combine adapter that bridges the VMx
 message hub into SwiftUI's `ObservableObject` machinery.
 
-## 1. Reactivity primitive
+## 9.12.1. Reactivity primitive
 
 SwiftUI re-renders when an `ObservableObject` publishes through its
 `objectWillChange` publisher. VMx VMs publish `PropertyChangedMessage`
@@ -12,7 +12,7 @@ to their hub and emit a string-keyed `propertyChanged` Combine
 publisher. The adapter forwards every relevant event into
 `objectWillChange.send()`.
 
-## 2. Mapping
+## 9.12.2. Mapping
 
 | SwiftUI                            | VMx                                       |
 | ---------------------------------- | ----------------------------------------- |
@@ -21,7 +21,7 @@ publisher. The adapter forwards every relevant event into
 | `Button(action: …)`                | `command.execute()`                       |
 | `.onDisappear { … }`               | cancel subscriptions / dispose VM         |
 
-## 3. Adapter skeleton
+## 9.12.3. Adapter skeleton
 
 ```swift
 import SwiftUI
@@ -58,7 +58,7 @@ struct TabContentView: View {
 }
 ```
 
-## 4. Lifecycle is throwing (ADR-0053)
+## 9.12.4. Lifecycle is throwing (ADR-0053)
 
 As of the v3 convergence (ADR-0053, superseding ADR-0037 §2.5), the Swift
 lifecycle operations `construct()`, `destruct()`, and `reconstruct()` are
@@ -81,14 +81,14 @@ do {
 A non-child `current` assignment likewise has a throwing companion
 (`setCurrent(_:) throws`, throwing `CompositeMembershipError`); see ADR-0053 §2.2.
 
-## 5. Fuller example
+## 9.12.5. Fuller example
 
 The SwiftUI Notes Workspace flagship lives at
 [`examples/swift/notes-showcase/`](../../examples/swift/notes-showcase/). Its
 `NotesShowcaseCore` target keeps the pure VM layer separate from SwiftUI, while
 the app target contains the Combine-to-SwiftUI binding bridge.
 
-## 6. Cross-flavor parity
+## 9.12.6. Cross-flavor parity
 
 This recipe parallels the React adapter ([react.md](react.md)) — both
 bridge a hub message stream into the framework's "re-render this view"

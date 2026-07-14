@@ -13,7 +13,7 @@ idiomatic hosts, and one shared VM contract.
   <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
 </p>
 
-## Canonical Sources
+## 8.3.1. Canonical Sources
 
 - Cross-flavor parity matrix:
   [examples/notes-showcase-parity.md](../../../examples/notes-showcase-parity.md)
@@ -22,7 +22,7 @@ idiomatic hosts, and one shared VM contract.
 - Scenario proposal:
   [spec/proposals/2026-05-29-notes-showcase-scenario.md](../../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 
-## Flavor Hosts
+## 8.3.2. Flavor Hosts
 
 - C# / Avalonia:
   [examples/csharp/avalonia/NotesShowcase/README.md](../../../examples/csharp/avalonia/NotesShowcase/README.md)
@@ -33,7 +33,7 @@ idiomatic hosts, and one shared VM contract.
 - Swift / SwiftUI:
   [examples/swift/notes-showcase/README.md](../../../examples/swift/notes-showcase/README.md)
 
-## What It Exercises
+## 8.3.3. What It Exercises
 
 The portfolio is the working example for the current full-parity surface:
 
@@ -45,7 +45,7 @@ The portfolio is the working example for the current full-parity surface:
 - dialogs, notifications, confirmation flows, and theme state
 - edit/preview mode with `DiscriminatorVM`
 
-## Important Modeling Note
+## 8.3.4. Important Modeling Note
 
 The notebooks tree in the current flagship apps is not built from direct
 `HierarchicalVM` subclasses. All four UI-backed examples use flat `ComponentVM`-based

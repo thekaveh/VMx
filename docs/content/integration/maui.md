@@ -1,16 +1,16 @@
-# .NET MAUI integration
+# 9.4. .NET MAUI Integration
 
 Wire a `ComponentVM<M>` to a .NET MAUI page (desktop + mobile XAML)
 through the same `INotifyPropertyChanged` adapter used for WPF and
 Avalonia.
 
-## 1. Reactivity primitive
+## 9.4.1. Reactivity primitive
 
 MAUI's XAML data binding observes `INotifyPropertyChanged.PropertyChanged`
 and `ICommand`. MAUI also exposes `IDispatcher` (its own type) for
 marshalling work back to the UI thread.
 
-## 2. Mapping
+## 9.4.2. Mapping
 
 | MAUI                                 | VMx                                                                |
 | ------------------------------------ | ------------------------------------------------------------------ |
@@ -19,7 +19,7 @@ marshalling work back to the UI thread.
 | `ObservableCollection<T>`            | `ServicedObservableCollection<T>` or wrap an `ObservableList<T>`   |
 | `MainThread.BeginInvokeOnMainThread` | `IDispatcher.Foreground` scheduler                                 |
 
-## 3. Adapter skeleton
+## 9.4.3. Adapter skeleton
 
 ```csharp
 public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
@@ -50,7 +50,7 @@ Set the page `BindingContext` to a `BindableVm<MyModel>` instance. Use
 `SynchronizationContextScheduler` (Foreground) so subscribers observe
 property changes on the MAUI UI thread.
 
-## 4. Fuller example
+## 9.4.4. Fuller example
 
 No MAUI Notes-Showcase ships yet. The WPF and Avalonia adapters share
 the same shape — see [wpf.md](wpf.md) and [avalonia.md](avalonia.md) for

@@ -1,16 +1,16 @@
-# Textual integration
+# 9.5. Textual Integration
 
 Wire a `ComponentVMOf[M]` to a [Textual](https://textual.textualize.io/)
 TUI widget through Textual's `reactive` descriptors.
 
-## 1. Reactivity primitive
+## 9.5.1. Reactivity primitive
 
 Textual widgets re-render when a `reactive(...)` attribute changes.
 VMx VMs publish `PropertyChangedMessage[T]` to their `MessageHub`. The
 adapter subscribes to the hub and forwards changes into the widget's
 reactive attributes.
 
-## 2. Mapping
+## 9.5.2. Mapping
 
 | Textual                | VMx                                              |
 | ---------------------- | ------------------------------------------------ |
@@ -19,7 +19,7 @@ reactive attributes.
 | `ListView` items       | `ObservableList[T]` + `CollectionChangedMessage` |
 | `App.call_from_thread` | `RxDispatcher.asyncio(loop).foreground`          |
 
-## 3. Adapter skeleton
+## 9.5.3. Adapter skeleton
 
 ```python
 from textual.widget import Widget
@@ -52,7 +52,7 @@ class BindableWidget(Widget):
 For buttons: bind the widget's `action_*` handler to call
 `self._vm.save_command.execute(None)`.
 
-## 4. Fuller example
+## 9.5.4. Fuller example
 
 - [`examples/python/textual/inspector/`](../../examples/python/textual/inspector/) —
   a Textual viewer for any VMx tree, demonstrating the hub-subscription

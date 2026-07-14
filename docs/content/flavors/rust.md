@@ -3,20 +3,22 @@
 Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 `vmx-rs` Cargo package while exposing the crate namespace `vmx`.
 
-## Status
+## 7.6.1. Status
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.20.0 implementing spec 3.20.0
+- Current source line: `vmx-rs` 0.21.0 implementing spec 3.20.0
 - Publication status: crates.io release channel not published yet
-- Reactive primitive: VMx-owned facade over `rxrust`
+- Reactive primitive: VMx-owned hot-stream facade
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
 - Conformance: all 391 library IDs are covered by behavioral Rust tests
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
+- Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
+  additive triggers, cancellation mode, and fire-and-forget error stream
 
-## Serviced Collections
+## 7.6.2. Serviced Collections
 
 Rust's `ServicedObservableCollection<T>` is distinct from `ObservableList<T>`.
 It owns an always-present local `MessageHub` stream and may also forward to an
@@ -69,7 +71,7 @@ hub publication; a hub transaction defers only external delivery. The keyed
 type has no batch or VM lifecycle interface and never owns stored-item
 lifecycle.
 
-## Imperative Engine Bridge
+## 7.6.3. Imperative Engine Bridge
 
 Rust expresses the fixed source as `hub + sender_id`. `subscribe_value` returns
 VMx's `Subscription`; `SubscribeValueOptions::default()` uses `PartialEq`, while
@@ -99,7 +101,7 @@ the initial value for both. The host adapter owns the subscription, and the
 selector reevaluates after every property message carrying this fixed sender
 ID rather than on every render frame.
 
-## Local Use
+## 7.6.4. Local Use
 
 === "Cargo.toml"
 
@@ -124,7 +126,7 @@ ID rather than on every render frame.
     }
     ```
 
-## Development
+## 7.6.5. Development
 
 ```bash
 cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
@@ -135,7 +137,7 @@ cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 ```
 
-## Showcase
+## 7.6.6. Showcase
 
 Rust now ships a Ratatui Notes Showcase at
 `examples/rust/tui/notes-showcase/`. The host is intentionally a renderer and

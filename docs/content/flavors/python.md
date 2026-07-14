@@ -1,6 +1,6 @@
 # 7.3. Python
 
-## Snapshot
+## 7.3.1. Snapshot
 
 - Install: `pip install vmx` or `uv add vmx`
 - Publication status: `vmx` is published on PyPI; the repository source tree
@@ -8,13 +8,13 @@
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
 
-## What To Reach For
+## 7.3.2. What To Reach For
 
 Python is the most direct fit when you want a typed but lightweight VM layer
 for services, CLIs, TUIs, or desktop adapters without leaving idiomatic
 dataclass and protocol-based code.
 
-## Serviced Collections
+## 7.3.3. Serviced Collections
 
 `ServicedObservableCollection[T]` exposes local
 `on_collection_changed` events and optionally forwards the same change to a
@@ -62,7 +62,7 @@ amortized O(1), and ordered middle shifts remain O(n). Local changes are
 immediate even when an external hub transaction defers hub publication. Items
 remain caller-owned, and the collection has no batch or VM lifecycle role.
 
-## Imperative Engine Bridge
+## 7.3.4. Imperative Engine Bridge
 
 `subscribe_value` returns Reactivex's `DisposableBase` and uses `==` unless an
 `equality=` callable is supplied:
@@ -93,20 +93,20 @@ initial value for both. The host adapter owns the handle, and the selector
 reevaluates after every property message from this fixed VM rather than on
 every engine frame.
 
-## Pointers
+## 7.3.5. Pointers
 
 - Flavor README:
   [langs/python/README.md](../../../langs/python/README.md)
 - Getting started guide:
-  [docs/getting-started/python.md](../../getting-started/python.md)
+  [Getting Started with VMx — Python](../getting-started/python.md)
 - Example portfolio:
   [Examples overview](../examples/index.md)
 - Flagship Notes Workspace:
   [Notes Workspace](../examples/notes-workspace.md)
 - Textual recipe:
-  [docs/integration/textual.md](../../integration/textual.md)
+  [Textual Integration](../integration/textual.md)
 
-## Current Example Coverage
+## 7.3.6. Current Example Coverage
 
 - Console: `examples/python/console/hello_vmx/`
 - tkinter Todo app: `examples/python/tk/todo_app/`

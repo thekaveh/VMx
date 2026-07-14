@@ -11,6 +11,7 @@ on:
       - "tools/docs/validate_diagrams.py"
       - "Makefile"
       - "docs/requirements.txt"
+      - "docs/requirements.in"
       - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
@@ -27,12 +28,18 @@ jobs:
           python-version: "3.12"
       - name: Install docs dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes librsvg2-bin pngquant
           python -m pip install --upgrade pip
-          python -m pip install -r docs/requirements.txt
+          python -m pip install --require-hashes -r docs/requirements.txt
+      - name: Audit docs dependencies
+        run: python -m pip_audit --local
       - name: Generate wiki
         run: python -m scripts.docs.build_docs --wiki
       - name: Validate diagrams
-        run: python -m scripts.docs.validate_diagrams
+        run: |
+          python docs/assets/diagrams/generate_diagrams.py --check
+          python -m scripts.docs.validate_diagrams
       - name: Install wiki deploy key when configured
         env:
           WIKI_DEPLOY_KEY_VALUE: ${{ secrets.WIKI_DEPLOY_KEY }}

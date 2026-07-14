@@ -1,10 +1,9 @@
-# 9. Integration Recipes
+# 9.1. Integration Recipes
 
-The repo already carries framework-specific integration notes under
-`docs/integration/`. This page is the site-level router for those recipes, not a
-duplicate cookbook.
+These framework-specific recipes are canonical documentation: the same pages
+render in the repository, the `.io` site, and the GitHub wiki.
 
-## What The Recipes Cover
+## 9.1.1. What The Recipes Cover
 
 Each recipe summarizes the same adapter problem:
 
@@ -12,32 +11,32 @@ Each recipe summarizes the same adapter problem:
 - route host actions back into `RelayCommand` or related command surfaces
 - keep collection updates and dispatcher marshalling inside the adapter boundary
 
-## Current Recipes
+## 9.1.2. Current Recipes
 
-### C\#
+### 9.1.2.1. C\#
 
-- [Avalonia](../integration/avalonia.md)
-- [WPF](../integration/wpf.md)
-- [MAUI](../integration/maui.md)
+- [Avalonia](avalonia.md)
+- [WPF](wpf.md)
+- [MAUI](maui.md)
 
-### Python
+### 9.1.2.2. Python
 
-- [Textual](../integration/textual.md)
-- [NiceGUI](../integration/nicegui.md)
-- [tkinter](../integration/tkinter.md)
+- [Textual](textual.md)
+- [NiceGUI](nicegui.md)
+- [tkinter](tkinter.md)
 
-### TypeScript
+### 9.1.2.3. TypeScript
 
-- [React](../integration/react.md)
-- [Vue 3](../integration/vue.md)
-- [Svelte](../integration/svelte.md)
-- [SolidJS](../integration/solid.md)
+- [React](react.md)
+- [Vue 3](vue.md)
+- [Svelte](svelte.md)
+- [SolidJS](solid.md)
 
-### Swift
+### 9.1.2.4. Swift
 
-- [SwiftUI](../integration/swiftui.md)
+- [SwiftUI](swiftui.md)
 
-## Imperative Engine And Uniform Bridge
+## 9.1.3. Imperative Engine And Uniform Bridge
 
 Imperative engines do not need a render loop to poll VM state. Subscribe to the
 selected value once, update the engine only when it changes, and let the host
@@ -73,10 +72,10 @@ message, but repeated deliveries that all see the same final exposure snapshot
 collapse through equality. Initial setup failures propagate before attachment;
 delivery failures use the hub's isolated subscriber-error path.
 
-This recipe intentionally observes one fixed VM. Collection-member discovery
-and dynamic fan-in remain VMx issue #136.
+This recipe intentionally observes one fixed VM. For collection-member
+discovery and dynamic fan-in, use `AggregateChangeStream` (ADR-0098).
 
-## Standards-Track JavaScript Signals Posture
+## 9.1.4. Standards-Track JavaScript Signals Posture
 
 As verified on 2026-07-12, the
 [official TC39 Signals proposal](https://github.com/tc39/proposal-signals) and
@@ -104,7 +103,7 @@ design must also settle ownership/disposal, batching, equality, scheduling,
 error routing, and duplicate graph/polyfill behavior. Until then, use the
 ordinary VMx seams above rather than creating a second reactive architecture.
 
-## Worked Examples
+## 9.1.5. Worked Examples
 
 - Avalonia Notes Workspace:
   [examples/csharp/avalonia/NotesShowcase/README.md](../../examples/csharp/avalonia/NotesShowcase/README.md)
@@ -114,8 +113,3 @@ ordinary VMx seams above rather than creating a second reactive architecture.
   [examples/typescript/react/notes-showcase/README.md](../../examples/typescript/react/notes-showcase/README.md)
 - Swift Notes Workspace:
   [examples/swift/notes-showcase/README.md](../../examples/swift/notes-showcase/README.md)
-
-## Source Index
-
-For the full recipe table and the common adapter pattern, use
-[docs/integration/README.md](../integration/README.md).

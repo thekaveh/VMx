@@ -3,7 +3,7 @@
 VMx keeps one conceptual API shape across the supported source flavors. The
 names shift only to match the host language idiom.
 
-## Core Translation Table
+## 7.7.1. Core Translation Table
 
 | Concept            | C#                         | Python                        | TypeScript                 | Swift                      | Rust                           |
 | ------------------ | -------------------------- | ----------------------------- | -------------------------- | -------------------------- | ------------------------------ |
@@ -14,7 +14,7 @@ names shift only to match the host language idiom.
 | Status property    | `Status`                   | `status`                      | `status`                   | `status`                   | `status()`                     |
 | Null hub singleton | `NullMessageHub.Instance`  | `NULL_MESSAGE_HUB`            | `NullMessageHub.INSTANCE`  | `NullMessageHub.INSTANCE`  | `NullMessageHub::hub()`        |
 
-## Serviced Collection Mutations
+## 7.7.2. Serviced Collection Mutations
 
 `ServicedObservableCollection` has the same seven mutation concepts in every
 flavor. Existing array- or indexer-style aliases remain available where shown.
@@ -35,7 +35,7 @@ operations and `reverse`, TypeScript `pop` and `splice`, Swift `removeLast` and
 Equatable value removal, and Rust's existing surface without a new positional
 insert.
 
-## Keyed Serviced Collections
+## 7.7.3. Keyed Serviced Collections
 
 | Concept            | C#                           | Python         | TypeScript | Swift         | Rust           |
 | ------------------ | ---------------------------- | -------------- | ---------- | ------------- | -------------- |
@@ -63,7 +63,7 @@ key changes may therefore add a second membership. Duplicate or projector
 failure is atomic. A successful operation commits items, keys, and the index,
 then delivers locally before publishing to the optional external hub.
 
-## Practical Notes
+## 7.7.4. Practical Notes
 
 - The modeled-type name is the one structural divergence: C# keeps the generic
   suffix on `ComponentVM<M>`, while Python, TypeScript, and Swift expose a
@@ -83,7 +83,7 @@ then delivers locally before publishing to the optional external hub.
   gain a collection batch scope. An external hub transaction defers only hub
   delivery; local changes remain immediate.
 
-## How To Use This Page
+## 7.7.5. How To Use This Page
 
 - Translate a snippet with this table first.
 - Confirm the full local surface in the flavor README when the example moves

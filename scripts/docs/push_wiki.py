@@ -18,7 +18,9 @@ def _env_with_identity() -> dict[str, str]:
     env.setdefault("GIT_COMMITTER_EMAIL", env["GIT_AUTHOR_EMAIL"])
     key_path = env.get("WIKI_DEPLOY_KEY")
     if key_path and Path(key_path).exists():
-        env["GIT_SSH_COMMAND"] = f"ssh -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+        env["GIT_SSH_COMMAND"] = (
+            f"ssh -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+        )
     return env
 
 

@@ -1,4 +1,4 @@
-# Getting Started with VMx — TypeScript
+# 3.4. Getting Started with VMx — TypeScript
 
 This tutorial walks you through building viewmodels with the VMx TypeScript
 library. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand` with a
@@ -10,9 +10,9 @@ script or test.
 
 ______________________________________________________________________
 
-## 1. Install
+## 3.4.1. Install
 
-The source tree currently implements v3.8.0. The npm package is not published
+The source tree currently implements v3.21.0. The npm package is not published
 yet; use the package command after a `typescript-v*` release publishes it.
 
 ```bash
@@ -31,12 +31,12 @@ TypeScript declarations. No extra `@types/vmx` package is needed.
 
 ______________________________________________________________________
 
-## 2. Wire up `MessageHub` and `RxDispatcher`
+## 3.4.2. Wire up `MessageHub` and `RxDispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### 2.1 Option A — immediate (Node scripts / synchronous tests)
+### 3.4.2.1. 2.1 Option A — immediate (Node scripts / synchronous tests)
 
 ```ts
 import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
@@ -47,7 +47,7 @@ const dispatcher = RxDispatcher.immediate();
 // Safe for Node scripts and vitest suites with no async event loop.
 ```
 
-### 2.2 Option B — custom schedulers (browser / async environments)
+### 3.4.2.2. 2.2 Option B — custom schedulers (browser / async environments)
 
 ```ts
 import { asyncScheduler, animationFrameScheduler } from "rxjs";
@@ -62,7 +62,7 @@ const dispatcher = new RxDispatcher(
 
 ______________________________________________________________________
 
-## 3. Build a `ComponentVMOf<UserModel>`
+## 3.4.3. Build a `ComponentVMOf<UserModel>`
 
 `ComponentVMOf<M>` is the primary leaf viewmodel. It holds a typed model, fires
 `PropertyChangedMessage` on the hub when the model changes, and participates in
@@ -121,7 +121,7 @@ console.log(userVM.isConstructed); // true
 
 ______________________________________________________________________
 
-## 4. Build a `RelayCommand`
+## 3.4.4. Build a `RelayCommand`
 
 `RelayCommand` wraps an optional `execute` callback, an optional `canExecute`
 predicate, and a set of RxJS `Observable` triggers that signal `canExecute` may
@@ -165,7 +165,7 @@ saveCommand.dispose();
 
 ______________________________________________________________________
 
-## 5. Build a `CompositeVM<TabVM>`
+## 3.4.5. Build a `CompositeVM<TabVM>`
 
 `CompositeVM<VM>` owns an ordered child collection and a `current` selection
 slot. Children are provided by a factory that runs on the first `construct()`
@@ -234,7 +234,7 @@ console.log(tab2.isCurrent);               // false
 
 ______________________________________________________________________
 
-## 6. Lifecycle and cleanup
+## 3.4.6. Lifecycle and cleanup
 
 Every VM follows a five-state lifecycle:
 `Destructed → Constructing → Constructed → Destructing → Destructed`, plus the
@@ -271,7 +271,7 @@ hub.dispose();
 
 ______________________________________________________________________
 
-## 7. Threading
+## 3.4.7. Threading
 
 `RxDispatcher` pairs two RxJS schedulers:
 
@@ -297,7 +297,7 @@ hub.messages.pipe(
 
 ______________________________________________________________________
 
-## 8. Where to go next
+## 3.4.8. Where to go next
 
 | Resource                      | Path                                     |
 | ----------------------------- | ---------------------------------------- |

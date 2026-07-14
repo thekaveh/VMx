@@ -1,4 +1,4 @@
-# Getting Started with VMx — Python
+# 3.3. Getting Started with VMx — Python
 
 This tutorial walks you through building viewmodels with the VMx Python library.
 You will build a `ComponentVMOf[UserModel]`, a `RelayCommand` with a reactive
@@ -10,7 +10,7 @@ script, or test.
 
 ______________________________________________________________________
 
-## 1. Install
+## 3.3.1. Install
 
 ```bash
 # Using uv (recommended)
@@ -30,12 +30,12 @@ pip install -e path/to/VMx/langs/python
 
 ______________________________________________________________________
 
-## 2. Wire up `MessageHub` and `RxDispatcher`
+## 3.3.2. Wire up `MessageHub` and `RxDispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your event loop or UI thread.
 
-### 2.1 Option A — immediate (console / synchronous tests)
+### 3.3.2.1. 2.1 Option A — immediate (console / synchronous tests)
 
 ```python
 from vmx.services import MessageHub, RxDispatcher
@@ -46,7 +46,7 @@ dispatcher = RxDispatcher.immediate()
 # console scripts and pytest suites where there is no event loop.
 ```
 
-### 2.2 Option B — asyncio-based UI (Textual, etc.)
+### 3.3.2.2. 2.2 Option B — asyncio-based UI (Textual, etc.)
 
 ```python
 import asyncio
@@ -81,7 +81,7 @@ dispatcher = RxDispatcher(
 
 ______________________________________________________________________
 
-## 3. Build a `ComponentVMOf[UserModel]`
+## 3.3.3. Build a `ComponentVMOf[UserModel]`
 
 `ComponentVMOf[M]` is the primary leaf viewmodel. It holds a typed model,
 fires `PropertyChangedMessage` on the hub when the model changes, and
@@ -157,7 +157,7 @@ print(user_vm.status)        # ConstructionStatus.CONSTRUCTED
 
 ______________________________________________________________________
 
-## 4. Build a `RelayCommand`
+## 3.3.4. Build a `RelayCommand`
 
 `RelayCommand` wraps an optional callable task, an optional predicate that
 gates execution, and a set of `Observable` triggers that signal `can_execute`
@@ -211,7 +211,7 @@ save_command.dispose()
 
 ______________________________________________________________________
 
-## 5. Build a `CompositeVM[TabVM]`
+## 3.3.5. Build a `CompositeVM[TabVM]`
 
 `CompositeVM[VM]` owns an ordered child collection and a `current` selection.
 Children are provided by a factory callable that runs lazily on the first
@@ -289,7 +289,7 @@ print(tab2.is_current)                 # False
 
 ______________________________________________________________________
 
-## 6. Lifecycle and cleanup
+## 3.3.6. Lifecycle and cleanup
 
 Every VM follows a five-state lifecycle:
 `DESTRUCTED → CONSTRUCTING → CONSTRUCTED → DESTRUCTING → DESTRUCTED`, plus the
@@ -327,7 +327,7 @@ hub.dispose()
 
 ______________________________________________________________________
 
-## 7. Threading
+## 3.3.7. Threading
 
 `RxDispatcher` pairs two Rx schedulers:
 
@@ -370,7 +370,7 @@ back to the given asyncio event loop, keeping VM mutations on the loop thread.
 
 ______________________________________________________________________
 
-## 8. Where to go next
+## 3.3.8. Where to go next
 
 | Resource                      | Path                                 |
 | ----------------------------- | ------------------------------------ |

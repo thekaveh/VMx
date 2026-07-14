@@ -1,12 +1,12 @@
 # 6.6. Services, Messages & Dispatching
 
-## When To Use It
+## 6.6.1. When To Use It
 
 Use this layer when the question is coordination rather than structure:
 cross-VM messages, scheduler choice, host dialogs, notification routing, or
 null-object defaults for headless code and tests.
 
-## Shape And Ownership
+## 6.6.2. Shape And Ownership
 
 The core services are:
 
@@ -26,7 +26,7 @@ The core message families are:
 - `FormRevertedMessage`
 - collection-changed messages from the collections area
 
-## Lifecycle And Messaging
+## 6.6.3. Lifecycle And Messaging
 
 Important runtime rules from the spec:
 
@@ -45,7 +45,7 @@ Important runtime rules from the spec:
 Thread-safe hubs atomically claim teardown, so racing callers still complete
 and clear owned state once. See the [Disposal Contract](disposal-contract.md).
 
-## Cross-Language Surface
+## 6.6.4. Cross-Language Surface
 
 | Service            | Purpose                                              |
 | ------------------ | ---------------------------------------------------- |
@@ -54,7 +54,7 @@ and clear owned state once. See the [Disposal Contract](disposal-contract.md).
 | `IDialogService`   | request/response host dialogs and modal presentation |
 | `INotificationHub` | fire-and-forget notification stream                  |
 
-## TypeScript Raw-Message Narrowing
+## 6.6.5. TypeScript Raw-Message Narrowing
 
 TypeScript exports three predicates for classifying mixed raw `IMessage`
 streams and arrays. Their unary overloads can be passed directly to RxJS or
@@ -118,7 +118,7 @@ current property value instead. The raw predicates are the appropriate choice
 when classifying a mixed message stream or array, especially when one pipeline
 must recognize several message families.
 
-## Imperative Selected-State Bridge
+## 6.6.6. Imperative Selected-State Bridge
 
 Use `subscribeValue` when a renderer, audio engine, canvas host, shader bridge,
 or other imperative consumer needs selected state from one fixed VM. It
@@ -167,9 +167,9 @@ selector, equality, or callback.
 
 The source set is deliberately fixed. `subscribeValue` does not discover
 collection members, track selector dependencies, or resubscribe when membership
-changes. Dynamic member fan-in remains VMx issue #136.
+changes. Use `AggregateChangeStream` (ADR-0098) for dynamic member fan-in.
 
-## Hub Transactions
+## 6.6.7. Hub Transactions
 
 Use a hub transaction when one logical operation mutates several viewmodels and
 observers must not see intermediate state. The API is idiomatic per flavor:
@@ -200,7 +200,7 @@ enable the same guard explicitly with
 `new MessageHub({ developmentDiagnostics: true })`. Browser defaults stay
 unbounded so a production bundle never drops a large finite transaction.
 
-### Composing With Collection Batches
+### 6.6.7.1. Composing With Collection Batches
 
 Collection-local batching and hub transactions solve different layers:
 
@@ -247,7 +247,7 @@ and observers receive the complete FIFO only after both scopes close.
     });
     ```
 
-### Tableau Migration And Performance Trace
+### 6.6.7.2. Tableau Migration And Performance Trace
 
 Tableau's React store added a hand-written `refreshing` flag after
 `refreshShell()` updated derived VM models, republished through the same hub,
@@ -290,7 +290,7 @@ performance boundary is that all `N` callbacks occur in one synchronous drain,
 so a host adapter can collapse expensive rendering or derived-state refresh
 from `N` executions to one while retaining the full event stream.
 
-## Example
+## 6.6.8. Example
 
 The Quickstart flow shows the minimal service pair every VM needs:
 
@@ -304,7 +304,7 @@ The Quickstart flow shows the minimal service pair every VM needs:
 From there, higher-level examples add `INotificationHub` and `IDialogService`
 only where the workflow requires them.
 
-## Common Pitfalls
+## 6.6.9. Common Pitfalls
 
 - Treating the hub like a replaying event store. It is hot and current-subscriber
   only.
@@ -318,7 +318,7 @@ only where the workflow requires them.
 - Using dialogs for fire-and-forget notifications or using notification hubs for
   blocking user decisions.
 
-## Related Primitives
+## 6.6.10. Related Primitives
 
 - [NotificationVM](viewmodel-families/specialized/notification-vm.md)
 - [ModalVM](viewmodel-families/specialized/modal-vm.md)

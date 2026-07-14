@@ -7,7 +7,6 @@ import sys
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR_PATH = Path(__file__).resolve().parent / "generate_diagrams.py"
 
@@ -36,9 +35,9 @@ class GenerateDiagramsTests(unittest.TestCase):
         )
         conformance = (REPO_ROOT / "spec" / "12-conformance.md").read_text(encoding="utf-8")
         capability_spec = (REPO_ROOT / "spec" / "14-capabilities.md").read_text(encoding="utf-8")
-        notes_parity = (
-            REPO_ROOT / "examples" / "notes-showcase-parity.md"
-        ).read_text(encoding="utf-8")
+        notes_parity = (REPO_ROOT / "examples" / "notes-showcase-parity.md").read_text(
+            encoding="utf-8"
+        )
         conformance_ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
         theme_count = sum(1 for item in conformance_ids if item.startswith("THEME-"))
         total_count = len(conformance_ids)
@@ -51,10 +50,19 @@ class GenerateDiagramsTests(unittest.TestCase):
         )
         notes_feature_count = len(re.findall(r"^\| \d+\s+\|", notes_parity, re.MULTILINE))
 
-        self.assertEqual(facts.spec_version, (REPO_ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip())
-        self.assertEqual(facts.spec_chapter_count, len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md"))))
-        self.assertEqual(facts.adr_count, len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md"))))
-        self.assertEqual(facts.fixture_count, len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json"))))
+        self.assertEqual(
+            facts.spec_version, (REPO_ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip()
+        )
+        self.assertEqual(
+            facts.spec_chapter_count, len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md")))
+        )
+        self.assertEqual(
+            facts.adr_count,
+            len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md"))),
+        )
+        self.assertEqual(
+            facts.fixture_count, len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json")))
+        )
         self.assertEqual(facts.total_conformance_count, total_count)
         self.assertEqual(facts.library_conformance_count, total_count - theme_count)
         self.assertEqual(facts.theme_conformance_count, theme_count)
@@ -73,8 +81,35 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertIn("color-scheme: dark;", html)
         self.assertNotIn("@media (prefers-color-scheme: dark)", html)
         self.assertIn("background: var(--page-bg);", html)
-        self.assertIn("Dark SVG source uses the VMx architecture palette", html)
+        self.assertIn("follow the labeled relationships between components", html)
+        self.assertNotIn("Dark SVG source uses", html)
         self.assertIn("<svg", html)
+
+    def test_primary_diagram_box_text_stays_inside_bounds(self) -> None:
+        for diagram in (
+            self.generator.system_architecture(),
+            self.generator.class_architecture(),
+        ):
+            for box in diagram.boxes:
+                text_runs = (
+                    (box.title, box.title_size),
+                    *((line, box.line_size) for line in box.lines),
+                )
+                for text, font_size in text_runs:
+                    estimated_width = len(text) * font_size * 0.61
+                    self.assertLessEqual(
+                        estimated_width,
+                        box.w - 24,
+                        f"{diagram.title}: {box.title!r} text overflows: {text!r}",
+                    )
+                last_line_baseline = (
+                    box.y + 54 + ((len(box.lines) - 1) * max(18, box.line_size + 6))
+                )
+                self.assertLessEqual(
+                    last_line_baseline,
+                    box.y + box.h - 2,
+                    f"{diagram.title}: {box.title!r} body overflows vertically",
+                )
 
     def test_svg_output_is_dark_and_uses_architecture_palette(self) -> None:
         svg = self.generator.svg_doc(self.generator.system_architecture())
@@ -88,7 +123,9 @@ class GenerateDiagramsTests(unittest.TestCase):
         diagram = self.generator.class_architecture()
         titles = {box.title for box in diagram.boxes}
         viewmodel_families = self.generator.viewmodel_families()
-        capability_box = next(box for box in viewmodel_families.boxes if box.title == "Capability overlays")
+        capability_box = next(
+            box for box in viewmodel_families.boxes if box.title == "Capability overlays"
+        )
 
         self.assertIn("ComponentVM<M>", titles)
         self.assertIn("IComponentVM<M>", titles)
@@ -97,7 +134,8 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertIn("IPageable", titles)
         self.assertIn("Confirm delegate", titles)
         self.assertIn(
-            "PagedComposition and TokenPagedComposition are composition/paging primitives, not CompositeVM subclasses.",
+            "PagedComposition and TokenPagedComposition are composition/paging "
+            "primitives, not CompositeVM subclasses.",
             diagram.notes[0].lines[0],
         )
         self.assertIn(

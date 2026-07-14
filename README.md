@@ -80,7 +80,7 @@ makes no assumption about the UI layer. Every flavor exposes:
   `NullDialogService`), and an `ILocalizer` hook for i18n.
 
 The shape is identical across flavors; only the surface idiom changes
-(PascalCase in C#, snake_case in Python, camelCase in TypeScript and Swift —
+(PascalCase in C#, snake_case in Python and Rust, camelCase in TypeScript and Swift —
 codified in ADR-0006).
 
 ## 2. Architecture
@@ -133,7 +133,7 @@ Each flavor implements the same conceptual stack:
   `BatchUpdate()`, atomic `Move`, and `AutoConstructOnAdd` options.
 - **Tree utilities** — `walk(root)`, `walk_expanded(root)`, and
   `find(root, predicate)` over any VM hierarchy.
-- **Services** — `MessageHub` (rx Subject-backed pub/sub) and
+- **Services** — `MessageHub` (hot-stream pub/sub) and
   `RxDispatcher` (paired foreground / background schedulers).
 - **Lifecycle state machine** — orchestrates every VM; transitions enforced
   by a fixture-backed validator (`spec/fixtures/lifecycle-transitions.json`).
@@ -150,7 +150,7 @@ Each flavor implements the same conceptual stack:
 | Python     | v3.20.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
 | TypeScript | v3.21.0 in source       | npm package not published yet                                  | rxjs                   |
 | Swift      | v3.20.0 released        | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
-| Rust       | v0.20.0 in source       | crates.io package not published yet                            | VMx facade over rxrust |
+| Rust       | v0.21.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -187,7 +187,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.20.x | 3.20.0 | 3.20.0 | 3.20.0–3.21.0 | 3.20.0       | 0.20.0        |
+| 3.20.x | 3.20.0 | 3.20.0 | 3.20.0–3.21.0 | 3.20.0       | 0.20.0–0.21.0 |
 | 3.19.x | 3.19.0 | 3.19.0 | 3.19.0     | 3.19.0         | 0.19.0        |
 | 3.18.x | 3.18.0 | 3.18.0 | 3.18.0     | 3.18.0         | 0.18.0        |
 | 3.17.x | 3.17.0 | 3.17.0 | 3.17.0     | 3.17.0         | 0.17.0        |
@@ -232,14 +232,14 @@ cargo add vmx-rs --path langs/rust
 
 ### 4.2 Quickstart guides
 
-- [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md) — build a
+- [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md) — build a
   modeled `ComponentVM<UserModel>`, wire a `RelayCommand`, manage a
   `CompositeVM<TabVM>`.
-- [`docs/getting-started/python.md`](docs/getting-started/python.md) — same
+- [`docs/content/getting-started/python.md`](docs/content/getting-started/python.md) — same
   shape, snake_case API, immediate / asyncio dispatchers.
-- [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md) —
+- [`docs/content/getting-started/typescript.md`](docs/content/getting-started/typescript.md) —
   camelCase API, ESM imports, rxjs-backed observables.
-- [`docs/getting-started/swift.md`](docs/getting-started/swift.md) —
+- [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
   at total parity as of v3.20.0; see `langs/swift/README.md` §5).
 - [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
@@ -315,8 +315,8 @@ Smaller per-flavor demos:
 │   ├── swift/             VMx Swift Package (v3.20.0, total parity — 391 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
-├── docs/getting-started/  per-flavor quickstart tutorials
-├── docs/integration/      one-page UI-framework integration recipes
+├── docs/content/getting-started/  per-flavor quickstart tutorials
+├── docs/content/integration/      one-page UI-framework integration recipes
 ├── docs/maintenance/      maintenance run ledgers and audit records
 ├── tools/                 cross-cutting scripts (conformance coverage)
 ├── assets/                architecture + class diagrams, notes-showcase assets
@@ -366,10 +366,10 @@ This README is the entry point; the documents below add focused detail.
   GitHub Release flow. release-please currently automates Python routine
   version bumps + CHANGELOG entries via Conventional Commits.
 - Per-flavor getting-started tutorials (longer walkthroughs):
-  [`docs/getting-started/csharp.md`](docs/getting-started/csharp.md),
-  [`docs/getting-started/python.md`](docs/getting-started/python.md),
-  [`docs/getting-started/typescript.md`](docs/getting-started/typescript.md),
-  [`docs/getting-started/swift.md`](docs/getting-started/swift.md).
+  [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md),
+  [`docs/content/getting-started/python.md`](docs/content/getting-started/python.md),
+  [`docs/content/getting-started/typescript.md`](docs/content/getting-started/typescript.md),
+  [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md).
 - Per-flavor examples READMEs (run instructions):
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
@@ -380,7 +380,7 @@ This README is the entry point; the documents below add focused detail.
   cross-flavor parity matrix for all four flagship Notes-Showcase apps
   (Avalonia / Textual / React / SwiftUI); 19 spec features × 4 flavors, plus
   hierarchy and VMx-component diagrams.
-- [`docs/integration/README.md`](docs/integration/README.md) — one-page
+- [`docs/content/integration/index.md`](docs/content/integration/index.md) — one-page
   integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
   NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe
   shows the framework-native binding + lifecycle + dispose pattern.

@@ -17,7 +17,7 @@ class Section:
     number: str
     title: str
     source: Path | None = None
-    children: tuple["Section", ...] = field(default_factory=tuple)
+    children: tuple[Section, ...] = field(default_factory=tuple)
 
     @property
     def label(self) -> str:
@@ -53,7 +53,9 @@ def _parse_section(raw: dict[str, Any], context: str) -> Section:
     source = Path(str(raw["source"])) if "source" in raw else None
     children_raw = raw.get("children", [])
     if source is not None and children_raw:
-        raise ManifestError(f"{context}: section must be a source leaf or a children group, not both")
+        raise ManifestError(
+            f"{context}: section must be a source leaf or a children group, not both"
+        )
     if source is None and not children_raw:
         raise ManifestError(f"{context}: section must define source or children")
     if not isinstance(children_raw, list):
@@ -85,8 +87,7 @@ def parse_manifest(text: str) -> Manifest:
     if not isinstance(sections_raw, list):
         raise ManifestError("sections must be a list")
     sections = tuple(
-        _parse_section(section, f"sections[{index}]")
-        for index, section in enumerate(sections_raw)
+        _parse_section(section, f"sections[{index}]") for index, section in enumerate(sections_raw)
     )
     return Manifest(surfaces, numbering, sections)
 

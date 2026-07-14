@@ -18,7 +18,7 @@ DIAGRAMS_DIR = REPO_ROOT / "docs/assets/diagrams"
 
 
 MKDOCS_TEMPLATE = """site_name: VMx
-site_description: Language-neutral MVVM viewmodel framework with C#, Python, TypeScript, Swift, and Rust
+site_description: Language-neutral MVVM framework in C#, Python, TypeScript, Swift, and Rust
 site_url: https://thekaveh.github.io/VMx/
 docs_dir: generated/site
 site_dir: site
@@ -121,7 +121,9 @@ def render_site(manifest: Manifest, out_dir: Path) -> None:
     copy_diagrams(out_dir)
 
 
-def _wiki_sidebar(sections: tuple[Section, ...], source_map: dict[Path, Path], depth: int = 0) -> list[str]:
+def _wiki_sidebar(
+    sections: tuple[Section, ...], source_map: dict[Path, Path], depth: int = 0
+) -> list[str]:
     lines: list[str] = []
     indent = "  " * depth
     for section in sections:
@@ -150,8 +152,12 @@ def render_wiki(manifest: Manifest, out_dir: Path) -> None:
             ),
             encoding="utf-8",
         )
-    (out_dir / "_Sidebar.md").write_text("\n".join(_wiki_sidebar(manifest.sections, source_map)) + "\n", encoding="utf-8")
-    (out_dir / "_Footer.md").write_text("VMx documentation generated from the repository documentation source.\n", encoding="utf-8")
+    (out_dir / "_Sidebar.md").write_text(
+        "\n".join(_wiki_sidebar(manifest.sections, source_map)) + "\n", encoding="utf-8"
+    )
+    (out_dir / "_Footer.md").write_text(
+        "VMx documentation generated from the repository documentation source.\n", encoding="utf-8"
+    )
     copy_diagrams(out_dir)
 
 

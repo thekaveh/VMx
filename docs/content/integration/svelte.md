@@ -1,9 +1,9 @@
-# Svelte integration
+# 9.10. Svelte Integration
 
 Wire a `ComponentVMOf<M>` to a Svelte component via Svelte 5 runes
 (`$state`, `$derived`, `$effect`) or, on Svelte 4, via a custom store.
 
-## 1. Reactivity primitive
+## 9.10.1. Reactivity primitive
 
 - **Svelte 5:** `$state(value)` is a deeply reactive rune; reads in
   the template auto-track and re-render on mutation.
@@ -11,7 +11,7 @@ Wire a `ComponentVMOf<M>` to a Svelte component via Svelte 5 runes
   `subscribe(set)` method that returns an unsubscribe function works as
   a store and is auto-tracked with the `$store` syntax.
 
-## 2. Mapping
+## 9.10.2. Mapping
 
 | Svelte                           | VMx                                  |
 | -------------------------------- | ------------------------------------ |
@@ -20,7 +20,7 @@ Wire a `ComponentVMOf<M>` to a Svelte component via Svelte 5 runes
 | `$derived(...)` / `derived(...)` | `DerivedProperty<T>` / `fromSources` |
 | `onDestroy(() => cleanup)`       | dispose the subscription             |
 
-## 3. Adapter skeleton — Svelte 4 store
+## 9.10.3. Adapter skeleton — Svelte 4 store
 
 ```ts
 // lib/vmStore.ts
@@ -61,7 +61,7 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 For Svelte 5, drop the store wrapper and assign into a `$state(...)`
 variable inside an `$effect(...)` that subscribes to the hub.
 
-## 4. Fuller example
+## 9.10.4. Fuller example
 
 No worked Svelte Notes-Showcase ships yet. The React and Vue recipes
 share the same hub-subscription shape.

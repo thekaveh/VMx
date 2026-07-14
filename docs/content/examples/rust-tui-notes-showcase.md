@@ -14,7 +14,7 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
   <a href="../../assets/diagrams/rust-tui-notes-showcase.png">PNG</a>
 </p>
 
-## What It Shows
+## 8.5.1. What It Shows
 
 - `WorkspaceVm` composes six child surfaces through `AggregateVm6`.
 - `NotesViewVm` uses `CompositeVm`, `FilteredCompositeVm`, and
@@ -25,7 +25,7 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 
-## Run It
+## 8.5.2. Run It
 
 === "Smoke"
 
@@ -45,7 +45,7 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
     cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
     ```
 
-## MVVM Boundary
+## 8.5.3. MVVM Boundary
 
 The TUI shell may keep focus and quit state. It must not keep note data, search
 terms, selected note state, form draft state, page tokens, notifications, or

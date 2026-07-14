@@ -12,7 +12,7 @@ flavors.
   <a href="../assets/diagrams/system-architecture.png">PNG</a>
 </p>
 
-## Read This Section In Order
+## 5.1.1. Read This Section In Order
 
 1. [System Architecture](system-architecture.md) for the runtime layers and boundaries.
 1. [Class Architecture](class-architecture.md) for the major families and relationships.

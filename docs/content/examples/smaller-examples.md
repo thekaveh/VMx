@@ -6,7 +6,7 @@ host-adapter basics without reading the full flagship app.
 For the VMx/component shape of each example, see the
 [Example Diagram Gallery](example-diagram-gallery.md).
 
-## C\#
+## 8.9.1. C\#
 
 - `examples/csharp/console/HelloVMx/`:
   minimal lifecycle and hub logging
@@ -16,7 +16,7 @@ For the VMx/component shape of each example, see the
 Source index:
 [examples/csharp/README.md](../../../examples/csharp/README.md)
 
-## Python
+## 8.9.2. Python
 
 - `examples/python/console/hello_vmx/`:
   minimal lifecycle and hub logging
@@ -29,7 +29,7 @@ Source indexes:
 [examples/python/README.md](../../../examples/python/README.md),
 [examples/python/textual/inspector/README.md](../../../examples/python/textual/inspector/README.md)
 
-## TypeScript
+## 8.9.3. TypeScript
 
 - `examples/typescript/console/hello-vmx/`:
   minimal Node-based lifecycle and hub logging
@@ -37,15 +37,15 @@ Source indexes:
 Source index:
 [examples/typescript/README.md](../../../examples/typescript/README.md)
 
-## Swift
+## 8.9.4. Swift
 
 Swift currently exposes the flagship Notes Workspace example rather than a
 separate small demo. Use the flavor README and SwiftUI integration recipe as the
 minimum entry points:
 [langs/swift/README.md](../../../langs/swift/README.md),
-[docs/integration/swiftui.md](../../integration/swiftui.md)
+[SwiftUI Integration](../integration/swiftui.md)
 
-## Rust
+## 8.9.5. Rust
 
 - `examples/rust/console/hello-vmx/`:
   Cargo console demo using `ComponentVm`, `CompositeVm`, `FilteredCompositeVm`,

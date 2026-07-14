@@ -3,7 +3,7 @@
 Global all-notes search is the scenario path that demonstrates
 `TokenPagedComposition` beyond the simpler fixed-page notes list.
 
-## What It Proves
+## 8.6.1. What It Proves
 
 - forward-only token paging through repository-backed search
 - search results that are independent of the currently focused notebook
@@ -11,7 +11,7 @@ Global all-notes search is the scenario path that demonstrates
   the new filtered projection
 - the same conceptual flow across C#, Python, TypeScript, and Swift
 
-## Where It Lives
+## 8.6.2. Where It Lives
 
 - C#:
   `ViewModels/GlobalSearchVM.cs` in the Avalonia flagship
@@ -29,7 +29,7 @@ and host wiring:
 [TypeScript](../../../examples/typescript/react/notes-showcase/README.md),
 [Swift](../../../examples/swift/notes-showcase/README.md).
 
-## Related Reading
+## 8.6.3. Related Reading
 
 - [Notes Workspace](notes-workspace.md)
 - [State & Reactive Helpers](../primitives/state-reactive-helpers.md)

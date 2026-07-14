@@ -1,6 +1,6 @@
 # 6.9. VM Collection Contract
 
-## When To Use It
+## 6.9.1. When To Use It
 
 Depend on the VM collection capability when a consumer needs ordered child
 viewmodels but should work with either a selectable `CompositeVM` or a peer-only
@@ -10,7 +10,7 @@ collection bridges, and instrumentation.
 Use the selectable extension only when the consumer genuinely reads or changes
 `Current`. A group deliberately has no placeholder current slot.
 
-## Capability Shape
+## 6.9.2. Capability Shape
 
 The base capability provides:
 
@@ -34,7 +34,7 @@ predicate.
 `CompositeVM` implements the selectable extension. `GroupVM` implements only
 the base capability.
 
-## Move Semantics
+## 6.9.3. Move Semantics
 
 Move is an ordering change, not remove plus add:
 
@@ -51,7 +51,7 @@ Inside a batch, a non-no-op move is suppressed with the other granular events
 and produces one `Reset` when the outermost batch closes. A same-index move
 does not dirty the batch.
 
-## Identity And Lifecycle Guarantees
+## 6.9.4. Identity And Lifecycle Guarantees
 
 Move never reconstructs the child or creates a replacement object. It preserves:
 
@@ -66,7 +66,7 @@ This distinction matters in UI hosts. A reorder keeps component keys, local UI
 state, focus, and subscriptions attached to the same VM. Rebuilding a list does
 not offer that guarantee.
 
-## TypeScript React Adapter
+## 6.9.5. TypeScript React Adapter
 
 The Notes Showcase `useVmCollection` bridge accepts `IVmCollection<VM>` and can
 therefore render either family without casts:
@@ -80,7 +80,7 @@ function useVmCollection<VM extends ComponentVMBase>(
 Subscribe to `collectionChanged`, then take a fresh `Array.from(collection)`
 snapshot. A `Move` notification causes one render with the final order.
 
-## Common Pitfalls
+## 6.9.6. Common Pitfalls
 
 - Adding `Current` to a generic collection adapter. That needlessly excludes
   groups and reintroduces the cast this capability removes.
@@ -90,13 +90,13 @@ snapshot. A `Move` notification causes one render with the final order.
   positions, so both indices are strictly less than `Count`.
 - Treating a same-index move as a batch mutation. It is a true no-op.
 
-## Conformance And Decisions
+## 6.9.7. Conformance And Decisions
 
 ADR-0085 records the design. `COL-032..039` prove the capability split, both
 directions, no-op and invalid bounds, invariant preservation, batch behavior,
 and auto-construction interaction in all five flavors.
 
-## Related Primitives
+## 6.9.8. Related Primitives
 
 - [Composite Family](viewmodel-families/composite-family.md)
 - [Group Family](viewmodel-families/group-family.md)

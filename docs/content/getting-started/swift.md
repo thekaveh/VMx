@@ -1,4 +1,4 @@
-# Getting Started with VMx — Swift
+# 3.5. Getting Started with VMx — Swift
 
 This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
@@ -15,7 +15,7 @@ package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 
 ______________________________________________________________________
 
-## 1. Install
+## 3.5.1. Install
 
 VMx Swift 3.20.0 is publicly installable from the repository root. SwiftPM
 resolves the immutable semantic tag `v3.20.0`; `swift-v3.20.0` is the matching
@@ -60,12 +60,12 @@ scheduling. No additional dependencies are required.
 
 ______________________________________________________________________
 
-## 2. Wire up `MessageHub` and a `Dispatcher`
+## 3.5.2. Wire up `MessageHub` and a `Dispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### 2.1 Option A — immediate (test suites / synchronous scripts)
+### 3.5.2.1. 2.1 Option A — immediate (test suites / synchronous scripts)
 
 ```swift
 import VMx
@@ -76,7 +76,7 @@ let dispatcher = ImmediateDispatcher.INSTANCE
 // Safe for XCTest suites with no async event loop.
 ```
 
-### 2.2 Option B — default (SwiftUI / UIKit / AppKit apps)
+### 3.5.2.2. 2.2 Option B — default (SwiftUI / UIKit / AppKit apps)
 
 ```swift
 import VMx
@@ -89,7 +89,7 @@ let dispatcher = DefaultDispatcher()
 
 ______________________________________________________________________
 
-## 3. Build a `ComponentVMOf<UserModel>`
+## 3.5.3. Build a `ComponentVMOf<UserModel>`
 
 `ComponentVMOf<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `PropertyChangedMessage` on the hub when the model changes, and
@@ -134,7 +134,7 @@ print(userVM.isConstructed) // true
 
 ______________________________________________________________________
 
-## 4. Build a `RelayCommand`
+## 3.5.4. Build a `RelayCommand`
 
 `RelayCommand` wraps an optional `task` closure (the execute body), an
 optional `predicate` (the `canExecute` test), and Combine `Publisher`
@@ -175,7 +175,7 @@ saveCommand.dispose()
 
 ______________________________________________________________________
 
-## 5. Build a `CompositeVM<TabVM>`
+## 3.5.5. Build a `CompositeVM<TabVM>`
 
 `CompositeVM<VM>` owns an ordered child collection and a `current`
 selection slot. Children are provided by a factory that runs on the first
@@ -224,7 +224,7 @@ print((0..<tabs.count).compactMap { tabs.at($0).name })  // ["home-tab", "settin
 
 ______________________________________________________________________
 
-## 6. Lifecycle and cleanup
+## 3.5.6. Lifecycle and cleanup
 
 Every VM follows a five-state lifecycle:
 `destructed → constructing → constructed → destructing → destructed`,
@@ -260,7 +260,7 @@ is missing a required field at `build()` time.
 
 ______________________________________________________________________
 
-## 7. Threading
+## 3.5.7. Threading
 
 `Dispatcher` is a closure-routing protocol — not a Combine `Scheduler`. It
 exposes two scheduling sinks that the rest of VMx uses when it needs to
@@ -306,19 +306,19 @@ let cancellable = hub.messages
 
 ______________________________________________________________________
 
-## 8. Where to go next
+## 3.5.8. Where to go next
 
-| Resource                      | Path                          |
-| ----------------------------- | ----------------------------- |
-| Spec overview                 | `spec/00-overview.md`         |
-| Lifecycle contract            | `spec/02-lifecycle.md`        |
-| Message schema                | `spec/03-messages.md`         |
-| Commands                      | `spec/04-commands.md`         |
-| ComponentVM contract          | `spec/05-component-vm.md`     |
-| CompositeVM contract          | `spec/06-composite-vm.md`     |
-| Builder spec                  | `spec/10-builders.md`         |
-| Threading rules               | `spec/11-threading.md`        |
-| Architecture decision records | `spec/ADRs/`                  |
-| SwiftUI integration recipe    | `docs/integration/swiftui.md` |
-| Swift flavor README           | `langs/swift/README.md`       |
-| Swift conformance suite       | `langs/swift/Tests/VMxTests/` |
+| Resource                      | Path                                  |
+| ----------------------------- | ------------------------------------- |
+| Spec overview                 | `spec/00-overview.md`                 |
+| Lifecycle contract            | `spec/02-lifecycle.md`                |
+| Message schema                | `spec/03-messages.md`                 |
+| Commands                      | `spec/04-commands.md`                 |
+| ComponentVM contract          | `spec/05-component-vm.md`             |
+| CompositeVM contract          | `spec/06-composite-vm.md`             |
+| Builder spec                  | `spec/10-builders.md`                 |
+| Threading rules               | `spec/11-threading.md`                |
+| Architecture decision records | `spec/ADRs/`                          |
+| SwiftUI integration recipe    | `docs/content/integration/swiftui.md` |
+| Swift flavor README           | `langs/swift/README.md`               |
+| Swift conformance suite       | `langs/swift/Tests/VMxTests/`         |

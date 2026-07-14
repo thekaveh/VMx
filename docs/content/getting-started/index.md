@@ -1,4 +1,4 @@
-# 3. Quickstart
+# 3.1. Quickstart
 
 Each flavor exposes the same shape: wire a message hub and dispatcher, build a
 leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
@@ -157,7 +157,7 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
     }
     ```
 
-## What This Shows
+## 3.1.1. What This Shows
 
 - One spec and five idiomatic source surfaces.
 - Builders/direct construction stay idiomatic per flavor.

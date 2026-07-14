@@ -1,17 +1,17 @@
-# Tkinter integration
+# 9.7. Tkinter Integration
 
 Wire a `ComponentVMOf[M]` to a Tkinter widget through `StringVar`,
 `IntVar`, and friends. Tkinter is included with CPython — no extra
 dependency.
 
-## 1. Reactivity primitive
+## 9.7.1. Reactivity primitive
 
 Tkinter variables (`StringVar`, `IntVar`, `BooleanVar`, `DoubleVar`)
 are observable: any widget bound via `textvariable=` re-renders when
 the variable's `.set(value)` is called. There is no collection
 observable; lists need to be re-applied to a `Listbox`.
 
-## 2. Mapping
+## 9.7.2. Mapping
 
 | Tkinter                   | VMx                                               |
 | ------------------------- | ------------------------------------------------- |
@@ -20,7 +20,7 @@ observable; lists need to be re-applied to a `Listbox`.
 | `Listbox.insert / delete` | `CollectionChangedMessage` handler                |
 | `widget.after(...)`       | `RxDispatcher.asyncio(loop)` (or run-loop bridge) |
 
-## 3. Adapter skeleton
+## 9.7.3. Adapter skeleton
 
 ```python
 from collections.abc import Callable
@@ -54,7 +54,7 @@ root.protocol("WM_DELETE_WINDOW", lambda: (dispose(), root.destroy()))
 root.mainloop()
 ```
 
-## 4. Fuller example
+## 9.7.4. Fuller example
 
 [`examples/python/tk/todo_app/`](../../examples/python/tk/todo_app/) — a
 working Tkinter Todo app backed by a `CompositeVM[TodoItemVM]`.

@@ -4,22 +4,52 @@ import re
 from pathlib import Path
 
 from scripts.docs import build_docs
-from scripts.docs.check_docs import check
+from scripts.docs.check_docs import _check_descendant_heading_numbers, check
 from scripts.docs.links import is_forbidden
 from scripts.docs.manifest import load_manifest
 from scripts.docs.transforms import build_source_map
 
-
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_descendant_heading_numbers_require_hierarchy_and_sequence() -> None:
+    valid = """# 5.2. Page
+
+## 5.2.1. First
+
+### 5.2.1.1. Detail
+
+## 5.2.2. Second
+"""
+    assert _check_descendant_heading_numbers(valid, "5.2", Path("page.md")) == []
+
+    invalid = """# 5.2. Page
+
+## 5.2.2. Skipped first section
+
+#### 5.2.2.1.1. Missing H3 parent
+"""
+    findings = _check_descendant_heading_numbers(invalid, "5.2", Path("page.md"))
+    assert any("expected heading number '5.2.1.'" in item.message for item in findings)
+    assert any("skips its H3 parent" in item.message for item in findings)
+
+
+def test_descendant_heading_numbers_ignore_fenced_code() -> None:
+    markdown = """# 3.1. Page
+
+## 3.1.1. Real
+
+```markdown
+## Not a real heading
+```
+"""
+    assert _check_descendant_heading_numbers(markdown, "3.1", Path("page.md")) == []
 
 
 def test_manifest_loads_all_canonical_pages() -> None:
     manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
     sources = {section.source for section in manifest.pages()}
-    content = {
-        path.relative_to(ROOT)
-        for path in (ROOT / "docs/content").rglob("*.md")
-    }
+    content = {path.relative_to(ROOT) for path in (ROOT / "docs/content").rglob("*.md")}
     assert content <= sources
 
 

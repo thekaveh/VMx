@@ -11,14 +11,18 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">VMx Architecture</text>
-  <text x="40" y="84" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.8.0 · five full-parity flavors · examples as contract probes</text>
+  <text x="40" y="84" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.20.0 · five full-parity flavors · examples as contract probes</text>
   <path d="M360,210 C405,210 405,210 450,210" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="380.2" y="185" width="49.5" height="20" rx="3" fill="#020617"/>
 <text x="405" y="200" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">norms</text>
 <path d="M750,210 C795,210 795,210 840,210" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="774.0" y="185" width="42.0" height="20" rx="3" fill="#020617"/>
 <text x="795" y="200" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">uses</text>
 <path d="M1140,210 C1185,210 1185,210 1230,210" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1152.8" y="185" width="64.5" height="20" rx="3" fill="#020617"/>
 <text x="1185" y="200" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">injects</text>
 <path d="M600,290 C375,290 375,410 150,410" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="316.5" y="325" width="117.0" height="20" rx="3" fill="#020617"/>
 <text x="375" y="340" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">idiomatic APIs</text>
 <path d="M600,290 C500,290 500,410 400,410" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 
@@ -29,15 +33,17 @@
 <path d="M600,290 C875,290 875,410 1150,410" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 
 <path d="M1420,410 C1420,410 1420,290 1420,290" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)" stroke-dasharray="8 6"/>
+<rect x="1384.0" y="325" width="72.0" height="20" rx="3" fill="#020617"/>
 <text x="1420" y="340" fill="#fb923c" font-size="12" font-weight="400" text-anchor="middle">enforces</text>
 <path d="M840,555 C820,555 820,700 800,700" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="780.2" y="602" width="79.5" height="20" rx="3" fill="#020617"/>
 <text x="820" y="617" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">showcases</text>
 <rect x="60" y="130" width="300" height="160" rx="12" fill="#0f172a"/>
 <rect x="60" y="130" width="300" height="160" rx="12" fill="rgba(120, 53, 15, 0.34)" stroke="#fbbf24" stroke-width="2"/>
 <text x="210" y="162" fill="white" font-size="18" font-weight="700" text-anchor="middle">Spec Source</text>
-<text x="210" y="188" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">23 chapters</text>
-<text x="210" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">88 ADRs</text>
-<text x="210" y="236" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">329 conformance IDs</text>
+<text x="210" y="188" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">24 chapters</text>
+<text x="210" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">104 ADRs</text>
+<text x="210" y="236" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">396 conformance IDs</text>
 <text x="210" y="260" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">4 JSON fixtures</text>
 <rect x="450" y="130" width="300" height="160" rx="12" fill="#0f172a"/>
 <rect x="450" y="130" width="300" height="160" rx="12" fill="rgba(6, 78, 59, 0.42)" stroke="#34d399" stroke-width="2"/>
@@ -50,7 +56,7 @@
 <rect x="840" y="130" width="300" height="160" rx="12" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="2"/>
 <text x="990" y="162" fill="white" font-size="18" font-weight="700" text-anchor="middle">State + Data Helpers</text>
 <text x="990" y="188" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">DerivedProperty</text>
-<text x="990" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">SearchableState / ExpandableState</text>
+<text x="990" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Searchable / Expandable state</text>
 <text x="990" y="236" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Observable collections</text>
 <text x="990" y="260" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Paged + token-paged views</text>
 <rect x="1230" y="130" width="300" height="160" rx="12" fill="#0f172a"/>
@@ -65,31 +71,31 @@
 <text x="150" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">C# Flavor</text>
 <text x="150" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">System.Reactive</text>
 <text x="150" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Avalonia / WPF / MAUI</text>
-<text x="150" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 324+5 parity</text>
+<text x="150" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 391+5 parity</text>
 <rect x="290" y="410" width="220" height="145" rx="12" fill="#0f172a"/>
 <rect x="290" y="410" width="220" height="145" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="400" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">Python Flavor</text>
 <text x="400" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">reactivex</text>
 <text x="400" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Textual / Tk / NiceGUI</text>
-<text x="400" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 324+5 parity</text>
+<text x="400" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 391+5 parity</text>
 <rect x="540" y="410" width="220" height="145" rx="12" fill="#0f172a"/>
 <rect x="540" y="410" width="220" height="145" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="650" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">TypeScript Flavor</text>
 <text x="650" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">rxjs</text>
 <text x="650" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">React / DOM adapters</text>
-<text x="650" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 324+5 parity</text>
+<text x="650" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 391+5 parity</text>
 <rect x="790" y="410" width="220" height="145" rx="12" fill="#0f172a"/>
 <rect x="790" y="410" width="220" height="145" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="900" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">Swift Flavor</text>
 <text x="900" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Combine</text>
 <text x="900" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">SwiftUI flagship</text>
-<text x="900" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 324+5 parity</text>
+<text x="900" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 391+5 parity</text>
 <rect x="1040" y="410" width="220" height="145" rx="12" fill="#0f172a"/>
 <rect x="1040" y="410" width="220" height="145" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="1150" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">Rust Flavor</text>
-<text x="1150" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">rxrust facade</text>
+<text x="1150" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">VMx-owned facade</text>
 <text x="1150" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">UI-neutral core</text>
-<text x="1150" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 324+5 parity</text>
+<text x="1150" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 391+5 parity</text>
 <rect x="1300" y="410" width="240" height="145" rx="12" fill="#0f172a"/>
 <rect x="1300" y="410" width="240" height="145" rx="12" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="2"/>
 <text x="1420" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">CI Gates</text>

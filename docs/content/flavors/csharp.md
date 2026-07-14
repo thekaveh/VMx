@@ -1,6 +1,6 @@
 # 7.2. C\#
 
-## Snapshot
+## 7.2.1. Snapshot
 
 - Install: `dotnet add package VMx`
 - Publication status: package name is documented, but the core NuGet package is
@@ -9,13 +9,13 @@
 - Reactive primitive: `System.Reactive`
 - Naming idiom: PascalCase
 
-## What To Reach For
+## 7.2.2. What To Reach For
 
 C# is the most direct fit when you want .NET host integration, `ICommand`-style
 UI binding, or desktop MVVM with WPF or Avalonia. The README also documents
 companion assemblies for DI and notifications.
 
-## Serviced Collections
+## 7.2.3. Serviced Collections
 
 `ServicedObservableCollection<T>` is an `ObservableCollection<T>` with normal
 local `CollectionChanged` delivery plus equivalent messages on an optional
@@ -57,7 +57,7 @@ Local delivery is immediate and precedes optional hub publication; an existing
 hub transaction defers only the hub message. The keyed type still has no batch,
 `Count` notification channel, VM lifecycle interface, or item ownership.
 
-## Imperative Engine Bridge
+## 7.2.4. Imperative Engine Bridge
 
 `SubscribeValue` returns `IDisposable` and uses
 `EqualityComparer<TValue>.Default` unless an `IEqualityComparer<TValue>` is
@@ -79,20 +79,20 @@ The host adapter owns the handle. The callback receives `(current, previous)`;
 immediate delivery uses the initial value for both. The selector reevaluates
 after every property message from this fixed VM, not on every render frame.
 
-## Pointers
+## 7.2.5. Pointers
 
 - Flavor README:
   [langs/csharp/README.md](../../../langs/csharp/README.md)
 - Getting started guide:
-  [docs/getting-started/csharp.md](../../getting-started/csharp.md)
+  [Getting Started with VMx — C#](../getting-started/csharp.md)
 - Example portfolio:
   [Examples overview](../examples/index.md)
 - Flagship Notes Workspace:
   [Notes Workspace](../examples/notes-workspace.md)
 - Avalonia recipe:
-  [docs/integration/avalonia.md](../../integration/avalonia.md)
+  [Avalonia Integration](../integration/avalonia.md)
 
-## Current Example Coverage
+## 7.2.6. Current Example Coverage
 
 - Console: `examples/csharp/console/HelloVMx/`
 - WPF Todo app: `examples/csharp/wpf/TodoApp/`

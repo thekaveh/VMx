@@ -5,17 +5,17 @@ surfaces: C#, Python, TypeScript, Swift, and Rust. The conceptual shape stays
 aligned; naming, package workflow, and host integration follow the local
 language.
 
-## At A Glance
+## 7.1.1. At A Glance
 
-| Flavor     | Package status                                                          | Reactive primitive  | Naming idiom |
-| ---------- | ----------------------------------------------------------------------- | ------------------- | ------------ |
-| C#         | `VMx` package name reserved in docs; source-tree/local reference today  | `System.Reactive`   | PascalCase   |
-| Python     | `vmx` published on PyPI; source tree may be ahead of latest release     | `reactivex`         | snake_case   |
-| TypeScript | `@thekaveh/vmx` package name defined; source-tree/local workspace today | `rxjs`              | camelCase    |
-| Swift      | VMx 3.20.0 released through repository-root SwiftPM tags                | `Combine`           | camelCase    |
-| Rust       | `vmx-rs` crate in source tree; crates.io release not published          | VMx facade / rxrust | snake_case   |
+| Flavor     | Package status                                                          | Reactive primitive | Naming idiom |
+| ---------- | ----------------------------------------------------------------------- | ------------------ | ------------ |
+| C#         | `VMx` package name reserved in docs; source-tree/local reference today  | `System.Reactive`  | PascalCase   |
+| Python     | `vmx` published on PyPI; source tree may be ahead of latest release     | `reactivex`        | snake_case   |
+| TypeScript | `@thekaveh/vmx` package name defined; source-tree/local workspace today | `rxjs`             | camelCase    |
+| Swift      | VMx 3.20.0 released through repository-root SwiftPM tags                | `Combine`          | camelCase    |
+| Rust       | `vmx-rs` crate in source tree; crates.io release not published          | VMx-owned facade   | snake_case   |
 
-## Reading Path
+## 7.1.2. Reading Path
 
 - Start with the page for your flavor when you need install, package-status,
   and host-integration pointers.
@@ -24,7 +24,7 @@ language.
 - Use [Quickstart](../quickstart.md) when you want the smallest same-shape setup
   before diving into flavor-specific details.
 
-## Flavor Pages
+## 7.1.3. Flavor Pages
 
 - [C#](csharp.md)
 - [Python](python.md)
@@ -32,7 +32,7 @@ language.
 - [Swift](swift.md)
 - [Rust](rust.md)
 
-## Common Rules
+## 7.1.4. Common Rules
 
 - All five full-parity source flavors target the same VM family model,
   lifecycle semantics, and 391-ID library conformance catalog.

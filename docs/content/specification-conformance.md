@@ -3,7 +3,7 @@
 The VMx behavior contract starts in `spec/`, not in any single language
 implementation.
 
-## Source Of Truth
+## 10.1. Source Of Truth
 
 - Spec index:
   [spec/README.md](../../spec/README.md)
@@ -12,14 +12,14 @@ implementation.
 - Compatibility matrix:
   [compatibility-matrix.md](../../compatibility-matrix.md)
 
-## What Lives In The Spec
+## 10.2. What Lives In The Spec
 
 - 24 numbered chapters from `00-overview.md` through `23-async-resource-vm.md`
 - ADRs describing behavior and design decisions
 - shared JSON fixtures consumed by the language flavors
 - the cross-language conformance catalog in `spec/12-conformance.md`
 
-## Conformance Model
+## 10.3. Conformance Model
 
 The current catalog contains:
 
@@ -30,14 +30,14 @@ The current catalog contains:
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).
 
-## How The Repo Enforces It
+## 10.4. How The Repo Enforces It
 
 - Each language flavor carries a conformance suite under its own tree.
 - `tools/check-conformance-coverage.py` enforces full library coverage across
   C#, Python, TypeScript, Swift, and Rust.
 - The examples workflows enforce the separate flagship scenario contract.
 
-## Consumer Adapter Suites
+## 10.5. Consumer Adapter Suites
 
 VMx TypeScript 3.21.0 adds the optional
 `@thekaveh/vmx/conformance` entry point. It validates and executes
@@ -49,7 +49,7 @@ The canonical schema is
 `spec/schemas/consumer-conformance-v1.schema.json`. It is a non-normative,
 independently versioned adapter contract governed by ADR-0102.
 
-### Discovery And Gap Table
+### 10.5.1. Discovery And Gap Table
 
 VMx's fixtures, the conformance catalog, and DayDreams' consumer files have
 different responsibilities. Adapter v1 standardizes only their executable
@@ -70,7 +70,7 @@ boundary.
 | YAML model fields | None                                                              | `vm`, `model`, `types`, `children`, `state`, `dependencies`, `derived`, `lifecycle`, `conformance` | Discovery input only; not adapter-schema fields                        |
 | Code generation   | None                                                              | Swift generation described as a future goal                                                        | Out of scope                                                           |
 
-### Artifact Field Inventory
+### 10.5.2. Artifact Field Inventory
 
 The discovery used the following concrete fields. DayDreams fields are pinned
 to consumer commit `8d314dd`; they are evidence, not VMx-owned names.
@@ -89,7 +89,7 @@ to consumer commit `8d314dd`; they are evidence, not VMx-owned names.
 | DayDreams GalleryVM JSON         | `entriesFixture`; `cases[]` with `id`, `description`, `when.op`, `when.args`, and domain-specific `then` fields                                       | Factory/fixture adaptation is feasible but not included                                                         |
 | DayDreams WorldVM JSON           | `sceneFixture`, `cases`, `streamingCases`; cases use `id`, optional `description`, `assert`/`equals` or domain-specific `world`, `when`, and `then`   | Multiple setup modes and domain serializers remain consumer-owned; not included                                 |
 
-### Suite Shape
+### 10.5.3. Suite Shape
 
 Unknown structural fields fail validation. Fixtures, invocation arguments,
 expected state, and normalized messages accept arbitrary JSON values.
@@ -129,7 +129,7 @@ expected state, and normalized messages accept arbitrary JSON values.
 present `null`. Object key order is irrelevant; array and message order are
 exact. `assert-messages` drains the adapter once for each assertion.
 
-### Factory And Runner
+### 10.5.4. Factory And Runner
 
 The runner owns sequencing and teardown; the consumer owns construction,
 operation dispatch, JSON snapshots, and message normalization.
@@ -168,7 +168,7 @@ cause.
 command fixture row. The existing CMD-007 test and all five-flavor conformance
 coverage remain in place.
 
-### Non-Goals And Follow-Up Gate
+### 10.5.5. Non-Goals And Follow-Up Gate
 
 Adapter v1 does not parse YAML, define a VMx viewmodel dialect, generate tests,
 or generate Swift. A Swift or code-generation proposal needs a separate ADR,
@@ -176,7 +176,7 @@ successful use by two independent consumers, a native Swift factory without
 TypeScript assumptions, and a maintained domain-type mapping that makes
 generation safer than manual implementation.
 
-## Test Marker Grammar
+## 10.6. Test Marker Grammar
 
 The coverage checker recognizes one intentional marker form per flavor:
 
@@ -195,7 +195,7 @@ unattached markers, and markers in block-commented tests are ignored. Duplicate
 markers are one set-based coverage claim. In required mode, a missing Rust ID is
 listed under `MISSING` and fails the coverage command.
 
-## Practical Reading Path
+## 10.7. Practical Reading Path
 
 1. Read `spec/README.md` for chapter ownership and release history.
 1. Read the primitive pages on this site for a faster conceptual map.

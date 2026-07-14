@@ -1,6 +1,6 @@
 # 6.2.8.4. NotificationVM
 
-## When To Use It
+## 6.2.8.4.1. When To Use It
 
 Use `NotificationVM` when a host wants to render pending notifications from
 `INotificationHub` as bindable view state with auto-dismiss timing.
@@ -9,7 +9,7 @@ This is a render-side VM, not the notification hub itself. In C#, the shipped
 type lives in the `VMx.Notifications` package/namespace rather than the core
 `VMx` assembly.
 
-## Shape And Ownership
+## 6.2.8.4.2. Shape And Ownership
 
 `NotificationVM` wraps one `Notification` value and owns:
 
@@ -21,7 +21,7 @@ type lives in the `VMx.Notifications` package/namespace rather than the core
 It is usually created by a higher-level notifications list VM that subscribes to
 `INotificationHub.Pending`.
 
-## Lifecycle And Messaging
+## 6.2.8.4.3. Lifecycle And Messaging
 
 The hub still owns the source notification state. `NotificationVM` adds the
 render-time lifecycle:
@@ -35,7 +35,7 @@ render-time lifecycle:
 Timer, subscription, command, and property-stream teardown happens at most
 once under the [Disposal Contract](../../disposal-contract.md).
 
-## Cross-Language Surface
+## 6.2.8.4.4. Cross-Language Surface
 
 | Concept          | C#               | Python            | TypeScript       | Swift            |
 | ---------------- | ---------------- | ----------------- | ---------------- | ---------------- |
@@ -43,7 +43,7 @@ once under the [Disposal Contract](../../disposal-contract.md).
 | Lifespan default | 60 s             | 60 s              | 60 s             | 60 s             |
 | Dismiss command  | `DismissCommand` | `dismiss_command` | `dismissCommand` | `dismissCommand` |
 
-## Example
+## 6.2.8.4.5. Example
 
 The Notes Workspace notifications feature projects pending notifications into
 render VMs:
@@ -104,14 +104,14 @@ Those VMs subscribe to `Pending`, build a bounded visible list, and let each
     _visible.append(vm)
     ```
 
-## Common Pitfalls
+## 6.2.8.4.6. Common Pitfalls
 
 - Treating the render VM as the source of truth. The hub owns pending state.
 - Forgetting to inject a deterministic scheduler in tests.
 - Using `NotificationVM` for prompts that require explicit approve/reject
   actions. That is `ConfirmationVM`.
 
-## Related Primitives
+## 6.2.8.4.7. Related Primitives
 
 - [ConfirmationVM](confirmation-vm.md)
 - [Services, Messages & Dispatching](../../services-messages-dispatching.md)

@@ -5,9 +5,10 @@ Thanks for your interest in contributing!
 ## 1. Workflow
 
 1. Open an issue describing the change before opening a PR for anything non-trivial.
-2. Branch from `main`. Use a descriptive branch name (`feat/...`, `fix/...`, `docs/...`).
+2. Branch from `develop`. Use a descriptive branch name (`feat/...`, `fix/...`, `docs/...`).
 3. Run the relevant test suite locally before pushing.
-4. Open a PR. CI must be green and at least one approval is required.
+4. Open a PR to `develop`. CI must be green and at least one approval is required.
+5. Maintainers promote `develop` to protected `main` through a separate PR.
 
 ## 2. Per-language setup
 
@@ -58,17 +59,32 @@ macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
 is not available on Linux. See `langs/swift/README.md` §5 for the full
 conformance matrix; v3.1.0 is at full library parity.
 
-### 2.5 Cross-cutting checks (conformance + example-app contracts)
+### 2.5 Rust
+
+```bash
+cd langs/rust
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+cargo doc --no-deps
+cargo package --allow-dirty
+```
+
+Rust's minimum supported toolchain is 1.88. Use `--locked` in CI/release
+contexts and keep the committed example lockfiles current.
+
+### 2.6 Cross-cutting checks (conformance + example-app contracts)
 
 Two CI-only workflows enforce repo-wide invariants. To run the same
 checks locally before pushing:
 
 ```bash
-# Cross-language conformance coverage (csharp / python / typescript / swift).
+# Cross-language library conformance coverage (all five flavors).
 # Mirrors .github/workflows/conformance.yml. THEME-001..005 live in
 # example apps, not language libraries, so they're intentionally excluded.
 uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript --require swift
+    --require csharp --require python --require typescript --require swift \
+    --require rust
 
 # Pure-VM contract + flagship example-app parity
 # (Avalonia / Textual / React / SwiftUI).
@@ -93,9 +109,10 @@ Behavior changes start in `spec/`. The rules are:
 - A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
   in **every** active language flavor in the same PR. The CI check looks for
   `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`
-  (C#), `describe("XXX-NNN", ...)` (TypeScript), and Swift doc / line comments
+  (C#), `describe("XXX-NNN", ...)` (TypeScript), Swift doc / line comments
   where the ID is the first token after the marker (for example
-  `/// XXX-NNN - ...`) in `langs/swift/Tests/VMxTests`.
+  `/// XXX-NNN - ...`) in `langs/swift/Tests/VMxTests`, and equivalent leading
+  doc comments on Rust `#[test]` functions under `langs/rust/tests/conformance`.
 
 ### 3.1 Bypass
 
@@ -107,60 +124,39 @@ See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 
 ## 4. Releases and tagging
 
-VMx uses **three coordinated tag families** at every release, all pointing to the
-same commit:
-
-| Tag family            | Format                  | What it pins                                       |
-| --------------------- | ----------------------- | -------------------------------------------------- |
-| Repo-wide             | `vX.Y.Z`                | The whole repository at this version.              |
-| Per-language          | `<lang>-vX.Y.Z`         | A specific language flavor at this version.        |
-| Spec                  | `spec-vX.Y.Z`           | The language-neutral specification at this version. |
-
-`<lang>` is one of: `csharp`, `python`, `typescript`, `swift`. The Swift family
-was added in v2.4.0; releases prior to v2.4.0 only have the first three.
+Each flavor versions and releases independently. Operational tags use
+`<lang>-vX.Y.Z`, where `<lang>` is `csharp`, `python`, `typescript`, `swift`, or
+`rust`. A spec tag uses `spec-vX.Y.Z`. Swift additionally requires a semantic
+`vX.Y.Z` tag for SwiftPM, paired with its `swift-vX.Y.Z` operational tag.
 
 ### 4.1 Why all three families
 
-- **Submodule consumers** (e.g., projects vendoring VMx as `vendor/vmx/`) expect a
-  plain `vX.Y.Z` tag to pin against. Without it `git checkout v2.1.0` fails.
-- **Per-language consumers** pinning to a specific flavor (e.g., a Python project
-  that wants `python-v2.1.0` without caring about the C# release cadence) get a
-  canonical tag for their flavor.
-- **Spec consumers** (e.g., third-party language implementations) can pin to a
-  `spec-vX.Y.Z` independent of any flavor's implementation pace.
+- A flavor tag starts only that flavor's release jobs.
+- Package versions do not need to match one another or the spec's minor/patch
+  version; each package declares the minimum spec version it implements.
+- A spec major bump requires a major bump in every active flavor.
+- Tags and registry versions are immutable after publication.
 
 ### 4.2 Cutting a release
 
-At every release, the maintainer creates **all** of:
+Start from a clean, verified `origin/main`, prove the intended tag and public
+version are unused, then follow the flavor-specific runbook:
 
-```bash
-# Example for v2.4.0 (six tags from this release onward; v2.3.0 and earlier
-# only had five — no swift-v* tag).
-git tag spec-v2.4.0       <sha>   # spec/VERSION matches X.Y.Z
-git tag csharp-v2.4.0     <sha>
-git tag python-v2.4.0     <sha>
-git tag typescript-v2.4.0 <sha>
-git tag swift-v2.4.0      <sha>   # added in v2.4.0 — Swift's first release
-git tag v2.4.0            <sha>   # repo-wide
+- [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md)
+- [`langs/python/RELEASING.md`](langs/python/RELEASING.md)
+- [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md)
+- [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md)
+- [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md)
 
-git push origin spec-v2.4.0 csharp-v2.4.0 python-v2.4.0 typescript-v2.4.0 \
-    swift-v2.4.0 v2.4.0
-```
-
-All six tags must point to the same SHA — the commit where every flavor's
-manifest declares X.Y.Z and `spec/VERSION` reads X.Y.Z.
-
-A companion package (e.g., `VMx.Notifications`) versions independently per
-ADR-0009 / ADR-0013 and does not get its own family tag — its version lives in
-its package manifest and in [`compatibility-matrix.md`](compatibility-matrix.md).
+Registry-backed releases require their protected GitHub environment, trusted
+publisher/OIDC policy, public artifact verification, and a fresh exact-version
+consumer. Never create or move release tags from `develop`.
 
 ### 4.3 Source-version invariant
 
-The source on `main` MUST always declare the version that the next release will
-ship. Do not let source claim `X.Y.Z` if no `vX.Y.Z` tag exists at the
-corresponding SHA — that confuses downstream consumers who try to `git checkout
-vX.Y.Z`. Either tag immediately or revert the source manifests to the previous
-released version.
+`main` may contain an in-development source version before publication. The
+compatibility matrix must distinguish source status from public package status,
+and release automation must verify exact tag/package agreement before upload.
 
 ## 5. Code of conduct
 

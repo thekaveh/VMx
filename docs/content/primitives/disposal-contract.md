@@ -10,7 +10,7 @@ This rule removes the need for host-side “already disposed” flags. It does n
 make all later API calls behave alike: each type keeps its documented
 post-dispose behavior.
 
-## Modeled Assignment After Disposal
+## 6.8.1. Modeled Assignment After Disposal
 
 Modeled assignment has one portable terminal rule across all five flavors. If
 an assignment begins after the VM is disposed, it returns before candidate
@@ -30,7 +30,7 @@ tasks, and other application operations when their resources are no longer
 needed; the VM guard prevents late state admission but does not replace
 resource cancellation.
 
-## The Seven Disposal Families
+## 6.8.2. The Seven Disposal Families
 
 | Family                        | Representative surfaces                                             | Cross-cutting ID | Existing detailed coverage                        |
 | ----------------------------- | ------------------------------------------------------------------- | ---------------- | ------------------------------------------------- |
@@ -46,7 +46,7 @@ Only types already documented as thread-safe promise racing disposal. Those
 types atomically claim terminal work. Single-threaded flavors and helpers still
 guarantee repeated and re-entrant disposal on their supported execution model.
 
-## Ownership Rules
+## 6.8.3. Ownership Rules
 
 - Every VM exposes its injected message hub as a read-only baseline member. The
   hub is shared infrastructure: VM disposal never disposes it.
@@ -72,7 +72,7 @@ guarantee repeated and re-entrant disposal on their supported execution model.
   value on disposal. A loader that completes late cannot publish or become
   current; its acquired value is cleaned exactly once.
 
-## C# Inventory
+## 6.8.4. C# Inventory
 
 | Public disposable surface                                                                       | Second dispose                   | Completion / terminal signal                                     | Owned teardown                                                                      | Permitted post-dispose behavior                                                                     |
 | ----------------------------------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -94,7 +94,7 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 | Public batch-return handles from list/composite/group operations                                | No-op                            | At most one reset at outer batch exit                            | One batch depth claim                                                               | Handle has no other behavior                                                                        |
 | `DiscriminatorVM<TKey>`                                                                         | No-op                            | Active-change stream completes once                              | Stream subject                                                                      | Reads remain; later mutations are inert                                                             |
 
-## Python Inventory
+## 6.8.5. Python Inventory
 
 | Public disposable surface                                                              | Second dispose                   | Completion / terminal signal                      | Owned teardown                                                | Permitted post-dispose behavior                                                |
 | -------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -114,7 +114,7 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 | `BatchUpdateHandle`                                                                    | No-op                            | At most one reset at outer batch exit             | One batch depth claim                                         | Handle has no other behavior                                                   |
 | `DiscriminatorVM`                                                                      | No-op                            | Active-change stream completes once               | Stream subject                                                | Reads remain; later mutations are inert                                        |
 
-## TypeScript Inventory
+## 6.8.6. TypeScript Inventory
 
 | Public disposable surface                                                              | Second dispose                   | Completion / terminal signal                       | Owned teardown                                              | Permitted post-dispose behavior                                       |
 | -------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -133,7 +133,7 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 | `BatchUpdateHandle` / `[Symbol.dispose]`                                               | No-op                            | At most one reset at outer batch exit              | One batch depth claim                                       | Handle has no other behavior                                          |
 | `DiscriminatorVM`                                                                      | No-op                            | Active-change stream completes once                | Stream subject                                              | Reads remain; later mutations are inert                               |
 
-## Swift Inventory
+## 6.8.7. Swift Inventory
 
 | Public disposable surface                                                              | Second dispose                   | Completion / terminal signal                           | Owned teardown                                              | Permitted post-dispose behavior                                       |
 | -------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -156,7 +156,7 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 VMx disposal member in Swift; they are therefore outside this invariant's
 public-disposable inventory.
 
-## Rust Inventory
+## 6.8.8. Rust Inventory
 
 | Public disposable surface                                                                                    | Second dispose                      | Completion / terminal signal                          | Owned teardown                                                 | Permitted post-dispose behavior                                                             |
 | ------------------------------------------------------------------------------------------------------------ | ----------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -177,7 +177,7 @@ Rust types without a public disposal member—such as `PagedComposition`,
 Adding such a surface is a separate API decision and would require its own
 inventory row and conformance coverage.
 
-## Practical Teardown Pattern
+## 6.8.9. Practical Teardown Pattern
 
 Register every real teardown path and call disposal unconditionally:
 

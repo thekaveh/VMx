@@ -1,11 +1,11 @@
 # 6.7. Builders, Collections & Tree Utilities
 
-## When To Use It
+## 6.7.1. When To Use It
 
 Use this area when the question is how to construct primitives, how to expose
 observable collections, or how to traverse an existing VM tree.
 
-## Shape And Ownership
+## 6.7.2. Shape And Ownership
 
 Three groups live here:
 
@@ -23,7 +23,7 @@ The core `CompositeVM` / `GroupVM` child surface is a different concern. Both
 implement the [VM Collection Contract](vm-collection-contract.md), including
 atomic identity-preserving move; selection is a composite-only extension.
 
-## Lifecycle And Messaging
+## 6.7.3. Lifecycle And Messaging
 
 The main operational rules:
 
@@ -43,7 +43,7 @@ have type-specific terminal behavior cataloged in the
 [Disposal Contract](disposal-contract.md). Serviced collections remain
 non-owning and never dispose their items.
 
-## Dynamic Aggregate Change Stream
+## 6.7.4. Dynamic Aggregate Change Stream
 
 Use `AggregateChangeStream<T>` when one host adapter must invalidate for both a
 live collection's membership and a selected local stream from every current
@@ -164,7 +164,7 @@ different from [ADR-0095](../../../spec/ADRs/0095-cross-flavor-subscribe-value.m
 `subscribeValue`, which reevaluates selected state for one fixed sender and
 does not track changing collection membership.
 
-## Choosing A Collection
+## 6.7.5. Choosing A Collection
 
 | Need                                                                       | Choose                                           |
 | -------------------------------------------------------------------------- | ------------------------------------------------ |
@@ -187,7 +187,7 @@ child-collection lifecycle interfaces, or owns its items. A `GroupVM` or
 `CompositeVM` child collection does own membership and lifecycle; use it when
 contained values are children rather than caller-owned data.
 
-## Cross-Language Surface
+## 6.7.6. Cross-Language Surface
 
 | Primitive                                                      | Purpose                                          |
 | -------------------------------------------------------------- | ------------------------------------------------ |
@@ -199,7 +199,7 @@ contained values are children rather than caller-owned data.
 | `PagedComposition<TVM>` / `TokenPagedComposition<TVM, TToken>` | paging helpers                                   |
 | `walk`, `find`, `walk_expanded`                                | tree traversal helpers                           |
 
-## Example
+## 6.7.7. Example
 
 Representative traversal contract:
 
@@ -210,7 +210,7 @@ Representative traversal contract:
 On the collection side, the Notes Workspace note lists and notifications layers
 are practical references for observable-list and paging composition.
 
-### Serviced mutation contract
+### 6.7.7.1. Serviced mutation contract
 
 The complete mutation surface is add, remove by value, remove by index,
 replace, replace all, move, and clear. See
@@ -257,7 +257,7 @@ read the final state. Delivery is immediate and non-batched. Removing,
 replacing, resetting, moving, or clearing never disposes or reparents an item;
 the caller keeps lifecycle ownership.
 
-### Keyed serviced mutation contract
+### 6.7.7.2. Keyed serviced mutation contract
 
 `KeyedServicedObservableCollection` preserves the complete ordered mutation
 surface above and adds one projected, unique key per membership. Construction
@@ -318,7 +318,7 @@ ordered positions still makes middle insertion, deletion, movement, and the
 associated index repair O(n); keyed deletion removes the caller's extra scan,
 not the ordered-store shift.
 
-### ObservableList whole-list refresh
+### 6.7.7.3. ObservableList whole-list refresh
 
 Use the flavor-idiomatic `replaceAll` / `replace_all` / `ReplaceAll` when one
 semantic refresh supplies a complete snapshot. VMx materializes the input
@@ -332,7 +332,7 @@ into the outermost Reset. If the batch body fails after replacement, the scope
 still closes, publishes that completed mutation once, and rethrows the original
 failure. This is list-local batching; it does not suppress VM container events.
 
-### NNx Studio pilot result
+### 6.7.7.4. NNx Studio pilot result
 
 A temporary pilot against NNx Studio commit
 `d304336799d4f377c9dd34a465072dd697a8fd7b` replaced the run-history refresh's
@@ -342,7 +342,7 @@ observed one Reset instead of the former Reset plus 13 add events: 14
 adapter-visible collection notifications became one. The pilot was validation
 only and was not pushed to NNx Studio.
 
-## Common Pitfalls
+## 6.7.8. Common Pitfalls
 
 - Mutating a builder and expecting in-place changes. Builder setters return new
   instances.
@@ -361,7 +361,7 @@ only and was not pushed to NNx Studio.
 - Rewriting custom tree walkers when the built-in helpers already express the
   intended traversal semantics.
 
-## Related Primitives
+## 6.7.9. Related Primitives
 
 - [Composite Family](viewmodel-families/composite-family.md)
 - [Hierarchical Family](viewmodel-families/hierarchical-family.md)

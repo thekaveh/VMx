@@ -1,6 +1,6 @@
 # 6.2.5. Composite Family
 
-## When To Use It
+## 6.2.5.1. When To Use It
 
 Use `CompositeVM<VM>` when the parent owns an ordered homogeneous child list and
 one child may be current. Tabs, note lists, result lists, and other "collection
@@ -19,7 +19,7 @@ construction instead of being provided directly.
   <a href="../../../assets/diagrams/composite-family.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.5.2. Shape And Ownership
 
 `CompositeVM` adds one core concept on top of a collection container:
 
@@ -33,7 +33,7 @@ Composite implements the selectable extension of the shared
 [VM Collection Contract](../vm-collection-contract.md). Its atomic move keeps
 the identical child, parent, lifecycle, subscriptions, and `Current` reference.
 
-## Lifecycle And Messaging
+## 6.2.5.3. Lifecycle And Messaging
 
 The composite owns both child lifecycle and selection messaging:
 
@@ -46,7 +46,7 @@ The composite owns both child lifecycle and selection messaging:
 - a non-batched move emits one move event with both indices; a batched move is
   represented by the outer reset
 
-## Cross-Language Surface
+## 6.2.5.4. Cross-Language Surface
 
 | Concept               | C#                   | Python                 | TypeScript             | Swift                  |
 | --------------------- | -------------------- | ---------------------- | ---------------------- | ---------------------- |
@@ -55,7 +55,7 @@ The composite owns both child lifecycle and selection messaging:
 | Selection slot        | `Current`            | `current`              | `current`              | `current`              |
 | Initial selector hook | `Current(selector)`  | `current(selector)`    | `current(selector)`    | `current(selector)`    |
 
-## Example
+## 6.2.5.5. Example
 
 === "C#"
 
@@ -100,7 +100,7 @@ The composite owns both child lifecycle and selection messaging:
         .build()
     ```
 
-## Common Pitfalls
+## 6.2.5.6. Common Pitfalls
 
 - Using a composite for recursive trees. `HierarchicalVM` carries the tree
   semantics directly.
@@ -110,7 +110,7 @@ The composite owns both child lifecycle and selection messaging:
 - Updating selection predicates without wiring current-changed triggers into
   commands that depend on selection.
 
-## Related Primitives
+## 6.2.5.7. Related Primitives
 
 - [Group Family](group-family.md)
 - [Hierarchical Family](hierarchical-family.md)

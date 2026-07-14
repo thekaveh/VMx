@@ -19,14 +19,14 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
   </div>
 </div>
 
-## Why VMx
+## 1.1. Why VMx
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
 - Every flavor keeps the same conceptual shape while following native naming conventions.
 - The conformance catalog keeps 391 library IDs aligned across all five
   full-parity source flavors, plus 5 scenario IDs for flagship examples.
 
-## Start Here
+## 1.2. Start Here
 
 - Read [Installation](installation.md) for source-tree status and package availability.
 - Use [Quickstart](quickstart.md) for the smallest multi-language setup.

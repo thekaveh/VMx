@@ -1,6 +1,6 @@
 # 6.2.1. ViewModel Families
 
-## When To Use It
+## 6.2.1.1. When To Use It
 
 The core VM hierarchy stays intentionally small. Most design choices reduce to
 one question: what kind of ownership and navigation relationship does this VM
@@ -20,7 +20,7 @@ page.
   <a href="../../assets/diagrams/viewmodel-families.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.1.2. Shape And Ownership
 
 The family map is the quickest ownership comparison:
 
@@ -33,7 +33,7 @@ The family map is the quickest ownership comparison:
 | [Hierarchical](hierarchical-family.md)               | Recursive tree                        | Yes            | Consumer-defined    | Recursive homogeneous      |
 | [Forwarding & Wrapper](forwarding-wrapper-family.md) | Instrumentation or selective override | Wraps inner VM | Inherited           | Same as wrapped VM         |
 
-## Lifecycle And Messaging
+## 6.2.1.3. Lifecycle And Messaging
 
 - Use the smallest primitive that matches the ownership model.
 - Prefer composition over subclassing; the shipped VM types are designed to be
@@ -49,7 +49,7 @@ detail.
 Every family that exposes disposal follows one shared at-most-once rule; parent
 cascades remain depth-first. See the [Disposal Contract](../disposal-contract.md).
 
-## Cross-Language Surface
+## 6.2.1.4. Cross-Language Surface
 
 The conceptual family map is shared across all five source flavors. The main
 cross-language differences are the usual casing rules and the modeled-type
@@ -58,7 +58,7 @@ spellings called out on each concrete page.
 This index intentionally stays above the API level: it points you to the right
 family first and leaves method and builder details to the leaf pages.
 
-## Example
+## 6.2.1.5. Example
 
 A practical decision path for common cases:
 
@@ -87,7 +87,7 @@ Use `HierarchicalVM` when the recursive VM tree is itself the right model. Use
 the Notes Workspace READMEs and parity tables when you want the current
 flat-adapter example shape.
 
-## Common Pitfalls
+## 6.2.1.6. Common Pitfalls
 
 - Choosing a larger container primitive before checking whether a leaf or
   simpler list shape already fits.
@@ -96,7 +96,7 @@ flat-adapter example shape.
 - Reading the Notes Workspace examples as the only allowed shape rather than one
   worked example portfolio.
 
-## Related Primitives
+## 6.2.1.7. Related Primitives
 
 - [Specialized ViewModels & Coordinators](specialized/index.md)
 - [Command Families](../command-families.md)
