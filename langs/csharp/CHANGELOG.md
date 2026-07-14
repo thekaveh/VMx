@@ -8,6 +8,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
 - Container construction, destruction, and reconstruction now wait for
   background-dispatched child lifecycle transitions before the parent settles,
   including when a null message hub is injected.

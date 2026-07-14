@@ -131,6 +131,33 @@ public class COL_024_to_031_TokenPagedCompositionTests
     }
 
     [Fact]
+    public async Task Refresh_Supersedes_An_Older_InFlight_LoadMore()
+    {
+        var pages = new[]
+        {
+            new TaskCompletionSource<TokenPage<int, string>>(
+                TaskCreationOptions.RunContinuationsAsynchronously),
+            new TaskCompletionSource<TokenPage<int, string>>(
+                TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var call = -1;
+        var sut = new TokenPagedComposition<int, string>(
+            _ => pages[Interlocked.Increment(ref call)].Task);
+
+        var load = sut.LoadMoreCommand.ExecuteAsync();
+        var refresh = sut.RefreshCommand.ExecuteAsync();
+        pages[1].SetResult(new TokenPage<int, string>([9], "fresh"));
+        await refresh;
+        sut.Items.Should().Equal(9);
+
+        pages[0].SetResult(new TokenPage<int, string>([1], "stale"));
+        await load;
+
+        sut.Items.Should().Equal(9);
+        sut.CurrentToken.Should().Be("fresh");
+    }
+
+    [Fact]
     public async Task Refresh_Does_Not_Mutate_Or_Notify_When_Disposed_During_Fetch()
     {
         var page = new TaskCompletionSource<TokenPage<int, string>>(

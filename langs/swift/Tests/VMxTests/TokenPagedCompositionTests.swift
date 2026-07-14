@@ -105,6 +105,44 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertFalse(sut.hasMore)
     }
 
+    func testRefreshSupersedesAnOlderInFlightLoadMore() async throws {
+        let gate = NSLock()
+        var call = 0
+        var loadContinuation: CheckedContinuation<([Int], String?), Error>?
+        var refreshContinuation: CheckedContinuation<([Int], String?), Error>?
+        let loadStarted = expectation(description: "loadMore fetch started")
+        let refreshStarted = expectation(description: "refresh fetch started")
+        let sut = TokenPagedComposition<Int, String>(fetchNext: { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                gate.lock()
+                defer { gate.unlock() }
+                if call == 0 {
+                    loadContinuation = continuation
+                    loadStarted.fulfill()
+                } else {
+                    refreshContinuation = continuation
+                    refreshStarted.fulfill()
+                }
+                call += 1
+            }
+        })
+
+        let load = Task { try await sut.loadMoreCommand.executeAsync() }
+        await fulfillment(of: [loadStarted], timeout: 2.0)
+        let refresh = Task { try await sut.refreshCommand.executeAsync() }
+        await fulfillment(of: [refreshStarted], timeout: 2.0)
+
+        refreshContinuation?.resume(returning: ([9], "fresh"))
+        try await refresh.value
+        XCTAssertEqual(sut.items, [9])
+
+        loadContinuation?.resume(returning: ([1], "stale"))
+        try await load.value
+
+        XCTAssertEqual(sut.items, [9])
+        XCTAssertEqual(sut.currentToken, "fresh")
+    }
+
     func testRefreshDoesNotMutateOrNotifyWhenDisposedDuringFetch() async throws {
         var continuation: CheckedContinuation<([Int], String?), Error>?
         let fetchStarted = expectation(description: "refresh fetch started")

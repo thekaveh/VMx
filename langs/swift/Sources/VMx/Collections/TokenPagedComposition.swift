@@ -16,6 +16,7 @@ public final class TokenPagedComposition<TVM, TToken> {
     private var _items: [TVM] = []
     private var _currentToken: TToken?
     private var loadedOnce = false
+    private var operationGeneration = 0
     private var disposed = false
     private let collectionChangedSubject = PassthroughSubject<CollectionChangedEvent, Never>()
     private let propertyChangedSubject = PassthroughSubject<String, Never>()
@@ -62,12 +63,16 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     private func loadMore() async throws {
-        let start = stateQueue.sync { (disposed: disposed, token: _currentToken) }
+        let start = stateQueue.sync { () -> (disposed: Bool, token: TToken?, generation: Int) in
+            guard !disposed else { return (true, nil, operationGeneration) }
+            operationGeneration += 1
+            return (false, _currentToken, operationGeneration)
+        }
         guard !start.disposed else { return }
 
         let page = try await fetchNext(start.token)
         let itemsToConstruct = stateQueue.sync { () -> [TVM]? in
-            guard !disposed else { return nil }
+            guard !disposed, start.generation == operationGeneration else { return nil }
             _items.append(contentsOf: page.0)
             _currentToken = page.1
             loadedOnce = true
@@ -79,9 +84,15 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     private func refresh() async throws {
+        let generation = stateQueue.sync { () -> Int? in
+            guard !disposed else { return nil }
+            operationGeneration += 1
+            return operationGeneration
+        }
+        guard let generation else { return }
         let page = try await fetchNext(nil)
         let outcome = stateQueue.sync { () -> (resetItems: [TVM]?, notifyProperties: Bool) in
-            guard !disposed else { return (nil, false) }
+            guard !disposed, generation == operationGeneration else { return (nil, false) }
             let head = Array(_items.prefix(page.0.count))
             if pagesEqual(page.0, head) {
                 _currentToken = page.1

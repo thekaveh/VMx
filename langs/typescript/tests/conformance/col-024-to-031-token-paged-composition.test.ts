@@ -102,6 +102,25 @@ describe("COL-027", () => {
     expect(sut.hasMore).toBe(false);
   });
 
+  it("refresh supersedes an older in-flight loadMore", async () => {
+    const resolvers: Array<(page: { items: number[]; nextToken: string | null }) => void> = [];
+    const sut = new TokenPagedComposition<number, string>(() =>
+      new Promise((resolve) => { resolvers.push(resolve); }),
+    );
+
+    const load = sut.loadMoreCommand.executeAsync();
+    const refresh = sut.refreshCommand.executeAsync();
+    resolvers[1]!({ items: [9], nextToken: "fresh" });
+    await refresh;
+    expect(sut.items).toEqual([9]);
+
+    resolvers[0]!({ items: [1], nextToken: "stale" });
+    await load;
+
+    expect(sut.items).toEqual([9]);
+    expect(sut.currentToken).toBe("fresh");
+  });
+
   it("refresh does not mutate or notify after disposal during fetch", async () => {
     let resolvePage!: (page: { items: number[]; nextToken: string | null }) => void;
     const pending = new Promise<{ items: number[]; nextToken: string | null }>((resolve) => {

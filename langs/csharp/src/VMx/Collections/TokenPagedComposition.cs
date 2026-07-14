@@ -29,6 +29,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     private readonly Subject<Unit> _commandChanged = new();
     private TToken? _currentToken;
     private bool _loadedOnce;
+    private long _operationGeneration;
     private bool _disposed;
 
     /// <summary>
@@ -77,10 +78,18 @@ public sealed class TokenPagedComposition<TVM, TToken> :
 
     private async Task LoadMoreAsync()
     {
-        var page = await _fetchNext(_currentToken).ConfigureAwait(false);
+        TToken? token;
+        long generation;
         lock (_gate)
         {
             if (_disposed) return;
+            generation = ++_operationGeneration;
+            token = _currentToken;
+        }
+        var page = await _fetchNext(token).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (_disposed || generation != _operationGeneration) return;
             _items.AddRange(page.Items);
             ConstructIfNeeded(page.Items);
             _currentToken = page.NextToken;
@@ -91,10 +100,16 @@ public sealed class TokenPagedComposition<TVM, TToken> :
 
     private async Task RefreshAsync()
     {
-        var page = await _fetchNext(default).ConfigureAwait(false);
+        long generation;
         lock (_gate)
         {
             if (_disposed) return;
+            generation = ++_operationGeneration;
+        }
+        var page = await _fetchNext(default).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (_disposed || generation != _operationGeneration) return;
             var head = _items.Take(page.Items.Count).ToArray();
             if (_pagesEqual(page.Items, head))
             {

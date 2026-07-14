@@ -105,6 +105,36 @@ async def test_COL_027_refresh_clears_and_refetches_first_page() -> None:
     assert sut.has_more is False
 
 
+async def test_refresh_supersedes_an_older_in_flight_load_more() -> None:
+    entered = [asyncio.Event(), asyncio.Event()]
+    release = [asyncio.Event(), asyncio.Event()]
+    calls = 0
+
+    async def fetch(token: str | None) -> tuple[list[str], str | None]:
+        nonlocal calls
+        index = calls
+        calls += 1
+        entered[index].set()
+        await release[index].wait()
+        return ([f"page-{index}"], f"token-{index}")
+
+    sut = TokenPagedComposition(fetch_next=fetch)
+    load = asyncio.create_task(sut.load_more_command.execute_async())
+    await entered[0].wait()
+
+    refresh = asyncio.create_task(sut.refresh_command.execute_async())
+    await entered[1].wait()
+    release[1].set()
+    await refresh
+    assert sut.items == ["page-1"]
+
+    release[0].set()
+    await load
+
+    assert sut.items == ["page-1"]
+    assert sut.current_token == "token-1"
+
+
 async def test_refresh_does_not_mutate_or_notify_when_disposed_during_fetch() -> None:
     page: asyncio.Future[tuple[list[int], str | None]] = asyncio.Future()
 

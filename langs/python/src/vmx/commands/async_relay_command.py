@@ -117,14 +117,14 @@ class AsyncRelayCommand:
             self._cancel_requested = False
             self._is_executing = True
         self.raise_can_execute_changed()
-        inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
-        with self._gate:
-            self._current_task = inner
-            self._current_loop = asyncio.get_running_loop()
-            cancel_immediately = self._cancel_requested or self._disposed
-        if cancel_immediately:
-            inner.cancel()
         try:
+            inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
+            with self._gate:
+                self._current_task = inner
+                self._current_loop = asyncio.get_running_loop()
+                cancel_immediately = self._cancel_requested or self._disposed
+            if cancel_immediately:
+                inner.cancel()
             await inner
         except asyncio.CancelledError:
             # Non-throwing default (DIA-007 alignment): swallow only the

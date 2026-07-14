@@ -36,6 +36,7 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         self._items: list[TVM] = []
         self._current_token: TToken | None = None
         self._loaded_once = False
+        self._operation_generation = 0
         self._disposed = False
         self._collection_changed: Subject[CollectionChangedEvent] = Subject()
         self._property_changed: Subject[str] = Subject()
@@ -84,8 +85,10 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         return self._property_changed.pipe(ops.as_observable())
 
     async def _load_more(self) -> None:
+        self._operation_generation += 1
+        generation = self._operation_generation
         page, next_token = await self._fetch_next(self._current_token)
-        if self._disposed:
+        if self._disposed or generation != self._operation_generation:
             return
         additions = list(page)
         self._items.extend(additions)
@@ -95,8 +98,10 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         self._notify_reset()
 
     async def _refresh(self) -> None:
+        self._operation_generation += 1
+        generation = self._operation_generation
         page, next_token = await self._fetch_next(None)
-        if self._disposed:
+        if self._disposed or generation != self._operation_generation:
             return
         fresh = list(page)
         if self._pages_equal(fresh, self._items[: len(fresh)]):

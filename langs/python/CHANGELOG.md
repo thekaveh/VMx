@@ -8,6 +8,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `AsyncRelayCommand` now restores its execution state when invoking the task
+  factory raises before returning an awaitable.
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
 - Container construction, destruction, and reconstruction now wait for
   background-dispatched child lifecycle transitions before the parent settles.
 - Synchronous command entry points now schedule coroutine work on a shared

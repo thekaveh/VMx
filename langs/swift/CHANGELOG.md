@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
 - Disposing an executing `AsyncRelayCommand` now records cancellation before
   cancelling the task, so the command body observes the terminal request.
 - Lifecycle status publication, hook completion, property notifications, and

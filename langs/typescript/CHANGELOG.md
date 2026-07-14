@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
 - `FormVM` now completes admitted synchronous assignment, reset, revert, and
   error-publication work before reentrant disposal tears down its RxJS signals.
 - `NotificationHub` serializes reentrant pending snapshots in mutation order

@@ -32,6 +32,7 @@ export class TokenPagedComposition<TVM, TToken> {
   #items: TVM[] = [];
   #currentToken: TToken | null = null;
   #loadedOnce = false;
+  #operationGeneration = 0;
   #disposed = false;
 
   constructor(
@@ -82,8 +83,9 @@ export class TokenPagedComposition<TVM, TToken> {
   }
 
   async #loadMore(): Promise<void> {
+    const generation = ++this.#operationGeneration;
     const page = await this.#fetchNext(this.#currentToken);
-    if (this.#disposed) return;
+    if (this.#disposed || generation !== this.#operationGeneration) return;
     this.#items.push(...page.items);
     this.#constructIfNeeded(page.items);
     this.#currentToken = page.nextToken;
@@ -92,8 +94,9 @@ export class TokenPagedComposition<TVM, TToken> {
   }
 
   async #refresh(): Promise<void> {
+    const generation = ++this.#operationGeneration;
     const page = await this.#fetchNext(null);
-    if (this.#disposed) return;
+    if (this.#disposed || generation !== this.#operationGeneration) return;
     const head = this.#items.slice(0, page.items.length);
     if (this.#pagesEqual(page.items, head)) {
       this.#currentToken = page.nextToken;
