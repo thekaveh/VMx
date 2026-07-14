@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import XCTest
-@testable import VMx
+@preconcurrency @testable import VMx
 
 private enum ResetTestError: Error { case failed }
 
@@ -183,5 +183,175 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         XCTAssertEqual(form.model, "reset:saved")
         XCTAssertEqual(form.snapshot, "reset:saved")
         XCTAssertFalse(form.isDirty)
+    }
+
+    func testResetCommitRemainsPristineThroughApprovedPublication() async throws {
+        let form = try FormVM<String>.builder().initial("initial")
+            .persister { _ in }
+            .resetOnApproved { "reset:\($0)" }
+            .build()
+        form.setModel("saved")
+        let setterEntered = DispatchSemaphore(value: 0)
+        let setterDone = DispatchSemaphore(value: 0)
+        var cancellables = Set<AnyCancellable>()
+        form.onApproved.sink { _ in
+            DispatchQueue.global().async {
+                setterEntered.signal()
+                form.setModel("racing")
+                setterDone.signal()
+            }
+            XCTAssertEqual(setterEntered.wait(timeout: .now() + 1), .success)
+            XCTAssertEqual(setterDone.wait(timeout: .now()), .timedOut)
+            XCTAssertEqual(form.model, "reset:saved")
+            XCTAssertEqual(form.snapshot, "reset:saved")
+            XCTAssertFalse(form.isDirty)
+        }.store(in: &cancellables)
+
+        try await form.approveAsync()
+
+        XCTAssertEqual(setterDone.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(form.model, "racing")
+        XCTAssertEqual(form.snapshot, "reset:saved")
+        XCTAssertTrue(form.isDirty)
+    }
+
+    func testReentrantApprovedMutationRunsAfterPristinePublication() async throws {
+        let form = try FormVM<String>.builder().initial("initial")
+            .persister { _ in }
+            .resetOnApproved { "reset:\($0)" }
+            .build()
+        form.setModel("saved")
+        var observedPristineBeforeMutation = false
+        var stateAfterMutation: String?
+        var cancellables = Set<AnyCancellable>()
+        form.onApproved.sink { _ in
+            observedPristineBeforeMutation = form.model == "reset:saved" &&
+                form.snapshot == "reset:saved" && !form.isDirty
+            form.setModel("reentrant")
+            stateAfterMutation = form.model
+        }.store(in: &cancellables)
+
+        try await form.approveAsync()
+
+        XCTAssertTrue(observedPristineBeforeMutation)
+        XCTAssertEqual(stateAfterMutation, "reentrant")
+        XCTAssertEqual(form.model, "reentrant")
+        XCTAssertEqual(form.snapshot, "reset:saved")
+        XCTAssertTrue(form.isDirty)
+    }
+
+    func testInjectedEqualityMayReadFormWithoutDeadlock() async {
+        var form: FormVM<String>!
+        form = FormVM(
+            initial: "initial",
+            persister: { _ in },
+            equals: { lhs, rhs in
+                _ = form?.model
+                return lhs == rhs
+            }
+        )
+        let finished = expectation(description: "setModel returned")
+        DispatchQueue.global().async {
+            form.setModel("next")
+            finished.fulfill()
+        }
+
+        await fulfillment(of: [finished], timeout: 1)
+        XCTAssertEqual(form.model, "next")
+    }
+
+    func testAdmittedSetterCompletesBeforeQueuedDisposal() async throws {
+        let validatorEntered = DispatchSemaphore(value: 0)
+        let releaseValidator = DispatchSemaphore(value: 0)
+        let hub = MessageHub()
+        let form = try FormVM<String>.builder().initial("initial")
+            .persister { _ in }
+            .hub(hub)
+            .validator("value") { value in
+                if value == "accepted" {
+                    validatorEntered.signal()
+                    releaseValidator.wait()
+                }
+                return nil
+            }
+            .build()
+        var publishedModels: [String] = []
+        var cancellables = Set<AnyCancellable>()
+        hub.messages.compactMap { $0 as? PropertyChangedMessage }
+            .filter { $0.sender === form && $0.propertyName == "model" }
+            .sink { _ in publishedModels.append(form.model) }
+            .store(in: &cancellables)
+
+        let setterDone = expectation(description: "setter returned")
+        DispatchQueue.global().async {
+            form.setModel("accepted")
+            setterDone.fulfill()
+        }
+        XCTAssertEqual(validatorEntered.wait(timeout: .now() + 1), .success)
+        let disposeStarted = DispatchSemaphore(value: 0)
+        let disposeDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            disposeStarted.signal()
+            form.dispose()
+            disposeDone.signal()
+        }
+        XCTAssertEqual(disposeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(disposeDone.wait(timeout: .now()), .timedOut)
+        releaseValidator.signal()
+
+        await fulfillment(of: [setterDone], timeout: 1)
+        XCTAssertEqual(disposeDone.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(form.model, "accepted")
+        XCTAssertEqual(publishedModels, ["accepted"])
+    }
+
+    func testEqualityCallbackDisposalDoesNotCancelAdmittedAssignment() {
+        var form: FormVM<String>!
+        form = FormVM(
+            initial: "initial",
+            persister: { _ in },
+            equals: { lhs, rhs in
+                if rhs == "next" { form.dispose() }
+                return lhs == rhs
+            }
+        )
+
+        form.setModel("next")
+        form.setModel("late")
+
+        XCTAssertEqual(form.model, "next")
+    }
+
+    func testValidatorCallbackDisposalDoesNotCancelAdmittedAssignment() {
+        var form: FormVM<String>!
+        form = FormVM(
+            initial: "initial",
+            persister: { _ in },
+            validators: ["value": { value in
+                if value == "next" { form.dispose() }
+                return nil
+            }]
+        )
+
+        form.setModel("next")
+        form.setModel("late")
+
+        XCTAssertEqual(form.model, "next")
+    }
+
+    func testValidatorObservesAcceptedLiveModel() {
+        var form: FormVM<String>!
+        form = FormVM(
+            initial: "initial",
+            persister: { _ in },
+            validators: ["value": { value in
+                if value == "next" { XCTAssertEqual(form.model, value) }
+                return nil
+            }]
+        )
+
+        form.setModel("next")
+
+        XCTAssertEqual(form.model, "next")
     }
 }

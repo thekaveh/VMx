@@ -7,6 +7,7 @@
 // See spec/20-form-vm.md and ADR-0048 (injectable deep-equal + deep snapshot).
 //
 import Combine
+import Foundation
 
 /// A ViewModel that wraps a mutable domain model with snapshot-based dirty
 /// tracking and an edit lifecycle (approve / deny). Captures a snapshot at
@@ -26,6 +27,9 @@ public final class FormVM<Model> {
     private var _model: Model
     private var _snapshot: Model
     private var _disposed = false
+    private var activeMutations = 0
+    private var mutationTeardownPending = false
+    private let stateGate = NSRecursiveLock()
 
     private let persister: (Model) async throws -> Void
     private let hub: MessageHubProtocol
@@ -115,26 +119,27 @@ public final class FormVM<Model> {
     // ── Properties ────────────────────────────────────────────────────────────
 
     /// The live, editable domain model.
-    public var model: Model { _model }
+    public var model: Model { withStateGate { _model } }
 
     /// Read-only snapshot captured at construction (until the next successful
     /// approve).
-    public var snapshot: Model { _snapshot }
+    public var snapshot: Model { withStateGate { _snapshot } }
 
     /// `true` when `model` is not equal to `snapshot` under the `equals`
     /// predicate.
     public var isDirty: Bool {
-        !equals(_model, _snapshot)
+        let state = withStateGate { (_model, _snapshot) }
+        return !equals(state.0, state.1)
     }
 
     /// Current validation errors keyed by field/property name.
     public var errors: [String: String] {
-        _errors
+        withStateGate { _errors }
     }
 
     /// `true` when the current model has no validation errors.
     public var isValid: Bool {
-        _errors.isEmpty
+        withStateGate { _errors.isEmpty }
     }
 
     /// Emits the persisted model value after each successful ``approveAsync()``
@@ -157,7 +162,7 @@ public final class FormVM<Model> {
 
     /// Returns the current validation error for a field, if any.
     public func fieldError(_ field: String) -> String? {
-        _errors[field]
+        withStateGate { _errors[field] }
     }
 
     // ── Mutation ──────────────────────────────────────────────────────────────
@@ -167,16 +172,46 @@ public final class FormVM<Model> {
     /// transitions so that UI bindings can re-evaluate the approve button state.
     /// A call begun after disposal returns before inspecting the candidate.
     public func setModel(_ newModel: Model) {
-        guard !_disposed else { return }
+        stateGate.lock()
+        guard !_disposed else {
+            stateGate.unlock()
+            return
+        }
+        activeMutations += 1
+        var shouldPublish = false
+        defer {
+            stateGate.unlock()
+            if shouldPublish {
+                hub.send(PropertyChangedMessage(
+                    sender: self,
+                    senderName: "FormVM",
+                    propertyName: "model"
+                ))
+            }
+            endMutation()
+        }
+
         guard !equals(_model, newModel) else { return }
-        let wasDirty = isDirty
-        let wasValid = isValid
+        let wasDirty = !equals(_model, _snapshot)
+        let wasValid = _errors.isEmpty
         _model = newModel
-        revalidate()
-        if (strict && isDirty != wasDirty) || isValid != wasValid {
+        let nextErrors = Self.validate(
+            newModel,
+            validators: validators,
+            modelValidator: modelValidator
+        )
+        let nextDirty = !equals(newModel, _snapshot)
+        let errorsChanged = nextErrors != _errors
+        _errors = nextErrors
+        let canExecuteChanged =
+            (strict && nextDirty != wasDirty) || nextErrors.isEmpty != wasValid
+        if errorsChanged {
+            _errorsChanged.send(nextErrors)
+        }
+        if canExecuteChanged {
             _approveCanExecSubject.send(())
         }
-        hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
+        shouldPublish = true
     }
 
     // ── Async core ────────────────────────────────────────────────────────────
@@ -188,61 +223,35 @@ public final class FormVM<Model> {
     /// On persister throw: mutates nothing and rethrows.
     /// After `dispose()`: returns immediately (no-op).
     public func approveAsync() async throws {
-        guard !_disposed else { return }
-        guard isValid else { return }
-
-        // Capture before the suspension point so racing setModel calls cannot
-        // change the value that was actually persisted (mirrors TS / C# / Python).
-        let current = _model
+        let captured = withStateGate { (_disposed || !_errors.isEmpty, _model) }
+        guard !captured.0 else { return }
+        let current = captured.1
 
         // Throw path — no state mutation if this throws.
         try await persister(current)
 
-        guard !_disposed else { return }
-
-        // Success: atomically install the configured reset state, or preserve
-        // the legacy snapshot-advance behavior when no reset is configured.
-        let wasDirty = isDirty
-        let wasValid = isValid
-        if let resetOnApproved {
-            // Prepare the callback result, independent live/snapshot values,
-            // and validation before committing local state.
-            let reset = try resetOnApproved(current)
-            let nextModel = snapshotter(reset)
-            let nextSnapshot = snapshotter(reset)
-            let nextErrors = Self.validate(
-                nextModel,
-                validators: validators,
-                modelValidator: modelValidator
-            )
-
-            _model = nextModel
-            _snapshot = nextSnapshot
-            if nextErrors != _errors {
-                _errors = nextErrors
-                _errorsChanged.send(nextErrors)
-            }
-        } else {
-            _snapshot = snapshotter(current)
+        try withStateGate {
+            guard !_disposed else { return }
+            try completeApproval(current)
         }
-        if (strict && isDirty != wasDirty) || isValid != wasValid {
-            _approveCanExecSubject.send(())
-        }
-        _onApproved.send(current)
     }
 
     // ── Dispose ───────────────────────────────────────────────────────────────
 
     /// Complete both reactive channels and dispose the commands. Idempotent.
     public func dispose() {
-        guard !_disposed else { return }
+        stateGate.lock()
+        guard !_disposed else {
+            stateGate.unlock()
+            return
+        }
         _disposed = true
-        _onApproved.send(completion: .finished)
-        _approveErrors.send(completion: .finished)
-        _errorsChanged.send(completion: .finished)
-        _approveCanExecSubject.send(completion: .finished)
-        denyCommand.dispose()
-        approveCommand.dispose()
+        let shouldTearDown = activeMutations == 0
+        if !shouldTearDown {
+            mutationTeardownPending = true
+        }
+        stateGate.unlock()
+        if shouldTearDown { tearDown() }
     }
 
     // ── Wire commands post-init ───────────────────────────────────────────────
@@ -262,13 +271,12 @@ public final class FormVM<Model> {
                     do {
                         try await self.approveAsync()
                     } catch {
-                        self._approveErrors.send(error)
+                        self.emitApproveError(error)
                     }
                 }
             },
             predicate: { [weak self] in
-                guard let self else { return true }
-                return self.isValid && (!self.strict || self.isDirty)
+                self?.canApprove() ?? false
             },
             triggers: [_approveCanExecSubject.eraseToAnyPublisher()]
         )
@@ -277,16 +285,130 @@ public final class FormVM<Model> {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private func performDeny() {
-        guard !_disposed else { return }
-        let wasDirty = isDirty
-        let wasValid = isValid
-        _model = snapshotter(_snapshot)
-        revalidate()
+        stateGate.lock()
+        guard !_disposed else {
+            stateGate.unlock()
+            return
+        }
+        activeMutations += 1
+        let current = _model
+        let snapshot = _snapshot
+        let currentErrors = _errors
+        let nextModel = snapshotter(snapshot)
+        _model = nextModel
+        let nextErrors = Self.validate(
+            nextModel,
+            validators: validators,
+            modelValidator: modelValidator
+        )
+        let wasDirty = !equals(current, snapshot)
+        let wasValid = currentErrors.isEmpty
+        let nextDirty = !equals(nextModel, snapshot)
+        let nextValid = nextErrors.isEmpty
+        let errorsChanged = nextErrors != currentErrors
+        let canExecuteChanged =
+            (strict && nextDirty != wasDirty) || nextValid != wasValid
+
+        _errors = nextErrors
+        if errorsChanged {
+            _errorsChanged.send(nextErrors)
+        }
+        stateGate.unlock()
+        defer { endMutation() }
+
         hub.send(FormRevertedMessage(senderObject: self, senderName: "FormVM"))
         hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
-        if (strict && isDirty != wasDirty) || isValid != wasValid {
-            _approveCanExecSubject.send(())
+        if canExecuteChanged {
+            withStateGate { _approveCanExecSubject.send(()) }
         }
+    }
+
+    private func completeApproval(_ captured: Model) throws {
+        guard !_disposed else { return }
+        let current = _model
+        let snapshot = _snapshot
+        let currentErrors = _errors
+
+        let nextModel: Model?
+        let nextSnapshot: Model
+        let nextErrors: [String: String]?
+        if let resetOnApproved {
+            let reset = try resetOnApproved(captured)
+            guard !_disposed else { return }
+            let preparedModel = snapshotter(reset)
+            guard !_disposed else { return }
+            nextModel = preparedModel
+            nextSnapshot = snapshotter(reset)
+            guard !_disposed else { return }
+            nextErrors = Self.validate(
+                preparedModel,
+                validators: validators,
+                modelValidator: modelValidator
+            )
+            guard !_disposed else { return }
+        } else {
+            nextModel = nil
+            nextSnapshot = snapshotter(captured)
+            guard !_disposed else { return }
+            nextErrors = nil
+        }
+
+        let committedModel = nextModel ?? current
+        let committedErrors = nextErrors ?? currentErrors
+        let wasDirty = !equals(current, snapshot)
+        guard !_disposed else { return }
+        let wasValid = currentErrors.isEmpty
+        let nextDirty = !equals(committedModel, nextSnapshot)
+        guard !_disposed else { return }
+        let nextValid = committedErrors.isEmpty
+        let errorsChanged = committedErrors != currentErrors
+        let canExecuteChanged =
+            (strict && nextDirty != wasDirty) || nextValid != wasValid
+
+        if let nextModel { _model = nextModel }
+        _snapshot = nextSnapshot
+        if nextErrors != nil { _errors = committedErrors }
+        if errorsChanged {
+            _errorsChanged.send(committedErrors)
+            guard !_disposed else { return }
+        }
+        if canExecuteChanged {
+            _approveCanExecSubject.send(())
+            guard !_disposed else { return }
+        }
+        _onApproved.send(captured)
+    }
+
+    private func canApprove() -> Bool {
+        withStateGate {
+            guard !_disposed, _errors.isEmpty else { return false }
+            guard strict else { return true }
+            return !equals(_model, _snapshot)
+        }
+    }
+
+    private func endMutation() {
+        stateGate.lock()
+        activeMutations -= 1
+        let shouldTearDown = activeMutations == 0 && mutationTeardownPending
+        if shouldTearDown { mutationTeardownPending = false }
+        stateGate.unlock()
+        if shouldTearDown { tearDown() }
+    }
+
+    private func tearDown() {
+        _onApproved.send(completion: .finished)
+        _approveErrors.send(completion: .finished)
+        _errorsChanged.send(completion: .finished)
+        _approveCanExecSubject.send(completion: .finished)
+        denyCommand.dispose()
+        approveCommand.dispose()
+    }
+
+    private func withStateGate<T>(_ action: () throws -> T) rethrows -> T {
+        stateGate.lock()
+        defer { stateGate.unlock() }
+        return try action()
     }
 
     private static func validate(
@@ -312,15 +434,11 @@ public final class FormVM<Model> {
         return errors
     }
 
-    private func revalidate() {
-        let errors = Self.validate(
-            _model,
-            validators: validators,
-            modelValidator: modelValidator
-        )
-        guard errors != _errors else { return }
-        _errors = errors
-        _errorsChanged.send(errors)
+    private func emitApproveError(_ error: Error) {
+        withStateGate {
+            guard !_disposed else { return }
+            _approveErrors.send(error)
+        }
     }
 }
 
