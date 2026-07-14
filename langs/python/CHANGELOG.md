@@ -4,6 +4,23 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0](https://github.com/thekaveh/VMx/compare/python-v3.1.0...python-v3.2.0) (2026-07-14)
+
+
+### Features
+
+* add cross-flavor subscribe value bridge ([#93](https://github.com/thekaveh/VMx/issues/93)) ([9731fd1](https://github.com/thekaveh/VMx/commit/9731fd1150df99da85a6208dc1582a335acb8306))
+* add dual-channel property notification helper ([#78](https://github.com/thekaveh/VMx/issues/78)) ([#116](https://github.com/thekaveh/VMx/issues/116)) ([098eb38](https://github.com/thekaveh/VMx/commit/098eb38af7f01b89aca7b2dc707a320dd392b9ff))
+* add imperative command requery notifications ([#106](https://github.com/thekaveh/VMx/issues/106)) ([#124](https://github.com/thekaveh/VMx/issues/124)) ([44c3551](https://github.com/thekaveh/VMx/commit/44c3551b02676bc776afab7598be38d9ff0e2d17))
+* add lossless message hub transactions ([#99](https://github.com/thekaveh/VMx/issues/99)) ([ec7acc0](https://github.com/thekaveh/VMx/commit/ec7acc063f53a5d08a3ea64f9e6e418e5bd5aa07))
+* add shared VM collection move semantics ([#81](https://github.com/thekaveh/VMx/issues/81)) ([491385e](https://github.com/thekaveh/VMx/commit/491385eda0171e7a5c0875cb4feb77184a83a298))
+* **collections:** add atomic replace all ([#82](https://github.com/thekaveh/VMx/issues/82)) ([#134](https://github.com/thekaveh/VMx/issues/134)) ([6109180](https://github.com/thekaveh/VMx/commit/610918088da031b7e35c2819f58f8ff4b61df8e3))
+* **forms:** add reset-on-approved semantics ([#104](https://github.com/thekaveh/VMx/issues/104)) ([#129](https://github.com/thekaveh/VMx/issues/129)) ([693bb46](https://github.com/thekaveh/VMx/commit/693bb46959c2586f6e9cd7da3cd14e3c4bcefd1b))
+* **hierarchical:** add batch attachment ([#105](https://github.com/thekaveh/VMx/issues/105)) ([#132](https://github.com/thekaveh/VMx/issues/132)) ([026f431](https://github.com/thekaveh/VMx/commit/026f431127e7efc7a6e8eb07c871302cda6ea8b7))
+* **lifecycle:** add owned-resource registration ([#83](https://github.com/thekaveh/VMx/issues/83)) ([90073b1](https://github.com/thekaveh/VMx/commit/90073b1b03ed5d0c8b6358c97b6a3267b3f9c6d3))
+* standardize cross-flavor disposal invariants ([#107](https://github.com/thekaveh/VMx/issues/107)) ([#120](https://github.com/thekaveh/VMx/issues/120)) ([8e2e310](https://github.com/thekaveh/VMx/commit/8e2e3108fa1aa9764338dcceb6aacad56648ab51))
+* **typescript:** add safe raw-message predicates ([#151](https://github.com/thekaveh/VMx/issues/151)) ([f7450fe](https://github.com/thekaveh/VMx/commit/f7450fe48303ff641fdd9ba47623981eec95713c))
+
 ## [3.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps Python at full library parity: 391/391
