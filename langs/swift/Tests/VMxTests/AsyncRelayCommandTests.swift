@@ -163,7 +163,8 @@ final class AsyncRelayCommandTests: XCTestCase {
             cmd.dispose()
         }
 
-        XCTAssertEqual(await observation.missedCancellations, 0)
+        let missedCancellations = await observation.missedCancellations
+        XCTAssertEqual(missedCancellations, 0)
     }
 
     /// CMD-012 — `throwOnCancel()` mode: `cancel()` surfaces `CancellationError`
@@ -242,7 +243,8 @@ final class AsyncRelayCommandTests: XCTestCase {
             XCTFail("parent-task cancellation must preserve CancellationError; got: \(error)")
         }
 
-        XCTAssertTrue(await observation.bodyWasCancelled)
+        let bodyWasCancelled = await observation.bodyWasCancelled
+        XCTAssertTrue(bodyWasCancelled)
         XCTAssertFalse(cmd.isExecuting)
         cmd.dispose()
     }
