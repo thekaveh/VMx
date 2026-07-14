@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `ReadonlyComponentVm` now exposes the component baseline directly and
+  implements `VmNode`/`TreeNode` without revealing its writable inner VM.
+- Component hints are construction-time state; the public post-construction
+  `set_hint` mutation escape is removed.
 - `FormVm` and `FormVmBuilder` now live in a focused forms module while
   retaining their crate-root exports.
 - The disposable package consumer now recreates the crate with the committed

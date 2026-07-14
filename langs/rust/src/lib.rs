@@ -1088,6 +1088,14 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 }
 
+/// A modeled leaf viewmodel whose name and hint are fixed at construction.
+///
+/// ```compile_fail
+/// use vmx::ComponentVm;
+///
+/// let vm = ComponentVm::new("component");
+/// vm.set_hint(Some("changed".to_string()));
+/// ```
 #[derive(Clone)]
 pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
@@ -1139,10 +1147,6 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             let model = lock(&self.model).clone();
             (self.model_hint)(&model)
         })
-    }
-
-    pub fn set_hint(&self, hint: Option<String>) {
-        self.core.set_hint(hint);
     }
 
     pub fn model(&self) -> M {
@@ -1350,6 +1354,19 @@ impl<M, D: Dispatcher> fmt::Debug for ComponentVm<M, D> {
     }
 }
 
+/// A modeled leaf viewmodel whose model cannot be replaced after construction.
+///
+/// ```compile_fail
+/// use vmx::{MessageHub, NullDispatcher, ReadonlyComponentVm};
+///
+/// let vm = ReadonlyComponentVm::new(
+///     "readonly",
+///     1,
+///     MessageHub::new(),
+///     NullDispatcher::new(),
+/// );
+/// vm.as_component().set_model(2);
+/// ```
 #[derive(Clone)]
 pub struct ReadonlyComponentVm<M: Clone + Send + 'static, D: Dispatcher = NullDispatcher> {
     inner: ComponentVm<M, D>,
@@ -1362,12 +1379,28 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
         }
     }
 
-    pub fn model(&self) -> M {
-        self.inner.model()
+    pub fn with_model_hint<F>(mut self, hint: F) -> Self
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        self.inner = self.inner.with_model_hint(hint);
+        self
     }
 
-    pub fn as_component(&self) -> &ComponentVm<M, D> {
-        &self.inner
+    pub fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn hint(&self) -> Option<String> {
+        self.inner.hint()
+    }
+
+    pub fn model(&self) -> M {
+        self.inner.model()
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
@@ -1378,12 +1411,163 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
         self.inner.hub()
     }
 
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.inner.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
     }
 
     pub fn republish_model(&self) {
         self.inner.republish_model();
+    }
+
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.inner.construct()
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.inner.reconstruct()
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    pub fn is_constructed(&self) -> bool {
+        self.inner.is_constructed()
+    }
+
+    pub fn select(&self) {
+        self.inner.select();
+    }
+
+    pub fn deselect(&self) {
+        self.inner.deselect();
+    }
+
+    pub fn is_selected(&self) -> bool {
+        self.inner.is_selected()
+    }
+
+    pub fn expand(&self) {
+        self.inner.expand();
+    }
+
+    pub fn collapse(&self) {
+        self.inner.collapse();
+    }
+
+    pub fn toggle_expansion(&self) {
+        self.inner.toggle_expansion();
+    }
+
+    pub fn is_expanded(&self) -> bool {
+        self.inner.is_expanded()
+    }
+
+    pub fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+
+    pub fn select_command(&self) -> RelayCommand {
+        self.inner.select_command()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ReadonlyComponentVm<M, D> {
+    fn id(&self) -> usize {
+        ReadonlyComponentVm::id(self)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        ReadonlyComponentVm::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        ReadonlyComponentVm::destruct(self)
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        ReadonlyComponentVm::dispose(self)
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        ReadonlyComponentVm::status(self)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.core.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.inner.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.inner.is_selected()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> TreeNode for ReadonlyComponentVm<M, D> {
+    fn is_expanded_for_walk(&self) -> bool {
+        self.is_expanded()
+    }
+}
+
+impl<M: Clone + Send + 'static, D: Dispatcher> PartialEq for ReadonlyComponentVm<M, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<M: Clone + Send + 'static, D: Dispatcher> Eq for ReadonlyComponentVm<M, D> {}
+
+impl<M: Clone + Send + 'static, D: Dispatcher> fmt::Debug for ReadonlyComponentVm<M, D> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadonlyComponentVm")
+            .field("id", &self.inner.core.id())
+            .field("name", &self.inner.core.name())
+            .field("status", &self.inner.core.status())
+            .finish()
     }
 }
 
@@ -1456,7 +1640,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let vm = ComponentVm::with_model(name, model, hub, dispatcher);
         if let Some(hint) = self.hint {
-            vm.set_hint(Some(hint));
+            vm.core.set_hint(Some(hint));
         }
         if let Some(model_hint) = self.model_hint {
             Ok(vm.with_model_hint(move |model| model_hint(model)))
@@ -6394,7 +6578,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
             hub,
         );
         if let Some(hint) = self.hint {
-            node.component.set_hint(Some(hint));
+            node.component.core.set_hint(Some(hint));
         }
         Ok(node)
     }

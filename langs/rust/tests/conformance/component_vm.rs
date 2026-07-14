@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use vmx::{
     Command, ComponentVm, ConstructionStatus, ForwardingComponentVm, Message, MessageHub,
-    NullDispatcher, NullMessageHub, ReadonlyComponentVm,
+    NullDispatcher, NullMessageHub, ReadonlyComponentVm, TreeNode, VmNode,
 };
 
 /// CVM-001 — Construct emits ConstructionStatusChangedMessage(Constructed)
@@ -49,7 +49,21 @@ fn modeled_component_fires_model_property_changed() {
 fn readonly_component_exposes_model_without_setter_surface() {
     let vm = ReadonlyComponentVm::new("readonly", 7, MessageHub::new(), NullDispatcher::new());
 
+    fn require_component_traits<T: VmNode + TreeNode>(_: &T) {}
+
+    require_component_traits(&vm);
+    assert_eq!(vm.name(), "readonly");
+    assert_eq!(vm.hint(), None);
     assert_eq!(vm.model(), 7);
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+
+    vm.construct().unwrap();
+    assert!(vm.is_constructed());
+    let select = vm.select_command();
+    assert!(select.can_execute());
+    select.execute();
+    assert!(vm.is_selected());
+    assert!(!select.can_execute());
 }
 
 /// CVM-004 — ModeledHint recomputes when Model changes
