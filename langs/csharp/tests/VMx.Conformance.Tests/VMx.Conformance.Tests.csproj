@@ -1,11 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!--
-      Test runner targets net9.0 (not the library's lowest TFM net8.0) because the
-      dev environment only has the .NET 9 SDK/runtime installed. The library
-      `VMx.csproj` itself remains multi-targeted `netstandard2.0;net8.0`.
-    -->
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- Exercise the supported runtime floor and the current SDK runtime. -->
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!-- Tests don't ship as a package; relax doc/naming rules. -->

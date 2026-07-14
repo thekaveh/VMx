@@ -96,6 +96,10 @@ xcuserdata/
 # ─── Rust ─────────────────────────────────────────────────────────────
 target/
 Cargo.lock
+# Rust libraries do not commit Cargo.lock, but runnable application examples
+# do so their documented and CI `--locked` commands are reproducible.
+!/examples/rust/console/hello-vmx/Cargo.lock
+!/examples/rust/tui/notes-showcase/Cargo.lock
 
 # ─── Node / TypeScript ────────────────────────────────────────────────
 node_modules/

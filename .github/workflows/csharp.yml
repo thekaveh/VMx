@@ -40,8 +40,8 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       # Install both SDKs:
-      # - 8.0.x: required to build the library's net8.0 TFM
-      # - 9.0.x: required to run VMx.Tests (which targets net9.0; see VMx.Tests.csproj)
+      # - 8.0.x: builds the library and runs both test suites at the runtime floor
+      # - 9.0.x: builds the current SDK target and runs both suites there as well
       - name: Setup .NET 8 + .NET 9
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:

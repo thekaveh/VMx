@@ -62,13 +62,13 @@ jobs:
           toolchain: stable
 
       - name: Run hello-vmx example
-        run: cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
+        run: cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml
 
       - name: Test notes-showcase TUI example
-        run: cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+        run: cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 
       - name: Smoke notes-showcase TUI example
-        run: cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
+        run: cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 
   package:
     name: package (${{ matrix.toolchain }})

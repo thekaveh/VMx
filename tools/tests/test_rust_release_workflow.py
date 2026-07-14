@@ -1,5 +1,6 @@
 """Contract tests for Rust package and crates.io release workflows."""
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +26,78 @@ def test_rust_ci_verifies_packaged_consumers_on_msrv_and_stable() -> None:
     assert "python3 tools/check-rust-package.py" in workflow
     assert "python3 tools/smoke-rust-consumer.py" in workflow
     assert "--package-dir langs/rust" in workflow
+
+
+def test_rust_ci_keeps_example_lockfiles_immutable() -> None:
+    workflow = _workflow("rust.yml")
+
+    assert (
+        "cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml" in workflow
+    )
+    assert (
+        "cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml"
+        in workflow
+    )
+    assert (
+        "cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke"
+        in workflow
+    )
+
+
+def test_rust_application_example_lockfiles_are_committed_by_policy() -> None:
+    gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    for relative in (
+        "examples/rust/console/hello-vmx/Cargo.lock",
+        "examples/rust/tui/notes-showcase/Cargo.lock",
+    ):
+        assert (REPO_ROOT / relative).is_file()
+        assert f"!/{relative}" in gitignore
+
+
+def test_rust_examples_do_not_claim_a_lower_msrv_than_vmx() -> None:
+    def read_msrv(path: Path) -> tuple[int, ...] | None:
+        match = re.search(
+            r'^rust-version = "([0-9.]+)"$',
+            path.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+    library_msrv = read_msrv(REPO_ROOT / "langs/rust/Cargo.toml")
+    assert library_msrv is not None
+
+    for manifest_path in (
+        REPO_ROOT / "examples/rust/console/hello-vmx/Cargo.toml",
+        REPO_ROOT / "examples/rust/tui/notes-showcase/Cargo.toml",
+    ):
+        example_msrv = read_msrv(manifest_path)
+        assert example_msrv is not None, f"{manifest_path} must declare rust-version"
+        assert example_msrv >= library_msrv
+
+
+def test_rust_test_only_json_dependency_is_not_published_at_runtime() -> None:
+    manifest = (REPO_ROOT / "langs/rust/Cargo.toml").read_text(encoding="utf-8")
+    runtime, development = manifest.split("[dev-dependencies]", maxsplit=1)
+
+    assert "serde_json" not in runtime
+    assert 'serde_json = "1.0.145"' in development
+
+
+def test_rust_reactive_facade_has_no_unused_backend_dependency_or_claim() -> None:
+    manifest = (REPO_ROOT / "langs/rust/Cargo.toml").read_text(encoding="utf-8")
+    assert "rxrust" not in manifest
+
+    for relative in (
+        "AGENTS.md",
+        "README.md",
+        "langs/rust/README.md",
+        "docs/content/installation.md",
+        "docs/content/flavors/index.md",
+        "docs/content/flavors/rust.md",
+    ):
+        content = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        assert "rxrust" not in content, f"stale backend claim in {relative}"
 
 
 def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
