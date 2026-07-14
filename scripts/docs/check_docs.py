@@ -13,6 +13,9 @@ PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
 HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
+HTML_HEADING_RE = re.compile(r"<\s*h[1-6](?:\s|>)", re.IGNORECASE)
+WIKI_LINK_RE = re.compile(r"\[\[(?P<label>[^\]\r\n]+)\|(?P<target>[^\]\r\n]+)\]\]")
+DECORATIVE_STATUS_ICON_RE = re.compile(r"[✓✔✅❌✗✘]")
 
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
@@ -129,6 +132,78 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
                     Finding(
                         "error",
                         f"{path.relative_to(repo_root)}: target does not exist: {target}",
+                    )
+                )
+    return findings
+
+
+def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
+    """Reject malformed wiki links and links to absent generated pages."""
+    wiki_root = repo_root / "generated/wiki"
+    pages = {path.stem for path in wiki_root.glob("*.md")}
+    findings: list[Finding] = []
+    for path in _scan_markdown(wiki_root):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            scrubbed = WIKI_LINK_RE.sub("", line)
+            if ("[[" in scrubbed or "]]" in scrubbed) and "|" in scrubbed:
+                findings.append(Finding("error", f"{path}:{line_number}: malformed wiki link"))
+            for match in WIKI_LINK_RE.finditer(line):
+                target = match.group("target").split("#", 1)[0]
+                if target and target not in pages:
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}:{line_number}: wiki target does not exist: {target}",
+                        )
+                    )
+            for match in HTML_HREF_RE.finditer(line):
+                target = match.group("target").split("#", 1)[0].rstrip("/")
+                if target and not target.startswith(("http://", "https://", "mailto:")):
+                    target_exists = (
+                        (path.parent / target).resolve().is_file()
+                        if "/" in target or "." in Path(target).name
+                        else target in pages
+                    )
+                    if not target_exists:
+                        findings.append(
+                            Finding(
+                                "error",
+                                f"{path}:{line_number}: wiki target does not exist: {target}",
+                            )
+                        )
+    return findings
+
+
+def check_raw_html_headings(repo_root: Path) -> list[Finding]:
+    """Keep heading hierarchy in Markdown where numbering can be validated."""
+    findings: list[Finding] = []
+    for path in _scan_markdown(repo_root / "docs/content"):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if HTML_HEADING_RE.search(line):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}:{line_number}: "
+                        "raw HTML heading bypasses hierarchy checks",
+                    )
+                )
+    return findings
+
+
+def check_professional_markdown(repo_root: Path) -> list[Finding]:
+    """Reject decorative pass/fail glyphs in maintained public Markdown."""
+    findings: list[Finding] = []
+    for path in _scan_repo_surface_markdown(repo_root):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if DECORATIVE_STATUS_ICON_RE.search(line):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}:{line_number}: "
+                        "decorative status icon in public documentation",
                     )
                 )
     return findings
@@ -251,6 +326,9 @@ def check(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     findings.extend(check_self_containment(repo_root))
     findings.extend(check_canonical_links(repo_root))
+    findings.extend(check_generated_wiki_links(repo_root))
+    findings.extend(check_raw_html_headings(repo_root))
+    findings.extend(check_professional_markdown(repo_root))
     findings.extend(check_completeness(repo_root))
     findings.extend(check_heading_numbers(repo_root))
     findings.extend(check_placeholders(repo_root))

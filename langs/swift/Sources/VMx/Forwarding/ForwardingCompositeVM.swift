@@ -12,11 +12,10 @@
 //
 // Swift port note: this decorator forwards `collectionChanged`/`batchUpdate` and
 // the typed component-selection surface (`canSelectComponent`/`selectComponent`/
-// `deselectComponent`) to `_wrapped` — as an is-a subclass it cannot simply omit
-// inherited members without leaving live-but-wrong ones. It cannot forward
-// `insert`/`setAt`/`clear`, which are absent on Swift `CompositeVM` (a deferred
-// API-surface gap — see ADR-0009 known-gaps). `name`/`hint` are `let` (see
-// ForwardingComponentVM) — copied at init.
+// `deselectComponent`) and all concrete collection mutations to `_wrapped` — as
+// an is-a subclass it cannot omit inherited members without leaving
+// live-but-wrong ones. `name`/`hint` are `let` (see ForwardingComponentVM) and
+// are copied at init.
 //
 // See spec/09-forwarding.md.
 //

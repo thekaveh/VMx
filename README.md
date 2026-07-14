@@ -247,9 +247,10 @@ cargo add vmx-rs --path langs/rust
 
 ### 4.3 Examples
 
-The four **flagship Notes Workspace** apps — one per language flavor, one
-per UI framework — implement the same scenario from a single language-neutral
-VM API surface, exercising **19 distinct VMx features** (notebooks tree,
+Four GUI-backed **flagship Notes Workspace** apps, plus a Rust-native Ratatui
+showcase, exercise the VMx API in their host ecosystems. The four GUI-backed
+apps implement the shared scenario matrix and **19 distinct VMx features**
+(notebooks tree,
 paged + filterable notes list, strict `FormVM` editor with validation,
 capability-aware action bar, notifications, async lifecycle, dialogs,
 `AggregateVM6` root, the `ThemeVM` scenario contract, token-paged global
@@ -277,7 +278,9 @@ the companion VMx component map is at
   `swift build` / `swift test` from the example dir (requires macOS + Xcode).
 - [`examples/rust/tui/notes-showcase/`](examples/rust/tui/notes-showcase/)
   — Rust-native Ratatui showcase with a pure VMx MVVM layer. Smoke-run via
-  `cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`.
+  `cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`.
+  Its five VM-layer tests cover the Rust-native showcase contract; the
+  `THEME-001..005` GUI scenario matrix remains scoped to the four flagships.
   The VM-layer diagram is
   [`docs/assets/diagrams/rust-tui-notes-showcase.svg`](docs/assets/diagrams/rust-tui-notes-showcase.svg).
 

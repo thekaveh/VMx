@@ -53,6 +53,9 @@ theme:
         icon: material/weather-night
         name: Switch to dark mode
 
+extra:
+  generator: false
+
 extra_css:
   - stylesheets/extra.css
 

@@ -30,19 +30,19 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 === "Smoke"
 
     ```bash
-    cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
+    cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
     ```
 
 === "Tests"
 
     ```bash
-    cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+    cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
     ```
 
 === "Interactive"
 
     ```bash
-    cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+    cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
     ```
 
 ## 8.5.3. MVVM Boundary

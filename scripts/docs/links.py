@@ -8,7 +8,7 @@ WIKI_URL = "https://github.com/thekaveh/VMx/wiki"
 SITE_URL = "https://thekaveh.github.io/VMx"
 
 MARKDOWN_LINK_RE = re.compile(
-    r"(?P<image>!)?\[(?P<label>[^\]]*)\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
+    r"(?P<image>!)?\[(?P<label>[^\]\r\n]*)\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
 )
 MARKDOWN_REFERENCE_LINK_RE = re.compile(
     r"^ {0,3}\[(?P<label>[^\]]+)\]:\s*(?P<target>\S+)", re.MULTILINE

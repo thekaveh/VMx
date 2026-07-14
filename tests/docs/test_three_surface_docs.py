@@ -8,9 +8,12 @@ from scripts.docs.check_docs import (
     _check_descendant_heading_numbers,
     check,
     check_canonical_links,
+    check_generated_wiki_links,
+    check_professional_markdown,
+    check_raw_html_headings,
     check_self_containment,
 )
-from scripts.docs.links import is_forbidden
+from scripts.docs.links import find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
@@ -109,6 +112,44 @@ def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path
     assert all("target does not exist" in finding.message for finding in findings)
 
 
+def test_generated_wiki_link_check_rejects_malformed_and_missing_targets(
+    tmp_path: Path,
+) -> None:
+    wiki = tmp_path / "generated/wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Home.md").write_text(
+        "[[Good|Existing]]\n[[Missing|Absent]]\n[Broken|Existing]]\n",
+        encoding="utf-8",
+    )
+    (wiki / "Existing.md").write_text("# Existing\n", encoding="utf-8")
+
+    findings = check_generated_wiki_links(tmp_path)
+
+    assert len(findings) == 2
+    assert any("malformed wiki link" in finding.message for finding in findings)
+    assert any("wiki target does not exist: Absent" in finding.message for finding in findings)
+
+
+def test_canonical_docs_reject_raw_html_heading_elements(tmp_path: Path) -> None:
+    page = tmp_path / "docs/content/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text("# 1. Page\n\n<h3>Skipped heading</h3>\n", encoding="utf-8")
+
+    findings = check_raw_html_headings(tmp_path)
+
+    assert len(findings) == 1
+    assert "raw HTML heading" in findings[0].message
+
+
+def test_repo_surface_markdown_rejects_decorative_status_icons(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("Supported: ✓\n", encoding="utf-8")
+
+    findings = check_professional_markdown(tmp_path)
+
+    assert len(findings) == 1
+    assert "decorative status icon" in findings[0].message
+
+
 def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
     manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
     source_map = build_source_map(manifest, "wiki")
@@ -124,6 +165,30 @@ def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
     assert 'href="3-1-Quickstart"' in rewritten
 
 
+def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:
+    markdown = "The interval is [0, count)\n\n[Composite](composite.md)\n"
+
+    assert find_links(markdown) == [
+        find_links("[Composite](composite.md)")[0],
+    ]
+
+
+def test_wiki_rewrite_preserves_link_after_unmatched_bracket() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    rewritten = rewrite_for_surface(
+        "The interval is [0, count)\n\n"
+        "[Composite Family](viewmodel-families/composite-family.md)\n",
+        surface="wiki",
+        current_source=Path("docs/content/primitives/builders-collections-tree-utilities.md"),
+        current_output=Path("6-7-Builders-Collections-Tree-Utilities.md"),
+        source_map=source_map,
+    )
+
+    assert "The interval is [0, count)" in rewritten
+    assert "[[Composite Family|6-2-5-Composite-Family]]" in rewritten
+
+
 def test_build_generates_self_contained_surfaces() -> None:
     build_docs.build(site=True, wiki=True, check=True, repo_root=ROOT)
 
@@ -134,6 +199,7 @@ def test_build_generates_self_contained_surfaces() -> None:
     assert "github.com/thekaveh/VMx/blob/main" not in site_page.read_text(encoding="utf-8")
     assert "thekaveh.github.io/VMx" not in wiki_page.read_text(encoding="utf-8")
     assert (ROOT / "mkdocs.yml").read_text(encoding="utf-8").find("repo_url") == -1
+    assert "generator: false" in (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
 
 
 def test_docs_check_passes() -> None:

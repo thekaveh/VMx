@@ -65,7 +65,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Sync Python dependencies (for pytest)
-        run: uv --project langs/python sync --all-extras
+        run: uv --project langs/python sync --locked --all-extras
 
       - name: Ruff lint tools/
         # The conformance-coverage tool lives at the repo root (outside the

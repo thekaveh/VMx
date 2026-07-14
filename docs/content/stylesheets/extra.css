@@ -69,8 +69,11 @@
   padding: 0.9rem;
 }
 
-.vmx-card h3 {
+.vmx-card-title {
   margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .vmx-diagram {

@@ -22,7 +22,7 @@ Diagram:
 [PNG](../../docs/assets/diagrams/rust-console-hello-vmx.png)).
 
 ```bash
-cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
+cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml
 ```
 
 Expected output:
@@ -49,19 +49,19 @@ VM-layer diagram:
 Run the non-interactive smoke path from the repository root:
 
 ```bash
-cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
+cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 ```
 
 Run the VM-layer tests:
 
 ```bash
-cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 ```
 
 Run the interactive TUI:
 
 ```bash
-cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 ```
 
 Key bindings:

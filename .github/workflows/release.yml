@@ -285,11 +285,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             langs/python/pyproject.toml
+            langs/python/uv.lock
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Sync dependencies
         working-directory: langs/python
-        run: uv sync --all-extras
+        run: uv sync --locked --all-extras
       - name: Ruff lint
         working-directory: langs/python
         run: uv run ruff check src tests
@@ -327,12 +328,9 @@ jobs:
         with:
           version: "0.11.28"
           enable-cache: true
-          # VMx is a library project — uv.lock is gitignored (matches
-          # python.yml's cache-key derivation). Override the default
-          # `**/uv.lock` glob so setup-uv doesn't error out searching for
-          # a lockfile we deliberately don't track.
           cache-dependency-glob: |
             langs/python/pyproject.toml
+            langs/python/uv.lock
       - name: Set up Python
         run: uv python install 3.12
 
@@ -691,7 +689,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
       - name: Sync tool dependencies
-        run: uv --project langs/python sync --all-extras
+        run: uv --project langs/python sync --locked --all-extras
       - name: Check five-flavor conformance coverage
         run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
       - name: Check Rust fixture sync
