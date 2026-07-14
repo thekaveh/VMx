@@ -25,6 +25,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  audit:
+    name: dependency advisory audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        with:
+          toolchain: stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Deny vulnerabilities and advisory warnings
+        run: |
+          cargo audit --file langs/rust/Cargo.lock --deny warnings
+          cargo audit --file examples/rust/console/hello-vmx/Cargo.lock --deny warnings
+          cargo audit --file examples/rust/tui/notes-showcase/Cargo.lock --deny warnings
+
   build:
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

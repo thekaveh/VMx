@@ -40,3 +40,12 @@ def test_wiki_workflow_changes_trigger_tool_tests() -> None:
     workflow = _CONFORMANCE_WORKFLOW.read_text(encoding="utf-8")
 
     assert workflow.count('- ".github/workflows/wiki.yml"') == 2
+
+
+def test_wiki_workflow_verifies_the_published_tree_after_push() -> None:
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+
+    publish = workflow.index("name: Publish wiki")
+    verify = workflow.index("name: Verify published wiki")
+    assert publish < verify
+    assert "python -m scripts.docs.push_wiki --check-published" in workflow

@@ -45,6 +45,18 @@ def test_rust_ci_keeps_example_lockfiles_immutable() -> None:
     )
 
 
+def test_rust_ci_denies_advisories_in_every_committed_lockfile() -> None:
+    workflow = _workflow("rust.yml")
+
+    assert "cargo install cargo-audit --version 0.22.2 --locked" in workflow
+    for relative in (
+        "langs/rust/Cargo.lock",
+        "examples/rust/console/hello-vmx/Cargo.lock",
+        "examples/rust/tui/notes-showcase/Cargo.lock",
+    ):
+        assert f"cargo audit --file {relative} --deny warnings" in workflow
+
+
 def test_rust_application_example_lockfiles_are_committed_by_policy() -> None:
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
@@ -138,7 +150,9 @@ def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None
         "--require typescript --require swift --require rust",
     ):
         assert command in jobs
-    assert "needs: [rust-test, rust-conformance]" in jobs
+    assert "cargo install cargo-audit --version 0.22.2 --locked" in jobs
+    assert "cargo audit --file langs/rust/Cargo.lock --deny warnings" in jobs
+    assert "needs: [rust-test, rust-conformance, rust-audit]" in jobs
 
 
 def test_release_rejects_non_main_or_mismatched_tag_before_authentication() -> None:

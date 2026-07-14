@@ -65,3 +65,5 @@ jobs:
             WIKI_REMOTE="https://x-access-token:${{ github.token }}@github.com/thekaveh/VMx.wiki.git" \
               python -m scripts.docs.push_wiki --push
           fi
+      - name: Verify published wiki
+        run: python -m scripts.docs.push_wiki --check-published

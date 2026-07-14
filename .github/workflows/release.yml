@@ -695,9 +695,27 @@ jobs:
       - name: Check Rust fixture sync
         run: uv --project langs/python run python tools/check-rust-fixture-sync.py
 
+  rust-audit:
+    name: rust — dependency advisory audit
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        with:
+          toolchain: stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Deny vulnerabilities and advisory warnings
+        run: cargo audit --file langs/rust/Cargo.lock --deny warnings
+
   rust-publish:
     name: rust — publish vmx-rs
-    needs: [rust-test, rust-conformance]
+    needs: [rust-test, rust-conformance, rust-audit]
     if: startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 30

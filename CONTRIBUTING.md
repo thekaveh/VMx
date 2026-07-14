@@ -57,7 +57,7 @@ swift test --parallel
 Swift requires the toolchain shipped with a current Xcode (5.9+) and a
 macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
 is not available on Linux. See `langs/swift/README.md` §5 for the full
-conformance matrix; v3.1.0 is at full library parity.
+conformance matrix; the current source line is at full library parity.
 
 ### 2.5 Rust
 

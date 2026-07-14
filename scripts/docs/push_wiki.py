@@ -44,12 +44,25 @@ def sync_wiki(src: Path, repo_dir: Path) -> None:
             shutil.copy2(item, target)
 
 
-def push_wiki(src: Path, remote: str, *, push: bool) -> None:
+def _read_only_remote(remote: str) -> str:
+    if remote.startswith("git@github.com:"):
+        return f"https://github.com/{remote.removeprefix('git@github.com:')}"
+    return remote
+
+
+def push_wiki(
+    src: Path,
+    remote: str,
+    *,
+    push: bool,
+    check_published: bool = False,
+) -> bool:
     env = _env_with_identity()
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "wiki"
-        if push:
-            _run(["git", "clone", "--depth", "1", remote, str(work)], Path(tmp), env)
+        if push or check_published:
+            clone_remote = remote if push else _read_only_remote(remote)
+            _run(["git", "clone", "--depth", "1", clone_remote, str(work)], Path(tmp), env)
         else:
             work.mkdir()
             _run(["git", "init", "-b", "master"], work, env)
@@ -58,21 +71,32 @@ def push_wiki(src: Path, remote: str, *, push: bool) -> None:
         diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=work, env=env)
         if diff.returncode == 0:
             print("wiki already up to date")
-            return
+            return True
+        if check_published:
+            print("generated wiki differs from the published wiki")
+            return False
         _run(["git", "commit", "-m", "docs: sync generated wiki"], work, env)
         if push:
             _run(["git", "push", "origin", "HEAD:master"], work, env)
+        return True
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", default="generated/wiki")
-    parser.add_argument("--push", action="store_true")
-    parser.add_argument("--check", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--push", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--check-published", action="store_true")
     args = parser.parse_args()
     remote = os.environ.get("WIKI_REMOTE", DEFAULT_REMOTE)
-    push_wiki(Path(args.src), remote, push=args.push and not args.check)
-    return 0
+    current = push_wiki(
+        Path(args.src),
+        remote,
+        push=args.push,
+        check_published=args.check_published,
+    )
+    return 0 if current else 1
 
 
 if __name__ == "__main__":
