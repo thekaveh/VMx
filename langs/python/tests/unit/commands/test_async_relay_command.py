@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from threading import Event, Thread
+from threading import Barrier, Event, Lock, Thread
 
 from vmx.commands import AsyncRelayCommand
 
@@ -33,4 +33,37 @@ def test_execute_without_running_loop_returns_before_async_work_finishes() -> No
 
     assert returned_before_release, "fire-and-forget execute must not run the coroutine inline"
     assert finished.wait(1)
+    command.dispose()
+
+
+def test_execute_async_admission_is_atomic_across_threads() -> None:
+    predicate_barrier = Barrier(2)
+    release = Event()
+    invocation_lock = Lock()
+    invocations = 0
+
+    def predicate() -> bool:
+        predicate_barrier.wait(timeout=1)
+        return True
+
+    async def task() -> None:
+        nonlocal invocations
+        with invocation_lock:
+            invocations += 1
+        while not release.is_set():
+            await asyncio.sleep(0)
+
+    command = AsyncRelayCommand.builder().predicate(predicate).task(task).build()
+    callers = [Thread(target=lambda: asyncio.run(command.execute_async())) for _ in range(2)]
+    for caller in callers:
+        caller.start()
+    try:
+        assert all(caller.is_alive() for caller in callers)
+    finally:
+        release.set()
+        for caller in callers:
+            caller.join(timeout=1)
+
+    assert invocations == 1
+    assert all(not caller.is_alive() for caller in callers)
     command.dispose()
