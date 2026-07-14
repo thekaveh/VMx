@@ -176,6 +176,15 @@ class GenerateDiagramsTests(unittest.TestCase):
             capability_box.lines,
         )
 
+    def test_commands_map_includes_sync_and_async_command_contracts(self) -> None:
+        diagram = self.generator.commands_capabilities()
+        rendered_text = {text for box in diagram.boxes for text in (box.title, *box.lines)}
+
+        self.assertIn("ICommand / ICommand<T>", rendered_text)
+        self.assertIn("IAsyncCommand", rendered_text)
+        self.assertIn("RelayCommand", rendered_text)
+        self.assertIn("AsyncRelayCommand", rendered_text)
+
 
 if __name__ == "__main__":
     unittest.main()

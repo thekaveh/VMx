@@ -120,8 +120,8 @@ jobs:
     # notes-showcase plan). Lives under `examples/csharp/avalonia/` and
     # references the library via ProjectReference (not NuGet), so it must run
     # in the same CI as `build` above. Kept as a separate job because the
-    # existing `build` job pins `defaults.run.working-directory: langs/csharp`
-    # and gates restore on packages.lock.json; the example has no lockfile.
+    # existing `build` job pins `defaults.run.working-directory: langs/csharp`;
+    # the example has its own committed lockfiles and locked restore steps.
     name: examples (notes-showcase)
     runs-on: ubuntu-latest
     # Override workflow-level `defaults.run.working-directory: langs/csharp` so
