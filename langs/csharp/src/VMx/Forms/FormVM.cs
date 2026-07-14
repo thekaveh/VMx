@@ -38,7 +38,9 @@ public sealed class FormVM<TM> : IDisposable
     private Dictionary<string, string> _errors;
     private volatile bool _disposed;
     private bool _approvalPublishing;
+    private bool _approvalPrePublishing;
     private int _approvalPublisherThreadId;
+    private readonly Queue<TM> _deferredApprovalModels = new();
     private int _activeMutations;
     private bool _mutationTeardownPending;
 
@@ -242,6 +244,11 @@ public sealed class FormVM<TM> : IDisposable
                 while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
                     Monitor.Wait(_stateGate);
                 if (_disposed) return;
+                if (_approvalPublishing && _approvalPrePublishing)
+                {
+                    _deferredApprovalModels.Enqueue(model);
+                    return;
+                }
                 _activeMutations++;
                 admitted = true;
                 ThrowHelper.ThrowIfNull(model, nameof(model));
@@ -430,6 +437,7 @@ public sealed class FormVM<TM> : IDisposable
                 Monitor.Wait(_stateGate);
             if (_disposed) return;
             _approvalPublishing = true;
+            _approvalPrePublishing = true;
             _approvalPublisherThreadId = caller;
             var wasDirty = !Equals(_model, _snapshot);
             var wasValid = _errors.Count == 0;
@@ -465,16 +473,24 @@ public sealed class FormVM<TM> : IDisposable
                 _canExecuteChangedTrigger.OnNext(Unit.Default);
                 if (_disposed) return;
             }
+            lock (_stateGate)
+                _approvalPrePublishing = false;
             _onApproved.OnNext(current);
         }
         finally
         {
+            TM[] deferredModels;
             lock (_stateGate)
             {
+                _approvalPrePublishing = false;
                 _approvalPublishing = false;
                 _approvalPublisherThreadId = 0;
+                deferredModels = [.. _deferredApprovalModels];
+                _deferredApprovalModels.Clear();
                 Monitor.PulseAll(_stateGate);
             }
+            foreach (var deferredModel in deferredModels)
+                SetModel(deferredModel);
         }
     }
 

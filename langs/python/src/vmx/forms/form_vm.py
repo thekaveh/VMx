@@ -85,7 +85,9 @@ class FormVM(Generic[TM]):
         self._reset_on_approved = reset_on_approved
         self._state_changed = Condition(RLock())
         self._approval_publishing = False
+        self._approval_pre_publishing = False
         self._approval_publisher_thread: int | None = None
+        self._deferred_approval_models: list[TM] = []
         self._active_mutations = 0
         self._mutation_teardown_pending = False
 
@@ -213,6 +215,9 @@ class FormVM(Generic[TM]):
                     self._state_changed.wait()
                 if self._disposed:
                     return
+                if self._approval_publishing and self._approval_pre_publishing:
+                    self._deferred_approval_models.append(model)
+                    return
                 self._active_mutations += 1
                 admitted = True
                 if model is None:
@@ -293,6 +298,7 @@ class FormVM(Generic[TM]):
             if self._disposed:
                 return
             self._approval_publishing = True
+            self._approval_pre_publishing = True
             self._approval_publisher_thread = caller
             was_dirty = self._model != self._snapshot
             was_valid = not self._errors
@@ -322,15 +328,23 @@ class FormVM(Generic[TM]):
                 if self._disposed:
                     return
 
+            with self._state_changed:
+                self._approval_pre_publishing = False
+
             # Emit the value that was actually persisted (parity with C#'s
             # captured `current`): a set_model racing the persister await must
             # not swap the approved payload for a newer un-persisted model.
             self._on_approved.on_next(current)
         finally:
             with self._state_changed:
+                self._approval_pre_publishing = False
                 self._approval_publishing = False
                 self._approval_publisher_thread = None
+                deferred_models = self._deferred_approval_models
+                self._deferred_approval_models = []
                 self._state_changed.notify_all()
+            for deferred_model in deferred_models:
+                self.set_model(deferred_model)
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 

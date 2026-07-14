@@ -303,6 +303,8 @@ export class FormVM<TM> {
   #disposed = false;
   #activeSyncOperations = 0;
   #teardownPending = false;
+  #approvalPrePublishing = false;
+  #deferredApprovalModels: TM[] = [];
 
   readonly #onApproved = new Subject<TM>();
   readonly #approveErrors = new Subject<unknown>();
@@ -452,6 +454,10 @@ export class FormVM<TM> {
    */
   setModel(model: TM): void {
     if (this.#disposed) return;
+    if (this.#approvalPrePublishing) {
+      this.#deferredApprovalModels.push(model);
+      return;
+    }
     this.#beginSyncOperation();
     try {
       if (model === null || model === undefined) {
@@ -502,6 +508,7 @@ export class FormVM<TM> {
       const wasDirty = this.isDirty;
       const wasValid = Object.keys(this.#errors).length === 0;
       let validityChanged = false;
+      let errorsChanged = false;
       if (this.#resetOnApproved !== null) {
         // Prepare callback output, two independent values, and validation before
         // committing any local field. A failure therefore leaves state intact.
@@ -515,14 +522,28 @@ export class FormVM<TM> {
         this.#snapshot = nextSnapshot;
         if (!sameErrors(nextErrors, this.#errors)) {
           this.#errors = nextErrors;
-          this.#errorsChanged.next({ ...nextErrors });
+          errorsChanged = true;
         }
       } else {
         this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
       }
 
-      if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
-        this.#canExecuteTrigger.next();
+      this.#approvalPrePublishing = true;
+      try {
+        if (errorsChanged) {
+          this.#errorsChanged.next({ ...this.#errors });
+          // A synchronous observer may dispose the form reentrantly.
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (this.#disposed) return;
+        }
+        if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
+          this.#canExecuteTrigger.next();
+          // A synchronous observer may dispose the form reentrantly.
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (this.#disposed) return;
+        }
+      } finally {
+        this.#approvalPrePublishing = false;
       }
 
       // Emit the value that was actually persisted (parity with C#'s captured
@@ -530,7 +551,11 @@ export class FormVM<TM> {
       // approved payload for a newer un-persisted model.
       this.#onApproved.next(current);
     } finally {
+      this.#approvalPrePublishing = false;
       this.#endSyncOperation();
+      const deferredModels = this.#deferredApprovalModels;
+      this.#deferredApprovalModels = [];
+      for (const deferredModel of deferredModels) this.setModel(deferredModel);
     }
   }
 

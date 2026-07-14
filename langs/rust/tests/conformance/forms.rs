@@ -590,6 +590,44 @@ fn reset_runs_after_persist_and_approved_uses_captured_model() {
     assert!(!form.is_dirty());
 }
 
+#[test]
+fn reset_error_observer_mutation_runs_after_pristine_approval() {
+    let form = FormVm::builder()
+        .initial("saved".to_string())
+        .persister(|_| Ok(()))
+        .validator("value", |model| {
+            model.is_empty().then(|| "required".to_string())
+        })
+        .reset_on_approved(|_| Ok(String::new()))
+        .build()
+        .unwrap();
+    let reentrant_form = form.clone();
+    let _subscription = form.errors_changed().subscribe(move |_| {
+        reentrant_form.set_model("reentrant".to_string());
+    });
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_inner = Arc::clone(&observed);
+    let approval_form = form.clone();
+    form.on_approved(move |approved| {
+        observed_inner.lock().unwrap().push((
+            approved,
+            approval_form.model(),
+            approval_form.snapshot(),
+            approval_form.is_dirty(),
+        ));
+    });
+
+    form.approve().unwrap();
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![("saved".to_string(), String::new(), String::new(), false)]
+    );
+    assert_eq!(form.model(), "reentrant");
+    assert_eq!(form.snapshot(), "");
+    assert!(form.is_dirty());
+}
+
 #[derive(Clone, Debug)]
 struct ResetModel {
     value: String,

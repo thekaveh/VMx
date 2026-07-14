@@ -477,7 +477,14 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// invokes the children factory again. Invalidating an unmaterialized node
     /// is a no-op.
     public func invalidateChildren() {
-        guard _children != nil else { return }
+        guard let cached = _children else { return }
+        for child in cached {
+            let childNode = node(child)
+            guard childNode.parent === selfNode else { continue }
+            childNode.parent = nil
+            childNode._pathCache = nil
+            invalidatePathCacheDescendants(of: child)
+        }
         _children = nil
         hub.send(PropertyChangedMessage(
             sender: selfNode,

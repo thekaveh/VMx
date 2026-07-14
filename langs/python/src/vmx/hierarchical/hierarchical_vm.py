@@ -543,6 +543,11 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """
         if self._children_list is None:
             return
+        for child in self._children_list:
+            if child._hierarchical_parent is self:
+                child._hierarchical_parent = None
+                child._path_cache = None
+                child._invalidate_path_cache_descendants()
         self._children_list = None
         self._children_view = None
         self._hub.send(

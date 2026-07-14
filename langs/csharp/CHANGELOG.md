@@ -8,6 +8,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- Form reset publication now defers model edits requested by validation
+  observers until `OnApproved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
 - A newer token-page refresh now supersedes an older in-flight load, preventing
   stale results from being appended after the refreshed first page.
 - Container construction, destruction, and reconstruction now wait for

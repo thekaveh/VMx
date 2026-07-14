@@ -8,6 +8,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Form reset publication now defers model edits requested by validation
+  observers until `on_approved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
 - `AsyncRelayCommand` now restores its execution state when invoking the task
   factory raises before returning an awaitable.
 - A newer token-page refresh now supersedes an older in-flight load, preventing

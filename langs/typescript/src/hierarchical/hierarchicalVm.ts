@@ -463,6 +463,12 @@ export abstract class HierarchicalVM<
    */
   invalidateChildren(): void {
     if (this.#children === null) return;
+    for (const child of this.#children) {
+      if (child.#hierarchicalParent !== this.#self) continue;
+      child.#hierarchicalParent = null;
+      child.#pathCache = null;
+      child.#invalidatePathCacheDescendants();
+    }
     this.#children = null;
     this._hub.send(
       PropertyChangedMessage.create(

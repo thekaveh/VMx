@@ -6100,11 +6100,16 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     pub fn invalidate_children(&self) {
         let was_materialized = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-            let was_materialized = lock(&self.children).is_some();
-            if was_materialized {
-                *lock(&self.children) = None;
+            let discarded = lock(&self.children).take();
+            if let Some(children) = &discarded {
+                for child in children {
+                    let attached_to_self = lock(&child.parent).as_ref() == Some(self);
+                    if attached_to_self {
+                        child.set_parent_state(None);
+                    }
+                }
             }
-            was_materialized
+            discarded.is_some()
         };
         if was_materialized {
             self.hub

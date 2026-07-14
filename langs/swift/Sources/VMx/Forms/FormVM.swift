@@ -29,6 +29,8 @@ public final class FormVM<Model> {
     private var _disposed = false
     private var activeMutations = 0
     private var mutationTeardownPending = false
+    private var approvalPrePublishing = false
+    private var deferredApprovalModels: [Model] = []
     private let stateGate = NSRecursiveLock()
 
     private let persister: (Model) async throws -> Void
@@ -177,6 +179,11 @@ public final class FormVM<Model> {
             stateGate.unlock()
             return
         }
+        if approvalPrePublishing {
+            deferredApprovalModels.append(newModel)
+            stateGate.unlock()
+            return
+        }
         activeMutations += 1
         var shouldPublish = false
         defer {
@@ -234,6 +241,7 @@ public final class FormVM<Model> {
             guard !_disposed else { return }
             try completeApproval(current)
         }
+        drainDeferredApprovalModels()
     }
 
     // ── Dispose ───────────────────────────────────────────────────────────────
@@ -368,6 +376,8 @@ public final class FormVM<Model> {
         if let nextModel { _model = nextModel }
         _snapshot = nextSnapshot
         if nextErrors != nil { _errors = committedErrors }
+        approvalPrePublishing = true
+        defer { approvalPrePublishing = false }
         if errorsChanged {
             _errorsChanged.send(committedErrors)
             guard !_disposed else { return }
@@ -376,7 +386,17 @@ public final class FormVM<Model> {
             _approveCanExecSubject.send(())
             guard !_disposed else { return }
         }
+        approvalPrePublishing = false
         _onApproved.send(captured)
+    }
+
+    private func drainDeferredApprovalModels() {
+        let deferred = withStateGate { () -> [Model] in
+            let models = deferredApprovalModels
+            deferredApprovalModels.removeAll()
+            return models
+        }
+        for model in deferred { setModel(model) }
     }
 
     private func canApprove() -> Bool {

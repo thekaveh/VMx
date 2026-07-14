@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Form reset publication now defers model edits requested by validation
+  observers until `onApproved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
 - A newer token-page refresh now supersedes an older in-flight load, preventing
   stale results from being appended after the refreshed first page.
 - `FormVM` now completes admitted synchronous assignment, reset, revert, and

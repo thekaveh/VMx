@@ -473,6 +473,27 @@ fn invalidate_children_reloads_on_next_access() {
     assert_eq!(node.children()[0].model(), "child-2");
 }
 
+#[test]
+fn invalidate_children_detaches_discarded_children() {
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        |_| vec![leaf("child")],
+        false,
+        MessageHub::new(),
+    );
+    let discarded = root.children()[0].clone();
+
+    root.invalidate_children();
+    let replacement = root.children()[0].clone();
+
+    assert!(replacement != discarded);
+    assert!(discarded.parent().is_none());
+    assert!(discarded.is_root());
+    root.add_child(discarded.clone()).unwrap();
+    assert!(root.children().contains(&discarded));
+}
+
 /// HIER-020 — InvalidateChildren on an unmaterialized node is a no-op
 #[test]
 fn invalidate_unmaterialized_children_is_noop() {

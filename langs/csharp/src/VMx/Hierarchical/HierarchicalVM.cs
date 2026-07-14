@@ -448,6 +448,13 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     public void InvalidateChildren()
     {
         if (_children is null) return;
+        foreach (var child in _children)
+        {
+            if (!ReferenceEquals(child._hierarchicalParent, this)) continue;
+            child._hierarchicalParent = null;
+            child._pathCache = null;
+            child.InvalidatePathCacheDescendants();
+        }
         _children = null;
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(
             this, Name, nameof(Children)));

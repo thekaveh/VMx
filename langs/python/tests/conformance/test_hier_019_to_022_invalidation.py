@@ -49,6 +49,20 @@ def test_HIER_019_invalidate_children_reloads_on_next_access() -> None:
     assert second is not first
 
 
+def test_invalidate_children_detaches_discarded_children() -> None:
+    root = Node(lambda _: [Node()])
+    discarded = root.children[0]
+
+    root.invalidate_children()
+    replacement = root.children[0]
+
+    assert replacement is not discarded
+    assert discarded.parent is None
+    assert discarded.is_root
+    root.add_child(discarded)
+    assert discarded in root.children
+
+
 @pytest.mark.conformance("HIER-020")
 def test_HIER_020_invalidate_unmaterialized_children_is_noop() -> None:
     calls = 0

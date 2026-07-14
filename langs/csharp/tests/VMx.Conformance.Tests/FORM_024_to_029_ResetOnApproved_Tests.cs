@@ -203,6 +203,29 @@ public class FORM_024_to_029_ResetOnApproved_Tests
     }
 
     [Fact]
+    public async Task Reset_Error_Observer_Mutation_Runs_After_Pristine_Approval()
+    {
+        using var form = FormVM<Model>.Builder()
+            .Initial(new("saved"))
+            .Persister(_ => Task.CompletedTask)
+            .Validator("value", model => model.Value.Length == 0 ? "required" : null)
+            .ResetOnApproved(_ => new(""))
+            .Build();
+        var observed = new List<(Model Approved, Model Live, Model Snapshot, bool Dirty)>();
+        using var errorsSubscription = form.ErrorsChanged.Subscribe(
+            _ => form.SetModel(new("reentrant")));
+        using var approvedSubscription = form.OnApproved.Subscribe(approved =>
+            observed.Add((approved, form.Model, form.Snapshot, form.IsDirty)));
+
+        await form.ApproveAsync();
+
+        observed.Should().Equal((new Model("saved"), new Model(""), new Model(""), false));
+        form.Model.Should().Be(new Model("reentrant"));
+        form.Snapshot.Should().Be(new Model(""));
+        form.IsDirty.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Dispose_From_Reset_Error_Observer_Stops_Remaining_Publication()
     {
         var form = FormVM<Model>.Builder()

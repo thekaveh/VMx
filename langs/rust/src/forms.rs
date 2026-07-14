@@ -7,6 +7,28 @@ type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, String> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
 
+struct ApprovalPublication<M> {
+    pre_publishing: bool,
+    deferred_models: Vec<M>,
+}
+
+struct ApprovalPrePublicationGuard<M> {
+    publication: Arc<Mutex<ApprovalPublication<M>>>,
+}
+
+impl<M> ApprovalPrePublicationGuard<M> {
+    fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
+        lock(&publication).pre_publishing = true;
+        Self { publication }
+    }
+}
+
+impl<M> Drop for ApprovalPrePublicationGuard<M> {
+    fn drop(&mut self) {
+        lock(&self.publication).pre_publishing = false;
+    }
+}
+
 #[derive(Clone)]
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     pub(crate) component: ComponentVm<M>,
@@ -24,6 +46,7 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     approve_command: Arc<OnceLock<RelayCommand>>,
     deny_command: Arc<OnceLock<RelayCommand>>,
     approved_callbacks: Arc<Mutex<Vec<ApprovedCallback<M>>>>,
+    approval_publication: Arc<Mutex<ApprovalPublication<M>>>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
 }
@@ -61,6 +84,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
             approved_callbacks: Arc::new(Mutex::new(Vec::new())),
+            approval_publication: Arc::new(Mutex::new(ApprovalPublication {
+                pre_publishing: false,
+                deferred_models: Vec::new(),
+            })),
             disposed: Arc::new(Mutex::new(false)),
             hub,
         };
@@ -117,6 +144,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
+        {
+            let mut publication = lock(&self.approval_publication);
+            if publication.pre_publishing {
+                publication.deferred_models.push(model);
+                return;
+            }
+        }
         let could_approve = self.can_approve();
         if !self.component.replace_model(model) {
             return;
@@ -167,7 +201,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return Ok(());
         }
         let could_approve = self.can_approve();
-        if let Some(reset_on_approved) = &self.reset_on_approved {
+        let errors_changed = if let Some(reset_on_approved) = &self.reset_on_approved {
             // Prepare the complete transition before mutating local state. The
             // callback or either snapshot operation may fail/panic without a
             // partial assignment.
@@ -182,16 +216,29 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             *lock(&self.snapshot) = next_snapshot;
             let errors_changed = self.replace_validation_errors(next_errors);
             self.component.replace_model(next_model);
+            errors_changed
+        } else {
+            *lock(&self.snapshot) = (self.snapshotter)(&model);
+            false
+        };
+        {
+            let _publication =
+                ApprovalPrePublicationGuard::new(Arc::clone(&self.approval_publication));
             if errors_changed {
                 self.publish_validation_changed();
             }
-        } else {
-            *lock(&self.snapshot) = (self.snapshotter)(&model);
+            self.publish_approve_state_change(could_approve);
         }
-        self.publish_approve_state_change(could_approve);
         let callbacks = lock(&self.approved_callbacks).clone();
         for callback in callbacks {
             callback(model.clone());
+        }
+        let deferred_models = {
+            let mut publication = lock(&self.approval_publication);
+            std::mem::take(&mut publication.deferred_models)
+        };
+        for deferred_model in deferred_models {
+            self.set_model(deferred_model);
         }
         Ok(())
     }
@@ -477,6 +524,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
             approved_callbacks: Arc::new(Mutex::new(Vec::new())),
+            approval_publication: Arc::new(Mutex::new(ApprovalPublication {
+                pre_publishing: false,
+                deferred_models: Vec::new(),
+            })),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,
         };

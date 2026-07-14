@@ -36,6 +36,22 @@ final class HierarchicalInvalidationTests: XCTestCase {
         XCTAssertFalse(second === first)
     }
 
+    func testInvalidateChildrenDetachesDiscardedChildren() {
+        let root = node { _ in [self.node()] }
+        let discarded = root.children[0]
+
+        root.invalidateChildren()
+        let replacement = root.children[0]
+
+        XCTAssertFalse(replacement === discarded)
+        XCTAssertNil(discarded.parent)
+        XCTAssertTrue(discarded.isRoot)
+        guard case .success = root.addChild(discarded) else {
+            return XCTFail("discarded child should be reusable")
+        }
+        XCTAssertTrue(root.children.contains { $0 === discarded })
+    }
+
     /// HIER-020 — invalidateChildren on an unmaterialized node is a no-op.
     func testHIER020InvalidateChildrenUnmaterializedIsNoop() {
         var calls = 0

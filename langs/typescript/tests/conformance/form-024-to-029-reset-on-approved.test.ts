@@ -33,6 +33,27 @@ describe("FORM-024", () => {
 
     expect(order).toEqual(["persist:edited", "reset:edited", "approved:edited"]);
   });
+
+  it("defers reset-error observer mutation until after pristine approval", async () => {
+    const form = FormVM.builder<Model>()
+      .initial(m("saved"))
+      .persister(noop)
+      .validator("value", (model) => model.value.length === 0 ? "required" : null)
+      .resetOnApproved(() => m(""))
+      .build();
+    const observed: Array<[Model, Model, Model, boolean]> = [];
+    form.errorsChanged.subscribe(() => { form.setModel(m("reentrant")); });
+    form.onApproved.subscribe((approved) => {
+      observed.push([approved, form.model, form.snapshot, form.isDirty]);
+    });
+
+    await form.approveAsync();
+
+    expect(observed).toEqual([[m("saved"), m(""), m(""), false]]);
+    expect(form.model).toEqual(m("reentrant"));
+    expect(form.snapshot).toEqual(m(""));
+    expect(form.isDirty).toBe(true);
+  });
 });
 
 describe("FORM-025", () => {

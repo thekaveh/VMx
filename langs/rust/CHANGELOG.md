@@ -15,6 +15,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Form reset publication now defers model edits requested by validation
+  observers until approved callbacks have observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
 - Failed lifecycle hooks publish the rolled-back construction status, and a
   failing dispose hook still completes the local property-change stream.
 - Form commands are stable handles; form disposal closes commands, channels,

@@ -73,6 +73,34 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         XCTAssertEqual(approved, ["saved"])
     }
 
+    func testResetErrorObserverMutationRunsAfterPristineApproval() async throws {
+        let form = try FormVM<String>.builder()
+            .initial("saved")
+            .persister { _ in }
+            .validator("value") { $0.isEmpty ? "required" : nil }
+            .resetOnApproved { _ in "" }
+            .build()
+        var observed: [(String, String, String, Bool)] = []
+        var cancellables = Set<AnyCancellable>()
+        form.errorsChanged.sink { _ in
+            form.setModel("reentrant")
+        }.store(in: &cancellables)
+        form.onApproved.sink { approved in
+            observed.append((approved, form.model, form.snapshot, form.isDirty))
+        }.store(in: &cancellables)
+
+        try await form.approveAsync()
+
+        XCTAssertEqual(observed.count, 1)
+        XCTAssertEqual(observed.first?.0, "saved")
+        XCTAssertEqual(observed.first?.1, "")
+        XCTAssertEqual(observed.first?.2, "")
+        XCTAssertEqual(observed.first?.3, false)
+        XCTAssertEqual(form.model, "reentrant")
+        XCTAssertEqual(form.snapshot, "")
+        XCTAssertTrue(form.isDirty)
+    }
+
     /// FORM-025 — reset output is snapshotted twice, independent, revalidated, and strict-clean.
     func testForm025_snapshotValidationAndStrictIntegration() async throws {
         var calls = 0
