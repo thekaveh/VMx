@@ -17,7 +17,9 @@ Cargo.toml.orig
 README.md
 src/aggregate_change_stream.rs
 src/async_resource_vm.rs
+src/async_value.rs
 src/fixtures/lifecycle-transitions.json
+src/forms.rs
 src/lib.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
@@ -74,6 +76,7 @@ def package_paths(package_dir: Path) -> set[str]:
             "package",
             "--manifest-path",
             str(package_dir / "Cargo.toml"),
+            "--locked",
             "--list",
         ],
         check=True,
