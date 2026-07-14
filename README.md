@@ -1,3 +1,5 @@
+<img src="assets/vmx-poster.png" alt="VMx multi-language MVVM framework poster" width="100%">
+
 # VMx
 
 [![csharp](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml)
