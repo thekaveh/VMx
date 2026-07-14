@@ -63,7 +63,11 @@ final class DisposalInvariantTests: XCTestCase {
 
         command.dispose()
         command.dispose()
-        try? await run.value
+        do {
+            try await run.value
+        } catch {
+            XCTFail("default disposal cancellation must complete without throwing: \(error)")
+        }
 
         XCTAssertEqual(cancellations.value, 1)
         XCTAssertFalse(command.canExecute())

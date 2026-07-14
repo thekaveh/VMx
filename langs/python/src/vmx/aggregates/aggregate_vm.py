@@ -83,11 +83,14 @@ class AggregateVM1(Generic[V1], _ComponentVMBase):
             self._component1.dispose()
         self._component1 = self._factory1()
         self._notify_property_changed("component_1")
-        self._component1.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=True)
+        )
 
     def _on_destruct(self) -> None:
-        if self._component1 is not None:
-            self._component1.destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=False)
+        )
 
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): the component slot first, then self.
@@ -163,14 +166,14 @@ class AggregateVM2(Generic[V1, V2], _ComponentVMBase):
         self._component2 = self._factory2()
         self._notify_property_changed("component_2")
 
-        self._component1.construct()
-        self._component2.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=True)
+        )
 
     def _on_destruct(self) -> None:
-        if self._component1 is not None:
-            self._component1.destruct()
-        if self._component2 is not None:
-            self._component2.destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=False)
+        )
 
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
@@ -257,17 +260,14 @@ class AggregateVM3(Generic[V1, V2, V3], _ComponentVMBase):
         self._component3 = self._factory3()
         self._notify_property_changed("component_3")
 
-        self._component1.construct()
-        self._component2.construct()
-        self._component3.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=True)
+        )
 
     def _on_destruct(self) -> None:
-        if self._component1 is not None:
-            self._component1.destruct()
-        if self._component2 is not None:
-            self._component2.destruct()
-        if self._component3 is not None:
-            self._component3.destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=False)
+        )
 
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
@@ -369,20 +369,14 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _ComponentVMBase):
         self._component4 = self._factory4()
         self._notify_property_changed("component_4")
 
-        self._component1.construct()
-        self._component2.construct()
-        self._component3.construct()
-        self._component4.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=True)
+        )
 
     def _on_destruct(self) -> None:
-        if self._component1 is not None:
-            self._component1.destruct()
-        if self._component2 is not None:
-            self._component2.destruct()
-        if self._component3 is not None:
-            self._component3.destruct()
-        if self._component4 is not None:
-            self._component4.destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=False)
+        )
 
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
@@ -503,23 +497,14 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _ComponentVMBase):
         self._component5 = self._factory5()
         self._notify_property_changed("component_5")
 
-        self._component1.construct()
-        self._component2.construct()
-        self._component3.construct()
-        self._component4.construct()
-        self._component5.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=True)
+        )
 
     def _on_destruct(self) -> None:
-        if self._component1 is not None:
-            self._component1.destruct()
-        if self._component2 is not None:
-            self._component2.destruct()
-        if self._component3 is not None:
-            self._component3.destruct()
-        if self._component4 is not None:
-            self._component4.destruct()
-        if self._component5 is not None:
-            self._component5.destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=False)
+        )
 
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
@@ -657,26 +642,14 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _ComponentVMBase):
         self._component6 = self._factory6()
         self._notify_property_changed("component_6")
 
-        self._component1.construct()
-        self._component2.construct()
-        self._component3.construct()
-        self._component4.construct()
-        self._component5.construct()
-        self._component6.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=True)
+        )
 
     def _on_destruct(self) -> None:
-        if self._component1 is not None:
-            self._component1.destruct()
-        if self._component2 is not None:
-            self._component2.destruct()
-        if self._component3 is not None:
-            self._component3.destruct()
-        if self._component4 is not None:
-            self._component4.destruct()
-        if self._component5 is not None:
-            self._component5.destruct()
-        if self._component6 is not None:
-            self._component6.destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(self.components(), construct=False)
+        )
 
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.

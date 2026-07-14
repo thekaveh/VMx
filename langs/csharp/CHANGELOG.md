@@ -6,6 +6,14 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Container construction, destruction, and reconstruction now wait for
+  background-dispatched child lifecycle transitions before the parent settles,
+  including when a null message hub is injected.
+- Confirmation and form error channels now serialize terminal teardown with
+  active error publication so disposal cannot race a continuation.
+
 ## [3.20.1] — 2026-07-14
 
 Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.

@@ -408,3 +408,34 @@ def test_approve_errors_completes_on_dispose() -> None:
 
     sut.dispose()
     assert len(completed) == 1, "approve_errors observable completes on dispose"
+
+
+def test_approve_command_without_running_loop_returns_while_persist_is_pending() -> None:
+    import asyncio
+    from threading import Event, Thread
+
+    started = Event()
+    release = Event()
+    finished = Event()
+    returned = Event()
+
+    async def persister(model: Model) -> None:
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0)
+        finished.set()
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    caller = Thread(target=lambda: (sut.approve_command.execute(), returned.set()), daemon=True)
+    caller.start()
+
+    try:
+        assert started.wait(1), "the persister starts on a background event loop"
+        returned_before_release = returned.wait(0.1)
+    finally:
+        release.set()
+        caller.join(timeout=1)
+
+    assert returned_before_release, "fire-and-forget approval must not await persistence inline"
+    assert finished.wait(1)
+    sut.dispose()

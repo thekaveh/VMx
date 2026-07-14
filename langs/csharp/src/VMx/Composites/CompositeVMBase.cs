@@ -329,25 +329,25 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         base.OnConstruct(); // invoke user's onConstruct callback if any
         // Populate children from factory (lazy: only on first construct).
         PopulateChildren();
-        // Construct all children.
-        ConstructChildren();
-        // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
-        // The composite is still in Constructing here; every child is Constructed.
-        // Selector returning null or an out-of-set value leaves Current at its
-        // prior value and emits no notification (matches SelectComponent semantics).
-        if (_currentSelector is not null)
-        {
-            var initial = _currentSelector(this);
-            if (initial is not null && _children.Contains(initial))
-                SetCurrent(initial, async: false);
-        }
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: true,
+            after: () =>
+            {
+                // The selector runs only after every child settles Constructed.
+                if (_currentSelector is null) return;
+                var initial = _currentSelector(this);
+                if (initial is not null && _children.Contains(initial))
+                    SetCurrent(initial, async: false);
+            }));
     }
 
     /// <summary>Constructs all current children sequentially.</summary>
     protected void ConstructChildren()
     {
-        foreach (var child in _children.ToArray())
-            child.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: true));
     }
 
     /// <summary>
@@ -358,17 +358,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     protected virtual void PopulateChildren() { }
 
     /// <summary>
-    /// Overrides Destruct: sets Current = null first, then destructs all children.
+    /// Overrides Destruct: sets Current = null first, then waits for every child.
     /// </summary>
     protected override void OnDestruct()
     {
         if (_current is not null)
             SetCurrent(null, async: false);
 
-        foreach (var child in _children.ToArray())
-            child.Destruct();
-
-        base.OnDestruct(); // invoke user's onDestruct callback if any
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: false,
+            after: () => base.OnDestruct()));
     }
 
     /// <summary>

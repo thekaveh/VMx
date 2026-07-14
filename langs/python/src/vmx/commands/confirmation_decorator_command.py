@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
 from typing import Any
 
 from reactivex import Observable
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._asyncio_runner import submit_background
 from vmx.commands.protocols import Command
 
 
@@ -59,12 +61,8 @@ class ConfirmationDecoratorCommand:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop: run to completion synchronously, routing a
-            # failure to the error channel (parity with the running-loop path).
-            try:
-                asyncio.run(self.execute_async(parameter))
-            except Exception as exc:
-                self._emit_error(exc)
+            future = submit_background(self.execute_async(parameter))
+            future.add_done_callback(self._on_done)
             return
         task = loop.create_task(self.execute_async(parameter))
         # Surface the failure on the error channel; skip cancelled tasks —
@@ -78,7 +76,7 @@ class ConfirmationDecoratorCommand:
         if await self._confirm():
             self._inner.execute(parameter)
 
-    def _on_done(self, task: asyncio.Future[None]) -> None:
+    def _on_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
             return
         exc = task.exception()

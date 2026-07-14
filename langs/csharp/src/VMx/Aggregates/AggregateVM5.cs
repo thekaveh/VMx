@@ -114,21 +114,18 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
         _component5 = _factory5();
         NotifyPropertyChanged(nameof(Component5));
 
-        _component1.Construct();
-        _component2.Construct();
-        _component3.Construct();
-        _component4.Construct();
-        _component5.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            [_component1, _component2, _component3, _component4, _component5],
+            construct: true));
     }
 
     /// <inheritdoc/>
     protected override void OnDestruct()
     {
-        _component1?.Destruct();
-        _component2?.Destruct();
-        _component3?.Destruct();
-        _component4?.Destruct();
-        _component5?.Destruct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            new IComponentVM?[] { _component1, _component2, _component3, _component4, _component5 }
+                .OfType<IComponentVM>(),
+            construct: false));
     }
 
     /// <summary>

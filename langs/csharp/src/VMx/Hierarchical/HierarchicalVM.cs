@@ -185,11 +185,9 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
         if (_eagerChildren)
         {
-            // Depth-first: materialize and construct children before returning.
-            // Each child's OnConstruct recurses into its own children first,
-            // so the deepest leaf reaches Constructed before the parent.
-            foreach (var child in Children)
-                child.Construct();
+            CompleteLifecycleHookAfter(TransitionChildrenAsync(
+                Children.Cast<IComponentVM>().ToArray(),
+                construct: true));
         }
     }
 

@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Disposing an executing `AsyncRelayCommand` now records cancellation before
+  cancelling the task, so the command body observes the terminal request.
+
 ## [3.20.1] — 2026-07-14
 
 Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.

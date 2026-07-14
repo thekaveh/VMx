@@ -6,6 +6,13 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+### Fixed
+
+- Container construction, destruction, and reconstruction now wait for
+  background-dispatched child lifecycle transitions before the parent settles.
+- Synchronous command entry points now schedule coroutine work on a shared
+  background loop instead of blocking the caller with `asyncio.run`.
+
 ## [3.20.1] — 2026-07-14
 
 Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.

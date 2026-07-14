@@ -58,13 +58,16 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
         _component1 = _factory1();
         NotifyPropertyChanged(nameof(Component1));
 
-        _component1.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            [_component1], construct: true));
     }
 
     /// <inheritdoc/>
     protected override void OnDestruct()
     {
-        _component1?.Destruct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            new IComponentVM?[] { _component1 }.OfType<IComponentVM>(),
+            construct: false));
     }
 
     /// <summary>

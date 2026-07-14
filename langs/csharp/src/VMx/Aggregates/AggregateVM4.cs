@@ -100,19 +100,18 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
         _component4 = _factory4();
         NotifyPropertyChanged(nameof(Component4));
 
-        _component1.Construct();
-        _component2.Construct();
-        _component3.Construct();
-        _component4.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            [_component1, _component2, _component3, _component4],
+            construct: true));
     }
 
     /// <inheritdoc/>
     protected override void OnDestruct()
     {
-        _component1?.Destruct();
-        _component2?.Destruct();
-        _component3?.Destruct();
-        _component4?.Destruct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            new IComponentVM?[] { _component1, _component2, _component3, _component4 }
+                .OfType<IComponentVM>(),
+            construct: false));
     }
 
     /// <summary>

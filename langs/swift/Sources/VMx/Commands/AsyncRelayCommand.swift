@@ -229,6 +229,7 @@ public final class AsyncRelayCommand: AsyncCommand {
         let result = stateQueue.sync { () -> (Bool, (() -> Void)?) in
             guard !disposed else { return (false, nil) }
             disposed = true
+            cancelRequested = true
             let handle = cancelHandle
             cancelHandle = nil
             return (true, handle)

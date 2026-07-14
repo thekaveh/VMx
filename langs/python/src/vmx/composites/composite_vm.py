@@ -377,22 +377,33 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._remove_at(len(self._children) - 1)
                 raise
             self._populated = True
-        # Construct all children.
-        for child in list(self._children):
-            child.construct()
-        # Apply the optional initial-current selector.
-        if self._current_selector is not None:
+
+        def apply_initial_current() -> None:
+            if self._current_selector is None:
+                return
             initial = self._current_selector(self)
             if initial is not None and initial in self._children:
                 self._set_current(initial, async_sel=False)
+
+        self._complete_lifecycle_hook_after(
+            self._transition_children(
+                list(self._children),
+                construct=True,
+                after=apply_initial_current,
+            )
+        )
 
     def _on_destruct(self) -> None:
         """Set current=None then destruct all children."""
         if self._current is not None:
             self._set_current(None, async_sel=False)
-        for child in list(self._children):
-            child.destruct()
-        super()._on_destruct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(
+                list(self._children),
+                construct=False,
+                after=super()._on_destruct,
+            )
+        )
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""

@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Reactive;
 using System.Reactive.Disposables;
-using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
@@ -90,6 +89,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // written by a transition completing on the background scheduler.
     private volatile ConstructionStatus _status = ConstructionStatus.Destructed;
     private volatile bool _inFlight;
+    private readonly List<TaskCompletionSource<bool>> _lifecycleWaiters = [];
+    private Task? _deferredLifecycleTask;
 
     // ── Selection state ─────────────────────────────────────────────────────
     private bool _isCurrent;
@@ -123,6 +124,54 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// Base implementation invokes the <c>onDestruct</c> delegate.
     /// </summary>
     protected virtual void OnDestruct() => _onDestruct?.Invoke();
+
+    /// <summary>
+    /// Defers the parent's terminal lifecycle transition until asynchronous child
+    /// transitions have settled. A synchronously completed task is observed
+    /// immediately so hook failures retain their existing throw behavior.
+    /// </summary>
+    protected void CompleteLifecycleHookAfter(Task task)
+    {
+        if (task.IsCompleted)
+        {
+            task.GetAwaiter().GetResult();
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (_deferredLifecycleTask is not null)
+                throw new InvalidOperationException("A lifecycle hook already deferred completion.");
+            _deferredLifecycleTask = task;
+        }
+    }
+
+    /// <summary>Transitions children sequentially and validates their settled state.</summary>
+    protected static async Task TransitionChildrenAsync(
+        IEnumerable<IComponentVM> children,
+        bool construct,
+        Action? after = null)
+    {
+        foreach (var child in children)
+        {
+            if (construct)
+            {
+                await child.ConstructAsync().ConfigureAwait(false);
+                if (child.Status != ConstructionStatus.Constructed)
+                    throw new InvalidOperationException(
+                        $"Child '{child.Name}' did not reach Constructed.");
+            }
+            else
+            {
+                await child.DestructAsync().ConfigureAwait(false);
+                if (child.Status != ConstructionStatus.Destructed)
+                    throw new InvalidOperationException(
+                        $"Child '{child.Name}' did not reach Destructed.");
+            }
+        }
+
+        after?.Invoke();
+    }
 
     /// <summary>
     /// Called by <see cref="Dispose()"/> after the status reaches Disposed,
@@ -322,6 +371,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     throw;
                 }
 
+                var deferred = TakeDeferredLifecycleTask();
+                if (deferred is not null)
+                {
+                    CompleteDeferredLifecycle(
+                        deferred,
+                        ConstructionStatus.Constructed,
+                        ConstructionStatus.Destructed);
+                    return Disposable.Empty;
+                }
+
                 // VMX-025: marshal the terminal Constructed emission onto the
                 // foreground scheduler so subscribers observe the status change on
                 // the foreground (UI) thread, not the background (pool) thread.
@@ -347,6 +406,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         else
         {
+            var completionDeferred = false;
             try
             {
                 try
@@ -363,11 +423,22 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     SetStatus(ConstructionStatus.Destructed);
                     throw;
                 }
+                var deferred = TakeDeferredLifecycleTask();
+                if (deferred is not null)
+                {
+                    completionDeferred = true;
+                    CompleteDeferredLifecycle(
+                        deferred,
+                        ConstructionStatus.Constructed,
+                        ConstructionStatus.Destructed);
+                    return;
+                }
                 SetStatus(ConstructionStatus.Constructed);
             }
             finally
             {
-                ClearInFlight();
+                if (!completionDeferred)
+                    ClearInFlight();
             }
         }
     }
@@ -379,38 +450,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // so subscribing first would wait forever for a message that never comes.
         if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
 
-        if (_background)
+        var tcs = RegisterLifecycleWaiter();
+        try
         {
-            // Subscribe to the hub BEFORE calling Construct() to avoid a race where
-            // the background work finishes before the subscription is established.
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var subscription = _hub.Messages
-                .OfType<IConstructionStatusChangedMessage>()
-                .Where(m => ReferenceEquals(m.SenderObject, this) &&
-                            (m.Status == ConstructionStatus.Constructed ||
-                             m.Status == ConstructionStatus.Destructed ||
-                             m.Status == ConstructionStatus.Disposed))
-                .Take(1)
-                .Subscribe(_ => tcs.TrySetResult(true));
-
-            try
-            {
-                Construct();
-            }
-            catch
-            {
-                // Validator/in-flight rejection: don't leak the hub subscription.
-                subscription.Dispose();
-                throw;
-            }
-
-            // If already Constructed before subscription fired (e.g. scheduler advanced
-            // inline on a test scheduler), the TCS is already set; either way we wait.
-            return tcs.Task.ContinueWith(_ => subscription.Dispose(), TaskScheduler.Default);
+            Construct();
+        }
+        catch
+        {
+            RemoveLifecycleWaiter(tcs);
+            throw;
         }
 
-        Construct();
-        return Task.CompletedTask;
+        CompleteWaiterIfSettled(tcs);
+        return tcs.Task;
     }
 
     // ── Lifecycle: Destruct ─────────────────────────────────────────────────
@@ -471,6 +523,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     throw;
                 }
 
+                var deferred = TakeDeferredLifecycleTask();
+                if (deferred is not null)
+                {
+                    CompleteDeferredLifecycle(
+                        deferred,
+                        ConstructionStatus.Destructed,
+                        ConstructionStatus.Constructed);
+                    return Disposable.Empty;
+                }
+
                 // VMX-025: marshal the terminal Destructed emission onto the
                 // foreground scheduler so subscribers observe the status change on
                 // the foreground (UI) thread, not the background (pool) thread.
@@ -495,6 +557,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         else
         {
+            var completionDeferred = false;
             try
             {
                 try
@@ -509,11 +572,22 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     SetStatus(ConstructionStatus.Constructed);
                     throw;
                 }
+                var deferred = TakeDeferredLifecycleTask();
+                if (deferred is not null)
+                {
+                    completionDeferred = true;
+                    CompleteDeferredLifecycle(
+                        deferred,
+                        ConstructionStatus.Destructed,
+                        ConstructionStatus.Constructed);
+                    return;
+                }
                 SetStatus(ConstructionStatus.Destructed);
             }
             finally
             {
-                ClearInFlight();
+                if (!completionDeferred)
+                    ClearInFlight();
             }
         }
     }
@@ -525,36 +599,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // so subscribing first would wait forever for a message that never comes.
         if (_status == ConstructionStatus.Destructed) return Task.CompletedTask;
 
-        if (_background)
+        var tcs = RegisterLifecycleWaiter();
+        try
         {
-            // Subscribe to the hub BEFORE calling Destruct() to avoid a race where
-            // the background work finishes before the subscription is established.
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var subscription = _hub.Messages
-                .OfType<IConstructionStatusChangedMessage>()
-                .Where(m => ReferenceEquals(m.SenderObject, this) &&
-                            (m.Status == ConstructionStatus.Destructed ||
-                             m.Status == ConstructionStatus.Constructed ||
-                             m.Status == ConstructionStatus.Disposed))
-                .Take(1)
-                .Subscribe(_ => tcs.TrySetResult(true));
-
-            try
-            {
-                Destruct();
-            }
-            catch
-            {
-                // Validator/in-flight rejection: don't leak the hub subscription.
-                subscription.Dispose();
-                throw;
-            }
-
-            return tcs.Task.ContinueWith(_ => subscription.Dispose(), TaskScheduler.Default);
+            Destruct();
+        }
+        catch
+        {
+            RemoveLifecycleWaiter(tcs);
+            throw;
         }
 
-        Destruct();
-        return Task.CompletedTask;
+        CompleteWaiterIfSettled(tcs);
+        return tcs.Task;
     }
 
     // ── Lifecycle: Reconstruct ──────────────────────────────────────────────
@@ -572,6 +629,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             SetStatus(ConstructionStatus.Destructing);
         }
 
+        var completionDeferred = false;
         try
         {
             try
@@ -585,33 +643,104 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 SetStatus(ConstructionStatus.Constructed);
                 throw;
             }
-            SetStatus(ConstructionStatus.Destructed);
+            var deferredDestruct = TakeDeferredLifecycleTask();
+            if (deferredDestruct is not null)
+            {
+                completionDeferred = true;
+                ContinueReconstructAfterDeferredDestruct(deferredDestruct);
+                return;
+            }
 
-            SetStatus(ConstructionStatus.Constructing);
-            try
-            {
-                OnConstruct();
-            }
-            catch
-            {
-                // VMX-007: a failed construct phase rolls back to Destructed (the
-                // destruct phase already completed) so the VM stays recoverable.
-                SetStatus(ConstructionStatus.Destructed);
-                throw;
-            }
-            SetStatus(ConstructionStatus.Constructed);
+            completionDeferred = ContinueReconstructWithConstructPhase();
         }
         finally
         {
-            ClearInFlight();
+            if (!completionDeferred)
+                ClearInFlight();
         }
     }
 
     /// <inheritdoc/>
     public Task ReconstructAsync()
     {
-        Reconstruct();
-        return Task.CompletedTask;
+        var tcs = RegisterLifecycleWaiter();
+        try
+        {
+            Reconstruct();
+        }
+        catch
+        {
+            RemoveLifecycleWaiter(tcs);
+            throw;
+        }
+
+        CompleteWaiterIfSettled(tcs);
+        return tcs.Task;
+    }
+
+    private bool ContinueReconstructWithConstructPhase()
+    {
+        SetStatus(ConstructionStatus.Destructed);
+        SetStatus(ConstructionStatus.Constructing);
+        try
+        {
+            OnConstruct();
+        }
+        catch
+        {
+            SetStatus(ConstructionStatus.Destructed);
+            throw;
+        }
+
+        var deferredConstruct = TakeDeferredLifecycleTask();
+        if (deferredConstruct is not null)
+        {
+            CompleteDeferredLifecycle(
+                deferredConstruct,
+                ConstructionStatus.Constructed,
+                ConstructionStatus.Destructed);
+            return true;
+        }
+
+        SetStatus(ConstructionStatus.Constructed);
+        return false;
+    }
+
+    private void ContinueReconstructAfterDeferredDestruct(Task task)
+    {
+        _ = task.ContinueWith(
+            completed =>
+            {
+                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                {
+                    if (IsDisposed())
+                    {
+                        ClearInFlight();
+                        return Disposable.Empty;
+                    }
+
+                    if (completed.Status != TaskStatus.RanToCompletion)
+                    {
+                        SetStatus(ConstructionStatus.Constructed);
+                        ClearInFlight();
+                        return Disposable.Empty;
+                    }
+
+                    try
+                    {
+                        if (!ContinueReconstructWithConstructPhase())
+                            ClearInFlight();
+                    }
+                    catch
+                    {
+                        ClearInFlight();
+                    }
+                    return Disposable.Empty;
+                });
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     // ── Lifecycle: Dispose ──────────────────────────────────────────────────
@@ -648,6 +777,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             if (_status == ConstructionStatus.Disposed) return;
             SetStatus(ConstructionStatus.Disposed);
+            CompleteLifecycleWaitersLocked();
         }
 
         // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
@@ -736,8 +866,88 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         lock (_gate)
         {
             _inFlight = false;
+            CompleteLifecycleWaitersLocked();
         }
     }
+
+    private Task? TakeDeferredLifecycleTask()
+    {
+        lock (_gate)
+        {
+            var task = _deferredLifecycleTask;
+            _deferredLifecycleTask = null;
+            return task;
+        }
+    }
+
+    private void CompleteDeferredLifecycle(
+        Task task,
+        ConstructionStatus successStatus,
+        ConstructionStatus rollbackStatus)
+    {
+        _ = task.ContinueWith(
+            completed =>
+            {
+                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                {
+                    try
+                    {
+                        SetStatus(completed.Status == TaskStatus.RanToCompletion
+                            ? successStatus
+                            : rollbackStatus);
+                    }
+                    finally
+                    {
+                        ClearInFlight();
+                    }
+                    return Disposable.Empty;
+                });
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private TaskCompletionSource<bool> RegisterLifecycleWaiter()
+    {
+        var waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            _lifecycleWaiters.Add(waiter);
+        }
+        return waiter;
+    }
+
+    private void RemoveLifecycleWaiter(TaskCompletionSource<bool> waiter)
+    {
+        lock (_gate)
+        {
+            _lifecycleWaiters.Remove(waiter);
+        }
+    }
+
+    private void CompleteWaiterIfSettled(TaskCompletionSource<bool> waiter)
+    {
+        lock (_gate)
+        {
+            if (_inFlight || !IsSettled(_status)) return;
+            _lifecycleWaiters.Remove(waiter);
+            waiter.TrySetResult(true);
+        }
+    }
+
+    private void CompleteLifecycleWaitersLocked()
+    {
+        if (!IsSettled(_status) || _lifecycleWaiters.Count == 0) return;
+        foreach (var waiter in _lifecycleWaiters)
+            waiter.TrySetResult(true);
+        _lifecycleWaiters.Clear();
+    }
+
+    private static bool IsSettled(ConstructionStatus status) =>
+        status is ConstructionStatus.Constructed or
+            ConstructionStatus.Destructed or
+            ConstructionStatus.Disposed;
 
     private void SetStatus(ConstructionStatus newStatus)
     {
@@ -763,6 +973,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
             if (!_triggerDisposed)
                 _statusTrigger.OnNext(Unit.Default);
+
         }
     }
 

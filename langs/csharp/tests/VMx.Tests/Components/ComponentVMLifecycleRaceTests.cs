@@ -66,6 +66,45 @@ public class ComponentVMLifecycleRaceTests
     }
 
     [Fact]
+    public async Task ConstructAsync_With_NullMessageHub_Completes_From_Internal_Lifecycle_State()
+    {
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Model("m")
+            .Background(true)
+            .Build();
+
+        var task = vm.ConstructAsync();
+
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1)));
+        completed.Should().BeSameAs(task,
+            "lifecycle completion must not depend on a message hub publishing status messages");
+        await task;
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task DestructAsync_With_NullMessageHub_Completes_From_Internal_Lifecycle_State()
+    {
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Model("m")
+            .Background(true)
+            .Build();
+        vm.Construct();
+
+        var task = vm.DestructAsync();
+
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1)));
+        completed.Should().BeSameAs(task,
+            "lifecycle completion must not depend on a message hub publishing status messages");
+        await task;
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
     public void Dispose_During_InFlight_Background_Construct_Does_Not_Resurrect()
     {
         var (vm, hub, dispatcher) = BuildBackgroundVm();

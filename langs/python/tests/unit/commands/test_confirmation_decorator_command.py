@@ -10,6 +10,7 @@ observe them inline.
 from __future__ import annotations
 
 import asyncio
+from threading import Event, Thread
 
 from vmx.commands import ConfirmationDecoratorCommand, RelayCommand
 
@@ -70,3 +71,32 @@ def test_errors_completes_on_dispose() -> None:
 
     cmd.dispose()
     assert len(completed) == 1, "errors observable completes on dispose"
+
+
+def test_execute_without_running_loop_returns_while_confirmation_is_pending() -> None:
+    started = Event()
+    release = Event()
+    invoked = Event()
+    returned = Event()
+
+    async def confirm() -> bool:
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0)
+        return True
+
+    inner = RelayCommand.builder().task(invoked.set).build()
+    command = ConfirmationDecoratorCommand(inner, confirm=confirm)
+    caller = Thread(target=lambda: (command.execute(), returned.set()), daemon=True)
+    caller.start()
+
+    try:
+        assert started.wait(1), "the confirmation starts on a background event loop"
+        returned_before_release = returned.wait(0.1)
+    finally:
+        release.set()
+        caller.join(timeout=1)
+
+    assert returned_before_release, "fire-and-forget execute must not await confirmation inline"
+    assert invoked.wait(1)
+    command.dispose()

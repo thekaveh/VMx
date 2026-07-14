@@ -409,6 +409,44 @@ public class FormVMTests
         completed.Should().BeTrue("ApproveErrors completes on Dispose");
     }
 
+    [Fact]
+    public async Task Dispose_Waits_For_InFlight_ApproveError_Delivery()
+    {
+        using var observerEntered = new ManualResetEventSlim();
+        using var releaseObserver = new ManualResetEventSlim();
+        using var disposeStarted = new ManualResetEventSlim();
+        var sut = new FormVM<Model>(
+            new Model("A", 1),
+            _ => Task.FromException(new InvalidOperationException("boom")));
+        using var subscription = sut.ApproveErrors.Subscribe(_ =>
+        {
+            observerEntered.Set();
+            releaseObserver.Wait();
+        });
+
+        var execute = Task.Run(() => sut.ApproveCommand.Execute(null));
+        observerEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var dispose = Task.Run(() =>
+        {
+            disposeStarted.Set();
+            sut.Dispose();
+        });
+        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        try
+        {
+            var first = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromMilliseconds(100)));
+            first.Should().NotBeSameAs(dispose,
+                "approve-error teardown must serialize with an admitted delivery");
+        }
+        finally
+        {
+            releaseObserver.Set();
+        }
+
+        await Task.WhenAll(execute, dispose);
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>

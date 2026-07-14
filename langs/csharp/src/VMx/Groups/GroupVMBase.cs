@@ -269,8 +269,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
         PopulateChildren();
-        foreach (var child in _children.ToArray())
-            child.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: true));
     }
 
     /// <summary>
@@ -285,10 +286,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// </summary>
     protected override void OnDestruct()
     {
-        foreach (var child in _children.ToArray())
-            child.Destruct();
-
-        base.OnDestruct(); // invoke user's onDestruct callback if any
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: false,
+            after: () => base.OnDestruct()));
     }
 
     /// <summary>

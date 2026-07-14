@@ -18,7 +18,8 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     private readonly Func<Task<bool>> _confirm;
     private readonly EventHandler _innerHandler;
     private readonly Subject<Exception> _errors = new();
-    private bool _disposed;
+    private readonly object _errorGate = new();
+    private volatile bool _disposed;
 
     /// <summary>Creates a new <see cref="ConfirmationDecoratorCommand"/>.</summary>
     public ConfirmationDecoratorCommand(ICommand inner, Func<Task<bool>> confirm)
@@ -59,8 +60,7 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
         _ = ExecuteAsync(parameter).ContinueWith(
             t =>
             {
-                if (_disposed) return;
-                _errors.OnNext(t.Exception!.GetBaseException());
+                EmitError(t.Exception!.GetBaseException());
             },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
@@ -74,16 +74,28 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
         if (confirmed) _inner.Execute(parameter);
     }
 
+    private void EmitError(Exception error)
+    {
+        lock (_errorGate)
+        {
+            if (_disposed) return;
+            _errors.OnNext(error);
+        }
+    }
+
     /// <summary>
     /// Unsubscribes from the inner command's <c>CanExecuteChanged</c> and completes
     /// the <see cref="Errors"/> channel. Idempotent.
     /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _inner.CanExecuteChanged -= _innerHandler;
-        _errors.OnCompleted();
-        _errors.Dispose();
+        lock (_errorGate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _inner.CanExecuteChanged -= _innerHandler;
+            _errors.OnCompleted();
+            _errors.Dispose();
+        }
     }
 }

@@ -8,12 +8,14 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import Future
 from typing import Any, Generic, TypeVar
 
 import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._asyncio_runner import submit_background
 from vmx.commands.relay_command import RelayCommand
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
@@ -333,13 +335,8 @@ class FormVM(Generic[TM]):
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop: run to completion synchronously, routing a
-            # persister failure to the error channel (parity with the
-            # running-loop path rather than propagating to the sync caller).
-            try:
-                asyncio.run(self.approve_async())
-            except Exception as exc:
-                self._emit_approve_error(exc)
+            future = submit_background(self.approve_async())
+            future.add_done_callback(self._on_approve_done)
             return
         task = loop.create_task(self.approve_async())
         # Mirror the C# continuation: surface the persister failure on the error
@@ -347,7 +344,7 @@ class FormVM(Generic[TM]):
         # for those, which would error the loop's callback.
         task.add_done_callback(self._on_approve_done)
 
-    def _on_approve_done(self, task: asyncio.Future[None]) -> None:
+    def _on_approve_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
             return
         exc = task.exception()

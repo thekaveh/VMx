@@ -25,10 +25,13 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
 
 import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
+
+from vmx._asyncio_runner import submit_background
 
 
 class AsyncRelayCommand:
@@ -51,6 +54,7 @@ class AsyncRelayCommand:
         self._can_execute_changed_subject: Subject[None] = Subject()
         self._errors: Subject[BaseException] = Subject()
         self._current_task: asyncio.Task[None] | None = None
+        self._current_loop: asyncio.AbstractEventLoop | None = None
         self._cancel_requested = False
         self._is_executing = False
         self._disposed = False
@@ -100,6 +104,7 @@ class AsyncRelayCommand:
         self.raise_can_execute_changed()
         inner: asyncio.Task[None] = asyncio.ensure_future(self._task())
         self._current_task = inner
+        self._current_loop = asyncio.get_running_loop()
         try:
             await inner
         except asyncio.CancelledError:
@@ -111,6 +116,7 @@ class AsyncRelayCommand:
         finally:
             self._is_executing = False
             self._current_task = None
+            self._current_loop = None
             self.raise_can_execute_changed()
 
     def execute(self, parameter: object = None) -> None:
@@ -122,14 +128,8 @@ class AsyncRelayCommand:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop: run to completion synchronously, routing a failure
-            # to the error channel (parity with the running-loop path).
-            try:
-                asyncio.run(self.execute_async(parameter))
-            except asyncio.CancelledError:
-                return
-            except Exception as exc:
-                self._emit_error(exc)
+            future = submit_background(self.execute_async(parameter))
+            future.add_done_callback(self._on_done)
             return
         task = loop.create_task(self.execute_async(parameter))
         task.add_done_callback(self._on_done)
@@ -139,7 +139,11 @@ class AsyncRelayCommand:
         self._cancel_requested = True
         task = self._current_task
         if task is not None and not task.done():
-            task.cancel()
+            loop = self._current_loop
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(task.cancel)
+            else:
+                task.cancel()
 
     @property
     def can_execute_changed(self) -> rx.Observable[None]:
@@ -161,7 +165,7 @@ class AsyncRelayCommand:
         """
         return self._errors.pipe(ops.as_observable())
 
-    def _on_done(self, task: asyncio.Future[None]) -> None:
+    def _on_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
             return
         exc = task.exception()

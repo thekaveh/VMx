@@ -269,9 +269,9 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     def _on_construct(self) -> None:
         super()._on_construct()
         if self._eager_children:
-            # Depth-first: materialize and construct children before returning.
-            for child in self.children:
-                child.construct()
+            self._complete_lifecycle_hook_after(
+                self._transition_children(list(self.children), construct=True)
+            )
 
     # ── Structural mutation ──────────────────────────────────────────────────
 

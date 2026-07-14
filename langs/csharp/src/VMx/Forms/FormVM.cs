@@ -28,13 +28,14 @@ public sealed class FormVM<TM> : IDisposable
     private readonly IMessageHub _hub;
     private readonly Subject<TM> _onApproved = new();
     private readonly Subject<Exception> _approveErrors = new();
+    private readonly object _approveErrorGate = new();
     private readonly Subject<IReadOnlyDictionary<string, string>> _errorsChanged = new();
     private readonly Subject<Unit> _canExecuteChangedTrigger = new();
 
     private TM _model;
     private TM _snapshot;
     private Dictionary<string, string> _errors;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     // ── Builder factory ───────────────────────────────────────────────────────
 
@@ -113,8 +114,7 @@ public sealed class FormVM<TM> : IDisposable
         _ = ApproveInternalAsync().ContinueWith(
             t =>
             {
-                if (_disposed) return;
-                _approveErrors.OnNext(t.Exception!.GetBaseException());
+                EmitApproveError(t.Exception!.GetBaseException());
             },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
@@ -241,18 +241,30 @@ public sealed class FormVM<TM> : IDisposable
     /// <summary>Completes the <see cref="OnApproved"/> observable and disposes resources.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        lock (_approveErrorGate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _approveErrors.OnCompleted();
+            _approveErrors.Dispose();
+        }
         _onApproved.OnCompleted();
         _onApproved.Dispose();
-        _approveErrors.OnCompleted();
-        _approveErrors.Dispose();
         _errorsChanged.OnCompleted();
         _errorsChanged.Dispose();
         _canExecuteChangedTrigger.OnCompleted();
         _canExecuteChangedTrigger.Dispose();
         if (DenyCommand is IDisposable d1) d1.Dispose();
         if (ApproveCommand is IDisposable d2) d2.Dispose();
+    }
+
+    private void EmitApproveError(Exception error)
+    {
+        lock (_approveErrorGate)
+        {
+            if (_disposed) return;
+            _approveErrors.OnNext(error);
+        }
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────

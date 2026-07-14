@@ -298,17 +298,19 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._on_construct_cb is not None:
             self._on_construct_cb()
         self._populate_children()
-        # Snapshot (parity with _CompositeVMBase and dispose below): a child
-        # lifecycle hook that mutates the group must not skip/repeat siblings.
-        for child in list(self._children):
-            child.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(list(self._children), construct=True)
+        )
 
     def _on_destruct(self) -> None:
         """Destruct every child, then invoke the builder's on_destruct callback."""
-        for child in list(self._children):
-            child.destruct()
-        if self._on_destruct_cb is not None:
-            self._on_destruct_cb()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(
+                list(self._children),
+                construct=False,
+                after=self._on_destruct_cb,
+            )
+        )
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
