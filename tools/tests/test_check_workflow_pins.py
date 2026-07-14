@@ -38,3 +38,20 @@ def test_check_ledger_requires_every_remote_action(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert cwp.check_ledger(tmp_path, ledger) == []
+
+
+def test_check_ledger_rejects_stale_sha_for_an_inventoried_action(tmp_path: Path) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    current = "googleapis/release-please-action@" + "a" * 40
+    stale = "googleapis/release-please-action@" + "b" * 40
+    (workflows / "release.yml").write_text(
+        f"steps:\n  - uses: {current}\n",
+        encoding="utf-8",
+    )
+    ledger = tmp_path / "ledger.md"
+    ledger.write_text(f"`{current}`\n`{stale}`\n", encoding="utf-8")
+
+    assert cwp.check_ledger(tmp_path, ledger) == [
+        f"stale ledger action pin: {stale} (workflow uses {current})"
+    ]

@@ -10,7 +10,7 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
     <p>Check source-tree version status and package commands for each flavor.</p>
   </div>
   <div class="vmx-card">
-    <h3><a href="quickstart/">Quickstart</a></h3>
+    <h3><a href="getting-started/">Quickstart</a></h3>
     <p>Build the same component-plus-composite shape across the full-parity flavors.</p>
   </div>
   <div class="vmx-card">
@@ -29,6 +29,6 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 ## 1.2. Start Here
 
 - Read [Installation](installation.md) for source-tree status and package availability.
-- Use [Quickstart](quickstart.md) for the smallest multi-language setup.
+- Use [Quickstart](getting-started/index.md) for the smallest multi-language setup.
 - Read [Core Concepts](core-concepts.md) before choosing VM families or extension points.
 - Use [Architecture Map](architecture/index.md) when you want the system view first.

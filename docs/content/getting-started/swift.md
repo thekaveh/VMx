@@ -7,7 +7,7 @@ package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 > The Swift flavor is at full parity on the v3.20.1 source line: 391/391 library
 > conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
 > Notes Workspace flagship. See
-> [`langs/swift/README.md` §5](../../langs/swift/README.md) for the current
+> [`langs/swift/README.md` §5](../../../langs/swift/README.md) for the current
 > matrix and documented Swift-specific divergences.
 >
 > For the normative contracts behind each type, see `spec/05-component-vm.md`,

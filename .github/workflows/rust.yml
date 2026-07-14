@@ -45,10 +45,10 @@ jobs:
         run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
 
       - name: Clippy
-        run: cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --manifest-path langs/rust/Cargo.toml
+        run: cargo test --locked --manifest-path langs/rust/Cargo.toml
 
   examples:
     name: examples
@@ -86,7 +86,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Package crate
-        run: cargo package --manifest-path langs/rust/Cargo.toml
+        run: cargo package --locked --manifest-path langs/rust/Cargo.toml
 
       - name: Check package contents
         run: python3 tools/check-rust-package.py

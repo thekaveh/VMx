@@ -21,7 +21,7 @@ language.
   and host-integration pointers.
 - Use [Cross-Language Naming](cross-language-naming.md) when you are translating
   an idea or snippet across flavors.
-- Use [Quickstart](../quickstart.md) when you want the smallest same-shape setup
+- Use [Quickstart](../getting-started/index.md) when you want the smallest same-shape setup
   before diving into flavor-specific details.
 
 ## 7.1.3. Flavor Pages

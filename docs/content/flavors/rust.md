@@ -130,8 +130,8 @@ ID rather than on every render frame.
 
 ```bash
 cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
-cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path langs/rust/Cargo.toml
+cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path langs/rust/Cargo.toml
 cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
 cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke

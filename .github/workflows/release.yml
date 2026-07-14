@@ -658,13 +658,13 @@ jobs:
       - name: Format check
         run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
       - name: Clippy
-        run: cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets --all-features -- -D warnings
       - name: Test all features
-        run: cargo test --manifest-path langs/rust/Cargo.toml --all-features
+        run: cargo test --locked --manifest-path langs/rust/Cargo.toml --all-features
       - name: Build documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --manifest-path langs/rust/Cargo.toml --all-features --no-deps
+        run: cargo doc --locked --manifest-path langs/rust/Cargo.toml --all-features --no-deps
       - name: Check package contents
         run: python3 tools/check-rust-package.py
       - name: Verify packaged consumer
@@ -757,12 +757,12 @@ jobs:
         if: steps.crates-auth-mode.outputs.bootstrap == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: cargo publish --manifest-path langs/rust/Cargo.toml
+        run: cargo publish --locked --manifest-path langs/rust/Cargo.toml
       - name: Publish with crates.io trusted publishing
         if: steps.crates-auth-mode.outputs.bootstrap != 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --manifest-path langs/rust/Cargo.toml
+        run: cargo publish --locked --manifest-path langs/rust/Cargo.toml
 
   rust-verify-published:
     name: rust — verify public (${{ matrix.toolchain }})

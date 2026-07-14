@@ -9,6 +9,7 @@ from scripts.docs.links import MARKDOWN_LINK_RE, is_forbidden
 from scripts.docs.manifest import Manifest, Section
 
 ASSET_PREFIX_RE = re.compile(r"(?P<prefix>(?:\.\./)+)assets/diagrams/(?P<asset>[^)\s]+)")
+HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 
 
 def wiki_name(section: Section) -> str:
@@ -65,9 +66,18 @@ def _mapped_target(
 
     if clean.startswith(("http://", "https://", "mailto:")):
         return target
-    if not clean.endswith(".md"):
-        if clean.startswith("#") or "assets/diagrams/" in clean:
-            return target
+    if clean.startswith("#") or "assets/diagrams/" in clean:
+        return target
+    if clean.endswith("/"):
+        sibling_page = f"{clean.rstrip('/')}.md"
+        sibling_candidate = (current_source.parent / sibling_page).resolve()
+        repo_root = Path.cwd().resolve()
+        try:
+            sibling_canonical = sibling_candidate.relative_to(repo_root)
+        except ValueError:
+            sibling_canonical = Path()
+        clean = sibling_page if sibling_canonical in source_map else f"{clean}index.md"
+    elif not clean.endswith(".md"):
         return None
 
     candidate = (current_source.parent / clean).resolve()
@@ -126,6 +136,27 @@ def rewrite_for_surface(
         return f"{'!' if image else ''}[{label}]({mapped})"
 
     text = MARKDOWN_LINK_RE.sub(replace, markdown)
+
+    def replace_html_href(match: re.Match[str]) -> str:
+        target = html.unescape(match.group("target"))
+        mapped = _mapped_target(
+            target,
+            current_source=current_source,
+            current_output=current_output,
+            source_map=source_map,
+            surface=surface,
+        )
+        if mapped is None:
+            return match.group(0)
+        if mapped.startswith("wiki:"):
+            mapped = mapped[5:]
+        elif mapped.endswith("/index.md"):
+            mapped = mapped.removesuffix("index.md")
+        elif mapped.endswith(".md"):
+            mapped = f"{mapped.removesuffix('.md')}/"
+        return f'href="{mapped}"'
+
+    text = HTML_HREF_RE.sub(replace_html_href, text)
     if surface == "wiki":
         text = ASSET_PREFIX_RE.sub(r"assets/diagrams/\g<asset>", text)
     return text

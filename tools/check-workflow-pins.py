@@ -11,6 +11,7 @@ from pathlib import Path
 
 _USES_RE = re.compile(r"\buses:\s*([^\s#]+)")
 _IMMUTABLE_ACTION_RE = re.compile(r"^[^/@\s]+/[^@\s]+@[0-9a-f]{40}$")
+_LEDGER_ACTION_RE = re.compile(r"`(?P<name>[^`/@\s]+/[^`@\s]+)@(?P<sha>[0-9a-f]{40})`")
 
 
 def collect_workflow_actions(repo_root: Path) -> tuple[set[str], list[str]]:
@@ -47,6 +48,12 @@ def check_ledger(repo_root: Path, ledger_path: Path) -> list[str]:
         for action in sorted(actions)
         if f"`{action}`" not in ledger
     )
+    current_by_name = {action.rsplit("@", 1)[0]: action for action in actions}
+    for match in _LEDGER_ACTION_RE.finditer(ledger):
+        documented = f"{match.group('name')}@{match.group('sha')}"
+        current = current_by_name.get(match.group("name"))
+        if current is not None and documented != current:
+            issues.append(f"stale ledger action pin: {documented} (workflow uses {current})")
     return issues
 
 

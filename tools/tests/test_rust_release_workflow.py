@@ -22,7 +22,8 @@ def test_rust_ci_verifies_packaged_consumers_on_msrv_and_stable() -> None:
 
     assert "name: package (${{ matrix.toolchain }})" in workflow
     assert 'toolchain: ["1.88.0", "stable"]' in workflow
-    assert "cargo package --manifest-path langs/rust/Cargo.toml" in workflow
+    assert "cargo package --locked --manifest-path langs/rust/Cargo.toml" in workflow
+    assert "cargo test --locked --manifest-path langs/rust/Cargo.toml" in workflow
     assert "python3 tools/check-rust-package.py" in workflow
     assert "python3 tools/smoke-rust-consumer.py" in workflow
     assert "--package-dir langs/rust" in workflow
@@ -53,6 +54,15 @@ def test_rust_application_example_lockfiles_are_committed_by_policy() -> None:
     ):
         assert (REPO_ROOT / relative).is_file()
         assert f"!/{relative}" in gitignore
+
+
+def test_rust_library_lockfile_is_committed_and_ci_uses_it() -> None:
+    gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    workflow = _workflow("rust.yml")
+
+    assert (REPO_ROOT / "langs/rust/Cargo.lock").is_file()
+    assert "!/langs/rust/Cargo.lock" in gitignore
+    assert "cargo clippy --locked --manifest-path langs/rust/Cargo.toml" in workflow
 
 
 def test_rust_examples_do_not_claim_a_lower_msrv_than_vmx() -> None:
@@ -118,10 +128,10 @@ def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None
     assert 'toolchain: ["1.88.0", "stable"]' in jobs
     for command in (
         "cargo fmt --manifest-path langs/rust/Cargo.toml -- --check",
-        "cargo clippy --manifest-path langs/rust/Cargo.toml "
+        "cargo clippy --locked --manifest-path langs/rust/Cargo.toml "
         "--all-targets --all-features -- -D warnings",
-        "cargo test --manifest-path langs/rust/Cargo.toml --all-features",
-        "cargo doc --manifest-path langs/rust/Cargo.toml --all-features --no-deps",
+        "cargo test --locked --manifest-path langs/rust/Cargo.toml --all-features",
+        "cargo doc --locked --manifest-path langs/rust/Cargo.toml --all-features --no-deps",
         "python3 tools/check-rust-package.py",
         "python3 tools/smoke-rust-consumer.py",
         "tools/check-conformance-coverage.py --require csharp --require python "
@@ -154,7 +164,7 @@ def test_release_has_protected_mutually_exclusive_bootstrap_and_oidc_paths() -> 
     assert "if: steps.crates-auth-mode.outputs.bootstrap != 'true'" in jobs
     assert "rust-lang/crates-io-auth-action@" in jobs
     assert "CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}" in jobs
-    assert jobs.count("cargo publish --manifest-path langs/rust/Cargo.toml") == 2
+    assert jobs.count("cargo publish --locked --manifest-path langs/rust/Cargo.toml") == 2
     assert "--allow-dirty" not in jobs
 
 

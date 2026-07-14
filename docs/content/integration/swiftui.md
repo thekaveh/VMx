@@ -84,7 +84,7 @@ A non-child `current` assignment likewise has a throwing companion
 ## 9.12.5. Fuller example
 
 The SwiftUI Notes Workspace flagship lives at
-[`examples/swift/notes-showcase/`](../../examples/swift/notes-showcase/). Its
+[`examples/swift/notes-showcase/`](../../../examples/swift/notes-showcase/). Its
 `NotesShowcaseCore` target keeps the pure VM layer separate from SwiftUI, while
 the app target contains the Combine-to-SwiftUI binding bridge.
 

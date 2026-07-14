@@ -7,11 +7,12 @@ from scripts.docs import build_docs
 from scripts.docs.check_docs import (
     _check_descendant_heading_numbers,
     check,
+    check_canonical_links,
     check_self_containment,
 )
 from scripts.docs.links import is_forbidden
 from scripts.docs.manifest import load_manifest
-from scripts.docs.transforms import build_source_map
+from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -91,6 +92,36 @@ def test_repo_self_containment_scans_current_facing_markdown(tmp_path: Path) -> 
 
     assert len(findings) == 1
     assert "examples/example.md" in findings[0].message
+
+
+def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path: Path) -> None:
+    page = tmp_path / "docs/content/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        '[Missing](quickstart.md)\n<a href="missing/">Missing route</a>\n'
+        '```python\nvalue = Model[str]("cancel")\n```\n',
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert len(findings) == 2
+    assert all("target does not exist" in finding.message for finding in findings)
+
+
+def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+
+    rewritten = rewrite_for_surface(
+        '<a href="getting-started/">Quickstart</a>',
+        surface="wiki",
+        current_source=Path("docs/content/index.md"),
+        current_output=Path("Home.md"),
+        source_map=source_map,
+    )
+
+    assert 'href="3-1-Quickstart"' in rewritten
 
 
 def test_build_generates_self_contained_surfaces() -> None:

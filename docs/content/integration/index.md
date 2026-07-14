@@ -106,10 +106,10 @@ ordinary VMx seams above rather than creating a second reactive architecture.
 ## 9.1.5. Worked Examples
 
 - Avalonia Notes Workspace:
-  [examples/csharp/avalonia/NotesShowcase/README.md](../../examples/csharp/avalonia/NotesShowcase/README.md)
+  [examples/csharp/avalonia/NotesShowcase/README.md](../../../examples/csharp/avalonia/NotesShowcase/README.md)
 - Textual Notes Workspace:
-  [examples/python/textual/notes_showcase/README.md](../../examples/python/textual/notes_showcase/README.md)
+  [examples/python/textual/notes_showcase/README.md](../../../examples/python/textual/notes_showcase/README.md)
 - React Notes Workspace:
-  [examples/typescript/react/notes-showcase/README.md](../../examples/typescript/react/notes-showcase/README.md)
+  [examples/typescript/react/notes-showcase/README.md](../../../examples/typescript/react/notes-showcase/README.md)
 - Swift Notes Workspace:
-  [examples/swift/notes-showcase/README.md](../../examples/swift/notes-showcase/README.md)
+  [examples/swift/notes-showcase/README.md](../../../examples/swift/notes-showcase/README.md)

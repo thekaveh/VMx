@@ -12,6 +12,7 @@ from scripts.docs.manifest import load_manifest
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
+HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
@@ -81,6 +82,53 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
                     Finding(
                         "error",
                         f"{path.relative_to(repo_root)}: forbidden repo-surface link {link.target}",
+                    )
+                )
+    return findings
+
+
+def _relative_target_exists(source: Path, target: str) -> bool:
+    clean = target.split("#", 1)[0].split("?", 1)[0]
+    if not clean or clean.startswith(("#", "http://", "https://", "mailto:")):
+        return True
+    candidate = (source.parent / clean).resolve()
+    if candidate.exists():
+        return True
+    if clean.endswith("/"):
+        sibling_page = (source.parent / f"{clean.rstrip('/')}.md").resolve()
+        return sibling_page.exists()
+    return False
+
+
+def _without_fenced_code(markdown: str) -> str:
+    output: list[str] = []
+    fence: str | None = None
+    for line in markdown.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            marker = stripped[:3]
+            fence = None if fence == marker else marker if fence is None else fence
+            output.append("\n")
+        elif fence is None:
+            output.append(line)
+        else:
+            output.append("\n")
+    return "".join(output)
+
+
+def check_canonical_links(repo_root: Path) -> list[Finding]:
+    """Reject relative canonical-doc links whose repository target is absent."""
+    findings: list[Finding] = []
+    for path in _scan_markdown(repo_root / "docs/content"):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        targets = [link.target for link in find_links(text)]
+        targets.extend(match.group("target") for match in HTML_HREF_RE.finditer(text))
+        for target in targets:
+            if not _relative_target_exists(path, target):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}: target does not exist: {target}",
                     )
                 )
     return findings
@@ -202,6 +250,7 @@ def check(repo_root: Path) -> list[Finding]:
     build_docs.build(site=True, wiki=True, check=True, repo_root=repo_root)
     findings: list[Finding] = []
     findings.extend(check_self_containment(repo_root))
+    findings.extend(check_canonical_links(repo_root))
     findings.extend(check_completeness(repo_root))
     findings.extend(check_heading_numbers(repo_root))
     findings.extend(check_placeholders(repo_root))

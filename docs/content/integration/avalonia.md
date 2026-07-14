@@ -52,7 +52,7 @@ wrap a `ServicedObservableCollection<T>` and observe its
 
 ## 9.2.4. Fuller example
 
-[`examples/csharp/avalonia/NotesShowcase/`](../../examples/csharp/avalonia/NotesShowcase/) —
+[`examples/csharp/avalonia/NotesShowcase/`](../../../examples/csharp/avalonia/NotesShowcase/) —
 the Notes-Showcase Avalonia flagship: end-to-end `WorkspaceVM` +
 `AggregateVM6` + `ConfirmationDecoratorCommand` pattern (shipped in
 v2.2.0; `ThemeVM` added in v2.4.0).

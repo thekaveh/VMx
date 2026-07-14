@@ -88,5 +88,5 @@ then delivers locally before publishing to the optional external hub.
 - Translate a snippet with this table first.
 - Confirm the full local surface in the flavor README when the example moves
   beyond the shared core shape.
-- Use [Quickstart](../quickstart.md) when you want same-concept examples across
+- Use [Quickstart](../getting-started/index.md) when you want same-concept examples across
   flavors in one place.

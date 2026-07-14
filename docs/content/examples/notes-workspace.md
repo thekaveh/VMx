@@ -6,7 +6,7 @@ idiomatic hosts, and one shared VM contract.
 <img src="../../assets/diagrams/examples-vm-layer.svg" alt="Examples VM Layer Map" class="vmx-diagram" />
 
 <p>
-  <a href="../notes-workspace-vm-layer/">Open the VM layer walkthrough</a>
+  <a href="notes-workspace-vm-layer/">Open the VM layer walkthrough</a>
   &middot;
   <a href="../../assets/diagrams/examples-vm-layer.svg">SVG</a>
   &middot;

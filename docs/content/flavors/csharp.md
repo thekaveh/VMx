@@ -99,5 +99,5 @@ after every property message from this fixed VM, not on every render frame.
 - Avalonia flagship: `examples/csharp/avalonia/NotesShowcase/`
 
 Use the site's [Smaller Examples](../examples/smaller-examples.md) page for the
-short demos and [Integration Recipes](../integration-recipes.md) for host
+short demos and [Integration Recipes](../integration/index.md) for host
 wiring routes.

@@ -57,7 +57,7 @@ export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHu
 
 ## 9.8.4. Fuller example
 
-[`examples/typescript/react/notes-showcase/`](../../examples/typescript/react/notes-showcase/) —
+[`examples/typescript/react/notes-showcase/`](../../../examples/typescript/react/notes-showcase/) —
 the Notes-Showcase React flagship: ships `useVm` / `useCommand` /
 `useDerivedProperty` hooks plus a full `WorkspaceVM`-driven UI
 (shipped in v2.2.0; `ThemeVM` added in v2.4.0).
