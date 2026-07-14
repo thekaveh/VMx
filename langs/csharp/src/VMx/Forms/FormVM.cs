@@ -39,6 +39,8 @@ public sealed class FormVM<TM> : IDisposable
     private volatile bool _disposed;
     private bool _approvalPublishing;
     private int _approvalPublisherThreadId;
+    private int _activeMutations;
+    private bool _mutationTeardownPending;
 
     // ── Builder factory ───────────────────────────────────────────────────────
 
@@ -229,40 +231,44 @@ public sealed class FormVM<TM> : IDisposable
     public void SetModel(TM model)
     {
         // Inert after Dispose (like ApproveAsync/Deny): a post-dispose call would
-        // otherwise emit on the disposed Revalidate subjects and throw
+        // otherwise emit on disposed validation subjects and throw
         // ObjectDisposedException (parity with the TS/Swift no-op).
-        ThrowHelper.ThrowIfNull(model, nameof(model));
         var caller = Environment.CurrentManagedThreadId;
-        lock (_stateGate)
+        var admitted = false;
+        try
         {
-            while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
-                Monitor.Wait(_stateGate);
-            if (_disposed || Equals(_model, model)) return;
+            lock (_stateGate)
+            {
+                while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
+                    Monitor.Wait(_stateGate);
+                if (_disposed) return;
+                _activeMutations++;
+                admitted = true;
+                ThrowHelper.ThrowIfNull(model, nameof(model));
+                if (Equals(_model, model)) return;
+                var wasDirty = !Equals(_model, _snapshot);
+                var wasValid = _errors.Count == 0;
+                _model = model;
+                var nextErrors = Validate(model);
+                var isDirty = !Equals(model, _snapshot);
+                var errorsChanged = !SameErrors(nextErrors, _errors);
+                _errors = nextErrors;
+                var canExecuteChanged = (_strict && isDirty != wasDirty) ||
+                    (_errors.Count == 0) != wasValid;
+                if (errorsChanged)
+                    _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
+                if (canExecuteChanged)
+                    _canExecuteChangedTrigger.OnNext(Unit.Default);
+            }
+            _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(
+                this,
+                nameof(FormVM<TM>),
+                nameof(Model)));
         }
-        var nextErrors = Validate(model);
-        bool errorsChanged;
-        bool canExecuteChanged;
-        lock (_stateGate)
+        finally
         {
-            while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
-                Monitor.Wait(_stateGate);
-            if (_disposed || Equals(_model, model)) return;
-            var wasDirty = !Equals(_model, _snapshot);
-            var wasValid = _errors.Count == 0;
-            errorsChanged = !SameErrors(nextErrors, _errors);
-            _model = model;
-            _errors = nextErrors;
-            canExecuteChanged = (_strict && !Equals(_model, _snapshot) != wasDirty) ||
-                (_errors.Count == 0) != wasValid;
+            if (admitted) EndMutation();
         }
-        if (errorsChanged)
-            _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
-        if (canExecuteChanged)
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
-        _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(
-            this,
-            nameof(FormVM<TM>),
-            nameof(Model)));
     }
 
     // ── IDisposable ───────────────────────────────────────────────────────────
@@ -271,13 +277,38 @@ public sealed class FormVM<TM> : IDisposable
     public void Dispose()
     {
         var caller = Environment.CurrentManagedThreadId;
+        var tearDown = false;
         lock (_stateGate)
         {
             while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
                 Monitor.Wait(_stateGate);
             if (_disposed) return;
             _disposed = true;
+            if (_activeMutations == 0)
+                tearDown = true;
+            else
+                _mutationTeardownPending = true;
         }
+        if (tearDown) TearDown();
+    }
+
+    private void EndMutation()
+    {
+        var tearDown = false;
+        lock (_stateGate)
+        {
+            _activeMutations--;
+            if (_activeMutations == 0 && _mutationTeardownPending)
+            {
+                _mutationTeardownPending = false;
+                tearDown = true;
+            }
+        }
+        if (tearDown) TearDown();
+    }
+
+    private void TearDown()
+    {
         lock (_approveErrorGate)
         {
             _approveErrors.OnCompleted();
@@ -306,17 +337,45 @@ public sealed class FormVM<TM> : IDisposable
 
     private void Deny()
     {
-        if (_disposed) return;
-        var wasDirty = IsDirty;
-        var wasValid = IsValid;
-        _model = _snapshotter(_snapshot);
-        Revalidate();
+        var caller = Environment.CurrentManagedThreadId;
+        var admitted = false;
+        try
+        {
+            bool canExecuteChanged;
+            lock (_stateGate)
+            {
+                while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
+                    Monitor.Wait(_stateGate);
+                if (_disposed) return;
+                _activeMutations++;
+                admitted = true;
+                var wasDirty = !Equals(_model, _snapshot);
+                var wasValid = _errors.Count == 0;
+                var nextModel = _snapshotter(_snapshot);
+                _model = nextModel;
+                var nextErrors = Validate(nextModel);
+                var isDirty = !Equals(nextModel, _snapshot);
+                var errorsChanged = !SameErrors(nextErrors, _errors);
+                _errors = nextErrors;
+                var isValid = _errors.Count == 0;
 
-        _hub.Send(new FormRevertedMessage(this, nameof(FormVM<TM>)));
-        _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(this, nameof(FormVM<TM>), nameof(Model)));
+                if (errorsChanged)
+                    _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
+                canExecuteChanged = (_strict && wasDirty != isDirty) || isValid != wasValid;
+            }
 
-        if ((_strict && wasDirty != IsDirty) || IsValid != wasValid)
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
+            _hub.Send(new FormRevertedMessage(this, nameof(FormVM<TM>)));
+            _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(this, nameof(FormVM<TM>), nameof(Model)));
+            if (canExecuteChanged)
+            {
+                lock (_stateGate)
+                    _canExecuteChangedTrigger.OnNext(Unit.Default);
+            }
+        }
+        finally
+        {
+            if (admitted) EndMutation();
+        }
     }
 
     private async Task ApproveInternalAsync()
@@ -396,8 +455,16 @@ public sealed class FormVM<TM> : IDisposable
 
         try
         {
-            if (errorsChanged) _errorsChanged.OnNext(publishedErrors!);
-            if (canExecuteChanged) _canExecuteChangedTrigger.OnNext(Unit.Default);
+            if (errorsChanged)
+            {
+                _errorsChanged.OnNext(publishedErrors!);
+                if (_disposed) return;
+            }
+            if (canExecuteChanged)
+            {
+                _canExecuteChangedTrigger.OnNext(Unit.Default);
+                if (_disposed) return;
+            }
             _onApproved.OnNext(current);
         }
         finally
@@ -459,14 +526,6 @@ public sealed class FormVM<TM> : IDisposable
         }
 
         return errors;
-    }
-
-    private void Revalidate()
-    {
-        var errors = Validate(_model);
-        if (SameErrors(errors, _errors)) return;
-        _errors = errors;
-        _errorsChanged.OnNext(new Dictionary<string, string>(errors));
     }
 
     private static bool SameErrors(

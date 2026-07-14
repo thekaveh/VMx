@@ -105,6 +105,7 @@ public class PostDisposeModeledAssignmentConformanceTests
         Action lateFormCompletion = () => form.SetModel(new FormModel(""));
 
         lateFormCompletion();
+        Action lateNullFormCompletion = () => form.SetModel(null!);
 
         form.Model.Should().Be(initialFormModel);
         form.Snapshot.Should().Be(initialSnapshot);
@@ -115,5 +116,7 @@ public class PostDisposeModeledAssignmentConformanceTests
         errorsSignals.Should().Be(0);
         commandSignals.Should().Be(0);
         formHubChanges.Should().BeEmpty();
+        lateNullFormCompletion.Should().NotThrow(
+            "disposal admission precedes candidate null inspection");
     }
 }

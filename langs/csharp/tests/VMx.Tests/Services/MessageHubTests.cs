@@ -116,44 +116,52 @@ public class MessageHubTests
     }
 
     [Fact]
-    public async Task Opposing_CrossHub_Callbacks_Do_Not_Deadlock()
+    public async Task Concurrent_Producer_Waits_For_Active_Drain_Then_Delivers_On_Its_Own_Thread()
     {
-        var first = new MessageHub();
-        var second = new MessageHub();
-        using var callbacksReady = new Barrier(2);
-        var trace = new System.Collections.Concurrent.ConcurrentBag<string>();
-        using var firstSubscription = first.Messages.OfType<Stub>().Subscribe(message =>
+        using var hub = new MessageHub();
+        using var drainEntered = new ManualResetEventSlim();
+        using var releaseDrain = new ManualResetEventSlim();
+        using var sendStarted = new ManualResetEventSlim();
+        using var sendFinished = new ManualResetEventSlim();
+        var producerThread = 0;
+        var deliveryThread = 0;
+        using var subscription = hub.Messages.OfType<Stub>().Subscribe(message =>
         {
-            if (message.Tag != "root")
+            if (message.Tag == "blocker")
             {
-                trace.Add("first:reply");
-                return;
+                drainEntered.Set();
+                releaseDrain.Wait();
             }
-            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
-            second.Send(new Stub("reply"));
-        });
-        using var secondSubscription = second.Messages.OfType<Stub>().Subscribe(message =>
-        {
-            if (message.Tag != "root")
+            else if (message.Tag == "concurrent")
             {
-                trace.Add("second:reply");
-                return;
+                deliveryThread = Environment.CurrentManagedThreadId;
             }
-            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
-            first.Send(new Stub("reply"));
         });
 
-        var sends = new[]
+        var drainer = Task.Run(() => hub.Send(new Stub("blocker")));
+        drainEntered.Wait();
+        var producer = Task.Run(() =>
         {
-            Task.Run(() => first.Send(new Stub("root"))),
-            Task.Run(() => second.Send(new Stub("root"))),
-        };
+            producerThread = Environment.CurrentManagedThreadId;
+            sendStarted.Set();
+            hub.Send(new Stub("concurrent"));
+            sendFinished.Set();
+        });
+        sendStarted.Wait();
 
-        var allSends = Task.WhenAll(sends);
-        var completed = await Task.WhenAny(allSends, Task.Delay(TimeSpan.FromSeconds(1)));
-        completed.Should().BeSameAs(allSends, "opposing callbacks must make progress");
-        await allSends;
-        trace.Should().BeEquivalentTo(["first:reply", "second:reply"]);
+        var wasBlocked = false;
+        try
+        {
+            wasBlocked = !sendFinished.Wait(TimeSpan.FromMilliseconds(50));
+        }
+        finally
+        {
+            releaseDrain.Set();
+            await Task.WhenAll(drainer, producer);
+        }
+
+        wasBlocked.Should().BeTrue("the active drain serializes other producers");
+        deliveryThread.Should().Be(producerThread);
     }
 
     [Fact]

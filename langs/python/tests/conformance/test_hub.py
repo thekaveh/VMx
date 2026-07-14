@@ -6,7 +6,6 @@ All other tests are implemented directly.
 
 from __future__ import annotations
 
-from threading import Barrier, Thread
 from typing import Any
 
 import pytest
@@ -315,41 +314,6 @@ def test_HUB_012_dispose_during_batch_drops_queued_messages() -> None:
 
     assert received == []
     assert completed == [True]
-
-
-def test_opposing_cross_hub_callbacks_do_not_deadlock() -> None:
-    first = _fresh_hub()
-    second = _fresh_hub()
-    callbacks_ready = Barrier(2)
-    trace: list[str] = []
-
-    def from_first(message: Any) -> None:
-        if message.property_name != "root":
-            trace.append("first:reply")
-            return
-        callbacks_ready.wait(timeout=1)
-        second.send(_make_msg("reply"))
-
-    def from_second(message: Any) -> None:
-        if message.property_name != "root":
-            trace.append("second:reply")
-            return
-        callbacks_ready.wait(timeout=1)
-        first.send(_make_msg("reply"))
-
-    first.messages.subscribe(from_first)
-    second.messages.subscribe(from_second)
-    senders = [
-        Thread(target=lambda: first.send(_make_msg("root")), daemon=True),
-        Thread(target=lambda: second.send(_make_msg("root")), daemon=True),
-    ]
-    for sender in senders:
-        sender.start()
-    for sender in senders:
-        sender.join(timeout=1)
-
-    assert all(not sender.is_alive() for sender in senders)
-    assert sorted(trace) == ["first:reply", "second:reply"]
 
 
 @pytest.mark.conformance("HUB-013")

@@ -141,6 +141,47 @@ def test_concurrent_producer_waits_for_batch_and_delivers_on_own_thread() -> Non
     assert delivery_thread == producer_thread
 
 
+def test_concurrent_producer_waits_for_active_drain_and_delivers_on_own_thread() -> None:
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    drain_entered = Event()
+    release_drain = Event()
+    send_started = Event()
+    send_finished = Event()
+    producer_thread: list[int] = []
+    delivery_thread: list[int] = []
+
+    def observe(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name == "blocker":
+            drain_entered.set()
+            assert release_drain.wait(1)
+        elif message.property_name == "concurrent":
+            delivery_thread.append(get_ident())
+
+    hub.messages.subscribe(observe)
+    drainer = Thread(target=lambda: hub.send(_make_msg("blocker")))
+    drainer.start()
+    assert drain_entered.wait(1)
+
+    def send() -> None:
+        producer_thread.append(get_ident())
+        send_started.set()
+        hub.send(_make_msg("concurrent"))
+        send_finished.set()
+
+    producer = Thread(target=send)
+    producer.start()
+    assert send_started.wait(1)
+    try:
+        assert not send_finished.wait(0.05)
+    finally:
+        release_drain.set()
+        drainer.join(1)
+        producer.join(1)
+
+    assert send_finished.is_set()
+    assert delivery_thread == producer_thread
+
+
 def test_development_drain_diagnostic_names_message_type() -> None:
     if not __debug__:
         pytest.skip("development diagnostics are compiled out under python -O")

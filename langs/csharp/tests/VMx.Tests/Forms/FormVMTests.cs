@@ -360,6 +360,49 @@ public class FormVMTests
     }
 
     [Fact]
+    public async Task Admitted_Deny_Finishes_Before_Concurrent_Dispose()
+    {
+        using var releaseSnapshot = new ManualResetEventSlim();
+        var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pauseSnapshot = false;
+        Model Snapshotter(Model model)
+        {
+            if (pauseSnapshot)
+            {
+                snapshotStarted.SetResult();
+                releaseSnapshot.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            }
+
+            return model;
+        }
+
+        var sut = new FormVM<Model>(
+            new Model("A", 1),
+            _ => Task.CompletedTask,
+            snapshotter: Snapshotter);
+        sut.SetModel(new Model("B", 2));
+        pauseSnapshot = true;
+
+        var denier = Task.Run(() => sut.DenyCommand.Execute(null));
+        await snapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var disposer = Task.Run(() =>
+        {
+            sut.Dispose();
+            disposeFinished.SetResult();
+        });
+        var disposedDuringSnapshot = await Task.WhenAny(
+            disposeFinished.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
+        releaseSnapshot.Set();
+
+        await Task.WhenAll(denier, disposer).WaitAsync(TimeSpan.FromSeconds(1));
+        disposedDuringSnapshot.Should().BeFalse();
+        sut.Model.Should().Be(new Model("A", 1));
+    }
+
+    [Fact]
     public async Task Approve_After_Dispose_Does_Not_Invoke_Persister()
     {
         // The persister is an external side effect and must not run on a

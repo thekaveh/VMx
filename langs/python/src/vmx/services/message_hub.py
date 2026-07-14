@@ -6,9 +6,8 @@ import logging
 from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass, field
-from threading import Condition, Event, RLock, get_ident, local
-from typing import Generic, Protocol, TypeVar, cast, runtime_checkable
+from threading import Condition, RLock, get_ident
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 import reactivex as rx
 from reactivex.abc import DisposableBase, ObserverBase
@@ -51,20 +50,6 @@ class TransactionalMessageHubProto(MessageHubProto[TMessage], Protocol[TMessage]
 _THubMessage = TypeVar("_THubMessage", bound=Message)
 
 
-@dataclass
-class _PendingDelivery:
-    message: Message
-    completed: Event = field(default_factory=Event)
-    error: BaseException | None = None
-
-
-_delivery_context = local()
-
-
-def _delivery_depth() -> int:
-    return cast(int, getattr(_delivery_context, "depth", 0))
-
-
 class MessageHub(Generic[_THubMessage]):
     """Default Subject-backed hub.  Hot stream — no replay buffer.
 
@@ -75,7 +60,7 @@ class MessageHub(Generic[_THubMessage]):
     def __init__(self) -> None:
         self._subject: Subject[Message] = Subject()
         self._gate = Condition(RLock())
-        self._pending: deque[_PendingDelivery] = deque()
+        self._pending: deque[Message] = deque()
         self._disposed: bool = False
         self._drainer_thread: int | None = None
         self._batch_owner: int | None = None
@@ -113,29 +98,27 @@ class MessageHub(Generic[_THubMessage]):
 
     def send(self, message: _THubMessage) -> None:
         """Publish *message* synchronously to all current subscribers."""
-        delivery = _PendingDelivery(message)
         caller = get_ident()
         should_drain = False
         with self._gate:
-            while self._batch_owner not in (None, caller) and not self._disposed:
+            while (
+                self._batch_owner not in (None, caller)
+                or self._drainer_thread not in (None, caller)
+            ) and not self._disposed:
                 self._gate.wait()
             if self._disposed:
                 return
-            self._pending.append(delivery)
+            self._pending.append(message)
             if self._batch_owner == caller:
                 return
             if self._drainer_thread is None:
                 self._drainer_thread = caller
                 should_drain = True
-            elif self._drainer_thread == caller or _delivery_depth() > 0:
+            elif self._drainer_thread == caller:
                 return
 
         if should_drain:
             self._drain()
-        else:
-            delivery.completed.wait()
-            if delivery.error is not None:
-                raise delivery.error
 
     @contextmanager
     def batch(self) -> Iterator[None]:
@@ -143,7 +126,10 @@ class MessageHub(Generic[_THubMessage]):
         caller = get_ident()
         entered = False
         with self._gate:
-            while self._batch_owner not in (None, caller) and not self._disposed:
+            while (
+                self._batch_owner not in (None, caller)
+                or self._drainer_thread not in (None, caller)
+            ) and not self._disposed:
                 self._gate.wait()
             if not self._disposed:
                 self._batch_owner = caller
@@ -184,27 +170,24 @@ class MessageHub(Generic[_THubMessage]):
                     self._drainer_thread = None
                     self._gate.notify_all()
                     return
-                delivery = self._pending.popleft()
+                message = self._pending.popleft()
             if __debug__:
-                message_types.add(type(delivery.message).__name__)
+                message_types.add(type(message).__name__)
             try:
-                depth = _delivery_depth()
-                _delivery_context.depth = depth + 1
-                self._subject.on_next(delivery.message)
-            except BaseException as error:
-                delivery.error = error
+                self._subject.on_next(message)
+            except BaseException:
+                with self._gate:
+                    self._pending.clear()
+                    self._drainer_thread = None
+                    self._gate.notify_all()
                 raise
-            finally:
-                _delivery_context.depth = depth
-                delivery.completed.set()
             if __debug__:
                 delivered += 1
                 with self._gate:
                     has_pending = bool(self._pending)
                 if delivered >= 10_000 and has_pending:
                     with self._gate:
-                        message_types.update(type(item.message).__name__ for item in self._pending)
-                        abandoned = list(self._pending)
+                        message_types.update(type(item).__name__ for item in self._pending)
                         self._pending.clear()
                         self._drainer_thread = None
                         self._gate.notify_all()
@@ -213,9 +196,6 @@ class MessageHub(Generic[_THubMessage]):
                         "MessageHub drain exceeded 10000 messages; "
                         f"possible publish cycle involving: {names}"
                     )
-                    for item in abandoned:
-                        item.error = cycle_error
-                        item.completed.set()
                     raise cycle_error
 
     def dispose(self) -> None:
@@ -224,10 +204,7 @@ class MessageHub(Generic[_THubMessage]):
             if self._disposed:
                 return
             self._disposed = True
-            abandoned = list(self._pending)
             self._pending.clear()
             self._gate.notify_all()
-        for delivery in abandoned:
-            delivery.completed.set()
         self._subject.on_completed()
         self._subject.dispose()

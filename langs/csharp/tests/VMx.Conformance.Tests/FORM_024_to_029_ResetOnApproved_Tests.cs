@@ -201,4 +201,25 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         form.Snapshot.Should().Be(new Model("reset:saved"));
         form.IsDirty.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task Dispose_From_Reset_Error_Observer_Stops_Remaining_Publication()
+    {
+        var form = FormVM<Model>.Builder()
+            .Initial(new("initial"))
+            .Persister(_ => Task.CompletedTask)
+            .Validator("value", model => model.Value.Length == 0 ? "required" : null)
+            .ResetOnApproved(_ => new(""))
+            .Build();
+        form.SetModel(new("saved"));
+        var approved = new List<Model>();
+        using var approvedSubscription = form.OnApproved.Subscribe(approved.Add);
+        using var errorsSubscription = form.ErrorsChanged.Subscribe(_ => form.Dispose());
+
+        await form.ApproveAsync();
+
+        form.Model.Should().Be(new Model(""));
+        form.Snapshot.Should().Be(new Model(""));
+        approved.Should().BeEmpty();
+    }
 }

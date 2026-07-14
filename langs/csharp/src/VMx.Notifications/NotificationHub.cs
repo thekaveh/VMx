@@ -65,7 +65,8 @@ public sealed class NotificationHub : INotificationHub, IDisposable
         bool shouldWait;
         lock (_lock)
         {
-            if (!_waiters.Remove(notification, out tcs)) return;
+            if (!_waiters.TryGetValue(notification, out tcs)) return;
+            _waiters.Remove(notification);
             _pending.Remove(notification);
             (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(_pending.ToArray()));
         }

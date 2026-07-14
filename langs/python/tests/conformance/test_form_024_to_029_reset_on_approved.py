@@ -296,3 +296,23 @@ def test_form_reset_commit_and_approval_observation_are_atomic() -> None:
     assert form.model == Model("racing")
     assert form.snapshot == Model("reset:approved")
     assert form.is_dirty
+
+
+@pytest.mark.asyncio
+async def test_dispose_from_reset_error_observer_stops_remaining_publication() -> None:
+    form = FormVM(
+        Model("initial"),
+        _noop,
+        validators={"value": lambda model: "required" if model.value == "" else None},
+        reset_on_approved=lambda _: Model(""),
+    )
+    form.set_model(Model("saved"))
+    approved: list[Model] = []
+    form.on_approved.subscribe(approved.append)
+    form.errors_changed.subscribe(lambda _: form.dispose())
+
+    await form.approve_async()
+
+    assert form.model == Model("")
+    assert form.snapshot == Model("")
+    assert approved == []
