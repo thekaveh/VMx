@@ -54,10 +54,8 @@ venv/
 ENV/
 
 # uv
-# uv.lock is not committed in this repo. The vmx library (langs/python/) is a
-# library, not an application, so consumers always re-resolve. The examples
-# under examples/python/ are tiny demo apps — re-resolving is fine for them too.
-uv.lock
+# Project lockfiles are committed so CI and executable examples resolve
+# reproducibly. Keep only temporary backup locks ignored.
 uv.lock.bak
 
 # ─── .NET / C# ────────────────────────────────────────────────────────

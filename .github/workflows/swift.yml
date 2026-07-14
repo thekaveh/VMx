@@ -26,7 +26,7 @@ on:
 
 jobs:
   build:
-    name: build & test (${{ matrix.os }})
+    name: build & test (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,16 +35,23 @@ jobs:
         # Linux Swift drops Combine, so the Swift VMx flavor is macOS-only
         # for now. A Combine-shim layer (or migration to swift-async-algorithms)
         # would re-enable ubuntu-latest in a follow-up PR.
-        os: [macos-latest]
+        include:
+          - os: macos-latest
+            label: latest
+            xcode: default
+          - os: macos-14
+            label: swift-5.9-floor
+            xcode: /Applications/Xcode_15.0.1.app
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      # Toolchain policy: latest-only — the job builds with whatever Swift the
-      # current macos-latest image ships (displayed below for forensics). The
-      # Package.swift floor (swift-tools-version 5.9) is declared but not
-      # exercised by a dedicated matrix cell; if a contributor reports a 5.9
-      # breakage, add a pinned-Xcode cell rather than silently raising the floor.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Select Xcode 15.0.1 for the Swift 5.9 floor
+        if: matrix.xcode != 'default'
+        run: sudo xcode-select --switch "${{ matrix.xcode }}/Contents/Developer"
       - name: Show Swift version
         run: swift --version
+      - name: Verify declared Swift 5.9 floor
+        if: matrix.xcode != 'default'
+        run: swift --version | grep -E '^Swift version 5\.9(\.|$)'
       - name: Check root and nested manifest parity
         run: python3 tools/check-swift-package-sync.py
       - name: Build root package
@@ -62,7 +69,7 @@ jobs:
     name: examples (notes-showcase)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Show Swift version
         run: swift --version
       # The flagship example is a separate SwiftPM package depending on the

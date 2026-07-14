@@ -149,9 +149,9 @@ def test_release_has_protected_mutually_exclusive_bootstrap_and_oidc_paths() -> 
     assert "environment:\n      name: crates-rust" in jobs
     assert "id-token: write" in jobs
     assert "CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}" in jobs
-    assert "if: env.CRATES_IO_TOKEN != ''" in jobs
-    assert "CARGO_REGISTRY_TOKEN: ${{ env.CRATES_IO_TOKEN }}" in jobs
-    assert "if: env.CRATES_IO_TOKEN == ''" in jobs
+    assert "if: steps.crates-auth-mode.outputs.bootstrap == 'true'" in jobs
+    assert "CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}" in jobs
+    assert "if: steps.crates-auth-mode.outputs.bootstrap != 'true'" in jobs
     assert "rust-lang/crates-io-auth-action@" in jobs
     assert "CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}" in jobs
     assert jobs.count("cargo publish --manifest-path langs/rust/Cargo.toml") == 2

@@ -15,10 +15,12 @@ Rules enforced:
      flavor release also implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
      Source-only rows containing only a pre-1.0 Rust flavor do not imply
      repository release tags.
+  4. TypeScript example lockfiles must record the current local VMx package
+     version so dependency refreshes cannot retain stale workspace metadata.
 
 In-development exemption:
-  ``spec/VERSION`` and each current flavor manifest version recorded in that
-  spec row are being prepared but are not tagged yet. Flavors version
+  ``spec/VERSION`` and versions recorded in its current matrix row are source
+  history for the active line and may be untagged. Flavors version
   independently, so a package version may differ while its min-spec remains
   ``spec/VERSION``. Those tags are reported as "in development, untagged —
   OK" and do not cause a non-zero exit. All other ``major >= 2`` matrix rows
@@ -57,6 +59,10 @@ from pathlib import Path
 # as informational notes and do NOT cause exit 1.
 MIN_ENFORCED_MAJOR: int = 2
 FLAVORS: tuple[str, ...] = ("csharp", "python", "typescript", "swift", "rust")
+TYPESCRIPT_EXAMPLE_LOCKS: tuple[Path, ...] = (
+    Path("examples/typescript/console/hello-vmx/package-lock.json"),
+    Path("examples/typescript/react/notes-showcase/package-lock.json"),
+)
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
@@ -142,6 +148,32 @@ def parse_typescript_versions(pkg_path: Path, src_dir: Path) -> dict[str, str]:
             min_spec = m.group(1)
             break
     return {"version": version, "min_spec_version": min_spec}
+
+
+def check_typescript_example_locks(repo_root: Path, expected_version: str) -> list[str]:
+    """Report stale local VMx metadata in tracked TypeScript example lockfiles."""
+    issues: list[str] = []
+    for relative_path in TYPESCRIPT_EXAMPLE_LOCKS:
+        lock_path = repo_root / relative_path
+        if not lock_path.is_file():
+            continue
+        lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+        packages = lock_data.get("packages", {})
+        local_entries = [
+            package
+            for package in packages.values()
+            if isinstance(package, dict) and package.get("name") == "@thekaveh/vmx"
+        ]
+        if not local_entries:
+            issues.append(f"  {relative_path}: local @thekaveh/vmx package metadata is missing")
+            continue
+        actual_version = local_entries[0].get("version", "")
+        if actual_version != expected_version:
+            issues.append(
+                f"  {relative_path}: local @thekaveh/vmx version {actual_version!r} "
+                f"!= manifest version {expected_version!r}"
+            )
+    return issues
 
 
 def parse_swift_versions(version_swift_path: Path) -> dict[str, str]:
@@ -390,7 +422,12 @@ def current_development_versions(
     manifests: dict[str, dict[str, str]],
     matrix_rows: list[dict[str, object]],
 ) -> set[str]:
-    """Return current untagged spec and independently versioned flavor lines."""
+    """Return untagged versions belonging to the active source line.
+
+    The current matrix row is a source-history range, not a publication claim.
+    A version in that row becomes a release claim only once its immutable tag
+    exists; until then it remains valid in-development history.
+    """
     versions = {spec_version}
     versions.update(
         info["version"]
@@ -405,6 +442,9 @@ def current_development_versions(
     )
     if row is None:
         return versions
+
+    for flavor in FLAVORS:
+        versions.update(str(version) for version in row.get(flavor, []))
 
     for flavor in FLAVORS:
         manifest = manifests.get(flavor)
@@ -527,6 +567,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     tags = get_git_tags(repo_root)
 
     msv_issues = check_min_spec_versions(spec_version, manifests)
+    typescript_version = manifests.get("typescript", {}).get("version", "")
+    if typescript_version:
+        msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))
     all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
     # Carve out current source lines first. Flavor package versions can advance

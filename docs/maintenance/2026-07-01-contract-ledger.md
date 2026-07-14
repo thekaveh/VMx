@@ -1,6 +1,6 @@
 # 2026-07 Maintenance Contract Ledger
 
-Last revalidated: **2026-07-13**. This branch-independent ledger records the
+Last revalidated: **2026-07-14**. This branch-independent ledger records the
 external package, tool, documentation, CI, and publication contracts consumed
 by the repository. It is not a release note and does not assert that a registry
 publication occurred during maintenance.
@@ -16,26 +16,60 @@ below. Live publishing remains an owner-approved release action.
 
 ## 2. Runtime and package contracts
 
-| Area               | Authoritative pin or floor                                      | Contract                                                                                                                                                  | Executable evidence                                                                                          |
-| ------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| C# runtime         | `langs/csharp/Directory.Packages.props`; project lockfiles      | `System.Reactive` and `Microsoft.Reactive.Testing` are `6.0.1`; the library targets `netstandard2.0;net8.0`; both test suites execute on `net8.0;net9.0`. | `dotnet restore VMx.sln --locked-mode`; Release build/test; `dotnet format --verify-no-changes --no-restore` |
-| Python runtime     | `langs/python/pyproject.toml`                                   | Python is `>=3.10`; `reactivex>=4.0.4` is the sole reactive runtime; strict mypy and the project Ruff configuration are normative gates.                  | `uv sync --all-extras`; pytest; Ruff check/format; `mypy --strict src/vmx`                                   |
-| TypeScript runtime | `langs/typescript/package-lock.json`; `package.json`            | Node is `>=20`; `rxjs` remains the sole reactive runtime; the package produces dual ESM/CJS output and copies shared fixtures before build/test/pack.     | `npm ci`; fixture sync; both typechecks; lint; build; test; lockfile audit                                   |
-| Swift runtime      | `langs/swift/Package.swift`                                     | Combine is the platform reactive primitive; package resources include all four fixtures; XCTest requires a full Xcode installation.                       | `swift build -c release`; `swift test` on the macOS CI image                                                 |
-| Rust runtime       | `langs/rust/Cargo.toml`; `Cargo.lock`                           | `vmx-rs` is `0.21.0`, MSRV is Rust `1.88`, and the VMx-owned hot-stream facade has no `rxrust` dependency. `serde_json` is test-only.                     | `cargo fmt --check`; clippy with `-D warnings`; tests; docs; package; `cargo tree -i rxrust` must be empty   |
-| Shared contracts   | `spec/fixtures/*.json`; flavor copies; `spec/12-conformance.md` | Runtime copies remain byte-identical and all five flavors cover every library conformance ID.                                                             | fixture-sync tools and `tools/check-conformance-coverage.py --require` for all five flavors                  |
+| Area               | Authoritative pin or floor                                      | Contract                                                                                                                                                                                     | Executable evidence                                                                                            |
+| ------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| C# runtime         | `langs/csharp/Directory.Packages.props`; project lockfiles      | `System.Reactive` and `Microsoft.Reactive.Testing` are `6.1.0`; the library targets `netstandard2.0;net8.0`; both test suites execute on `net8.0;net9.0`.                                    | `dotnet restore VMx.sln --locked-mode`; Release build/test; `dotnet format --verify-no-changes --no-restore`   |
+| Python runtime     | `langs/python/pyproject.toml`; `langs/python/uv.lock`           | Python is `>=3.10`; `reactivex>=4.0.4` is the sole reactive runtime; the committed lock fixes the CI/dev resolution while wheel metadata retains compatible dependency ranges.               | `uv sync --locked --all-extras`; pytest; Ruff check/format; `mypy --strict src/vmx`                            |
+| Python examples    | `examples/python/**/pyproject.toml`; adjacent `uv.lock` files   | The console/Tk, Notes Showcase, and Inspector executable projects each use a committed resolution; CI rejects manifest/lock drift.                                                           | `uv sync --locked --directory <project>` followed by each project's documented run, lint, type, and test gates |
+| TypeScript runtime | `langs/typescript/package-lock.json`; `package.json`            | Node is `>=20`; `rxjs` remains the sole reactive runtime; the package produces dual ESM/CJS output and copies shared fixtures before build/test/pack.                                        | `npm ci`; fixture sync; both typechecks; lint; build; test; lockfile audit                                     |
+| Swift runtime      | `langs/swift/Package.swift`; `.github/workflows/swift.yml`      | Combine is the platform reactive primitive; package resources include all four fixtures; the declared Swift 5.9 floor is exercised with Xcode 15.0.1 on `macos-14` alongside `macos-latest`. | Release build and parallel tests for root and nested packages on both toolchain cells                          |
+| Rust runtime       | `langs/rust/Cargo.toml`; `Cargo.lock`                           | `vmx-rs` is `0.22.0`, implements spec `3.20.1`, has MSRV Rust `1.88`, and the VMx-owned hot-stream facade has no `rxrust` dependency. `serde_json` is test-only.                             | `cargo fmt --check`; clippy with `-D warnings`; tests; docs; package; `cargo tree -i rxrust` must be empty     |
+| Shared contracts   | `spec/fixtures/*.json`; flavor copies; `spec/12-conformance.md` | Runtime copies remain byte-identical and all five flavors cover every library conformance ID.                                                                                                | fixture-sync tools and `tools/check-conformance-coverage.py --require` for all five flavors                    |
 
 ## 3. Tooling and documentation contracts
 
 | Area                         | Authoritative pin or source                                                   | Contract                                                                                                                                                                    | Executable evidence                                                                                                               |
 | ---------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Python CI bootstrap          | `.github/workflows/python.yml`                                                | `astral-sh/setup-uv` is pinned to commit `caf0cab7a618c569241d31dcd442f54681755d39`; workflow uv is `0.11.19`.                                                              | The 3-OS / 4-version Python matrix plus example jobs                                                                              |
+| Python CI bootstrap          | `.github/workflows/python.yml`                                                | `astral-sh/setup-uv` is pinned to its `v8.3.2` commit; workflow uv is exactly `0.11.28`.                                                                                    | The 3-OS / 4-version Python matrix plus example jobs                                                                              |
 | Docs dependencies            | `docs/requirements.in`; hash-locked `docs/requirements.txt`                   | The Python 3.12 docs environment installs only hash-verified resolutions; pytest is `9.1.1` and pip-audit is `2.10.1`.                                                      | `pip install --require-hashes`; `python -m pip_audit --local`                                                                     |
 | Three documentation surfaces | `docs/manifest.yaml`; `docs/content/**`                                       | Canonical Markdown generates in-repo navigation, the MkDocs `.io` site, and the GitHub wiki without source duplication.                                                     | `make docs-check`; strict MkDocs build; wiki dry-run/sync checks                                                                  |
 | Documentation diagrams       | `docs/assets/diagrams/generate_diagrams.py`; `tools/generate-doc-diagrams.py` | Every maintained diagram has synchronized HTML/SVG/PNG output; repo-derived counts, text bounds, and raster exports are checked without mutating the worktree.              | Both generators with `--check`; `python -m scripts.docs.validate_diagrams`; diagram unit tests; original-resolution visual review |
 | GitHub Pages                 | `.github/workflows/docs.yml`                                                  | Build and pull-request jobs are read-only; only the deploy job receives `pages: write` and `id-token: write`.                                                               | `make docs-check`, artifact upload, then `actions/deploy-pages` on `main`                                                         |
 | GitHub wiki                  | `.github/workflows/wiki.yml`; `scripts/docs/push_wiki.py`                     | `main` regenerates the wiki, validates diagrams, and pushes with the configured deploy key or scoped GitHub token fallback.                                                 | generated wiki comparison and `push_wiki --check` before publication                                                              |
 | Local hygiene                | `.pre-commit-config.yaml`                                                     | Ruff covers library, tools, docs scripts, docs tests, and diagram generators; C# formatting reuses restored assets; Markdown formatting stays on canonical docs/spec paths. | `pre-commit run --all-files` after language dependencies are installed                                                            |
+
+### 3.1 Immutable workflow action inventory
+
+All remote actions are pinned to full commits. The upstream tag shown here was
+resolved against the action repository on 2026-07-14; `dtolnay/rust-toolchain`
+uses its maintained `stable` branch because that action does not publish
+releases. `tools/check-workflow-pins.py` fails CI if a mutable reference appears
+or any workflow action is absent from this inventory.
+
+| Action and immutable commit                                                 | Verified upstream ref |
+| --------------------------------------------------------------------------- | --------------------- |
+| `NuGet/login@8d196754b4036150537f80ac539e15c2f1028841`                      | `v1.2.0`              |
+| `actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`                 | `v7.0.0`              |
+| `actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d`          | `v6.0.0`              |
+| `actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128`             | `v5.0.0`              |
+| `actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`        | `v8.0.1`              |
+| `actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1`             | `v5.4.0`              |
+| `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020`               | `v7.0.0`              |
+| `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1`             | `v6.3.0`              |
+| `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`          | `v7.0.1`              |
+| `actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9`    | `v5.0.0`              |
+| `astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990`               | `v8.3.2`              |
+| `codecov/codecov-action@e53489f4d376d79066609109e7a95a29eb3740b1`           | `v7.0.0`              |
+| `dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30`           | `stable` (2026-06-30) |
+| `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7` | `v5.0.0`              |
+| `pypa/gh-action-pypi-publish@6733eb7d741f0b11ec6a39b58540dab7590f9b7d`      | `v1.14.0`             |
+| `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`  | `v1.0.5`              |
+
+The diagram jobs use `ubuntu-24.04` and install
+`librsvg2-bin=2.58.0+dfsg-1build1` plus `pngquant=2.18.0-1build2`, the exact
+Ubuntu Noble package revisions revalidated on 2026-07-14. This keeps SVG and
+PNG export behavior reproducible instead of inheriting `ubuntu-latest` or
+floating APT resolutions.
 
 ## 4. Release, registry, and identity contracts
 

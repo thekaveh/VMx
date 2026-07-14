@@ -200,6 +200,51 @@ def test_parse_typescript_versions_no_min_spec(tmp_path: Path) -> None:
     assert info["min_spec_version"] == ""
 
 
+def test_check_typescript_example_locks_match_package_version(tmp_path: Path) -> None:
+    for relative in cvc.TYPESCRIPT_EXAMPLE_LOCKS:
+        lock_path = tmp_path / relative
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(
+            json.dumps(
+                {
+                    "packages": {
+                        "../../../../langs/typescript": {
+                            "name": "@thekaveh/vmx",
+                            "version": "3.21.0",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    assert cvc.check_typescript_example_locks(tmp_path, "3.21.0") == []
+
+
+def test_check_typescript_example_locks_reports_stale_metadata(tmp_path: Path) -> None:
+    lock_path = tmp_path / cvc.TYPESCRIPT_EXAMPLE_LOCKS[0]
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(
+        json.dumps(
+            {
+                "packages": {
+                    "../../../../langs/typescript": {
+                        "name": "@thekaveh/vmx",
+                        "version": "3.8.0",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    issues = cvc.check_typescript_example_locks(tmp_path, "3.21.0")
+
+    assert len(issues) == 1
+    assert "3.8.0" in issues[0]
+    assert "3.21.0" in issues[0]
+
+
 # ── parse_swift_versions ──────────────────────────────────────────────
 
 
@@ -797,6 +842,31 @@ def test_main_exempts_independently_versioned_current_flavor(
     )
     package_json = tmp_path / "langs" / "typescript" / "package.json"
     package_json.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
+    import check_version_consistency as _cvc
+
+    monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert _cvc.main(["--repo-root", str(tmp_path)]) == 0
+
+
+def test_main_exempts_untagged_source_history_in_current_row(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Earlier untagged snapshots in the active row are source history, not releases."""
+    _make_repo_v3(tmp_path)
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        matrix.read_text(encoding="utf-8").replace(
+            "| 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) |",
+            "| 3.0.x | 3.0.0\u20133.0.1 | 3.0.0 | 3.0.0 | 3.0.0 (subset) |",
+        ),
+        encoding="utf-8",
+    )
+    csproj = tmp_path / "langs" / "csharp" / "src" / "VMx" / "VMx.csproj"
+    csproj.write_text(
+        "<Version>3.0.1</Version><MinSpecVersion>3.0.0</MinSpecVersion>",
+        encoding="utf-8",
+    )
     import check_version_consistency as _cvc
 
     monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
