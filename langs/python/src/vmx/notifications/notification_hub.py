@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Protocol, runtime_checkable
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Protocol, cast, runtime_checkable
 
 from reactivex import Observable
 from reactivex import operators as ops
@@ -15,6 +17,21 @@ from reactivex.subject import BehaviorSubject
 
 from vmx.notifications.notification import Notification
 from vmx.notifications.notification_reaction import NotificationReaction
+
+
+@dataclass
+class _PendingEmission:
+    snapshot: list[Notification] | None = None
+    complete: bool = False
+    completed: threading.Event = field(default_factory=threading.Event)
+    error: BaseException | None = None
+
+
+_delivery_context = threading.local()
+
+
+def _delivery_depth() -> int:
+    return cast(int, getattr(_delivery_context, "depth", 0))
 
 
 def _complete_future_if_pending(
@@ -57,15 +74,13 @@ class NotificationHub:
     """
 
     def __init__(self) -> None:
-        # RLock, not Lock: pending snapshots are emitted while holding the
-        # lock (NOTIF-017 ordering discipline), and a subscriber handler may
-        # synchronously call back into post/resolve on the same thread —
-        # mirroring C#'s reentrant Monitor.
-        self._lock = threading.RLock()
+        self._lock = threading.Condition(threading.RLock())
         self._pending: list[Notification] = []
         self._waiters: dict[Notification, asyncio.Future[NotificationReaction]] = {}
         self._pending_subject: BehaviorSubject[list[Notification]] = BehaviorSubject([])
         self._disposed = False
+        self._emissions: deque[_PendingEmission] = deque()
+        self._emitter_thread: int | None = None
 
     @property
     def pending(self) -> Observable[list[Notification]]:
@@ -97,10 +112,10 @@ class NotificationHub:
                 return existing
             self._pending.append(notification)
             self._waiters[notification] = future
-            # Emit inside the lock (NOTIF-017 discipline, mirroring the C#
-            # hub): emitting outside raced dispose()'s subject completion and
-            # let concurrent posts publish snapshots out of order.
-            self._pending_subject.on_next(list(self._pending))
+            emission, should_emit, should_wait = self._queue_emission_locked(
+                _PendingEmission(snapshot=list(self._pending))
+            )
+        self._publish_emission(emission, should_emit, should_wait)
         return future
 
     def resolve(self, notification: Notification, reaction: NotificationReaction) -> None:
@@ -109,7 +124,10 @@ class NotificationHub:
             if future is None:
                 return
             self._pending.remove(notification)
-            self._pending_subject.on_next(list(self._pending))
+            emission, should_emit, should_wait = self._queue_emission_locked(
+                _PendingEmission(snapshot=list(self._pending))
+            )
+        self._publish_emission(emission, should_emit, should_wait)
         if future.done():
             return
         # asyncio.Future.set_result is not thread-safe — route through the
@@ -133,8 +151,10 @@ class NotificationHub:
             waiters = list(self._waiters.values())
             self._waiters.clear()
             self._pending.clear()
-            self._pending_subject.on_completed()
-            self._pending_subject.dispose()
+            emission, should_emit, should_wait = self._queue_emission_locked(
+                _PendingEmission(complete=True)
+            )
+        self._publish_emission(emission, should_emit, should_wait)
         for future in waiters:
             try:
                 future.get_loop().call_soon_threadsafe(
@@ -145,3 +165,56 @@ class NotificationHub:
                 # ordering); keep resolving the remaining waiters — the C#
                 # parity model (TrySetResult) never throws here either.
                 continue
+
+    def _queue_emission_locked(
+        self, emission: _PendingEmission
+    ) -> tuple[_PendingEmission, bool, bool]:
+        caller = threading.get_ident()
+        self._emissions.append(emission)
+        if self._emitter_thread is None:
+            self._emitter_thread = caller
+            return emission, True, False
+        should_wait = self._emitter_thread != caller and _delivery_depth() == 0
+        return emission, False, should_wait
+
+    def _publish_emission(
+        self, emission: _PendingEmission, should_emit: bool, should_wait: bool
+    ) -> None:
+        if should_emit:
+            self._drain_emissions()
+        elif should_wait:
+            emission.completed.wait()
+        if emission.error is not None:
+            raise emission.error
+
+    def _drain_emissions(self) -> None:
+        while True:
+            with self._lock:
+                if not self._emissions:
+                    self._emitter_thread = None
+                    self._lock.notify_all()
+                    return
+                emission = self._emissions.popleft()
+            try:
+                depth = _delivery_depth()
+                _delivery_context.depth = depth + 1
+                if emission.complete:
+                    self._pending_subject.on_completed()
+                    self._pending_subject.dispose()
+                else:
+                    assert emission.snapshot is not None
+                    self._pending_subject.on_next(emission.snapshot)
+            except BaseException as error:
+                emission.error = error
+                with self._lock:
+                    abandoned = list(self._emissions)
+                    self._emissions.clear()
+                    self._emitter_thread = None
+                    self._lock.notify_all()
+                for item in abandoned:
+                    item.error = error
+                    item.completed.set()
+                raise
+            finally:
+                _delivery_context.depth = depth
+                emission.completed.set()

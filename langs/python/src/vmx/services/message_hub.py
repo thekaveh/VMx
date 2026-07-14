@@ -6,8 +6,9 @@ import logging
 from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from threading import RLock
-from typing import Generic, Protocol, TypeVar, runtime_checkable
+from dataclasses import dataclass, field
+from threading import Condition, Event, RLock, get_ident, local
+from typing import Generic, Protocol, TypeVar, cast, runtime_checkable
 
 import reactivex as rx
 from reactivex.abc import DisposableBase, ObserverBase
@@ -50,6 +51,20 @@ class TransactionalMessageHubProto(MessageHubProto[TMessage], Protocol[TMessage]
 _THubMessage = TypeVar("_THubMessage", bound=Message)
 
 
+@dataclass
+class _PendingDelivery:
+    message: Message
+    completed: Event = field(default_factory=Event)
+    error: BaseException | None = None
+
+
+_delivery_context = local()
+
+
+def _delivery_depth() -> int:
+    return cast(int, getattr(_delivery_context, "depth", 0))
+
+
 class MessageHub(Generic[_THubMessage]):
     """Default Subject-backed hub.  Hot stream — no replay buffer.
 
@@ -59,10 +74,11 @@ class MessageHub(Generic[_THubMessage]):
 
     def __init__(self) -> None:
         self._subject: Subject[Message] = Subject()
-        self._gate = RLock()
-        self._pending: deque[Message] = deque()
+        self._gate = Condition(RLock())
+        self._pending: deque[_PendingDelivery] = deque()
         self._disposed: bool = False
-        self._draining = False
+        self._drainer_thread: int | None = None
+        self._batch_owner: int | None = None
         self._batch_depth = 0
 
     @property
@@ -97,58 +113,110 @@ class MessageHub(Generic[_THubMessage]):
 
     def send(self, message: _THubMessage) -> None:
         """Publish *message* synchronously to all current subscribers."""
+        delivery = _PendingDelivery(message)
+        caller = get_ident()
+        should_drain = False
         with self._gate:
+            while self._batch_owner not in (None, caller) and not self._disposed:
+                self._gate.wait()
             if self._disposed:
                 return
-            self._pending.append(message)
-            if self._batch_depth == 0 and not self._draining:
-                self._drain()
+            self._pending.append(delivery)
+            if self._batch_owner == caller:
+                return
+            if self._drainer_thread is None:
+                self._drainer_thread = caller
+                should_drain = True
+            elif self._drainer_thread == caller or _delivery_depth() > 0:
+                return
+
+        if should_drain:
+            self._drain()
+        else:
+            delivery.completed.wait()
+            if delivery.error is not None:
+                raise delivery.error
 
     @contextmanager
     def batch(self) -> Iterator[None]:
         """Defer messages until the outermost transaction scope exits."""
-        self._gate.acquire()
-        self._batch_depth += 1
+        caller = get_ident()
+        entered = False
+        with self._gate:
+            while self._batch_owner not in (None, caller) and not self._disposed:
+                self._gate.wait()
+            if not self._disposed:
+                self._batch_owner = caller
+                self._batch_depth += 1
+                entered = True
+        body_error: BaseException | None = None
         try:
+            yield
+        except BaseException as error:
+            body_error = error
+        should_drain = False
+        if entered:
+            with self._gate:
+                self._batch_depth -= 1
+                if self._batch_depth == 0:
+                    self._batch_owner = None
+                    if not self._disposed and self._pending and self._drainer_thread is None:
+                        self._drainer_thread = caller
+                        should_drain = True
+                    self._gate.notify_all()
+        drain_error: BaseException | None = None
+        if should_drain:
             try:
-                yield
-            except BaseException:
-                self._batch_depth -= 1
-                try:
-                    if self._batch_depth == 0 and not self._disposed and not self._draining:
-                        self._drain()
-                except BaseException:
-                    pass  # the transaction body's original error takes precedence
-                raise
-            else:
-                self._batch_depth -= 1
-                if self._batch_depth == 0 and not self._disposed and not self._draining:
-                    self._drain()
-        finally:
-            self._gate.release()
+                self._drain()
+            except BaseException as error:
+                drain_error = error
+        if body_error is not None:
+            raise body_error
+        if drain_error is not None:
+            raise drain_error
 
     def _drain(self) -> None:
-        self._draining = True
         delivered = 0
         message_types: set[str] = set()
-        try:
-            while not self._disposed and self._pending:
-                message = self._pending.popleft()
-                if __debug__:
-                    message_types.add(type(message).__name__)
-                self._subject.on_next(message)
-                if __debug__:
-                    delivered += 1
-                    if delivered >= 10_000 and self._pending:
-                        message_types.update(type(item).__name__ for item in self._pending)
+        while True:
+            with self._gate:
+                if self._disposed or not self._pending:
+                    self._drainer_thread = None
+                    self._gate.notify_all()
+                    return
+                delivery = self._pending.popleft()
+            if __debug__:
+                message_types.add(type(delivery.message).__name__)
+            try:
+                depth = _delivery_depth()
+                _delivery_context.depth = depth + 1
+                self._subject.on_next(delivery.message)
+            except BaseException as error:
+                delivery.error = error
+                raise
+            finally:
+                _delivery_context.depth = depth
+                delivery.completed.set()
+            if __debug__:
+                delivered += 1
+                with self._gate:
+                    has_pending = bool(self._pending)
+                if delivered >= 10_000 and has_pending:
+                    with self._gate:
+                        message_types.update(type(item.message).__name__ for item in self._pending)
+                        abandoned = list(self._pending)
                         self._pending.clear()
-                        names = ", ".join(sorted(message_types))
-                        raise RuntimeError(
-                            "MessageHub drain exceeded 10000 messages; "
-                            f"possible publish cycle involving: {names}"
-                        )
-        finally:
-            self._draining = False
+                        self._drainer_thread = None
+                        self._gate.notify_all()
+                    names = ", ".join(sorted(message_types))
+                    cycle_error = RuntimeError(
+                        "MessageHub drain exceeded 10000 messages; "
+                        f"possible publish cycle involving: {names}"
+                    )
+                    for item in abandoned:
+                        item.error = cycle_error
+                        item.completed.set()
+                    raise cycle_error
 
     def dispose(self) -> None:
         """Complete and dispose the underlying subject."""
@@ -156,6 +224,10 @@ class MessageHub(Generic[_THubMessage]):
             if self._disposed:
                 return
             self._disposed = True
+            abandoned = list(self._pending)
             self._pending.clear()
-            self._subject.on_completed()
-            self._subject.dispose()
+            self._gate.notify_all()
+        for delivery in abandoned:
+            delivery.completed.set()
+        self._subject.on_completed()
+        self._subject.dispose()
