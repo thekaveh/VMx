@@ -550,3 +550,20 @@ fn invalidate_children_publishes_property_changed() {
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "children")
     ));
 }
+
+#[test]
+fn dropping_a_materialized_tree_releases_parent_and_child_state() {
+    let marker = Arc::new(());
+    let released = Arc::downgrade(&marker);
+    {
+        let root = HierarchicalVm::new("root", ("root", marker.clone()));
+        let child = HierarchicalVm::new("child", ("child", Arc::new(())));
+        root.add_child(child).unwrap();
+    }
+    drop(marker);
+
+    assert!(
+        released.upgrade().is_none(),
+        "parent back-references must not keep an unreachable tree alive"
+    );
+}

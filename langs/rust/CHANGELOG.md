@@ -24,6 +24,12 @@ Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
   `component_6` names and return `Option<T>` because builder-created slots are
   empty before construction. The unnumbered aliases remain available.
 
+### Fixed
+
+- Hierarchical parent links now hold weak state, so dropping an unreachable
+  materialized tree releases both parents and descendants without making
+  hierarchy disposal own, detach, or dispose child lifetimes.
+
 ## [0.24.0] — 2026-07-14
 
 Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.

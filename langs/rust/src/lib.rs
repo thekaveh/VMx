@@ -6448,14 +6448,18 @@ struct BatchAttachCandidate<N, K> {
 
 #[derive(Clone)]
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
+    inner: Arc<HierarchicalVmInner<M>>,
+}
+
+struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
     component: ComponentVm<M>,
-    children: Arc<Mutex<Option<Vec<Self>>>>,
+    children: Arc<Mutex<Option<Vec<HierarchicalVm<M>>>>>,
     materializing_children: Arc<(Mutex<Option<ThreadId>>, Condvar)>,
-    parent: Arc<Mutex<Option<Self>>>,
+    parent: Mutex<Option<Weak<HierarchicalVmInner<M>>>>,
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
     expanded_for_walk: Arc<Mutex<bool>>,
-    parked_attach_items: Arc<Mutex<Vec<Self>>>,
+    parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M>>>>,
     hub: MessageHub,
 }
 
@@ -6475,15 +6479,17 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         F: Fn(&Self) -> Vec<Self> + Send + Sync + 'static,
     {
         Self {
-            component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
-            children: Arc::new(Mutex::new(None)),
-            materializing_children: Arc::new((Mutex::new(None), Condvar::new())),
-            parent: Arc::new(Mutex::new(None)),
-            children_factory: Arc::new(children_factory),
-            eager_children: Arc::new(Mutex::new(eager_children)),
-            expanded_for_walk: Arc::new(Mutex::new(true)),
-            parked_attach_items: Arc::new(Mutex::new(Vec::new())),
-            hub,
+            inner: Arc::new(HierarchicalVmInner {
+                component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
+                children: Arc::new(Mutex::new(None)),
+                materializing_children: Arc::new((Mutex::new(None), Condvar::new())),
+                parent: Mutex::new(None),
+                children_factory: Arc::new(children_factory),
+                eager_children: Arc::new(Mutex::new(eager_children)),
+                expanded_for_walk: Arc::new(Mutex::new(true)),
+                parked_attach_items: Arc::new(Mutex::new(Vec::new())),
+                hub,
+            }),
         }
     }
 
@@ -6492,43 +6498,50 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn id(&self) -> usize {
-        self.component.id()
+        self.inner.component.id()
     }
 
     pub fn name(&self) -> String {
-        self.component.name()
+        self.inner.component.name()
     }
 
     pub fn model(&self) -> M {
-        self.component.model()
+        self.inner.component.model()
     }
 
     pub fn hint(&self) -> Option<String> {
-        self.component.hint()
+        self.inner.component.hint()
     }
 
     pub fn hub(&self) -> MessageHub {
-        self.hub.clone()
+        self.inner.hub.clone()
     }
 
     pub fn own<F>(&self, cleanup: F)
     where
         F: FnOnce() + Send + 'static,
     {
-        self.component.own(cleanup);
+        self.inner.component.own(cleanup);
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
-        self.component.property_changed()
+        self.inner.component.property_changed()
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
-        self.component.notify_property_changed(property_name);
+        self.inner.component.notify_property_changed(property_name);
     }
 
     pub fn parent(&self) -> Option<Self> {
         let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-        lock(&self.parent).clone()
+        self.parent_unlocked()
+    }
+
+    fn parent_unlocked(&self) -> Option<Self> {
+        lock(&self.inner.parent)
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .map(|inner| Self { inner })
     }
 
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
@@ -6539,7 +6552,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         self.materialize_children();
         let removed = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-            let mut children = lock(&self.children);
+            let mut children = lock(&self.inner.children);
             let children = children.as_mut().expect("children materialized");
             let removed = children
                 .iter()
@@ -6552,7 +6565,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         }
         .ok_or(VmxError::NonChild)?;
         removed.publish_parent_changed();
-        self.hub
+        self.inner
+            .hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
             }));
@@ -6570,20 +6584,20 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             self.materialize_children();
             let attached = {
                 let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-                if lock(&self.children).is_none() {
+                if lock(&self.inner.children).is_none() {
                     None
                 } else {
                     self.ensure_not_reparenting_cycle_unlocked(child)?;
-                    let old_parent = lock(&child.parent).clone();
+                    let old_parent = child.parent_unlocked();
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
                     if let Some(parent) = &old_parent {
-                        if let Some(children) = lock(&parent.children).as_mut() {
+                        if let Some(children) = lock(&parent.inner.children).as_mut() {
                             children.retain(|candidate| candidate != child);
                         }
                     }
-                    let mut children = lock(&self.children);
+                    let mut children = lock(&self.inner.children);
                     let children = children.as_mut().expect("children materialized");
                     if !children.iter().any(|candidate| candidate == child) {
                         children.push(child.clone());
@@ -6597,7 +6611,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             }
         }
         child.publish_parent_changed();
-        self.hub
+        self.inner
+            .hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
             }));
@@ -6605,7 +6620,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn parked_attach_count(&self) -> usize {
-        lock(&self.tree_root().parked_attach_items).len()
+        lock(&self.tree_root().inner.parked_attach_items).len()
     }
 
     pub fn attach_many<K, FKey, FParent>(
@@ -6621,7 +6636,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         FParent: Fn(&Self) -> VmxResult<Option<K>>,
     {
         let root = self.tree_root();
-        let parked = std::mem::take(&mut *lock(&root.parked_attach_items));
+        let parked = std::mem::take(&mut *lock(&root.inner.parked_attach_items));
         let mut added = Vec::new();
         let mut duplicates = Vec::new();
         let mut orphans = Vec::new();
@@ -6632,7 +6647,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             let key = match key_of(&materialized) {
                 Ok(key) => key,
                 Err(error) => {
-                    lock(&root.parked_attach_items).extend(parked.iter().cloned());
+                    lock(&root.inner.parked_attach_items).extend(parked.iter().cloned());
                     rejections.extend(parked.into_iter().chain(items).map(|item| {
                         BatchAttachRejection {
                             item,
@@ -6662,7 +6677,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 Ok(key) => key,
                 Err(error) => {
                     if was_parked {
-                        lock(&root.parked_attach_items).push(item.clone());
+                        lock(&root.inner.parked_attach_items).push(item.clone());
                     }
                     rejections.push(BatchAttachRejection {
                         item,
@@ -6676,7 +6691,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 Ok(parent_key) => parent_key,
                 Err(error) => {
                     if was_parked {
-                        lock(&root.parked_attach_items).push(item.clone());
+                        lock(&root.inner.parked_attach_items).push(item.clone());
                     }
                     rejections.push(BatchAttachRejection {
                         item,
@@ -6777,7 +6792,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             if !is_cycle {
                 orphans.push(candidate.item.clone());
                 if candidate.retain_if_missing {
-                    lock(&root.parked_attach_items).push(candidate.item);
+                    lock(&root.inner.parked_attach_items).push(candidate.item);
                 }
             }
         }
@@ -6796,7 +6811,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     pub fn is_children_materialized(&self) -> bool {
         let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-        lock(&self.children).is_some()
+        lock(&self.inner.children).is_some()
     }
 
     pub fn is_root(&self) -> bool {
@@ -6835,25 +6850,25 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        if *lock(&self.eager_children) {
+        if *lock(&self.inner.eager_children) {
             for child in self.children() {
                 child.construct()?;
             }
         }
-        self.component.construct()
+        self.inner.component.construct()
     }
 
     pub fn status(&self) -> ConstructionStatus {
-        self.component.status()
+        self.inner.component.status()
     }
 
     pub fn invalidate_children(&self) {
         let was_materialized = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-            let discarded = lock(&self.children).take();
+            let discarded = lock(&self.inner.children).take();
             if let Some(children) = &discarded {
                 for child in children {
-                    let attached_to_self = lock(&child.parent).as_ref() == Some(self);
+                    let attached_to_self = child.parent_unlocked().as_ref() == Some(self);
                     if attached_to_self {
                         child.set_parent_state(None);
                     }
@@ -6862,7 +6877,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             discarded.is_some()
         };
         if was_materialized {
-            self.hub
+            self.inner
+                .hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.id(),
                     property_name: "children".to_string(),
@@ -6871,7 +6887,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn invalidate_subtree(&self) {
-        let materialized_children = lock(&self.children).clone();
+        let materialized_children = lock(&self.inner.children).clone();
         if let Some(children) = materialized_children {
             for child in children {
                 child.invalidate_subtree();
@@ -6881,12 +6897,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
-        lock(&self.parked_attach_items).clear();
-        self.component.dispose()
+        lock(&self.inner.parked_attach_items).clear();
+        self.inner.component.dispose()
     }
 
     pub fn set_expanded_for_walk(&self, expanded: bool) {
-        *lock(&self.expanded_for_walk) = expanded;
+        *lock(&self.inner.expanded_for_walk) = expanded;
     }
 
     fn materialize_children(&self) -> Vec<Self> {
@@ -6894,14 +6910,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         loop {
             {
                 let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-                if let Some(children) = lock(&self.children).clone() {
+                if let Some(children) = lock(&self.inner.children).clone() {
                     return children;
                 }
             }
 
-            let (owner, ready) = &*self.materializing_children;
+            let (owner, ready) = &*self.inner.materializing_children;
             let mut owner = lock(owner);
-            if let Some(children) = lock(&self.children).clone() {
+            if let Some(children) = lock(&self.inner.children).clone() {
                 return children;
             }
             match *owner {
@@ -6916,7 +6932,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             }
         }
 
-        let generated = catch_unwind(AssertUnwindSafe(|| (self.children_factory)(self)));
+        let generated = catch_unwind(AssertUnwindSafe(|| (self.inner.children_factory)(self)));
         let children = match generated {
             Ok(children) => children,
             Err(error) => {
@@ -6929,7 +6945,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             for child in &children {
                 child.set_parent_state(Some(self.clone()));
             }
-            *lock(&self.children) = Some(children.clone());
+            *lock(&self.inner.children) = Some(children.clone());
         }
         self.finish_children_materialization();
         for child in &children {
@@ -6952,7 +6968,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         let mut stack = vec![self.clone()];
         while let Some(current) = stack.pop() {
             result.push(current.clone());
-            if let Some(children) = lock(&current.children).clone() {
+            if let Some(children) = lock(&current.inner.children).clone() {
                 stack.extend(children.into_iter().rev());
             }
         }
@@ -6978,21 +6994,23 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     fn rollback_batch_attach(parent: &Self, child: &Self) {
         let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-        if let Some(children) = lock(&parent.children).as_mut() {
+        if let Some(children) = lock(&parent.inner.children).as_mut() {
             children.retain(|item| item.id() != child.id());
         }
         child.set_parent_state(None);
     }
 
     fn set_parent_state(&self, parent: Option<Self>) {
-        *lock(&self.parent) = parent.clone();
-        self.component
+        *lock(&self.inner.parent) = parent.as_ref().map(|parent| Arc::downgrade(&parent.inner));
+        self.inner
+            .component
             .core
             .set_parent_id(parent.as_ref().map(|parent| parent.id()));
     }
 
     fn publish_parent_changed(&self) {
-        self.hub
+        self.inner
+            .hub
             .send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id: self.id(),
                 property_name: "Parent".to_string(),
@@ -7007,7 +7025,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     "cannot reparent self or ancestor".to_string(),
                 ));
             }
-            current = lock(&node.parent).clone();
+            current = node.parent_unlocked();
         }
         if child.id() == self.id() {
             return Err(VmxError::InvalidArgument(
@@ -7018,7 +7036,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn finish_children_materialization(&self) {
-        let (owner, ready) = &*self.materializing_children;
+        let (owner, ready) = &*self.inner.materializing_children;
         *lock(owner) = None;
         ready.notify_all();
     }
@@ -7042,7 +7060,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        self.component.destruct()
+        self.inner.component.destruct()
     }
 
     fn dispose(&self) -> VmxResult<()> {
@@ -7054,19 +7072,19 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
     }
 
     fn set_parent_id(&self, parent_id: Option<usize>) {
-        self.component.set_parent_id(parent_id);
+        self.inner.component.set_parent_id(parent_id);
     }
 
     fn parent_id(&self) -> Option<usize> {
-        self.component.parent_id()
+        self.inner.component.parent_id()
     }
 
     fn set_parent_handle(&self, parent: Option<ParentHandle>) {
-        self.component.core.set_parent_handle(parent);
+        self.inner.component.core.set_parent_handle(parent);
     }
 
     fn parent_handle(&self) -> Option<ParentHandle> {
-        self.component.core.parent_handle()
+        self.inner.component.core.parent_handle()
     }
 }
 
@@ -7076,7 +7094,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M
     }
 
     fn is_expanded_for_walk(&self) -> bool {
-        *lock(&self.expanded_for_walk)
+        *lock(&self.inner.expanded_for_walk)
     }
 }
 
@@ -7152,7 +7170,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
             hub,
         );
         if let Some(hint) = self.hint {
-            node.component.core.set_hint(Some(hint));
+            node.inner.component.core.set_hint(Some(hint));
         }
         Ok(node)
     }
