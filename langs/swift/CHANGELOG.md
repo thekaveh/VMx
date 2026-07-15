@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `BasicModalVM` now atomically registers waiters and claims its first dismissal,
+  preventing concurrent dismissal/disposal from losing or resuming a waiter
+  more than once.
+
 ## [3.22.0] — 2026-07-14
 
 Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.

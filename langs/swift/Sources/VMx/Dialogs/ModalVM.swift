@@ -2,6 +2,18 @@
 // ModalVM — VM-backed modal result primitive.
 //
 
+import Foundation
+
+private enum BasicModalState<Result> {
+    case pending([CheckedContinuation<Result, Never>])
+    case dismissed(Result)
+}
+
+private enum ModalWaitDisposition<Result> {
+    case registered
+    case resolved(Result)
+}
+
 /// Result-bearing VM-backed modal contract.
 public protocol ModalVM: AnyObject {
     associatedtype Result
@@ -28,21 +40,45 @@ public protocol ModalVM: AnyObject {
 /// Small base implementation for result-bearing VM-backed modals.
 public final class BasicModalVM<Result>: ModalVM {
     public let cancellationResult: Result
-    public private(set) var result: Result?
-    public private(set) var isDismissed = false
+    private let lock = NSLock()
+    private var state: BasicModalState<Result> = .pending([])
 
-    private var waiters: [CheckedContinuation<Result, Never>] = []
+    public var result: Result? {
+        lock.withLock {
+            switch state {
+            case .pending:
+                nil
+            case let .dismissed(result):
+                Optional.some(result)
+            }
+        }
+    }
+
+    public var isDismissed: Bool {
+        lock.withLock {
+            if case .dismissed = state {
+                true
+            } else {
+                false
+            }
+        }
+    }
 
     public init(cancellationResult: Result) {
         self.cancellationResult = cancellationResult
     }
 
     public func dismiss(_ result: Result) {
-        guard !isDismissed else { return }
-        self.result = result
-        isDismissed = true
-        let continuations = waiters
-        waiters.removeAll()
+        let continuations: [CheckedContinuation<Result, Never>]? = lock.withLock {
+            switch state {
+            case let .pending(waiters):
+                state = .dismissed(result)
+                return waiters
+            case .dismissed:
+                return nil
+            }
+        }
+        guard let continuations else { return }
         for continuation in continuations {
             continuation.resume(returning: result)
         }
@@ -53,11 +89,20 @@ public final class BasicModalVM<Result>: ModalVM {
     }
 
     public func waitResult() async -> Result {
-        if let result {
-            return result
-        }
         return await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+            let disposition: ModalWaitDisposition<Result> = lock.withLock {
+                switch state {
+                case var .pending(waiters):
+                    waiters.append(continuation)
+                    state = .pending(waiters)
+                    return .registered
+                case let .dismissed(result):
+                    return .resolved(result)
+                }
+            }
+            if case let .resolved(result) = disposition {
+                continuation.resume(returning: result)
+            }
         }
     }
 }

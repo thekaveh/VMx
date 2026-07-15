@@ -8,6 +8,8 @@
   SwiftPM tag and matching `swift-v3.20.0` GitHub Release.
 - Reactive primitive: `Combine`
 - Naming idiom: camelCase
+- Modal completion: `BasicModalVM` atomically registers waiters and accepts only
+  the first concurrent dismissal or disposal result
 
 ## 7.5.2. What To Reach For
 
