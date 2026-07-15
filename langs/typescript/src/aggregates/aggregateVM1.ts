@@ -9,6 +9,7 @@ import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -72,8 +73,10 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // subscribers observe child Disposed transitions before the aggregate's
     // own Disposed transition — a single dispose-ordering rule across all
     // container VM kinds.
-    this.#component1?.dispose();
-    super.dispose();
+    disposeBestEffort([
+      () => this.#component1?.dispose(),
+      () => super.dispose(),
+    ]);
   }
 
   static builder<VM1 extends ComponentVMBase>(): AggregateVM1Builder<VM1> {

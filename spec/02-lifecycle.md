@@ -247,6 +247,14 @@ membership state. Transfer never calls `destruct()` or `dispose()`.
 `dispose()` on a parent disposes every child (synchronously, depth-first). This
 ensures no orphaned `IDisposable` resources are left behind.
 
+Once disposal begins, a failure cannot abort the remaining terminal work.
+Every child is attempted in deterministic order before the parent completes
+its subclass hook, owned-resource cleanup, command teardown, and stream
+completion. Flavors whose disposal surface can report failures preserve the
+first failure in execution order, finish all mandatory teardown, and then
+propagate that original failure. Later failures do not replace it. Repeated or
+re-entrant disposal remains a no-op rather than a retry for skipped cleanup.
+
 A disposed VM MAY still receive late-arriving subscriber events from the hub if
 those events were already in flight. Subscribers MUST be tolerant of this.
 
@@ -277,7 +285,8 @@ directly.
   §2.4 per-VM guard)
 - the full transition matrix (table-driven from `fixtures/lifecycle-transitions.json`)
 - dispose-from-Disposed emits no message
-- dispose cascade (parent disposes children depth-first)
+- dispose cascade (parent disposes children depth-first and completes all
+  terminal cleanup before propagating the first failure)
 - transactional rollback: a throwing `OnConstruct`/`OnDestruct` hook rolls `Status` back to
   the prior settled state and leaves the VM recoverable (`LIFE-014`, §2.5)
 

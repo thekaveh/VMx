@@ -22,6 +22,7 @@ import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { declareCapabilities } from "../capabilities/registry.js";
+import { disposeBestEffort } from "./disposal.js";
 
 /** Minimal parent interface used by a child for selection delegation. */
 export interface IParentVM {
@@ -492,27 +493,26 @@ export abstract class ComponentVMBase {
     if (this.#status === ConstructionStatus.Disposed) return;
 
     this._setStatus(ConstructionStatus.Disposed);
-    try {
-      this._onDispose();
-    } finally {
-      this.#disposeOwnedResources();
-    }
-
-    if (!this.#triggersDisposed) {
-      this.#triggersDisposed = true;
-      this.#statusTrigger.complete();
-      if (this.#activePropertyNotifications === 0) {
-        this.#propertyChangedSubject.complete();
-      } else {
-        this.#propertyNotificationTeardownPending = true;
-      }
-    }
-
-    this.#selectCommand.dispose();
-    this.#deselectCommand.dispose();
-    this.#selectNextCommand.dispose();
-    this.#selectPreviousCommand.dispose();
-    this.#reconstructCommand.dispose();
+    disposeBestEffort([
+      () => this._onDispose(),
+      () => this.#disposeOwnedResources(),
+      () => {
+        if (!this.#triggersDisposed) {
+          this.#triggersDisposed = true;
+          this.#statusTrigger.complete();
+          if (this.#activePropertyNotifications === 0) {
+            this.#propertyChangedSubject.complete();
+          } else {
+            this.#propertyNotificationTeardownPending = true;
+          }
+        }
+      },
+      () => this.#selectCommand.dispose(),
+      () => this.#deselectCommand.dispose(),
+      () => this.#selectNextCommand.dispose(),
+      () => this.#selectPreviousCommand.dispose(),
+      () => this.#reconstructCommand.dispose(),
+    ]);
   }
 
   // ── Selection ────────────────────────────────────────────────────────────

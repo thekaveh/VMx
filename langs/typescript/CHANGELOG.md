@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.23.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Fixed
+
+- Terminal disposal now attempts every child and all base teardown before
+  rethrowing the first failure, so one faulty child or subclass hook cannot
+  strand siblings, commands, resources, or streams (LIFE-013, ADR-0108).
+
 ## [3.22.0] — 2026-07-14
 
 Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.

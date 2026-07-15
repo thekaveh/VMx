@@ -19,6 +19,7 @@ import {
   ParentTransfer,
 } from "../components/componentVMBase.js";
 import type { IOwningParentVM } from "../components/componentVMBase.js";
+import { disposeBestEffort } from "../components/disposal.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
@@ -397,10 +398,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   override dispose(): void {
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
-    for (const child of [...this._children]) {
-      child.dispose();
-    }
-    super.dispose();
+    disposeBestEffort([
+      ...[...this._children].map((child) => () => child.dispose()),
+      () => super.dispose(),
+    ]);
   }
 
   protected override _onDispose(): void {

@@ -1,17 +1,17 @@
 # 2. Installation
 
 VMx has five full-parity source flavors. C#, Python, and Swift implement
-v3.21.0; TypeScript 3.22.0 implements spec 3.21.0, and Rust 0.23.0
-declares `MIN_SPEC_VERSION = "3.21.0"`. Public package availability can lag the
+v3.22.0; TypeScript 3.23.0 implements spec 3.22.0, and Rust 0.24.0
+declares `MIN_SPEC_VERSION = "3.22.0"`. Public package availability can lag the
 source tree, so check the flavor README and registry before pinning a release.
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
-| C#         | v3.21.0       | NuGet package not published yet     |
-| Python     | v3.21.0       | `vmx` latest published: 3.1.0       |
-| TypeScript | v3.22.0       | npm package not published yet       |
-| Swift      | v3.21.0       | SwiftPM release 3.20.0              |
-| Rust       | 0.23.0        | crates.io package not published yet |
+| C#         | v3.22.0       | NuGet package not published yet     |
+| Python     | v3.22.0       | `vmx` latest published: 3.1.0       |
+| TypeScript | v3.23.0       | npm package not published yet       |
+| Swift      | v3.22.0       | SwiftPM release 3.20.0              |
+| Rust       | 0.24.0        | crates.io package not published yet |
 
 === "C#"
 

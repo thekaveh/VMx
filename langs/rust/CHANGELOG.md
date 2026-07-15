@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Fixed
+
+- Terminal disposal now attempts every child and the parent core before
+  returning the first failure (LIFE-013, ADR-0108).
+- `AggregateVm3` through `AggregateVm6` now expose every typed slot and the
+  complete lifecycle, service, ownership, status, equality, and `VmNode`
+  surfaces already provided by the lower arities.
+
 ## [0.23.0] — 2026-07-14
 
 Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.

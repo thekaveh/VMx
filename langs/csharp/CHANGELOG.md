@@ -6,6 +6,15 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [3.22.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- The existing best-effort disposal cascade is now part of the normative
+  cross-flavor contract (LIFE-013, ADR-0108).
+
 ## [3.21.0] — 2026-07-14
 
 Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.

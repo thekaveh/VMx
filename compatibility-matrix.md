@@ -6,7 +6,8 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.21.x | 3.21.0[^current] | 3.21.0[^current] | 3.22.0[^current] | 3.21.0[^swift] | 0.23.0[^rust] |
+| 3.22.x | 3.22.0[^current] | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.24.0[^rust] |
+| 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
@@ -76,20 +77,20 @@ THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: C# and Python are on the 3.21.0 in-development source line.
-TypeScript 3.22.0 implements spec 3.21.0. Python's latest PyPI release remains
+[^current]: C# and Python are on the 3.22.0 in-development source line.
+TypeScript 3.23.0 implements spec 3.22.0. Python's latest PyPI release remains
 3.1.0; C# and TypeScript public
 packages remain pending. Their release jobs refuse to green-skip a publish
 without configured credentials.
 
-[^swift]: Swift 3.21.0 is the current source line. Swift 3.20.0 remains publicly
+[^swift]: Swift 3.22.0 is the current source line. Swift 3.20.0 remains publicly
 installable from the repository root through
 the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
 tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
 point to the same `main` commit.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-is at source version 0.23.0, declares `MIN_SPEC_VERSION = "3.21.0"`, and carries behavioral tests for all 395
+is at source version 0.24.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries behavioral tests for all 395
 library conformance IDs. It has not yet been published to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
@@ -122,7 +123,7 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.21.0 core project and
-> pack with a `VMx >= 3.21.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.22.0 core project and
+> pack with a `VMx >= 3.22.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
 > because the historical core tag `csharp-v2.1.0` is immutable. These source versions do not claim
 > that the packages have been published.

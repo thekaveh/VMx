@@ -9,6 +9,7 @@ import {
   RxDispatcher,
   ComponentVM,
   CompositeVM,
+  GroupVM,
   AggregateVM1,
   AggregateVM2,
   AggregateVM3,
@@ -17,6 +18,7 @@ import {
   AggregateVM6,
   ComponentVMBase,
   ConstructionStatusChangedMessage,
+  ViewModelType,
 } from "../../src/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +31,24 @@ function makeVM(name = "vm") {
     .name(name)
     .services(makeHub(), makeDisp())
     .build();
+}
+
+class DisposeProbeVM extends ComponentVMBase {
+  constructor(
+    name: string,
+    hub: MessageHub,
+    private readonly disposeHook: () => void = () => undefined,
+  ) {
+    super({ name, hint: "", hub, dispatcher: makeDisp() });
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  protected override _onDispose(): void {
+    this.disposeHook();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -533,4 +553,58 @@ describe("LIFE-013", () => {
       }
     },
   );
+
+  it.each(["composite", "group", "aggregate"] as const)(
+    "%s finishes every child and parent teardown before rethrowing the first failure",
+    (kind) => {
+      const hub = makeHub();
+      const firstError = new Error("first dispose failure");
+      const secondError = new Error("second dispose failure");
+      const first = new DisposeProbeVM("first", hub, () => { throw firstError; });
+      const second = new DisposeProbeVM("second", hub, () => { throw secondError; });
+      let parent: ComponentVMBase;
+
+      if (kind === "composite") {
+        parent = CompositeVM.builder<ComponentVMBase>()
+          .name("parent").services(hub, makeDisp()).children(() => [first, second]).build();
+      } else if (kind === "group") {
+        parent = GroupVM.builder<ComponentVMBase>()
+          .name("parent").services(hub, makeDisp()).children(() => [first, second]).build();
+      } else {
+        parent = AggregateVM2.builder<ComponentVMBase, ComponentVMBase>()
+          .name("parent").services(hub, makeDisp())
+          .component1(() => first).component2(() => second).build();
+      }
+      parent.construct();
+
+      let thrown: unknown;
+      try {
+        parent.dispose();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(firstError);
+      expect(first.status).toBe(ConstructionStatus.Disposed);
+      expect(second.status).toBe(ConstructionStatus.Disposed);
+      expect(parent.status).toBe(ConstructionStatus.Disposed);
+    },
+  );
+
+  it("finishes base stream teardown after a throwing disposal hook", () => {
+    const hookError = new Error("hook failed");
+    const vm = new DisposeProbeVM("probe", makeHub(), () => { throw hookError; });
+    let completed = false;
+    vm.propertyChanged.subscribe({ complete: () => { completed = true; } });
+
+    let thrown: unknown;
+    try {
+      vm.dispose();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(hookError);
+    expect(completed).toBe(true);
+  });
 });

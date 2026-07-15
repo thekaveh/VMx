@@ -59,6 +59,9 @@ guarantee repeated and re-entrant disposal on their supported execution model.
   Per-construct resources remain explicit in `OnConstruct`/`OnDestruct`.
 - Parent VMs dispose owned children depth-first. A child reached through
   several teardown paths has one observable terminal transition.
+- Terminal cascades do not stop at a failing child or subclass hook. Every
+  sibling and the parent's base teardown still run; throwing/result-based
+  flavors propagate the first failure only after mandatory cleanup completes.
 - A forwarding VM delegates disposal to the wrapped VM; it does not introduce
   reference counting.
 - Command decorators and composites do not dispose caller-owned inner commands

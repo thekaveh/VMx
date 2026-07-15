@@ -31,7 +31,7 @@ pub use async_resource_vm::{
 pub use async_value::AsyncValue;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.21.0";
+pub const MIN_SPEC_VERSION: &str = "3.22.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
@@ -92,6 +92,18 @@ pub enum VmxError {
 }
 
 pub type VmxResult<T> = Result<T, VmxError>;
+
+fn retain_first_error(first: &mut Option<VmxError>, result: VmxResult<()>) {
+    if let Err(error) = result {
+        if first.is_none() {
+            *first = Some(error);
+        }
+    }
+}
+
+fn finish_with_first_error(first: Option<VmxError>) -> VmxResult<()> {
+    first.map_or(Ok(()), Err)
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConstructionStatus {
@@ -4177,10 +4189,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
         for item in self.items() {
-            item.dispose()?;
+            retain_first_error(&mut first_error, item.dispose());
         }
-        self.core.transition(LifecycleOperation::Dispose)
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
     }
 
     pub fn status(&self) -> ConstructionStatus {
@@ -5270,10 +5287,15 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
         for item in self.items() {
-            item.dispose()?;
+            retain_first_error(&mut first_error, item.dispose());
         }
-        self.core.transition(LifecycleOperation::Dispose)
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
     }
 
     pub fn status(&self) -> ConstructionStatus {
@@ -7450,10 +7472,11 @@ impl<T: VmNode> AggregateVm<T> {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
         for member in &self.members {
-            member.dispose()?;
+            retain_first_error(&mut first_error, member.dispose());
         }
-        Ok(())
+        finish_with_first_error(first_error)
     }
 }
 
@@ -7572,8 +7595,13 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
-        self.component1.dispose()?;
-        self.core.transition(LifecycleOperation::Dispose)
+        let mut first_error = None;
+        retain_first_error(&mut first_error, self.component1.dispose());
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
     }
 
     pub fn status(&self) -> ConstructionStatus {
@@ -7734,9 +7762,14 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
-        self.component1.dispose()?;
-        self.component2.dispose()?;
-        self.core.transition(LifecycleOperation::Dispose)
+        let mut first_error = None;
+        retain_first_error(&mut first_error, self.component1.dispose());
+        retain_first_error(&mut first_error, self.component2.dispose());
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
     }
 
     pub fn status(&self) -> ConstructionStatus {
@@ -7882,12 +7915,20 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         self.component3.clone()
     }
 
+    pub fn id(&self) -> usize {
+        self.core.id()
+    }
+
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
     }
 
     pub fn hub(&self) -> MessageHub {
         self.core.hub()
+    }
+
+    pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
+        self.core.own(cleanup);
     }
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
@@ -7902,6 +7943,29 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         self.component3.construct()?;
         self.core.notify_property_changed("component3");
         self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.component1.destruct()?;
+        self.component2.destruct()?;
+        self.component3.destruct()?;
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
+        retain_first_error(&mut first_error, self.component1.dispose());
+        retain_first_error(&mut first_error, self.component2.dispose());
+        retain_first_error(&mut first_error, self.component3.dispose());
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
     }
 }
 
@@ -7940,12 +8004,51 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4
         component3: T3,
         component4: T4,
     ) -> VmxResult<Self> {
+        Self::try_with_services(
+            name,
+            MessageHub::new(),
+            NullDispatcher::new(),
+            component1,
+            component2,
+            component3,
+            component4,
+        )
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
+    AggregateVm4<T1, T2, T3, T4, D>
+{
+    pub fn with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+    ) -> Self {
+        Self::try_with_services(
+            name, hub, dispatcher, component1, component2, component3, component4,
+        )
+        .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+    ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
         validate_fixed_aggregate_child(&component1, &mut ids)?;
         validate_fixed_aggregate_child(&component2, &mut ids)?;
         validate_fixed_aggregate_child(&component3, &mut ids)?;
         validate_fixed_aggregate_child(&component4, &mut ids)?;
-        let core = ComponentCore::new(name, MessageHub::new(), NullDispatcher::new());
+        let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
         attach_fixed_aggregate_child(&component1, &parent);
@@ -7962,12 +8065,24 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4
         })
     }
 
-    pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.component2.construct()?;
-        self.component3.construct()?;
-        self.component4.construct()?;
-        self.core.transition(LifecycleOperation::Construct)
+    pub fn component1(&self) -> T1 {
+        self.component1.clone()
+    }
+
+    pub fn component2(&self) -> T2 {
+        self.component2.clone()
+    }
+
+    pub fn component3(&self) -> T3 {
+        self.component3.clone()
+    }
+
+    pub fn component4(&self) -> T4 {
+        self.component4.clone()
+    }
+
+    pub fn id(&self) -> usize {
+        self.core.id()
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
@@ -7978,8 +8093,49 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4
         self.core.hub()
     }
 
+    pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
+        self.core.own(cleanup);
+    }
+
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.core.notify_property_changed("component1");
+        self.component2.construct()?;
+        self.core.notify_property_changed("component2");
+        self.component3.construct()?;
+        self.core.notify_property_changed("component3");
+        self.component4.construct()?;
+        self.core.notify_property_changed("component4");
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.component1.destruct()?;
+        self.component2.destruct()?;
+        self.component3.destruct()?;
+        self.component4.destruct()?;
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
+        retain_first_error(&mut first_error, self.component1.dispose());
+        retain_first_error(&mut first_error, self.component2.dispose());
+        retain_first_error(&mut first_error, self.component3.dispose());
+        retain_first_error(&mut first_error, self.component4.dispose());
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
     }
 }
 
@@ -8026,13 +8182,57 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
         component4: T4,
         component5: T5,
     ) -> VmxResult<Self> {
+        Self::try_with_services(
+            name,
+            MessageHub::new(),
+            NullDispatcher::new(),
+            component1,
+            component2,
+            component3,
+            component4,
+            component5,
+        )
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
+    AggregateVm5<T1, T2, T3, T4, T5, D>
+{
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+    ) -> Self {
+        Self::try_with_services(
+            name, hub, dispatcher, component1, component2, component3, component4, component5,
+        )
+        .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+    ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
         validate_fixed_aggregate_child(&component1, &mut ids)?;
         validate_fixed_aggregate_child(&component2, &mut ids)?;
         validate_fixed_aggregate_child(&component3, &mut ids)?;
         validate_fixed_aggregate_child(&component4, &mut ids)?;
         validate_fixed_aggregate_child(&component5, &mut ids)?;
-        let core = ComponentCore::new(name, MessageHub::new(), NullDispatcher::new());
+        let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
         attach_fixed_aggregate_child(&component1, &parent);
@@ -8051,17 +8251,28 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
         })
     }
 
-    pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.component2.construct()?;
-        self.component3.construct()?;
-        self.component4.construct()?;
-        self.component5.construct()?;
-        self.core.transition(LifecycleOperation::Construct)
+    pub fn component1(&self) -> T1 {
+        self.component1.clone()
+    }
+
+    pub fn component2(&self) -> T2 {
+        self.component2.clone()
+    }
+
+    pub fn component3(&self) -> T3 {
+        self.component3.clone()
+    }
+
+    pub fn component4(&self) -> T4 {
+        self.component4.clone()
     }
 
     pub fn component5(&self) -> T5 {
         self.component5.clone()
+    }
+
+    pub fn id(&self) -> usize {
+        self.core.id()
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
@@ -8078,6 +8289,47 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
 
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.core.notify_property_changed("component1");
+        self.component2.construct()?;
+        self.core.notify_property_changed("component2");
+        self.component3.construct()?;
+        self.core.notify_property_changed("component3");
+        self.component4.construct()?;
+        self.core.notify_property_changed("component4");
+        self.component5.construct()?;
+        self.core.notify_property_changed("component5");
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.component1.destruct()?;
+        self.component2.destruct()?;
+        self.component3.destruct()?;
+        self.component4.destruct()?;
+        self.component5.destruct()?;
+        self.core.transition(LifecycleOperation::Destruct)
+    }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
+        retain_first_error(&mut first_error, self.component1.dispose());
+        retain_first_error(&mut first_error, self.component2.dispose());
+        retain_first_error(&mut first_error, self.component3.dispose());
+        retain_first_error(&mut first_error, self.component4.dispose());
+        retain_first_error(&mut first_error, self.component5.dispose());
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
     }
 }
 
@@ -8128,6 +8380,54 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
         component5: T5,
         component6: T6,
     ) -> VmxResult<Self> {
+        Self::try_with_services(
+            name,
+            MessageHub::new(),
+            NullDispatcher::new(),
+            component1,
+            component2,
+            component3,
+            component4,
+            component5,
+            component6,
+        )
+    }
+}
+
+impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: Dispatcher>
+    AggregateVm6<T1, T2, T3, T4, T5, T6, D>
+{
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+        component6: T6,
+    ) -> Self {
+        Self::try_with_services(
+            name, hub, dispatcher, component1, component2, component3, component4, component5,
+            component6,
+        )
+        .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+        component6: T6,
+    ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
         validate_fixed_aggregate_child(&component1, &mut ids)?;
         validate_fixed_aggregate_child(&component2, &mut ids)?;
@@ -8135,7 +8435,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
         validate_fixed_aggregate_child(&component4, &mut ids)?;
         validate_fixed_aggregate_child(&component5, &mut ids)?;
         validate_fixed_aggregate_child(&component6, &mut ids)?;
-        let core = ComponentCore::new(name, MessageHub::new(), NullDispatcher::new());
+        let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
         attach_fixed_aggregate_child(&component1, &parent);
@@ -8156,14 +8456,24 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
         })
     }
 
-    pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.component2.construct()?;
-        self.component3.construct()?;
-        self.component4.construct()?;
-        self.component5.construct()?;
-        self.component6.construct()?;
-        self.core.transition(LifecycleOperation::Construct)
+    pub fn component1(&self) -> T1 {
+        self.component1.clone()
+    }
+
+    pub fn component2(&self) -> T2 {
+        self.component2.clone()
+    }
+
+    pub fn component3(&self) -> T3 {
+        self.component3.clone()
+    }
+
+    pub fn component4(&self) -> T4 {
+        self.component4.clone()
+    }
+
+    pub fn component5(&self) -> T5 {
+        self.component5.clone()
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
@@ -8182,6 +8492,26 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
         self.core.notify_property_changed(property_name);
     }
 
+    pub fn id(&self) -> usize {
+        self.core.id()
+    }
+
+    pub fn construct(&self) -> VmxResult<()> {
+        self.component1.construct()?;
+        self.core.notify_property_changed("component1");
+        self.component2.construct()?;
+        self.core.notify_property_changed("component2");
+        self.component3.construct()?;
+        self.core.notify_property_changed("component3");
+        self.component4.construct()?;
+        self.core.notify_property_changed("component4");
+        self.component5.construct()?;
+        self.core.notify_property_changed("component5");
+        self.component6.construct()?;
+        self.core.notify_property_changed("component6");
+        self.core.transition(LifecycleOperation::Construct)
+    }
+
     pub fn destruct(&self) -> VmxResult<()> {
         self.component1.destruct()?;
         self.component2.destruct()?;
@@ -8195,7 +8525,65 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
     pub fn component6(&self) -> T6 {
         self.component6.clone()
     }
+
+    pub fn dispose(&self) -> VmxResult<()> {
+        let mut first_error = None;
+        retain_first_error(&mut first_error, self.component1.dispose());
+        retain_first_error(&mut first_error, self.component2.dispose());
+        retain_first_error(&mut first_error, self.component3.dispose());
+        retain_first_error(&mut first_error, self.component4.dispose());
+        retain_first_error(&mut first_error, self.component5.dispose());
+        retain_first_error(&mut first_error, self.component6.dispose());
+        retain_first_error(
+            &mut first_error,
+            self.core.transition(LifecycleOperation::Dispose),
+        );
+        finish_with_first_error(first_error)
+    }
+
+    pub fn status(&self) -> ConstructionStatus {
+        self.core.status()
+    }
 }
+
+macro_rules! impl_fixed_aggregate_vm_node {
+    ($name:ident, $($component:ident),+) => {
+        impl<$($component: VmNode,)+ D: Dispatcher> VmNode
+            for $name<$($component,)+ D>
+        {
+            fn id(&self) -> usize { self.core.id() }
+            fn construct(&self) -> VmxResult<()> { $name::construct(self) }
+            fn destruct(&self) -> VmxResult<()> { $name::destruct(self) }
+            fn dispose(&self) -> VmxResult<()> { $name::dispose(self) }
+            fn status(&self) -> ConstructionStatus { $name::status(self) }
+            fn set_parent_id(&self, parent_id: Option<usize>) {
+                self.core.set_parent_id(parent_id);
+            }
+            fn parent_id(&self) -> Option<usize> { self.core.parent_id() }
+            fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+                self.core.set_parent_handle(parent);
+            }
+            fn parent_handle(&self) -> Option<ParentHandle> { self.core.parent_handle() }
+            fn set_current_flag(&self, is_current: bool) {
+                self.core.set_current_flag(is_current);
+            }
+            fn is_current(&self) -> bool { self.core.is_selected() }
+        }
+
+        impl<$($component: VmNode,)+ D: Dispatcher> PartialEq
+            for $name<$($component,)+ D>
+        {
+            fn eq(&self, other: &Self) -> bool { self.core.id() == other.core.id() }
+        }
+
+        impl<$($component: VmNode,)+ D: Dispatcher> Eq for $name<$($component,)+ D> {}
+    };
+}
+
+impl_fixed_aggregate_vm_node!(AggregateVm3, T1, T2, T3);
+impl_fixed_aggregate_vm_node!(AggregateVm4, T1, T2, T3, T4);
+impl_fixed_aggregate_vm_node!(AggregateVm5, T1, T2, T3, T4, T5);
+impl_fixed_aggregate_vm_node!(AggregateVm6, T1, T2, T3, T4, T5, T6);
 
 #[derive(Clone)]
 pub struct ForwardingComponentVm<

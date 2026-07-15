@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use vmx::{
-    ComponentVm, CompositeVm, ConstructionStatus, ConstructionStatusChangedMessage, Message,
-    MessageHub, NullDispatcher, VmxError,
+    AggregateVm2, ComponentVm, CompositeVm, ConstructionStatus, ConstructionStatusChangedMessage,
+    GroupVm, Message, MessageHub, NullDispatcher, VmxError,
 };
 
 fn statuses(hub: &MessageHub) -> Arc<Mutex<Vec<ConstructionStatus>>> {
@@ -281,6 +281,54 @@ fn dispose_on_parent_disposes_children_before_parent() {
     assert_eq!(child_a.status(), ConstructionStatus::Disposed);
     assert_eq!(child_b.status(), ConstructionStatus::Disposed);
     assert_eq!(parent.status(), ConstructionStatus::Disposed);
+}
+
+/// LIFE-013 — one disposal failure cannot strand later siblings or the parent
+#[test]
+fn disposal_cascades_finish_before_returning_the_first_error() {
+    fn failing_child(name: &'static str, error: &'static str) -> ComponentVm {
+        let child = ComponentVm::new(name);
+        child.on_dispose(move || Err(VmxError::Other(error.to_string())));
+        child
+    }
+
+    let first = failing_child("first", "first dispose failure");
+    let second = failing_child("second", "second dispose failure");
+    let composite = CompositeVm::new("composite");
+    composite.add(first.clone()).unwrap();
+    composite.add(second.clone()).unwrap();
+    assert_eq!(composite.len(), 2);
+    assert_eq!(
+        composite.dispose(),
+        Err(VmxError::Other("first dispose failure".to_string()))
+    );
+    assert_eq!(first.status(), ConstructionStatus::Disposed);
+    assert_eq!(second.status(), ConstructionStatus::Disposed);
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+
+    let first = failing_child("first", "first dispose failure");
+    let second = failing_child("second", "second dispose failure");
+    let group = GroupVm::new("group");
+    group.add(first.clone()).unwrap();
+    group.add(second.clone()).unwrap();
+    assert_eq!(
+        group.dispose(),
+        Err(VmxError::Other("first dispose failure".to_string()))
+    );
+    assert_eq!(first.status(), ConstructionStatus::Disposed);
+    assert_eq!(second.status(), ConstructionStatus::Disposed);
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+
+    let first = failing_child("first", "first dispose failure");
+    let second = failing_child("second", "second dispose failure");
+    let aggregate = AggregateVm2::try_new("aggregate", first.clone(), second.clone()).unwrap();
+    assert_eq!(
+        aggregate.dispose(),
+        Err(VmxError::Other("first dispose failure".to_string()))
+    );
+    assert_eq!(first.status(), ConstructionStatus::Disposed);
+    assert_eq!(second.status(), ConstructionStatus::Disposed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
 }
 
 /// DISP-001 — VM disposal and owned child cascades are observably idempotent

@@ -9,6 +9,7 @@ import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -100,11 +101,13 @@ export class AggregateVM4<
 
   override dispose(): void {
     // Depth-first dispose (LIFE-013): each component slot first, then self.
-    this.#component1?.dispose();
-    this.#component2?.dispose();
-    this.#component3?.dispose();
-    this.#component4?.dispose();
-    super.dispose();
+    disposeBestEffort([
+      () => this.#component1?.dispose(),
+      () => this.#component2?.dispose(),
+      () => this.#component3?.dispose(),
+      () => this.#component4?.dispose(),
+      () => super.dispose(),
+    ]);
   }
 
   static builder<

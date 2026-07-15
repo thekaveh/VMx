@@ -175,6 +175,9 @@ each child itself a container with grand-children all `Constructed`
 **When** `parent.dispose()` is called
 **Then** when it returns, every child and every grand-child has `Status == Disposed`
 **And** the disposal order is depth-first (grand-children before children before parent)
+**And** if one child or parent disposal hook fails, all later siblings and the
+parent's mandatory teardown still complete before the first failure is
+propagated in flavors with a throwing/result-based disposal surface
 
 ### LIFE-014 — A throwing construct/destruct hook rolls Status back (transactional)
 

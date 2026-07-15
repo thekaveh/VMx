@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.22.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- The existing non-throwing, complete disposal cascade is now part of the
+  normative cross-flavor contract (LIFE-013, ADR-0108).
+
 ## [3.21.0] — 2026-07-14
 
 Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.

@@ -9,7 +9,7 @@ import smoke_nuget_consumer as smoke
 def test_parse_packages_accepts_known_exact_versions_and_adds_core_floor() -> None:
     packages = smoke.parse_packages(["VMx.Notifications=1.2.0"])
 
-    assert packages == {"VMx": "3.20.1", "VMx.Notifications": "1.2.0"}
+    assert packages == {"VMx": "3.22.0", "VMx.Notifications": "1.2.0"}
 
 
 @pytest.mark.parametrize("specification", ["Unknown=1.0.0", "VMx=main", "VMx=3.20", "VMx"])

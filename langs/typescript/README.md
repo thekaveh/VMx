@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.22.0** — implements `spec-v3.21.0` end-to-end. 395/395 library
+**v3.23.0** — implements `spec-v3.22.0` end-to-end. 395/395 library
 conformance IDs pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
@@ -19,7 +19,7 @@ test-framework-neutral `@thekaveh/vmx/conformance` adapter runner.
 
 ## 2. Install
 
-The source tree currently implements v3.22.0. The scoped npm package has not
+The source tree currently implements v3.23.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 

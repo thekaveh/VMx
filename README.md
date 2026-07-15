@@ -117,7 +117,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 107 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 108 ADRs,
   4 JSON fixtures, 400 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -146,11 +146,11 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Source status           | Public package status                                          | Reactive primitive     |
 | ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
-| C#         | v3.21.0 in source       | NuGet package not published yet                                | System.Reactive        |
-| Python     | v3.21.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
-| TypeScript | v3.22.0 in source       | npm package not published yet                                  | rxjs                   |
-| Swift      | v3.21.0 in source       | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
-| Rust       | v0.23.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
+| C#         | v3.22.0 in source       | NuGet package not published yet                                | System.Reactive        |
+| Python     | v3.22.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
+| TypeScript | v3.23.0 in source       | npm package not published yet                                  | rxjs                   |
+| Swift      | v3.22.0 in source       | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
+| Rust       | v0.24.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -187,7 +187,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.21.x | 3.21.0 | 3.21.0 | 3.22.0 | 3.21.0 | 0.23.0 |
+| 3.22.x | 3.22.0 | 3.22.0 | 3.23.0 | 3.22.0 | 0.24.0 |
 | 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1 | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0 | 3.19.0 | 3.19.0     | 3.19.0         | 0.19.0        |
 | 3.18.x | 3.18.0 | 3.18.0 | 3.18.0     | 3.18.0         | 0.18.0        |
@@ -242,7 +242,7 @@ cargo add vmx-rs --path langs/rust
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity on the v3.21.0 source line; see `langs/swift/README.md` §5).
+  at total parity on the v3.22.0 source line; see `langs/swift/README.md` §5).
 - [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
   and a minimal `ComponentVm` example.
 
@@ -307,7 +307,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0106)
+│   ├── ADRs/              architecture decision records (0001..0108)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -316,7 +316,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.21.0 source, total parity — 395 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.22.0 source, total parity — 395 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
@@ -340,7 +340,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 107 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 108 ADRs,
   4 fixtures, and the 400-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
@@ -349,7 +349,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.21.0 source, total parity — 395 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.22.0 source, total parity — 395 library + 5 THEME),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
