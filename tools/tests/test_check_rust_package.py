@@ -19,6 +19,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/discriminator.rs",
         "src/forms.rs",
         "src/forwarding.rs",
+        "src/hierarchical.rs",
         "src/specialized_vms.rs",
         "src/token_paging.rs",
     } <= checker.REQUIRED_PATHS

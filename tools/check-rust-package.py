@@ -25,6 +25,7 @@ src/discriminator.rs
 src/fixtures/lifecycle-transitions.json
 src/forms.rs
 src/forwarding.rs
+src/hierarchical.rs
 src/lib.rs
 src/specialized_vms.rs
 src/token_paging.rs
