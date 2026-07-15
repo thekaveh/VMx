@@ -17,6 +17,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/async_value.rs",
         "src/capabilities.rs",
         "src/commands.rs",
+        "src/composites.rs",
         "src/components.rs",
         "src/collections.rs",
         "src/derived_property.rs",

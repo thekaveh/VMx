@@ -4,6 +4,8 @@
 
 use super::*;
 
+type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
+
 #[derive(Clone)]
 /// A lifecycle-aware, parent-owning collection of view-model children.
 ///
