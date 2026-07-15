@@ -594,7 +594,10 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     let composite =
         CompositeVm::with_services("composite", shared_hub.clone(), NullDispatcher::new());
     let group = GroupVm::with_services("group", shared_hub.clone(), NullDispatcher::new());
-    let child = TestNode::new(17, "child");
+    // Keep the explicit test identity distinct from the generated container identities.
+    // Test execution order is nondeterministic, so a small fixed ID can otherwise collide
+    // with either container and make the cycle guard reject a valid reparenting operation.
+    let child = TestNode::new(composite.id().max(group.id()) + 1, "child");
     let composite_pulses = Arc::new(Mutex::new(0));
     let group_pulses = Arc::new(Mutex::new(0));
     let composite_capture = Arc::clone(&composite_pulses);
