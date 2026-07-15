@@ -6,7 +6,7 @@
 // it tracks a settable virtual `now` and fires scheduled work synchronously
 // when `advance(to:)` / `advance(by:)` crosses the work's due time.
 //
-// Contrast with the Inc-3 `ManualScheduler` (same directory): that primitive
+// Contrast with the `ManualScheduler` from ADR-0061 §2.7: that primitive
 // BUFFERS all work and runs it on a flat `flush()` with no notion of time —
 // it proves *deferral* for the threading tests. `VirtualTimeScheduler` instead
 // models virtual TIME: each scheduled action carries a due virtual instant, and
@@ -110,13 +110,21 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
 
     // MARK: - Queue
 
-    /// One enqueued action. Reference type so the `AnyCancellable` returned by
-    /// `enqueue` flips the same `cancelled` flag the queue holds.
+    /// One enqueued action. Every state transition occurs under `lock`, so
+    /// cancellation either wins before execution is claimed or becomes a
+    /// no-op after the action has started.
     private final class ScheduledItem {
+        enum State {
+            case pending
+            case running
+            case cancelled
+            case completed
+        }
+
         let dueTime: Double
         let seq: Int
         let work: () -> Void
-        var cancelled = false
+        var state: State = .pending
 
         init(dueTime: Double, seq: Int, work: @escaping () -> Void) {
             self.dueTime = dueTime
@@ -150,10 +158,7 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
         options: SchedulerOptions?,
         _ action: @escaping () -> Void
     ) {
-        lock.lock()
-        let due = currentSeconds
-        lock.unlock()
-        _ = enqueue(dueTime: due, action)
+        enqueueAtCurrentTime(action)
     }
 
     /// Delayed work — enqueued at the absolute due instant `date`.
@@ -163,7 +168,7 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
         options: SchedulerOptions?,
         _ action: @escaping () -> Void
     ) {
-        _ = enqueue(dueTime: date.seconds, action)
+        enqueue(dueTime: date.seconds, action)
     }
 
     /// Repeating work — the virtual clock never re-fires on its own, so the
@@ -176,7 +181,7 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
         options: SchedulerOptions?,
         _ action: @escaping () -> Void
     ) -> Cancellable {
-        enqueue(dueTime: date.seconds, action)
+        cancellationToken(for: enqueue(dueTime: date.seconds, action))
     }
 
     // MARK: - Cancellable convenience
@@ -190,22 +195,47 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
         at date: SchedulerTimeType,
         _ action: @escaping () -> Void
     ) -> AnyCancellable {
-        enqueue(dueTime: date.seconds, action)
+        cancellationToken(for: enqueue(dueTime: date.seconds, action))
+    }
+
+    private func enqueueAtCurrentTime(_ work: @escaping () -> Void) {
+        lock.lock()
+        _ = enqueueLocked(dueTime: currentSeconds, work)
+        lock.unlock()
     }
 
     @discardableResult
     private func enqueue(
         dueTime: Double,
         _ work: @escaping () -> Void
-    ) -> AnyCancellable {
+    ) -> ScheduledItem {
         lock.lock()
+        let item = enqueueLocked(dueTime: dueTime, work)
+        lock.unlock()
+        return item
+    }
+
+    private func enqueueLocked(
+        dueTime: Double,
+        _ work: @escaping () -> Void
+    ) -> ScheduledItem {
         let item = ScheduledItem(dueTime: dueTime, seq: nextSeq, work: work)
         nextSeq += 1
         queue.append(item)
         // Stable order: by due time, then insertion sequence for ties.
         queue.sort { ($0.dueTime, $0.seq) < ($1.dueTime, $1.seq) }
-        lock.unlock()
-        return AnyCancellable { item.cancelled = true }
+        return item
+    }
+
+    private func cancellationToken(for item: ScheduledItem) -> AnyCancellable {
+        AnyCancellable { [weak self, weak item] in
+            guard let self, let item else { return }
+            self.lock.lock()
+            if item.state == .pending {
+                item.state = .cancelled
+            }
+            self.lock.unlock()
+        }
     }
 
     // MARK: - Time advancement
@@ -226,13 +256,17 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
                 return
             }
             queue.removeFirst()
-            if !first.cancelled {
-                currentSeconds = first.dueTime
+            guard first.state == .pending else {
+                lock.unlock()
+                continue
             }
+            first.state = .running
+            currentSeconds = Swift.max(currentSeconds, first.dueTime)
             lock.unlock()
-            if !first.cancelled {
-                first.work()  // may enqueue more (re-locks via enqueue)
-            }
+            first.work()  // may enqueue more (re-locks via enqueue)
+            lock.lock()
+            first.state = .completed
+            lock.unlock()
         }
     }
 

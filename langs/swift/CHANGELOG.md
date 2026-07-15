@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `NotificationHub.pending` now registers subscriber state under its lock but
   attaches downstream afterward, so `CurrentValueSubject` initial replay cannot
   run user code while holding the hub lock.
+- `VirtualTimeScheduler` now claims cancellation and execution atomically,
+  keeps its clock monotonic when overdue work runs, and retains work scheduled
+  through Combine's `Void`-returning overloads until advancement.
 
 ## [3.22.0] — 2026-07-14
 
