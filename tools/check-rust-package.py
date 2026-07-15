@@ -27,6 +27,7 @@ src/dialogs.rs
 src/fixtures/lifecycle-transitions.json
 src/forms.rs
 src/forwarding.rs
+src/groups.rs
 src/hierarchical.rs
 src/lib.rs
 src/modeled_crud.rs

@@ -21,6 +21,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/dialogs.rs",
         "src/forms.rs",
         "src/forwarding.rs",
+        "src/groups.rs",
         "src/hierarchical.rs",
         "src/modeled_crud.rs",
         "src/notifications.rs",
