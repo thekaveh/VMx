@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-07-15)
 **Spec version:** clarified in 3.22.0
 **Clarifies:** [ADR-0055](0055-v3-positional-options-construction.md) and
-[ADR-0079](0079-swift-phase-3-parity-completion.md)
+[ADR-0079](0079-maintenance-parity-clarifications.md)
 
 ## 1. Context
 

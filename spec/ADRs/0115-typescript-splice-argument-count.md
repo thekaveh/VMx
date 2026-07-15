@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-07-15)
 **Spec version:** clarified in 3.22.0
-**Clarifies:** [ADR-0024](0024-serviced-observable-collection.md)
+**Clarifies:** [ADR-0024](0024-hub-aware-observable-collection.md)
 
 ## 1. Context
 

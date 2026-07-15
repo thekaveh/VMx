@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-07-15)
 **Spec version:** clarified in 3.22.0
-**Clarifies:** [ADR-0023](0023-paged-composition.md)
+**Clarifies:** [ADR-0023](0023-paging-capability-and-paged-composition.md)
 
 ## 1. Context
 
