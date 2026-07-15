@@ -20,6 +20,7 @@ src/aggregate_change_stream.rs
 src/aggregates.rs
 src/async_resource_vm.rs
 src/async_value.rs
+src/capabilities.rs
 src/fixtures/lifecycle-transitions.json
 src/forms.rs
 src/forwarding.rs
