@@ -25,6 +25,7 @@ pub struct AsyncValue<T: Clone + Send + 'static> {
 }
 
 impl<T: Clone + Send + 'static> AsyncValue<T> {
+    /// Creates an unresolved completion handle.
     pub fn pending() -> Self {
         Self {
             inner: Arc::new(AsyncValueInner {
@@ -37,12 +38,14 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
         }
     }
 
+    /// Creates a completion handle already resolved to `value`.
     pub fn ready(value: T) -> Self {
         let completion = Self::pending();
         completion.resolve(value);
         completion
     }
 
+    /// Resolves the handle once, returning whether this call supplied the value.
     pub fn resolve(&self, value: T) -> bool {
         let wakers = {
             let mut state = lock(&self.inner.state);
@@ -59,10 +62,12 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
         true
     }
 
+    /// Returns the resolved value without blocking, or `None` while pending.
     pub fn try_get(&self) -> Option<T> {
         lock(&self.inner.state).value.clone()
     }
 
+    /// Blocks the current thread until the value is resolved, then clones it.
     pub fn wait(&self) -> T {
         let mut state = lock(&self.inner.state);
         loop {

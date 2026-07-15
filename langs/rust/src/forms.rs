@@ -30,6 +30,7 @@ impl<M> Drop for ApprovalPrePublicationGuard<M> {
 }
 
 #[derive(Clone)]
+/// Editable model state with validation, persistence, approval, and revert commands.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     pub(crate) component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,
@@ -52,10 +53,12 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
 }
 
 impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
+    /// Creates a non-strict form with a no-op persister and a private hub.
     pub fn new(name: impl Into<String>, model: M) -> Self {
         Self::with_options(name, model, |_| Ok(()), false, MessageHub::new())
     }
 
+    /// Creates a form with explicit persistence, strictness, and message hub.
     pub fn with_options<F>(
         name: impl Into<String>,
         model: M,
@@ -95,10 +98,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         form
     }
 
+    /// Creates an empty immutable builder for a form.
     pub fn builder() -> FormVmBuilder<M> {
         FormVmBuilder::new()
     }
 
+    /// Adds a whole-model validator that returns an ordered error list.
     pub fn with_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&M) -> Vec<String> + Send + Sync + 'static,
@@ -116,6 +121,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self
     }
 
+    /// Adds or replaces validation for one named field and revalidates immediately.
     pub fn with_field_validator<F>(&self, field: impl Into<String>, validator: F)
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
@@ -126,6 +132,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.publish_approve_state_change(could_approve);
     }
 
+    /// Adds a validator that returns a field-keyed error map.
     pub fn with_model_validator<F>(&self, validator: F)
     where
         F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
@@ -136,10 +143,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.publish_approve_state_change(could_approve);
     }
 
+    /// Returns a clone of the current editable model.
     pub fn model(&self) -> M {
         self.component.model()
     }
 
+    /// Replaces the editable model and publishes resulting validation changes.
     pub fn set_model(&self, model: M) {
         if *lock(&self.disposed) {
             return;
@@ -160,34 +169,42 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.component.notify_property_changed("model");
     }
 
+    /// Returns a clone of the last approved or initial snapshot.
     pub fn snapshot(&self) -> M {
         lock(&self.snapshot).clone()
     }
 
+    /// Reports whether the current model differs from the snapshot.
     pub fn is_dirty(&self) -> bool {
         self.model() != *lock(&self.snapshot)
     }
 
+    /// Returns the current validation messages in field-key order.
     pub fn errors(&self) -> Vec<String> {
         lock(&self.errors).values().cloned().collect()
     }
 
+    /// Returns the current validation errors keyed by field.
     pub fn error_map(&self) -> BTreeMap<String, String> {
         lock(&self.errors).clone()
     }
 
+    /// Returns the current error for `field`, when present.
     pub fn field_error(&self, field: &str) -> Option<String> {
         lock(&self.errors).get(field).cloned()
     }
 
+    /// Reports whether no validation errors are present.
     pub fn is_valid(&self) -> bool {
         lock(&self.errors).is_empty()
     }
 
+    /// Reports whether approval is currently admitted.
     pub fn can_approve(&self) -> bool {
         !*lock(&self.disposed) && self.is_valid() && (!*lock(&self.strict) || self.is_dirty())
     }
 
+    /// Persists the captured model and advances or resets the pristine snapshot.
     pub fn approve(&self) -> VmxResult<()> {
         if *lock(&self.disposed) {
             return Ok(());
@@ -243,6 +260,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         Ok(())
     }
 
+    /// Restores the last snapshot and publishes the revert outcome.
     pub fn revert(&self) {
         if *lock(&self.disposed) {
             return;
@@ -259,6 +277,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.publish_approve_state_change(could_approve);
     }
 
+    /// Returns the lazily created approval command.
     pub fn approve_command(&self) -> RelayCommand {
         self.approve_command
             .get_or_init(|| {
@@ -282,6 +301,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             .clone()
     }
 
+    /// Returns the lazily created revert command.
     pub fn deny_command(&self) -> RelayCommand {
         self.deny_command
             .get_or_init(|| {
@@ -294,18 +314,22 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             .clone()
     }
 
+    /// Returns the form's external message hub.
     pub fn hub(&self) -> MessageHub {
         self.hub.clone()
     }
 
+    /// Returns the stream-like hub that publishes validation-map changes.
     pub fn errors_changed(&self) -> MessageHub {
         self.errors_changed.clone()
     }
 
+    /// Returns the hub that receives failures from fire-and-forget approval.
     pub fn approve_errors(&self) -> MessageHub {
         self.approve_errors.clone()
     }
 
+    /// Registers a callback invoked with each successfully persisted model.
     pub fn on_approved<F>(&self, callback: F)
     where
         F: Fn(M) + Send + Sync + 'static,
@@ -313,6 +337,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         lock(&self.approved_callbacks).push(Arc::new(callback));
     }
 
+    /// Disposes commands and notification hubs and makes later mutations inert.
     pub fn dispose(&self) {
         let should_dispose = {
             let mut disposed = lock(&self.disposed);
@@ -413,6 +438,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 }
 
 #[derive(Clone)]
+/// Immutable builder for [`FormVm`].
 pub struct FormVmBuilder<M: Clone + PartialEq + Send + 'static> {
     initial: Option<M>,
     persister: Option<FormPersister<M>>,
@@ -440,15 +466,18 @@ impl<M: Clone + PartialEq + Send + 'static> Default for FormVmBuilder<M> {
 }
 
 impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
+    /// Creates an empty builder with clone-based snapshots.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the required initial model.
     pub fn initial(mut self, model: M) -> Self {
         self.initial = Some(model);
         self
     }
 
+    /// Sets the required persistence callback.
     pub fn persister<F>(mut self, persister: F) -> Self
     where
         F: Fn(&M) -> VmxResult<()> + Send + Sync + 'static,
@@ -457,16 +486,19 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
         self
     }
 
+    /// Requires a dirty model in addition to validity before approval.
     pub fn strict(mut self, strict: bool) -> Self {
         self.strict = strict;
         self
     }
 
+    /// Sets the message hub used by the built form.
     pub fn hub(mut self, hub: MessageHub) -> Self {
         self.hub = hub;
         self
     }
 
+    /// Sets the function used to create independent model snapshots.
     pub fn snapshotter<F>(mut self, snapshotter: F) -> Self
     where
         F: Fn(&M) -> M + Send + Sync + 'static,
@@ -485,6 +517,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
         self
     }
 
+    /// Adds or replaces a named field validator.
     pub fn validator<F>(mut self, field: impl Into<String>, validator: F) -> Self
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
@@ -494,6 +527,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
         self
     }
 
+    /// Adds a whole-model validator returning field-keyed errors.
     pub fn model_validator<F>(mut self, validator: F) -> Self
     where
         F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
@@ -502,6 +536,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
         self
     }
 
+    /// Validates required inputs and builds the form.
     pub fn build(self) -> VmxResult<FormVm<M>> {
         let initial = self
             .initial
