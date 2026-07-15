@@ -56,6 +56,17 @@ def test_release_builds_and_validates_before_protected_authentication() -> None:
     assert jobs.index("csharp-build:") < jobs.index("csharp-publish:")
 
 
+def test_release_tags_select_one_explicit_csharp_package_namespace() -> None:
+    workflow = _workflow("release.yml")
+    jobs = _csharp_release_jobs()
+
+    assert '- "csharp-v*"' in workflow
+    assert '- "csharp-notifications-v*"' in workflow
+    assert '- "csharp-dependency-injection-v*"' in workflow
+    assert "python3 tools/select-csharp-release.py" in jobs
+    assert "project_version == version" not in jobs
+
+
 def test_release_uses_protected_nuget_oidc_without_long_lived_key() -> None:
     jobs = _csharp_release_jobs()
 

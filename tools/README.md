@@ -51,6 +51,10 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
   are byte-identical to `spec/fixtures/*.json`.
 
+- `select-csharp-release.py` — maps the three collision-free stable C# tag
+  namespaces to exactly one package ID, verifies that package's project version,
+  and writes the single-entry artifact manifest consumed by `release.yml`.
+
 ## 2. Pure-VM contract checks (notes-showcase, Phase 6)
 
 Four lint-style scripts that lock in the §6.1 Pure-VM contract and the

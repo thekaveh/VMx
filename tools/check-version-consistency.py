@@ -63,6 +63,11 @@ TYPESCRIPT_EXAMPLE_LOCKS: tuple[Path, ...] = (
     Path("examples/typescript/console/hello-vmx/package-lock.json"),
     Path("examples/typescript/react/notes-showcase/package-lock.json"),
 )
+CSHARP_TAG_PREFIXES: dict[str, str] = {
+    "VMx": "csharp",
+    "VMx.Notifications": "csharp-notifications",
+    "VMx.Extensions.DependencyInjection": "csharp-dependency-injection",
+}
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
@@ -113,11 +118,14 @@ def parse_csharp_versions(csproj_path: Path) -> dict[str, str]:
     msv_m = re.search(r"<MinSpecVersion>([^<]+)</MinSpecVersion>", text)
     pkg_m = re.search(r"<PackageId>([^<]+)</PackageId>", text)
     unreleased_m = re.search(r"<IsUnreleased>([^<]+)</IsUnreleased>", text)
+    package_id = pkg_m.group(1).strip() if pkg_m else csproj_path.stem
+    if package_id not in CSHARP_TAG_PREFIXES:
+        raise ValueError(f"C# package {package_id!r} has no collision-free release tag namespace")
     return {
-        "package_id": pkg_m.group(1).strip() if pkg_m else csproj_path.stem,
+        "package_id": package_id,
         "version": ver_m.group(1).strip() if ver_m else "",
         "min_spec_version": msv_m.group(1).strip() if msv_m else "",
-        "tag_prefix": "csharp",
+        "tag_prefix": CSHARP_TAG_PREFIXES[package_id],
         "require_current_spec": "true" if csproj_path.stem == "VMx" else "false",
         "unreleased": (
             "true" if unreleased_m and unreleased_m.group(1).strip().lower() == "true" else "false"

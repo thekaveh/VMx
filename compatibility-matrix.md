@@ -125,5 +125,7 @@ version it implements.
 > column is the spec revision each companion's own feature surface implements; it is not the core
 > dependency floor. As built at HEAD both companions reference the `VMx` 3.22.0 core project and
 > pack with a `VMx >= 3.22.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
-> because the historical core tag `csharp-v2.1.0` is immutable. These source versions do not claim
-> that the packages have been published.
+> because the historical core tag `csharp-v2.1.0` is immutable. Future companion releases use
+> package-specific `csharp-notifications-v*` and `csharp-dependency-injection-v*` tags, preventing
+> that legacy cross-package collision; the already-advanced DI version is not rewound. These source
+> versions do not claim that the packages have been published.

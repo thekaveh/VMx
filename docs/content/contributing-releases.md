@@ -51,9 +51,12 @@ repository automation.
 ## 11.5. Release Shape
 
 Flavor packages version independently and release from verified `main` commits
-through `<lang>-vX.Y.Z` operational tags. The spec uses `spec-vX.Y.Z`; Swift
-also pairs its operational tag with the semantic `vX.Y.Z` tag required by
-SwiftPM. Registry-backed channels are protected by environment approval, OIDC,
+through `<lang>-vX.Y.Z` operational tags. C# uses that form for core and
+package-specific `csharp-notifications-vX.Y.Z` and
+`csharp-dependency-injection-vX.Y.Z` tags for its companions, so independent
+versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
+operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
+Registry-backed channels are protected by environment approval, OIDC,
 public-artifact checks, and fresh-consumer verification.
 
 For the exact release and tagging procedure, use

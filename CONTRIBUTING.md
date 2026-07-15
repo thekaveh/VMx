@@ -124,14 +124,17 @@ See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 
 ## 4. Releases and tagging
 
-Each flavor versions and releases independently. Operational tags use
+Each flavor versions and releases independently. Most operational tags use
 `<lang>-vX.Y.Z`, where `<lang>` is `csharp`, `python`, `typescript`, `swift`, or
-`rust`. A spec tag uses `spec-vX.Y.Z`. Swift additionally requires a semantic
-`vX.Y.Z` tag for SwiftPM, paired with its `swift-vX.Y.Z` operational tag.
+`rust`. C# keeps that form for the core `VMx` package and uses package-specific
+`csharp-notifications-vX.Y.Z` and `csharp-dependency-injection-vX.Y.Z` tags for
+its independently versioned companions. A spec tag uses `spec-vX.Y.Z`. Swift
+additionally requires a semantic `vX.Y.Z` tag for SwiftPM, paired with its
+`swift-vX.Y.Z` operational tag.
 
 ### 4.1 Why all three families
 
-- A flavor tag starts only that flavor's release jobs.
+- A flavor/package tag starts only its matching release jobs and artifact.
 - Package versions do not need to match one another or the spec's minor/patch
   version; each package declares the minimum spec version it implements.
 - A spec major bump requires a major bump in every active flavor.

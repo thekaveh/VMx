@@ -10,6 +10,7 @@ import textwrap
 from pathlib import Path
 
 import check_version_consistency as cvc
+import pytest
 
 # ── parse_spec_version ────────────────────────────────────────────────
 
@@ -70,6 +71,18 @@ def test_parse_csharp_versions_reads_explicit_unreleased_marker(tmp_path: Path) 
     assert cvc.parse_csharp_versions(csproj)["unreleased"] == "true"
 
 
+def test_parse_csharp_versions_rejects_unmapped_package_namespace(tmp_path: Path) -> None:
+    csproj = tmp_path / "VMx.Future.csproj"
+    csproj.write_text(
+        "<Project><PropertyGroup><PackageId>VMx.Future</PackageId>"
+        "<Version>1.0.0</Version></PropertyGroup></Project>",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="no collision-free release tag namespace"):
+        cvc.parse_csharp_versions(csproj)
+
+
 def test_collect_manifests_includes_csharp_companion_packages(tmp_path: Path) -> None:
     csharp_src = tmp_path / "langs" / "csharp" / "src"
     core = csharp_src / "VMx"
@@ -102,12 +115,16 @@ def test_collect_manifests_includes_csharp_companion_packages(tmp_path: Path) ->
     assert manifests["csharp"]["version"] == "3.1.0"
     assert manifests["csharp"]["require_current_spec"] == "true"
     assert manifests["csharp/VMx.Notifications"]["version"] == "1.2.0"
-    assert manifests["csharp/VMx.Notifications"]["tag_prefix"] == "csharp"
+    assert manifests["csharp/VMx.Notifications"]["tag_prefix"] == "csharp-notifications"
     assert manifests["csharp/VMx.Notifications"]["require_current_spec"] == "false"
     assert manifests["csharp/VMx.Extensions.DependencyInjection"]["version"] == "2.1.0"
+    assert (
+        manifests["csharp/VMx.Extensions.DependencyInjection"]["tag_prefix"]
+        == "csharp-dependency-injection"
+    )
 
 
-def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -> None:
+def test_csharp_companion_manifests_require_package_specific_tags_but_not_current_spec() -> None:
     manifests = {
         "csharp": {
             "version": "3.1.0",
@@ -118,7 +135,7 @@ def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -
         "csharp/VMx.Extensions.DependencyInjection": {
             "version": "2.1.0",
             "min_spec_version": "2.1.0",
-            "tag_prefix": "csharp",
+            "tag_prefix": "csharp-dependency-injection",
             "require_current_spec": "false",
         },
     }
@@ -126,7 +143,7 @@ def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -
     assert cvc.check_min_spec_versions("3.1.0", manifests) == []
 
     missing = cvc.find_missing_tags("3.1.0", manifests, [], {"csharp-v3.1.0"})
-    assert "csharp-v2.1.0" in missing
+    assert "csharp-dependency-injection-v2.1.0" in missing
 
 
 def test_current_development_versions_includes_explicit_unreleased_companion() -> None:

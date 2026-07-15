@@ -8,6 +8,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- C# release tags now select exactly one package: core retains `csharp-v*`,
+  while notifications and DI use package-specific namespaces that cannot
+  collide when independently versioned projects share a version number.
 - Notification rendering VMs now serialize expiry, explicit resolution, and
   disposal through one terminal claim, preventing a timer that loses to
   disposal from resolving the hub or publishing post-dispose state.

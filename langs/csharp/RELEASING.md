@@ -3,7 +3,10 @@
 This runbook covers `VMx`, `VMx.Notifications`, and
 `VMx.Extensions.DependencyInjection`. Releases are tag-driven from `main` by
 `.github/workflows/release.yml`; each `csharp-v<X.Y.Z>` run publishes only
-projects whose declared version exactly equals the tag version.
+the core `VMx` package. The independently versioned companions use
+`csharp-notifications-v<X.Y.Z>` and
+`csharp-dependency-injection-v<X.Y.Z>`. Every tag names exactly one package;
+equal version numbers never select multiple projects.
 
 ## 1. One-time owner setup
 
@@ -11,7 +14,8 @@ projects whose declared version exactly equals the tag version.
 
 Create `nuget-csharp` in `thekaveh/VMx` with:
 
-- only `csharp-v*` tag deployments;
+- only `csharp-v*`, `csharp-notifications-v*`, and
+  `csharp-dependency-injection-v*` tag deployments;
 - required maintainer approval; and
 - administrator bypass disabled.
 
@@ -42,13 +46,16 @@ must be limited to the exact `VMx*` IDs; never add an undocumented token path.
 The current first-publication sequence is deliberate:
 
 1. `csharp-v3.22.0` publishes `VMx` 3.22.0.
-2. `csharp-v1.2.0` publishes `VMx.Notifications` 1.2.0 after core verifies.
-3. `csharp-v2.1.1` publishes `VMx.Extensions.DependencyInjection` 2.1.1 after
-   core verifies.
+2. `csharp-notifications-v1.2.0` publishes `VMx.Notifications` 1.2.0 after core
+   verifies.
+3. `csharp-dependency-injection-v2.1.1` publishes
+   `VMx.Extensions.DependencyInjection` 2.1.1 after core verifies.
 
 Both companions pack with `VMx >= 3.22.0` for net8.0 and netstandard2.0. DI
-uses packaging-only patch 2.1.1 because `csharp-v2.1.0` is already an immutable
-historical core tag. Never move or reuse that tag.
+uses packaging-only patch 2.1.1 because the old shared selector made immutable
+core tag `csharp-v2.1.0` collide with that companion version. The new
+package-specific namespace prevents future collisions; do not rewind the
+already-advanced package version, and never move or reuse the historical tag.
 
 ## 3. Cutting a release
 
@@ -68,6 +75,9 @@ historical core tag. Never move or reuse that tag.
    git tag csharp-v3.22.0 origin/main
    git push origin csharp-v3.22.0
    ```
+
+   For companions, substitute the matching package namespace, for example
+   `csharp-notifications-v1.2.0`. Never use core `csharp-v*` for a companion.
 
 4. Approve the `nuget-csharp` deployment and watch the Release workflow.
 5. Require the public consumer and GitHub Release to pass before creating the
@@ -109,8 +119,9 @@ gh release view csharp-v3.22.0 --repo thekaveh/VMx
 ```
 
 For a companion, pass its exact package/version; the tool pins core 3.22.0 as
-well. Verify the NuGet package page and symbol availability before changing
-documentation or the roadmap item to Done.
+well, and inspect the matching package-specific GitHub Release tag. Verify the
+NuGet package page and symbol availability before changing documentation or the
+roadmap item to Done.
 
 ## 5. Failure and recovery
 
