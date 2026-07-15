@@ -165,6 +165,86 @@ public class MessageHubTests
     }
 
     [Fact]
+    public async Task Concurrent_Dispose_Waits_For_Active_Delivery_Before_Completing_Stream()
+    {
+        var hub = new MessageHub();
+        using var deliveryEntered = new ManualResetEventSlim();
+        using var releaseDelivery = new ManualResetEventSlim();
+        using var disposeStarted = new ManualResetEventSlim();
+        var inDelivery = 0;
+        var completionDuringDelivery = 0;
+        var completionCount = 0;
+        using var subscription = hub.Messages.Subscribe(
+            _ =>
+            {
+                Volatile.Write(ref inDelivery, 1);
+                deliveryEntered.Set();
+                releaseDelivery.Wait();
+                Volatile.Write(ref inDelivery, 0);
+            },
+            () =>
+            {
+                if (Volatile.Read(ref inDelivery) != 0)
+                    Interlocked.Exchange(ref completionDuringDelivery, 1);
+                Interlocked.Increment(ref completionCount);
+            });
+
+        var send = Task.Run(() => hub.Send(new Stub("blocking")));
+        deliveryEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var dispose = Task.Run(() =>
+        {
+            disposeStarted.Set();
+            hub.Dispose();
+        });
+        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        var disposeReturnedBeforeRelease = false;
+        try
+        {
+            disposeReturnedBeforeRelease = await Task.WhenAny(
+                dispose,
+                Task.Delay(TimeSpan.FromMilliseconds(50))) == dispose;
+        }
+        finally
+        {
+            releaseDelivery.Set();
+        }
+        await Task.WhenAll(send, dispose).WaitAsync(TimeSpan.FromSeconds(5));
+
+        disposeReturnedBeforeRelease.Should().BeFalse(
+            "terminal delivery must serialize behind the active OnNext callback");
+        completionDuringDelivery.Should().Be(0);
+        completionCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Reentrant_Dispose_Completes_After_InFlight_Message_Reaches_Subscribers()
+    {
+        var hub = new MessageHub();
+        var trace = new List<string>();
+        using var first = hub.Messages.Subscribe(
+            _ =>
+            {
+                trace.Add("first:start");
+                hub.Dispose();
+                trace.Add("first:end");
+            },
+            () => trace.Add("first:completed"));
+        using var second = hub.Messages.Subscribe(
+            _ => trace.Add("second:message"),
+            () => trace.Add("second:completed"));
+
+        hub.Send(new Stub("dispose"));
+
+        trace.Should().Equal(
+            "first:start",
+            "first:end",
+            "second:message",
+            "first:completed",
+            "second:completed");
+    }
+
+    [Fact]
     public async Task Opposing_Hub_Callbacks_Do_Not_Deadlock()
     {
         using var left = new MessageHub();
@@ -204,6 +284,40 @@ public class MessageHubTests
         completed.Should().BeSameAs(sends, "nested cross-hub sends must not form a wait cycle");
         await sends;
         innerDeliveries.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Opposing_Hub_Callbacks_Can_Dispose_Each_Other_Without_Deadlock()
+    {
+        var left = new MessageHub();
+        var right = new MessageHub();
+        using var callbacksEntered = new Barrier(2);
+        var leftCompletions = 0;
+        var rightCompletions = 0;
+        using var leftSubscription = left.Messages.Subscribe(
+            _ =>
+            {
+                callbacksEntered.SignalAndWait();
+                right.Dispose();
+            },
+            () => Interlocked.Increment(ref leftCompletions));
+        using var rightSubscription = right.Messages.Subscribe(
+            _ =>
+            {
+                callbacksEntered.SignalAndWait();
+                left.Dispose();
+            },
+            () => Interlocked.Increment(ref rightCompletions));
+
+        var sends = Task.WhenAll(
+            Task.Run(() => left.Send(new Stub("outer"))),
+            Task.Run(() => right.Send(new Stub("outer"))));
+
+        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().BeSameAs(sends, "terminal deferral must not form a cross-hub wait cycle");
+        await sends;
+        leftCompletions.Should().Be(1);
+        rightCompletions.Should().Be(1);
     }
 
     [Fact]

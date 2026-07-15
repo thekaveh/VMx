@@ -21,6 +21,8 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
     private readonly Queue<IMessage> _pending = new();
     private readonly Subject<IMessage> _subject = new();
     private bool _disposed;
+    private bool _subjectTerminationClaimed;
+    private bool _subjectTerminated;
     private int _drainerThreadId;
     private int _batchOwnerThreadId;
     private int _batchDepth;
@@ -128,28 +130,35 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #endif
         while (true)
         {
-            IMessage message;
+            IMessage? message = null;
+            var stopDraining = false;
+            var shouldTerminateSubject = false;
             lock (_gate)
             {
                 if (_disposed || _pending.Count == 0)
                 {
-                    _drainerThreadId = 0;
-                    Monitor.PulseAll(_gate);
-                    return;
+                    shouldTerminateSubject = ReleaseDrainerLocked();
+                    stopDraining = true;
                 }
-                message = _pending.Dequeue();
+                else
+                {
+                    message = _pending.Dequeue();
+                }
             }
+            if (shouldTerminateSubject) TerminateSubject();
+            if (stopDraining) return;
 #if DEBUG
-            messageTypes.Add(message.GetType().Name);
+            messageTypes.Add(message!.GetType().Name);
 #endif
             try
             {
                 s_deliveryDepth++;
-                _subject.OnNext(message);
+                _subject.OnNext(message!);
             }
             catch
             {
-                AbandonPending();
+                try { AbandonPending(); }
+                catch { /* preserve the original delivery failure */ }
                 throw;
             }
             finally
@@ -176,25 +185,76 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 
     private void AbandonPending()
     {
+        var shouldTerminateSubject = false;
         lock (_gate)
         {
             _pending.Clear();
-            _drainerThreadId = 0;
-            Monitor.PulseAll(_gate);
+            shouldTerminateSubject = ReleaseDrainerLocked();
+        }
+        if (shouldTerminateSubject) TerminateSubject();
+    }
+
+    /// <summary>
+    /// Releases the active drainer and atomically transfers terminal-stream
+    /// ownership to it when disposal arrived during delivery.
+    /// Caller must hold <see cref="_gate"/>.
+    /// </summary>
+    private bool ReleaseDrainerLocked()
+    {
+        _drainerThreadId = 0;
+        var shouldTerminateSubject = _disposed && !_subjectTerminationClaimed;
+        if (shouldTerminateSubject) _subjectTerminationClaimed = true;
+        Monitor.PulseAll(_gate);
+        return shouldTerminateSubject;
+    }
+
+    private void TerminateSubject()
+    {
+        try
+        {
+            _subject.OnCompleted();
+        }
+        finally
+        {
+            try
+            {
+                _subject.Dispose();
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    _subjectTerminated = true;
+                    Monitor.PulseAll(_gate);
+                }
+            }
         }
     }
 
     /// <summary>Completes and disposes the underlying subject.</summary>
     public void Dispose()
     {
+        var caller = Environment.CurrentManagedThreadId;
+        var shouldTerminateSubject = false;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
             _pending.Clear();
             Monitor.PulseAll(_gate);
+
+            if (_drainerThreadId == 0)
+            {
+                _subjectTerminationClaimed = true;
+                shouldTerminateSubject = true;
+            }
+            else if (_drainerThreadId != caller && s_deliveryDepth == 0)
+            {
+                while (!_subjectTerminated)
+                    Monitor.Wait(_gate);
+                return;
+            }
         }
-        _subject.OnCompleted();
-        _subject.Dispose();
+        if (shouldTerminateSubject) TerminateSubject();
     }
 }

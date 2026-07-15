@@ -11,6 +11,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Notification rendering VMs now serialize expiry, explicit resolution, and
   disposal through one terminal claim, preventing a timer that loses to
   disposal from resolving the hub or publishing post-dispose state.
+- Message-hub disposal now serializes stream completion behind active message
+  delivery, including re-entrant and opposing cross-hub disposal, so Rx
+  terminal callbacks never overlap an in-flight message callback.
 - Nested sends from one active message-hub callback to another hub now enqueue
   instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
   while ordinary producers retain synchronous calling-thread delivery.
