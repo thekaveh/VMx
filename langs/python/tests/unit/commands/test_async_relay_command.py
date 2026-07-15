@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 from threading import Barrier, Event, Lock, Thread
 
+import pytest
+from reactivex.subject import Subject
+
 from vmx.commands import AsyncRelayCommand
 
 
@@ -66,4 +69,26 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
 
     assert invocations == 1
     assert all(not caller.is_alive() for caller in callers)
+    command.dispose()
+
+
+def test_dispose_attempts_all_terminal_steps_and_preserves_first_failure() -> None:
+    trigger: Subject[None] = Subject()
+    command = AsyncRelayCommand.builder().triggers(trigger).build()
+
+    def fail_first() -> None:
+        raise RuntimeError("first terminal failure")
+
+    def fail_later() -> None:
+        raise ValueError("later terminal failure")
+
+    command.can_execute_changed.subscribe(on_completed=fail_first)
+    command.errors.subscribe(on_completed=fail_later)
+
+    with pytest.raises(RuntimeError, match="first terminal failure"):
+        command.dispose()
+
+    assert trigger.observers == []
+    assert command._can_execute_changed_subject.is_disposed is True
+    assert command._errors.is_disposed is True
     command.dispose()

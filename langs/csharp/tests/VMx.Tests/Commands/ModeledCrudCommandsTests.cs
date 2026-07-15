@@ -35,6 +35,29 @@ public class ModeledCrudCommandsTests
     }
 
     [Fact]
+    public void Dispose_Attempts_Every_Command_And_Preserves_First_Failure()
+    {
+        var vm1 = new object();
+        var crud = new ModeledCrudCommands<object, object>(
+            current: () => vm1,
+            createNew: () => { },
+            updateCurrent: _ => { },
+            deleteCurrent: _ => { });
+        crud.CreateNewCommand.CanExecuteChanged += (_, _) =>
+            throw new InvalidOperationException("first terminal failure");
+        crud.UpdateCurrentCommand.CanExecuteChanged += (_, _) =>
+            throw new ArgumentException("later terminal failure");
+
+        Action dispose = crud.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("first terminal failure");
+        crud.CreateNewCommand.CanExecute(null).Should().BeFalse();
+        crud.UpdateCurrentCommand.CanExecute(null).Should().BeFalse();
+        crud.DeleteCurrentCommand.CanExecute(null).Should().BeFalse();
+        dispose.Should().NotThrow("all commands were disposed before the first failure was rethrown");
+    }
+
+    [Fact]
     public void Update_And_Delete_Are_Wrapped_With_Confirmation_When_Configured()
     {
         var vm1 = new object();

@@ -688,47 +688,66 @@ class _ComponentVMBase(ABC):
         Disposes commands and completes the status trigger / property_changed
         subjects.
         """
+        first_error: BaseException | None = None
+
+        def attempt(action: Callable[[], None]) -> None:
+            nonlocal first_error
+            try:
+                action()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+
         with self._lifecycle_lock:
             if self._status == ConstructionStatus.DISPOSED:
                 return
 
-            # _set_status flips _status to Disposed atomically under _lifecycle_lock.
-            self._set_status(ConstructionStatus.DISPOSED)
+            # Terminal notification is best-effort: an observer failure must not
+            # prevent the remaining channels or mandatory cleanup from running.
+            self._status = ConstructionStatus.DISPOSED
+            attempt(
+                lambda: self._hub.send(
+                    ConstructionStatusChangedMessage.create(
+                        self, self._name, ConstructionStatus.DISPOSED
+                    )
+                )
+            )
+            attempt(lambda: self._raise_property_changed("status"))
+            attempt(lambda: self._raise_property_changed("is_constructed"))
+            if not self._trigger_disposed:
+                attempt(lambda: self._status_trigger.on_next(None))
             self._complete_lifecycle_waiters_locked()
-        try:
-            try:
-                self._on_dispose()
-            finally:
-                self._dispose_owned_resources()
-        finally:
-            # Tear down the status trigger / property_changed subjects under the lock
-            # so the flag flip and the Subject disposal cannot interleave with an
-            # in-flight background _set_status: that transition either completes its
-            # guarded on_next before this runs, or observes Disposed/_trigger_disposed
-            # under the same lock and skips it — never an on_next on a disposed
-            # Subject (VMX-004).
-            with self._lifecycle_lock:
-                if not self._trigger_disposed:
-                    self._trigger_disposed = True
-                    self._status_trigger.on_completed()
-                    self._status_trigger.dispose()
-                    if self._active_property_notifications == 0:
-                        self._property_changed_subject.on_completed()
-                        self._property_changed_subject.dispose()
-                    else:
-                        self._property_notification_teardown_pending = True
 
-            # Only commands that were actually accessed (lazily built — VMX-018)
-            # need disposal; un-built slots are still None.
-            for command in (
-                self._select_command,
-                self._deselect_command,
-                self._select_next_command,
-                self._select_previous_command,
-                self._reconstruct_command,
-            ):
-                if command is not None:
-                    command.dispose()
+        attempt(self._on_dispose)
+        attempt(self._dispose_owned_resources)
+
+        # Tear down the status trigger / property_changed subjects under the lock
+        # so terminal state and Subject disposal cannot race a background transition.
+        with self._lifecycle_lock:
+            if not self._trigger_disposed:
+                self._trigger_disposed = True
+                attempt(self._status_trigger.on_completed)
+                attempt(self._status_trigger.dispose)
+                if self._active_property_notifications == 0:
+                    attempt(self._property_changed_subject.on_completed)
+                    attempt(self._property_changed_subject.dispose)
+                else:
+                    self._property_notification_teardown_pending = True
+
+        # Only commands that were actually accessed (lazily built — VMX-018)
+        # need disposal; un-built slots are still None.
+        for command in (
+            self._select_command,
+            self._deselect_command,
+            self._select_next_command,
+            self._select_previous_command,
+            self._reconstruct_command,
+        ):
+            if command is not None:
+                attempt(command.dispose)
+
+        if first_error is not None:
+            raise first_error
 
     # ── Selection predicates ─────────────────────────────────────────────────
     def can_select(self) -> bool:

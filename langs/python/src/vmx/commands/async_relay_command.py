@@ -33,6 +33,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
+from vmx.commands.relay_command import _run_disposal_steps
 
 
 class AsyncRelayCommand:
@@ -221,13 +222,14 @@ class AsyncRelayCommand:
             if self._disposed:
                 return
             self._disposed = True
-        self.cancel()
-        for sub in self._subscriptions:
-            sub.dispose()
-        self._can_execute_changed_subject.on_completed()
-        self._can_execute_changed_subject.dispose()
-        self._errors.on_completed()
-        self._errors.dispose()
+        _run_disposal_steps(
+            self.cancel,
+            *(sub.dispose for sub in self._subscriptions),
+            self._can_execute_changed_subject.on_completed,
+            self._can_execute_changed_subject.dispose,
+            self._errors.on_completed,
+            self._errors.dispose,
+        )
 
     # ------------------------------------------------------------------
     # Builder entry-point

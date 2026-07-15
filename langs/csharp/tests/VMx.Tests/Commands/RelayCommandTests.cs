@@ -105,6 +105,20 @@ public class RelayCommandTests
     }
 
     [Fact]
+    public void Dispose_Releases_Triggers_When_Terminal_Observer_Throws()
+    {
+        using var trigger = new Subject<System.Reactive.Unit>();
+        var cmd = RelayCommand.Builder().Triggers(trigger).Build();
+        cmd.CanExecuteChanged += (_, _) => throw new InvalidOperationException("terminal observer");
+
+        Action dispose = cmd.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("terminal observer");
+        trigger.HasObservers.Should().BeFalse("terminal cleanup must release trigger subscriptions");
+        dispose.Should().NotThrow("the command was fully disposed before rethrowing");
+    }
+
+    [Fact]
     public void Predicate_That_Throws_CanExecute_Returns_False()
     {
         var cmd = RelayCommand.Builder()
@@ -153,6 +167,20 @@ public class RelayCommandTests
         cmd.Execute(42);
 
         received.Should().Be(42, "RelayCommand<T> must pass the parameter to the task");
+    }
+
+    [Fact]
+    public void Parameterized_Dispose_Releases_Triggers_When_Terminal_Observer_Throws()
+    {
+        using var trigger = new Subject<System.Reactive.Unit>();
+        var cmd = RelayCommand<int>.Builder().Triggers(trigger).Build();
+        cmd.CanExecuteChanged += (_, _) => throw new InvalidOperationException("terminal observer");
+
+        Action dispose = cmd.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("terminal observer");
+        trigger.HasObservers.Should().BeFalse("terminal cleanup must release trigger subscriptions");
+        dispose.Should().NotThrow("the command was fully disposed before rethrowing");
     }
 
     [Fact]

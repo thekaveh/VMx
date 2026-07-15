@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 
 namespace VMx.Commands;
@@ -94,8 +95,13 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
             if (_disposed) return;
             _disposed = true;
             _inner.CanExecuteChanged -= _innerHandler;
-            _errors.OnCompleted();
-            _errors.Dispose();
         }
+
+        ExceptionDispatchInfo? firstError = null;
+        try { _errors.OnCompleted(); }
+        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
+        try { _errors.Dispose(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
+        firstError?.Throw();
     }
 }

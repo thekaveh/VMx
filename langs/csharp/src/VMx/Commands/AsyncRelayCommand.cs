@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Reactive;
-using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 
 namespace VMx.Commands;
 
@@ -30,7 +30,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     private readonly Func<CancellationToken, Task> _task;
     private readonly Func<bool>? _predicate;
     private readonly bool _throwOnCancel;
-    private readonly CompositeDisposable _triggerSubscriptions = new();
+    private readonly List<IDisposable> _triggerSubscriptions = [];
     private readonly Subject<Exception> _errors = new();
     private readonly object _gate = new();
     private CancellationTokenSource? _cts;
@@ -187,10 +187,20 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
             _cancelRequested = true;
             cts = _cts;
         }
-        cts?.Cancel();
-        _triggerSubscriptions.Dispose();
-        _errors.OnCompleted();
-        _errors.Dispose();
+        ExceptionDispatchInfo? firstError = null;
+        if (cts is not null)
+            CaptureFailure(ref firstError, cts.Cancel);
+        foreach (var subscription in _triggerSubscriptions)
+            CaptureFailure(ref firstError, subscription.Dispose);
+        CaptureFailure(ref firstError, _errors.OnCompleted);
+        CaptureFailure(ref firstError, _errors.Dispose);
+        firstError?.Throw();
+    }
+
+    private static void CaptureFailure(ref ExceptionDispatchInfo? firstError, Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private CancellationTokenSource? TryBeginExecution(CancellationToken cancellationToken)

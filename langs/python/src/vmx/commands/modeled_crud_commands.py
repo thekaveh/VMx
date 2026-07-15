@@ -84,5 +84,12 @@ class ModeledCrudCommands(Generic[M, VM]):
         if self._disposed:
             return
         self._disposed = True
+        first_error: BaseException | None = None
         for cmd in self._inner_relays:
-            cmd.dispose()
+            try:
+                cmd.dispose()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+        if first_error is not None:
+            raise first_error

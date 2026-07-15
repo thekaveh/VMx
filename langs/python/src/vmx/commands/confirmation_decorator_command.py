@@ -16,6 +16,7 @@ from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
 from vmx.commands.protocols import Command
+from vmx.commands.relay_command import _run_disposal_steps
 
 
 class ConfirmationDecoratorCommand:
@@ -101,5 +102,4 @@ class ConfirmationDecoratorCommand:
         if self._disposed:
             return
         self._disposed = True
-        self._errors.on_completed()
-        self._errors.dispose()
+        _run_disposal_steps(self._errors.on_completed, self._errors.dispose)

@@ -203,6 +203,25 @@ class TestComponentVMLifecycle:
         assert completed == [True]
         vm.dispose()
 
+    def test_throwing_terminal_command_observer_still_completes_base_teardown(self) -> None:
+        vm = make_vm()
+        select = vm.select_command
+        deselect = vm.deselect_command
+
+        def fail(_: object) -> None:
+            raise RuntimeError("terminal observer failure")
+
+        select.can_execute_changed.subscribe(fail)
+
+        with pytest.raises(RuntimeError, match="terminal observer failure"):
+            vm.dispose()
+
+        assert vm.status is ConstructionStatus.DISPOSED
+        assert vm._trigger_disposed is True
+        assert select._disposed is True
+        assert deselect._disposed is True
+        vm.dispose()
+
     def test_construct_from_disposed_raises(self) -> None:
         vm = make_vm()
         vm.dispose()

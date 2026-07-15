@@ -22,6 +22,9 @@ All notable changes to the Python flavor are documented here. The format is base
 - Token pagination now treats reentrant disposal during page comparison,
   child construction, or reset notification as terminal without committing
   losing state or publishing through disposed subjects.
+- Command and component disposal now attempts every terminal notification,
+  subscription release, stream teardown, and owned command before rethrowing the
+  first observer failure.
 
 ## [3.22.0] — 2026-07-14
 

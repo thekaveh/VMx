@@ -855,10 +855,24 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public virtual void Dispose()
     {
+        ExceptionDispatchInfo? firstError = null;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
-            SetStatus(ConstructionStatus.Disposed);
+
+            // Terminal publication is best-effort: an observer failure must not
+            // prevent the remaining channels or mandatory cleanup from running.
+            _status = ConstructionStatus.Disposed;
+            CaptureDisposalFailure(ref firstError, () =>
+                _hub.Send(ConstructionStatusChangedMessage.Create(
+                    this, Name, ConstructionStatus.Disposed)));
+            CaptureDisposalFailure(ref firstError, () =>
+                RaisePropertyChanged(nameof(Status)));
+            CaptureDisposalFailure(ref firstError, () =>
+                RaisePropertyChanged(nameof(IsConstructed)));
+            if (!_triggerDisposed)
+                CaptureDisposalFailure(ref firstError, () =>
+                    _statusTrigger.OnNext(Unit.Default));
             CompleteLifecycleWaitersLocked();
         }
 
@@ -867,40 +881,44 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // status reaches Disposed and *before* the status trigger is
         // completed, so a subclass override can still publish a final
         // status value or touch hub-published subjects during cleanup.
-        try
-        {
-            try
-            {
-                OnDispose();
-            }
-            finally
-            {
-                DisposeOwnedResources();
-            }
-        }
-        finally
-        {
-            // Tear down the status trigger under _gate so the flag flip and the
-            // Subject disposal cannot interleave with an in-flight background
-            // SetStatus: that transition either completes its guarded OnNext before
-            // this runs, or observes Disposed/_triggerDisposed under the same lock
-            // and skips it — never an OnNext on a disposed Subject (VMX-001).
-            lock (_gate)
-            {
-                if (!_triggerDisposed)
-                {
-                    _triggerDisposed = true;
-                    _statusTrigger.OnCompleted();
-                    _statusTrigger.Dispose();
-                }
-            }
+        CaptureDisposalFailure(ref firstError, OnDispose);
+        CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
 
-            (_selectCommand as IDisposable)?.Dispose();
-            (_deselectCommand as IDisposable)?.Dispose();
-            (_selectNextCommand as IDisposable)?.Dispose();
-            (_selectPreviousCommand as IDisposable)?.Dispose();
-            (_reconstructCommand as IDisposable)?.Dispose();
+        // Tear down the status trigger under _gate so the flag flip and the
+        // Subject disposal cannot interleave with an in-flight background
+        // SetStatus transition.
+        lock (_gate)
+        {
+            if (!_triggerDisposed)
+            {
+                _triggerDisposed = true;
+                CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
+                CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
+            }
         }
+
+        foreach (var command in new IDisposable?[]
+                 {
+                     _selectCommand as IDisposable,
+                     _deselectCommand as IDisposable,
+                     _selectNextCommand as IDisposable,
+                     _selectPreviousCommand as IDisposable,
+                     _reconstructCommand as IDisposable,
+                 })
+        {
+            if (command is not null)
+                CaptureDisposalFailure(ref firstError, command.Dispose);
+        }
+
+        firstError?.Throw();
+    }
+
+    private static void CaptureDisposalFailure(
+        ref ExceptionDispatchInfo? firstError,
+        Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     // ── Selection predicates ────────────────────────────────────────────────

@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 from threading import Event, Thread
 
+import pytest
+
 from vmx.commands import ConfirmationDecoratorCommand, RelayCommand
 
 
@@ -71,6 +73,26 @@ def test_errors_completes_on_dispose() -> None:
 
     cmd.dispose()
     assert len(completed) == 1, "errors observable completes on dispose"
+
+
+def test_dispose_disposes_error_channel_when_completion_observer_raises() -> None:
+    inner = RelayCommand.builder().build()
+
+    async def confirm() -> bool:
+        return True
+
+    cmd = ConfirmationDecoratorCommand(inner, confirm=confirm)
+
+    def fail() -> None:
+        raise RuntimeError("terminal observer")
+
+    cmd.errors.subscribe(on_completed=fail)
+
+    with pytest.raises(RuntimeError, match="terminal observer"):
+        cmd.dispose()
+
+    assert cmd._errors.is_disposed is True
+    cmd.dispose()
 
 
 def test_execute_without_running_loop_returns_while_confirmation_is_pending() -> None:
