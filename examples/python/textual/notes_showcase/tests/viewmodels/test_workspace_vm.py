@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
@@ -49,6 +51,49 @@ async def test_construct_async_populates_notebooks_and_binds_first() -> None:
     assert ws.notebooks_root.current is not None
     first = ws.notebooks_root.current
     assert ws.notes_view.bound_notebook_id == first.model.id
+
+
+async def test_failed_selection_bind_is_observed_and_retryable() -> None:
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        failure_mode=None,
+    )
+    ws = WorkspaceVM.builder().repository(repo).build()
+    await ws.construct_async()
+    personal = next(
+        notebook
+        for notebook in ws.notebooks_root.roots
+        if notebook.model.id == "nb-personal"
+    )
+    loop = asyncio.get_running_loop()
+    unhandled: list[dict[str, object]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    try:
+        repo.fail_next(RuntimeError("transient load failure"))
+        ws.notebooks_root.current = personal
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert unhandled == []
+
+        work = next(
+            notebook
+            for notebook in ws.notebooks_root.roots
+            if notebook.model.id == "nb-work"
+        )
+        ws.notebooks_root.current = work
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        ws.notebooks_root.current = personal
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert ws.notes_view.bound_notebook_id == "nb-personal"
+    finally:
+        loop.set_exception_handler(previous_handler)
+        ws.dispose()
 
 
 async def test_construct_synchronous_does_not_populate() -> None:

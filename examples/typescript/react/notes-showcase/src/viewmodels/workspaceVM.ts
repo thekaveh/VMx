@@ -267,7 +267,17 @@ export class WorkspaceVM {
     this.#notebooks.current = nb;
     this.setFocus(nb);
     this.#notesView.currentNotebookIsReadonly = nb.model.isReadonly ?? false;
-    void this.#notesView.bindToAsync(nb.model.id);
+    void this.#bindNotesObservedAsync(nb.model.id);
+  }
+
+  async #bindNotesObservedAsync(notebookId: string): Promise<void> {
+    try {
+      await this.#notesView.bindToAsync(notebookId);
+    } catch {
+      // The synchronous selection entry point has no error result. Observe
+      // the rejected promise so a transient repository fault does not become
+      // a global unhandled rejection; a later selection can retry.
+    }
   }
 
   // ── Component accessors ───────────────────────────────────────────────────

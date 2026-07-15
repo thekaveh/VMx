@@ -67,7 +67,17 @@ public class App : Application
 
         // Fire-and-forget — the UI binds to live properties as Construct
         // populates them; the ~300/150 ms repo delays don't block startup.
-        _ = workspace.ConstructAsync();
+        _ = workspace.ConstructAsync().ContinueWith(
+            task =>
+            {
+                _ = task.Exception;
+                _ = notifications.Post(new Notification(
+                    NotificationType.Error,
+                    "Notes Showcase failed to initialize."));
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
         // VMX-129: drive the application theme from the workspace-owned ThemeVM
         // (THEME-001..005). The adapter applies the current model immediately

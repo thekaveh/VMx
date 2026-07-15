@@ -6,6 +6,11 @@ import { buildSeed } from "../../src/models/seed.js";
 import { NullDialogService } from "../../src/viewmodels/dialogService.js";
 import { WorkspaceVM } from "../../src/viewmodels/workspaceVM.js";
 
+declare const process: {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+};
+
 function makeWorkspace(): WorkspaceVM {
   const repo = new InMemoryNoteRepository(buildSeed(), {
     loadAllDelayMs: 0,
@@ -31,6 +36,41 @@ describe("WorkspaceVM", () => {
     expect(ws.notebooksRoot.current?.model.id).toBe("nb-work");
     expect(ws.notesView.inner.length).toBe(2);
     ws.dispose();
+  });
+
+  it("observes a failed selection bind and permits a retry", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadAllDelayMs: 0,
+      loadNotesDelayMs: 0,
+    });
+    const ws = WorkspaceVM.builder()
+      .repository(repo)
+      .dialogService(NullDialogService.INSTANCE)
+      .build();
+    await ws.constructAsync();
+    const personal = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-personal");
+    const work = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-work");
+    expect(personal).toBeDefined();
+    expect(work).toBeDefined();
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      repo.failNext(new Error("transient load failure"));
+      ws.selectNotebook(personal!);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      expect(unhandled).toEqual([]);
+
+      ws.selectNotebook(work!);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      ws.selectNotebook(personal!);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      expect(ws.notesView.boundNotebookId).toBe("nb-personal");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      ws.dispose();
+    }
   });
 
   it("exposes six children via the AggregateVM6 composition", async () => {

@@ -442,7 +442,22 @@ class WorkspaceVM:
         self._requested_notebook_id = notebook_id
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_bind())
+            task = loop.create_task(_bind())
+
+            def _observe_bind(done: asyncio.Task[None]) -> None:
+                if done.cancelled():
+                    return
+                try:
+                    done.result()
+                except Exception:
+                    # Selection-change handlers are synchronous, so the bind
+                    # cannot propagate to their caller. Consume the rejected
+                    # task and leave the notebook retryable, matching the C#
+                    # and Swift flagship adapters.
+                    if self._requested_notebook_id == notebook_id:
+                        self._requested_notebook_id = None
+
+            task.add_done_callback(_observe_bind)
         except RuntimeError:
             asyncio.run(_bind())
 
