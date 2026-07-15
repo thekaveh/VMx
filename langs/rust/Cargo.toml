@@ -13,7 +13,7 @@ readme = "README.md"
 keywords = ["mvvm", "viewmodel", "reactive", "lifecycle"]
 categories = ["gui", "asynchronous"]
 publish = ["crates-io"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [lib]
 name = "vmx"

@@ -14,6 +14,7 @@ CHANGELOG.md
 Cargo.lock
 Cargo.toml
 Cargo.toml.orig
+LICENSE
 README.md
 src/aggregate_change_stream.rs
 src/async_resource_vm.rs

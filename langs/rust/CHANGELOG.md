@@ -38,6 +38,7 @@ Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
 - Nested sends from one active message-hub callback to another hub now enqueue
   instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
   while ordinary producers retain synchronous calling-thread delivery.
+- The published crate now includes the repository's Apache-2.0 license text.
 
 ## [0.24.0] — 2026-07-14
 

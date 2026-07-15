@@ -15,6 +15,17 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
     assert {"src/async_value.rs", "src/forms.rs"} <= checker.REQUIRED_PATHS
 
 
+def test_license_text_is_allowlisted() -> None:
+    assert "LICENSE" in checker.REQUIRED_PATHS
+
+
+def test_packaged_license_matches_repository_license() -> None:
+    repository_root = Path(__file__).resolve().parents[2]
+    assert (repository_root / "langs/rust/LICENSE").read_bytes() == (
+        repository_root / "LICENSE"
+    ).read_bytes()
+
+
 def test_package_listing_enforces_lockfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     captured: list[str] = []
 
