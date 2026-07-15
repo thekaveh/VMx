@@ -736,6 +736,11 @@ PagedComposition<TVM>:
     Count : int                # count of items in current page (not total)
 ```
 
+The state fields are integers. TypeScript's `number`-typed constructor and
+setters reject `NaN`, infinities, and fractional candidates with `RangeError`
+before mutation or notification; negative finite integers retain the normal
+zero-clamping behavior (ADR-0114).
+
 ### 5.2 Decorator semantics
 
 `PagedComposition<TVM>` **decorates** any iterable composition source. It does

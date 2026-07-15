@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `PagedComposition` now rejects non-finite or fractional page sizes and indexes
+  before mutation or notification while retaining zero clamping for negative
+  integers (COL-016, ADR-0114).
 - `FormVM` structural equality now compares binary buffers and views by concrete
   constructor and visible bytes, so `ArrayBuffer`/`DataView` edits are no longer
   suppressed as equal empty-enumerable objects (FORM-003, ADR-0113).

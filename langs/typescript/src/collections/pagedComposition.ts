@@ -27,6 +27,13 @@ export type PagedCompositionSource<T> =
   | Iterable<T>
   | (() => Iterable<T>);
 
+function requireFiniteInteger(value: number, name: string): number {
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new RangeError(`${name} must be a finite integer`);
+  }
+  return value;
+}
+
 export class PagedComposition<TVM> implements IPageable {
   readonly #rawSource: PagedCompositionSource<TVM>;
   readonly #factory: () => Iterable<TVM>;
@@ -39,7 +46,7 @@ export class PagedComposition<TVM> implements IPageable {
   /**
    * @param source  Source array, iterable, or zero-arg factory.
    * @param pageSize  Initial page size (default 0 = paging disabled).
-   *                  Negative values are clamped to 0.
+   *                  Finite integers are required; negative integers clamp to 0.
    */
   constructor(
     source: PagedCompositionSource<TVM>,
@@ -48,7 +55,7 @@ export class PagedComposition<TVM> implements IPageable {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (source == null) throw new TypeError("source must not be null/undefined");
     this.#rawSource = source;
-    this.#pageSize = Math.max(0, pageSize);
+    this.#pageSize = Math.max(0, requireFiniteInteger(pageSize, "pageSize"));
 
     // Normalise source into a zero-arg factory for uniform access.
     if (typeof source === "function") {
@@ -86,7 +93,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   set pageSize(value: number) {
-    const clamped = Math.max(0, value);
+    const clamped = Math.max(0, requireFiniteInteger(value, "pageSize"));
     if (this.#pageSize === clamped) return;
     this.#pageSize = clamped;
     this.#currentPageIndex = this.#clampIndex(this.#currentPageIndex);
@@ -102,7 +109,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   set currentPageIndex(value: number) {
-    const clamped = this.#clampIndex(value);
+    const clamped = this.#clampIndex(requireFiniteInteger(value, "currentPageIndex"));
     if (this.#currentPageIndex === clamped) return;
     this.#currentPageIndex = clamped;
     this.#notify("currentPageIndex");

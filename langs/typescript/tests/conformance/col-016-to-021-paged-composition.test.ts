@@ -30,6 +30,37 @@ describe("COL-016", () => {
 
     sut.dispose();
   });
+
+  it("rejects non-finite and fractional paging state before mutation", () => {
+    const source = new ObservableList<number>();
+    for (let i = 0; i < 6; i++) source.push(i);
+
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 1.5]) {
+      expect(() => new PagedComposition(source, invalid)).toThrow(RangeError);
+    }
+
+    const sut = new PagedComposition(source, 2);
+    sut.currentPageIndex = 1;
+    const changed: string[] = [];
+    const sub = sut.propertyChanged.subscribe((name) => changed.push(name));
+
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2.5]) {
+      expect(() => {
+        sut.pageSize = invalid;
+      }).toThrow(RangeError);
+      expect(sut.pageSize).toBe(2);
+      expect(sut.currentPageIndex).toBe(1);
+
+      expect(() => {
+        sut.currentPageIndex = invalid;
+      }).toThrow(RangeError);
+      expect(sut.currentPageIndex).toBe(1);
+    }
+
+    expect(changed).toEqual([]);
+    sub.unsubscribe();
+    sut.dispose();
+  });
 });
 
 // ── COL-017 ───────────────────────────────────────────────────────────────────

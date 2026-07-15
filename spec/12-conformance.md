@@ -2145,6 +2145,9 @@ a legacy `index` or typed item payload
 **When** items are removed from the source until 4 items remain (2 full pages)
 **Then** `PageCount == 2`
 **And** `CurrentPageIndex` is clamped to `1` (the new upper bound)
+**And in TypeScript** non-finite or fractional page sizes and indexes raise
+`RangeError` before retained state or property notifications change, while
+negative finite integers retain zero clamping
 
 ### COL-017 — `PagedComposition<TVM>` `PageCount` derivation under add and remove
 

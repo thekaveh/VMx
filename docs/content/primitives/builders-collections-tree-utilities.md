@@ -199,6 +199,11 @@ contained values are children rather than caller-owned data.
 | `PagedComposition<TVM>` / `TokenPagedComposition<TVM, TToken>` | paging helpers                                   |
 | `walk`, `find`, `walk_expanded`                                | tree traversal helpers                           |
 
+Paging sizes and indexes are integer state. TypeScript rejects `NaN`, infinities,
+and fractional candidates atomically with `RangeError`; negative finite integers
+keep the documented zero-clamping behavior. Invalid input leaves retained page
+state and property observers unchanged.
+
 ## 6.7.7. Example
 
 Representative traversal contract:
