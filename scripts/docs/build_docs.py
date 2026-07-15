@@ -158,8 +158,10 @@ def render_wiki(manifest: Manifest, out_dir: Path) -> None:
     (out_dir / "_Sidebar.md").write_text(
         "\n".join(_wiki_sidebar(manifest.sections, source_map)) + "\n", encoding="utf-8"
     )
+    spec_version = (REPO_ROOT / "spec/VERSION").read_text(encoding="utf-8").strip()
     (out_dir / "_Footer.md").write_text(
-        "VMx documentation generated from the repository documentation source.\n", encoding="utf-8"
+        f"VMx · Specification {spec_version} · MIT License · thekaveh/VMx\n",
+        encoding="utf-8",
     )
     copy_diagrams(out_dir)
 

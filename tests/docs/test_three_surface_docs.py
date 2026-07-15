@@ -209,7 +209,9 @@ def test_docs_check_passes() -> None:
 def test_generated_wiki_has_sidebar_footer_and_diagram_assets() -> None:
     build_docs.build(site=True, wiki=True, check=True, repo_root=ROOT)
     assert (ROOT / "generated/wiki/_Sidebar.md").exists()
-    assert (ROOT / "generated/wiki/_Footer.md").exists()
+    footer = (ROOT / "generated/wiki/_Footer.md").read_text(encoding="utf-8")
+    version = (ROOT / "spec/VERSION").read_text(encoding="utf-8").strip()
+    assert footer == f"VMx · Specification {version} · MIT License · thekaveh/VMx\n"
     assert (ROOT / "generated/wiki/assets/diagrams/system-architecture.png").exists()
     sidebar = (ROOT / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
     assert re.search(r"\[\[5\.2\. System Architecture\|5-2-System-Architecture\]\]", sidebar)
