@@ -400,57 +400,23 @@ class NotesViewVM(
     def _clear_current(self) -> None:
         self.current = None
 
-    def _delete_note(self, note: NoteVM) -> None:
-        """Remove ``note`` from the inner collection and persist via the repo.
+    async def _delete_note(self, note: NoteVM) -> None:
+        """Persist the deletion before mutating the live list mirror."""
+        await self._repo.delete_note(note.model.id)
+        for i in range(self._inner.count):
+            if self._inner[i] is note:
+                with self._inner.batch_update():
+                    self._inner.remove_at(i)
+                break
+        if self._current is note:
+            self._current = None
+            self._notify_property_changed("current")
+        self._recompute_filtered()
+        note.dispose()
 
-        Fire-and-forget: schedules the async delete and returns. The list
-        mirror updates synchronously after the repo call resolves.
-        """
-        import asyncio
-
-        async def run() -> None:
-            try:
-                await self._repo.delete_note(note.model.id)
-            except Exception:  # pragma: no cover — surfaced via hub in prod
-                return
-            for i in range(self._inner.count):
-                if self._inner[i] is note:
-                    with self._inner.batch_update():
-                        self._inner.remove_at(i)
-                    break
-            if self._current is note:
-                self._current = None
-                self._notify_property_changed("current")
-            self._recompute_filtered()
-            note.dispose()
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(run())
-        except RuntimeError:
-            asyncio.run(run())
-
-    def _save_note(self, note: NoteVM) -> None:
-        """Persist ``note``'s current model via the repo.
-
-        Fire-and-forget: schedules the async save and returns, mirroring the
-        C#/TS/Swift showcases (``.OnSave``/``.onSave``). Without this wiring the
-        capability bar's Save action was a silent no-op in Python only
-        (cross-flavor live-binding parity).
-        """
-        import asyncio
-
-        async def run() -> None:
-            try:
-                await self._repo.save_note(note.model)
-            except Exception:  # pragma: no cover — surfaced via hub in prod
-                return
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(run())
-        except RuntimeError:
-            asyncio.run(run())
+    async def _save_note(self, note: NoteVM) -> None:
+        """Persist ``note`` and surface repository failure through the command."""
+        await self._repo.save_note(note.model)
 
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:

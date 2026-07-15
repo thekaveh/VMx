@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  AsyncRelayCommand,
   ConfirmationDecoratorCommand,
   hasCapability,
   MessageHub,
@@ -27,8 +28,8 @@ function model(over: Partial<NoteModel> = {}): NoteModel {
 
 function makeVM(overrides: {
   onClose?: (vm: NoteVM) => void;
-  onSave?: (vm: NoteVM) => void;
-  onDelete?: (vm: NoteVM) => void;
+  onSave?: (vm: NoteVM) => void | Promise<void>;
+  onDelete?: (vm: NoteVM) => void | Promise<void>;
 } = {}): { vm: NoteVM; hub: MessageHub } {
   const hub = new MessageHub();
   let builder = NoteVM.builder()
@@ -199,5 +200,75 @@ describe("NoteVM", () => {
     expect(
       observed.some((m) => m.includes("Note deleted") && m.includes("Important")),
     ).toBe(true);
+  });
+
+  it("saveCommand awaits async persistence and propagates failure", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { vm } = makeVM({
+      onSave: async () => {
+        await gate;
+        throw new Error("disk full");
+      },
+    });
+    expect(vm.saveCommand).toBeInstanceOf(AsyncRelayCommand);
+    const command = vm.saveCommand as AsyncRelayCommand;
+
+    const execution = command.executeAsync();
+
+    expect(command.isExecuting).toBe(true);
+    release();
+    await expect(execution).rejects.toThrow("disk full");
+    expect(command.isExecuting).toBe(false);
+  });
+
+  it("delete success notification waits for async persistence", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const notifs = new NotificationHub();
+    const observed: string[] = [];
+    notifs.pending.subscribe((snapshot) => {
+      observed.push(...snapshot.map((notification) => notification.message));
+    });
+    const vm = NoteVM.builder()
+      .name("note")
+      .model(model({ title: "Important" }))
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .onDelete(async () => { await gate; })
+      .confirmDelete(async () => true)
+      .notificationHub(notifs)
+      .build();
+    vm.construct();
+
+    await (vm.deleteCommand as ConfirmationDecoratorCommand).executeAsync();
+
+    expect(observed.some((message) => message.includes("Note deleted"))).toBe(false);
+    release();
+    await vi.waitFor(() => {
+      expect(observed.some((message) => message.includes("Note deleted"))).toBe(true);
+    });
+  });
+
+  it("delete failure propagates without a success notification", async () => {
+    const notifs = new NotificationHub();
+    const observed: string[] = [];
+    notifs.pending.subscribe((snapshot) => {
+      observed.push(...snapshot.map((notification) => notification.message));
+    });
+    const { vm } = makeVM({ onDelete: async () => { throw new Error("disk full"); } });
+    const failed = NoteVM.builder()
+      .name("note")
+      .model(vm.model)
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .onDelete(async () => { throw new Error("disk full"); })
+      .notificationHub(notifs)
+      .build();
+    failed.construct();
+    expect(failed.deleteCommand).toBeInstanceOf(AsyncRelayCommand);
+
+    await expect((failed.deleteCommand as AsyncRelayCommand).executeAsync())
+      .rejects.toThrow("disk full");
+
+    expect(observed.some((message) => message.includes("Note deleted"))).toBe(false);
   });
 });

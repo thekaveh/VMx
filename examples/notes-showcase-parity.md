@@ -52,7 +52,7 @@ split is enforced by SwiftPM target boundaries.
 | 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | Yes        | Yes              | Yes                | Yes             |
 | 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | Yes | Yes | Yes | Yes |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | Yes | Yes      | Yes                | Yes             |
-| 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | Yes | Yes       | Yes                | Yes             |
+| 6   | `RelayCommand` + `AsyncRelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete, with repository failures observable and success notifications ordered after persistence | Yes | Yes | Yes | Yes |
 | 7   | `SearchableState` + `IFilterable<TItem>` (§14.5-14.6) — title search + starred filter | Yes | Yes | Yes | Yes |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | Yes | Yes           | Yes                | Yes             |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | Yes   | Yes              | Yes                | Yes             |

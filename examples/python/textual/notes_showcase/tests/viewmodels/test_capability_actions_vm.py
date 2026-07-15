@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -240,5 +241,9 @@ async def test_capability_bar_delete_reuses_note_delete_command_confirm_true() -
     vm.recompute_actions()
     delete_action = next(a for a in vm.actions.value if a.label == "Delete")
     await delete_action.command.execute_async()  # type: ignore[union-attr]
+    for _ in range(10):
+        if deleted and observed:
+            break
+        await asyncio.sleep(0)
     assert deleted == [True]
     assert any("Note deleted" in n.message for n in observed)

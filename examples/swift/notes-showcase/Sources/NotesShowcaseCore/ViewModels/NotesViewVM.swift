@@ -357,7 +357,10 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
             .name("note:\(note.id)")
             .services(hub: hub, dispatcher: dispatcher)
             .model(note)
-            .onDelete({ [weak self] vm in self?.deleteNote(vm) })
+            .onDelete({ [weak self] vm in
+                guard let self else { return }
+                try await self.deleteNote(vm)
+            })
             .onClose({ [weak self, box] in
                 guard let self else { return }
                 if let vm = box.value, self._current === vm {
@@ -366,7 +369,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
             })
             .onSave({ [weak self] vm in
                 guard let self else { return }
-                Task { try? await self._repo.saveNote(vm.model) }
+                try await self._repo.saveNote(vm.model)
             })
 
         if let dialogService = _dialogService {
@@ -413,18 +416,12 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         _paged.moveToFirstPage()
     }
 
-    /// Fire-and-forget: persists deletion via the repo, then on success removes
-    /// the note from `inner` on the foreground dispatcher.
-    private func deleteNote(_ vm: NoteVM) {
-        pendingDeleteTask = Task { [weak self, weak vm] in
+    /// Persists deletion, then removes the note from `inner` on the foreground
+    /// dispatcher. The async command awaits this operation and surfaces errors.
+    private func deleteNote(_ vm: NoteVM) async throws {
+        let operation = Task { [weak self, weak vm] in
             guard let self, let vm else { return }
-            do {
-                try await self._repo.deleteNote(id: vm.noteId)
-            } catch {
-                // Persistence failures are surfaced via the notification hub in
-                // production; tests pass a synchronous repo so this is dead code.
-                return
-            }
+            try await self._repo.deleteNote(id: vm.noteId)
             self.dispatcher.scheduleForeground { [weak self, weak vm] in
                 guard let self, let vm else { return }
                 for i in 0..<self._inner.count {
@@ -441,6 +438,8 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
                 }
             }
         }
+        pendingDeleteTask = Task { try? await operation.value }
+        try await operation.value
     }
 
     /// Recomputes `filteredItems` by blending `showStarredOnly` + custom `filter`

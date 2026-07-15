@@ -375,16 +375,14 @@ export class NotesViewVM extends ComponentVMBase {
         .name(`note:${m.id}`)
         .model(m)
         .services(this._hub, this._dispatcher)
-        .onDelete((vm) => this.#deleteNote(vm))
+        .onDelete((vm) => this.#deleteNoteAsync(vm))
         // Live-binding invariant: the capability bar projects
         // note.saveCommand/closeCommand, but nothing wired the handlers —
         // both actions were silent no-ops.
         .onClose((vm) => {
           if (this.#current === vm) this.current = null;
         })
-        .onSave((vm) => {
-          void this.#repo.saveNote(vm.model);
-        });
+        .onSave((vm) => this.#repo.saveNote(vm.model));
       if (this.#dialogService !== null) {
         const dialog = this.#dialogService;
         builder = builder.confirmDelete((vm) =>
@@ -404,19 +402,8 @@ export class NotesViewVM extends ComponentVMBase {
     this.#paged.moveToFirstPage();
   }
 
-  #deleteNote(note: NoteVM): void {
-    // Fire-and-forget: persist via the repo, then remove from the inner
-    // collection. The "Note deleted" notification is posted by the NoteVM
-    // itself (after the confirm gate, if any).
-    void this.#deleteNoteAsync(note);
-  }
-
   async #deleteNoteAsync(note: NoteVM): Promise<void> {
-    try {
-      await this.#repo.deleteNote(note.model.id);
-    } catch {
-      return;
-    }
+    await this.#repo.deleteNote(note.model.id);
     const idx = this.#inner.indexOf(note);
     if (idx < 0) return;
     this.#inner.splice(idx, 1);
