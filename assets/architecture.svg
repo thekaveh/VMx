@@ -42,7 +42,7 @@
 <rect x="60" y="130" width="300" height="160" rx="12" fill="rgba(120, 53, 15, 0.34)" stroke="#fbbf24" stroke-width="2"/>
 <text x="210" y="162" fill="white" font-size="18" font-weight="700" text-anchor="middle">Spec Source</text>
 <text x="210" y="188" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">24 chapters</text>
-<text x="210" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">110 ADRs</text>
+<text x="210" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">111 ADRs</text>
 <text x="210" y="236" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">400 conformance IDs</text>
 <text x="210" y="260" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">4 JSON fixtures</text>
 <rect x="450" y="130" width="300" height="160" rx="12" fill="#0f172a"/>

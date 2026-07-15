@@ -44,7 +44,7 @@
 <rect x="90" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="175" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">spec/</text>
 <text x="175" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">24 chapters</text>
-<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">110 ADRs</text>
+<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">111 ADRs</text>
 <text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.22.0</text>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="#0f172a"/>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>

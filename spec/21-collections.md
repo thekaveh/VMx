@@ -622,9 +622,12 @@ Per ADR-0025.
 The documented common case is `ObservableDictionary<TKey1, TKey2, TValue>` (the
 two-key form). Each flavor implements it as a standalone class over a
 compound-key backing store — `ValueTuple` keys in C#, `tuple` keys in Python,
-and a serialized-string key map in TypeScript (the entry type exposed to
-consumers remains `DictionaryEntry`). There is no single-key base type.
-(Corrected in v2.5.0 via ADR-0038.)
+an internal `CompositeKey` value in Swift, and nested native `Map` instances in
+TypeScript (the entry type exposed to consumers remains `DictionaryEntry`). Each
+axis uses the host language's standard dictionary-key equality; in TypeScript
+that is `Map`'s SameValueZero primitive equality and reference identity for
+objects. There is no single-key base type. (Corrected in v2.5.0 via ADR-0038
+and in v3.22.0 via ADR-0111.)
 
 ```
 ObservableDictionary<TKey1, TKey2, TValue>:

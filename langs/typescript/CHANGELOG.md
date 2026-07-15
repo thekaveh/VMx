@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `ObservableDictionary` now preserves native `Map` equality independently on
+  both key axes, so differently typed primitives and distinct object or symbol
+  identities cannot collide through string coercion (COL-010, ADR-0111).
+
 ## [3.23.0] — 2026-07-14
 
 Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
