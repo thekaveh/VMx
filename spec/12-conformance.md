@@ -1766,6 +1766,50 @@ because `c` no longer has a `Parent` to delegate to
 **When** that score state changes and `RefreshScores()` is called
 **Then** the visible projection is reordered from the latest scores
 
+### COMP-038 — Adding to a new parent transfers exclusive ownership
+
+**Given** two mutable containers `old` and `new`, covering both `CompositeVM`
+and `GroupVM` as source and destination
+**And** the same child identity `c` occurs once in `old` and is `Constructed`
+**When** `new.Add(c)` is called
+**Then** `old` no longer contains `c` and `new` contains it exactly once
+**And** `c.Parent` denotes only `new`, including parent-derived selection behavior
+**And** `c.Status` remains `Constructed`
+**And** a later removal attempt against `old` cannot clear `c`'s new parent
+
+### COMP-039 — Duplicate and cycle rejection is mutation-free
+
+**Given** a mutable composite or group `parent` containing child `c`
+**When** `parent.Add(c)` is attempted again
+**Then** the flavor-standard ownership error is returned or raised
+**And** membership, parent link, selection state, lifecycle state, and
+collection notifications are unchanged
+**And** attaching a container to itself or beneath one of its descendants is
+rejected with the same mutation-free guarantee
+
+### COMP-040 — Failed ownership transfer restores exact state
+
+**Given** child `c` at index `i` in `old`, with `old.Current == c` when `old` is
+a composite
+**And** destination `new` is configured to auto-construct added children
+**And** `c` is `Destructed` and its construct hook fails
+**When** `new.Add(c)` is attempted
+**Then** the original construction error is returned or raised
+**And** `c` is restored at index `i` in `old` with the original `Parent`,
+`Current`, `IsCurrent`, and `Destructed` state
+**And** `new` has its exact pre-call membership and selection state
+**And** lazy or bulk population remains retryable after the failing child is fixed
+
+### COMP-041 — Transfer notifications commit removal before addition
+
+**Given** collection-change recorders on `old` and `new`
+**And** child `c` belongs to `old`
+**When** `new.Add(c)` succeeds
+**Then** the global observation order is `old:Remove(c)` followed by `new:Add(c)`
+**And** each callback observes committed membership and the new parent link
+**And** when destination attachment or construction fails, neither recorder
+observes a membership event
+
 ### SRCH-001 — source signal refreshes an unchanged search term
 
 **Given** a `SearchableState` over `["one"]` with an optional source-change

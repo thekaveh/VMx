@@ -34,10 +34,9 @@ export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBas
   }
 
   protected override _populateChildren(): void {
-    for (const model of this.#childrenModels()) {
-      const child = this.#childModelToChildVM(model);
-      this.add(child);
-    }
+    const children = [...this.#childrenModels()].map((model) =>
+      this.#childModelToChildVM(model));
+    this._attachPopulation(children);
   }
 
   static builder<M, VM extends ComponentVMBase>(): CompositeVMOfBuilder<M, VM> {

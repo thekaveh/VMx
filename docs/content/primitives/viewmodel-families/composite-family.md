@@ -33,6 +33,12 @@ Composite implements the selectable extension of the shared
 [VM Collection Contract](../vm-collection-contract.md). Its atomic move keeps
 the identical child, parent, lifecycle, subscriptions, and `Current` reference.
 
+Every child has one authoritative owning parent. Adding or inserting a child
+that belongs to another mutable composite or group atomically removes it from
+the old parent first. Duplicate identity and ancestor cycles are rejected. If
+the destination attach fails, old membership, index, and selection are restored
+without publishing a partial transfer.
+
 ## 6.2.5.3. Lifecycle And Messaging
 
 The composite owns both child lifecycle and selection messaging:
@@ -105,6 +111,9 @@ The composite owns both child lifecycle and selection messaging:
 - Using a composite for recursive trees. `HierarchicalVM` carries the tree
   semantics directly.
 - Forgetting that `Current` must always be a contained child or `null`.
+- Treating one child identity as simultaneous membership in multiple
+  containers. Mutable attachment transfers ownership; aggregate slots must be
+  released by replacing or rebuilding the aggregate instead.
 - Assuming add-after-construct auto-constructs by default. It does not unless
   `AutoConstructOnAdd(true)` is enabled.
 - Updating selection predicates without wiring current-changed triggers into

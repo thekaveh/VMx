@@ -25,6 +25,65 @@ public protocol ParentVM: AnyObject {
     func deselectChild(_ vm: ComponentVMBase)
 }
 
+/// Typed failure for exclusive container ownership operations.
+public enum ContainerOwnershipError: Error {
+    case duplicate
+    case cycle
+    case inconsistentParent
+    case attachmentFailed(Error)
+}
+
+/// Internal ownership surface kept separate from public selection delegation.
+protocol OwnershipParentVM: AnyObject {
+    var ownershipOwner: ComponentVMBase { get }
+    var ownershipOwnerParent: OwnershipParentVM? { get }
+    func containsIdentity(_ vm: ComponentVMBase) -> Bool
+    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer
+}
+
+/// One-shot staged removal from an old parent.
+final class ParentTransfer {
+    private let commitAction: () -> Void
+    private let rollbackAction: () -> Void
+    private var finished = false
+
+    init(commit: @escaping () -> Void, rollback: @escaping () -> Void) {
+        commitAction = commit
+        rollbackAction = rollback
+    }
+
+    func commit() {
+        precondition(!finished, "parent transfer is already finished")
+        finished = true
+        commitAction()
+    }
+
+    func rollback() {
+        precondition(!finished, "parent transfer is already finished")
+        finished = true
+        rollbackAction()
+    }
+}
+
+func beginParentTransfer(
+    _ child: ComponentVMBase,
+    to destination: OwnershipParentVM
+) throws -> ParentTransfer? {
+    guard !destination.containsIdentity(child) else {
+        throw ContainerOwnershipError.duplicate
+    }
+
+    var cursor: OwnershipParentVM? = destination
+    while let current = cursor {
+        guard current.ownershipOwner !== child else {
+            throw ContainerOwnershipError.cycle
+        }
+        cursor = current.ownershipOwnerParent
+    }
+
+    return try child._ownershipParent?.detachForTransfer(child)
+}
+
 /// View-model kind tag. Mirrors `ViewModelType`.
 public enum ViewModelType: String, Sendable {
     case component = "Component"
@@ -76,6 +135,7 @@ open class ComponentVMBase {
     /// is added as a child. `internal` so containers in the module can
     /// flip it.
     weak var _parent: ParentVM?
+    weak var _ownershipParent: OwnershipParentVM?
 
     // ── Reactive primitives ─────────────────────────────────────────────
 

@@ -270,7 +270,10 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     Cells containing ``—`` (em-dash) or ``-`` map to an empty list.
     Annotation parentheticals like ``(subset)`` are stripped before
     version extraction.  Range cells (e.g. ``1.1.0`` to ``1.2.0``) yield
-    ``["1.1.0", "1.2.0"]``.
+    ``["1.1.0", "1.2.0"]``.  A spec-cell
+    ``[^legacy-semantic-tag-only]`` marker records the historical case where
+    the immutable semantic ``vX.Y.0`` tag exists without a duplicate
+    ``spec-vX.Y.0`` operational tag.
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
     header_idx: int | None = None
@@ -297,11 +300,15 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) < 5:
             continue
-        spec_row = cells[0].strip()
+        spec_cell = cells[0].strip()
+        legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
+        spec_row = re.sub(r"\[\^[^]]+\]", "", spec_cell).strip()
         if not _SPEC_ROW_RE.match(spec_row):
             continue
 
         row: dict[str, object] = {"spec_row": spec_row}
+        if legacy_semantic_tag_only:
+            row["legacy_semantic_tag_only"] = True
         for idx, flavor in enumerate(FLAVORS):
             cell = cells[idx + 1].strip() if idx + 1 < len(cells) else ""
             # Strip annotation parentheticals like "(subset)".
@@ -401,7 +408,8 @@ def find_missing_tags(
             row.get(flavor, []) for flavor in FLAVORS if flavor != "rust"
         )
         if has_stable_release:
-            _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
+            if not row.get("legacy_semantic_tag_only"):
+                _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
             _want(
                 f"v{spec_canonical}",
                 f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)",

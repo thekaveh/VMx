@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.21.1** — implements `spec-v3.20.1` end-to-end. 391/391 library
+**v3.22.0** — implements `spec-v3.21.0` end-to-end. 395/395 library
 conformance IDs pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
@@ -19,7 +19,7 @@ test-framework-neutral `@thekaveh/vmx/conformance` adapter runner.
 
 ## 2. Install
 
-The source tree currently implements v3.21.1. The scoped npm package has not
+The source tree currently implements v3.22.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -376,7 +376,7 @@ does not parse YAML or generate Swift/code from this contract. See
 
 ## 5. Conformance
 
-All 391 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 395 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

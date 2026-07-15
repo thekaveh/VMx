@@ -41,11 +41,27 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
 /// Internal parent adaptor — `GroupVM` has no "current child" concept,
 /// so `selectChild`/`deselectChild` are deliberate no-ops (spec/07 —
 /// children are peers; there is no slot to select into).
-private final class GroupParent: ParentVM {
+private final class GroupParent<Child: ComponentVMBase>: ParentVM, OwnershipParentVM {
+    weak var group: GroupVM<Child>?
+
+    init(group: GroupVM<Child>) {
+        self.group = group
+    }
+
     var supportsChildSelection: Bool { false }
     var currentChild: ComponentVMBase? { nil }
     func selectChild(_ vm: ComponentVMBase) { /* no-op */ }
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
+
+    var ownershipOwner: ComponentVMBase { group! }
+    var ownershipOwnerParent: OwnershipParentVM? { group?._ownershipParent }
+    func containsIdentity(_ vm: ComponentVMBase) -> Bool {
+        group?.containsIdentity(vm) ?? false
+    }
+    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
+        guard let group else { throw ContainerOwnershipError.inconsistentParent }
+        return try group.detachForTransfer(vm)
+    }
 }
 
 open class GroupVM<Child: ComponentVMBase>:
@@ -53,7 +69,7 @@ open class GroupVM<Child: ComponentVMBase>:
     private var children: [Child] = []
     private let childrenFactory: (() -> [Child])?
     private var populated = false
-    private let groupParent = GroupParent()
+    private lazy var groupParent = GroupParent(group: self)
     private let _autoConstructOnAdd: Bool
 
     // ── Batch-update state ──────────────────────────────────────────────
@@ -128,9 +144,46 @@ open class GroupVM<Child: ComponentVMBase>:
         collectionChanged.sink { _ in callback() }
     }
 
+    fileprivate func containsIdentity(_ vm: ComponentVMBase) -> Bool {
+        children.contains(where: { $0 === vm })
+    }
+
+    fileprivate func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
+        guard let index = children.firstIndex(where: { $0 === vm }) else {
+            throw ContainerOwnershipError.inconsistentParent
+        }
+        let child = children.remove(at: index)
+        return ParentTransfer(
+            commit: { [weak self, weak child] in
+                guard let self, let child else { return }
+                self.emit(.removed(child, at: index))
+            },
+            rollback: { [weak self, weak child] in
+                guard let self, let child else { return }
+                self.children.insert(child, at: index)
+                child._parent = self.groupParent
+                child._ownershipParent = self.groupParent
+            }
+        )
+    }
+
     public func add(_ child: Child) {
+        _ = addResult(child)
+    }
+
+    @discardableResult
+    public func addResult(_ child: Child) -> Result<Void, ContainerOwnershipError> {
+        let transfer: ParentTransfer?
+        do {
+            transfer = try beginParentTransfer(child, to: groupParent)
+        } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         children.append(child)
         child._parent = groupParent
+        child._ownershipParent = groupParent
         // When autoConstructOnAdd is set and the group is already Constructed,
         // construct the child BEFORE emitting the Add event (GRP-005). `add` is
         // non-throwing per the public API contract; failures surface through
@@ -138,9 +191,14 @@ open class GroupVM<Child: ComponentVMBase>:
         // Divergence from TS (which throws on failure) is recorded in ADR-0060.
         if _autoConstructOnAdd && isConstructed {
             do { try child.construct() } catch {
-                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+                children.removeLast()
+                child._parent = nil
+                child._ownershipParent = nil
+                transfer?.rollback()
+                return .failure(.attachmentFailed(error))
             }
         }
+        transfer?.commit()
         // Emit AFTER the child is appended, parent is wired, and (if
         // autoConstructOnAdd) the child has been constructed.
         let index = children.count - 1
@@ -149,25 +207,55 @@ open class GroupVM<Child: ComponentVMBase>:
         } else {
             collectionChangedSubject.send(.added(child, at: index))
         }
+        return .success(())
     }
 
     public func insert(_ child: Child, at index: Int) {
+        _ = insertResult(child, at: index)
+    }
+
+    @discardableResult
+    public func insertResult(
+        _ child: Child,
+        at index: Int
+    ) -> Result<Void, ContainerOwnershipError> {
+        guard index >= 0 && index <= children.count else {
+            return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: children.count)))
+        }
+        let transfer: ParentTransfer?
+        do {
+            transfer = try beginParentTransfer(child, to: groupParent)
+        } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         children.insert(child, at: index)
         child._parent = groupParent
+        child._ownershipParent = groupParent
         if _autoConstructOnAdd && isConstructed {
             do { try child.construct() } catch {
-                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+                children.remove(at: index)
+                child._parent = nil
+                child._ownershipParent = nil
+                transfer?.rollback()
+                return .failure(.attachmentFailed(error))
             }
         }
+        transfer?.commit()
         emit(.added(child, at: index))
+        return .success(())
     }
 
     public func remove(_ child: Child) -> Bool {
         guard let idx = children.firstIndex(where: { $0 === child }) else {
             return false
         }
-        children[idx]._parent = nil
-        children.remove(at: idx)
+        let removed = children.remove(at: idx)
+        if removed._ownershipParent === groupParent {
+            removed._parent = nil
+            removed._ownershipParent = nil
+        }
         // Emit AFTER the child has been removed and parent cleared.
         if _batchLevel > 0 {
             _batchDirty = true
@@ -179,26 +267,61 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func removeAt(_ index: Int) {
         let child = children.remove(at: index)
-        child._parent = nil
+        if child._ownershipParent === groupParent {
+            child._parent = nil
+            child._ownershipParent = nil
+        }
         emit(.removed(child, at: index))
     }
 
     public func replace(at index: Int, with child: Child) {
+        _ = replaceResult(at: index, with: child)
+    }
+
+    @discardableResult
+    public func replaceResult(
+        at index: Int,
+        with child: Child
+    ) -> Result<Void, ContainerOwnershipError> {
+        guard index >= 0 && index < children.count else {
+            return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: children.count)))
+        }
+        let transfer: ParentTransfer?
+        do {
+            transfer = try beginParentTransfer(child, to: groupParent)
+        } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         let old = children[index]
         children[index] = child
         old._parent = nil
+        old._ownershipParent = nil
         child._parent = groupParent
-        emit(.removed(old, at: index))
+        child._ownershipParent = groupParent
         if _autoConstructOnAdd && isConstructed {
             do { try child.construct() } catch {
-                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+                children[index] = old
+                old._parent = groupParent
+                old._ownershipParent = groupParent
+                child._parent = nil
+                child._ownershipParent = nil
+                transfer?.rollback()
+                return .failure(.attachmentFailed(error))
             }
         }
+        transfer?.commit()
+        emit(.removed(old, at: index))
         emit(.added(child, at: index))
+        return .success(())
     }
 
     public func clear() {
-        for child in children { child._parent = nil }
+        for child in children where child._ownershipParent === groupParent {
+            child._parent = nil
+            child._ownershipParent = nil
+        }
         children.removeAll()
         emit(.reset())
     }
@@ -229,14 +352,64 @@ open class GroupVM<Child: ComponentVMBase>:
     open override func _onConstruct() throws {
         try super._onConstruct()
         if !populated, let factory = childrenFactory {
+            try attachPopulation(factory()).get()
             populated = true
-            for c in factory() { add(c) }
         }
         // A peer's throwing `construct()` (ADR-0053) propagates up the cascade.
         // Snapshot first so child hooks can mutate the group without perturbing
         // the active lifecycle iteration.
         let snapshot = children
         for child in snapshot { try child.construct() }
+    }
+
+    private func attachPopulation(
+        _ candidates: [Child]
+    ) -> Result<Void, ContainerOwnershipError> {
+        let start = children.count
+        var transfers: [ParentTransfer?] = []
+        var originalStatuses: [ConstructionStatus] = []
+        do {
+            for child in candidates {
+                let transfer = try beginParentTransfer(child, to: groupParent)
+                transfers.append(transfer)
+                originalStatuses.append(child.status)
+                children.append(child)
+                child._parent = groupParent
+                child._ownershipParent = groupParent
+            }
+            // Make the entire snapshot visible before any child hook runs.
+            for child in candidates {
+                if _autoConstructOnAdd && isConstructed { try child.construct() }
+                if status == .constructing && child.status != .constructed {
+                    try child.construct()
+                }
+            }
+        } catch {
+            while children.count > start {
+                let child = children.removeLast()
+                let originalStatus = originalStatuses[children.count - start]
+                if originalStatus == .destructed && child.status == .constructed {
+                    try? child.destruct()
+                }
+                if child._ownershipParent === groupParent {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
+            }
+            for transfer in transfers.reversed() { transfer?.rollback() }
+            if let ownershipError = error as? ContainerOwnershipError {
+                return .failure(ownershipError)
+            }
+            return .failure(.attachmentFailed(error))
+        }
+
+        for transfer in transfers { transfer?.commit() }
+        for child in candidates {
+            if let index = children.firstIndex(where: { $0 === child }), index >= start {
+                emit(.added(child, at: index))
+            }
+        }
+        return .success(())
     }
 
     open override func _onDestruct() throws {

@@ -82,6 +82,14 @@ impl VmNode for TestNode {
     fn parent_id(&self) -> Option<usize> {
         self.inner.parent_id()
     }
+
+    fn set_parent_handle(&self, parent: Option<vmx::ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<vmx::ParentHandle> {
+        self.inner.parent_handle()
+    }
 }
 
 impl ObservablePropertySource for TestNode {
@@ -597,9 +605,9 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     composite.add(child.clone()).unwrap();
     assert_eq!(*locked(&group_pulses), 0);
     group.add(child).unwrap();
-    assert_eq!(composite.snapshot().len(), 1);
+    assert_eq!(composite.snapshot().len(), 0);
     assert_eq!(group.snapshot().len(), 1);
-    assert_eq!(*locked(&composite_pulses), 1);
+    assert_eq!(*locked(&composite_pulses), 2);
     assert_eq!(*locked(&group_pulses), 1);
     shared_hub.send(Message::CollectionChanged(vmx::CollectionChangedMessage {
         sender_id: usize::MAX,
@@ -608,7 +616,7 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
         old_index: None,
         new_index: None,
     }));
-    assert_eq!(*locked(&composite_pulses), 1);
+    assert_eq!(*locked(&composite_pulses), 2);
     assert_eq!(*locked(&group_pulses), 1);
     drop((composite_subscription, group_subscription));
 

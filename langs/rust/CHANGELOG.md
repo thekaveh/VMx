@@ -6,8 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
 ### Changed
 
+- `VmNode` parent state is now a real weak owner handle. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
 - `ReadonlyComponentVm` now exposes the component baseline directly and
   implements `VmNode`/`TreeNode` without revealing its writable inner VM.
 - Component hints are construction-time state; the public post-construction

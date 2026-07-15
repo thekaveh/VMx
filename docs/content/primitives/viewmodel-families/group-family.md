@@ -31,6 +31,12 @@ The group itself is still a component and may be selected by its own parent.
 It implements the base [VM Collection Contract](../vm-collection-contract.md),
 not its selectable extension.
 
+Group membership uses the same exclusive ownership protocol as composites.
+Attaching a child owned by another mutable container is one atomic transfer:
+the old removal precedes the new add notification, and a failed destination
+attach restores the old index and parent link. Duplicate identity and ancestor
+cycles are rejected before mutation.
+
 ## 6.2.4.3. Lifecycle And Messaging
 
 Lifecycle orchestration matches `CompositeVM`:
@@ -66,6 +72,8 @@ Representative build shape:
   `CompositeVM`.
 - Assuming peer children become selectable because they inherit leaf commands.
   The group contract keeps those commands disabled.
+- Expecting a child to remain in its former parent after adding it here. VMx
+  transfers mutable ownership rather than permitting two parent lists.
 - Forgetting that group batching affects collection events only, not any
   separate list or observable helper you compose beside it.
 

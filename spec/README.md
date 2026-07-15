@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (396 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (400 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -541,7 +541,7 @@ one asynchronously acquired value. Immutable idle/loading/ready/error state,
 existing async relay command cancellation, monotonic latest-start-wins
 admission, discard-by-default or retained previous values, and acquisition-based
 optional cleanup replace repeated consumer-owned race policy. `ARES-001..011`
-raise the catalog from 385 to 396 total IDs (391 library + 5 THEME scenario
+raise the catalog from 385 to 400 total IDs (395 library + 5 THEME scenario
 IDs).
 
 See ADR-0100 and chapter 23.
@@ -557,7 +557,7 @@ conformance ID; the supporting schema versions independently.
 
 ### 1.30 Supporting artefacts
 
-- `VERSION` — current spec SemVer (`3.20.1`).
+- `VERSION` — current spec SemVer (`3.21.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
 - `ADRs/` — Architecture Decision Records (0001-0106); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.

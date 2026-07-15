@@ -6,7 +6,8 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.20.x | 3.20.0–3.20.1[^current] | 3.20.0–3.20.1[^current] | 3.20.0–3.21.1[^current] | 3.20.0–3.20.1[^swift] | 0.20.0–0.22.0[^rust] |
+| 3.21.x | 3.21.0[^current] | 3.21.0[^current] | 3.22.0[^current] | 3.21.0[^swift] | 0.23.0[^rust] |
+| 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
 | 3.17.x | —               | —               | —               | —               | 0.17.0[^rust-source] |
@@ -51,7 +52,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**391 of 391 library conformance IDs + 5 `THEME-00x` scenario IDs = 396 total
+**395 of 395 library conformance IDs + 5 `THEME-00x` scenario IDs = 400 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -75,20 +76,20 @@ THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
 with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
 
-[^current]: C# and Python are on the 3.20.1 in-development source line.
-TypeScript 3.21.1 is an additive tooling release that implements spec
-3.20.1. Python's latest PyPI release remains 3.1.0; C# and TypeScript public
+[^current]: C# and Python are on the 3.21.0 in-development source line.
+TypeScript 3.22.0 implements spec 3.21.0. Python's latest PyPI release remains
+3.1.0; C# and TypeScript public
 packages remain pending. Their release jobs refuse to green-skip a publish
 without configured credentials.
 
-[^swift]: Swift 3.20.1 is the current source line. Swift 3.20.0 remains publicly
+[^swift]: Swift 3.21.0 is the current source line. Swift 3.20.0 remains publicly
 installable from the repository root through
 the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
 tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
 point to the same `main` commit.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-is at source version 0.22.0, declares `MIN_SPEC_VERSION = "3.20.1"`, and carries behavioral tests for all 391
+is at source version 0.23.0, declares `MIN_SPEC_VERSION = "3.21.0"`, and carries behavioral tests for all 395
 library conformance IDs. It has not yet been published to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
@@ -96,6 +97,15 @@ library conformance IDs. It has not yet been published to crates.io.
 through 3.19.x.
 They were not published to crates.io and do not imply
 corresponding `rust-v*` tags or releases.
+
+The same source-only history applies to Rust `0.20.0` through `0.22.0` for
+spec 3.20.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
+TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines are intentionally
+not listed as releases in the matrix.
+
+[^legacy-semantic-tag-only]: Spec 3.20.0 predates the duplicate operational
+`spec-v*` tag convention. Its immutable `v3.20.0` semantic tag is the release
+tag; no `spec-v3.20.0` tag was created.
 
 ## 3. C# companion packages
 
@@ -112,7 +122,7 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.20.1 core project and
-> pack with a `VMx >= 3.20.1` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.21.0 core project and
+> pack with a `VMx >= 3.21.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
 > because the historical core tag `csharp-v2.1.0` is immutable. These source versions do not claim
 > that the packages have been published.

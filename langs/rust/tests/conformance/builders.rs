@@ -92,7 +92,7 @@ fn relay_command_trigger_setter_is_additive() {
 /// BLD-006 — Common VM options factories match builder semantics
 #[test]
 fn common_options_factories_match_builder_shape() {
-    let child = child("a");
+    let composite_child = child("a");
     let component = ComponentVm::create(ComponentVmOptions {
         name: Some("component".to_string()),
         hint: Some("hint".to_string()),
@@ -106,7 +106,7 @@ fn common_options_factories_match_builder_shape() {
         hint: None,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
-        children: Some(vec![child.clone()]),
+        children: Some(vec![composite_child]),
         auto_construct_on_add: false,
     })
     .unwrap();
@@ -115,7 +115,7 @@ fn common_options_factories_match_builder_shape() {
         hint: None,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
-        children: Some(vec![child]),
+        children: Some(vec![child("b")]),
         auto_construct_on_add: false,
     })
     .unwrap();

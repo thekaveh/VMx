@@ -35,7 +35,7 @@ language.
 ## 7.1.4. Common Rules
 
 - All five full-parity source flavors target the same VM family model,
-  lifecycle semantics, and 391-ID library conformance catalog.
+  lifecycle semantics, and 395-ID library conformance catalog.
 - Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,
   camelCase in TypeScript and Swift, and snake_case for Rust methods with
   Rust-style type names such as `ComponentVm`.

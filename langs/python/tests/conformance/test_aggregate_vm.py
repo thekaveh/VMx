@@ -23,6 +23,7 @@ from vmx.aggregates.builders import (
     AggregateVM6Builder,
 )
 from vmx.components.builders import ComponentVMBuilder
+from vmx.composites.builders import CompositeVMBuilder
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -318,6 +319,61 @@ def test_AGG_006_arity6_construct_and_destruct_all_six() -> None:
     assert agg.component_5.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.component_6.status == ConstructionStatus.DESTRUCTED  # type: ignore[union-attr]
     assert agg.status == ConstructionStatus.DESTRUCTED
+
+
+def test_aggregate_rejects_owned_factory_result_without_mutation() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _child(hub, dispatcher)
+    composite = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, dispatcher)
+        .children(lambda: [child])
+        .build()
+    )
+    composite.construct()
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(lambda: child)
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="already has a parent"):
+        aggregate.construct()
+
+    assert composite.snapshot() == (child,)
+    assert aggregate.component_1 is None
+
+
+def test_fixed_aggregate_slot_cannot_transfer_to_mutable_parent() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _child(hub, dispatcher)
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(lambda: child)
+        .build()
+    )
+    aggregate.construct()
+    composite = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    composite.construct()
+
+    with pytest.raises(ValueError, match="fixed aggregate slot"):
+        composite.add(child)
+
+    assert aggregate.component_1 is child
+    assert composite.snapshot() == ()
 
 
 # ---------------------------------------------------------------------------

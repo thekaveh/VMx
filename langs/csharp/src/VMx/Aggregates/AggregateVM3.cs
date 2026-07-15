@@ -19,6 +19,7 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
     where VM2 : class, IComponentVM
     where VM3 : class, IComponentVM
 {
+    private readonly IParentCompositeVM _aggregateParent;
     private readonly Func<VM1> _factory1;
     private readonly Func<VM2> _factory2;
     private readonly Func<VM3> _factory3;
@@ -64,6 +65,7 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
         _factory1 = factory1;
         _factory2 = factory2;
         _factory3 = factory3;
+        _aggregateParent = new AggregateParent(this, this);
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────────
@@ -71,19 +73,25 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        var next1 = _factory1();
+        var next2 = _factory2();
+        var next3 = _factory3();
+        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3);
+        IComponentVM?[] previous = [_component1, _component2, _component3];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
         _component1?.Dispose();
         _component2?.Dispose();
         _component3?.Dispose();
 
-        _component1 = _factory1();
+        _component1 = next1;
         NotifyPropertyChanged(nameof(Component1));
 
-        _component2 = _factory2();
+        _component2 = next2;
         NotifyPropertyChanged(nameof(Component2));
 
-        _component3 = _factory3();
+        _component3 = next3;
+        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3]);
         NotifyPropertyChanged(nameof(Component3));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(

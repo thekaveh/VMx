@@ -18,6 +18,12 @@ namespace VMx.Components;
 /// </summary>
 internal interface IParentCompositeVM
 {
+    /// <summary>The component that owns this child collection.</summary>
+    IComponentVM? Owner { get; }
+
+    /// <summary>The owner's own parent, used for identity-based cycle checks.</summary>
+    IParentCompositeVM? OwnerParent { get; }
+
     /// <summary>True when children can select/deselect into a parent-owned current slot.</summary>
     bool SupportsChildSelection { get; }
 
@@ -29,6 +35,43 @@ internal interface IParentCompositeVM
 
     /// <summary>Deselects the given child.</summary>
     void DeselectChild(IComponentVM vm);
+
+    /// <summary>Whether this parent contains the exact child identity.</summary>
+    bool ContainsChild(IComponentVM vm);
+
+    /// <summary>Stage-detaches a child without publishing the removal.</summary>
+    ParentTransferToken DetachForTransfer(IComponentVM vm);
+}
+
+/// <summary>
+/// One-shot transaction returned by an old parent while a new parent attempts
+/// to take ownership of a child.
+/// </summary>
+internal sealed class ParentTransferToken
+{
+    private readonly Action _commit;
+    private readonly Action _rollback;
+    private bool _finished;
+
+    internal ParentTransferToken(Action commit, Action rollback)
+    {
+        _commit = commit;
+        _rollback = rollback;
+    }
+
+    internal void Commit()
+    {
+        if (_finished) throw new InvalidOperationException("Parent transfer token is already finished.");
+        _finished = true;
+        _commit();
+    }
+
+    internal void Rollback()
+    {
+        if (_finished) throw new InvalidOperationException("Parent transfer token is already finished.");
+        _finished = true;
+        _rollback();
+    }
 }
 
 /// <summary>
@@ -37,6 +80,7 @@ internal interface IParentCompositeVM
 /// </summary>
 internal interface IComponentVMInternals
 {
+    IParentCompositeVM? Parent { get; }
     void SetParent(IParentCompositeVM? parent);
     void SetIsCurrent(bool value);
 }
@@ -50,8 +94,33 @@ internal static class ComponentVMExtensions
     internal static void SetParent(this IComponentVM vm, IParentCompositeVM? parent)
         => (vm as IComponentVMInternals)?.SetParent(parent);
 
+    internal static IParentCompositeVM? GetParent(this IComponentVM vm)
+        => (vm as IComponentVMInternals)?.Parent;
+
     internal static void SetIsCurrent(this IComponentVM vm, bool value)
         => (vm as IComponentVMInternals)?.SetIsCurrent(value);
+}
+
+/// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
+internal static class ComponentOwnership
+{
+    internal static ParentTransferToken? BeginTransfer(
+        IComponentVM child,
+        IParentCompositeVM destination)
+    {
+        if (destination.ContainsChild(child))
+            throw new InvalidOperationException(
+                $"Cannot add '{child.Name}': the destination already contains that identity.");
+
+        for (IParentCompositeVM? cursor = destination; cursor is not null; cursor = cursor.OwnerParent)
+        {
+            if (cursor.Owner is not null && ReferenceEquals(cursor.Owner, child))
+                throw new InvalidOperationException(
+                    $"Cannot add '{child.Name}': the operation would create a parent cycle.");
+        }
+
+        return child.GetParent()?.DetachForTransfer(child);
+    }
 }
 
 /// <summary>
@@ -184,6 +253,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     internal IParentCompositeVM? Parent { get; set; }
 
     // ── IComponentVMInternals explicit implementation ─────────────────────────
+    IParentCompositeVM? IComponentVMInternals.Parent => Parent;
     void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => Parent = parent;
     void IComponentVMInternals.SetIsCurrent(bool value) => IsCurrent = value;
 
@@ -446,9 +516,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public Task ConstructAsync()
     {
-        // Idempotent like Construct(): already Constructed emits no message,
-        // so subscribing first would wait forever for a message that never comes.
-        if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
+        lock (_gate)
+        {
+            // Idempotent like Construct(): already Constructed emits no message.
+            if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
+            // Container cascades may join a background transition they started
+            // while staging an atomic population. Do not start it a second time.
+            if (_status == ConstructionStatus.Constructing && _inFlight)
+                return RegisterLifecycleWaiter().Task;
+        }
 
         var tcs = RegisterLifecycleWaiter();
         try
@@ -595,9 +671,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public Task DestructAsync()
     {
-        // Idempotent like Destruct(): already Destructed emits no message,
-        // so subscribing first would wait forever for a message that never comes.
-        if (_status == ConstructionStatus.Destructed) return Task.CompletedTask;
+        lock (_gate)
+        {
+            // Idempotent like Destruct(): already Destructed emits no message.
+            if (_status == ConstructionStatus.Destructed) return Task.CompletedTask;
+            // Internal cascades join an already-running background transition.
+            if (_status == ConstructionStatus.Destructing && _inFlight)
+                return RegisterLifecycleWaiter().Task;
+        }
 
         var tcs = RegisterLifecycleWaiter();
         try

@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.21.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- Components now have one authoritative owning parent. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
+
 ### Fixed
 
 - Form reset publication now defers model edits requested by validation

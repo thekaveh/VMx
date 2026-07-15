@@ -78,6 +78,14 @@ class _ParentCompositeVM(ABC):
 
     @property
     @abstractmethod
+    def owner(self) -> _ComponentVMBase: ...
+
+    @property
+    @abstractmethod
+    def owner_parent(self) -> _ParentCompositeVM | None: ...
+
+    @property
+    @abstractmethod
     def current_child(self) -> object | None: ...
 
     @property
@@ -96,6 +104,49 @@ class _ParentCompositeVM(ABC):
 
     @abstractmethod
     def deselect_child(self, vm: _ComponentVMBase) -> None: ...
+
+    @abstractmethod
+    def contains_child(self, vm: _ComponentVMBase) -> bool: ...
+
+    @abstractmethod
+    def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer: ...
+
+
+class _ParentTransfer:
+    """One-shot staged removal that can be committed or rolled back."""
+
+    def __init__(self, commit: Callable[[], None], rollback: Callable[[], None]) -> None:
+        self._commit = commit
+        self._rollback = rollback
+        self._finished = False
+
+    def commit(self) -> None:
+        if self._finished:
+            raise RuntimeError("parent transfer is already finished")
+        self._finished = True
+        self._commit()
+
+    def rollback(self) -> None:
+        if self._finished:
+            raise RuntimeError("parent transfer is already finished")
+        self._finished = True
+        self._rollback()
+
+
+def _begin_parent_transfer(
+    child: _ComponentVMBase, destination: _ParentCompositeVM
+) -> _ParentTransfer | None:
+    """Validate exclusive ownership/cycles and stage any old-parent removal."""
+    if destination.contains_child(child):
+        raise ValueError(f"Cannot add {child.name!r}: destination already contains that identity")
+
+    cursor: _ParentCompositeVM | None = destination
+    while cursor is not None:
+        if cursor.owner is child:
+            raise ValueError(f"Cannot add {child.name!r}: operation would create a parent cycle")
+        cursor = cursor.owner_parent
+
+    return None if child._parent is None else child._parent.detach_for_transfer(child)
 
 
 # ---------------------------------------------------------------------------
@@ -875,17 +926,27 @@ class _ComponentVMBase(ABC):
             self._complete_lifecycle_waiters_locked()
 
     def _construct_future(self) -> Future[None]:
-        if self._status is ConstructionStatus.CONSTRUCTED:
-            completed: Future[None] = Future()
-            completed.set_result(None)
-            return completed
+        with self._lifecycle_lock:
+            if self._status is ConstructionStatus.CONSTRUCTED:
+                completed: Future[None] = Future()
+                completed.set_result(None)
+                return completed
+            if self._status is ConstructionStatus.CONSTRUCTING:
+                waiter: Future[None] = Future()
+                self._lifecycle_waiters.append(waiter)
+                return waiter
         return self._start_lifecycle_future(self.construct)
 
     def _destruct_future(self) -> Future[None]:
-        if self._status is ConstructionStatus.DESTRUCTED:
-            completed: Future[None] = Future()
-            completed.set_result(None)
-            return completed
+        with self._lifecycle_lock:
+            if self._status is ConstructionStatus.DESTRUCTED:
+                completed: Future[None] = Future()
+                completed.set_result(None)
+                return completed
+            if self._status is ConstructionStatus.DESTRUCTING:
+                waiter: Future[None] = Future()
+                self._lifecycle_waiters.append(waiter)
+                return waiter
         return self._start_lifecycle_future(self.destruct)
 
     def _start_lifecycle_future(self, operation: Callable[[], None]) -> Future[None]:

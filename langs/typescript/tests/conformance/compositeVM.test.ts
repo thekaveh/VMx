@@ -6,9 +6,11 @@ import {
   MessageHub,
   RxDispatcher,
   ComponentVM,
+  ComponentVMBase,
   ComponentVMOf,
   CompositeVM,
   CompositeVMOf,
+  GroupVM,
   PropertyChangedMessage,
 } from "../../src/index.js";
 import type { CollectionChangedEvent } from "../../src/index.js";
@@ -739,5 +741,165 @@ describe("COMP-027", () => {
     expect(child.canSelect()).toBe(false);
     child.select(); // no-op: parent is null
     expect(composite.current).toBeNull();
+  });
+});
+
+describe("COMP-038", () => {
+  it("transfers a child from its previous parent", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const child = makeChild(hub, "c");
+    oldParent.add(child);
+    oldParent.construct();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher).children(() => []).build();
+
+    group.add(child);
+
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([child]);
+    expect(child.status).toBe(ConstructionStatus.Constructed);
+    expect(oldParent.remove(child)).toBe(false);
+
+    const nextParent = CompositeVM.builder<ComponentVM>()
+      .name("next").services(hub, dispatcher).children(() => []).build();
+    nextParent.construct();
+    nextParent.add(child);
+    expect(group.snapshot()).toEqual([]);
+    expect(child.canSelect()).toBe(true);
+    child.select();
+    expect(nextParent.current).toBe(child);
+  });
+});
+
+describe("COMP-039", () => {
+  it("rejects duplicate identity and ancestor cycles without mutation", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const parent = CompositeVM.builder<ComponentVM>()
+      .name("parent").services(hub, dispatcher).children(() => []).build();
+    const child = makeChild(hub, "child");
+    parent.add(child);
+    const events: CollectionChangedEvent[] = [];
+    parent.collectionChanged.subscribe((event) => events.push(event));
+
+    expect(() => parent.add(child)).toThrow(/already contains/);
+    expect(parent.snapshot()).toEqual([child]);
+    expect(events).toEqual([]);
+
+    const outer = CompositeVM.builder<ComponentVMBase>()
+      .name("outer").services(hub, dispatcher).children(() => []).build();
+    const inner = CompositeVM.builder<ComponentVMBase>()
+      .name("inner").services(hub, dispatcher).children(() => []).build();
+    outer.add(inner);
+    expect(() => inner.add(outer)).toThrow(/parent cycle/);
+    expect(outer.snapshot()).toEqual([inner]);
+    expect(inner.snapshot()).toEqual([]);
+  });
+});
+
+describe("COMP-040", () => {
+  it("restores parent, index, current, and lifecycle when construction fails", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const child = ComponentVM.builder()
+      .name("failing")
+      .services(hub, dispatcher)
+      .onConstruct(() => { throw new Error("boom"); })
+      .build();
+    const sibling = makeChild(hub, "sibling");
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    oldParent.add(sibling);
+    oldParent.add(child);
+    oldParent.current = child;
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination")
+      .services(hub, dispatcher)
+      .children(() => [])
+      .autoConstructOnAdd(true)
+      .build();
+    destination.construct();
+    const events: string[] = [];
+    oldParent.collectionChanged.subscribe(() => events.push("old"));
+    destination.collectionChanged.subscribe(() => events.push("new"));
+
+    expect(() => destination.add(child)).toThrow("boom");
+    expect(oldParent.snapshot()).toEqual([sibling, child]);
+    expect(oldParent.current).toBe(child);
+    expect(child.isCurrent).toBe(true);
+    expect(child.status).toBe(ConstructionStatus.Destructed);
+    expect(destination.snapshot()).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("rolls back an entire lazy population and remains retryable", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    let destination: GroupVM<ComponentVM>;
+    const first = ComponentVM.builder()
+      .name("first")
+      .services(hub, dispatcher)
+      .onConstruct(() => { expect(destination.snapshot()).toHaveLength(2); })
+      .build();
+    const blocker = ComponentVM.builder()
+      .name("bulk-failing")
+      .services(hub, dispatcher)
+      .onConstruct(() => { throw new Error("boom"); })
+      .build();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("bulk-old").services(hub, dispatcher).children(() => []).build();
+    oldParent.add(first);
+    const batch = [first, blocker];
+    destination = GroupVM.builder<ComponentVM>()
+      .name("bulk-destination")
+      .services(hub, dispatcher)
+      .children(() => batch)
+      .build();
+    const events: string[] = [];
+    oldParent.collectionChanged.subscribe(() => events.push("old"));
+    destination.collectionChanged.subscribe(() => events.push("new"));
+
+    expect(() => destination.construct()).toThrow("boom");
+
+    expect(oldParent.snapshot()).toEqual([first]);
+    expect(first.status).toBe(ConstructionStatus.Destructed);
+    expect(destination.snapshot()).toEqual([]);
+    expect(events).toEqual([]);
+    batch.length = 0;
+    destination.construct();
+    expect(destination.snapshot()).toEqual([]);
+  });
+});
+
+describe("COMP-041", () => {
+  it("publishes old removal before new addition after commit", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const child = makeChild(hub, "child");
+    oldParent.add(child);
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher).children(() => []).build();
+    const observed: string[] = [];
+    oldParent.collectionChanged.subscribe((event) => {
+      expect(event.action).toBe("remove");
+      expect(oldParent.snapshot()).not.toContain(child);
+      expect(destination.snapshot()).toContain(child);
+      observed.push("old:remove");
+    });
+    destination.collectionChanged.subscribe((event) => {
+      expect(event.action).toBe("add");
+      expect(oldParent.snapshot()).not.toContain(child);
+      expect(destination.snapshot()).toContain(child);
+      observed.push("new:add");
+    });
+
+    destination.add(child);
+
+    expect(observed).toEqual(["old:remove", "new:add"]);
   });
 });

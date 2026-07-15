@@ -15,9 +15,11 @@ from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import (
+    _begin_parent_transfer,
     _ComponentVMBase,
     _dispose_children_then_self,
     _ParentCompositeVM,
+    _ParentTransfer,
 )
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
@@ -86,6 +88,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     # ── IParentCompositeVM implementation ─────────────────────────────────────
 
     @property
+    def owner(self) -> _ComponentVMBase:
+        return self
+
+    @property
+    def owner_parent(self) -> _ParentCompositeVM | None:
+        return self._parent
+
+    @property
     def current_child(self) -> object | None:
         return self._current
 
@@ -100,6 +110,29 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def deselect_child(self, vm: _ComponentVMBase) -> None:
         if self._current is vm:
             self._set_current(None, async_sel=self._async_selection)
+
+    def contains_child(self, vm: _ComponentVMBase) -> bool:
+        return any(child is vm for child in self._children)
+
+    def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
+        index = next((i for i, child in enumerate(self._children) if child is vm), -1)
+        if index < 0:
+            raise RuntimeError("recorded parent does not contain child identity")
+        child = self._children.pop(index)
+        was_current = self._current is child
+
+        def commit() -> None:
+            if was_current and self._current is child:
+                self._set_current(None, async_sel=False)
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
+            )
+
+        def rollback() -> None:
+            self._children.insert(index, child)
+            child._set_parent(self)
+
+        return _ParentTransfer(commit, rollback)
 
     # ── on_collection_changed ─────────────────────────────────────────────────
 
@@ -197,18 +230,27 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert and ObservableList).
         resolved_index = index + len(self._children) if index < 0 else index
+        transfer = _begin_parent_transfer(value, self)
         self._children[index] = value
         old._set_parent(None)
-        # Mirror _remove_at: if the slot we just replaced held the current
-        # selection, drop Current to None before subscribers see any
-        # collection_changed event for this replace.
+        value._set_parent(self)
+        try:
+            self._maybe_auto_construct(value)
+        except BaseException:
+            self._children[index] = old
+            old._set_parent(self)
+            value._set_parent(None)
+            if transfer is not None:
+                transfer.rollback()
+            raise
+
+        if transfer is not None:
+            transfer.commit()
         if self._current is old:
             self._set_current(None, async_sel=False)
-        value._set_parent(self)
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
         )
-        self._maybe_auto_construct(value)
         self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
         )
@@ -231,19 +273,39 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             index = max(index + len(self._children), 0)
         elif index > len(self._children):
             index = len(self._children)
+        transfer = _begin_parent_transfer(item, self)
         self._children.insert(index, item)
         item._set_parent(self)
-        self._maybe_auto_construct(item)
+        try:
+            self._maybe_auto_construct(item)
+        except BaseException:
+            self._children.pop(index)
+            item._set_parent(None)
+            if transfer is not None:
+                transfer.rollback()
+            raise
+        if transfer is not None:
+            transfer.commit()
         self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
         )
 
     def append(self, item: VM) -> None:
         """Append *item*, emitting a collection-changed event."""
+        transfer = _begin_parent_transfer(item, self)
         self._children.append(item)
         item._set_parent(self)
         idx = len(self._children) - 1
-        self._maybe_auto_construct(item)
+        try:
+            self._maybe_auto_construct(item)
+        except BaseException:
+            self._children.pop()
+            item._set_parent(None)
+            if transfer is not None:
+                transfer.rollback()
+            raise
+        if transfer is not None:
+            transfer.commit()
         self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
         )
@@ -268,7 +330,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def clear(self) -> None:
         """Remove all children, emitting a Reset event."""
         for child in self._children:
-            child._set_parent(None)
+            if child._parent is self:
+                child._set_parent(None)
         self._children.clear()
         # Route through _set_current (mirrors C# Clear / _remove_at): a bare
         # `self._current = None` left the old current child's is_current True
@@ -304,7 +367,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # Emit the actual position; a negative index counts from the end.
         resolved_index = index + len(self._children) if index < 0 else index
         del self._children[index]
-        item._set_parent(None)
+        if item._parent is self:
+            item._set_parent(None)
         if self._current is item:
             self._set_current(None, async_sel=False)
         self._emit_collection_changed(
@@ -423,6 +487,64 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         Default: no-op (children were added manually via append/insert/etc.).
         Subclasses override to evaluate their factory.
         """
+
+    def _attach_population(self, children: Iterable[VM]) -> None:
+        """Attach one factory population as an all-or-nothing transaction."""
+        candidates = list(children)
+        start = len(self._children)
+        transfers: list[_ParentTransfer | None] = []
+        original_statuses: list[ConstructionStatus] = []
+        parent: _ParentCompositeVM = self
+        try:
+            for child in candidates:
+                transfer = _begin_parent_transfer(child, parent)
+                transfers.append(transfer)
+                original_statuses.append(child.status)
+                self._children.append(child)
+                child._set_parent(parent)
+
+            # Populate the complete snapshot before invoking any child hook.
+            # Hooks may inspect or mutate later siblings, and background
+            # children must have only one lifecycle transition in flight.
+            for child in candidates:
+                if (
+                    self.status is ConstructionStatus.CONSTRUCTING
+                    and child.status is not ConstructionStatus.CONSTRUCTED
+                ):
+                    child.construct()
+                else:
+                    self._maybe_auto_construct(child)
+        except BaseException:
+            while len(self._children) > start:
+                child = self._children.pop()
+                original_status = original_statuses[len(self._children) - start]
+                if (
+                    original_status is ConstructionStatus.DESTRUCTED
+                    and child.status is ConstructionStatus.CONSTRUCTED
+                ):
+                    try:
+                        child.destruct()
+                    except BaseException:
+                        pass
+                if child._parent is parent:
+                    child._set_parent(None)
+            for transfer in reversed(transfers):
+                if transfer is not None:
+                    transfer.rollback()
+            raise
+
+        for transfer in transfers:
+            if transfer is not None:
+                transfer.commit()
+        for child in candidates:
+            if child in self._children:
+                self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="add",
+                        new_items=(child,),
+                        new_index=self._children.index(child),
+                    )
+                )
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -569,8 +691,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
     def _populate_children(self) -> None:
         if self._children_factory is None:
             return
-        for child in list(self._children_factory()):
-            self.append(child)
+        self._attach_population(self._children_factory())
 
 
 # ---------------------------------------------------------------------------
@@ -626,8 +747,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
 
     def _populate_children(self) -> None:
         children = [self._child_model_to_child_vm(model) for model in self._children_models()]
-        for child in children:
-            self.append(child)
+        self._attach_population(children)
 
 
 # Deferred import to avoid circular references.

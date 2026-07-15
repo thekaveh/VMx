@@ -78,6 +78,7 @@ fn forwarding_composite_delegates_complete_collection_and_selection_surface() {
     let a = child("a");
     let b = child("b");
     let c = child("c");
+    let d = child("d");
     composite.add(a.clone()).unwrap();
     composite.add(b.clone()).unwrap();
     composite.construct().unwrap();
@@ -91,7 +92,7 @@ fn forwarding_composite_delegates_complete_collection_and_selection_surface() {
     assert_eq!(forwarding.parent_id(), composite.parent_id());
     assert_eq!(forwarding.get(0), Some(a.clone()));
     forwarding.insert(1, c.clone()).unwrap();
-    assert_eq!(forwarding.replace(1, b.clone()).unwrap(), c);
+    assert_eq!(forwarding.replace(1, d).unwrap(), c);
     forwarding.move_item(0, 1).unwrap();
     forwarding.batch_update(|| forwarding.add(c.clone()).unwrap());
     forwarding.set_current(Some(a.clone())).unwrap();

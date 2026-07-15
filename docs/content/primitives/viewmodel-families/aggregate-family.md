@@ -31,6 +31,12 @@ The explicit arity surface is deliberate. VMx keeps `AggregateVM1` through
 `AggregateVM6` rather than a variadic abstraction so every flavor preserves the
 same compile-time slot contract.
 
+Aggregate slots are fixed ownership positions. All factories are evaluated and
+validated before any existing slot is overwritten. A duplicate identity, an
+already-owned component, or an ownership cycle rejects the population without
+changing prior slots. A populated aggregate child cannot be transferred into a
+mutable container because that would leave an invalid empty slot.
+
 ## 6.2.3.3. Lifecycle And Messaging
 
 Construction and destruction cascade through the slot children:
@@ -65,6 +71,8 @@ Python, TypeScript, and Swift examples.
 - Using an aggregate when the child set is variable or homogeneous. Prefer
   `CompositeVM` or `GroupVM`.
 - Expecting slot factories to run at build time. They run at construct time.
+- Passing a component that is still owned by a composite or group. Remove it
+  explicitly before returning it from an aggregate factory.
 - Flattening semantic slots into a list and losing explicit ownership names.
 - Treating slot children as selectable peers. Aggregates own structure, not a
   `Current` selection slot.

@@ -321,6 +321,30 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     assert row["swift"] == []
 
 
+def test_parse_matrix_marks_legacy_semantic_tag_row(tmp_path: Path) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        textwrap.dedent("""\
+            | spec                               | csharp | python | typescript | swift  | rust |
+            | ---------------------------------- | ------ | ------ | ---------- | ------ | ---- |
+            | 3.20.x[^legacy-semantic-tag-only] | —      | —      | —          | 3.20.0 | —    |
+        """),
+        encoding="utf-8",
+    )
+
+    assert cvc.parse_matrix(matrix) == [
+        {
+            "spec_row": "3.20.x",
+            "legacy_semantic_tag_only": True,
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": ["3.20.0"],
+            "rust": [],
+        }
+    ]
+
+
 def test_parse_matrix_dash_cell(tmp_path: Path) -> None:
     """A '—' or '-' cell means no release for that flavor/spec pair."""
     matrix = tmp_path / "compatibility-matrix.md"
@@ -511,6 +535,27 @@ def test_find_missing_tags_requires_release_tags_for_stable_rust_only_row() -> N
     assert "rust-v2.0.0" in missing
     assert "spec-v4.0.0" in missing
     assert "v4.0.0" in missing
+
+
+def test_find_missing_tags_accepts_explicit_legacy_semantic_tag_only_row() -> None:
+    rows = [
+        {
+            "spec_row": "3.20.x",
+            "legacy_semantic_tag_only": True,
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": ["3.20.0"],
+            "rust": [],
+        }
+    ]
+    tags = {"v3.20.0", "swift-v3.20.0"}
+
+    missing = cvc.find_missing_tags("3.21.0", {}, rows, tags)
+
+    assert "spec-v3.20.0" not in missing
+    assert "v3.20.0" not in missing
+    assert "swift-v3.20.0" not in missing
 
 
 # ── main integration ───────────────────────────────────────────────────

@@ -63,6 +63,14 @@ chapter 06).
 On each successful slot population, the aggregate raises
 `PropertyChangedMessage("ComponentN")`.
 
+Aggregate slots are fixed ownership positions rather than mutable membership.
+A component factory that returns a component already owned by any composite,
+group, or aggregate MUST fail before overwriting that component's `Parent`.
+Previously populated slots and their parent links are restored when a later
+slot fails. Consumers must explicitly remove a component from a mutable parent
+before supplying it to an aggregate; a component cannot be transferred out of
+an existing aggregate because doing so would leave an invalid empty slot.
+
 ## 3. Destruction
 
 `destruct()`:

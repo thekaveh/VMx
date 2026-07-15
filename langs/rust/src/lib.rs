@@ -31,7 +31,7 @@ pub use async_resource_vm::{
 pub use async_value::AsyncValue;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MIN_SPEC_VERSION: &str = "3.20.1";
+pub const MIN_SPEC_VERSION: &str = "3.21.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
@@ -69,6 +69,12 @@ pub enum VmxError {
     ConcurrentOperation,
     #[error("component is not a child of this container")]
     NonChild,
+    #[error("component is already a child of this container")]
+    DuplicateChild,
+    #[error("container ownership would create an ancestor cycle")]
+    OwnershipCycle,
+    #[error("component parent state does not match parent membership")]
+    InconsistentParent,
     #[error("component is not current")]
     NotCurrent,
     #[error("builder validation failed: {0}")]
@@ -697,6 +703,140 @@ impl Dispatcher for ManualDispatcher {
     }
 }
 
+type ParentLookup = Arc<dyn Fn() -> Option<ParentHandle> + Send + Sync>;
+type ParentContains = Arc<dyn Fn(usize) -> bool + Send + Sync>;
+type ParentDetach = Arc<dyn Fn(usize, ParentHandle) -> VmxResult<ParentTransfer> + Send + Sync>;
+
+struct ParentHandleInner {
+    id: usize,
+    parent: ParentLookup,
+    contains: ParentContains,
+    detach: ParentDetach,
+}
+
+/// Type-erased weak reference to an owning VMx container.
+///
+/// This is exposed only so third-party `VmNode` implementations can preserve
+/// exclusive ownership. Its operations remain crate-internal.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ParentHandle {
+    inner: Weak<ParentHandleInner>,
+}
+
+impl ParentHandle {
+    fn id(&self) -> Option<usize> {
+        self.inner.upgrade().map(|inner| inner.id)
+    }
+
+    fn parent(&self) -> Option<Self> {
+        self.inner.upgrade().and_then(|inner| (inner.parent)())
+    }
+
+    fn contains(&self, child_id: usize) -> bool {
+        self.inner
+            .upgrade()
+            .is_some_and(|inner| (inner.contains)(child_id))
+    }
+
+    fn detach(&self, child_id: usize) -> VmxResult<ParentTransfer> {
+        let inner = self.inner.upgrade().ok_or(VmxError::InconsistentParent)?;
+        (inner.detach)(child_id, self.clone())
+    }
+
+    fn same_owner(&self, other: &Self) -> bool {
+        self.inner.ptr_eq(&other.inner)
+    }
+}
+
+#[derive(Clone)]
+struct ParentRegistration {
+    inner: Arc<ParentHandleInner>,
+}
+
+impl ParentRegistration {
+    fn new(
+        id: usize,
+        parent: impl Fn() -> Option<ParentHandle> + Send + Sync + 'static,
+        contains: impl Fn(usize) -> bool + Send + Sync + 'static,
+        detach: impl Fn(usize, ParentHandle) -> VmxResult<ParentTransfer> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            inner: Arc::new(ParentHandleInner {
+                id,
+                parent: Arc::new(parent),
+                contains: Arc::new(contains),
+                detach: Arc::new(detach),
+            }),
+        }
+    }
+
+    fn handle(&self) -> ParentHandle {
+        ParentHandle {
+            inner: Arc::downgrade(&self.inner),
+        }
+    }
+}
+
+struct ParentTransfer {
+    commit: Option<Box<dyn FnOnce() + Send>>,
+    rollback: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl ParentTransfer {
+    fn new(
+        commit: impl FnOnce() + Send + 'static,
+        rollback: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        Self {
+            commit: Some(Box::new(commit)),
+            rollback: Some(Box::new(rollback)),
+        }
+    }
+
+    fn commit(mut self) {
+        self.rollback = None;
+        if let Some(commit) = self.commit.take() {
+            commit();
+        }
+    }
+
+    fn rollback(mut self) {
+        self.commit = None;
+        if let Some(rollback) = self.rollback.take() {
+            rollback();
+        }
+    }
+}
+
+fn begin_parent_transfer<T: VmNode>(
+    child: &T,
+    destination: &ParentHandle,
+) -> VmxResult<Option<ParentTransfer>> {
+    if destination.contains(child.id()) {
+        return Err(VmxError::DuplicateChild);
+    }
+
+    let mut cursor = Some(destination.clone());
+    let mut visited = HashSet::new();
+    while let Some(parent) = cursor {
+        let parent_id = parent.id().ok_or(VmxError::InconsistentParent)?;
+        if parent_id == child.id() {
+            return Err(VmxError::OwnershipCycle);
+        }
+        if !visited.insert(parent_id) {
+            return Err(VmxError::OwnershipCycle);
+        }
+        cursor = parent.parent();
+    }
+
+    match child.parent_handle() {
+        Some(parent) => parent.detach(child.id()).map(Some),
+        None if child.parent_id().is_some() => Err(VmxError::InconsistentParent),
+        None => Ok(None),
+    }
+}
+
 pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     fn id(&self) -> usize;
     fn construct(&self) -> VmxResult<()>;
@@ -705,6 +845,14 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     fn status(&self) -> ConstructionStatus;
     fn set_parent_id(&self, parent_id: Option<usize>);
     fn parent_id(&self) -> Option<usize>;
+    #[doc(hidden)]
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.set_parent_id(parent.as_ref().and_then(ParentHandle::id));
+    }
+    #[doc(hidden)]
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        None
+    }
     fn set_current_flag(&self, _is_current: bool) {}
     fn is_current(&self) -> bool {
         false
@@ -737,7 +885,8 @@ struct ComponentCoreInner<D: Dispatcher> {
     status: ConstructionStatus,
     transitioning: bool,
     transition_generation: u64,
-    parent_id: Option<usize>,
+    parent: Option<ParentHandle>,
+    legacy_parent_id: Option<usize>,
     hub: MessageHub,
     property_changed: PropertyChangedStream,
     foreground: D,
@@ -759,7 +908,8 @@ impl<D: Dispatcher> ComponentCore<D> {
                 status: ConstructionStatus::Destructed,
                 transitioning: false,
                 transition_generation: 0,
-                parent_id: None,
+                parent: None,
+                legacy_parent_id: None,
                 hub,
                 property_changed: PropertyChangedStream::default(),
                 foreground: dispatcher,
@@ -976,11 +1126,28 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     fn set_parent_id(&self, parent_id: Option<usize>) {
-        lock(&self.inner).parent_id = parent_id;
+        let mut inner = lock(&self.inner);
+        inner.parent = None;
+        inner.legacy_parent_id = parent_id;
     }
 
     fn parent_id(&self) -> Option<usize> {
-        lock(&self.inner).parent_id
+        let inner = lock(&self.inner);
+        inner
+            .parent
+            .as_ref()
+            .and_then(ParentHandle::id)
+            .or(inner.legacy_parent_id)
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        let mut inner = lock(&self.inner);
+        inner.parent = parent;
+        inner.legacy_parent_id = None;
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        lock(&self.inner).parent.clone()
     }
 
     fn property_changed_stream(&self) -> PropertyChangedStream {
@@ -1320,6 +1487,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
         self.core.parent_id()
     }
 
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.core.parent_handle()
+    }
+
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
     }
@@ -1535,6 +1710,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ReadonlyCo
 
     fn parent_id(&self) -> Option<usize> {
         self.inner.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.core.parent_handle()
     }
 
     fn set_current_flag(&self, is_current: bool) {
@@ -3176,18 +3359,37 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     pub fn remove_at(&self, index: usize) -> Option<T> {
-        let item = {
-            let mut inner = lock(&self.inner);
-            if index >= inner.len() {
-                None
-            } else {
-                Some(inner.remove(index))
-            }
-        };
+        let item = self.remove_at_silent(index);
         if item.is_some() {
             self.publish(CollectionChangeAction::Remove, Some(index), None, true);
         }
         item
+    }
+
+    fn remove_at_silent(&self, index: usize) -> Option<T> {
+        let mut inner = lock(&self.inner);
+        if index >= inner.len() {
+            None
+        } else {
+            Some(inner.remove(index))
+        }
+    }
+
+    fn insert_silent(&self, index: usize, item: T) -> VmxResult<()> {
+        let mut inner = lock(&self.inner);
+        if index > inner.len() {
+            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        }
+        inner.insert(index, item);
+        Ok(())
+    }
+
+    fn publish_remove(&self, index: usize) {
+        self.publish(CollectionChangeAction::Remove, Some(index), None, true);
+    }
+
+    fn publish_add(&self, index: usize) {
+        self.publish(CollectionChangeAction::Add, None, Some(index), true);
     }
 
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
@@ -3553,6 +3755,7 @@ pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     items: ObservableList<T>,
+    ownership: ParentRegistration,
     current: Arc<Mutex<Option<T>>>,
     auto_construct_on_add: Arc<Mutex<bool>>,
     async_selection: Arc<Mutex<bool>>,
@@ -3569,15 +3772,75 @@ impl<T: VmNode> CompositeVm<T, NullDispatcher> {
 impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
-        let items = ObservableList::new(core.id(), hub);
+        let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let current = Arc::new(Mutex::new(None));
+        let current_selector = Arc::new(Mutex::new(None));
+        let on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>> =
+            Arc::new(Mutex::new(None));
+        let ownership = ParentRegistration::new(
+            core.id(),
+            {
+                let core = core.clone();
+                move || core.parent_handle()
+            },
+            {
+                let items = items.clone();
+                move |child_id| items.to_vec().iter().any(|item| item.id() == child_id)
+            },
+            {
+                let core = core.clone();
+                let items = items.clone();
+                let current = Arc::clone(&current);
+                let on_current_changed = Arc::clone(&on_current_changed);
+                move |child_id, owner_handle| {
+                    let index = items
+                        .to_vec()
+                        .iter()
+                        .position(|item| item.id() == child_id)
+                        .ok_or(VmxError::InconsistentParent)?;
+                    let removed = items
+                        .remove_at_silent(index)
+                        .ok_or(VmxError::InconsistentParent)?;
+                    let was_current = lock(&current)
+                        .as_ref()
+                        .is_some_and(|item: &T| item.id() == child_id);
+                    let commit_items = items.clone();
+                    let commit_current = Arc::clone(&current);
+                    let commit_callback = Arc::clone(&on_current_changed);
+                    let commit_core = core.clone();
+                    let commit_removed = removed.clone();
+                    let rollback_items = items.clone();
+                    Ok(ParentTransfer::new(
+                        move || {
+                            if was_current {
+                                *lock(&commit_current) = None;
+                                commit_removed.set_current_flag(false);
+                                commit_core.notify_property_changed("current");
+                                if let Some(callback) = lock(&commit_callback).clone() {
+                                    callback(None);
+                                }
+                            }
+                            commit_items.publish_remove(index);
+                        },
+                        move || {
+                            rollback_items
+                                .insert_silent(index, removed.clone())
+                                .expect("rollback index remains valid");
+                            removed.set_parent_handle(Some(owner_handle));
+                        },
+                    ))
+                }
+            },
+        );
         Self {
             core,
             items,
-            current: Arc::new(Mutex::new(None)),
+            ownership,
+            current,
             auto_construct_on_add: Arc::new(Mutex::new(false)),
             async_selection: Arc::new(Mutex::new(false)),
-            current_selector: Arc::new(Mutex::new(None)),
-            on_current_changed: Arc::new(Mutex::new(None)),
+            current_selector,
+            on_current_changed,
         }
     }
 
@@ -3629,22 +3892,112 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     pub fn add(&self, item: T) -> VmxResult<()> {
-        item.set_parent_id(Some(self.id()));
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        item.set_parent_handle(Some(self.ownership.handle()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
         if should_construct {
-            item.construct()?;
+            if let Err(error) = item.construct() {
+                item.set_parent_handle(None);
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(error);
+            }
+        }
+        if let Some(transfer) = transfer {
+            transfer.commit();
         }
         self.items.push(item);
         Ok(())
     }
 
+    fn attach_population(&self, candidates: Vec<T>, construct: bool) -> VmxResult<()> {
+        let start = self.len();
+        let mut transfers = Vec::with_capacity(candidates.len());
+        let mut original_statuses = Vec::with_capacity(candidates.len());
+        let result = (|| {
+            for child in &candidates {
+                let transfer = begin_parent_transfer(child, &self.ownership.handle())?;
+                transfers.push(transfer);
+                original_statuses.push(child.status());
+                child.set_parent_handle(Some(self.ownership.handle()));
+                self.items.insert_silent(self.len(), child.clone())?;
+            }
+            // Make the entire snapshot visible before any child hook runs.
+            if construct {
+                for child in &candidates {
+                    if child.status() != ConstructionStatus::Constructed {
+                        child.construct()?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            while self.len() > start {
+                let _ = self.items.remove_at_silent(self.len() - 1);
+            }
+            for (child, original_status) in candidates
+                .iter()
+                .zip(&original_statuses)
+                .take(transfers.len())
+                .rev()
+            {
+                if *original_status == ConstructionStatus::Destructed
+                    && child.status() == ConstructionStatus::Constructed
+                {
+                    let _ = child.destruct();
+                }
+                if child
+                    .parent_handle()
+                    .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+                {
+                    child.set_parent_handle(None);
+                }
+            }
+            for transfer in transfers.into_iter().rev().flatten() {
+                transfer.rollback();
+            }
+            return Err(error);
+        }
+
+        for transfer in transfers.into_iter().flatten() {
+            transfer.commit();
+        }
+        for child in &candidates {
+            if let Some(index) = self
+                .items
+                .to_vec()
+                .iter()
+                .position(|candidate| candidate.id() == child.id())
+                .filter(|index| *index >= start)
+            {
+                self.items.publish_add(index);
+            }
+        }
+        Ok(())
+    }
+
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        item.set_parent_id(Some(self.id()));
+        if index > self.len() {
+            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        }
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        item.set_parent_handle(Some(self.ownership.handle()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
         if should_construct {
-            item.construct()?;
+            if let Err(error) = item.construct() {
+                item.set_parent_handle(None);
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(error);
+            }
+        }
+        if let Some(transfer) = transfer {
+            transfer.commit();
         }
         self.items.insert(index, item)
     }
@@ -3656,7 +4009,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             .position(|candidate| candidate == item)
             .ok_or(VmxError::NonChild)?;
         let removed = self.items.remove_at(index).expect("index checked");
-        removed.set_parent_id(None);
+        if removed
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            removed.set_parent_handle(None);
+        }
         if lock(&self.current).as_ref() == Some(&removed) {
             self.assign_current(None);
         }
@@ -3668,7 +4026,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             .items
             .remove_at(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        removed.set_parent_id(None);
+        if removed
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            removed.set_parent_handle(None);
+        }
         if lock(&self.current).as_ref() == Some(&removed) {
             self.assign_current(None);
         }
@@ -3680,13 +4043,23 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             .items
             .get(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        item.set_parent_id(Some(self.id()));
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        item.set_parent_handle(Some(self.ownership.handle()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
         if should_construct {
-            item.construct()?;
+            if let Err(error) = item.construct() {
+                item.set_parent_handle(None);
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(error);
+            }
         }
-        old.set_parent_id(None);
+        if let Some(transfer) = transfer {
+            transfer.commit();
+        }
+        old.set_parent_handle(None);
         if lock(&self.current).as_ref() == Some(&old) {
             self.assign_current(None);
         }
@@ -3700,7 +4073,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     pub fn clear(&self) {
         for item in self.items() {
-            item.set_parent_id(None);
+            if item
+                .parent_handle()
+                .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+            {
+                item.set_parent_handle(None);
+            }
             item.set_current_flag(false);
         }
         self.assign_current(None);
@@ -3946,6 +4324,14 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 
     fn parent_id(&self) -> Option<usize> {
         self.core.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.core.parent_handle()
     }
 
     fn set_current_flag(&self, is_current: bool) {
@@ -4247,9 +4633,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
         if let Some(selector) = self.current_selector {
             vm.set_current_selector(move |items| selector(items));
         }
-        for child in children() {
-            vm.add(child)?;
-        }
+        vm.attach_population(children(), false)?;
         Ok(vm)
     }
 }
@@ -4375,20 +4759,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        let should_load = {
-            let mut loaded = lock(&self.loaded);
-            if *loaded {
-                false
-            } else {
-                *loaded = true;
-                true
-            }
-        };
+        let should_load = !*lock(&self.loaded);
         if should_load {
-            for model in (self.children_models)() {
-                self.inner
-                    .add((self.child_model_to_child_view_model)(model))?;
-            }
+            let children = (self.children_models)()
+                .into_iter()
+                .map(|model| (self.child_model_to_child_view_model)(model))
+                .collect();
+            self.inner.attach_population(children, true)?;
+            *lock(&self.loaded) = true;
         }
         self.inner.construct()
     }
@@ -4439,6 +4817,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn parent_id(&self) -> Option<usize> {
         self.inner.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.core.parent_handle()
     }
 
     fn set_current_flag(&self, is_current: bool) {
@@ -4574,6 +4960,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
 pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     items: ObservableList<T>,
+    ownership: ParentRegistration,
     auto_construct_on_add: Arc<Mutex<bool>>,
 }
 
@@ -4586,10 +4973,46 @@ impl<T: VmNode> GroupVm<T, NullDispatcher> {
 impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
-        let items = ObservableList::new(core.id(), hub);
+        let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let ownership = ParentRegistration::new(
+            core.id(),
+            {
+                let core = core.clone();
+                move || core.parent_handle()
+            },
+            {
+                let items = items.clone();
+                move |child_id| items.to_vec().iter().any(|item| item.id() == child_id)
+            },
+            {
+                let items = items.clone();
+                move |child_id, owner_handle| {
+                    let index = items
+                        .to_vec()
+                        .iter()
+                        .position(|item| item.id() == child_id)
+                        .ok_or(VmxError::InconsistentParent)?;
+                    let removed = items
+                        .remove_at_silent(index)
+                        .ok_or(VmxError::InconsistentParent)?;
+                    let commit_items = items.clone();
+                    let rollback_items = items.clone();
+                    Ok(ParentTransfer::new(
+                        move || commit_items.publish_remove(index),
+                        move || {
+                            rollback_items
+                                .insert_silent(index, removed.clone())
+                                .expect("rollback index remains valid");
+                            removed.set_parent_handle(Some(owner_handle));
+                        },
+                    ))
+                }
+            },
+        );
         Self {
             core,
             items,
+            ownership,
             auto_construct_on_add: Arc::new(Mutex::new(false)),
         }
     }
@@ -4634,22 +5057,112 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     pub fn add(&self, item: T) -> VmxResult<()> {
-        item.set_parent_id(Some(self.id()));
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        item.set_parent_handle(Some(self.ownership.handle()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
         if should_construct {
-            item.construct()?;
+            if let Err(error) = item.construct() {
+                item.set_parent_handle(None);
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(error);
+            }
+        }
+        if let Some(transfer) = transfer {
+            transfer.commit();
         }
         self.items.push(item);
         Ok(())
     }
 
+    fn attach_population(&self, candidates: Vec<T>, construct: bool) -> VmxResult<()> {
+        let start = self.len();
+        let mut transfers = Vec::with_capacity(candidates.len());
+        let mut original_statuses = Vec::with_capacity(candidates.len());
+        let result = (|| {
+            for child in &candidates {
+                let transfer = begin_parent_transfer(child, &self.ownership.handle())?;
+                transfers.push(transfer);
+                original_statuses.push(child.status());
+                child.set_parent_handle(Some(self.ownership.handle()));
+                self.items.insert_silent(self.len(), child.clone())?;
+            }
+            // Make the entire snapshot visible before any child hook runs.
+            if construct {
+                for child in &candidates {
+                    if child.status() != ConstructionStatus::Constructed {
+                        child.construct()?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            while self.len() > start {
+                let _ = self.items.remove_at_silent(self.len() - 1);
+            }
+            for (child, original_status) in candidates
+                .iter()
+                .zip(&original_statuses)
+                .take(transfers.len())
+                .rev()
+            {
+                if *original_status == ConstructionStatus::Destructed
+                    && child.status() == ConstructionStatus::Constructed
+                {
+                    let _ = child.destruct();
+                }
+                if child
+                    .parent_handle()
+                    .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+                {
+                    child.set_parent_handle(None);
+                }
+            }
+            for transfer in transfers.into_iter().rev().flatten() {
+                transfer.rollback();
+            }
+            return Err(error);
+        }
+
+        for transfer in transfers.into_iter().flatten() {
+            transfer.commit();
+        }
+        for child in &candidates {
+            if let Some(index) = self
+                .items
+                .to_vec()
+                .iter()
+                .position(|candidate| candidate.id() == child.id())
+                .filter(|index| *index >= start)
+            {
+                self.items.publish_add(index);
+            }
+        }
+        Ok(())
+    }
+
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        item.set_parent_id(Some(self.id()));
+        if index > self.len() {
+            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        }
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        item.set_parent_handle(Some(self.ownership.handle()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
         if should_construct {
-            item.construct()?;
+            if let Err(error) = item.construct() {
+                item.set_parent_handle(None);
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(error);
+            }
+        }
+        if let Some(transfer) = transfer {
+            transfer.commit();
         }
         self.items.insert(index, item)
     }
@@ -4661,7 +5174,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             .position(|candidate| candidate == item)
             .ok_or(VmxError::NonChild)?;
         let removed = self.items.remove_at(index).expect("index checked");
-        removed.set_parent_id(None);
+        if removed
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            removed.set_parent_handle(None);
+        }
         Ok(())
     }
 
@@ -4670,7 +5188,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             .items
             .remove_at(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        removed.set_parent_id(None);
+        if removed
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            removed.set_parent_handle(None);
+        }
         Ok(removed)
     }
 
@@ -4679,13 +5202,23 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             .items
             .get(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        item.set_parent_id(Some(self.id()));
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        item.set_parent_handle(Some(self.ownership.handle()));
         let should_construct =
             *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
         if should_construct {
-            item.construct()?;
+            if let Err(error) = item.construct() {
+                item.set_parent_handle(None);
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(error);
+            }
         }
-        old.set_parent_id(None);
+        if let Some(transfer) = transfer {
+            transfer.commit();
+        }
+        old.set_parent_handle(None);
         self.items.replace(index, item)?;
         Ok(old)
     }
@@ -4696,7 +5229,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     pub fn clear(&self) {
         for item in self.items() {
-            item.set_parent_id(None);
+            if item
+                .parent_handle()
+                .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+            {
+                item.set_parent_handle(None);
+            }
         }
         self.items.clear();
     }
@@ -4844,6 +5382,14 @@ impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
         self.core.parent_id()
     }
 
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.core.parent_handle()
+    }
+
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
     }
@@ -4932,9 +5478,7 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
             vm.core.set_hint(Some(hint));
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
-        for child in children() {
-            vm.add(child)?;
-        }
+        vm.attach_population(children(), false)?;
         Ok(vm)
     }
 }
@@ -6494,6 +7038,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
     fn parent_id(&self) -> Option<usize> {
         self.component.parent_id()
     }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.component.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.component.core.parent_handle()
+    }
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
@@ -6905,15 +7457,57 @@ impl<T: VmNode> AggregateVm<T> {
     }
 }
 
+fn validate_fixed_aggregate_child<T: VmNode>(
+    child: &T,
+    seen: &mut HashSet<usize>,
+) -> VmxResult<()> {
+    if !seen.insert(child.id()) {
+        return Err(VmxError::DuplicateChild);
+    }
+    if child.parent_handle().is_some() || child.parent_id().is_some() {
+        return Err(VmxError::InconsistentParent);
+    }
+    Ok(())
+}
+
+fn fixed_aggregate_parent<D: Dispatcher>(
+    core: &ComponentCore<D>,
+    child_ids: HashSet<usize>,
+) -> ParentRegistration {
+    let child_ids = Arc::new(child_ids);
+    ParentRegistration::new(
+        core.id(),
+        {
+            let core = core.clone();
+            move || core.parent_handle()
+        },
+        {
+            let child_ids = Arc::clone(&child_ids);
+            move |child_id| child_ids.contains(&child_id)
+        },
+        move |_child_id, _owner_handle| Err(VmxError::InconsistentParent),
+    )
+}
+
+fn attach_fixed_aggregate_child<T: VmNode>(child: &T, parent: &ParentHandle) {
+    child.set_parent_handle(Some(parent.clone()));
+}
+
 #[derive(Clone)]
 pub struct AggregateVm1<T1: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    _ownership: ParentRegistration,
     component1: T1,
 }
 
 impl<T1: VmNode> AggregateVm1<T1, NullDispatcher> {
     pub fn new(name: impl Into<String>, component1: T1) -> Self {
-        Self::with_services(name, MessageHub::new(), NullDispatcher::new(), component1)
+        Self::try_new(name, component1)
+            .expect("aggregate component must be unowned and identity-unique")
+    }
+
+    pub fn try_new(name: impl Into<String>, component1: T1) -> VmxResult<Self> {
+        Self::try_with_services(name, MessageHub::new(), NullDispatcher::new(), component1)
     }
 }
 
@@ -6924,10 +7518,26 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         dispatcher: D,
         component1: T1,
     ) -> Self {
-        Self {
-            core: ComponentCore::new(name, hub, dispatcher),
+        Self::try_with_services(name, hub, dispatcher, component1)
+            .expect("aggregate component must be unowned and identity-unique")
+    }
+
+    pub fn try_with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+    ) -> VmxResult<Self> {
+        let mut ids = HashSet::new();
+        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        let core = ComponentCore::new(name, hub, dispatcher);
+        let ownership = fixed_aggregate_parent(&core, ids);
+        attach_fixed_aggregate_child(&component1, &ownership.handle());
+        Ok(Self {
+            core,
+            _ownership: ownership,
             component1,
-        }
+        })
     }
 
     pub fn component1(&self) -> T1 {
@@ -7000,6 +7610,14 @@ impl<T1: VmNode, D: Dispatcher> VmNode for AggregateVm1<T1, D> {
         self.core.parent_id()
     }
 
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.core.parent_handle()
+    }
+
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
     }
@@ -7020,13 +7638,19 @@ impl<T1: VmNode, D: Dispatcher> Eq for AggregateVm1<T1, D> {}
 #[derive(Clone)]
 pub struct AggregateVm2<T1: VmNode, T2: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    _ownership: ParentRegistration,
     component1: T1,
     component2: T2,
 }
 
 impl<T1: VmNode, T2: VmNode> AggregateVm2<T1, T2, NullDispatcher> {
     pub fn new(name: impl Into<String>, component1: T1, component2: T2) -> Self {
-        Self::with_services(
+        Self::try_new(name, component1, component2)
+            .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_new(name: impl Into<String>, component1: T1, component2: T2) -> VmxResult<Self> {
+        Self::try_with_services(
             name,
             MessageHub::new(),
             NullDispatcher::new(),
@@ -7044,11 +7668,31 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         component1: T1,
         component2: T2,
     ) -> Self {
-        Self {
-            core: ComponentCore::new(name, hub, dispatcher),
+        Self::try_with_services(name, hub, dispatcher, component1, component2)
+            .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+    ) -> VmxResult<Self> {
+        let mut ids = HashSet::new();
+        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        validate_fixed_aggregate_child(&component2, &mut ids)?;
+        let core = ComponentCore::new(name, hub, dispatcher);
+        let ownership = fixed_aggregate_parent(&core, ids);
+        let parent = ownership.handle();
+        attach_fixed_aggregate_child(&component1, &parent);
+        attach_fixed_aggregate_child(&component2, &parent);
+        Ok(Self {
+            core,
+            _ownership: ownership,
             component1,
             component2,
-        }
+        })
     }
 
     pub fn component1(&self) -> T1 {
@@ -7129,6 +7773,14 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> VmNode for AggregateVm2<T1, T2, D> {
         self.core.parent_id()
     }
 
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.core.parent_handle()
+    }
+
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
     }
@@ -7149,6 +7801,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> Eq for AggregateVm2<T1, T2, D> {}
 #[derive(Clone)]
 pub struct AggregateVm3<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    _ownership: ParentRegistration,
     component1: T1,
     component2: T2,
     component3: T3,
@@ -7156,7 +7809,17 @@ pub struct AggregateVm3<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher = Null
 
 impl<T1: VmNode, T2: VmNode, T3: VmNode> AggregateVm3<T1, T2, T3, NullDispatcher> {
     pub fn new(name: impl Into<String>, component1: T1, component2: T2, component3: T3) -> Self {
-        Self::with_services(
+        Self::try_new(name, component1, component2, component3)
+            .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+    ) -> VmxResult<Self> {
+        Self::try_with_services(
             name,
             MessageHub::new(),
             NullDispatcher::new(),
@@ -7176,12 +7839,35 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         component2: T2,
         component3: T3,
     ) -> Self {
-        Self {
-            core: ComponentCore::new(name, hub, dispatcher),
+        Self::try_with_services(name, hub, dispatcher, component1, component2, component3)
+            .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_with_services(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+    ) -> VmxResult<Self> {
+        let mut ids = HashSet::new();
+        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        validate_fixed_aggregate_child(&component2, &mut ids)?;
+        validate_fixed_aggregate_child(&component3, &mut ids)?;
+        let core = ComponentCore::new(name, hub, dispatcher);
+        let ownership = fixed_aggregate_parent(&core, ids);
+        let parent = ownership.handle();
+        attach_fixed_aggregate_child(&component1, &parent);
+        attach_fixed_aggregate_child(&component2, &parent);
+        attach_fixed_aggregate_child(&component3, &parent);
+        Ok(Self {
+            core,
+            _ownership: ownership,
             component1,
             component2,
             component3,
-        }
+        })
     }
 
     pub fn component1(&self) -> T1 {
@@ -7228,6 +7914,7 @@ pub struct AggregateVm4<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
+    _ownership: ParentRegistration,
     component1: T1,
     component2: T2,
     component3: T3,
@@ -7242,13 +7929,37 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4
         component3: T3,
         component4: T4,
     ) -> Self {
-        Self {
-            core: ComponentCore::new(name, MessageHub::new(), NullDispatcher::new()),
+        Self::try_new(name, component1, component2, component3, component4)
+            .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+    ) -> VmxResult<Self> {
+        let mut ids = HashSet::new();
+        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        validate_fixed_aggregate_child(&component2, &mut ids)?;
+        validate_fixed_aggregate_child(&component3, &mut ids)?;
+        validate_fixed_aggregate_child(&component4, &mut ids)?;
+        let core = ComponentCore::new(name, MessageHub::new(), NullDispatcher::new());
+        let ownership = fixed_aggregate_parent(&core, ids);
+        let parent = ownership.handle();
+        attach_fixed_aggregate_child(&component1, &parent);
+        attach_fixed_aggregate_child(&component2, &parent);
+        attach_fixed_aggregate_child(&component3, &parent);
+        attach_fixed_aggregate_child(&component4, &parent);
+        Ok(Self {
+            core,
+            _ownership: ownership,
             component1,
             component2,
             component3,
             component4,
-        }
+        })
     }
 
     pub fn construct(&self) -> VmxResult<()> {
@@ -7282,6 +7993,7 @@ pub struct AggregateVm5<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
+    _ownership: ParentRegistration,
     component1: T1,
     component2: T2,
     component3: T3,
@@ -7300,14 +8012,43 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
         component4: T4,
         component5: T5,
     ) -> Self {
-        Self {
-            core: ComponentCore::new(name, MessageHub::new(), NullDispatcher::new()),
+        Self::try_new(
+            name, component1, component2, component3, component4, component5,
+        )
+        .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+    ) -> VmxResult<Self> {
+        let mut ids = HashSet::new();
+        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        validate_fixed_aggregate_child(&component2, &mut ids)?;
+        validate_fixed_aggregate_child(&component3, &mut ids)?;
+        validate_fixed_aggregate_child(&component4, &mut ids)?;
+        validate_fixed_aggregate_child(&component5, &mut ids)?;
+        let core = ComponentCore::new(name, MessageHub::new(), NullDispatcher::new());
+        let ownership = fixed_aggregate_parent(&core, ids);
+        let parent = ownership.handle();
+        attach_fixed_aggregate_child(&component1, &parent);
+        attach_fixed_aggregate_child(&component2, &parent);
+        attach_fixed_aggregate_child(&component3, &parent);
+        attach_fixed_aggregate_child(&component4, &parent);
+        attach_fixed_aggregate_child(&component5, &parent);
+        Ok(Self {
+            core,
+            _ownership: ownership,
             component1,
             component2,
             component3,
             component4,
             component5,
-        }
+        })
     }
 
     pub fn construct(&self) -> VmxResult<()> {
@@ -7351,6 +8092,7 @@ pub struct AggregateVm6<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
+    _ownership: ParentRegistration,
     component1: T1,
     component2: T2,
     component3: T3,
@@ -7371,15 +8113,47 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
         component5: T5,
         component6: T6,
     ) -> Self {
-        Self {
-            core: ComponentCore::new(name, MessageHub::new(), NullDispatcher::new()),
+        Self::try_new(
+            name, component1, component2, component3, component4, component5, component6,
+        )
+        .expect("aggregate components must be unowned and identity-unique")
+    }
+
+    pub fn try_new(
+        name: impl Into<String>,
+        component1: T1,
+        component2: T2,
+        component3: T3,
+        component4: T4,
+        component5: T5,
+        component6: T6,
+    ) -> VmxResult<Self> {
+        let mut ids = HashSet::new();
+        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        validate_fixed_aggregate_child(&component2, &mut ids)?;
+        validate_fixed_aggregate_child(&component3, &mut ids)?;
+        validate_fixed_aggregate_child(&component4, &mut ids)?;
+        validate_fixed_aggregate_child(&component5, &mut ids)?;
+        validate_fixed_aggregate_child(&component6, &mut ids)?;
+        let core = ComponentCore::new(name, MessageHub::new(), NullDispatcher::new());
+        let ownership = fixed_aggregate_parent(&core, ids);
+        let parent = ownership.handle();
+        attach_fixed_aggregate_child(&component1, &parent);
+        attach_fixed_aggregate_child(&component2, &parent);
+        attach_fixed_aggregate_child(&component3, &parent);
+        attach_fixed_aggregate_child(&component4, &parent);
+        attach_fixed_aggregate_child(&component5, &parent);
+        attach_fixed_aggregate_child(&component6, &parent);
+        Ok(Self {
+            core,
+            _ownership: ownership,
             component1,
             component2,
             component3,
             component4,
             component5,
             component6,
-        }
+        })
     }
 
     pub fn construct(&self) -> VmxResult<()> {

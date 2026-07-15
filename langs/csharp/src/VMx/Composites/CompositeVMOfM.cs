@@ -65,18 +65,7 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
     {
         if (_populated) return;
         var children = _childrenModels().Select(_childModelToChildViewModel).ToArray();
-        var initialCount = Count;
-        try
-        {
-            foreach (var child in children)
-                Add(child);
-        }
-        catch
-        {
-            while (Count > initialCount)
-                RemoveAt(Count - 1);
-            throw;
-        }
+        AttachPopulation(children);
         _populated = true;
     }
 }

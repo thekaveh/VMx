@@ -41,7 +41,7 @@ ______________________________________________________________________
 
 - Produces: specification version `3.21.0`.
 
-- [ ] **Step 1: Add the accepted ADR**
+- [x] **Step 1: Add the accepted ADR**
 
 Record automatic transfer, one-parent membership, weak/non-owning child-to-parent links, no lifecycle transition on detach, staged notifications, rollback, fixed-aggregate rejection, and the rejected alternatives of fail-until-explicit-remove and DAG membership.
 
@@ -52,15 +52,15 @@ Record automatic transfer, one-parent membership, weak/non-owning child-to-paren
 **Spec version:** introduced in 3.21.0
 ```
 
-- [ ] **Step 2: Define the contract in the source chapters**
+- [x] **Step 2: Define the contract in the source chapters**
 
 State this algorithm exactly: validate destination and ancestry; stage-detach from a different mutable parent; attach and auto-construct; commit old removal before new addition; otherwise restore old parent/index/current state and publish no membership event. State that same-parent duplicates and cycles fail without mutation and aggregate slots reject already-owned components.
 
-- [ ] **Step 3: Add four conformance clauses**
+- [x] **Step 3: Add four conformance clauses**
 
 Use identity-distinct containers and assert membership, parent-derived selection, lifecycle preservation, event ordering, and complete rollback. Each clause must cover both `CompositeVM` and `GroupVM` in one test group per flavor.
 
-- [ ] **Step 4: Bump and format the specification**
+- [x] **Step 4: Bump and format the specification**
 
 Run:
 
@@ -86,7 +86,7 @@ Expected: all hooks pass after any automatic formatting.
 
 - Produces: internal one-shot `ParentTransferToken` with `Commit()` and `Rollback()`.
 
-- [ ] **Step 1: Write failing COMP-038 through COMP-041 tests**
+- [x] **Step 1: Write failing COMP-038 through COMP-041 tests**
 
 Add traits for all four IDs. Exercise composite-to-group, group-to-composite, duplicate and self/ancestor rejection, auto-construction failure, original index/current restoration, and observed `Remove` then `Add` events.
 
@@ -101,7 +101,7 @@ public void Add_Transfers_Child_From_Previous_Parent()
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and capture failure**
+- [x] **Step 2: Run the focused tests and capture failure**
 
 Run:
 
@@ -111,7 +111,7 @@ dotnet test langs/csharp/VMx.sln --filter "Conformance=COMP-038|Conformance=COMP
 
 Expected before implementation: at least COMP-038 fails because the old parent retains the child.
 
-- [ ] **Step 3: Add the internal ownership protocol**
+- [x] **Step 3: Add the internal ownership protocol**
 
 Use these responsibilities without exposing them publicly:
 
@@ -127,15 +127,15 @@ internal interface IParentCompositeVM
 
 `ParentTransferToken` captures the typed reinsertion callback, old index/current state, and deferred removal publication. It permits exactly one `Commit()` or `Rollback()`.
 
-- [ ] **Step 4: Route Add, Insert, and index replacement through transfer**
+- [x] **Step 4: Route Add, Insert, and index replacement through transfer**
 
 Prevalidate index, duplicate identity, and the destination's parent chain. Stage the old detach, mutate and auto-construct, then commit old removal before raising destination addition. Catch any failure, undo destination state, roll back the token, and rethrow the original exception.
 
-- [ ] **Step 5: Make factory/bulk population transactional**
+- [x] **Step 5: Make factory/bulk population transactional**
 
 Retain transfer tokens until the full population succeeds. On failure, remove newly attached children in reverse order and roll back tokens in reverse order. Do not mark lazy group population complete until commit.
 
-- [ ] **Step 6: Run focused and C# suites**
+- [x] **Step 6: Run focused and C# suites**
 
 Run the focused command, then locked restore, Release build/test, and format. Expected: four new IDs pass and existing 935 tests remain green before new-test count adjustment.
 
@@ -155,7 +155,7 @@ Run the focused command, then locked restore, Release build/test, and format. Ex
 
 - Consumes: `COMP-038` through `COMP-041`.
 
-- [ ] **Step 1: Write failing pytest conformance tests**
+- [x] **Step 1: Write failing pytest conformance tests**
 
 ```python
 @pytest.mark.conformance("COMP-038")
@@ -168,7 +168,7 @@ def test_add_transfers_child_from_previous_parent() -> None:
 
 Include group/composite crossings, identity duplicates, cycle rejection, invalid-index prevalidation, construction failure rollback, selection restoration, and event order.
 
-- [ ] **Step 2: Run focused tests and capture failure**
+- [x] **Step 2: Run focused tests and capture failure**
 
 Run:
 
@@ -178,7 +178,7 @@ uv --project langs/python run pytest langs/python/tests/conformance/test_composi
 
 Expected before implementation: transfer and rollback assertions fail.
 
-- [ ] **Step 3: Implement `_ParentTransfer`**
+- [x] **Step 3: Implement `_ParentTransfer`**
 
 ```python
 @dataclass(slots=True)
@@ -190,11 +190,11 @@ class _ParentTransfer:
 
 Extend the internal parent protocol with owner identity, owner-parent traversal, membership lookup, and staged detach. Group adaptors delegate to their owning group.
 
-- [ ] **Step 4: Make all mutation paths atomic**
+- [x] **Step 4: Make all mutation paths atomic**
 
 Add shared `_begin_child_transfer` validation to composite and group operations. Preserve Python's documented insertion-index normalization before detaching. Roll back list membership, `_parent`, `_current`, `is_current`, and lazy-population state on every exception.
 
-- [ ] **Step 5: Run focused and Python gates**
+- [x] **Step 5: Run focused and Python gates**
 
 Run pytest, Ruff, formatting, and strict mypy. Expected: all pass with four new markers reported.
 
@@ -214,7 +214,7 @@ Run pytest, Ruff, formatting, and strict mypy. Expected: all pass with four new 
 
 - Consumes: `COMP-038` through `COMP-041`.
 
-- [ ] **Step 1: Write failing Vitest conformance tests**
+- [x] **Step 1: Write failing Vitest conformance tests**
 
 ```typescript
 describe("COMP-038", () => {
@@ -229,23 +229,23 @@ describe("COMP-038", () => {
 
 Use strict identity and record collection events from both parents.
 
-- [ ] **Step 2: Run focused tests and capture failure**
+- [x] **Step 2: Run focused tests and capture failure**
 
 Run `npx vitest run -t 'COMP-038|COMP-039|COMP-040|COMP-041'`; expected: old-parent membership and rollback failures.
 
-- [ ] **Step 3: Implement the ownership token**
+- [x] **Step 3: Implement the ownership token**
 
 Add internal `IOwningParentVM` with owner identity, owner-parent traversal, `containsChild`, and `detachForTransfer`. Keep the exported `IParentVM` selection surface unchanged; `ComponentVMBase` stores a separate private ownership parent. A one-shot token stores closures for deferred removal publication and exact restoration; group-parent adaptors delegate to `GroupVM`.
 
-- [ ] **Step 4: Route mutation and population through staged transfer**
+- [x] **Step 4: Route mutation and population through staged transfer**
 
 Validate indices before detachment, reject duplicate identity/cycles, undo destination membership on `_maybeAutoConstruct` failure, and defer both parents' external callbacks until commit.
 
-- [ ] **Step 5: Run TypeScript gates**
+- [x] **Step 5: Run TypeScript gates**
 
 Run fixture sync, both typechecks, lint, build, tests, and audit. Expected: all pass and no emitted API declaration exposes the ownership helpers beyond their existing internal surface.
 
-### Task 5: Swift throwing mutation parity
+### Task 5: Swift source-compatible mutation parity
 
 **Files:**
 
@@ -253,33 +253,21 @@ Run fixture sync, both typechecks, lint, build, tests, and audit. Expected: all 
 - Modify: `langs/swift/Sources/VMx/Composites/CompositeVM.swift`
 - Modify: `langs/swift/Sources/VMx/Groups/GroupVM.swift`
 - Modify: `langs/swift/Sources/VMx/Forwarding/ForwardingCompositeVM.swift`
-- Modify: `examples/swift/notes-showcase/Sources/NotesShowcaseCore/ViewModels/NotesViewVM.swift`
-- Modify: `langs/swift/Tests/VMxTests/AggregateChangeStreamConformanceTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/AutoConstructOnAddTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/BatchUpdateTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/CompositeCollectionChangedTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/CompositeCrudParentTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/CompositeVMTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/DisposalInvariantTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/FilteredCompositeVMTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/GroupVMTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/ThreadingTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/TokenPagedCompositionTests.swift`
-- Modify: `langs/swift/Tests/VMxTests/VMCollectionMoveConformanceTests.swift`
+- Add: `langs/swift/Tests/VMxTests/ContainerOwnershipTransferTests.swift`
 
 **Interfaces:**
 
 - Produces: internal weak `OwnershipParentVM` and `ParentTransfer` token while preserving public `ParentVM`.
 
-- Produces: catchable `ContainerOwnershipError` for duplicate/cycle failures and throwing mutation methods where failure was previously trapped.
+- Produces: catchable `ContainerOwnershipError` plus companion `addResult`, `insertResult`, and `replaceResult` methods following ADR-0105, while preserving the `VMCollection` protocol's existing `Void` methods.
 
-- [ ] **Step 1: Write failing XCTest conformance cases**
+- [x] **Step 1: Write failing XCTest conformance cases**
 
 ```swift
 /// COMP-038 — a new parent atomically takes ownership from the old parent.
 func testCrossParentTransfer() throws {
-    try oldParent.add(child)
-    try newParent.add(child)
+    try oldParent.addResult(child).get()
+    try newParent.addResult(child).get()
     XCTAssertTrue(oldParent.snapshot().isEmpty)
     XCTAssertTrue(newParent.snapshot().first === child)
 }
@@ -287,19 +275,19 @@ func testCrossParentTransfer() throws {
 
 Cover all four IDs and both container kinds.
 
-- [ ] **Step 2: Compile to demonstrate the missing throwing contract**
+- [x] **Step 2: Compile to demonstrate the missing throwing contract**
 
-Run `swift test --package-path langs/swift --filter 'COMP-03'`. Expected before implementation: test compile failures because mutation methods are nonthrowing and do not transfer.
+Run `swift test --package-path langs/swift --filter 'COMP-03'`. Expected before implementation: test compile failures because the companion result methods do not exist and ordinary mutations do not transfer.
 
-- [ ] **Step 3: Add weak ownership and staged transfer**
+- [x] **Step 3: Add weak ownership and staged transfer**
 
 Add internal `OwnershipParentVM` with owner identity, owner-parent traversal, membership lookup, and staged detach. Preserve the public selection-only `ParentVM`; `ComponentVMBase` stores a second weak ownership-parent reference. `ParentTransfer` retains restoration closures but only weakly references parent owners. Resume any waiter or publish any event only after releasing state locks.
 
-- [ ] **Step 4: Convert mutation paths to catchable throws**
+- [x] **Step 4: Return source-compatible ownership results**
 
-Make add/insert/replace propagate ownership and auto-construction failures instead of `assertionFailure`. Update the listed forwarding, example, and test call sites explicitly: library/example paths propagate with `try`, test methods become throwing and use `try`, and the one intentionally best-effort UI refresh path catches and records its established error notification.
+Keep add/insert/replace `Void` for `VMCollection` source compatibility and route them through `@discardableResult` companion methods returning `Result<Void, ContainerOwnershipError>`, matching ADR-0105's hierarchy precedent. Conformance tests call `.get()` or inspect failures. Wrap auto-construction failures in the same typed result instead of trapping, and forward the companion methods from `ForwardingCompositeVM`.
 
-- [ ] **Step 5: Run Swift gates**
+- [x] **Step 5: Run Swift gates**
 
 Run root and nested release builds and tests where XCTest is available. On this host, record the exact full-Xcode limitation if tests remain unavailable; builds must still pass.
 
@@ -319,7 +307,7 @@ Run root and nested release builds and tests where XCTest is available. On this 
 
 - Preserves: `VmNode::parent_id() -> Option<usize>` as a derived compatibility accessor.
 
-- [ ] **Step 1: Write failing Rust conformance tests**
+- [x] **Step 1: Write failing Rust conformance tests**
 
 ```rust
 /// COMP-038 — adding to a new parent transfers ownership atomically.
@@ -334,23 +322,23 @@ fn new_parent_removes_child_from_old_parent() {
 
 Add event-order, duplicate/cycle, rollback, and weak-cycle-drop probes.
 
-- [ ] **Step 2: Run focused tests and capture failure**
+- [x] **Step 2: Run focused tests and capture failure**
 
 Run `cargo test --manifest-path langs/rust/Cargo.toml --test conformance 'new_parent_removes_child' -- --exact`; expected: old parent still contains the child.
 
-- [ ] **Step 3: Replace authoritative `parent_id` state**
+- [x] **Step 3: Replace authoritative `parent_id` state**
 
 Store an optional `ParentHandle` in `ComponentState`. `set_parent_id` must no longer be used by containers; container wiring calls an internal `set_parent_handle`. `parent_id()` upgrades the weak owner and returns its stable ID, or clears/returns `None` if the owner is gone.
 
-- [ ] **Step 4: Add type-erased parent coordinators**
+- [x] **Step 4: Add type-erased parent coordinators**
 
 Each composite/group owns an `Arc` coordinator that implements `ParentOwner` using cloned shared collection/current state. The coordinator itself is strongly held by the parent and only weakly by children. The rollback token owns the removed typed child, index, current flag, and deferred publication action.
 
-- [ ] **Step 5: Implement atomic mutations and ancestry checks**
+- [x] **Step 5: Implement atomic mutations and ancestry checks**
 
 Prevalidate index and destination ancestry; reject same-destination identity; stage old detach; attach/construct; commit or restore. Never hold a parent mutex while invoking construction, hub delivery, or collection subscribers.
 
-- [ ] **Step 6: Run Rust gates**
+- [x] **Step 6: Run Rust gates**
 
 Run fmt, clippy with `-D warnings`, unit/conformance/doc tests, docs, package, and fresh-consumer smoke. Expected: all pass and the drop probe proves no ownership `Arc` cycle.
 
@@ -392,19 +380,19 @@ Run fmt, clippy with `-D warnings`, unit/conformance/doc tests, docs, package, a
 
 - Produces: synchronized minimum-spec declarations and current package versions.
 
-- [ ] **Step 1: Apply SemVer deliberately**
+- [x] **Step 1: Apply SemVer deliberately**
 
-Bump spec to `3.21.0`; bump additive/runtime-error flavors by their policy. Treat Swift's new throwing signatures as source-breaking and apply its required major package version. Update Rust for the internal parity feature and any public trait compatibility impact. Use repository version scripts rather than hand-editing generated lock data.
+Bump spec to `3.21.0`; bump additive/runtime-error flavors by their policy. Swift's additive companion result methods follow the accepted source-compatible ADR-0105 precedent and receive a minor bump. Update Rust for the weak-parent feature and its public `VmNode` implementer-contract impact. Use repository version scripts rather than hand-editing generated lock data.
 
-- [ ] **Step 2: Update changelogs and compatibility claims**
+- [x] **Step 2: Update changelogs and compatibility claims**
 
 Describe automatic transfer, rollback, duplicate/cycle rejection, and Rust weak-parent parity. If the four planned IDs remain the final catalog delta, update the count to 395 library IDs and 400 total IDs; otherwise use the exact count printed by `tools/check-conformance-coverage.py`.
 
-- [ ] **Step 3: Update canonical docs and regenerate**
+- [x] **Step 3: Update canonical docs and regenerate**
 
 Explain single ownership, automatic transfer, and non-disposal. Run the repository's docs generator, site checker, wiki exporter, link checker, and drift checks.
 
-- [ ] **Step 4: Validate diagrams**
+- [x] **Step 4: Validate diagrams**
 
 Run canonical diagram generation with `--check` and the architecture-diagram validator. If any diagram encodes the old relationship, edit its canonical source, regenerate all required formats, and rerun validation.
 
@@ -418,7 +406,7 @@ Run canonical diagram generation with `--check` and the architecture-diagram val
 
 - Produces: one verified maintenance commit for the ownership finding.
 
-- [ ] **Step 1: Run cross-flavor conformance coverage**
+- [x] **Step 1: Run cross-flavor conformance coverage**
 
 Run:
 
@@ -429,15 +417,15 @@ uv --project langs/python run pytest tools/tests/ -q
 
 Expected: every library ID is covered in all five flavors and tool tests pass.
 
-- [ ] **Step 2: Run every applicable full gate**
+- [x] **Step 2: Run every applicable full gate**
 
 Run all language, docs/site/wiki, fixture-sync, version, package, examples, audit, pre-commit, and `git diff --check` commands required by `AGENTS.md` and the overnight-maintenance specification. Record exact evidence and any environment-only skip.
 
-- [ ] **Step 3: Review the final diff**
+- [x] **Step 3: Review the final diff**
 
 Confirm no unrelated files, generated drift, secrets, submodule changes, or public surface changes beyond the approved design.
 
-- [ ] **Step 4: Commit the verified fix**
+- [x] **Step 4: Commit the verified fix**
 
 ```bash
 git add spec README.md compatibility-matrix.md langs/csharp langs/python langs/typescript langs/swift langs/rust docs/content docs/assets

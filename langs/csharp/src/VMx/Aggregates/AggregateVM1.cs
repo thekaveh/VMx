@@ -15,6 +15,7 @@ namespace VMx.Aggregates;
 public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAggregateSlots
     where VM1 : class, IComponentVM
 {
+    private readonly IParentCompositeVM _aggregateParent;
     private readonly Func<VM1> _factory1;
     private VM1? _component1;
 
@@ -44,6 +45,7 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _factory1 = factory1;
+        _aggregateParent = new AggregateParent(this, this);
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────────
@@ -51,11 +53,15 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        var next1 = _factory1();
+        AggregateOwnership.Validate(_aggregateParent, next1);
+        IComponentVM?[] previous = [_component1];
         // On Reconstruct, the previous slot instance is in Destructed state but
         // still holds hub subscriptions and command Subjects. Dispose it before
         // overwriting so subscribers don't leak across the Reconstruct boundary.
         _component1?.Dispose();
-        _component1 = _factory1();
+        _component1 = next1;
+        AggregateOwnership.Commit(_aggregateParent, previous, [next1]);
         NotifyPropertyChanged(nameof(Component1));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(

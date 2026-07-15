@@ -234,6 +234,14 @@ Conformance IDs for this behavior are cataloged in `12-conformance.md` under the
 `COMP-NNN`, `GRP-NNN`, and `AGG-NNN` prefixes; each VM file's `## Conformance` section
 points at its applicable range.
 
+Changing a component's owning container is not a lifecycle transition. An
+atomic composite/group transfer preserves the child's settled or transient
+status, subscriptions, and owned resources: the old parent stage-detaches the
+child, the destination attaches it, and only destination
+`AutoConstructOnAdd(true)` may construct an already-`Destructed` child under the
+existing chapter 06/07 rule. Failure restores the pre-transfer lifecycle and
+membership state. Transfer never calls `destruct()` or `dispose()`.
+
 ## 7. Disposal cascade
 
 `dispose()` on a parent disposes every child (synchronously, depth-first). This

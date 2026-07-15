@@ -23,6 +23,7 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     where VM4 : class, IComponentVM
     where VM5 : class, IComponentVM
 {
+    private readonly IParentCompositeVM _aggregateParent;
     private readonly Func<VM1> _factory1;
     private readonly Func<VM2> _factory2;
     private readonly Func<VM3> _factory3;
@@ -84,6 +85,7 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
         _factory3 = factory3;
         _factory4 = factory4;
         _factory5 = factory5;
+        _aggregateParent = new AggregateParent(this, this);
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────────
@@ -91,6 +93,13 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        var next1 = _factory1();
+        var next2 = _factory2();
+        var next3 = _factory3();
+        var next4 = _factory4();
+        var next5 = _factory5();
+        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3, next4, next5);
+        IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
         _component1?.Dispose();
@@ -99,19 +108,20 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
         _component4?.Dispose();
         _component5?.Dispose();
 
-        _component1 = _factory1();
+        _component1 = next1;
         NotifyPropertyChanged(nameof(Component1));
 
-        _component2 = _factory2();
+        _component2 = next2;
         NotifyPropertyChanged(nameof(Component2));
 
-        _component3 = _factory3();
+        _component3 = next3;
         NotifyPropertyChanged(nameof(Component3));
 
-        _component4 = _factory4();
+        _component4 = next4;
         NotifyPropertyChanged(nameof(Component4));
 
-        _component5 = _factory5();
+        _component5 = next5;
+        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3, next4, next5]);
         NotifyPropertyChanged(nameof(Component5));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(

@@ -102,11 +102,26 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     }
 
     open override func add(_ child: Child) { _wrapped.add(child) }
+    open override func addResult(_ child: Child) -> Result<Void, ContainerOwnershipError> {
+        _wrapped.addResult(child)
+    }
     open override func insert(_ child: Child, at index: Int) { _wrapped.insert(child, at: index) }
+    open override func insertResult(
+        _ child: Child,
+        at index: Int
+    ) -> Result<Void, ContainerOwnershipError> {
+        _wrapped.insertResult(child, at: index)
+    }
     open override func remove(_ child: Child) -> Bool { _wrapped.remove(child) }
     open override func removeAt(_ index: Int) { _wrapped.removeAt(index) }
     open override func replace(at index: Int, with child: Child) {
         _wrapped.replace(at: index, with: child)
+    }
+    open override func replaceResult(
+        at index: Int,
+        with child: Child
+    ) -> Result<Void, ContainerOwnershipError> {
+        _wrapped.replaceResult(at: index, with: child)
     }
     open override func clear() { _wrapped.clear() }
     open override func move(from fromIndex: Int, to toIndex: Int) throws {

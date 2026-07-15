@@ -1,4 +1,4 @@
-use vmx::{ConstructionStatus, Message, MessageHub, NullDispatcher};
+use vmx::{ConstructionStatus, Message, MessageHub, NullDispatcher, VmxError};
 
 type TextVm = vmx::ComponentVm<&'static str>;
 type NumberVm = vmx::ComponentVm<i32>;
@@ -130,4 +130,37 @@ fn arity6_constructs_and_destructs_all_components() {
     aggregate.destruct().unwrap();
     assert_eq!(a.status(), ConstructionStatus::Destructed);
     assert_eq!(f.status(), ConstructionStatus::Destructed);
+}
+
+#[test]
+fn fixed_aggregate_rejects_owned_and_duplicate_components() {
+    let child = text("child");
+    let old_parent = vmx::CompositeVm::new("old");
+    old_parent.add(child.clone()).unwrap();
+
+    assert!(matches!(
+        vmx::AggregateVm1::try_new("aggregate", child.clone()),
+        Err(VmxError::InconsistentParent)
+    ));
+    assert_eq!(old_parent.items(), vec![child.clone()]);
+
+    let duplicate = text("duplicate");
+    assert!(matches!(
+        vmx::AggregateVm2::try_new("aggregate", duplicate.clone(), duplicate),
+        Err(VmxError::DuplicateChild)
+    ));
+}
+
+#[test]
+fn fixed_aggregate_component_cannot_transfer_to_mutable_parent() {
+    let child = text("child");
+    let aggregate = vmx::AggregateVm1::try_new("aggregate", child.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+
+    assert_eq!(
+        destination.add(child.clone()),
+        Err(VmxError::InconsistentParent)
+    );
+    assert!(destination.is_empty());
+    assert_eq!(aggregate.component1(), child);
 }

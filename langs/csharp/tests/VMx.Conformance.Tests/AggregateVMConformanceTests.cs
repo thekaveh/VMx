@@ -2,6 +2,7 @@
 using FluentAssertions;
 using VMx.Aggregates;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Tests.Helpers;
@@ -376,6 +377,47 @@ public class AggregateVMConformanceTests
             disposalOrder.IndexOf(childName).Should().BeLessThan(disposalOrder.IndexOf(aggName),
                 $"{childName} must be Disposed before {aggName} (LIFE-013)");
         }
+    }
+
+    [Fact]
+    public void Aggregate_Rejects_Already_Owned_Factory_Result_Without_Mutation()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var child = MakeLeaf(hub, dispatcher);
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() => [child]).Build();
+        composite.Construct();
+        var aggregate = AggregateVM1<ComponentVM<string>>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => child).Build();
+
+        var act = aggregate.Invoking(candidate => candidate.Construct());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*already has a parent*");
+        composite.Snapshot().Should().ContainSingle().Which.Should().BeSameAs(child);
+        aggregate.Component1.Should().BeNull();
+    }
+
+    [Fact]
+    public void Fixed_Aggregate_Slot_Cannot_Transfer_To_Mutable_Parent()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var child = MakeLeaf(hub, dispatcher);
+        var aggregate = AggregateVM1<ComponentVM<string>>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => child).Build();
+        aggregate.Construct();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() => []).Build();
+        composite.Construct();
+
+        var act = composite.Invoking(candidate => candidate.Add(child));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*fixed aggregate slot*");
+        aggregate.Component1.Should().BeSameAs(child);
+        composite.Count.Should().Be(0);
     }
 }
 #pragma warning restore CA1715

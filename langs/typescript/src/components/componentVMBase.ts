@@ -31,6 +31,56 @@ export interface IParentVM {
   deselectChild(vm: ComponentVMBase): void;
 }
 
+/** @internal Ownership-capable parent link used only by VMx containers. */
+export interface IOwningParentVM extends IParentVM {
+  readonly owner: ComponentVMBase;
+  readonly ownerParent: IOwningParentVM | null;
+  containsChild(vm: ComponentVMBase): boolean;
+  detachForTransfer(vm: ComponentVMBase): ParentTransfer;
+}
+
+/** @internal One-shot staged old-parent removal. */
+export class ParentTransfer {
+  #finished = false;
+
+  constructor(
+    private readonly commitAction: () => void,
+    private readonly rollbackAction: () => void,
+  ) {}
+
+  commit(): void {
+    if (this.#finished) throw new Error("Parent transfer is already finished");
+    this.#finished = true;
+    this.commitAction();
+  }
+
+  rollback(): void {
+    if (this.#finished) throw new Error("Parent transfer is already finished");
+    this.#finished = true;
+    this.rollbackAction();
+  }
+}
+
+/** @internal Validate exclusive ownership/cycles and stage the old removal. */
+export function beginParentTransfer(
+  child: ComponentVMBase,
+  destination: IOwningParentVM,
+): ParentTransfer | null {
+  if (destination.containsChild(child)) {
+    throw new Error(`Cannot add '${child.name}': destination already contains that identity`);
+  }
+
+  let cursor: IOwningParentVM | null = destination;
+  while (cursor !== null) {
+    if (cursor.owner === child) {
+      throw new Error(`Cannot add '${child.name}': operation would create a parent cycle`);
+    }
+    cursor = cursor.ownerParent;
+  }
+
+  return child._parent?.detachForTransfer(child) ?? null;
+}
+
 export interface DisposableResource {
   dispose(): void;
 }
@@ -57,7 +107,7 @@ export abstract class ComponentVMBase {
   #inFlight = false;
   #isCurrent = false;
   /** @internal Set by CompositeVMBase / GroupVM to wire parent-child selection delegation. */
-  _parent: IParentVM | null = null;
+  _parent: IOwningParentVM | null = null;
 
   readonly #propertyChangedSubject = new Subject<string>();
   readonly #statusTrigger = new Subject<void>();

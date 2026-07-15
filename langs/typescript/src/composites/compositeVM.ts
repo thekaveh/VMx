@@ -31,9 +31,7 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
 
   protected override _populateChildren(): void {
     if (this.#childrenFactory === null) return;
-    for (const child of this.#childrenFactory()) {
-      this.add(child);
-    }
+    this._attachPopulation(this.#childrenFactory());
   }
 
   static builder<VM extends ComponentVMBase>(): CompositeVMBuilder<VM> {
