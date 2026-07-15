@@ -88,6 +88,11 @@ public sealed class ObservableCollectionBridge<T> : ObservableCollection<T>, IDi
     {
         if (e.OldItems is null) return;
         var idx = e.OldStartingIndex;
+        if (idx < 0 || idx > Count || e.OldItems.Count > Count - idx)
+        {
+            ApplyReset();
+            return;
+        }
         for (var i = 0; i < e.OldItems.Count; i++)
             RemoveAt(idx);
     }
