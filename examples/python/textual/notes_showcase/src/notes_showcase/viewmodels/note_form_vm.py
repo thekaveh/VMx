@@ -10,7 +10,6 @@ half; the showcase layers the ``is_valid`` check on top).
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 from datetime import datetime
 from typing import cast
@@ -21,6 +20,7 @@ from reactivex.abc import DisposableBase
 from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.note_repository import INoteRepository
 from vmx import (
+    AsyncRelayCommand,
     ComponentVM,
     DerivedProperty,
     DiscriminatorVM,
@@ -114,9 +114,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # can_execute_changed never fired and the Save button stayed
         # permanently disabled in the UI (runtime behavior).
         self._approve_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.is_dirty.value and self.is_valid.value)
-            .task(self._approve_fire_and_forget)
+            .task(self.approve_async)
             .triggers(self._self_subject)
             .build()
         )
@@ -279,7 +279,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._self_subject.on_next(self)
 
     @property
-    def approve_command(self) -> RelayCommand:
+    def approve_command(self) -> AsyncRelayCommand:
         return self._approve_command
 
     @property
@@ -480,14 +480,6 @@ class NoteFormVM(ComponentVM, IReconstructable):
         except Exception:
             self._tag_catalog = ()
         self._tag_search.search()
-
-    def _approve_fire_and_forget(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self.approve_async())
-            task.add_done_callback(lambda t: t.exception())
-        except RuntimeError:
-            asyncio.run(self.approve_async())
 
     def _tag_matches(self, tag: str, term: str) -> bool:
         normalized = term.strip().lower()

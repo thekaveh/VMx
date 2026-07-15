@@ -161,7 +161,7 @@ final class CapabilityActionsVMTests: XCTestCase {
                       "Expected empty actions for nil focus")
     }
 
-    func testAddNoteCommandDelegatesToHostPredicateAndAction() throws {
+    func testAddNoteCommandDelegatesToHostPredicateAndAction() async throws {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE
         var canAdd = false
@@ -176,13 +176,13 @@ final class CapabilityActionsVMTests: XCTestCase {
         try caps.construct()
 
         XCTAssertFalse(caps.addNoteCommand.canExecute())
-        caps.addNoteCommand.execute()
+        try await caps.addNoteCommand.executeAsync()
         XCTAssertEqual(0, calls)
 
         canAdd = true
 
         XCTAssertTrue(caps.addNoteCommand.canExecute())
-        caps.addNoteCommand.execute()
+        try await caps.addNoteCommand.executeAsync()
         XCTAssertEqual(1, calls)
     }
 

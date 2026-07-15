@@ -101,18 +101,18 @@ public final class WorkspaceVM {
     /// Adds a new notebook at the root level.
     ///
     /// Predicate: `isConstructed`. Trigger: `_commandTrigger`.
-    public private(set) var newNotebookCommand: RelayCommand
+    public private(set) var newNotebookCommand: AsyncRelayCommand
 
     /// Adds an untitled note to the currently selected notebook.
     ///
     /// Predicate: `isConstructed && notebooksRoot.current != nil`.
     /// Trigger: `_commandTrigger`.
-    public private(set) var newNoteCommand: RelayCommand
+    public private(set) var newNoteCommand: AsyncRelayCommand
 
     /// Exports the full workspace to a user-chosen file via the dialog service.
     ///
     /// Predicate: `isConstructed`. Trigger: `_commandTrigger`.
-    public private(set) var exportCommand: RelayCommand
+    public private(set) var exportCommand: AsyncRelayCommand
 
     // MARK: - Child accessors
 
@@ -253,10 +253,8 @@ public final class WorkspaceVM {
                     createdAt: Date(),
                     updatedAt: Date()
                 )
-                Task {
-                    try? await repo.saveNote(note)
-                    await notesView?.bindTo(notebookId: nb.model.id)
-                }
+                try await repo.saveNote(note)
+                await notesView?.bindTo(notebookId: nb.model.id)
             })
             .build()
 
@@ -307,7 +305,12 @@ public final class WorkspaceVM {
         // Phase-1 placeholder commands — `var` properties must be assigned
         // before phase 2; real closures are wired immediately after (phase 2).
         // The placeholder has no subscriptions to dispose.
-        let placeholder = RelayCommand(task: nil, predicate: nil, triggers: [])
+        let placeholder = AsyncRelayCommand(
+            body: nil,
+            predicate: nil,
+            triggers: [],
+            throwOnCancel: false
+        )
         newNotebookCommand = placeholder
         newNoteCommand = placeholder
         exportCommand = placeholder
@@ -318,32 +321,32 @@ public final class WorkspaceVM {
 
         let trigger = commandTrigger.eraseToAnyPublisher()
 
-        newNotebookCommand = RelayCommand.builder()
+        newNotebookCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in self?.isConstructed ?? false })
             .task({ [weak self] in
                 guard let self else { return }
-                Task { await self._notebooks.addNotebook(parentId: nil, name: "New Notebook") }
+                try await self._notebooks.addNotebook(parentId: nil, name: "New Notebook")
             })
             .triggers(trigger)
             .build()
 
-        newNoteCommand = RelayCommand.builder()
+        newNoteCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in
                 guard let self else { return false }
                 return self.isConstructed && self._notebooks.current != nil
             })
             .task({ [weak self] in
                 guard let self else { return }
-                Task { await self.addNewNoteToCurrent() }
+                try await self.addNewNoteToCurrent()
             })
             .triggers(trigger)
             .build()
 
-        exportCommand = RelayCommand.builder()
+        exportCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in self?.isConstructed ?? false })
             .task({ [weak self] in
                 guard let self else { return }
-                Task { try? await self.exportInternal() }
+                try await self.exportInternal()
             })
             .triggers(trigger)
             .build()
@@ -429,7 +432,7 @@ public final class WorkspaceVM {
 
     /// Saves a new "Untitled" note in the current notebook and rebinds
     /// the notes view so the new row appears.
-    private func addNewNoteToCurrent() async {
+    private func addNewNoteToCurrent() async throws {
         guard let nb = _notebooks.current else { return }
         let uuid = UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
@@ -445,7 +448,7 @@ public final class WorkspaceVM {
             createdAt: Date(),
             updatedAt: Date()
         )
-        try? await _repo.saveNote(note)
+        try await _repo.saveNote(note)
         await _notesView.bindTo(notebookId: nb.model.id)
     }
 

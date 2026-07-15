@@ -46,7 +46,7 @@ public final class NoteFormVM: ComponentVMBase {
 
     /// Approve = persist via repo + post "Saved …" notification + emit `onSaved`.
     /// Predicate: `isDirty && isValid`.
-    public private(set) var approveCommand: RelayCommand
+    public private(set) var approveCommand: AsyncRelayCommand
 
     /// Deny = revert draft to the current snapshot. No-op when unbound.
     public private(set) var denyCommand: RelayCommand
@@ -177,12 +177,17 @@ public final class NoteFormVM: ComponentVMBase {
         _notificationHub = notificationHub
 
         // Phase 1: placeholder commands (required before super.init).
-        let placeholder = RelayCommand(task: nil, predicate: nil, triggers: [])
-        approveCommand = placeholder
-        denyCommand = placeholder
-        addTagCommand = placeholder
-        showEditModeCommand = placeholder
-        showPreviewModeCommand = placeholder
+        let relayPlaceholder = RelayCommand(task: nil, predicate: nil, triggers: [])
+        approveCommand = AsyncRelayCommand(
+            body: nil,
+            predicate: nil,
+            triggers: [],
+            throwOnCancel: false
+        )
+        denyCommand = relayPlaceholder
+        addTagCommand = relayPlaceholder
+        showEditModeCommand = relayPlaceholder
+        showPreviewModeCommand = relayPlaceholder
         removeTagCommand = RelayCommandOf<String>(task: nil, predicate: nil, triggers: [])
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
@@ -207,14 +212,14 @@ public final class NoteFormVM: ComponentVMBase {
 
         let trigger = _canExecuteTrigger.eraseToAnyPublisher()
 
-        approveCommand = RelayCommand.builder()
+        approveCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in
                 guard let self else { return false }
                 return self.isDirty && self.isValid
             })
             .task({ [weak self] in
                 guard let self else { return }
-                Task { try? await self.approveAsync() }
+                try await self.approveAsync()
             })
             .triggers(trigger)
             .build()

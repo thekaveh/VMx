@@ -376,9 +376,9 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         // ApproveCommand.CanExecute reactively for Avalonia buttons. Wire the
         // ``_canExecuteTrigger`` subject through .Triggers(...) so each
         // EmitDraftChanges call fires CanExecuteChanged.
-        ApproveCommand = RelayCommand.Builder()
+        ApproveCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsDirty && IsValid)
-            .Task(() => _ = ApproveAsync())
+            .Task(_ => ApproveAsync())
             .Triggers(_canExecuteTrigger)
             .Build();
         DenyCommand = RelayCommand.Builder()

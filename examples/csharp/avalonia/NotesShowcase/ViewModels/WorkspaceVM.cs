@@ -170,7 +170,7 @@ public sealed class WorkspaceVM : IDisposable
             .Name("capabilities").Services(hub, dispatcher)
             .FocusedGetter(() => _focused)
             .CanAddNote(() => IsConstructed && NotebooksRoot.Current is not null && !NotesView.CurrentNotebookIsReadOnly)
-            .AddNoteAction(() => _ = AddNewNoteToCurrentAsync())
+            .AddNoteAction(AddNewNoteToCurrentAsync)
             .Build();
         var globalSearch = GlobalSearchVM.Builder()
             .Name("global-search").Services(hub, dispatcher)
@@ -261,19 +261,19 @@ public sealed class WorkspaceVM : IDisposable
             .ObserveOn(_dispatcher.Foreground)
             .Subscribe(notesView.RefreshNote);
 
-        NewNotebookCommand = RelayCommand.Builder()
+        NewNotebookCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsConstructed)
-            .Task(() => _ = NotebooksRoot.AddNotebookAsync(parentId: null, name: "New Notebook"))
+            .Task(_ => NotebooksRoot.AddNotebookAsync(parentId: null, name: "New Notebook"))
             .Triggers(_commandTrigger)
             .Build();
-        NewNoteCommand = RelayCommand.Builder()
+        NewNoteCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsConstructed && NotebooksRoot.Current is not null)
-            .Task(() => _ = AddNewNoteToCurrentAsync())
+            .Task(_ => AddNewNoteToCurrentAsync())
             .Triggers(_commandTrigger)
             .Build();
-        ExportCommand = RelayCommand.Builder()
+        ExportCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsConstructed)
-            .Task(() => _ = ExportInternalAsync())
+            .Task(_ => ExportInternalAsync())
             .Triggers(_commandTrigger)
             .Build();
     }

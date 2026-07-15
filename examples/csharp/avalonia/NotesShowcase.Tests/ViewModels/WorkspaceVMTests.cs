@@ -1,5 +1,6 @@
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Commands;
 using VMx.Dialogs;
 using VMx.Lifecycle;
 using Xunit;
@@ -102,9 +103,7 @@ public sealed class WorkspaceVMTests
         {
             var nbId = ws.NotebooksRoot.Current!.Model.Id;
             var before = ws.NotesView.FilteredItems.Count;
-            ws.NewNoteCommand.Execute(null);
-            // NewNote is fire-and-forget; wait for the added note to appear.
-            await TestWait.WaitUntilAsync(() => ws.NotesView.FilteredItems.Count > before);
+            await Assert.IsType<AsyncRelayCommand>(ws.NewNoteCommand).ExecuteAsync();
             Assert.True(ws.NotesView.FilteredItems.Count >= before);
             // After rebind, all visible notes belong to the current notebook.
             Assert.All(ws.NotesView.FilteredItems, n => Assert.Equal(nbId, n.Model.NotebookId));
@@ -167,13 +166,18 @@ public sealed class WorkspaceVMTests
     [Fact]
     public async Task NewNotebookCommand_appends_a_notebook()
     {
-        var ws = BuildWorkspace();
+        var ws = WorkspaceVM.Builder()
+            .Repository(new InMemoryNoteRepository(
+                SeedData.Build(),
+                loadAllDelay: TimeSpan.Zero,
+                loadNotesDelay: TimeSpan.Zero,
+                addNotebookDelay: TimeSpan.FromMilliseconds(25)))
+            .Build();
         await ws.ConstructAsync();
         try
         {
             var before = ws.NotebooksRoot.All.Count;
-            ws.NewNotebookCommand.Execute(null);
-            await TestWait.WaitUntilAsync(() => ws.NotebooksRoot.All.Count > before);
+            await Assert.IsType<AsyncRelayCommand>(ws.NewNotebookCommand).ExecuteAsync();
             Assert.True(ws.NotebooksRoot.All.Count > before);
         }
         finally
@@ -556,8 +560,7 @@ public sealed class WorkspaceVMTests
         await ws.ConstructAsync();
         try
         {
-            ws.ExportCommand.Execute(null);
-            await TestWait.WaitUntilAsync(() => File.Exists(path));
+            await Assert.IsType<AsyncRelayCommand>(ws.ExportCommand).ExecuteAsync();
             Assert.True(File.Exists(path), "export must write through the picked path");
         }
         finally

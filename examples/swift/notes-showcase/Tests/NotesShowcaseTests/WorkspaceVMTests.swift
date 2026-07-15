@@ -5,9 +5,9 @@
 // No conformance-ID markers (scenario IDs live in THEME-00x only).
 //
 // Determinism strategy:
-//   • Zero repo delays → async repo calls return immediately.
+//   • Repo delays are zero except where a test proves awaited completion.
 //   • ImmediateDispatcher.INSTANCE → scheduleForeground runs inline.
-//   • `waitUntil` drains fire-and-forget Tasks (addNotebook, newNote, etc.)
+//   • `waitUntil` drains the few intentionally fire-and-forget observation Tasks
 //     by yielding until the condition holds or a retry cap is hit.
 //
 import XCTest
@@ -43,7 +43,8 @@ final class WorkspaceVMTests: XCTestCase {
 
     /// Builds a zero-delay workspace wired to the standard seed.
     private func buildWorkspace(
-        dialogService: (any DialogService)? = nil
+        dialogService: (any DialogService)? = nil,
+        addNotebookDelay: TimeInterval = 0
     ) throws -> WorkspaceVM {
         let repo = InMemoryNoteRepository(
             seed: SeedData.build(),
@@ -51,7 +52,7 @@ final class WorkspaceVMTests: XCTestCase {
             loadNotesDelay: 0,
             saveNoteDelay: 0,
             deleteNoteDelay: 0,
-            addNotebookDelay: 0,
+            addNotebookDelay: addNotebookDelay,
             exportDelay: 0
         )
         var b = WorkspaceVM.builder().repository(repo)
@@ -204,13 +205,12 @@ final class WorkspaceVMTests: XCTestCase {
     // MARK: - Commands
 
     func testNewNotebookCommand_appendsANotebook() async throws {
-        let ws = try buildWorkspace()
+        let ws = try buildWorkspace(addNotebookDelay: 0.02)
         try await ws.constructAsync()
         defer { ws.dispose() }
 
         let before = ws.notebooksRoot.all.count
-        ws.newNotebookCommand.execute()
-        await waitUntil { ws.notebooksRoot.all.count > before }
+        try await ws.newNotebookCommand.executeAsync()
 
         XCTAssertGreaterThan(ws.notebooksRoot.all.count, before)
     }
@@ -224,8 +224,7 @@ final class WorkspaceVMTests: XCTestCase {
         XCTAssertNotNil(nbId)
         let before = ws.notesView.filteredItems.count
 
-        ws.newNoteCommand.execute()
-        await waitUntil { ws.notesView.filteredItems.count > before }
+        try await ws.newNoteCommand.executeAsync()
 
         XCTAssertGreaterThan(ws.notesView.filteredItems.count, before)
         if let nbId = nbId {
@@ -422,8 +421,7 @@ final class WorkspaceVMTests: XCTestCase {
             try? FileManager.default.removeItem(atPath: path)
         }
 
-        ws.exportCommand.execute()
-        await waitUntil { FileManager.default.fileExists(atPath: path) }
+        try await ws.exportCommand.executeAsync()
 
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: path),

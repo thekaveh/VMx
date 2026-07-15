@@ -81,7 +81,7 @@ public sealed class CapabilityActionsVMTests
     }
 
     [Fact]
-    public void AddNoteCommand_delegates_to_host_predicate_and_action()
+    public async Task AddNoteCommand_delegates_to_host_predicate_and_action()
     {
         var canAdd = false;
         var calls = 0;
@@ -97,13 +97,13 @@ public sealed class CapabilityActionsVMTests
         vm.Construct();
 
         Assert.False(vm.AddNoteCommand.CanExecute(null));
-        vm.AddNoteCommand.Execute(null);
+        await Assert.IsType<AsyncRelayCommand>(vm.AddNoteCommand).ExecuteAsync();
         Assert.Equal(0, calls);
 
         canAdd = true;
 
         Assert.True(vm.AddNoteCommand.CanExecute(null));
-        vm.AddNoteCommand.Execute(null);
+        await Assert.IsType<AsyncRelayCommand>(vm.AddNoteCommand).ExecuteAsync();
         Assert.Equal(1, calls);
     }
 

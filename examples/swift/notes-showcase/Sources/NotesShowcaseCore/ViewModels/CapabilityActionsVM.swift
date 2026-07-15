@@ -41,7 +41,7 @@ public final class CapabilityActionsVM: ComponentVMBase {
     /// `recomputeActions()` is called (or on construction with the initial
     /// focused value from the getter).
     public let actions: DerivedProperty<[ActionVM]>
-    public private(set) var addNoteCommand: RelayCommand
+    public private(set) var addNoteCommand: AsyncRelayCommand
 
     // ── Public API ─────────────────────────────────────────────────────────
 
@@ -203,14 +203,19 @@ public final class CapabilityActionsVM: ComponentVMBase {
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         focusedGetter: @escaping () -> AnyObject?,
-        addNoteAction: @escaping () -> Void,
+        addNoteAction: @escaping () async throws -> Void,
         canAddNote: @escaping () -> Bool
     ) {
         _focusedGetter = focusedGetter
         _canAddNote = canAddNote
         let subject = CurrentValueSubject<AnyObject?, Never>(focusedGetter())
         _focusSubject = subject
-        addNoteCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
+        addNoteCommand = AsyncRelayCommand(
+            body: nil,
+            predicate: nil,
+            triggers: [],
+            throwOnCancel: false
+        )
 
         actions = DerivedProperty<[ActionVM]>.from(
             subject.eraseToAnyPublisher(),
@@ -219,7 +224,7 @@ public final class CapabilityActionsVM: ComponentVMBase {
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
 
-        addNoteCommand = RelayCommand.builder()
+        addNoteCommand = AsyncRelayCommand.builder()
             .predicate(canAddNote)
             .task(addNoteAction)
             .triggers(subject.map { _ in () }.eraseToAnyPublisher())
@@ -252,7 +257,7 @@ public final class CapabilityActionsVM: ComponentVMBase {
         private var _hub: MessageHubProtocol?
         private var _dispatcher: Dispatcher?
         private var _focusedGetter: (() -> AnyObject?)?
-        private var _addNoteAction: (() -> Void)?
+        private var _addNoteAction: (() async throws -> Void)?
         private var _canAddNote: (() -> Bool)?
 
         fileprivate init() {}
@@ -270,7 +275,7 @@ public final class CapabilityActionsVM: ComponentVMBase {
         public func focusedGetter(_ getter: @escaping () -> AnyObject?) -> CapabilityActionsVMBuilder {
             var c = self; c._focusedGetter = getter; return c
         }
-        public func addNoteAction(_ action: @escaping () -> Void) -> CapabilityActionsVMBuilder {
+        public func addNoteAction(_ action: @escaping () async throws -> Void) -> CapabilityActionsVMBuilder {
             var c = self; c._addNoteAction = action; return c
         }
         public func canAddNote(_ predicate: @escaping () -> Bool) -> CapabilityActionsVMBuilder {

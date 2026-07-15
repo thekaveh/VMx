@@ -16,9 +16,9 @@
 import { BehaviorSubject, Subject, observeOn, type Subscription } from "rxjs";
 import {
   AggregateVM6,
+  AsyncRelayCommand,
   DerivedProperty,
   MessageHub,
-  RelayCommand,
   RxDispatcher,
   whenPropertyChanged,
   type ICommand,
@@ -70,9 +70,9 @@ export class WorkspaceVM {
     CapabilityActionsVM
   >;
 
-  readonly #newNotebookCommand: RelayCommand;
-  readonly #newNoteCommand: RelayCommand;
-  readonly #exportCommand: RelayCommand;
+  readonly #newNotebookCommand: AsyncRelayCommand;
+  readonly #newNoteCommand: AsyncRelayCommand;
+  readonly #exportCommand: AsyncRelayCommand;
 
   // current-selection rebinding: rebind noteForm whenever notesView.current
   // changes. The VM-level subscription is the single bridge — views set
@@ -149,9 +149,7 @@ export class WorkspaceVM {
           this.#notebooks.current !== null &&
           !this.#notesView.currentNotebookIsReadonly,
       )
-      .addNoteAction(() => {
-        void this.#addNewNoteToCurrentAsync();
-      })
+      .addNoteAction(() => this.#addNewNoteToCurrentAsync())
       .build();
     this.#globalSearch = GlobalSearchVM.builder()
       .name("global-search")
@@ -241,25 +239,19 @@ export class WorkspaceVM {
         notesViewRef.refreshNote(saved);
       });
 
-    this.#newNotebookCommand = RelayCommand.builder()
+    this.#newNotebookCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isConstructed)
-      .task(() => {
-        void this.#notebooks.addNotebookAsync(null, "New Notebook");
-      })
+      .task(async () => { await this.#notebooks.addNotebookAsync(null, "New Notebook"); })
       .triggers(this.#commandTrigger)
       .build();
-    this.#newNoteCommand = RelayCommand.builder()
+    this.#newNoteCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isConstructed && this.#notebooks.current !== null)
-      .task(() => {
-        void this.#addNewNoteToCurrentAsync();
-      })
+      .task(async () => { await this.#addNewNoteToCurrentAsync(); })
       .triggers(this.#commandTrigger)
       .build();
-    this.#exportCommand = RelayCommand.builder()
+    this.#exportCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isConstructed)
-      .task(() => {
-        void this.#exportInternalAsync();
-      })
+      .task(async () => { await this.#exportInternalAsync(); })
       .triggers(this.#commandTrigger)
       .build();
   }

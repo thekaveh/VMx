@@ -82,8 +82,9 @@ public sealed class NotebooksRootVM
     /// <inheritdoc/>
     public void CreateNew()
     {
-        // Synchronous capability — schedules a default "New Notebook" via fire-and-forget.
-        _ = AddNotebookAsync(parentId: null, name: "New Notebook");
+        // The synchronous capability enters the async command path, whose error
+        // channel observes repository failures.
+        AddNotebookCommand.Execute(null);
     }
 
     /// <summary>
@@ -210,9 +211,9 @@ public sealed class NotebooksRootVM
         _dispatcher = dispatcher;
         _notificationHub = notificationHub;
 
-        AddNotebookCommand = RelayCommand.Builder()
+        AddNotebookCommand = AsyncRelayCommand.Builder()
             .Predicate(CanCreateNew)
-            .Task(CreateNew)
+            .Task(_ => AddNotebookAsync(parentId: null, name: "New Notebook"))
             .Build();
     }
 

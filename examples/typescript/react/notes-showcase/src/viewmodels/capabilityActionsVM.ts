@@ -11,6 +11,7 @@
  */
 import { BehaviorSubject, map } from "rxjs";
 import {
+  AsyncRelayCommand,
   ComponentVMBase,
   DerivedProperty,
   hasCapability,
@@ -80,7 +81,7 @@ export class CapabilityActionsVM extends ComponentVMBase {
   // `canAddNote` callback. The host (e.g. `WorkspaceVM`) wires this to
   // `!notesView.currentNotebookIsReadonly`. Defaults stay backward-compatible:
   // a no-op action and an always-true predicate.
-  readonly #addNoteCommand: RelayCommand;
+  readonly #addNoteCommand: AsyncRelayCommand;
 
   constructor(opts: {
     name: string;
@@ -88,7 +89,7 @@ export class CapabilityActionsVM extends ComponentVMBase {
     hub: IMessageHub;
     dispatcher: IDispatcher;
     focusedGetter: FocusedGetter;
-    addNoteAction?: () => void;
+    addNoteAction?: () => void | Promise<void>;
     canAddNote?: () => boolean;
   }) {
     super({
@@ -108,9 +109,9 @@ export class CapabilityActionsVM extends ComponentVMBase {
     );
     const addNoteAction = opts.addNoteAction ?? ((): void => undefined);
     const canAddNote = opts.canAddNote ?? ((): boolean => true);
-    this.#addNoteCommand = RelayCommand.builder()
+    this.#addNoteCommand = AsyncRelayCommand.builder()
       .predicate(canAddNote)
-      .task(addNoteAction)
+      .task(async () => { await addNoteAction(); })
       .build();
   }
 
@@ -325,7 +326,7 @@ export class CapabilityActionsVMBuilder {
   #hub: IMessageHub | null = null;
   #dispatcher: IDispatcher | null = null;
   #focusedGetter: FocusedGetter | null = null;
-  #addNoteAction: (() => void) | null = null;
+  #addNoteAction: (() => void | Promise<void>) | null = null;
   #canAddNote: (() => boolean) | null = null;
 
   constructor(from?: CapabilityActionsVMBuilder) {
@@ -369,7 +370,7 @@ export class CapabilityActionsVMBuilder {
   }
 
   /** Wire the *Add Note* command body (edge-case backfill). */
-  addNoteAction(action: () => void): CapabilityActionsVMBuilder {
+  addNoteAction(action: () => void | Promise<void>): CapabilityActionsVMBuilder {
     const b = new CapabilityActionsVMBuilder(this);
     b.#addNoteAction = action;
     return b;

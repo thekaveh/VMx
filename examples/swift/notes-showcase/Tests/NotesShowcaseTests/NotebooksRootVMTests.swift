@@ -94,7 +94,7 @@ final class NotebooksRootVMTests: XCTestCase {
             .sink { observed.append($0) }
             .store(in: &cancellables)
 
-        await vm.addNotebook(parentId: nil, name: "Inbox")
+        try await vm.addNotebook(parentId: nil, name: "Inbox")
 
         XCTAssertFalse(observed.isEmpty, "Expected at least one TreeStructureChangedMessage")
         XCTAssertTrue(vm.walk().contains(where: { $0.model.name == "Inbox" }),
@@ -131,9 +131,7 @@ final class NotebooksRootVMTests: XCTestCase {
         try await vm.populate()
         let before = vm.all.count
 
-        // CreateNew is fire-and-forget; wait for the new notebook to appear.
-        vm.addNotebookCommand.execute()
-        await waitUntil { vm.all.count > before }
+        try await vm.addNotebookCommand.executeAsync()
 
         XCTAssertTrue(vm.all.count > before,
                       "Expected at least one new notebook after addNotebookCommand")
@@ -188,7 +186,7 @@ final class NotebooksRootVMTests: XCTestCase {
         try vm.construct()
         try await vm.populate()
 
-        await vm.addNotebook(parentId: nil, name: "Inbox")
+        try await vm.addNotebook(parentId: nil, name: "Inbox")
 
         // Allow the fire-and-forget notification post to flush.
         await waitUntil { observed.contains(where: { $0.message.contains("Inbox") }) }
@@ -210,7 +208,7 @@ final class NotebooksRootVMTests: XCTestCase {
         }
         let beforeCount = work.children.count
 
-        await vm.addNotebook(parentId: "nb-work", name: "Subspecs")
+        try await vm.addNotebook(parentId: "nb-work", name: "Subspecs")
 
         guard let added = vm.all.first(where: { $0.model.name == "Subspecs" }) else {
             return XCTFail("Subspecs not found after addNotebook")
@@ -258,7 +256,7 @@ final class NotebooksRootVMTests: XCTestCase {
             .sink { raisedProps.append($0.propertyName) }
             .store(in: &cancellables)
 
-        await vm.addNotebook(parentId: nil, name: "Fresh Root")
+        try await vm.addNotebook(parentId: nil, name: "Fresh Root")
 
         XCTAssertTrue(raisedProps.contains("roots"),
                       "Expected 'roots' in raised property names; got \(raisedProps)")

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
@@ -173,7 +171,7 @@ async def test_new_notebook_command_adds_notebook_and_fires_notification() -> No
             InMemoryNoteRepository(
                 build_seed(),
                 load_all_delay=0.0,
-                add_notebook_delay=0.0,
+                add_notebook_delay=0.02,
             )
         )
         .notification_hub(notification_hub)
@@ -182,9 +180,7 @@ async def test_new_notebook_command_adds_notebook_and_fires_notification() -> No
     await ws.construct_async()
     before = ws.notebooks_root.all.count
 
-    ws.new_notebook_command.execute()
-    # Fire-and-forget; let the loop drain.
-    await asyncio.sleep(0.05)
+    await ws.new_notebook_command.execute_async()
 
     assert ws.notebooks_root.all.count == before + 1
     assert any("Notebook added" in n.message for n in observed)
@@ -211,8 +207,7 @@ async def test_new_note_command_adds_note_to_current_notebook() -> None:
     nb_id = ws.notebooks_root.current.model.id  # type: ignore[union-attr]
     before = len(await repo.load_notes(nb_id))
 
-    ws.new_note_command.execute()
-    await asyncio.sleep(0.05)
+    await ws.new_note_command.execute_async()
 
     after = len(await repo.load_notes(nb_id))
     assert after == before + 1
@@ -253,8 +248,7 @@ async def test_export_command_uses_dialog_service_and_writes_via_repo(tmp_path) 
     )
     await ws.construct_async()
 
-    ws.export_command.execute()
-    await asyncio.sleep(0.05)
+    await ws.export_command.execute_async()
 
     assert dialog.save_calls == 1
     assert repo.export_count == 1
@@ -279,8 +273,7 @@ async def test_export_command_cancelled_does_not_call_repo() -> None:
     )
     await ws.construct_async()
 
-    ws.export_command.execute()
-    await asyncio.sleep(0.05)
+    await ws.export_command.execute_async()
 
     assert dialog.save_calls == 1
     assert repo.export_count == 0
@@ -301,9 +294,7 @@ def test_dialog_service_property_round_trips() -> None:
 
 
 async def test_new_note_command_no_op_when_no_current_notebook() -> None:
-    """``new_note_command`` predicate fails when no notebook is current; calling
-    execute is still safe (fire-and-forget guard inside the body).
-    """
+    """The new-note operation safely returns when no notebook is current."""
     ws = _build()
     ws.construct()
     # No populate → current notebook is None.

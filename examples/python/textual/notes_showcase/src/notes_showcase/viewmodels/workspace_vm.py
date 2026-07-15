@@ -25,9 +25,9 @@ from reactivex.abc import DisposableBase
 
 from vmx import (
     AggregateVM6,
+    AsyncRelayCommand,
     ConstructionStatus,
     MessageHub,
-    RelayCommand,
     RxDispatcher,
     when_property_changed,
 )
@@ -142,7 +142,7 @@ class WorkspaceVM:
                     and not self.notes_view.current_notebook_is_readonly
                 )
             )
-            .add_note_action(self._fire_new_note)
+            .add_note_action(self._add_new_note_to_current)
             .build()
         )
         global_search = (
@@ -253,23 +253,23 @@ class WorkspaceVM:
         ).subscribe(on_next=notes_view.refresh_note)
 
         self._new_notebook_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.is_constructed)
-            .task(self._fire_new_notebook)
+            .task(self._add_new_notebook)
             .build()
         )
         self._new_note_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(
                 lambda: self.is_constructed and self.notebooks_root.current is not None
             )
-            .task(self._fire_new_note)
+            .task(self._add_new_note_to_current)
             .build()
         )
         self._export_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.is_constructed)
-            .task(self._fire_export)
+            .task(self._export_internal)
             .build()
         )
 
@@ -360,15 +360,15 @@ class WorkspaceVM:
         self.capability_actions.recompute_actions()
 
     @property
-    def new_notebook_command(self) -> RelayCommand:
+    def new_notebook_command(self) -> AsyncRelayCommand:
         return self._new_notebook_command
 
     @property
-    def new_note_command(self) -> RelayCommand:
+    def new_note_command(self) -> AsyncRelayCommand:
         return self._new_note_command
 
     @property
-    def export_command(self) -> RelayCommand:
+    def export_command(self) -> AsyncRelayCommand:
         return self._export_command
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ class WorkspaceVM:
         self._global_search.dispose()
         self._agg.dispose()
 
-    # ── Command fire-and-forget wrappers ───────────────────────────────────
+    # ── Selection-observation task ─────────────────────────────────────────
     def _fire_bind_notes(self, notebook_id: str) -> None:
         async def _bind() -> None:
             if self._requested_notebook_id != notebook_id:
@@ -446,31 +446,6 @@ class WorkspaceVM:
         except RuntimeError:
             asyncio.run(_bind())
 
-    def _fire_new_notebook(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                self.notebooks_root.add_notebook(parent_id=None, name="New Notebook")
-            )
-        except RuntimeError:
-            asyncio.run(
-                self.notebooks_root.add_notebook(parent_id=None, name="New Notebook")
-            )
-
-    def _fire_new_note(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._add_new_note_to_current())
-        except RuntimeError:
-            asyncio.run(self._add_new_note_to_current())
-
-    def _fire_export(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._export_internal())
-        except RuntimeError:
-            asyncio.run(self._export_internal())
-
     async def _add_new_note_to_current(self) -> None:
         nb = self.notebooks_root.current
         if nb is None:
@@ -488,6 +463,9 @@ class WorkspaceVM:
         )
         await self._repo.save_note(note)
         await self.notes_view.bind_to_async(nb.model.id)
+
+    async def _add_new_notebook(self) -> None:
+        await self.notebooks_root.add_notebook(parent_id=None, name="New Notebook")
 
     async def _export_internal(self) -> None:
         path = await self._dialog_service.pick_file_to_save(

@@ -30,12 +30,11 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     private let _notificationHub: NotificationHubProtocol?
     private var _all: [NotebookVM] = []
     private var _current: NotebookVM?
-    private var _createTasks: [Task<Void, Never>] = []
 
     // ── Commands ───────────────────────────────────────────────────────────
 
     /// Convenience command wired to `canCreateNew()` / `createNew()`.
-    public private(set) var addNotebookCommand: RelayCommand
+    public private(set) var addNotebookCommand: AsyncRelayCommand
 
     // ── Public tree surface ────────────────────────────────────────────────
 
@@ -73,14 +72,9 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
 
     public func canCreateNew() -> Bool { isConstructed }
 
-    /// Synchronous capability entry point — fire-and-forgets a default
-    /// "New Notebook" add.
+    /// Synchronous capability entry point routed through the async command.
     public func createNew() {
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.addNotebook(parentId: nil, name: "New Notebook")
-        }
-        _createTasks.append(task)
+        addNotebookCommand.execute()
     }
 
     // ── Async operations ───────────────────────────────────────────────────
@@ -92,12 +86,12 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     ///
     /// Async emit of structural changes is foreground-marshalled via the
     /// injected dispatcher (mirrors C# `_dispatcher.Foreground.Schedule`).
-    public func addNotebook(parentId: String?, name notebookName: String) async {
+    public func addNotebook(parentId: String?, name notebookName: String) async throws {
         guard status != .disposed, !Task.isCancelled else { return }
         let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         let id = "nb-\(uuid.prefix(5))"
         let model = NotebookModel(id: id, name: notebookName, parentId: parentId)
-        try? await _repo.addNotebook(model)
+        try await _repo.addNotebook(model)
         guard status != .disposed, !Task.isCancelled else { return }
 
         let vm = try! NotebookVM.builder()
@@ -210,14 +204,22 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         _notificationHub = notificationHub
 
         // Phase 1: placeholder command (required before super.init).
-        addNotebookCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
+        addNotebookCommand = AsyncRelayCommand(
+            body: nil,
+            predicate: nil,
+            triggers: [],
+            throwOnCancel: false
+        )
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
 
         // Phase 2: rewire with real self-capturing closures.
-        addNotebookCommand = RelayCommand.builder()
+        addNotebookCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in self?.canCreateNew() ?? false })
-            .task({ [weak self] in self?.createNew() })
+            .task({ [weak self] in
+                guard let self else { return }
+                try await self.addNotebook(parentId: nil, name: "New Notebook")
+            })
             .build()
     }
 
@@ -229,8 +231,6 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
     }
 
     public override func _onDispose() {
-        for task in _createTasks { task.cancel() }
-        _createTasks.removeAll()
         for nb in _all { nb.dispose() }
         addNotebookCommand.dispose()
         super._onDispose()

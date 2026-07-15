@@ -13,6 +13,7 @@
 import { Subject, Subscription, type Observable } from "rxjs";
 
 import {
+  AsyncRelayCommand,
   ComponentVMBase,
   declareCapabilities,
   DiscriminatorVM,
@@ -53,7 +54,7 @@ const EMPTY: NoteModel = {
 export class NoteFormVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #notificationHub: INotificationHub | null;
-  readonly #approveCommand: RelayCommand;
+  readonly #approveCommand: AsyncRelayCommand;
   readonly #addTagCommand: RelayCommand;
   readonly #removeTagCommand: RelayCommandOf<string>;
   readonly #denyCommand: RelayCommand;
@@ -112,11 +113,9 @@ export class NoteFormVM extends ComponentVMBase {
       })
       .build();
 
-    this.#approveCommand = RelayCommand.builder()
+    this.#approveCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isDirty && this.isValid)
-      .task(() => {
-        void this.approveAsync();
-      })
+      .task(async () => { await this.approveAsync(); })
       .build();
     this.#addTagCommand = RelayCommand.builder()
       .predicate(

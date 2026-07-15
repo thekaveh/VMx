@@ -149,7 +149,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         IMessageHub hub,
         IDispatcher dispatcher,
         Func<object?> focusedGetter,
-        Action addNoteAction,
+        Func<Task> addNoteAction,
         Func<bool> canAddNote)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
@@ -158,9 +158,9 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         _focusSubject = new BehaviorSubject<object?>(focusedGetter());
         Actions = DerivedProperty.From(_focusSubject, Project);
         ActionsBindable = new BindableDerived<IReadOnlyList<ActionVM>>(Actions);
-        AddNoteCommand = RelayCommand.Builder()
+        AddNoteCommand = AsyncRelayCommand.Builder()
             .Predicate(_canAddNote)
-            .Task(addNoteAction)
+            .Task(_ => addNoteAction())
             .Triggers(_focusSubject.Select(_ => System.Reactive.Unit.Default))
             .Build();
     }
@@ -189,7 +189,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         private readonly IMessageHub? _hub;
         private readonly IDispatcher? _dispatcher;
         private readonly Func<object?>? _focusedGetter;
-        private readonly Action? _addNoteAction;
+        private readonly Func<Task>? _addNoteAction;
         private readonly Func<bool>? _canAddNote;
 
         internal static readonly CapabilityActionsVMBuilder Empty = new();
@@ -198,7 +198,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
             string? name, string hint,
             IMessageHub? hub, IDispatcher? dispatcher,
             Func<object?>? focusedGetter,
-            Action? addNoteAction,
+            Func<Task>? addNoteAction,
             Func<bool>? canAddNote)
         {
             _name = name; _hint = hint;
@@ -216,8 +216,11 @@ public sealed class CapabilityActionsVM : ComponentVMBase
         public CapabilityActionsVMBuilder Services(IMessageHub hub, IDispatcher dispatcher) => new(_name, _hint, hub, dispatcher, _focusedGetter, _addNoteAction, _canAddNote);
         /// <summary>Sets the required focus-getter delegate.</summary>
         public CapabilityActionsVMBuilder FocusedGetter(Func<object?> getter) => new(_name, _hint, _hub, _dispatcher, getter, _addNoteAction, _canAddNote);
-        /// <summary>Sets the host Add Note action.</summary>
-        public CapabilityActionsVMBuilder AddNoteAction(Action action) => new(_name, _hint, _hub, _dispatcher, _focusedGetter, action, _canAddNote);
+        /// <summary>Sets a synchronous host Add Note action.</summary>
+        public CapabilityActionsVMBuilder AddNoteAction(Action action) =>
+            AddNoteAction(() => { action(); return Task.CompletedTask; });
+        /// <summary>Sets an asynchronous host Add Note action.</summary>
+        public CapabilityActionsVMBuilder AddNoteAction(Func<Task> action) => new(_name, _hint, _hub, _dispatcher, _focusedGetter, action, _canAddNote);
         /// <summary>Sets the host Add Note can-execute predicate.</summary>
         public CapabilityActionsVMBuilder CanAddNote(Func<bool> predicate) => new(_name, _hint, _hub, _dispatcher, _focusedGetter, _addNoteAction, predicate);
 
@@ -234,7 +237,7 @@ public sealed class CapabilityActionsVM : ComponentVMBase
                 _hub!,
                 _dispatcher!,
                 _focusedGetter!,
-                _addNoteAction ?? (() => { }),
+                _addNoteAction ?? (() => Task.CompletedTask),
                 _canAddNote ?? (() => true));
         }
     }

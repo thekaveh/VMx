@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { IAsyncCommand } from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
@@ -45,13 +46,21 @@ describe("WorkspaceVM", () => {
   });
 
   it("newNotebookCommand only executes once constructed", async () => {
-    const ws = makeWorkspace();
+    const ws = WorkspaceVM.builder()
+      .repository(
+        new InMemoryNoteRepository(buildSeed(), {
+          loadAllDelayMs: 0,
+          loadNotesDelayMs: 0,
+          addNotebookDelayMs: 20,
+        }),
+      )
+      .dialogService(NullDialogService.INSTANCE)
+      .build();
     expect(ws.newNotebookCommand.canExecute()).toBe(false);
     await ws.constructAsync();
     expect(ws.newNotebookCommand.canExecute()).toBe(true);
     const before = ws.notebooksRoot.all.length;
-    ws.newNotebookCommand.execute();
-    await new Promise((r) => setTimeout(r, 0));
+    await (ws.newNotebookCommand as IAsyncCommand).executeAsync();
     expect(ws.notebooksRoot.all.length).toBe(before + 1);
     ws.dispose();
   });
@@ -102,10 +111,7 @@ describe("WorkspaceVM", () => {
     const ws = makeWorkspace();
     await ws.constructAsync();
     // NullDialogService.pickFileToSave returns null → no export
-    await new Promise<void>((resolve) => {
-      ws.exportCommand.execute();
-      setTimeout(resolve, 10);
-    });
+    await (ws.exportCommand as IAsyncCommand).executeAsync();
     expect(ws.isConstructed).toBe(true);
     ws.dispose();
   });
@@ -135,8 +141,7 @@ describe("WorkspaceVM", () => {
       })
       .build();
     await ws.constructAsync();
-    ws.exportCommand.execute();
-    await new Promise((r) => setTimeout(r, 30));
+    await (ws.exportCommand as IAsyncCommand).executeAsync();
     expect(captured).not.toBeNull();
     expect(captured!.path).toBe("/tmp/out.json");
     ws.dispose();
@@ -198,8 +203,7 @@ describe("WorkspaceVM", () => {
     const ws = makeWorkspace();
     await ws.constructAsync();
     const beforeCount = ws.notesView.inner.length;
-    ws.newNoteCommand.execute();
-    await new Promise((r) => setTimeout(r, 15));
+    await (ws.newNoteCommand as IAsyncCommand).executeAsync();
     expect(ws.notesView.inner.length).toBe(beforeCount + 1);
     ws.dispose();
   });
