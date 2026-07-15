@@ -17,6 +17,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/async_value.rs",
         "src/capabilities.rs",
         "src/discriminator.rs",
+        "src/dialogs.rs",
         "src/forms.rs",
         "src/forwarding.rs",
         "src/hierarchical.rs",

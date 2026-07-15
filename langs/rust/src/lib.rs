@@ -6124,96 +6124,10 @@ pub use notifications::{
     make_confirm, Notification, NotificationHub, NotificationReaction, NotificationType,
     NotificationWaiter, NullNotificationHub,
 };
-pub trait Localizer: Send + Sync {
-    fn localize(&self, key: &str) -> String;
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NullLocalizer;
-
-impl Localizer for NullLocalizer {
-    fn localize(&self, key: &str) -> String {
-        key.to_string()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileFilter {
-    pub description: String,
-    pub extensions: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum NotificationSeverity {
-    #[default]
-    Info,
-    Warning,
-    Error,
-}
-
-pub trait DialogService: Send + Sync {
-    fn pick_file_to_open(
-        &self,
-        filter: Option<FileFilter>,
-        title: Option<&str>,
-    ) -> AsyncValue<Option<String>>;
-    fn pick_file_to_save(
-        &self,
-        filter: Option<FileFilter>,
-        title: Option<&str>,
-        suggested_name: Option<&str>,
-    ) -> AsyncValue<Option<String>>;
-    fn confirm(&self, message: &str, title: Option<&str>) -> AsyncValue<bool>;
-    fn notify(
-        &self,
-        message: &str,
-        title: Option<&str>,
-        severity: NotificationSeverity,
-    ) -> AsyncValue<()>;
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NullDialogService;
-
-impl DialogService for NullDialogService {
-    fn pick_file_to_open(
-        &self,
-        _filter: Option<FileFilter>,
-        _title: Option<&str>,
-    ) -> AsyncValue<Option<String>> {
-        AsyncValue::ready(None)
-    }
-
-    fn pick_file_to_save(
-        &self,
-        _filter: Option<FileFilter>,
-        _title: Option<&str>,
-        _suggested_name: Option<&str>,
-    ) -> AsyncValue<Option<String>> {
-        AsyncValue::ready(None)
-    }
-
-    fn confirm(&self, _message: &str, _title: Option<&str>) -> AsyncValue<bool> {
-        AsyncValue::ready(false)
-    }
-
-    fn notify(
-        &self,
-        _message: &str,
-        _title: Option<&str>,
-        _severity: NotificationSeverity,
-    ) -> AsyncValue<()> {
-        AsyncValue::ready(())
-    }
-}
-
-impl NullDialogService {
-    pub fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> AsyncValue<T> {
-        modal.dispose();
-        modal.completion()
-    }
-}
-
+mod dialogs;
+pub use dialogs::{
+    DialogService, FileFilter, Localizer, NotificationSeverity, NullDialogService, NullLocalizer,
+};
 mod forms;
 pub use forms::{FormVm, FormVmBuilder};
 

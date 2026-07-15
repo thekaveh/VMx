@@ -22,6 +22,7 @@ src/async_resource_vm.rs
 src/async_value.rs
 src/capabilities.rs
 src/discriminator.rs
+src/dialogs.rs
 src/fixtures/lifecycle-transitions.json
 src/forms.rs
 src/forwarding.rs
