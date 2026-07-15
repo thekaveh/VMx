@@ -259,7 +259,7 @@ public extension ObservableList where T: Equatable {
     /// (mirroring the ADR-0059 §2.2 pattern the ADR-0009 catalogue prescribes).
     @discardableResult
     func remove(_ item: T) -> Bool {
-        guard let index = toArray().firstIndex(of: item) else { return false }
+        guard let index = items.firstIndex(of: item) else { return false }
         removeAt(index)
         return true
     }

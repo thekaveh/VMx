@@ -349,9 +349,7 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     /// Remove the first occurrence of `key` from a live key view (by value).
     /// No-op if the key is not currently present.
     private func removeFromView<K: Equatable>(_ list: ObservableList<K>, _ key: K) {
-        if let idx = list.toArray().firstIndex(of: key) {
-            list.removeAt(idx)
-        }
+        list.remove(key)
     }
 }
 
