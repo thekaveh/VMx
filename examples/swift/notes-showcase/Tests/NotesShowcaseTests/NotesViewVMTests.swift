@@ -368,6 +368,27 @@ final class NotesViewVMTests: XCTestCase {
         XCTAssertNotEqual(first.items[0].id, second.items[0].id)
     }
 
+    func testRepositorySearchNotes_clampsOverflowingOffsetAndPageSize() async throws {
+        let repo = makeRepo(loadNotesDelay: 0)
+
+        let first = try await repo.searchNotes(term: "review", token: nil, pageSize: 2)
+        let malformed = try await repo.searchNotes(
+            term: "review",
+            token: "2junk",
+            pageSize: 2
+        )
+
+        let page = try await repo.searchNotes(
+            term: "review",
+            token: String(Int.max),
+            pageSize: Int.max
+        )
+
+        XCTAssertEqual(malformed.items, first.items)
+        XCTAssertTrue(page.items.isEmpty)
+        XCTAssertNil(page.nextToken)
+    }
+
     func testGlobalSearchVM_refreshes_resetsTerms_andLoadsMore() async throws {
         let repo = makeRepo(loadNotesDelay: 0)
         let vm = try GlobalSearchVM.builder()

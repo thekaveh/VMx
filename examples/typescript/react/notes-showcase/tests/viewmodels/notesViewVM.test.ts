@@ -348,6 +348,19 @@ describe("Global search token paging", () => {
     expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
   });
 
+  it("repository rejects malformed and unsafe search offsets", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadNotesDelayMs: 0,
+    });
+    const first = await repo.searchNotes("review", null, 2);
+
+    const malformed = await repo.searchNotes("review", "2junk", 2);
+    const unsafe = await repo.searchNotes("review", String(Number.MAX_SAFE_INTEGER + 1), 2);
+
+    expect(malformed.items).toEqual(first.items);
+    expect(unsafe.items).toEqual(first.items);
+  });
+
   it("GlobalSearchVM refreshes, resets for a new term, and appends load-more results", async () => {
     const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
     const hub = new MessageHub();

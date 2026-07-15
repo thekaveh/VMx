@@ -257,6 +257,23 @@ public sealed class NotesViewVMTests
     }
 
     [Fact]
+    public async Task Repository_search_notes_rejects_malformed_and_extreme_offsets()
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadNotesDelay: TimeSpan.Zero);
+        var first = await repo.SearchNotesAsync("review", token: null, pageSize: 2);
+
+        var malformed = await repo.SearchNotesAsync("review", token: "2junk", pageSize: 2);
+        var extreme = await repo.SearchNotesAsync(
+            "review", token: int.MaxValue.ToString(), pageSize: int.MaxValue);
+
+        Assert.Equal(first.Items, malformed.Items);
+        Assert.Empty(extreme.Items);
+        Assert.Null(extreme.NextToken);
+    }
+
+    [Fact]
     public async Task GlobalSearchVM_refreshes_resets_terms_and_loads_more()
     {
         var hub = new MessageHub();

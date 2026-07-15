@@ -345,6 +345,17 @@ async def test_repository_search_notes_returns_token_pages_over_all_notes() -> N
     assert second[0][0].id != first[0][0].id
 
 
+async def test_repository_search_notes_rejects_malformed_and_extreme_offsets() -> None:
+    repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
+    first = await repo.search_notes("review", token=None, page_size=2)
+
+    malformed = await repo.search_notes("review", token="2junk", page_size=2)
+    extreme = await repo.search_notes("review", token=str(10**100), page_size=10**100)
+
+    assert malformed[0] == first[0]
+    assert extreme == ([], None)
+
+
 async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
     from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
 

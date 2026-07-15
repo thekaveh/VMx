@@ -134,8 +134,9 @@ export class InMemoryNoteRepository implements INoteRepository {
     await delay(this.#loadNotesMs);
     this.#consumeFailure();
     const normalized = term.trim().toLowerCase();
-    const start = token === null ? 0 : Number.parseInt(token, 10);
-    const safeStart = Number.isFinite(start) && start > 0 ? start : 0;
+    const normalizedToken = token?.trim() ?? "";
+    const parsed = /^[+-]?\d+$/u.test(normalizedToken) ? Number(normalizedToken) : 0;
+    const safeStart = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
     const safePageSize = Math.max(1, pageSize);
     return this.#gate.run(() => {
       const matches = this.#notes.filter((n) => {
