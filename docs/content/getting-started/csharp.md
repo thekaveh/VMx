@@ -271,6 +271,13 @@ tabs.Dispose();
 ((IDisposable)hub).Dispose();
 ```
 
+The C#-specific `ConstructAsync()`, `DestructAsync()`, and
+`ReconstructAsync()` methods complete after terminal lifecycle publication. If
+a background hook or deferred child cascade fails, the VM publishes its
+transactional rollback first and the returned task then faults with the
+original exception (ADR-0109). If terminal disposal wins the race, the waiter
+completes at `Disposed` and the abandoned transition cannot overwrite it.
+
 > See `spec/02-lifecycle.md` for the transition table and the
 > `StatusTransitionException` rules (LIFE-001 through LIFE-014).
 

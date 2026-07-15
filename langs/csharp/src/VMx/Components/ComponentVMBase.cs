@@ -416,16 +416,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 {
                     OnConstruct();
                 }
-                catch
+                catch (Exception error)
                 {
                     // VMX-007: roll _status back to Destructed (marshalled onto the
                     // foreground per VMX-025; SetStatus re-checks Disposed under
                     // _gate) and clear the in-flight guard so a throwing background
                     // hook leaves the VM recoverable, then re-throw. Under the
                     // immediate/test scheduler the rollback runs inline and the
-                    // exception surfaces to the caller; on TaskPoolScheduler it is
-                    // unobserved on the pool thread (delivering it to an awaiter is
-                    // tracked by VMX-049).
+                    // exception surfaces to the caller. C# async lifecycle waiters
+                    // receive the same error only after the foreground rollback has
+                    // been published (ADR-0109).
                     _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
                     {
                         try
@@ -434,7 +434,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         }
                         finally
                         {
-                            ClearInFlight();
+                            FailInFlight(error);
                         }
                         return Disposable.Empty;
                     });
@@ -577,13 +577,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 {
                     OnDestruct();
                 }
-                catch
+                catch (Exception error)
                 {
                     // VMX-007: roll _status back to Constructed (marshalled onto the
                     // foreground per VMX-025; SetStatus re-checks Disposed under
                     // _gate) and clear the in-flight guard so a throwing background
-                    // hook leaves the VM recoverable, then re-throw (unobserved on
-                    // the pool thread; VMX-049 tracks delivering it to an awaiter).
+                    // hook leaves the VM recoverable, then re-throw. C# async
+                    // lifecycle waiters receive the same error only after that
+                    // rollback publication (ADR-0109).
                     _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
                     {
                         try
@@ -592,7 +593,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         }
                         finally
                         {
-                            ClearInFlight();
+                            FailInFlight(error);
                         }
                         return Disposable.Empty;
                     });
@@ -803,7 +804,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     if (completed.Status != TaskStatus.RanToCompletion)
                     {
                         SetStatus(ConstructionStatus.Constructed);
-                        ClearInFlight();
+                        FinishInFlightFrom(completed);
                         return Disposable.Empty;
                     }
 
@@ -812,9 +813,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         if (!ContinueReconstructWithConstructPhase())
                             ClearInFlight();
                     }
-                    catch
+                    catch (Exception error)
                     {
-                        ClearInFlight();
+                        FailInFlight(error);
                     }
                     return Disposable.Empty;
                 });
@@ -951,6 +952,40 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
+    private void FailInFlight(Exception error)
+    {
+        lock (_gate)
+        {
+            _inFlight = false;
+            foreach (var waiter in _lifecycleWaiters)
+                waiter.TrySetException(error);
+            _lifecycleWaiters.Clear();
+        }
+    }
+
+    private void FinishInFlightFrom(Task completed)
+    {
+        if (completed.IsCanceled)
+        {
+            lock (_gate)
+            {
+                _inFlight = false;
+                foreach (var waiter in _lifecycleWaiters)
+                    waiter.TrySetCanceled();
+                _lifecycleWaiters.Clear();
+            }
+            return;
+        }
+
+        if (completed.Exception is { } failure)
+        {
+            FailInFlight(failure.InnerException ?? failure);
+            return;
+        }
+
+        ClearInFlight();
+    }
+
     private Task? TakeDeferredLifecycleTask()
     {
         lock (_gate)
@@ -979,7 +1014,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     }
                     finally
                     {
-                        ClearInFlight();
+                        FinishInFlightFrom(completed);
                     }
                     return Disposable.Empty;
                 });

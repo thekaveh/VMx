@@ -140,6 +140,12 @@ public sealed class NoteVM
 }
 ```
 
+The C#-specific `ConstructAsync()`, `DestructAsync()`, and
+`ReconstructAsync()` methods complete after terminal lifecycle publication. If
+a background hook or deferred child cascade fails, the VM publishes its
+transactional rollback first and the returned task then faults with the
+original exception (ADR-0109).
+
 For aggregate trees, reach for `AggregateVM1..6<…>` (heterogeneous,
 fixed-arity) or `CompositeVM<VM>` (homogeneous, variable-arity) instead
 of subclassing.

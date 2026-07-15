@@ -193,7 +193,7 @@ reaches `Constructed`
 (not `Destructing`), and a subsequent `destruct()` with a non-throwing hook reaches
 `Destructed`
 
-> Normatively defined in `02-lifecycle.md §2.4`.
+> Normatively defined in `02-lifecycle.md §2.5`.
 
 ______________________________________________________________________
 

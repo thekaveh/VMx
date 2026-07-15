@@ -35,6 +35,13 @@ divergence table). Swift likewise exposes only the synchronous form (the
 async `ConstructAsync` shape is C#-only per ADR-0008); Swift covers the
 `THR-*` threading IDs at full parity (ADR-0061), and the ADR-0009 async-form
 row applies to all three non-C# flavors.
+
+The C# async entry points report the operation outcome after its terminal
+publication. A hook or deferred child-cascade failure first publishes the
+transactional rollback from §2.5 and then faults the returned `Task` with the
+original exception (ADR-0109). If terminal disposal wins the race, the waiter
+completes at `Disposed` and the abandoned transition cannot replace that
+outcome. This C#-specific TAP behavior adds no cross-flavor API requirement.
 Subscribers to the message hub observe two `ConstructionStatusChangedMessage`
 emissions per non-trivial transition: one for the intermediate state and one
 for the final state.
@@ -161,11 +168,13 @@ The rollback is itself a status change: it publishes its own
 `ConstructionStatusChangedMessage` (invariant 4), runs under the §2.4 per-VM
 guard, and clears the in-flight guard. In the synchronous form the original
 exception is then re-raised to the caller. In the background form the rollback
-emission is marshalled onto `IDispatcher.Foreground` (`11-threading.md §4`); the
-exception is re-thrown on the scheduler but cannot be redelivered to the
-already-returned caller (a completion/error future on the non-C# flavors is a
-tracked follow-up). `OnDispose` is **not** subject to rollback — `dispose()` is
-terminal and idempotent.
+emission is marshalled onto `IDispatcher.Foreground` (`11-threading.md §4`). C#
+async callers receive the original exception through the returned `Task` after
+rollback; a caller that used the synchronous fire-and-forget entry point has no
+returned outcome surface. Non-C# flavors expose no async lifecycle waiter, and
+Swift's non-throwing scheduler closure cannot redeliver a background hook error
+to the already-returned caller (ADR-0053, ADR-0109). `OnDispose` is **not**
+subject to rollback — `dispose()` is terminal and idempotent.
 
 This behavior is verified by `LIFE-014`.
 

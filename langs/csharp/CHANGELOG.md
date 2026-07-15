@@ -11,6 +11,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Nested sends from one active message-hub callback to another hub now enqueue
   instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
   while ordinary producers retain synchronous calling-thread delivery.
+- `ConstructAsync`, `DestructAsync`, and deferred container lifecycle tasks now
+  preserve hook and child-cascade failures after publishing transactional
+  rollback instead of completing successfully (ADR-0109).
 
 ## [3.22.0] — 2026-07-14
 

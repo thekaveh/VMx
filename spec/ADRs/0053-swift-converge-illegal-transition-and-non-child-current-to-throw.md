@@ -47,12 +47,13 @@ the C#/Python/TypeScript cascades. Container overrides (`CompositeVM`,
 `GroupVM`, `AggregateVM1..6`) use `try` on their child transitions. Legal call
 sites (the common path) now use `try`.
 
-The **background** lifecycle path has no completion/error future in this flavor
-(VMX-049, a tracked Phase-3 item): a throwing hook/child transition on the
-background queue cannot be redelivered to the already-returned caller, so it is
-caught at the background callback and the in-flight guard is still cleared. Swift
-transactional hook-failure rollback (`LIFE-014`, ADR-0047 §2.4) remains a
-Phase-3 item; this ADR only converts the trap to a throw.
+The **background** lifecycle path has no completion/error future in this flavor:
+a throwing hook/child transition on the background queue cannot be redelivered
+to the already-returned caller, so it is caught at the background callback and
+the in-flight guard is still cleared. Transactional hook-failure rollback was
+subsequently completed for Swift (`LIFE-014`, ADR-0047); ADR-0109 retains the
+no-awaiter limitation while requiring the C#-specific async surface to preserve
+the original failure.
 
 ### 2.2 `CompositeVM.current` gains a throwing companion (`VMX-026`)
 

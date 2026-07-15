@@ -367,7 +367,7 @@ def test_LIFE_012_dispose_from_disposed_is_noop() -> None:
 def test_LIFE_014_throwing_hook_rolls_status_back() -> None:
     """LIFE-014: a throwing on_construct/on_destruct hook rolls Status back to the
     prior settled state (not wedged in the transient state) and leaves the VM
-    recoverable (spec/02-lifecycle.md §2.4)."""
+    recoverable (spec/02-lifecycle.md §2.5)."""
     flags = {"construct": True, "destruct": True}
 
     # ── construct: hook raises → rollback to Destructed, then recoverable ──

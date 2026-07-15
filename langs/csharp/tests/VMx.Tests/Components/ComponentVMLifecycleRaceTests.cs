@@ -5,6 +5,7 @@ using System.Reactive.Linq;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -140,7 +141,7 @@ public class ComponentVMLifecycleRaceTests
     }
 
     [Fact]
-    public async Task ConstructAsync_Completes_When_Background_Construct_Rolls_Back()
+    public async Task ConstructAsync_Faults_When_Background_Construct_Rolls_Back()
     {
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
@@ -158,14 +159,13 @@ public class ComponentVMLifecycleRaceTests
         runBackground.Should().Throw<InvalidOperationException>();
         dispatcher.ForegroundScheduler.AdvanceBy(1);
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
-        completed.Should().BeSameAs(task,
-            "the awaiter must observe the rollback transition instead of hanging");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        error.Message.Should().Be("boom");
         vm.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
     [Fact]
-    public async Task DestructAsync_Completes_When_Background_Destruct_Rolls_Back()
+    public async Task DestructAsync_Faults_When_Background_Destruct_Rolls_Back()
     {
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
@@ -186,10 +186,37 @@ public class ComponentVMLifecycleRaceTests
         runBackground.Should().Throw<InvalidOperationException>();
         dispatcher.ForegroundScheduler.AdvanceBy(1);
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
-        completed.Should().BeSameAs(task,
-            "the awaiter must observe the rollback transition instead of hanging");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        error.Message.Should().Be("boom");
         vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task ConstructAsync_Faults_When_Background_Child_Rolls_Back()
+    {
+        var hub = new TestHub();
+        var dispatcher = new RealThreadDispatcher();
+        var failure = new InvalidOperationException("child hook failed");
+        var child = ComponentVM<string>.Builder()
+            .Name("child")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .Background(true)
+            .OnConstruct(() => throw failure)
+            .Build();
+        var parent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("parent")
+            .Services(hub, dispatcher)
+            .Children(() => [child])
+            .Build();
+
+        var task = parent.ConstructAsync();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        error.Should().BeSameAs(failure);
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        parent.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
     [Fact]

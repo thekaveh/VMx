@@ -187,7 +187,7 @@ public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
   (`11 §3/§4`); the `LIFE-008` enforcement primitive is named; a post-dispose
   `IsCurrent` change is a silent no-op (`02` invariant 3); and a throwing
   `OnConstruct`/`OnDestruct` hook rolls `Status` back to the prior settled state
-  (`02 §2.4`, the new **`LIFE-014`**).
+  (`02 §2.5`, the new **`LIFE-014`**).
 
 - `02-lifecycle.md` and `11-threading.md` are revised accordingly.
 
@@ -555,11 +555,17 @@ ADR-0102 defines the non-normative consumer conformance adapter schema and the
 TypeScript factory runner. It adds no behavior chapter, spec version bump, or
 conformance ID; the supporting schema versions independently.
 
+ADR-0109 clarifies the C#-specific async lifecycle affordance on the current
+3.22.0 source line: background hook and deferred child-cascade failures fault
+the returned task only after transactional rollback is published. It adds no
+cross-flavor API or conformance ID and records Swift's existing no-awaiter
+limitation explicitly.
+
 ### 1.30 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.22.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0108); see
+- `ADRs/` — Architecture Decision Records (0001-0109); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.
