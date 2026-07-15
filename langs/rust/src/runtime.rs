@@ -193,10 +193,27 @@ pub struct ConstructionStatusChangedMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Kind of mutation described by [`TreeStructureChangedMessage`].
+pub enum TreeStructureChange {
+    /// A previously detached child was appended.
+    Added,
+    /// An existing child was removed.
+    Removed,
+    /// A child moved atomically from another parent.
+    Reparented,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// Announces a structural change in a view-model tree.
 pub struct TreeStructureChangedMessage {
     /// Identity of the publishing tree node.
     pub sender_id: usize,
+    /// Kind of structural mutation.
+    pub change: TreeStructureChange,
+    /// Identity of the child that was added, removed, or reparented.
+    pub affected_id: usize,
+    /// Child index for add/remove, or `-1` when reparenting.
+    pub index: isize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -830,6 +847,10 @@ pub struct ParentHandle {
 }
 
 impl ParentHandle {
+    pub(crate) fn is_alive(&self) -> bool {
+        self.inner.strong_count() > 0
+    }
+
     pub(crate) fn id(&self) -> Option<usize> {
         self.inner.upgrade().map(|inner| inner.id)
     }
@@ -936,7 +957,18 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
     }
 
     match child.parent_handle() {
-        Some(parent) => parent.detach(child.id()).map(Some),
+        Some(parent) if !parent.is_alive() => {
+            child.set_parent_handle(None);
+            Ok(None)
+        }
+        Some(parent) => match parent.detach(child.id()) {
+            Ok(transfer) => Ok(Some(transfer)),
+            Err(VmxError::InconsistentParent) if !parent.is_alive() => {
+                child.set_parent_handle(None);
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        },
         None if child.parent_id().is_some() => Err(VmxError::InconsistentParent),
         None => Ok(None),
     }
@@ -1269,7 +1301,15 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn parent_handle(&self) -> Option<ParentHandle> {
-        lock(&self.inner).parent.clone()
+        let mut inner = lock(&self.inner);
+        if inner
+            .parent
+            .as_ref()
+            .is_some_and(|parent| !parent.is_alive())
+        {
+            inner.parent = None;
+        }
+        inner.parent.clone()
     }
 
     pub(crate) fn property_changed_stream(&self) -> PropertyChangedStream {

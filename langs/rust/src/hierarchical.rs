@@ -183,15 +183,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// Removes `child` from this node without disposing it.
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
         self.materialize_children();
-        let removed = {
+        let (removed, index) = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut children = lock(&self.inner.children);
             let children = children.as_mut().expect("children materialized");
             let removed = children
                 .iter()
                 .position(|candidate| candidate == child)
-                .map(|index| children.remove(index));
-            if let Some(removed) = &removed {
+                .map(|index| (children.remove(index), index));
+            if let Some((removed, _)) = &removed {
                 removed.set_parent_state(None);
             }
             removed
@@ -202,6 +202,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
+                change: TreeStructureChange::Removed,
+                affected_id: removed.id(),
+                index: index as isize,
             }));
         Ok(())
     }
@@ -214,7 +217,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     fn attach_child(&self, child: &Self) -> VmxResult<()> {
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
-        loop {
+        let (reparented, index) = loop {
             self.materialize_children();
             let attached = {
                 let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
@@ -226,6 +229,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
+                    let reparented = old_parent.is_some();
                     if let Some(parent) = &old_parent {
                         if let Some(children) = lock(&parent.inner.children).as_mut() {
                             children.retain(|candidate| candidate != child);
@@ -233,22 +237,30 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     }
                     let mut children = lock(&self.inner.children);
                     let children = children.as_mut().expect("children materialized");
+                    let index = children.len();
                     if !children.iter().any(|candidate| candidate == child) {
                         children.push(child.clone());
                     }
                     child.set_parent_state(Some(self.clone()));
-                    Some(())
+                    Some((reparented, index))
                 }
             };
-            if attached.is_some() {
-                break;
+            if let Some(attached) = attached {
+                break attached;
             }
-        }
+        };
         child.publish_parent_changed();
         self.inner
             .hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
+                change: if reparented {
+                    TreeStructureChange::Reparented
+                } else {
+                    TreeStructureChange::Added
+                },
+                affected_id: child.id(),
+                index: if reparented { -1 } else { index as isize },
             }));
         Ok(())
     }
@@ -663,7 +675,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .hub
             .send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id: self.id(),
-                property_name: "Parent".to_string(),
+                property_name: "parent".to_string(),
             }));
     }
 

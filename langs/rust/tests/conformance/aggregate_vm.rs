@@ -287,6 +287,45 @@ fn fixed_aggregate_component_cannot_transfer_to_mutable_parent() {
 }
 
 #[test]
+fn child_can_reattach_after_its_previous_owner_is_dropped() {
+    let composite_child = text("composite-child");
+    {
+        let owner = vmx::CompositeVm::new("composite-owner");
+        owner.add(composite_child.clone()).unwrap();
+    }
+    assert_eq!(composite_child.parent_id(), None);
+    let composite_destination = vmx::GroupVm::new("composite-destination");
+    composite_destination.add(composite_child.clone()).unwrap();
+    assert_eq!(
+        composite_child.parent_id(),
+        Some(composite_destination.id())
+    );
+
+    let group_child = text("group-child");
+    {
+        let owner = vmx::GroupVm::new("group-owner");
+        owner.add(group_child.clone()).unwrap();
+    }
+    assert_eq!(group_child.parent_id(), None);
+    let group_destination = vmx::CompositeVm::new("group-destination");
+    group_destination.add(group_child.clone()).unwrap();
+    assert_eq!(group_child.parent_id(), Some(group_destination.id()));
+
+    let aggregate_child = text("aggregate-child");
+    {
+        let _owner =
+            vmx::AggregateVm1::try_new("aggregate-owner", aggregate_child.clone()).unwrap();
+    }
+    assert_eq!(aggregate_child.parent_id(), None);
+    let aggregate_destination = vmx::CompositeVm::new("aggregate-destination");
+    aggregate_destination.add(aggregate_child.clone()).unwrap();
+    assert_eq!(
+        aggregate_child.parent_id(),
+        Some(aggregate_destination.id())
+    );
+}
+
+#[test]
 fn builders_require_every_field_and_remain_independent_when_cloned() {
     let first = text("first");
     let second = number("second", 2);

@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Hierarchy structural messages now include the mutation kind, affected child
+  identity, and index, and parent-change notifications use Rust's `parent`
+  property spelling.
+- Children whose previous weak owner has been dropped can be attached to a new
+  composite or group instead of retaining an unusable expired ownership handle.
 - Serviced collections now serialize mutation commit with delivery admission,
   so concurrent Add positions publish in committed order without weakening
   same-thread re-entrant delivery or caller-thread hub publication.

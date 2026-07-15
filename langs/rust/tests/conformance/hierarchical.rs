@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use vmx::{
     walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState,
+    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
 };
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
@@ -284,7 +284,7 @@ fn parent_change_publishes_property_changed() {
     root.add_child(child).unwrap();
 
     assert!(hub.history().iter().any(
-        |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "Parent")
+        |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "parent")
     ));
 }
 
@@ -299,18 +299,44 @@ fn structural_mutations_publish_tree_structure_changed() {
         false,
         hub.clone(),
     );
+    let destination = HierarchicalVm::with_children_factory(
+        "destination",
+        "destination".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
     let child = leaf("child");
 
     root.add_child(child.clone()).unwrap();
     root.remove_child(&child).unwrap();
+    root.add_child(child.clone()).unwrap();
+    destination.reparent_child(&child).unwrap();
 
-    assert_eq!(
-        hub.history()
-            .iter()
-            .filter(|message| matches!(message, Message::TreeStructureChanged(_)))
-            .count(),
-        2
-    );
+    let changes = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::TreeStructureChanged(change) => Some(change),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 4);
+    assert_eq!(changes[0].sender_id, root.id());
+    assert_eq!(changes[0].change, TreeStructureChange::Added);
+    assert_eq!(changes[0].affected_id, child.id());
+    assert_eq!(changes[0].index, 0);
+    assert_eq!(changes[1].sender_id, root.id());
+    assert_eq!(changes[1].change, TreeStructureChange::Removed);
+    assert_eq!(changes[1].affected_id, child.id());
+    assert_eq!(changes[1].index, 0);
+    assert_eq!(changes[2].change, TreeStructureChange::Added);
+    assert_eq!(changes[2].affected_id, child.id());
+    assert_eq!(changes[2].index, 0);
+    assert_eq!(changes[3].sender_id, destination.id());
+    assert_eq!(changes[3].change, TreeStructureChange::Reparented);
+    assert_eq!(changes[3].affected_id, child.id());
+    assert_eq!(changes[3].index, -1);
 }
 
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
