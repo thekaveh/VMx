@@ -137,8 +137,8 @@ user_vm.property_changed.subscribe(
 )
 
 # construct() transitions DESTRUCTED → CONSTRUCTING → CONSTRUCTED.
-# This is when the VM fires its on_construct callback and begins accepting
-# model updates.
+# This fires the VM's on_construct callback. Model assignment is already valid
+# before construction and remains valid until the terminal DISPOSED state.
 user_vm.construct()
 # stdout: "user-card constructed"
 
