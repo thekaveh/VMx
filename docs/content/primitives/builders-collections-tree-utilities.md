@@ -239,6 +239,10 @@ replace, replace all, move, and clear. See
   bounds failures throw `VMCollectionIndexError`.
 - `Clear` does nothing when already empty and otherwise emits one Reset.
 
+TypeScript's `splice` convenience preserves native argument-count behavior:
+omitting `deleteCount` removes through the end, while explicitly passing
+`undefined` removes zero items and can still insert following arguments.
+
 For C#, Python, TypeScript, and Swift, collection messages retain `index` and
 add explicit old/new positions:
 

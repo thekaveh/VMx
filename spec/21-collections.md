@@ -161,6 +161,16 @@ non-generic message identifies the move through its action and positions only.
 Move does not construct, dispose, reparent, detach, or otherwise manage the
 item.
 
+#### 2.3.5 TypeScript splice compatibility
+
+TypeScript's established `splice` convenience follows native
+`Array.prototype.splice` argument-count semantics (ADR-0115). Omitting
+`deleteCount` removes from the normalized start through the end. Explicitly
+passing `undefined` supplies a delete count that normalizes to zero, so it
+removes nothing and may insert following items. A splice that removes and
+inserts nothing is a true no-op; every effective insertion-only or bulk splice
+emits one Reset under §2.4.
+
 ### 2.4 `CollectionChangedMessage`
 
 A `CollectionChangedMessage` is emitted for each mutation. C#, Python,

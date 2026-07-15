@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ServicedObservableCollection.splice` now distinguishes an omitted
+  `deleteCount` from explicit `undefined`, matching native array removal and
+  insertion semantics (ADR-0115).
 - `PagedComposition` now rejects non-finite or fractional page sizes and indexes
   before mutation or notification while retaining zero clamping for negative
   integers (COL-016, ADR-0114).
