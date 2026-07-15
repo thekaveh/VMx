@@ -23,6 +23,7 @@ src/async_value.rs
 src/capabilities.rs
 src/commands.rs
 src/components.rs
+src/collections.rs
 src/derived_property.rs
 src/discriminator.rs
 src/dialogs.rs
