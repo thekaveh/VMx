@@ -474,20 +474,31 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
 
     // MARK: - Lifecycle overrides
 
-    public override func _onDestruct() throws {
-        // Remove and dispose all NoteVMs so they release hub subscriptions
-        // before the parent composite tears down.
-        for i in stride(from: _inner.count - 1, through: 0, by: -1) {
+    private func releaseChildren() {
+        // Remove and dispose all NoteVMs so direct dispose and destruct both
+        // release membership as well as child-owned subscriptions.
+        while _inner.count > 0 {
+            let i = _inner.count - 1
             let vm = _inner.at(i)
             _inner.removeAt(i)
             vm.dispose()
         }
+        _filteredItems = []
+        _paged.setSource([])
+        _filteredState.send([])
+        _current = nil
+        boundNotebookId = nil
+    }
+
+    public override func _onDestruct() throws {
+        releaseChildren()
         try super._onDestruct()
     }
 
     public override func _onDispose() {
         _activeFetchTask?.cancel()
         _activeFetchTask = nil
+        releaseChildren()
         _pagedChangedCancellable?.cancel()
         _pagedChangedCancellable = nil
         _searchCancellable?.cancel()

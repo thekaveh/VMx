@@ -434,14 +434,21 @@ export class NotesViewVM extends ComponentVMBase {
     this.#stateSubject.next();
   }
 
-  protected override _onDestruct(): void {
+  #releaseChildren(): void {
     for (const prev of this.#inner) prev.dispose();
     this.#inner.length = 0;
     this.#filtered.length = 0;
+    this.#current = null;
+    this.#boundNotebookId = null;
+  }
+
+  protected override _onDestruct(): void {
+    this.#releaseChildren();
     super._onDestruct();
   }
 
   protected override _onDispose(): void {
+    this.#releaseChildren();
     this.#paged.dispose();
     this.#search.dispose();
     this.#stateSubject.complete();

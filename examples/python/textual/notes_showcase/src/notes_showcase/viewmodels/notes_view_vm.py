@@ -453,12 +453,20 @@ class NotesViewVM(
             self._notify_property_changed("visible_items")
 
     # ── Lifecycle override ─────────────────────────────────────────────────
-    def _on_destruct(self) -> None:
+    def _release_children(self) -> None:
         for prev in list(self._inner):
             prev.dispose()
+        self._inner.clear()
+        self._filtered = []
+        self._current = None
+        self._bound_notebook_id = None
+
+    def _on_destruct(self) -> None:
+        self._release_children()
         super()._on_destruct()
 
     def _on_dispose(self) -> None:
+        self._release_children()
         self._paged.dispose()
         self._search.dispose()
         self._is_empty.dispose()
@@ -469,8 +477,6 @@ class NotesViewVM(
         self._move_to_previous_page_command.dispose()
         self._move_to_next_page_command.dispose()
         self._move_to_last_page_command.dispose()
-        for prev in list(self._inner):
-            prev.dispose()
         super()._on_dispose()
 
     # ── Builder entry-point ────────────────────────────────────────────────

@@ -51,6 +51,19 @@ describe("NotesViewVM", () => {
     expect(vm.currentPageIndex).toBe(0);
   });
 
+  it("direct dispose releases all live note children", async () => {
+    const { vm } = makeVM();
+    await vm.bindToAsync("nb-personal");
+    const children = [...vm.inner];
+
+    vm.dispose();
+
+    expect(children).not.toHaveLength(0);
+    expect(children.every((child) => child.status === ConstructionStatus.Disposed)).toBe(true);
+    expect(vm.inner).toHaveLength(0);
+    expect(vm.boundNotebookId).toBeNull();
+  });
+
   it("pagination boundaries (next/prev/first/last) clamp correctly", async () => {
     const { vm } = makeVM();
     await vm.bindToAsync("nb-reviews"); // 7 items, pageSize 5 → 2 pages

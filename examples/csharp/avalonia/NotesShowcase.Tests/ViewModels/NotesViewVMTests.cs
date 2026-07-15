@@ -274,6 +274,25 @@ public sealed class NotesViewVMTests
     }
 
     [Fact]
+    public async Task Direct_dispose_releases_live_note_children_and_binding_state()
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadNotesDelay: TimeSpan.Zero);
+        var vm = BuildVM(repo);
+        vm.Construct();
+        await vm.BindToAsync("nb-personal");
+        var children = vm.Inner.ToArray();
+
+        vm.Dispose();
+
+        Assert.NotEmpty(children);
+        Assert.All(children, child => Assert.Equal(ConstructionStatus.Disposed, child.Status));
+        Assert.Empty(vm.Inner);
+        Assert.Null(vm.BoundNotebookId);
+    }
+
+    [Fact]
     public async Task GlobalSearchVM_refreshes_resets_terms_and_loads_more()
     {
         var hub = new MessageHub();

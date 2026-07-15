@@ -463,8 +463,7 @@ public sealed class NotesViewVM
         }
     }
 
-    /// <inheritdoc/>
-    protected override void OnDestruct()
+    private void ReleaseChildren()
     {
         for (var i = _inner.Count - 1; i >= 0; i--)
         {
@@ -472,6 +471,15 @@ public sealed class NotesViewVM
             _inner.RemoveAt(i);
             prev.Dispose();
         }
+        _filtered.Clear();
+        _current = null;
+        BoundNotebookId = null;
+    }
+
+    /// <inheritdoc/>
+    protected override void OnDestruct()
+    {
+        ReleaseChildren();
         base.OnDestruct();
     }
 
@@ -482,6 +490,7 @@ public sealed class NotesViewVM
         _ownDisposed = true;
         _activeFetchCts?.Cancel();
         _activeFetchCts?.Dispose();
+        ReleaseChildren();
         _paged.PropertyChanged -= OnPagedPropertyChanged;
         _paged.Dispose();
         _search.Dispose();

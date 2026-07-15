@@ -389,6 +389,24 @@ final class NotesViewVMTests: XCTestCase {
         XCTAssertNil(page.nextToken)
     }
 
+    func testDirectDispose_releasesLiveNoteChildrenAndBindingState() async throws {
+        let vm = try NotesViewVM.builder()
+            .name("notes")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .repository(makeRepo(loadNotesDelay: 0))
+            .build()
+        try vm.construct()
+        await vm.bindTo(notebookId: "nb-personal")
+        let children = vm.inner.snapshot()
+
+        vm.dispose()
+
+        XCTAssertFalse(children.isEmpty)
+        XCTAssertTrue(children.allSatisfy { $0.status == .disposed })
+        XCTAssertEqual(vm.inner.count, 0)
+        XCTAssertNil(vm.boundNotebookId)
+    }
+
     func testGlobalSearchVM_refreshes_resetsTerms_andLoadsMore() async throws {
         let repo = makeRepo(loadNotesDelay: 0)
         let vm = try GlobalSearchVM.builder()

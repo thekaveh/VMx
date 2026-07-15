@@ -216,6 +216,39 @@ def test_dispose_releases_resources() -> None:
     assert vm.status == ConstructionStatus.DISPOSED
 
 
+async def test_destruct_and_direct_dispose_release_all_note_children() -> None:
+    from vmx import ConstructionStatus
+
+    destructed = _build()
+    destructed.construct()
+    await destructed.bind_to_async("nb-personal")
+    destructed_children = list(destructed.inner)
+    destructed.current = destructed_children[0]
+
+    destructed.destruct()
+
+    assert destructed.inner.count == 0
+    assert destructed.current is None
+    assert destructed.bound_notebook_id is None
+    assert all(
+        child.status == ConstructionStatus.DISPOSED for child in destructed_children
+    )
+    destructed.dispose()
+
+    disposed = _build()
+    disposed.construct()
+    await disposed.bind_to_async("nb-personal")
+    disposed_children = list(disposed.inner)
+
+    disposed.dispose()
+
+    assert disposed.inner.count == 0
+    assert disposed.bound_notebook_id is None
+    assert all(
+        child.status == ConstructionStatus.DISPOSED for child in disposed_children
+    )
+
+
 # ── delete-confirmation symmetry: delete-with-confirm wiring ───
 
 
