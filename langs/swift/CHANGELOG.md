@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `BasicModalVM` now atomically registers waiters and claims its first dismissal,
   preventing concurrent dismissal/disposal from losing or resuming a waiter
   more than once.
+- `MessageHub` now invokes subscriber and completion callbacks outside its state
+  condition. Ordinary foreign producers still wait for calling-thread delivery,
+  while nested cross-hub sends enqueue to avoid opposing-callback deadlocks.
 
 ## [3.22.0] — 2026-07-14
 

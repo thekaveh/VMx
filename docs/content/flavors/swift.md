@@ -8,6 +8,8 @@
   SwiftPM tag and matching `swift-v3.20.0` GitHub Release.
 - Reactive primitive: `Combine`
 - Naming idiom: camelCase
+- Hub delivery: callbacks run outside the state condition; ordinary concurrent
+  producers remain synchronous and nested cross-hub sends cannot deadlock
 - Modal completion: `BasicModalVM` atomically registers waiters and accepts only
   the first concurrent dismissal or disposal result
 

@@ -138,4 +138,65 @@ final class MessageHubTests: XCTestCase {
         XCTAssertEqual(deliveryThread, producerThread)
         cancellable.cancel()
     }
+
+    func testOpposingHubCallbacksDoNotDeadlock() {
+        let left = MessageHub()
+        let right = MessageHub()
+        let callbacksEntered = DispatchSemaphore(value: 0)
+        let releaseCallbacks = DispatchSemaphore(value: 0)
+        let sendsReturned = DispatchSemaphore(value: 0)
+        let innerDeliveries = LockedInt()
+        let leftSubscription = left.messages.sink { message in
+            guard let changed = message as? PropertyChangedMessage else { return }
+            if changed.propertyName == "outer" {
+                callbacksEntered.signal()
+                releaseCallbacks.wait()
+                right.send(self.msg("inner"))
+            } else {
+                innerDeliveries.increment()
+            }
+        }
+        let rightSubscription = right.messages.sink { message in
+            guard let changed = message as? PropertyChangedMessage else { return }
+            if changed.propertyName == "outer" {
+                callbacksEntered.signal()
+                releaseCallbacks.wait()
+                left.send(self.msg("inner"))
+            } else {
+                innerDeliveries.increment()
+            }
+        }
+
+        DispatchQueue.global().async {
+            left.send(self.msg("outer"))
+            sendsReturned.signal()
+        }
+        DispatchQueue.global().async {
+            right.send(self.msg("outer"))
+            sendsReturned.signal()
+        }
+        XCTAssertEqual(callbacksEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(callbacksEntered.wait(timeout: .now() + 1), .success)
+        releaseCallbacks.signal()
+        releaseCallbacks.signal()
+
+        XCTAssertEqual(sendsReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(sendsReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(innerDeliveries.value, 2)
+        leftSubscription.cancel()
+        rightSubscription.cancel()
+    }
+}
+
+private final class LockedInt {
+    private let lock = NSLock()
+    private var storage = 0
+
+    func increment() {
+        lock.withLock { storage += 1 }
+    }
+
+    var value: Int {
+        lock.withLock { storage }
+    }
 }
