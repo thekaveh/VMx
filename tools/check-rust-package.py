@@ -31,6 +31,7 @@ src/hierarchical.rs
 src/lib.rs
 src/notifications.rs
 src/paged_composition.rs
+src/searchable_state.rs
 src/specialized_vms.rs
 src/token_paging.rs
 tests/conformance.rs

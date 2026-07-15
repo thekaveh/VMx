@@ -24,6 +24,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/hierarchical.rs",
         "src/notifications.rs",
         "src/paged_composition.rs",
+        "src/searchable_state.rs",
         "src/specialized_vms.rs",
         "src/token_paging.rs",
     } <= checker.REQUIRED_PATHS
