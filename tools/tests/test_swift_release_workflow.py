@@ -21,6 +21,19 @@ def test_swift_ci_covers_root_nested_and_manifest_parity() -> None:
     assert "name: Test nested package" in workflow
 
 
+def test_swift_ci_uses_supported_runners_and_compiles_declared_platforms() -> None:
+    workflow = _workflow("swift.yml")
+
+    assert "macos-14" not in workflow
+    assert "macos-latest" not in workflow
+    assert "Xcode_15" not in workflow
+    assert "/Applications/Xcode_16.0.app" in workflow
+    assert 'destination: "generic/platform=iOS"' in workflow
+    assert 'destination: "generic/platform=tvOS"' in workflow
+    assert 'destination: "generic/platform=watchOS"' in workflow
+    assert "CODE_SIGNING_ALLOWED=NO build" in workflow
+
+
 def test_swift_release_requires_same_sha_semantic_tag() -> None:
     workflow = _workflow("release.yml")
 
