@@ -329,14 +329,19 @@ export class NoteFormVM extends ComponentVMBase {
   async refreshTagSuggestionsAsync(): Promise<void> {
     try {
       const snapshot = await this.#repo.loadAll();
-      this.#tagCatalog = Array.from(
-        new Set(
-          snapshot.notes
-            .flatMap((note) => note.tags)
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        ),
-      ).sort((left, right) => left.localeCompare(right));
+      const seen = new Map<string, string>();
+      for (const raw of snapshot.notes.flatMap((note) => note.tags)) {
+        const tag = raw.trim();
+        const key = tag.toLowerCase();
+        if (tag.length > 0 && !seen.has(key)) seen.set(key, tag);
+      }
+      this.#tagCatalog = [...seen.values()].sort((left, right) => {
+        const leftKey = left.toLowerCase();
+        const rightKey = right.toLowerCase();
+        if (leftKey < rightKey) return -1;
+        if (leftKey > rightKey) return 1;
+        return left < right ? -1 : left > right ? 1 : 0;
+      });
       this.#tagSearch.search();
     } catch {
       this.#tagCatalog = [];

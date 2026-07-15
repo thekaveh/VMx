@@ -80,6 +80,21 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertEqual("Edited", form.draft.title)
     }
 
+    func testTagSuggestions_deduplicateMixedCaseCatalogEntries() async throws {
+        let (form, repo) = try build()
+        try await repo.saveNote(NoteModel(
+            id: "mixed-tags", notebookId: "nb-work", title: "Tags",
+            tags: ["Security", "security"], body: "", starred: false,
+            createdAt: Date(), updatedAt: Date()
+        ))
+        form.bindTo(sampleNote())
+        await form.refreshTagSuggestions()
+
+        form.tagDraft = "sec"
+
+        XCTAssertEqual(form.tagSuggestions, ["security"])
+    }
+
     // MARK: - Approve
 
     func testApprove_persistsClearsDirtyAndResnapshots() async throws {

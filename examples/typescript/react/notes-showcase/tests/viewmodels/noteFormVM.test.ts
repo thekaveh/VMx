@@ -140,6 +140,17 @@ describe("NoteFormVM", () => {
     expect(vm.tagSuggestionsText).toBe("");
   });
 
+  it("tag suggestions deduplicate mixed-case catalog entries", async () => {
+    const { vm, repo } = makeForm();
+    await repo.saveNote(aNote({ id: "mixed-tags", tags: ["Security", "security"] }));
+    vm.bindTo(aNote({ tags: [] }));
+    await vm.refreshTagSuggestionsAsync();
+
+    vm.tagDraft = "sec";
+
+    expect(vm.tagSuggestions).toEqual(["security"]);
+  });
+
   it("publishes a 'Saved' notification on approve", async () => {
     const { vm, notifs } = makeForm();
     const titles: string[] = [];

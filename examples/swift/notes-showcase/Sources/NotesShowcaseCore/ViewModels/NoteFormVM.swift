@@ -383,8 +383,10 @@ public final class NoteFormVM: ComponentVMBase {
                     }
                 }
             }
-            let catalog = seen.values.sorted {
-                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            let catalog = seen.values.sorted { left, right in
+                let leftKey = left.lowercased()
+                let rightKey = right.lowercased()
+                return leftKey == rightKey ? left < right : leftKey < rightKey
             }
             await runOnForeground { [weak self] in
                 self?._tagCatalog = catalog
