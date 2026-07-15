@@ -30,6 +30,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/modeled_crud.rs",
         "src/notifications.rs",
         "src/paged_composition.rs",
+        "src/runtime.rs",
         "src/searchable_state.rs",
         "src/specialized_vms.rs",
         "src/token_paging.rs",
