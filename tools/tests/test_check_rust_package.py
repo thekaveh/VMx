@@ -13,6 +13,7 @@ def test_expected_package_paths_are_accepted() -> None:
 
 def test_extracted_runtime_modules_are_allowlisted() -> None:
     assert {
+        "src/aggregates.rs",
         "src/async_value.rs",
         "src/forms.rs",
         "src/forwarding.rs",

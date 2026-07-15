@@ -17,6 +17,7 @@ Cargo.toml.orig
 LICENSE
 README.md
 src/aggregate_change_stream.rs
+src/aggregates.rs
 src/async_resource_vm.rs
 src/async_value.rs
 src/fixtures/lifecycle-transitions.json
