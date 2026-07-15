@@ -21,6 +21,7 @@ src/aggregates.rs
 src/async_resource_vm.rs
 src/async_value.rs
 src/capabilities.rs
+src/commands.rs
 src/components.rs
 src/derived_property.rs
 src/discriminator.rs
