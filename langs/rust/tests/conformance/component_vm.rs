@@ -75,7 +75,8 @@ fn modeled_hint_recomputes_when_model_changes() {
 
     vm.set_model(8);
 
-    assert_eq!(vm.hint(), Some("hint:8".to_string()));
+    assert_eq!(vm.hint(), None);
+    assert_eq!(vm.modeled_hint(), Some("hint:8".to_string()));
     assert!(hub.history().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "modeled_hint")
     ));
@@ -95,7 +96,7 @@ fn modeled_hint_may_read_model_reentrantly() {
     let (completed, completion) = mpsc::channel();
 
     std::thread::spawn(move || {
-        completed.send(vm.hint()).unwrap();
+        completed.send(vm.modeled_hint()).unwrap();
     });
 
     assert_eq!(
@@ -109,12 +110,20 @@ fn modeled_hint_may_read_model_reentrantly() {
 /// CVM-005 — Name and Hint are immutable post-construction
 #[test]
 fn name_and_hint_are_stable_after_construction() {
-    let vm = ComponentVm::new("orig").with_model_hint(|_| Some("h".to_string()));
+    let vm = ComponentVm::builder()
+        .name("orig")
+        .hint("fixed")
+        .model(())
+        .model_hint(|_| Some("modeled".to_string()))
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
 
     vm.construct().unwrap();
 
     assert_eq!(vm.name(), "orig");
-    assert_eq!(vm.hint(), Some("h".to_string()));
+    assert_eq!(vm.hint(), Some("fixed".to_string()));
+    assert_eq!(vm.modeled_hint(), Some("modeled".to_string()));
 }
 
 /// CVM-006 — SelectCommand can_execute reflects selection state
@@ -291,7 +300,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
         hinter_calls_for_vm.fetch_add(1, Ordering::SeqCst);
         Some(format!("hint:{}", value.value))
     });
-    let hint_before = vm.hint();
+    let hint_before = vm.modeled_hint();
     let hinter_calls_before = hinter_calls.load(Ordering::SeqCst);
     let equality_calls_before_republish = equality_calls.load(Ordering::SeqCst);
     let trace = Arc::new(Mutex::new(Vec::new()));
@@ -318,7 +327,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
         equality_calls.load(Ordering::SeqCst),
         equality_calls_before_republish
     );
-    assert_eq!(vm.hint(), hint_before);
+    assert_eq!(vm.modeled_hint(), hint_before);
     assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
 
     trace.lock().unwrap().clear();
@@ -333,7 +342,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     vm.set_model(replacement.clone());
 
     assert!(Arc::ptr_eq(&vm.model(), &replacement));
-    assert_eq!(vm.hint().as_deref(), Some("hint:replacement"));
+    assert_eq!(vm.modeled_hint().as_deref(), Some("hint:replacement"));
     assert!(hinter_calls.load(Ordering::SeqCst) > hinter_calls_before);
     assert!(equality_calls.load(Ordering::SeqCst) > equality_calls_before_republish);
     assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);

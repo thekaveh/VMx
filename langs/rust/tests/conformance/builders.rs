@@ -54,11 +54,13 @@ fn field_defaults_are_applied() {
     let vm = ComponentVm::<&'static str>::builder()
         .name("vm")
         .model("model")
+        .model_hint(|model| Some(format!("modeled:{model}")))
         .services(MessageHub::new(), NullDispatcher::new())
         .build()
         .unwrap();
 
     assert_eq!(vm.hint(), Some(String::new()));
+    assert_eq!(vm.modeled_hint(), Some("modeled:model".to_string()));
 }
 
 /// BLD-005 — Additive setters retain prior values across repeated calls

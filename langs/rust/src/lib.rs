@@ -1322,10 +1322,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     pub fn hint(&self) -> Option<String> {
-        self.core.hint().or_else(|| {
-            let model = lock(&self.model).clone();
-            (self.model_hint)(&model)
-        })
+        self.core.hint()
+    }
+
+    pub fn modeled_hint(&self) -> Option<String> {
+        let model = lock(&self.model).clone();
+        (self.model_hint)(&model)
     }
 
     pub fn model(&self) -> M {
@@ -1359,11 +1361,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         if self.status() == ConstructionStatus::Disposed {
             return;
         }
-        let old_hint = self.hint();
+        let old_hint = self.modeled_hint();
         let changed = self.replace_model(model);
         if changed {
             self.core.notify_property_changed("model");
-            if self.hint() != old_hint {
+            if self.modeled_hint() != old_hint {
                 self.core.notify_property_changed("modeled_hint");
             }
         }
@@ -1584,6 +1586,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
 
     pub fn hint(&self) -> Option<String> {
         self.inner.hint()
+    }
+
+    pub fn modeled_hint(&self) -> Option<String> {
+        self.inner.modeled_hint()
     }
 
     pub fn model(&self) -> M {
@@ -9404,6 +9410,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
 
     pub fn hint(&self) -> Option<String> {
         self.inner.hint()
+    }
+
+    pub fn modeled_hint(&self) -> Option<String> {
+        self.inner.modeled_hint()
     }
 
     pub fn model(&self) -> M {

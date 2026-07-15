@@ -14,6 +14,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   cleanup through `hub()` and `own(...)`;
 - modeled components expose `republish_model()` for an explicit retained-model
   notification without assignment or hint work;
+- `hint()` is immutable fixed metadata while `modeled_hint()` is recomputed
+  from the configured model hinter and publishes `modeled_hint` changes;
 - message and dispatcher primitives are UI-framework neutral;
 - relay commands expose `raise_can_execute_changed` for precise binding
   invalidation without predicate polling;

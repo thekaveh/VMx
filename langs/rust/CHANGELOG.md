@@ -32,6 +32,9 @@ Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
 - Cached form and async-resource commands no longer form owner-retention
   cycles; dropping the VM and its external command handles releases captured
   persisters, loaders, validators, and cleanup resources.
+- Modeled components now expose `modeled_hint()` separately from the immutable
+  fixed `hint()`, so the builder's default empty fixed hint no longer masks
+  model-derived text or causes CVM-004 to test the wrong property.
 
 ## [0.24.0] — 2026-07-14
 

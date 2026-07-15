@@ -15,6 +15,8 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Conformance: all 395 library IDs are covered by behavioral Rust tests
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
+- Hint surfaces: `hint()` is immutable fixed metadata; `modeled_hint()` is
+  recomputed from the model and publishes `modeled_hint` changes
 - Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
   additive triggers, cancellation mode, and fire-and-forget error stream
 

@@ -41,7 +41,7 @@ fn modeled_assignment_after_disposal_is_inert() {
         hinter_calls_for_component.fetch_add(1, Ordering::SeqCst);
         Some(format!("hint:{}", model.value))
     });
-    let initial_hint = component.hint();
+    let initial_hint = component.modeled_hint();
     let local_changes = Arc::new(Mutex::new(Vec::new()));
     let local_changes_for_subscription = local_changes.clone();
     let _local_subscription = component.property_changed().subscribe(move |name| {
@@ -65,7 +65,7 @@ fn modeled_assignment_after_disposal_is_inert() {
     assert_eq!(hinter_calls.load(Ordering::SeqCst), 0);
     assert!(local_changes.lock().unwrap().is_empty());
     assert_eq!(component_hub.history().len(), component_history_len);
-    assert_eq!(component.hint(), initial_hint);
+    assert_eq!(component.modeled_hint(), initial_hint);
 
     let form_hub = MessageHub::new();
     let form_equality_calls = Arc::new(AtomicUsize::new(0));
