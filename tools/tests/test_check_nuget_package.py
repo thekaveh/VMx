@@ -4,6 +4,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import check_nuget_package as checker
+import pytest
 
 
 def _nuspec(
@@ -104,3 +105,17 @@ def test_discover_expected_reads_all_packable_projects(tmp_path: Path) -> None:
         "VMx": ("3.20.0", None),
         "VMx.Notifications": ("1.2.0", "3.20.0"),
     }
+
+
+def test_main_rejects_project_root_without_packable_projects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    package_dir = tmp_path / "packages"
+    package_dir.mkdir()
+
+    result = checker.main(
+        ["--package-dir", str(package_dir), "--project-root", str(tmp_path / "missing")]
+    )
+
+    assert result == 1
+    assert "no packable projects discovered" in capsys.readouterr().err

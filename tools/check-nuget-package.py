@@ -156,6 +156,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project-root", type=Path, default=repo / "langs" / "csharp" / "src")
     args = parser.parse_args(argv)
     expected = discover_expected(args.project_root)
+    if not expected:
+        print(
+            f"ERROR: no packable projects discovered under {args.project_root}",
+            file=sys.stderr,
+        )
+        return 1
     errors = [
         error
         for package_id, (version, vmx_floor) in expected.items()
