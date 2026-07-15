@@ -61,3 +61,18 @@ export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHu
 the Notes-Showcase React flagship: ships `useVm` / `useCommand` /
 `useDerivedProperty` hooks plus a full `WorkspaceVM`-driven UI
 (shipped in v2.2.0; `ThemeVM` added in v2.4.0).
+
+## 9.8.5. Serialize Portal Dialog Requests
+
+Keep portal overlay state in an external observable store just like VM state,
+but do not model it as one replaceable request slot. The flagship
+`ReactDialogService` retains one active request and a FIFO queue. Each modal
+resolver settles only its own promise and publishes the next request (or `null`)
+to `useSyncExternalStore`. Explicit close uses the operation's neutral
+result (`false`, `null`, or completion) and advances the same queue.
+
+This is the queueing policy permitted by DIA-006. It prevents a second confirm,
+file picker, or notification from replacing the active request and leaving the
+first caller pending forever. See
+[`ReactDialogService.tsx`](../../../examples/typescript/react/notes-showcase/src/views/adapter/ReactDialogService.tsx)
+and its two-call settlement tests.

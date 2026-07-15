@@ -106,6 +106,11 @@ examples/typescript/react/notes-showcase/
 | 18  | `DiscriminatorVM`                                        | `viewmodels/noteFormVM.ts` edit/preview editor mode                                                                                                                                                                                                             |
 | 19  | Tag autocomplete                                         | `viewmodels/noteFormVM.ts` composes `SearchableState<string>` over workspace tags                                                                                                                                                                               |
 
+The React `IDialogService` adapter serializes concurrent requests in FIFO order
+as allowed by DIA-006. Resolving or safely cancelling the active request settles
+its promise and exposes the next modal; a later request never overwrites or
+orphans an earlier one.
+
 ## 4. Keyboard shortcuts
 
 | Binding       | Action                           |
