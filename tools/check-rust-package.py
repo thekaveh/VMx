@@ -23,6 +23,7 @@ src/fixtures/lifecycle-transitions.json
 src/forms.rs
 src/lib.rs
 src/specialized_vms.rs
+src/token_paging.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
 tests/conformance/aggregate_vm.rs

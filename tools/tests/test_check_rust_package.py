@@ -16,6 +16,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/async_value.rs",
         "src/forms.rs",
         "src/specialized_vms.rs",
+        "src/token_paging.rs",
     } <= checker.REQUIRED_PATHS
 
 
