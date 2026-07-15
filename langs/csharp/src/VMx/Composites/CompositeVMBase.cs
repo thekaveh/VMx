@@ -197,7 +197,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     /// <inheritdoc/>
     public bool CanSelectComponent(VM vm)
-        => _children.Contains(vm) && vm.Status == ConstructionStatus.Constructed;
+        => IndexOfIdentity(vm) >= 0 && vm.Status == ConstructionStatus.Constructed;
 
     // ── IList<VM>: mutation ───────────────────────────────────────────────────
 
@@ -228,7 +228,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        var idx = _children.IndexOf(item);
+        var idx = IndexOfIdentity(item);
         if (idx < 0) return false;
         RemoveAt(idx);
         return true;
@@ -368,10 +368,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     // ── IList<VM>: query ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public bool Contains(VM item) => _children.Contains(item);
+    public bool Contains(VM item) => IndexOfIdentity(item) >= 0;
 
     /// <inheritdoc/>
-    public int IndexOf(VM item) => _children.IndexOf(item);
+    public int IndexOf(VM item) => IndexOfIdentity(item);
 
     /// <inheritdoc/>
     public void CopyTo(VM[] array, int arrayIndex) => _children.CopyTo(array, arrayIndex);
@@ -402,7 +402,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 // The selector runs only after every child settles Constructed.
                 if (_currentSelector is null) return;
                 var initial = _currentSelector(this);
-                if (initial is not null && _children.Contains(initial))
+                if (initial is not null && IndexOfIdentity(initial) >= 0)
                     SetCurrent(initial, async: false);
             }));
     }
@@ -521,7 +521,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     private void SetCurrent(VM? value, bool async)
     {
-        if (value is not null && !_children.Contains(value))
+        if (value is not null && IndexOfIdentity(value) < 0)
             throw new InvalidOperationException(
                 $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
 
@@ -541,7 +541,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // between SetCurrent's membership check and this deferred foreground
         // delivery. Dropping silently upholds the spec/06 §3 invariant that a
         // non-null Current is always a member of the children collection.
-        if (value is not null && !_children.Contains(value)) return;
+        if (value is not null && IndexOfIdentity(value) < 0) return;
         if (ReferenceEquals(_current, value)) return;
 
         var previous = _current;
@@ -561,4 +561,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // see the new value consistently (spec/06 §3.2, ADR-0042 §5.2).
         _onCurrentChanged?.Invoke(value);
     }
+
+    private int IndexOfIdentity(VM item) =>
+        _children.FindIndex(candidate => ReferenceEquals(candidate, item));
 }

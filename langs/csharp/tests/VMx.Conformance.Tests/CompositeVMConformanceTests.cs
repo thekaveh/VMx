@@ -17,6 +17,20 @@ namespace VMx.Conformance.Tests;
 /// </summary>
 public class CompositeVMConformanceTests
 {
+    private sealed class EqualByNameVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher)
+        : ComponentVMBase(name, "", hub, dispatcher, null, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        public override bool Equals(object? obj) =>
+            obj is EqualByNameVM other && other.Name == Name;
+
+        public override int GetHashCode() => Name.GetHashCode(StringComparison.Ordinal);
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (CompositeVM<ComponentVM<string>> composite, TestHub hub, TestDispatcher dispatcher)
@@ -636,6 +650,43 @@ public class CompositeVMConformanceTests
         cycle.Should().Throw<InvalidOperationException>();
         outer.Should().ContainSingle(item => ReferenceEquals(item, inner));
         inner.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-039")]
+    public void COMP_039_Membership_Uses_Identity_When_Children_Override_Equality()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var child = new EqualByNameVM("same", hub, dispatcher);
+        var foreign = new EqualByNameVM("same", hub, dispatcher);
+        var composite = CompositeVM<EqualByNameVM>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .Children(() => [])
+            .Build();
+        composite.Add(child);
+        child.Construct();
+
+        composite.Contains(foreign).Should().BeFalse();
+        composite.IndexOf(foreign).Should().Be(-1);
+        composite.CanSelectComponent(foreign).Should().BeFalse();
+        ((Action)(() => composite.Current = foreign)).Should().Throw<InvalidOperationException>();
+        composite.Remove(foreign).Should().BeFalse();
+        composite.Should().ContainSingle(item => ReferenceEquals(item, child));
+
+        var groupChild = new EqualByNameVM("group-same", hub, dispatcher);
+        var groupForeign = new EqualByNameVM("group-same", hub, dispatcher);
+        var group = GroupVM<EqualByNameVM>.Builder()
+            .Name("group")
+            .Services(hub, dispatcher)
+            .Children(() => [])
+            .Build();
+        group.Add(groupChild);
+
+        group.Contains(groupForeign).Should().BeFalse();
+        group.IndexOf(groupForeign).Should().Be(-1);
+        group.Remove(groupForeign).Should().BeFalse();
+        group.Should().ContainSingle(item => ReferenceEquals(item, groupChild));
     }
 
     [Fact, Trait("Conformance", "COMP-040")]

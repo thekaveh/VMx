@@ -67,6 +67,22 @@ def _build_child(
     return ComponentVMBuilder().name(name).services(h, d).build()
 
 
+class _EqualByNameComponent(ComponentVM):
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _EqualByNameComponent) and other.name == self.name
+
+    __hash__ = None
+
+
+def _build_equal_child(name: str) -> _EqualByNameComponent:
+    return _EqualByNameComponent(
+        name=name,
+        hint="",
+        hub=_hub(),
+        dispatcher=_dispatcher(),
+    )
+
+
 def _prop_messages(hub: MessageHub[object]) -> list[PropertyChangedMessage]:
     collected: list[PropertyChangedMessage] = []
     hub.messages.subscribe(
@@ -809,6 +825,42 @@ def test_COMP_039_duplicate_and_cycle_rejection_is_mutation_free() -> None:
         inner.add(outer)  # type: ignore[arg-type]
     assert list(outer) == [inner]
     assert list(inner) == []
+
+
+@pytest.mark.conformance("COMP-039")
+def test_COMP_039_membership_uses_identity_when_children_override_equality() -> None:
+    child = _build_equal_child("same")
+    foreign = _build_equal_child("same")
+    comp: CompositeVM[_EqualByNameComponent] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(_hub(), _dispatcher())
+        .children(lambda: ())
+        .build()
+    )
+    comp.add(child)
+    child.construct()
+
+    assert foreign not in comp
+    with pytest.raises(ValueError):
+        comp.index(foreign)
+    assert comp.can_select_component(foreign) is False
+    with pytest.raises(ValueError):
+        comp.current = foreign
+    assert comp.remove(foreign) is False
+    assert list(comp) == [child]
+
+    group_child = _build_equal_child("group-same")
+    group_foreign = _build_equal_child("group-same")
+    group: GroupVM[_EqualByNameComponent] = (
+        GroupVMBuilder().name("group").services(_hub(), _dispatcher()).children(lambda: ()).build()
+    )
+    group.add(group_child)
+
+    assert group_foreign not in group
+    assert group.index_of(group_foreign) == -1
+    assert group.remove(group_foreign) is False
+    assert list(group) == [group_child]
 
 
 @pytest.mark.conformance("COMP-040")

@@ -12,6 +12,18 @@ use super::{
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
 type CurrentSelector<T> = Arc<dyn Fn(Vec<T>) -> Option<T> + Send + Sync>;
 
+fn same_node<T: VmNode>(left: &T, right: &T) -> bool {
+    left.id() == right.id()
+}
+
+fn same_optional_node<T: VmNode>(left: Option<&T>, right: Option<&T>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => same_node(left, right),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 /// Shared ordered, observable child-collection capability without selection.
 pub trait VmCollection<T: VmNode> {
     /// Returns an ordered snapshot of all children.
@@ -26,7 +38,7 @@ pub trait VmCollection<T: VmNode> {
     fn add(&self, item: T) -> VmxResult<()>;
     /// Inserts a child at `index` and establishes ownership.
     fn insert(&self, index: usize, item: T) -> VmxResult<()>;
-    /// Removes a child by value.
+    /// Removes a child by node identity.
     fn remove(&self, item: &T) -> VmxResult<()>;
     /// Removes and returns the child at `index`.
     fn remove_at(&self, index: usize) -> VmxResult<T>;
@@ -331,7 +343,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let index = self
             .items()
             .iter()
-            .position(|candidate| candidate == item)
+            .position(|candidate| same_node(candidate, item))
             .ok_or(VmxError::NonChild)?;
         let removed = self.items.remove_at(index).expect("index checked");
         if removed
@@ -340,7 +352,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         {
             removed.set_parent_handle(None);
         }
-        if lock(&self.current).as_ref() == Some(&removed) {
+        if lock(&self.current)
+            .as_ref()
+            .is_some_and(|current| same_node(current, &removed))
+        {
             self.assign_current(None);
         }
         Ok(())
@@ -358,7 +373,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         {
             removed.set_parent_handle(None);
         }
-        if lock(&self.current).as_ref() == Some(&removed) {
+        if lock(&self.current)
+            .as_ref()
+            .is_some_and(|current| same_node(current, &removed))
+        {
             self.assign_current(None);
         }
         Ok(removed)
@@ -387,7 +405,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             transfer.commit();
         }
         old.set_parent_handle(None);
-        if lock(&self.current).as_ref() == Some(&old) {
+        if lock(&self.current)
+            .as_ref()
+            .is_some_and(|current| same_node(current, &old))
+        {
             self.assign_current(None);
         }
         self.items.replace(index, item)?;
@@ -424,7 +445,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Returns [`VmxError::NonChild`] for values outside this composite.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
         if let Some(item) = item.as_ref() {
-            if !self.items().iter().any(|candidate| candidate == item) {
+            if !self
+                .items()
+                .iter()
+                .any(|candidate| same_node(candidate, item))
+            {
                 return Err(VmxError::NonChild);
             }
         }
@@ -443,7 +468,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Deselects `item`, rejecting values that are not current.
     pub fn deselect_component(&self, item: &T) -> VmxResult<()> {
-        if self.current().as_ref() != Some(item) {
+        if !self
+            .current()
+            .as_ref()
+            .is_some_and(|current| same_node(current, item))
+        {
             return Err(VmxError::NotCurrent);
         }
         self.assign_current_maybe_async(None);
@@ -452,7 +481,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Reports whether `item` belongs here and is constructed.
     pub fn can_select_component(&self, item: &T) -> bool {
-        self.items().iter().any(|candidate| candidate == item)
+        self.items()
+            .iter()
+            .any(|candidate| same_node(candidate, item))
             && item.status() == ConstructionStatus::Constructed
     }
 
@@ -499,7 +530,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
                 if let Some(selector) = lock(&self.current_selector).clone() {
                     if let Some(selected) = selector(self.items()) {
-                        if self.items().contains(&selected) {
+                        if self
+                            .items()
+                            .iter()
+                            .any(|candidate| same_node(candidate, &selected))
+                        {
                             self.assign_current(selected.into());
                         }
                     }
@@ -556,7 +591,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     fn assign_current(&self, next: Option<T>) {
         let previous = {
             let mut current = lock(&self.current);
-            if *current == next {
+            if same_optional_node(current.as_ref(), next.as_ref()) {
                 return;
             }
             let previous = current.clone();
@@ -830,7 +865,11 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     /// Assigns a visible current item or clears it.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
         if let Some(item) = item.as_ref() {
-            if !self.visible().contains(item) {
+            if !self
+                .visible()
+                .iter()
+                .any(|candidate| same_node(candidate, item))
+            {
                 return Err(VmxError::NonChild);
             }
         }
@@ -871,7 +910,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         }
         let next_index = self
             .current()
-            .and_then(|current| visible.iter().position(|item| *item == current))
+            .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| (index + 1).min(visible.len() - 1))
             .unwrap_or(0);
         *lock(&self.current) = Some(visible[next_index].clone());
@@ -886,7 +925,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         }
         let previous_index = self
             .current()
-            .and_then(|current| visible.iter().position(|item| *item == current))
+            .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| index.saturating_sub(1))
             .unwrap_or(0);
         *lock(&self.current) = Some(visible[previous_index].clone());
@@ -902,7 +941,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         let visible = self.visible();
         let current_is_visible = self
             .current()
-            .map(|current| visible.contains(&current))
+            .map(|current| visible.iter().any(|item| same_node(item, &current)))
             .unwrap_or(true);
         if current_is_visible {
             return;

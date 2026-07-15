@@ -169,7 +169,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        var idx = _children.IndexOf(item);
+        var idx = IndexOfIdentity(item);
         if (idx < 0) return false;
         RemoveAt(idx);
         return true;
@@ -306,10 +306,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     // ── IList<VM>: query ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public bool Contains(VM item) => _children.Contains(item);
+    public bool Contains(VM item) => IndexOfIdentity(item) >= 0;
 
     /// <inheritdoc/>
-    public int IndexOf(VM item) => _children.IndexOf(item);
+    public int IndexOf(VM item) => IndexOfIdentity(item);
 
     /// <inheritdoc/>
     public void CopyTo(VM[] array, int arrayIndex) => _children.CopyTo(array, arrayIndex);
@@ -319,6 +319,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
 
     /// <inheritdoc/>
     IEnumerator IEnumerable.GetEnumerator() => _children.GetEnumerator();
+
+    private int IndexOfIdentity(VM item) =>
+        _children.FindIndex(candidate => ReferenceEquals(candidate, item));
 
     // ── Lifecycle overrides ───────────────────────────────────────────────────
 

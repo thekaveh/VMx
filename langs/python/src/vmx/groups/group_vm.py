@@ -138,7 +138,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         return iter(self._children)
 
     def __contains__(self, item: object) -> bool:
-        return item in self._children
+        return any(child is item for child in self._children)
 
     def __getitem__(self, index: int) -> VM:
         return self._children[index]
@@ -176,10 +176,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def index_of(self, item: VM) -> int:
         """Return the index of *item*, or ``-1`` if not found."""
-        try:
-            return self._children.index(item)
-        except ValueError:
-            return -1
+        return next(
+            (index for index, child in enumerate(self._children) if child is item),
+            -1,
+        )
 
     def insert(self, index: int, item: VM) -> None:
         """Insert *item* at *index*, shifting existing children right.

@@ -169,7 +169,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         - Non-None must be in children; raises ValueError otherwise.
         - If async_selection is True, dispatches via foreground scheduler.
         """
-        if value is not None and value not in self._children:
+        if value is not None and not any(child is value for child in self._children):
             raise ValueError(
                 f"Cannot set current to '{getattr(value, 'name', value)!r}': "
                 "it is not a member of this composite."
@@ -196,7 +196,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def can_select_component(self, vm: VM) -> bool:
         """Return True iff *vm* is in children and Status == Constructed."""
-        return vm in self._children and vm.status == ConstructionStatus.CONSTRUCTED
+        return any(child is vm for child in self._children) and (
+            vm.status == ConstructionStatus.CONSTRUCTED
+        )
 
     # ── MutableSequence-like collection API ───────────────────────────────────
 
@@ -212,7 +214,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         return iter(self._children)
 
     def __contains__(self, item: object) -> bool:
-        return item in self._children
+        return any(child is item for child in self._children)
 
     @overload
     def __getitem__(self, index: int) -> VM: ...
@@ -260,9 +262,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def index(self, value: VM, start: int = 0, stop: int | None = None) -> int:
         """Return the index of *value* in children."""
-        if stop is None:
-            return self._children.index(value, start)
-        return self._children.index(value, start, stop)
+        effective_stop = len(self._children) if stop is None else stop
+        for index in range(*slice(start, effective_stop).indices(len(self._children))):
+            if self._children[index] is value:
+                return index
+        raise ValueError(f"{value!r} is not in composite")
 
     def insert(self, index: int, item: VM) -> None:
         """Insert *item* before *index*, emitting a collection-changed event
@@ -317,7 +321,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def remove(self, item: VM) -> bool:
         """Remove first occurrence of *item*.  Returns True on success."""
         try:
-            idx = self._children.index(item)
+            idx = self.index(item)
         except ValueError:
             return False
         self._remove_at(idx)
@@ -446,7 +450,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if self._current_selector is None:
                 return
             initial = self._current_selector(self)
-            if initial is not None and initial in self._children:
+            if initial is not None and any(child is initial for child in self._children):
                 self._set_current(initial, async_sel=False)
 
         self._complete_lifecycle_hook_after(
@@ -537,12 +541,16 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if transfer is not None:
                 transfer.commit()
         for child in candidates:
-            if child in self._children:
+            index = next(
+                (i for i, candidate in enumerate(self._children) if candidate is child),
+                -1,
+            )
+            if index >= 0:
                 self._emit_collection_changed(
                     CollectionChangedEvent(
                         action="add",
                         new_items=(child,),
-                        new_index=self._children.index(child),
+                        new_index=index,
                     )
                 )
 
@@ -550,7 +558,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def _set_current(self, value: VM | None, *, async_sel: bool) -> None:
         """Apply the current change, optionally dispatching via foreground."""
-        if value is not None and value not in self._children:
+        if value is not None and not any(child is value for child in self._children):
             raise ValueError(
                 f"Cannot set current to '{getattr(value, 'name', value)!r}': "
                 "not a member of this composite."
@@ -571,7 +579,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # between _set_current's membership check and this deferred foreground
         # delivery. Dropping silently upholds the spec/06 §3 invariant that a
         # non-null current is always a member of the children collection.
-        if value is not None and value not in self._children:
+        if value is not None and not any(child is value for child in self._children):
             return
         if self._current is value:
             return

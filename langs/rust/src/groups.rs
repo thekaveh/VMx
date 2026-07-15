@@ -250,7 +250,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let index = self
             .items()
             .iter()
-            .position(|candidate| candidate == item)
+            .position(|candidate| candidate.id() == item.id())
             .ok_or(VmxError::NonChild)?;
         let removed = self.items.remove_at(index).expect("index checked");
         if removed

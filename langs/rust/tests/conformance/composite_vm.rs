@@ -348,6 +348,98 @@ impl VmNode for OwnershipNode {
     }
 }
 
+#[derive(Clone)]
+struct ValueEqualNode {
+    inner: Child,
+}
+
+impl ValueEqualNode {
+    fn new(name: &'static str) -> Self {
+        Self { inner: child(name) }
+    }
+}
+
+impl PartialEq for ValueEqualNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.model() == other.inner.model()
+    }
+}
+
+impl VmNode for ValueEqualNode {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    fn construct(&self) -> vmx::VmxResult<()> {
+        self.inner.construct()
+    }
+
+    fn destruct(&self) -> vmx::VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    fn dispose(&self) -> vmx::VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        VmNode::set_parent_id(&self.inner, parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        VmNode::parent_id(&self.inner)
+    }
+
+    fn set_parent_handle(&self, parent: Option<vmx::ParentHandle>) {
+        VmNode::set_parent_handle(&self.inner, parent);
+    }
+
+    fn parent_handle(&self) -> Option<vmx::ParentHandle> {
+        VmNode::parent_handle(&self.inner)
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        VmNode::set_current_flag(&self.inner, is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        VmNode::is_current(&self.inner)
+    }
+}
+
+/// COMP-039 — VM membership uses `VmNode::id`, not arbitrary `PartialEq` value equality.
+#[test]
+fn membership_uses_node_identity_when_partial_eq_is_value_based() {
+    let child = ValueEqualNode::new("same");
+    let foreign = ValueEqualNode::new("same");
+    let composite = vmx::CompositeVm::new("composite");
+    composite.add(child.clone()).unwrap();
+    child.construct().unwrap();
+
+    assert!(!composite.can_select_component(&foreign));
+    assert_eq!(
+        composite.set_current(Some(foreign.clone())),
+        Err(VmxError::NonChild)
+    );
+    assert_eq!(composite.remove(&foreign), Err(VmxError::NonChild));
+    assert_eq!(composite.items()[0].id(), child.id());
+
+    let filtered = vmx::FilteredCompositeVm::new(composite.clone(), |_| true);
+    assert_eq!(filtered.set_current(Some(foreign)), Err(VmxError::NonChild));
+
+    let group_child = ValueEqualNode::new("group-same");
+    let group_foreign = ValueEqualNode::new("group-same");
+    let group = vmx::GroupVm::new("group");
+    group.add(group_child.clone()).unwrap();
+
+    assert_eq!(group.remove(&group_foreign), Err(VmxError::NonChild));
+    assert_eq!(group.items()[0].id(), group_child.id());
+}
+
 /// COMP-038 — Adding an owned child transfers it between composite/group parents.
 #[test]
 fn adding_owned_child_transfers_membership() {
