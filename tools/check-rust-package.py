@@ -29,6 +29,7 @@ src/forms.rs
 src/forwarding.rs
 src/hierarchical.rs
 src/lib.rs
+src/modeled_crud.rs
 src/notifications.rs
 src/paged_composition.rs
 src/searchable_state.rs
