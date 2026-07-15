@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
-use std::time::Duration;
+use std::sync::{mpsc, Arc, Barrier, Mutex};
+use std::time::{Duration, Instant};
 use vmx::{
     AsyncRelayCommand, CancellationToken, Command, Message, MessageHub, RelayCommand,
     RelayCommandOf, VmxError, VmxResult,
@@ -273,23 +273,39 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
 #[test]
 fn async_relay_command_immediate_cancel_is_not_lost_during_admission() {
     const RUNS: usize = 4_096;
+    const RUN_TIMEOUT: Duration = Duration::from_millis(250);
     for run_number in 0..RUNS {
         let observed_cancel = Arc::new(AtomicBool::new(false));
         let observed_cancel_clone = observed_cancel.clone();
         let command = AsyncRelayCommand::new(move |token| {
-            let deadline = std::time::Instant::now() + Duration::from_millis(10);
-            while !token.is_cancelled() && std::time::Instant::now() < deadline {
+            let deadline = Instant::now() + RUN_TIMEOUT;
+            while !token.is_cancelled() && Instant::now() < deadline {
                 std::thread::yield_now();
             }
             observed_cancel_clone.store(token.is_cancelled(), Ordering::SeqCst);
             Ok(())
         });
 
-        let execution = command.execute_async();
-        while !command.is_executing() {
+        let (execution_sender, execution_receiver) = mpsc::channel();
+        let executing_command = command.clone();
+        let starter = std::thread::spawn(move || {
+            execution_sender
+                .send(executing_command.execute_async())
+                .unwrap();
+        });
+        let observation_deadline = Instant::now() + RUN_TIMEOUT;
+        while !command.is_executing() && Instant::now() < observation_deadline {
             std::thread::yield_now();
         }
+        assert!(
+            command.is_executing(),
+            "execution was not observable while admitting run {run_number}"
+        );
         command.cancel();
+        let execution = execution_receiver
+            .recv_timeout(RUN_TIMEOUT)
+            .unwrap_or_else(|_| panic!("execution handle was not returned for run {run_number}"));
+        starter.join().unwrap();
         execution.join().unwrap().unwrap();
 
         assert!(
