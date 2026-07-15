@@ -8,6 +8,9 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Common VM options factories now retain a supplied hub or dispatcher
+  independently, so builder validation identifies the actual missing service
+  counterpart (BLD-006, ADR-0112).
 - Nested sends from one active message-hub callback to another hub now enqueue
   instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
   while ordinary producers retain synchronous calling-thread delivery.

@@ -8,6 +8,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- Common VM options factories now retain a supplied hub or dispatcher
+  independently, so builder validation identifies the actual missing service
+  counterpart (BLD-006, ADR-0112).
 - C# release tags now select exactly one package: core retains `csharp-v*`,
   while notifications and DI use package-specific namespaces that cannot
   collide when independently versioned projects share a version number.

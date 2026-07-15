@@ -242,5 +242,47 @@ public class BuilderConformanceTests
         });
         missingName.Should().Throw<BuilderValidationException>()
             .Which.MissingField.Should().Be("Name");
+
+        Func<object>[] hubOnly =
+        [
+            () => ComponentVM.Create(new() { Name = "partial", Hub = hub }),
+            () => ComponentVM<string>.Create(new() { Name = "partial", Model = "m", Hub = hub }),
+            () => CompositeVM<ComponentVM>.Create(new()
+            {
+                Name = "partial", Hub = hub, Children = Array.Empty<ComponentVM>,
+            }),
+            () => GroupVM<ComponentVM>.Create(new()
+            {
+                Name = "partial", Hub = hub, Children = Array.Empty<ComponentVM>,
+            }),
+        ];
+        Func<object>[] dispatcherOnly =
+        [
+            () => ComponentVM.Create(new() { Name = "partial", Dispatcher = dispatcher }),
+            () => ComponentVM<string>.Create(new()
+            {
+                Name = "partial", Model = "m", Dispatcher = dispatcher,
+            }),
+            () => CompositeVM<ComponentVM>.Create(new()
+            {
+                Name = "partial", Dispatcher = dispatcher, Children = Array.Empty<ComponentVM>,
+            }),
+            () => GroupVM<ComponentVM>.Create(new()
+            {
+                Name = "partial", Dispatcher = dispatcher, Children = Array.Empty<ComponentVM>,
+            }),
+        ];
+
+        foreach (var factory in hubOnly)
+            factory.Should().Throw<BuilderValidationException>()
+                .Which.MissingField.Should().Be("Dispatcher");
+
+        foreach (var factory in dispatcherOnly)
+            factory.Should().Throw<BuilderValidationException>()
+                .Which.MissingField.Should().Be("Hub");
+
+        var earlierName = () => ComponentVM.Create(new() { Hub = hub });
+        earlierName.Should().Throw<BuilderValidationException>()
+            .Which.MissingField.Should().Be("Name");
     }
 }

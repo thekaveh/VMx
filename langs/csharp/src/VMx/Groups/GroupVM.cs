@@ -49,8 +49,8 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
             .Hint(options.Hint)
             .AutoConstructOnAdd(options.AutoConstructOnAdd);
         if (options.Name is not null) b = b.Name(options.Name);
-        if (options.Hub is not null && options.Dispatcher is not null)
-            b = b.Services(options.Hub, options.Dispatcher);
+        if (options.Hub is not null) b = b.OptionHub(options.Hub);
+        if (options.Dispatcher is not null) b = b.OptionDispatcher(options.Dispatcher);
         if (options.Children is not null) b = b.Children(options.Children);
         if (options.OnConstruct is not null) b = b.OnConstruct(options.OnConstruct);
         if (options.OnDestruct is not null) b = b.OnDestruct(options.OnDestruct);

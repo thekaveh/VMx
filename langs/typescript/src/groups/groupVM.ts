@@ -17,6 +17,9 @@ import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+
+const optionHub = Symbol("optionHub");
+const optionDispatcher = Symbol("optionDispatcher");
 import {
   makeCollectionChangedEvent,
   BatchUpdateHandle,
@@ -381,7 +384,8 @@ export class GroupVM<VM extends ComponentVMBase>
     if (o.children !== undefined) b = b.children(o.children);
     if (o.name !== undefined) b = b.name(o.name);
     if (o.hint !== undefined) b = b.hint(o.hint);
-    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.hub !== undefined) b = b[optionHub](o.hub);
+    if (o.dispatcher !== undefined) b = b[optionDispatcher](o.dispatcher);
     if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
     if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
     if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
@@ -455,6 +459,18 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
   services(hub: IMessageHub, dispatcher: IDispatcher): GroupVMBuilder<VM> {
     const b = new GroupVMBuilder<VM>(this);
     b.#hub = hub;
+    b.#dispatcher = dispatcher;
+    return b;
+  }
+
+  [optionHub](hub: IMessageHub): GroupVMBuilder<VM> {
+    const b = new GroupVMBuilder<VM>(this);
+    b.#hub = hub;
+    return b;
+  }
+
+  [optionDispatcher](dispatcher: IDispatcher): GroupVMBuilder<VM> {
+    const b = new GroupVMBuilder<VM>(this);
     b.#dispatcher = dispatcher;
     return b;
   }

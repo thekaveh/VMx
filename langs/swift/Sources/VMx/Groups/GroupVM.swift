@@ -433,9 +433,8 @@ open class GroupVM<Child: ComponentVMBase>:
             .hint(options.hint)
             .autoConstructOnAdd(options.autoConstructOnAdd)
         if let name = options.name { b = b.name(name) }
-        if let hub = options.hub, let dispatcher = options.dispatcher {
-            b = b.services(hub: hub, dispatcher: dispatcher)
-        }
+        if let hub = options.hub { b = b._optionHub(hub) }
+        if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }
         if let children = options.children { b = b.children(children) }
         if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
         if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }

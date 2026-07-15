@@ -149,9 +149,8 @@ open class ComponentVMOf<Model>: ComponentVMBase {
             .model(options.model)
             .background(options.background)
         if let name = options.name { b = b.name(name) }
-        if let hub = options.hub, let dispatcher = options.dispatcher {
-            b = b.services(hub: hub, dispatcher: dispatcher)
-        }
+        if let hub = options.hub { b = b._optionHub(hub) }
+        if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }
         if let modeledHinter = options.modeledHinter { b = b.modeledHinter(modeledHinter) }
         if let modelEquals = options.modelEquals { b = b.modelEquals(modelEquals) }
         if let onModelChanged = options.onModelChanged { b = b.onModelChanged(onModelChanged) }
@@ -174,9 +173,8 @@ extension ComponentVMOf where Model: Equatable {
             .model(options.model)
             .background(options.background)
         if let name = options.name { b = b.name(name) }
-        if let hub = options.hub, let dispatcher = options.dispatcher {
-            b = b.services(hub: hub, dispatcher: dispatcher)
-        }
+        if let hub = options.hub { b = b._optionHub(hub) }
+        if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }
         if let modeledHinter = options.modeledHinter { b = b.modeledHinter(modeledHinter) }
         if let modelEquals = options.modelEquals { b = b.modelEquals(modelEquals) }
         if let onModelChanged = options.onModelChanged { b = b.onModelChanged(onModelChanged) }

@@ -47,9 +47,8 @@ open class ComponentVM: ComponentVMBase {
             .hint(options.hint)
             .background(options.background)
         if let name = options.name { b = b.name(name) }
-        if let hub = options.hub, let dispatcher = options.dispatcher {
-            b = b.services(hub: hub, dispatcher: dispatcher)
-        }
+        if let hub = options.hub { b = b._optionHub(hub) }
+        if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }
         if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
         if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }
         return try b.build()

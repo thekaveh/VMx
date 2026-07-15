@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Common VM options factories now retain each independently supplied service
+  through the builder's combined services validation (BLD-006, ADR-0112).
 - Swift's complete strict-concurrency diagnostics are now enforced in CI.
   Internally spawned tasks and dispatch closures use narrow transfer boundaries,
   immutable singleton services declare their sendability, and modal results are

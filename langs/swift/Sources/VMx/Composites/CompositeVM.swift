@@ -558,9 +558,8 @@ open class CompositeVM<Child: ComponentVMBase>:
             .autoConstructOnAdd(options.autoConstructOnAdd)
             .asyncSelection(options.asyncSelection)
         if let name = options.name { b = b.name(name) }
-        if let hub = options.hub, let dispatcher = options.dispatcher {
-            b = b.services(hub: hub, dispatcher: dispatcher)
-        }
+        if let hub = options.hub { b = b._optionHub(hub) }
+        if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }
         if let children = options.children { b = b.children(children) }
         if let current = options.current { b = b.current(current) }
         if let onCurrentChanged = options.onCurrentChanged { b = b.onCurrentChanged(onCurrentChanged) }

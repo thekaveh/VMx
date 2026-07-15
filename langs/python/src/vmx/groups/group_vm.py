@@ -455,8 +455,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         builder = builder.hint(hint).auto_construct_on_add(auto_construct_on_add).children(children)
         if name is not None:
             builder = builder.name(name)
-        if hub is not None and dispatcher is not None:
-            builder = builder.services(hub, dispatcher)
+        if hub is not None:
+            builder = builder._option_hub(hub)
+        if dispatcher is not None:
+            builder = builder._option_dispatcher(dispatcher)
         if on_construct is not None:
             builder = builder.on_construct(on_construct)
         if on_destruct is not None:

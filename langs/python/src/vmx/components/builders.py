@@ -59,6 +59,14 @@ class ComponentVMBuilder:
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
+    def _option_hub(self, hub: MessageHubProto[Message]) -> ComponentVMBuilder:
+        """Retain a hub supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _hub=hub)
+
+    def _option_dispatcher(self, dispatcher: Dispatcher) -> ComponentVMBuilder:
+        """Retain a dispatcher supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _dispatcher=dispatcher)
+
     def on_construct(self, callback: Callable[[], None]) -> ComponentVMBuilder:
         """Set the optional on_construct lifecycle callback."""
         return dataclasses.replace(self, _on_construct=callback)
@@ -152,6 +160,14 @@ class ComponentVMOfBuilder(Generic[M]):
         self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> ComponentVMOfBuilder[M]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
+
+    def _option_hub(self, hub: MessageHubProto[Message]) -> ComponentVMOfBuilder[M]:
+        """Retain a hub supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _hub=hub)
+
+    def _option_dispatcher(self, dispatcher: Dispatcher) -> ComponentVMOfBuilder[M]:
+        """Retain a dispatcher supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _dispatcher=dispatcher)
 
     def modeled_hinter(self, hinter: Callable[[M], str]) -> ComponentVMOfBuilder[M]:
         """Set the optional modeled_hinter function (default: ``lambda m: ""``)."""

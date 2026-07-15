@@ -6,6 +6,8 @@ ComponentVMOf[str] as the representative VM.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from vmx.builders.exceptions import BuilderValidationError
@@ -113,6 +115,35 @@ def test_BLD_006_options_factories_match_builder_semantics() -> None:
         children=lambda: (),
     )
     assert group.type is ViewModelType.GROUP
+
+    hub_only: tuple[Callable[[], object], ...] = (
+        lambda: ComponentVM.create(name="partial", hub=hub),
+        lambda: ComponentVMOf[str].create(name="partial", model="m", hub=hub),
+        lambda: CompositeVM[ComponentVM].create(name="partial", hub=hub, children=tuple),
+        lambda: GroupVM[ComponentVM].create(name="partial", hub=hub, children=tuple),
+    )
+    dispatcher_only: tuple[Callable[[], object], ...] = (
+        lambda: ComponentVM.create(name="partial", dispatcher=dispatcher),
+        lambda: ComponentVMOf[str].create(name="partial", model="m", dispatcher=dispatcher),
+        lambda: CompositeVM[ComponentVM].create(
+            name="partial", dispatcher=dispatcher, children=tuple
+        ),
+        lambda: GroupVM[ComponentVM].create(name="partial", dispatcher=dispatcher, children=tuple),
+    )
+
+    for factory in hub_only:
+        with pytest.raises(BuilderValidationError) as missing_dispatcher:
+            factory()
+        assert missing_dispatcher.value.missing_field == "dispatcher"
+
+    for factory in dispatcher_only:
+        with pytest.raises(BuilderValidationError) as missing_hub:
+            factory()
+        assert missing_hub.value.missing_field == "hub"
+
+    with pytest.raises(BuilderValidationError) as earlier_name:
+        ComponentVM.create(hub=hub)
+    assert earlier_name.value.missing_field == "name"
 
     with pytest.raises(BuilderValidationError) as exc_info:
         ComponentVM.create(hub=hub, dispatcher=dispatcher)

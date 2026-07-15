@@ -676,8 +676,10 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         )
         if name is not None:
             builder = builder.name(name)
-        if hub is not None and dispatcher is not None:
-            builder = builder.services(hub, dispatcher)
+        if hub is not None:
+            builder = builder._option_hub(hub)
+        if dispatcher is not None:
+            builder = builder._option_dispatcher(dispatcher)
         if current is not None:
             builder = builder.current(current)
         if on_current_changed is not None:

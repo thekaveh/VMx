@@ -64,6 +64,14 @@ class GroupVMBuilder(Generic[VM]):
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
+    def _option_hub(self, hub: MessageHub[Message]) -> GroupVMBuilder[VM]:
+        """Retain a hub supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _hub=hub)
+
+    def _option_dispatcher(self, dispatcher: Dispatcher) -> GroupVMBuilder[VM]:
+        """Retain a dispatcher supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _dispatcher=dispatcher)
+
     def auto_construct_on_add(self, value: bool) -> GroupVMBuilder[VM]:
         """When True, children added after the group is Constructed are auto-constructed."""
         return dataclasses.replace(self, _auto_construct_on_add=value)

@@ -953,6 +953,9 @@ on repeated calls per BLD-001's standard semantics
 equivalent fluent builder path
 **And** missing required fields are validated through the same
 `BuilderValidationError` / `BuilderValidationException` path as `Build()`
+**And** where the options type can represent a partial service pair, each
+supplied service is retained until normal builder validation, preserving the
+builder's validation order and missing-field diagnostic
 
 ______________________________________________________________________
 
