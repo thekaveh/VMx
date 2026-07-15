@@ -4502,7 +4502,11 @@ def csharp_avalonia_notes_showcase() -> Diagram:
         subtitle="flagship XAML host with AggregateVM6, FormVM, paging, dialogs, theme, and notifications",
         host=(
             "Avalonia views",
-            ("AXAML-only screens", "InitializeComponent code-behind", "cross-platform desktop"),
+            (
+                "AXAML-only screens",
+                "AvaloniaXamlLoader.Load code-behind",
+                "cross-platform desktop",
+            ),
         ),
         adapter=(
             "Avalonia adapters",
