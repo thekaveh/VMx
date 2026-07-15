@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Added
+
+- `AggregateVm1` through `AggregateVm6` now expose immutable builders with
+  required lazy component factories, optional pre-construction slots, and the
+  common name, hint, reconstruction, selection, and command surface.
+
+### Changed
+
+- Aggregate factories are invoked at construct time and again on reconstruct;
+  all candidates are ownership-validated before any previous slot is replaced.
+- Aggregate slot accessors now use idiomatic `component_1` through
+  `component_6` names and return `Option<T>` because builder-created slots are
+  empty before construction. The unnumbered aliases remain available.
+
 ## [0.24.0] — 2026-07-14
 
 Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.

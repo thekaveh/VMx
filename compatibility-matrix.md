@@ -6,7 +6,7 @@ Maintained by hand alongside spec releases.
 
 | spec  | csharp          | python          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.22.x | 3.22.0[^current] | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.24.0[^rust] |
+| 3.22.x | 3.22.0[^current] | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.25.0[^rust] |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
@@ -90,7 +90,7 @@ tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.2
 point to the same `main` commit.
 
 [^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-is at source version 0.24.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries behavioral tests for all 395
+is at source version 0.25.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries behavioral tests for all 395
 library conformance IDs. It has not yet been published to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,

@@ -150,7 +150,7 @@ Each flavor implements the same conceptual stack:
 | Python     | v3.22.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
 | TypeScript | v3.23.0 in source       | npm package not published yet                                  | rxjs                   |
 | Swift      | v3.22.0 in source       | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
-| Rust       | v0.24.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
+| Rust       | v0.25.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -187,7 +187,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec  | csharp | python | typescript | swift          | rust          |
 | ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.22.x | 3.22.0 | 3.22.0 | 3.23.0 | 3.22.0 | 0.24.0 |
+| 3.22.x | 3.22.0 | 3.22.0 | 3.23.0 | 3.22.0 | 0.25.0 |
 | 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1 | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0 | 3.19.0 | 3.19.0     | 3.19.0         | 0.19.0        |
 | 3.18.x | 3.18.0 | 3.18.0 | 3.18.0     | 3.18.0         | 0.18.0        |

@@ -7493,12 +7493,88 @@ fn validate_fixed_aggregate_child<T: VmNode>(
     Ok(())
 }
 
+fn validate_fixed_aggregate_candidate<T: VmNode>(
+    child: &T,
+    seen: &mut HashSet<usize>,
+    owner: &ParentHandle,
+) -> VmxResult<()> {
+    if !seen.insert(child.id()) {
+        return Err(VmxError::DuplicateChild);
+    }
+    match child.parent_handle() {
+        Some(parent) if parent.same_owner(owner) => Ok(()),
+        Some(_) => Err(VmxError::InconsistentParent),
+        None if child.parent_id().is_some() => Err(VmxError::InconsistentParent),
+        None => Ok(()),
+    }
+}
+
+type AggregateFactory<T> = Arc<dyn Fn() -> T + Send + Sync>;
+
+#[derive(Clone)]
+struct AggregateSlot<T: VmNode> {
+    factory: Option<AggregateFactory<T>>,
+    value: Arc<Mutex<Option<T>>>,
+}
+
+impl<T: VmNode> AggregateSlot<T> {
+    fn eager(value: T) -> Self {
+        Self {
+            factory: None,
+            value: Arc::new(Mutex::new(Some(value))),
+        }
+    }
+
+    fn lazy(factory: AggregateFactory<T>) -> Self {
+        Self {
+            factory: Some(factory),
+            value: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn value(&self) -> Option<T> {
+        lock(&self.value).clone()
+    }
+
+    fn is_lazy(&self) -> bool {
+        self.factory.is_some()
+    }
+
+    fn next(&self) -> VmxResult<T> {
+        self.factory
+            .as_ref()
+            .map(|factory| factory())
+            .or_else(|| self.value())
+            .ok_or_else(|| VmxError::InvalidArgument("aggregate slot is empty".to_string()))
+    }
+
+    fn replace(&self, value: T) -> Option<T> {
+        lock(&self.value).replace(value)
+    }
+}
+
+#[derive(Clone)]
+struct FixedAggregateOwnership {
+    registration: ParentRegistration,
+    child_ids: Arc<Mutex<HashSet<usize>>>,
+}
+
+impl FixedAggregateOwnership {
+    fn handle(&self) -> ParentHandle {
+        self.registration.handle()
+    }
+
+    fn replace_ids(&self, ids: HashSet<usize>) {
+        *lock(&self.child_ids) = ids;
+    }
+}
+
 fn fixed_aggregate_parent<D: Dispatcher>(
     core: &ComponentCore<D>,
     child_ids: HashSet<usize>,
-) -> ParentRegistration {
-    let child_ids = Arc::new(child_ids);
-    ParentRegistration::new(
+) -> FixedAggregateOwnership {
+    let child_ids = Arc::new(Mutex::new(child_ids));
+    let registration = ParentRegistration::new(
         core.id(),
         {
             let core = core.clone();
@@ -7506,24 +7582,46 @@ fn fixed_aggregate_parent<D: Dispatcher>(
         },
         {
             let child_ids = Arc::clone(&child_ids);
-            move |child_id| child_ids.contains(&child_id)
+            move |child_id| lock(&child_ids).contains(&child_id)
         },
         move |_child_id, _owner_handle| Err(VmxError::InconsistentParent),
-    )
+    );
+    FixedAggregateOwnership {
+        registration,
+        child_ids,
+    }
 }
 
 fn attach_fixed_aggregate_child<T: VmNode>(child: &T, parent: &ParentHandle) {
     child.set_parent_handle(Some(parent.clone()));
 }
 
+fn replace_fixed_aggregate_child<T: VmNode>(
+    slot: &AggregateSlot<T>,
+    next: T,
+    parent: &ParentHandle,
+) -> VmxResult<()> {
+    let mut result = Ok(());
+    if let Some(previous) = slot.replace(next.clone()) {
+        previous.set_parent_handle(None);
+        result = previous.dispose();
+    }
+    attach_fixed_aggregate_child(&next, parent);
+    result
+}
+
 #[derive(Clone)]
 pub struct AggregateVm1<T1: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
-    _ownership: ParentRegistration,
-    component1: T1,
+    ownership: FixedAggregateOwnership,
+    component1: AggregateSlot<T1>,
 }
 
 impl<T1: VmNode> AggregateVm1<T1, NullDispatcher> {
+    pub fn builder() -> AggregateVm1Builder<T1, NullDispatcher> {
+        AggregateVm1Builder::default()
+    }
+
     pub fn new(name: impl Into<String>, component1: T1) -> Self {
         Self::try_new(name, component1)
             .expect("aggregate component must be unowned and identity-unique")
@@ -7558,13 +7656,35 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         attach_fixed_aggregate_child(&component1, &ownership.handle());
         Ok(Self {
             core,
-            _ownership: ownership,
-            component1,
+            ownership,
+            component1: AggregateSlot::eager(component1),
         })
     }
 
-    pub fn component1(&self) -> T1 {
-        self.component1.clone()
+    fn from_factory(
+        name: impl Into<String>,
+        hint: Option<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        factory1: AggregateFactory<T1>,
+    ) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        if let Some(hint) = hint {
+            core.set_hint(Some(hint));
+        }
+        Self {
+            ownership: fixed_aggregate_parent(&core, HashSet::new()),
+            core,
+            component1: AggregateSlot::lazy(factory1),
+        }
+    }
+
+    pub fn component_1(&self) -> Option<T1> {
+        self.component1.value()
+    }
+
+    pub fn component1(&self) -> Option<T1> {
+        self.component_1()
     }
 
     pub fn id(&self) -> usize {
@@ -7584,19 +7704,35 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.core.notify_property_changed("component1");
-        self.core.transition(LifecycleOperation::Construct)
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                let next1 = self.component1.next()?;
+                let mut ids = HashSet::new();
+                let parent = self.ownership.handle();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                if self.component1.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                }
+                self.ownership.replace_ids(ids);
+                self.core.notify_property_changed("component_1");
+                next1.construct()
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.component1.destruct()?;
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            if let Some(component1) = self.component_1() {
+                component1.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
         let mut first_error = None;
-        retain_first_error(&mut first_error, self.component1.dispose());
+        if let Some(component1) = self.component_1() {
+            retain_first_error(&mut first_error, component1.dispose());
+        }
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -7664,14 +7800,83 @@ impl<T1: VmNode, D: Dispatcher> PartialEq for AggregateVm1<T1, D> {
 impl<T1: VmNode, D: Dispatcher> Eq for AggregateVm1<T1, D> {}
 
 #[derive(Clone)]
+pub struct AggregateVm1Builder<T1: VmNode, D: Dispatcher = NullDispatcher> {
+    name: Option<String>,
+    hint: Option<String>,
+    hub: Option<MessageHub>,
+    dispatcher: Option<D>,
+    factory1: Option<AggregateFactory<T1>>,
+}
+
+impl<T1: VmNode> Default for AggregateVm1Builder<T1, NullDispatcher> {
+    fn default() -> Self {
+        Self {
+            name: None,
+            hint: Some(String::new()),
+            hub: None,
+            dispatcher: None,
+            factory1: None,
+        }
+    }
+}
+
+impl<T1: VmNode, D: Dispatcher> AggregateVm1Builder<T1, D> {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        self.hub = Some(hub);
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn component_1<F>(mut self, factory: F) -> Self
+    where
+        F: Fn() -> T1 + Send + Sync + 'static,
+    {
+        self.factory1 = Some(Arc::new(factory));
+        self
+    }
+
+    pub fn build(self) -> VmxResult<AggregateVm1<T1, D>> {
+        let name = self
+            .name
+            .ok_or_else(|| VmxError::BuilderValidation("name is required".to_string()))?;
+        let hub = self
+            .hub
+            .ok_or_else(|| VmxError::BuilderValidation("hub is required".to_string()))?;
+        let dispatcher = self
+            .dispatcher
+            .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
+        let factory1 = self
+            .factory1
+            .ok_or_else(|| VmxError::BuilderValidation("component_1 is required".to_string()))?;
+        Ok(AggregateVm1::from_factory(
+            name, self.hint, hub, dispatcher, factory1,
+        ))
+    }
+}
+
+#[derive(Clone)]
 pub struct AggregateVm2<T1: VmNode, T2: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
-    _ownership: ParentRegistration,
-    component1: T1,
-    component2: T2,
+    ownership: FixedAggregateOwnership,
+    component1: AggregateSlot<T1>,
+    component2: AggregateSlot<T2>,
 }
 
 impl<T1: VmNode, T2: VmNode> AggregateVm2<T1, T2, NullDispatcher> {
+    pub fn builder() -> AggregateVm2Builder<T1, T2, NullDispatcher> {
+        AggregateVm2Builder::default()
+    }
+
     pub fn new(name: impl Into<String>, component1: T1, component2: T2) -> Self {
         Self::try_new(name, component1, component2)
             .expect("aggregate components must be unowned and identity-unique")
@@ -7717,18 +7922,46 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         attach_fixed_aggregate_child(&component2, &parent);
         Ok(Self {
             core,
-            _ownership: ownership,
-            component1,
-            component2,
+            ownership,
+            component1: AggregateSlot::eager(component1),
+            component2: AggregateSlot::eager(component2),
         })
     }
 
-    pub fn component1(&self) -> T1 {
-        self.component1.clone()
+    fn from_factories(
+        name: impl Into<String>,
+        hint: Option<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        factory1: AggregateFactory<T1>,
+        factory2: AggregateFactory<T2>,
+    ) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        if let Some(hint) = hint {
+            core.set_hint(Some(hint));
+        }
+        Self {
+            ownership: fixed_aggregate_parent(&core, HashSet::new()),
+            core,
+            component1: AggregateSlot::lazy(factory1),
+            component2: AggregateSlot::lazy(factory2),
+        }
     }
 
-    pub fn component2(&self) -> T2 {
-        self.component2.clone()
+    pub fn component_1(&self) -> Option<T1> {
+        self.component1.value()
+    }
+
+    pub fn component_2(&self) -> Option<T2> {
+        self.component2.value()
+    }
+
+    pub fn component1(&self) -> Option<T1> {
+        self.component_1()
+    }
+
+    pub fn component2(&self) -> Option<T2> {
+        self.component_2()
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
@@ -7748,23 +7981,48 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.core.notify_property_changed("component1");
-        self.component2.construct()?;
-        self.core.notify_property_changed("component2");
-        self.core.transition(LifecycleOperation::Construct)
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                let next1 = self.component1.next()?;
+                let next2 = self.component2.next()?;
+                let parent = self.ownership.handle();
+                let mut ids = HashSet::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
+                if self.component1.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                }
+                if self.component2.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
+                }
+                self.ownership.replace_ids(ids);
+                self.core.notify_property_changed("component_1");
+                next1.construct()?;
+                self.core.notify_property_changed("component_2");
+                next2.construct()
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.component1.destruct()?;
-        self.component2.destruct()?;
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            if let Some(component1) = self.component_1() {
+                component1.destruct()?;
+            }
+            if let Some(component2) = self.component_2() {
+                component2.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
         let mut first_error = None;
-        retain_first_error(&mut first_error, self.component1.dispose());
-        retain_first_error(&mut first_error, self.component2.dispose());
+        if let Some(component1) = self.component_1() {
+            retain_first_error(&mut first_error, component1.dispose());
+        }
+        if let Some(component2) = self.component_2() {
+            retain_first_error(&mut first_error, component2.dispose());
+        }
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -7834,13 +8092,17 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> Eq for AggregateVm2<T1, T2, D> {}
 #[derive(Clone)]
 pub struct AggregateVm3<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
-    _ownership: ParentRegistration,
-    component1: T1,
-    component2: T2,
-    component3: T3,
+    ownership: FixedAggregateOwnership,
+    component1: AggregateSlot<T1>,
+    component2: AggregateSlot<T2>,
+    component3: AggregateSlot<T3>,
 }
 
 impl<T1: VmNode, T2: VmNode, T3: VmNode> AggregateVm3<T1, T2, T3, NullDispatcher> {
+    pub fn builder() -> AggregateVm3Builder<T1, T2, T3, NullDispatcher> {
+        AggregateVm3Builder::default()
+    }
+
     pub fn new(name: impl Into<String>, component1: T1, component2: T2, component3: T3) -> Self {
         Self::try_new(name, component1, component2, component3)
             .expect("aggregate components must be unowned and identity-unique")
@@ -7896,23 +8158,57 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         attach_fixed_aggregate_child(&component3, &parent);
         Ok(Self {
             core,
-            _ownership: ownership,
-            component1,
-            component2,
-            component3,
+            ownership,
+            component1: AggregateSlot::eager(component1),
+            component2: AggregateSlot::eager(component2),
+            component3: AggregateSlot::eager(component3),
         })
     }
 
-    pub fn component1(&self) -> T1 {
-        self.component1.clone()
+    fn from_factories(
+        name: impl Into<String>,
+        hint: Option<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        factory1: AggregateFactory<T1>,
+        factory2: AggregateFactory<T2>,
+        factory3: AggregateFactory<T3>,
+    ) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        if let Some(hint) = hint {
+            core.set_hint(Some(hint));
+        }
+        Self {
+            ownership: fixed_aggregate_parent(&core, HashSet::new()),
+            core,
+            component1: AggregateSlot::lazy(factory1),
+            component2: AggregateSlot::lazy(factory2),
+            component3: AggregateSlot::lazy(factory3),
+        }
     }
 
-    pub fn component2(&self) -> T2 {
-        self.component2.clone()
+    pub fn component_1(&self) -> Option<T1> {
+        self.component1.value()
     }
 
-    pub fn component3(&self) -> T3 {
-        self.component3.clone()
+    pub fn component_2(&self) -> Option<T2> {
+        self.component2.value()
+    }
+
+    pub fn component_3(&self) -> Option<T3> {
+        self.component3.value()
+    }
+
+    pub fn component1(&self) -> Option<T1> {
+        self.component_1()
+    }
+
+    pub fn component2(&self) -> Option<T2> {
+        self.component_2()
+    }
+
+    pub fn component3(&self) -> Option<T3> {
+        self.component_3()
     }
 
     pub fn id(&self) -> usize {
@@ -7936,27 +8232,57 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.core.notify_property_changed("component1");
-        self.component2.construct()?;
-        self.core.notify_property_changed("component2");
-        self.component3.construct()?;
-        self.core.notify_property_changed("component3");
-        self.core.transition(LifecycleOperation::Construct)
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                let next1 = self.component1.next()?;
+                let next2 = self.component2.next()?;
+                let next3 = self.component3.next()?;
+                let parent = self.ownership.handle();
+                let mut ids = HashSet::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
+                if self.component1.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
+                }
+                self.ownership.replace_ids(ids);
+                self.core.notify_property_changed("component_1");
+                next1.construct()?;
+                self.core.notify_property_changed("component_2");
+                next2.construct()?;
+                self.core.notify_property_changed("component_3");
+                next3.construct()
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.component1.destruct()?;
-        self.component2.destruct()?;
-        self.component3.destruct()?;
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            if let Some(component1) = self.component_1() {
+                component1.destruct()?;
+            }
+            if let Some(component2) = self.component_2() {
+                component2.destruct()?;
+            }
+            if let Some(component3) = self.component_3() {
+                component3.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
         let mut first_error = None;
-        retain_first_error(&mut first_error, self.component1.dispose());
-        retain_first_error(&mut first_error, self.component2.dispose());
-        retain_first_error(&mut first_error, self.component3.dispose());
+        if let Some(component1) = self.component_1() {
+            retain_first_error(&mut first_error, component1.dispose());
+        }
+        if let Some(component2) = self.component_2() {
+            retain_first_error(&mut first_error, component2.dispose());
+        }
+        if let Some(component3) = self.component_3() {
+            retain_first_error(&mut first_error, component3.dispose());
+        }
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -7978,14 +8304,18 @@ pub struct AggregateVm4<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
-    _ownership: ParentRegistration,
-    component1: T1,
-    component2: T2,
-    component3: T3,
-    component4: T4,
+    ownership: FixedAggregateOwnership,
+    component1: AggregateSlot<T1>,
+    component2: AggregateSlot<T2>,
+    component3: AggregateSlot<T3>,
+    component4: AggregateSlot<T4>,
 }
 
 impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode> AggregateVm4<T1, T2, T3, T4, NullDispatcher> {
+    pub fn builder() -> AggregateVm4Builder<T1, T2, T3, T4, NullDispatcher> {
+        AggregateVm4Builder::default()
+    }
+
     pub fn new(
         name: impl Into<String>,
         component1: T1,
@@ -8057,28 +8387,66 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         attach_fixed_aggregate_child(&component4, &parent);
         Ok(Self {
             core,
-            _ownership: ownership,
-            component1,
-            component2,
-            component3,
-            component4,
+            ownership,
+            component1: AggregateSlot::eager(component1),
+            component2: AggregateSlot::eager(component2),
+            component3: AggregateSlot::eager(component3),
+            component4: AggregateSlot::eager(component4),
         })
     }
 
-    pub fn component1(&self) -> T1 {
-        self.component1.clone()
+    #[allow(clippy::too_many_arguments)]
+    fn from_factories(
+        name: impl Into<String>,
+        hint: Option<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        factory1: AggregateFactory<T1>,
+        factory2: AggregateFactory<T2>,
+        factory3: AggregateFactory<T3>,
+        factory4: AggregateFactory<T4>,
+    ) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        if let Some(hint) = hint {
+            core.set_hint(Some(hint));
+        }
+        Self {
+            ownership: fixed_aggregate_parent(&core, HashSet::new()),
+            core,
+            component1: AggregateSlot::lazy(factory1),
+            component2: AggregateSlot::lazy(factory2),
+            component3: AggregateSlot::lazy(factory3),
+            component4: AggregateSlot::lazy(factory4),
+        }
     }
 
-    pub fn component2(&self) -> T2 {
-        self.component2.clone()
+    pub fn component_1(&self) -> Option<T1> {
+        self.component1.value()
     }
 
-    pub fn component3(&self) -> T3 {
-        self.component3.clone()
+    pub fn component_2(&self) -> Option<T2> {
+        self.component2.value()
     }
 
-    pub fn component4(&self) -> T4 {
-        self.component4.clone()
+    pub fn component_3(&self) -> Option<T3> {
+        self.component3.value()
+    }
+
+    pub fn component_4(&self) -> Option<T4> {
+        self.component4.value()
+    }
+
+    pub fn component1(&self) -> Option<T1> {
+        self.component_1()
+    }
+    pub fn component2(&self) -> Option<T2> {
+        self.component_2()
+    }
+    pub fn component3(&self) -> Option<T3> {
+        self.component_3()
+    }
+    pub fn component4(&self) -> Option<T4> {
+        self.component_4()
     }
 
     pub fn id(&self) -> usize {
@@ -8102,31 +8470,68 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.core.notify_property_changed("component1");
-        self.component2.construct()?;
-        self.core.notify_property_changed("component2");
-        self.component3.construct()?;
-        self.core.notify_property_changed("component3");
-        self.component4.construct()?;
-        self.core.notify_property_changed("component4");
-        self.core.transition(LifecycleOperation::Construct)
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                let next1 = self.component1.next()?;
+                let next2 = self.component2.next()?;
+                let next3 = self.component3.next()?;
+                let next4 = self.component4.next()?;
+                let parent = self.ownership.handle();
+                let mut ids = HashSet::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent)?;
+                if self.component1.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
+                }
+                self.ownership.replace_ids(ids);
+                self.core.notify_property_changed("component_1");
+                next1.construct()?;
+                self.core.notify_property_changed("component_2");
+                next2.construct()?;
+                self.core.notify_property_changed("component_3");
+                next3.construct()?;
+                self.core.notify_property_changed("component_4");
+                next4.construct()
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.component1.destruct()?;
-        self.component2.destruct()?;
-        self.component3.destruct()?;
-        self.component4.destruct()?;
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            if let Some(component1) = self.component_1() {
+                component1.destruct()?;
+            }
+            if let Some(component2) = self.component_2() {
+                component2.destruct()?;
+            }
+            if let Some(component3) = self.component_3() {
+                component3.destruct()?;
+            }
+            if let Some(component4) = self.component_4() {
+                component4.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
         let mut first_error = None;
-        retain_first_error(&mut first_error, self.component1.dispose());
-        retain_first_error(&mut first_error, self.component2.dispose());
-        retain_first_error(&mut first_error, self.component3.dispose());
-        retain_first_error(&mut first_error, self.component4.dispose());
+        if let Some(component1) = self.component_1() {
+            retain_first_error(&mut first_error, component1.dispose());
+        }
+        if let Some(component2) = self.component_2() {
+            retain_first_error(&mut first_error, component2.dispose());
+        }
+        if let Some(component3) = self.component_3() {
+            retain_first_error(&mut first_error, component3.dispose());
+        }
+        if let Some(component4) = self.component_4() {
+            retain_first_error(&mut first_error, component4.dispose());
+        }
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -8149,17 +8554,21 @@ pub struct AggregateVm5<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
-    _ownership: ParentRegistration,
-    component1: T1,
-    component2: T2,
-    component3: T3,
-    component4: T4,
-    component5: T5,
+    ownership: FixedAggregateOwnership,
+    component1: AggregateSlot<T1>,
+    component2: AggregateSlot<T2>,
+    component3: AggregateSlot<T3>,
+    component4: AggregateSlot<T4>,
+    component5: AggregateSlot<T5>,
 }
 
 impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode>
     AggregateVm5<T1, T2, T3, T4, T5, NullDispatcher>
 {
+    pub fn builder() -> AggregateVm5Builder<T1, T2, T3, T4, T5, NullDispatcher> {
+        AggregateVm5Builder::default()
+    }
+
     pub fn new(
         name: impl Into<String>,
         component1: T1,
@@ -8242,33 +8651,71 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         attach_fixed_aggregate_child(&component5, &parent);
         Ok(Self {
             core,
-            _ownership: ownership,
-            component1,
-            component2,
-            component3,
-            component4,
-            component5,
+            ownership,
+            component1: AggregateSlot::eager(component1),
+            component2: AggregateSlot::eager(component2),
+            component3: AggregateSlot::eager(component3),
+            component4: AggregateSlot::eager(component4),
+            component5: AggregateSlot::eager(component5),
         })
     }
 
-    pub fn component1(&self) -> T1 {
-        self.component1.clone()
+    #[allow(clippy::too_many_arguments)]
+    fn from_factories(
+        name: impl Into<String>,
+        hint: Option<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        factory1: AggregateFactory<T1>,
+        factory2: AggregateFactory<T2>,
+        factory3: AggregateFactory<T3>,
+        factory4: AggregateFactory<T4>,
+        factory5: AggregateFactory<T5>,
+    ) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        if let Some(hint) = hint {
+            core.set_hint(Some(hint));
+        }
+        Self {
+            ownership: fixed_aggregate_parent(&core, HashSet::new()),
+            core,
+            component1: AggregateSlot::lazy(factory1),
+            component2: AggregateSlot::lazy(factory2),
+            component3: AggregateSlot::lazy(factory3),
+            component4: AggregateSlot::lazy(factory4),
+            component5: AggregateSlot::lazy(factory5),
+        }
     }
 
-    pub fn component2(&self) -> T2 {
-        self.component2.clone()
+    pub fn component_1(&self) -> Option<T1> {
+        self.component1.value()
     }
-
-    pub fn component3(&self) -> T3 {
-        self.component3.clone()
+    pub fn component_2(&self) -> Option<T2> {
+        self.component2.value()
     }
-
-    pub fn component4(&self) -> T4 {
-        self.component4.clone()
+    pub fn component_3(&self) -> Option<T3> {
+        self.component3.value()
     }
-
-    pub fn component5(&self) -> T5 {
-        self.component5.clone()
+    pub fn component_4(&self) -> Option<T4> {
+        self.component4.value()
+    }
+    pub fn component_5(&self) -> Option<T5> {
+        self.component5.value()
+    }
+    pub fn component1(&self) -> Option<T1> {
+        self.component_1()
+    }
+    pub fn component2(&self) -> Option<T2> {
+        self.component_2()
+    }
+    pub fn component3(&self) -> Option<T3> {
+        self.component_3()
+    }
+    pub fn component4(&self) -> Option<T4> {
+        self.component_4()
+    }
+    pub fn component5(&self) -> Option<T5> {
+        self.component_5()
     }
 
     pub fn id(&self) -> usize {
@@ -8292,35 +8739,79 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.core.notify_property_changed("component1");
-        self.component2.construct()?;
-        self.core.notify_property_changed("component2");
-        self.component3.construct()?;
-        self.core.notify_property_changed("component3");
-        self.component4.construct()?;
-        self.core.notify_property_changed("component4");
-        self.component5.construct()?;
-        self.core.notify_property_changed("component5");
-        self.core.transition(LifecycleOperation::Construct)
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                let next1 = self.component1.next()?;
+                let next2 = self.component2.next()?;
+                let next3 = self.component3.next()?;
+                let next4 = self.component4.next()?;
+                let next5 = self.component5.next()?;
+                let parent = self.ownership.handle();
+                let mut ids = HashSet::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next5, &mut ids, &parent)?;
+                if self.component1.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component5, next5.clone(), &parent)?;
+                }
+                self.ownership.replace_ids(ids);
+                self.core.notify_property_changed("component_1");
+                next1.construct()?;
+                self.core.notify_property_changed("component_2");
+                next2.construct()?;
+                self.core.notify_property_changed("component_3");
+                next3.construct()?;
+                self.core.notify_property_changed("component_4");
+                next4.construct()?;
+                self.core.notify_property_changed("component_5");
+                next5.construct()
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.component1.destruct()?;
-        self.component2.destruct()?;
-        self.component3.destruct()?;
-        self.component4.destruct()?;
-        self.component5.destruct()?;
-        self.core.transition(LifecycleOperation::Destruct)
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            if let Some(component1) = self.component_1() {
+                component1.destruct()?;
+            }
+            if let Some(component2) = self.component_2() {
+                component2.destruct()?;
+            }
+            if let Some(component3) = self.component_3() {
+                component3.destruct()?;
+            }
+            if let Some(component4) = self.component_4() {
+                component4.destruct()?;
+            }
+            if let Some(component5) = self.component_5() {
+                component5.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
         let mut first_error = None;
-        retain_first_error(&mut first_error, self.component1.dispose());
-        retain_first_error(&mut first_error, self.component2.dispose());
-        retain_first_error(&mut first_error, self.component3.dispose());
-        retain_first_error(&mut first_error, self.component4.dispose());
-        retain_first_error(&mut first_error, self.component5.dispose());
+        if let Some(component1) = self.component_1() {
+            retain_first_error(&mut first_error, component1.dispose());
+        }
+        if let Some(component2) = self.component_2() {
+            retain_first_error(&mut first_error, component2.dispose());
+        }
+        if let Some(component3) = self.component_3() {
+            retain_first_error(&mut first_error, component3.dispose());
+        }
+        if let Some(component4) = self.component_4() {
+            retain_first_error(&mut first_error, component4.dispose());
+        }
+        if let Some(component5) = self.component_5() {
+            retain_first_error(&mut first_error, component5.dispose());
+        }
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -8344,18 +8835,22 @@ pub struct AggregateVm6<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
-    _ownership: ParentRegistration,
-    component1: T1,
-    component2: T2,
-    component3: T3,
-    component4: T4,
-    component5: T5,
-    component6: T6,
+    ownership: FixedAggregateOwnership,
+    component1: AggregateSlot<T1>,
+    component2: AggregateSlot<T2>,
+    component3: AggregateSlot<T3>,
+    component4: AggregateSlot<T4>,
+    component5: AggregateSlot<T5>,
+    component6: AggregateSlot<T6>,
 }
 
 impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode>
     AggregateVm6<T1, T2, T3, T4, T5, T6, NullDispatcher>
 {
+    pub fn builder() -> AggregateVm6Builder<T1, T2, T3, T4, T5, T6, NullDispatcher> {
+        AggregateVm6Builder::default()
+    }
+
     pub fn new(
         name: impl Into<String>,
         component1: T1,
@@ -8446,34 +8941,80 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         attach_fixed_aggregate_child(&component6, &parent);
         Ok(Self {
             core,
-            _ownership: ownership,
-            component1,
-            component2,
-            component3,
-            component4,
-            component5,
-            component6,
+            ownership,
+            component1: AggregateSlot::eager(component1),
+            component2: AggregateSlot::eager(component2),
+            component3: AggregateSlot::eager(component3),
+            component4: AggregateSlot::eager(component4),
+            component5: AggregateSlot::eager(component5),
+            component6: AggregateSlot::eager(component6),
         })
     }
 
-    pub fn component1(&self) -> T1 {
-        self.component1.clone()
+    #[allow(clippy::too_many_arguments)]
+    fn from_factories(
+        name: impl Into<String>,
+        hint: Option<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        factory1: AggregateFactory<T1>,
+        factory2: AggregateFactory<T2>,
+        factory3: AggregateFactory<T3>,
+        factory4: AggregateFactory<T4>,
+        factory5: AggregateFactory<T5>,
+        factory6: AggregateFactory<T6>,
+    ) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        if let Some(hint) = hint {
+            core.set_hint(Some(hint));
+        }
+        Self {
+            ownership: fixed_aggregate_parent(&core, HashSet::new()),
+            core,
+            component1: AggregateSlot::lazy(factory1),
+            component2: AggregateSlot::lazy(factory2),
+            component3: AggregateSlot::lazy(factory3),
+            component4: AggregateSlot::lazy(factory4),
+            component5: AggregateSlot::lazy(factory5),
+            component6: AggregateSlot::lazy(factory6),
+        }
     }
 
-    pub fn component2(&self) -> T2 {
-        self.component2.clone()
+    pub fn component_1(&self) -> Option<T1> {
+        self.component1.value()
     }
-
-    pub fn component3(&self) -> T3 {
-        self.component3.clone()
+    pub fn component_2(&self) -> Option<T2> {
+        self.component2.value()
     }
-
-    pub fn component4(&self) -> T4 {
-        self.component4.clone()
+    pub fn component_3(&self) -> Option<T3> {
+        self.component3.value()
     }
-
-    pub fn component5(&self) -> T5 {
-        self.component5.clone()
+    pub fn component_4(&self) -> Option<T4> {
+        self.component4.value()
+    }
+    pub fn component_5(&self) -> Option<T5> {
+        self.component5.value()
+    }
+    pub fn component_6(&self) -> Option<T6> {
+        self.component6.value()
+    }
+    pub fn component1(&self) -> Option<T1> {
+        self.component_1()
+    }
+    pub fn component2(&self) -> Option<T2> {
+        self.component_2()
+    }
+    pub fn component3(&self) -> Option<T3> {
+        self.component_3()
+    }
+    pub fn component4(&self) -> Option<T4> {
+        self.component_4()
+    }
+    pub fn component5(&self) -> Option<T5> {
+        self.component_5()
+    }
+    pub fn component6(&self) -> Option<T6> {
+        self.component_6()
     }
 
     pub fn property_changed(&self) -> PropertyChangedStream {
@@ -8497,43 +9038,90 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
     }
 
     pub fn construct(&self) -> VmxResult<()> {
-        self.component1.construct()?;
-        self.core.notify_property_changed("component1");
-        self.component2.construct()?;
-        self.core.notify_property_changed("component2");
-        self.component3.construct()?;
-        self.core.notify_property_changed("component3");
-        self.component4.construct()?;
-        self.core.notify_property_changed("component4");
-        self.component5.construct()?;
-        self.core.notify_property_changed("component5");
-        self.component6.construct()?;
-        self.core.notify_property_changed("component6");
-        self.core.transition(LifecycleOperation::Construct)
+        self.core
+            .transition_with(LifecycleOperation::Construct, || {
+                let next1 = self.component1.next()?;
+                let next2 = self.component2.next()?;
+                let next3 = self.component3.next()?;
+                let next4 = self.component4.next()?;
+                let next5 = self.component5.next()?;
+                let next6 = self.component6.next()?;
+                let parent = self.ownership.handle();
+                let mut ids = HashSet::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next5, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next6, &mut ids, &parent)?;
+                if self.component1.is_lazy() {
+                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component5, next5.clone(), &parent)?;
+                    replace_fixed_aggregate_child(&self.component6, next6.clone(), &parent)?;
+                }
+                self.ownership.replace_ids(ids);
+                self.core.notify_property_changed("component_1");
+                next1.construct()?;
+                self.core.notify_property_changed("component_2");
+                next2.construct()?;
+                self.core.notify_property_changed("component_3");
+                next3.construct()?;
+                self.core.notify_property_changed("component_4");
+                next4.construct()?;
+                self.core.notify_property_changed("component_5");
+                next5.construct()?;
+                self.core.notify_property_changed("component_6");
+                next6.construct()
+            })
     }
 
     pub fn destruct(&self) -> VmxResult<()> {
-        self.component1.destruct()?;
-        self.component2.destruct()?;
-        self.component3.destruct()?;
-        self.component4.destruct()?;
-        self.component5.destruct()?;
-        self.component6.destruct()?;
-        self.core.transition(LifecycleOperation::Destruct)
-    }
-
-    pub fn component6(&self) -> T6 {
-        self.component6.clone()
+        self.core.transition_with(LifecycleOperation::Destruct, || {
+            if let Some(component1) = self.component_1() {
+                component1.destruct()?;
+            }
+            if let Some(component2) = self.component_2() {
+                component2.destruct()?;
+            }
+            if let Some(component3) = self.component_3() {
+                component3.destruct()?;
+            }
+            if let Some(component4) = self.component_4() {
+                component4.destruct()?;
+            }
+            if let Some(component5) = self.component_5() {
+                component5.destruct()?;
+            }
+            if let Some(component6) = self.component_6() {
+                component6.destruct()?;
+            }
+            Ok(())
+        })
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
         let mut first_error = None;
-        retain_first_error(&mut first_error, self.component1.dispose());
-        retain_first_error(&mut first_error, self.component2.dispose());
-        retain_first_error(&mut first_error, self.component3.dispose());
-        retain_first_error(&mut first_error, self.component4.dispose());
-        retain_first_error(&mut first_error, self.component5.dispose());
-        retain_first_error(&mut first_error, self.component6.dispose());
+        if let Some(component1) = self.component_1() {
+            retain_first_error(&mut first_error, component1.dispose());
+        }
+        if let Some(component2) = self.component_2() {
+            retain_first_error(&mut first_error, component2.dispose());
+        }
+        if let Some(component3) = self.component_3() {
+            retain_first_error(&mut first_error, component3.dispose());
+        }
+        if let Some(component4) = self.component_4() {
+            retain_first_error(&mut first_error, component4.dispose());
+        }
+        if let Some(component5) = self.component_5() {
+            retain_first_error(&mut first_error, component5.dispose());
+        }
+        if let Some(component6) = self.component_6() {
+            retain_first_error(&mut first_error, component6.dispose());
+        }
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -8584,6 +9172,192 @@ impl_fixed_aggregate_vm_node!(AggregateVm3, T1, T2, T3);
 impl_fixed_aggregate_vm_node!(AggregateVm4, T1, T2, T3, T4);
 impl_fixed_aggregate_vm_node!(AggregateVm5, T1, T2, T3, T4, T5);
 impl_fixed_aggregate_vm_node!(AggregateVm6, T1, T2, T3, T4, T5, T6);
+
+macro_rules! define_aggregate_builder {
+    ($builder:ident, $aggregate:ident, $(($component:ident, $factory:ident, $setter:ident)),+) => {
+        #[derive(Clone)]
+        pub struct $builder<$($component: VmNode,)+ D: Dispatcher = NullDispatcher> {
+            name: Option<String>,
+            hint: Option<String>,
+            hub: Option<MessageHub>,
+            dispatcher: Option<D>,
+            $($factory: Option<AggregateFactory<$component>>,)+
+        }
+
+        impl<$($component: VmNode,)+> Default
+            for $builder<$($component,)+ NullDispatcher>
+        {
+            fn default() -> Self {
+                Self {
+                    name: None,
+                    hint: Some(String::new()),
+                    hub: None,
+                    dispatcher: None,
+                    $($factory: None,)+
+                }
+            }
+        }
+
+        impl<$($component: VmNode,)+ D: Dispatcher> $builder<$($component,)+ D> {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+
+            pub fn hint(mut self, hint: impl Into<String>) -> Self {
+                self.hint = Some(hint.into());
+                self
+            }
+
+            pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
+                self.hub = Some(hub);
+                self.dispatcher = Some(dispatcher);
+                self
+            }
+
+            $(
+                pub fn $setter<F>(mut self, factory: F) -> Self
+                where
+                    F: Fn() -> $component + Send + Sync + 'static,
+                {
+                    self.$factory = Some(Arc::new(factory));
+                    self
+                }
+            )+
+
+            pub fn build(self) -> VmxResult<$aggregate<$($component,)+ D>> {
+                let name = self.name.ok_or_else(|| {
+                    VmxError::BuilderValidation("name is required".to_string())
+                })?;
+                let hub = self.hub.ok_or_else(|| {
+                    VmxError::BuilderValidation("hub is required".to_string())
+                })?;
+                let dispatcher = self.dispatcher.ok_or_else(|| {
+                    VmxError::BuilderValidation("dispatcher is required".to_string())
+                })?;
+                $(
+                    let $factory = self.$factory.ok_or_else(|| {
+                        VmxError::BuilderValidation(
+                            concat!(stringify!($setter), " is required").to_string(),
+                        )
+                    })?;
+                )+
+                Ok($aggregate::from_factories(
+                    name,
+                    self.hint,
+                    hub,
+                    dispatcher,
+                    $($factory,)+
+                ))
+            }
+        }
+    };
+}
+
+define_aggregate_builder!(
+    AggregateVm2Builder,
+    AggregateVm2,
+    (T1, factory1, component_1),
+    (T2, factory2, component_2)
+);
+define_aggregate_builder!(
+    AggregateVm3Builder,
+    AggregateVm3,
+    (T1, factory1, component_1),
+    (T2, factory2, component_2),
+    (T3, factory3, component_3)
+);
+define_aggregate_builder!(
+    AggregateVm4Builder,
+    AggregateVm4,
+    (T1, factory1, component_1),
+    (T2, factory2, component_2),
+    (T3, factory3, component_3),
+    (T4, factory4, component_4)
+);
+define_aggregate_builder!(
+    AggregateVm5Builder,
+    AggregateVm5,
+    (T1, factory1, component_1),
+    (T2, factory2, component_2),
+    (T3, factory3, component_3),
+    (T4, factory4, component_4),
+    (T5, factory5, component_5)
+);
+define_aggregate_builder!(
+    AggregateVm6Builder,
+    AggregateVm6,
+    (T1, factory1, component_1),
+    (T2, factory2, component_2),
+    (T3, factory3, component_3),
+    (T4, factory4, component_4),
+    (T5, factory5, component_5),
+    (T6, factory6, component_6)
+);
+
+macro_rules! impl_fixed_aggregate_baseline {
+    ($name:ident, $($component:ident),+) => {
+        impl<$($component: VmNode,)+ D: Dispatcher> $name<$($component,)+ D> {
+            pub fn name(&self) -> String {
+                self.core.name()
+            }
+
+            pub fn hint(&self) -> Option<String> {
+                self.core.hint()
+            }
+
+            pub fn reconstruct(&self) -> VmxResult<()> {
+                self.destruct()?;
+                self.construct()
+            }
+
+            pub fn is_constructed(&self) -> bool {
+                self.status() == ConstructionStatus::Constructed
+            }
+
+            pub fn parent_id(&self) -> Option<usize> {
+                self.core.parent_id()
+            }
+
+            pub fn select(&self) {
+                self.core.select();
+            }
+
+            pub fn deselect(&self) {
+                self.core.deselect();
+            }
+
+            pub fn is_selected(&self) -> bool {
+                self.core.is_selected()
+            }
+
+            pub fn select_command(&self) -> RelayCommand {
+                let vm = self.clone();
+                RelayCommand::new({
+                    let vm = vm.clone();
+                    move || vm.select()
+                })
+                .with_can_execute(move || !vm.is_selected())
+            }
+
+            pub fn deselect_command(&self) -> RelayCommand {
+                let vm = self.clone();
+                RelayCommand::new({
+                    let vm = vm.clone();
+                    move || vm.deselect()
+                })
+                .with_can_execute(move || vm.is_selected())
+            }
+        }
+    };
+}
+
+impl_fixed_aggregate_baseline!(AggregateVm1, T1);
+impl_fixed_aggregate_baseline!(AggregateVm2, T1, T2);
+impl_fixed_aggregate_baseline!(AggregateVm3, T1, T2, T3);
+impl_fixed_aggregate_baseline!(AggregateVm4, T1, T2, T3, T4);
+impl_fixed_aggregate_baseline!(AggregateVm5, T1, T2, T3, T4, T5);
+impl_fixed_aggregate_baseline!(AggregateVm6, T1, T2, T3, T4, T5, T6);
 
 #[derive(Clone)]
 pub struct ForwardingComponentVm<

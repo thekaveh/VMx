@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.24.0** implements `spec-v3.22.0` at full source parity: all 395 library
+**v0.25.0** implements `spec-v3.22.0` at full source parity: all 395 library
 conformance IDs are covered by behavioral Rust tests. The crate has not yet
 been published to crates.io.
 
@@ -71,6 +71,36 @@ fn main() -> VmxResult<()> {
     Ok(())
 }
 ```
+
+### 2.1. Fixed Aggregates
+
+`AggregateVm1` through `AggregateVm6` use immutable builders and populate their
+typed slots from factories at construct time. Accessors return `None` before
+construction and `Some(component)` afterward:
+
+```rust
+use vmx::{AggregateVm2, ComponentVm, MessageHub, NullDispatcher, VmxResult};
+
+fn aggregate_example() -> VmxResult<()> {
+    let hub = MessageHub::new();
+    let aggregate = AggregateVm2::<ComponentVm, ComponentVm>::builder()
+        .name("workspace")
+        .hint("Two fixed child surfaces")
+        .services(hub, NullDispatcher::new())
+        .component_1(|| ComponentVm::new("navigation"))
+        .component_2(|| ComponentVm::new("content"))
+        .build()?;
+
+    assert!(aggregate.component_1().is_none());
+    aggregate.construct()?;
+    assert!(aggregate.component_1().is_some());
+    Ok(())
+}
+```
+
+Every factory is evaluated and ownership-validated before slots change. A
+failed candidate therefore leaves all previous slots and parent links intact.
+Reconstruction invokes the factories again and disposes the replaced children.
 
 ## 3. Serviced Collections
 

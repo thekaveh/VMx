@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
     AggregateVm6, Command, ComponentVm, CompositeVm, DiscriminatorVm, FilteredCompositeVm, FormVm,
     MessageHub, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
-    NullDispatcher, PagedComposition, RelayCommand, SearchableState, TokenPagedComposition, VmNode,
-    VmxError, VmxResult,
+    NullDispatcher, PagedComposition, ParentHandle, RelayCommand, SearchableState,
+    TokenPagedComposition, VmNode, VmxError, VmxResult,
 };
 
 const PAGE_SIZE: usize = 2;
@@ -85,6 +85,14 @@ impl VmNode for NoteVm {
 
     fn parent_id(&self) -> Option<usize> {
         self.component.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.component.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.component.parent_handle()
     }
 
     fn set_current_flag(&self, is_current: bool) {
@@ -789,6 +797,14 @@ macro_rules! impl_node {
 
             fn parent_id(&self) -> Option<usize> {
                 self.core.parent_id()
+            }
+
+            fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+                self.core.set_parent_handle(parent);
+            }
+
+            fn parent_handle(&self) -> Option<ParentHandle> {
+                self.core.parent_handle()
             }
 
             fn set_current_flag(&self, is_current: bool) {
