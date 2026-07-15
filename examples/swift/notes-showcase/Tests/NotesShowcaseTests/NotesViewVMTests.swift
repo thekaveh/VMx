@@ -385,10 +385,13 @@ final class NotesViewVMTests: XCTestCase {
 
         try await vm.loadMoreCommand.executeAsync()
         XCTAssertGreaterThan(vm.results.count, 2)
+        let replacedResults = vm.results
 
         vm.searchTerm = "travel"
         try await vm.refreshCommand.executeAsync()
         XCTAssertTrue(vm.results.allSatisfy { $0.model.notebookId == "nb-personal" })
+        let finalResults = vm.results
         vm.dispose()
+        XCTAssertTrue((replacedResults + finalResults).allSatisfy { $0.status == .disposed })
     }
 }

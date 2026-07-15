@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ConstructionStatus,
   hasCapability,
   MessageHub,
   RxDispatcher,
@@ -368,10 +369,17 @@ describe("Global search token paging", () => {
 
     await vm.loadMoreCommand.executeAsync();
     expect(vm.results.length).toBeGreaterThan(2);
+    const replacedResults = [...vm.results];
 
     vm.searchTerm = "travel";
     await vm.refreshCommand.executeAsync();
     expect(vm.results.every((n) => n.model.notebookId === "nb-personal")).toBe(true);
+    const finalResults = [...vm.results];
     vm.dispose();
+    expect(
+      [...replacedResults, ...finalResults].every(
+        (result) => result.status === ConstructionStatus.Disposed,
+      ),
+    ).toBe(true);
   });
 });

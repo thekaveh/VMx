@@ -67,6 +67,12 @@ split is enforced by SwiftPM target boundaries.
 | 18  | `DiscriminatorVM` (ch. 22) — edit/preview note editor mode | Yes | Yes | Yes | Yes |
 | 19  | `SearchableState<string>` — workspace tag autocomplete in `NoteFormVM` | Yes | Yes | Yes | Yes |
 
+Row 17 has an explicit item-lifetime boundary: each `GlobalSearchVM` owns every
+constructed `NoteVM` it creates until terminal disposal, including results
+replaced by refresh or discarded by equality/stale-operation handling. The Rust
+TUI counterpart stores cloned `NoteModel` values and therefore has no
+lifecycle-bearing search-result ownership obligation.
+
 [^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
     `ThemeAdapter` in `views/adapter/`. `WorkspaceVM` owns the `ThemeVM` as a
     sibling of its six aggregate children, and the host binds the adapter to that

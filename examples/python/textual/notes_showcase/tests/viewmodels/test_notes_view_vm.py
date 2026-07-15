@@ -7,6 +7,7 @@ from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
 
 from vmx import (
+    ConstructionStatus,
     Filterable,
     IReconstructable,
     ISearchable,
@@ -369,8 +370,14 @@ async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
 
     await vm.load_more_command.execute_async()
     assert len(vm.results) > 2
+    replaced_results = list(vm.results)
 
     vm.search_term = "travel"
     await vm.refresh_command.execute_async()
     assert all(n.model.notebook_id == "nb-personal" for n in vm.results)
+    final_results = list(vm.results)
     vm.dispose()
+    assert all(
+        result.status is ConstructionStatus.DISPOSED
+        for result in [*replaced_results, *final_results]
+    )

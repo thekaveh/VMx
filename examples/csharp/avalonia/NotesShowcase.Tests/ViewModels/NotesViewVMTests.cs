@@ -2,6 +2,7 @@ using System.Reactive.Concurrency;
 using Microsoft.Reactive.Testing;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Lifecycle;
 using VMx.Services;
 using Xunit;
 
@@ -278,10 +279,14 @@ public sealed class NotesViewVMTests
 
         await vm.LoadMoreCommand.ExecuteAsync();
         Assert.True(vm.Results.Count > 2);
+        var replacedResults = vm.Results.ToArray();
 
         vm.SearchTerm = "travel";
         await vm.RefreshCommand.ExecuteAsync();
         Assert.All(vm.Results, n => Assert.Equal("nb-personal", n.Model.NotebookId));
+        var finalResults = vm.Results.ToArray();
         vm.Dispose();
+        Assert.All(replacedResults.Concat(finalResults), result =>
+            Assert.Equal(ConstructionStatus.Disposed, result.Status));
     }
 }
