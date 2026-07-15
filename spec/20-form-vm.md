@@ -181,9 +181,11 @@ the `JSON.stringify` comparison used before v3 it:
   (guarded with a visited-pair set) — the previous `JSON.stringify` path *crashed*
   on both;
 - compares `Date` by instant, `Map`/`Set` by contents, `RegExp` by source/flags,
-  arrays and plain objects by value — the previous path was *silently wrong* on
-  all of these (`JSON.stringify` renders every `Map`/`Set` as `{}` and stringifies
-  `Date`, so distinct values compared equal);
+  binary buffers/views by concrete constructor and visible bytes, and arrays and
+  plain objects by value — the previous path was *silently wrong* on several of
+  these (`JSON.stringify` renders every `Map`/`Set` as `{}` and stringifies
+  `Date`, so distinct values compared equal); binary comparison closes the
+  empty-enumerable `ArrayBuffer`/`DataView` gap clarified by ADR-0113;
 - preserves an `undefined`-valued key as distinct from a missing key (matching what
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVM` structural equality now compares binary buffers and views by concrete
+  constructor and visible bytes, so `ArrayBuffer`/`DataView` edits are no longer
+  suppressed as equal empty-enumerable objects (FORM-003, ADR-0113).
 - Common VM options factories now retain each independently supplied service
   through the builder's combined services validation (BLD-006, ADR-0112).
 - `ObservableDictionary` now preserves native `Map` equality independently on

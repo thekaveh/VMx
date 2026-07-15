@@ -242,6 +242,13 @@ snapshot advance, or deny/revert, `FormVM` reports that phase and the first
 failing enumerable top-level field it can safely identify. The native error is
 preserved as `cause`; the diagnostic never renders field values.
 
+The matching default structural equality understands the same common binary
+values: buffers compare by concrete buffer type, length, and bytes; `DataView`
+and typed-array views compare by concrete view type and their visible byte span.
+Separately allocated equal bytes therefore remain clean, while changed bytes or
+a different binary interpretation make the form dirty. Inject `equals` when a
+domain needs reference identity or a different binary policy.
+
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can
 have side effects during the original `structuredClone` call or descriptor

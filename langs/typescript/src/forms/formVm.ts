@@ -140,6 +140,30 @@ function defaultSnapshotError(
   );
 }
 
+function isBuffer(value: object): value is ArrayBuffer | SharedArrayBuffer {
+  return value instanceof ArrayBuffer
+    || (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer);
+}
+
+function sameBinaryConstructor(a: object, b: object): boolean {
+  return Object.getPrototypeOf(a) === Object.getPrototypeOf(b);
+}
+
+function equalBytes(
+  a: ArrayBufferLike,
+  aOffset: number,
+  b: ArrayBufferLike,
+  bOffset: number,
+  byteLength: number,
+): boolean {
+  const aBytes = new Uint8Array(a, aOffset, byteLength);
+  const bBytes = new Uint8Array(b, bOffset, byteLength);
+  for (let index = 0; index < byteLength; index += 1) {
+    if (aBytes[index] !== bBytes[index]) return false;
+  }
+  return true;
+}
+
 /**
  * Structural deep-equality used by {@link FormVM.isDirty} when no custom
  * `equals` is supplied. It mirrors the depth the default `structuredClone`
@@ -149,7 +173,8 @@ function defaultSnapshotError(
  * - never throws on `BigInt` (compared with `===`) or circular references
  *   (guarded with a visited-pair set);
  * - compares `Date` by instant, `Map`/`Set` by contents, `RegExp` by
- *   source/flags, arrays and plain objects by value;
+ *   source/flags, binary buffers/views by constructor and bytes, and arrays and
+ *   plain objects by value;
  * - distinguishes an `undefined`-valued key from a missing key (as
  *   `structuredClone` preserves it);
  * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
@@ -199,6 +224,26 @@ export function deepEquals(
       a.source === b.source &&
       a.flags === b.flags
     );
+  }
+
+  const aIsBuffer = isBuffer(a);
+  const bIsBuffer = isBuffer(b);
+  if (aIsBuffer || bIsBuffer) {
+    return aIsBuffer
+      && bIsBuffer
+      && sameBinaryConstructor(a, b)
+      && a.byteLength === b.byteLength
+      && equalBytes(a, 0, b, 0, a.byteLength);
+  }
+
+  const aIsView = ArrayBuffer.isView(a);
+  const bIsView = ArrayBuffer.isView(b);
+  if (aIsView || bIsView) {
+    return aIsView
+      && bIsView
+      && sameBinaryConstructor(a, b)
+      && a.byteLength === b.byteLength
+      && equalBytes(a.buffer, a.byteOffset, b.buffer, b.byteOffset, a.byteLength);
   }
 
   const aIsArray = Array.isArray(a);
