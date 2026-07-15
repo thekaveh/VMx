@@ -2,7 +2,11 @@
 //!
 //! Spec: `spec/17-collections-and-paging.md`.
 
-use super::*;
+use super::{
+    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, CollectionChangeAction,
+    CollectionChangedMessage, Condvar, Hash, HashMap, Message, MessageHub, Mutex,
+    PropertyChangedMessage, ThreadId, VecDeque, VmxError, VmxResult,
+};
 
 #[derive(Default)]
 struct ServicedCollectionDelivery {

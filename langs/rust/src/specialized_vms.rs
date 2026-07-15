@@ -2,7 +2,9 @@
 //!
 //! Spec: `spec/17-dialogs.md` and `spec/18-notifications.md`.
 
-use super::*;
+use super::{
+    lock, Arc, AsyncValue, Mutex, Notification, NotificationHub, NotificationReaction, RelayCommand,
+};
 
 #[derive(Clone)]
 /// A modal interaction with one first-wins result and a cancellation fallback.

@@ -2,7 +2,11 @@
 //!
 //! Spec: `spec/07-aggregate-vm.md`; ADR-0013 and ADR-0094.
 
-use super::*;
+use super::{
+    finish_with_first_error, lock, retain_first_error, Arc, ComponentCore, ConstructionStatus,
+    Dispatcher, HashSet, LifecycleOperation, MessageHub, Mutex, NullDispatcher, ParentHandle,
+    ParentRegistration, PropertyChangedStream, RelayCommand, VmNode, VmxError, VmxResult,
+};
 
 #[derive(Clone)]
 /// A homogeneous collection of components with coordinated lifecycle operations.

@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/15-derived-properties.md`; ADR-0035.
 
-use super::*;
+use super::{lock, Arc, Message, MessageHub, Mutex, PropertyChangedMessage, VmxError, VmxResult};
 
 #[derive(Clone)]
 /// A value computed from other state with optional validated write-back.

@@ -2,7 +2,13 @@
 //!
 //! Spec: `spec/19-hierarchical-vm.md`; ADR-0048 and ADR-0087.
 
-use super::*;
+use super::{
+    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
+    ConstructionStatus, Hash, HashMap, HashSet, Message, MessageHub, Mutex, NullDispatcher,
+    ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId, TreeNode,
+    TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
+    HIERARCHY_TOPOLOGY_GATE,
+};
 
 type HierChildrenFactory<M> =
     Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;

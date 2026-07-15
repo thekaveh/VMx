@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/08-composites-and-filtering.md`.
 
-use super::*;
+use super::{lock, Arc, AtomicBool, Message, MessageHub, Mutex, Ordering, Subscription};
 
 type ItemsProvider<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 type SearchPredicate<T> = Arc<dyn Fn(&T, &str) -> bool + Send + Sync>;

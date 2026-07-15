@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/09-groups-and-modeled-crud.md`.
 
-use super::*;
+use super::{Arc, Message, MessageHub, RelayCommand, Subscription};
 
 /// A coordinated command set for CRUD operations on an optional current value.
 ///

@@ -2,7 +2,10 @@
 //!
 //! Spec: `spec/21-collections.md`; ADR-0033.
 
-use super::*;
+use super::{
+    lock, next_id, Arc, CollectionChangeAction, CollectionChangedMessage, Command, Message,
+    MessageHub, Mutex, RelayCommand, VmNode,
+};
 
 #[derive(Clone)]
 /// An accumulated, forward-only page sequence driven by continuation tokens.

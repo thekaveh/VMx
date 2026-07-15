@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/20-discriminator-vm.md`; ADR-0051.
 
-use super::*;
+use super::{lock, Arc, Hash, HashSet, Message, MessageHub, Mutex, VmxError, VmxResult};
 
 #[derive(Clone)]
 /// Keyed active-mode state with LIFO modal override restoration.

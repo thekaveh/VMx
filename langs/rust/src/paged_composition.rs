@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/17-collections-and-paging.md`.
 
-use super::*;
+use super::{lock, Arc, Mutex};
 
 /// A mutable in-memory collection exposed as fixed-size indexed pages.
 ///

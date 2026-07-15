@@ -2,7 +2,11 @@
 //!
 //! Spec: `spec/04-component-vm.md`.
 
-use super::*;
+use super::{
+    fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher, LifecycleOperation, MessageHub,
+    ModelHint, Mutex, NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, TreeNode,
+    VmNode, VmxError, VmxResult,
+};
 
 /// A modeled leaf viewmodel whose name and hint are fixed at construction.
 ///

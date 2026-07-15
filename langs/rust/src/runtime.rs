@@ -2,7 +2,11 @@
 //!
 //! Spec: `spec/03-lifecycle.md`, `spec/05-messages.md`, and `spec/06-services.md`.
 
-use super::*;
+use super::{
+    catch_unwind, resume_unwind, thread, Arc, AssertUnwindSafe, AtomicUsize, BTreeMap, Cell,
+    Condvar, Deserialize, HashSet, Mutex, MutexGuard, Ordering, Serialize, ThreadId, VecDeque,
+    Weak,
+};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());

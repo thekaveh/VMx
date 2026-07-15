@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/16-localization.md` and `spec/17-dialogs.md`.
 
-use super::*;
+use super::{AsyncValue, ModalVm};
 
 /// Resolves localization keys to user-facing strings.
 pub trait Localizer: Send + Sync {

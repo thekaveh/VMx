@@ -2,7 +2,12 @@
 //!
 //! Spec: `spec/08-composites-and-filtering.md`.
 
-use super::*;
+use super::{
+    begin_parent_transfer, finish_with_first_error, lock, retain_first_error, Arc, ComponentCore,
+    ConstructionStatus, Dispatcher, LifecycleOperation, MessageHub, Mutex, NullDispatcher,
+    ObservableList, ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream,
+    TreeNode, VmNode, VmxError, VmxResult,
+};
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
 type CurrentSelector<T> = Arc<dyn Fn(Vec<T>) -> Option<T> + Send + Sync>;

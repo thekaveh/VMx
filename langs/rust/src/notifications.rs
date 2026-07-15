@@ -2,7 +2,10 @@
 //!
 //! Spec: `spec/18-notifications.md`; ADR-0031.
 
-use super::*;
+use super::{
+    lock, Arc, AsyncValue, AtomicU64, BTreeMap, Context, Future, HashMap, Message, MessageHub,
+    Mutex, Ordering, Pin, Poll,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Classifies a notification's presentation and interaction contract.

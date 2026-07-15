@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/14-capabilities.md`; ADR-0029.
 
-use super::*;
+use super::{lock, Arc, ComponentVm, Dispatcher, Message, MessageHub, Mutex};
 
 /// Opt-in selection capability.
 pub trait Selectable {

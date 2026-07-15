@@ -2,7 +2,10 @@
 //!
 //! Spec: `spec/13-forwarding-wrappers.md`; ADR-0028.
 
-use super::*;
+use super::{
+    ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
+    PropertyChangedStream, RelayCommand, VmNode, VmxResult,
+};
 
 #[derive(Clone)]
 /// A component wrapper that forwards the complete baseline surface to an inner VM.
