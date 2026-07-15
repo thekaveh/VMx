@@ -2711,6 +2711,51 @@ struct ServicedCollectionDeliveryState {
     draining_owner: Option<ThreadId>,
 }
 
+struct ServicedCollectionAdmission {
+    delivery: Arc<ServicedCollectionDelivery>,
+    current: ThreadId,
+    owns_drain: bool,
+    armed: bool,
+}
+
+impl ServicedCollectionAdmission {
+    fn acquire(delivery: Arc<ServicedCollectionDelivery>) -> Self {
+        let current = thread::current().id();
+        let mut state = lock(&delivery.state);
+        while state.draining_owner.is_some_and(|owner| owner != current) {
+            state = wait(&delivery.ready, state);
+        }
+        let owns_drain = state.draining_owner.is_none();
+        if owns_drain {
+            state.draining_owner = Some(current);
+        }
+        drop(state);
+        Self {
+            delivery,
+            current,
+            owns_drain,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ServicedCollectionAdmission {
+    fn drop(&mut self) {
+        if !self.armed || !self.owns_drain {
+            return;
+        }
+        let mut state = lock(&self.delivery.state);
+        if state.draining_owner == Some(self.current) {
+            state.draining_owner = None;
+        }
+        self.delivery.ready.notify_all();
+    }
+}
+
 /// Hub-aware observable collection with a local change stream.
 ///
 /// Effective mutations update the backing state, publish to the local stream,
@@ -2775,13 +2820,14 @@ where
     }
 
     pub fn push(&self, item: T) {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let index = {
             let mut inner = lock(&self.inner);
             let index = inner.len();
             inner.push(item);
             index
         };
-        self.publish(CollectionChangeAction::Add, None, Some(index));
+        self.publish(admission, CollectionChangeAction::Add, None, Some(index));
     }
 
     /// Removes the first item equal to `item`.
@@ -2789,6 +2835,7 @@ where
     where
         T: PartialEq,
     {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let index = {
             let mut inner = lock(&self.inner);
             let Some(index) = inner.iter().position(|candidate| candidate == item) else {
@@ -2797,11 +2844,12 @@ where
             inner.remove(index);
             index
         };
-        self.publish(CollectionChangeAction::Remove, Some(index), None);
+        self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
         true
     }
 
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let removed = {
             let mut inner = lock(&self.inner);
             if index >= inner.len() {
@@ -2809,11 +2857,12 @@ where
             }
             inner.remove(index)
         };
-        self.publish(CollectionChangeAction::Remove, Some(index), None);
+        self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
         Ok(removed)
     }
 
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let old = {
             let mut inner = lock(&self.inner);
             if index >= inner.len() {
@@ -2821,7 +2870,12 @@ where
             }
             std::mem::replace(&mut inner[index], item)
         };
-        self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+        self.publish(
+            admission,
+            CollectionChangeAction::Replace,
+            Some(index),
+            Some(index),
+        );
         Ok(old)
     }
 
@@ -2830,6 +2884,7 @@ where
         I: IntoIterator<Item = T>,
     {
         let snapshot = items.into_iter().collect::<Vec<_>>();
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         {
             let mut inner = lock(&self.inner);
             if inner.is_empty() && snapshot.is_empty() {
@@ -2837,10 +2892,11 @@ where
             }
             *inner = snapshot;
         }
-        self.publish(CollectionChangeAction::Reset, None, None);
+        self.publish(admission, CollectionChangeAction::Reset, None, None);
     }
 
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         {
             let mut inner = lock(&self.inner);
             if from_index >= inner.len() || to_index >= inner.len() {
@@ -2855,6 +2911,7 @@ where
             inner.insert(to_index, item);
         }
         self.publish(
+            admission,
             CollectionChangeAction::Move,
             Some(from_index),
             Some(to_index),
@@ -2863,6 +2920,7 @@ where
     }
 
     pub fn clear(&self) {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         {
             let mut inner = lock(&self.inner);
             if inner.is_empty() {
@@ -2870,11 +2928,12 @@ where
             }
             inner.clear();
         }
-        self.publish(CollectionChangeAction::Reset, None, None);
+        self.publish(admission, CollectionChangeAction::Reset, None, None);
     }
 
     fn publish(
         &self,
+        mut admission: ServicedCollectionAdmission,
         action: CollectionChangeAction,
         old_index: Option<usize>,
         new_index: Option<usize>,
@@ -2887,19 +2946,15 @@ where
             new_index,
         });
 
-        let current = thread::current().id();
+        let current = admission.current;
         let mut delivery = lock(&self.delivery.state);
-        while delivery
-            .draining_owner
-            .is_some_and(|owner| owner != current)
-        {
-            delivery = wait(&self.delivery.ready, delivery);
-        }
+        debug_assert_eq!(delivery.draining_owner, Some(current));
         delivery.pending.push_back(message);
-        if delivery.draining_owner == Some(current) {
+        if !admission.owns_drain {
+            admission.disarm();
             return;
         }
-        delivery.draining_owner = Some(current);
+        admission.disarm();
         drop(delivery);
 
         let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
@@ -3074,6 +3129,7 @@ where
 
     pub fn push(&self, item: T) -> VmxResult<()> {
         let key = Arc::new((self.key_of)(&item)?);
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let position = {
             let mut inner = lock(&self.inner);
             if inner.index_by_key.contains_key(key.as_ref()) {
@@ -3085,7 +3141,7 @@ where
             inner.index_by_key.insert(key, position);
             position
         };
-        self.publish(CollectionChangeAction::Add, None, Some(position));
+        self.publish(admission, CollectionChangeAction::Add, None, Some(position));
         Ok(())
     }
 
@@ -3094,6 +3150,7 @@ where
     where
         T: PartialEq,
     {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let position = {
             let mut inner = lock(&self.inner);
             let Some(position) = inner.items.iter().position(|candidate| candidate == item) else {
@@ -3102,11 +3159,17 @@ where
             Self::remove_membership(&mut inner, position);
             position
         };
-        self.publish(CollectionChangeAction::Remove, Some(position), None);
+        self.publish(
+            admission,
+            CollectionChangeAction::Remove,
+            Some(position),
+            None,
+        );
         true
     }
 
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let removed = {
             let mut inner = lock(&self.inner);
             if index >= inner.items.len() {
@@ -3114,23 +3177,30 @@ where
             }
             Self::remove_membership(&mut inner, index)
         };
-        self.publish(CollectionChangeAction::Remove, Some(index), None);
+        self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
         Ok(removed)
     }
 
     pub fn remove_key(&self, key: &K) -> Option<T> {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let (position, removed) = {
             let mut inner = lock(&self.inner);
             let position = *inner.index_by_key.get(key)?;
             let removed = Self::remove_membership(&mut inner, position);
             (position, removed)
         };
-        self.publish(CollectionChangeAction::Remove, Some(position), None);
+        self.publish(
+            admission,
+            CollectionChangeAction::Remove,
+            Some(position),
+            None,
+        );
         Some(removed)
     }
 
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let key = Arc::new((self.key_of)(&item)?);
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let old = {
             let mut inner = lock(&self.inner);
             if index >= inner.items.len() {
@@ -3149,7 +3219,12 @@ where
             inner.index_by_key.insert(key, index);
             std::mem::replace(&mut inner.items[index], item)
         };
-        self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+        self.publish(
+            admission,
+            CollectionChangeAction::Replace,
+            Some(index),
+            Some(index),
+        );
         Ok(old)
     }
 
@@ -3167,6 +3242,7 @@ where
             }
             keys.push(key);
         }
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         {
             let mut inner = lock(&self.inner);
             if inner.items.is_empty() && snapshot.is_empty() {
@@ -3176,7 +3252,7 @@ where
             inner.keys = keys;
             inner.index_by_key = index_by_key;
         }
-        self.publish(CollectionChangeAction::Reset, None, None);
+        self.publish(admission, CollectionChangeAction::Reset, None, None);
         Ok(())
     }
 
@@ -3185,6 +3261,7 @@ where
     /// Returns `true` for Add and `false` for Replace.
     pub fn upsert(&self, item: T) -> VmxResult<bool> {
         let key = Arc::new((self.key_of)(&item)?);
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let (added, index) = {
             let mut inner = lock(&self.inner);
             if let Some(index) = inner.index_by_key.get(key.as_ref()).copied() {
@@ -3203,15 +3280,21 @@ where
             }
         };
         if added {
-            self.publish(CollectionChangeAction::Add, None, Some(index));
+            self.publish(admission, CollectionChangeAction::Add, None, Some(index));
             Ok(true)
         } else {
-            self.publish(CollectionChangeAction::Replace, Some(index), Some(index));
+            self.publish(
+                admission,
+                CollectionChangeAction::Replace,
+                Some(index),
+                Some(index),
+            );
             Ok(false)
         }
     }
 
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         {
             let mut inner = lock(&self.inner);
             if from_index >= inner.items.len() || to_index >= inner.items.len() {
@@ -3229,6 +3312,7 @@ where
             Self::repair_indices(&mut inner, from_index.min(to_index));
         }
         self.publish(
+            admission,
             CollectionChangeAction::Move,
             Some(from_index),
             Some(to_index),
@@ -3237,6 +3321,7 @@ where
     }
 
     pub fn clear(&self) {
+        let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         {
             let mut inner = lock(&self.inner);
             if inner.items.is_empty() {
@@ -3246,7 +3331,7 @@ where
             inner.keys.clear();
             inner.index_by_key.clear();
         }
-        self.publish(CollectionChangeAction::Reset, None, None);
+        self.publish(admission, CollectionChangeAction::Reset, None, None);
     }
 
     fn duplicate_key_error() -> VmxError {
@@ -3271,6 +3356,7 @@ where
 
     fn publish(
         &self,
+        mut admission: ServicedCollectionAdmission,
         action: CollectionChangeAction,
         old_index: Option<usize>,
         new_index: Option<usize>,
@@ -3283,19 +3369,15 @@ where
             new_index,
         });
 
-        let current = thread::current().id();
+        let current = admission.current;
         let mut delivery = lock(&self.delivery.state);
-        while delivery
-            .draining_owner
-            .is_some_and(|owner| owner != current)
-        {
-            delivery = wait(&self.delivery.ready, delivery);
-        }
+        debug_assert_eq!(delivery.draining_owner, Some(current));
         delivery.pending.push_back(message);
-        if delivery.draining_owner == Some(current) {
+        if !admission.owns_drain {
+            admission.disarm();
             return;
         }
-        delivery.draining_owner = Some(current);
+        admission.disarm();
         drop(delivery);
 
         let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
