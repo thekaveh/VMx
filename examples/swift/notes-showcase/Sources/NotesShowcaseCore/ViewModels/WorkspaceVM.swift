@@ -394,9 +394,11 @@ public final class WorkspaceVM {
                     self.trackFocus(nb)
                     self._commandTrigger.send(())
                     guard self._requestedNotebookId != nb.model.id else { return }
-                    self._requestedNotebookId = nb.model.id
-                    Task { [weak self] in
-                        await self?.bindNotesObserved(notebookId: nb.model.id)
+                    let notebookId = nb.model.id
+                    self._requestedNotebookId = notebookId
+                    let workspace = FlagshipTransferBox(self)
+                    Task { [workspace, notebookId] in
+                        await workspace.value.bindNotesObserved(notebookId: notebookId)
                     }
                 }
             }
@@ -423,9 +425,11 @@ public final class WorkspaceVM {
         // If the bind was swallowed (repo error / cancellation), the
         // boundNotebookId will not match; clear the dedup key so a
         // subsequent selection of the same notebook can retry.
-        if _notesView.boundNotebookId != notebookId {
-            if _requestedNotebookId == notebookId {
-                _requestedNotebookId = nil
+        await performOnForeground(using: _dispatcher) { [weak self] in
+            guard let self else { return }
+            if self._notesView.boundNotebookId != notebookId,
+               self._requestedNotebookId == notebookId {
+                self._requestedNotebookId = nil
             }
         }
     }
@@ -433,14 +437,17 @@ public final class WorkspaceVM {
     /// Saves a new "Untitled" note in the current notebook and rebinds
     /// the notes view so the new row appears.
     private func addNewNoteToCurrent() async throws {
-        guard let nb = _notebooks.current else { return }
+        let notebookId = await performOnForeground(using: _dispatcher) { [weak self] in
+            self?._notebooks.current?.model.id
+        }
+        guard let notebookId else { return }
         let uuid = UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
         let id = "note-\(uuid.prefix(5))"
         let note = NoteModel(
             id: id,
-            notebookId: nb.model.id,
+            notebookId: notebookId,
             title: "Untitled",
             tags: [],
             body: "",
@@ -449,7 +456,7 @@ public final class WorkspaceVM {
             updatedAt: Date()
         )
         try await _repo.saveNote(note)
-        await _notesView.bindTo(notebookId: nb.model.id)
+        await _notesView.bindTo(notebookId: notebookId)
     }
 
     /// Presents a file-save dialog and, if the user picks a path, loads the
@@ -480,18 +487,25 @@ public final class WorkspaceVM {
     /// The Current / focus assignments are foreground-marshalled because this
     /// continuation runs off the UI thread after the repository awaits.
     public func constructAsync() async throws {
-        try _agg.construct()
-        try _theme.construct()
-        try _globalSearch.construct()
+        try await performThrowingOnForeground(using: _dispatcher) { [weak self] in
+            guard let self else { return }
+            try self._agg.construct()
+            try self._theme.construct()
+            try self._globalSearch.construct()
+        }
         try await _notebooks.populate()
-        let first = _notebooks.roots.first
-        if let first = first {
+        let first = await performOnForeground(using: _dispatcher) { [weak self] in
+            FlagshipTransferBox(self?._notebooks.roots.first)
+        }
+        if let first = first.value {
             // Set dedup key BEFORE the bind so the notebook subscription
             // (which fires on Current assignment below) sees it and skips.
-            _requestedNotebookId = first.model.id
+            await performOnForeground(using: _dispatcher) { [weak self] in
+                self?._requestedNotebookId = first.model.id
+            }
             await _notesView.bindTo(notebookId: first.model.id)
             await _noteForm.refreshTagSuggestions()
-            _dispatcher.scheduleForeground { [weak self, first] in
+            await performOnForeground(using: _dispatcher) { [weak self, first] in
                 guard let self, !self._disposed else { return }
                 self._notebooks.current = first
                 self._notesView.currentNotebookIsReadonly = first.model.isReadonly
@@ -501,7 +515,7 @@ public final class WorkspaceVM {
         } else {
             // No notebooks: still push the trigger so toolbar commands
             // re-evaluate CanExecute after construction.
-            _dispatcher.scheduleForeground { [weak self] in
+            await performOnForeground(using: _dispatcher) { [weak self] in
                 guard let self, !self._disposed else { return }
                 self._commandTrigger.send(())
             }

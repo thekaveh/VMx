@@ -354,22 +354,10 @@ final class NoteFormVMTests: XCTestCase {
         form.title = "Edited title"
 
         try await form.approveAsync()
-        // The notification lands via dispatcher.scheduleForeground → a
-        // fire-and-forget Task → an async hub.post; a single yield cannot drain
-        // that chain, so poll until the snapshot carries it (or time out).
-        var landed = false
-        for _ in 0..<500 {
-            if observed.contains(where: {
-                $0.message.contains("Saved") && $0.message.contains("Edited title")
-            }) {
-                landed = true
-                break
-            }
-            try? await Task.sleep(nanoseconds: 1_000_000)
-        }
-
         XCTAssertTrue(
-            landed,
+            observed.contains(where: {
+                $0.message.contains("Saved") && $0.message.contains("Edited title")
+            }),
             "Expected 'Saved … Edited title' notification; got \(observed.map { $0.message })"
         )
     }

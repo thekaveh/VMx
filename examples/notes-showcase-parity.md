@@ -96,7 +96,7 @@ split is enforced by SwiftPM target boundaries.
 
 [^dispatcher]: The async-`construct()` marshalling half of this row is wired to a
     live UI dispatcher only in C# (`AvaloniaDispatcher`, Avalonia's global UI
-    thread) and Swift (`MainQueueDispatcher`). The React and Textual flagships
+    thread) and Swift (`DefaultDispatcher`). The React and Textual flagships
     ship a purpose-built adapter (`ReactDispatcher` asap-microtask,
     `TextualDispatcher` AsyncIO) exercised by the `views/adapter/` unit tests, but
     their composition roots build the VM tree on the synchronous immediate
@@ -126,7 +126,9 @@ split is enforced by SwiftPM target boundaries.
   target. Views use `@StateObject`/`@ObservedObject` + live VM getters. The
   `NotesShowcaseCore` target (pure VM layer, no SwiftUI) is
   CommandLineTools-buildable; the `NotesShowcase` and `NotesShowcaseTests`
-  targets require macOS + Xcode.
+  targets require macOS + Xcode. CI compiles the complete flagship with Swift's
+  complete strict-concurrency diagnostics promoted to errors; post-await
+  observable mutations return through the injected foreground dispatcher.
 - **Screenshots.** Reference screenshots are owner-driven and pending. Once
   captured they will live under `assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.

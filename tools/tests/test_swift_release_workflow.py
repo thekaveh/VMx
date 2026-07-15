@@ -44,6 +44,16 @@ def test_swift_ci_enforces_complete_strict_concurrency() -> None:
     assert "-Xswiftc -warnings-as-errors" in workflow
 
 
+def test_swift_ci_enforces_strict_concurrency_for_flagship() -> None:
+    workflow = _workflow("swift.yml")
+    examples_job = workflow.split("\n  examples:\n", maxsplit=1)[1]
+
+    assert "name: Enforce NotesShowcase strict concurrency" in examples_job
+    assert "-Xswiftc -strict-concurrency=complete" in examples_job
+    assert "-Xswiftc -warn-concurrency" in examples_job
+    assert "-Xswiftc -warnings-as-errors" in examples_job
+
+
 def test_swift_release_requires_same_sha_semantic_tag() -> None:
     workflow = _workflow("release.yml")
 

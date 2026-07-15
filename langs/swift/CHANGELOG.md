@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Internally spawned tasks and dispatch closures use narrow transfer boundaries,
   immutable singleton services declare their sendability, and modal results are
   constrained to `Sendable` before crossing an async continuation.
+- The Notes Showcase now awaits foreground-dispatched UI mutations and
+  notification posts, rejects stale overlapping note fetches, uses the library
+  `DefaultDispatcher`, and passes the same strict-concurrency CI gate.
 - `BasicModalVM` now atomically registers waiters and claims its first dismissal,
   preventing concurrent dismissal/disposal from losing or resuming a waiter
   more than once.

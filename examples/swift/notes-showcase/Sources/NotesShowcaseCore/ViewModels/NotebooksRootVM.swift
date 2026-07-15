@@ -94,98 +94,81 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         try await _repo.addNotebook(model)
         guard status != .disposed, !Task.isCancelled else { return }
 
-        let vm = try! NotebookVM.builder()
-            .name("nb:\(id)")
-            .model(model)
-            .services(hub: hub, dispatcher: dispatcher)
-            .childrenGetter({ [weak self] parent in self?.childrenOf(parent) ?? [] })
-            .build()
-        try? vm.construct()
-        _all.append(vm)
-
-        // Notify the parent or raise "roots" on the foreground dispatcher —
-        // this continuation runs off the UI thread after the repo await.
-        if let pid = parentId {
-            if let parent = _all.first(where: { $0.model.id == pid }) {
-                dispatcher.scheduleForeground { [weak self, weak parent] in
-                    guard let self, self.status != .disposed else { return }
-                    parent?.notifyChildrenChanged()
-                }
+        let added = await runOnForeground { [weak self] in
+            guard let self, self.status != .disposed else {
+                return false
             }
-        } else {
-            dispatcher.scheduleForeground { [weak self] in
-                guard let self, self.status != .disposed else { return }
+            let vm = try! NotebookVM.builder()
+                .name("nb:\(id)")
+                .model(model)
+                .services(hub: self.hub, dispatcher: self.dispatcher)
+                .childrenGetter({ [weak self] parent in self?.childrenOf(parent) ?? [] })
+                .build()
+            try? vm.construct()
+            self._all.append(vm)
+
+            if let pid = parentId {
+                self._all.first(where: { $0.model.id == pid })?
+                    .notifyChildrenChanged()
+            } else {
                 self._notifyPropertyChanged("roots")
             }
-        }
 
-        guard status != .disposed, !Task.isCancelled else { return }
-        hub.send(TreeStructureChangedMessage(
-            sender: self,
-            senderName: self.name,
-            change: .added,
-            affected: vm,
-            index: _all.count - 1
-        ))
+            self.hub.send(TreeStructureChangedMessage(
+                sender: self,
+                senderName: self.name,
+                change: .added,
+                affected: vm,
+                index: self._all.count - 1
+            ))
+            return true
+        }
+        guard added, !Task.isCancelled else { return }
 
         if let notificationHub = _notificationHub {
-            Task { [weak self] in
-                guard let self, self.status != .disposed else { return }
-                _ = await notificationHub.post(VMx.Notification(
-                    type: .notification,
-                    message: "Notebook added: \u{201C}\(notebookName)\u{201D}"
-                ))
-            }
+            _ = await notificationHub.post(VMx.Notification(
+                type: .notification,
+                message: "Notebook added: \u{201C}\(notebookName)\u{201D}"
+            ))
         }
     }
 
     /// Loads all notebooks from the repository, replaces the flat list, and
     /// constructs each child VM. Intended to be called during workspace
     /// async construction.
-    ///
-    /// Foreground-marshals the `current` + `roots` raises because this
-    /// continuation runs off the UI thread after `loadAll()`.
     public func populate() async throws {
         guard status != .disposed, !Task.isCancelled else { return }
         let (notebooks, _) = try await _repo.loadAll()
         guard status != .disposed, !Task.isCancelled else { return }
 
-        // Dispose existing children before replacing.
-        for nb in _all { nb.dispose() }
-        _all.removeAll()
-        _current = nil
+        await runOnForeground { [weak self] in
+            guard let self, self.status != .disposed else {
+                return
+            }
 
-        // Marshal the Current reset to the foreground (continuation is off-thread).
-        dispatcher.scheduleForeground { [weak self] in
-            guard let self, self.status != .disposed else { return }
+            for nb in self._all { nb.dispose() }
+            self._all.removeAll()
+            self._current = nil
             self._notifyPropertyChanged("current")
-        }
 
-        for nb in notebooks {
-            let vm = try! NotebookVM.builder()
-                .name("nb:\(nb.id)")
-                .model(nb)
-                .services(hub: hub, dispatcher: dispatcher)
-                .childrenGetter({ [weak self] parent in self?.childrenOf(parent) ?? [] })
-                .build()
-            try? vm.construct()
-            _all.append(vm)
-        }
+            for nb in notebooks {
+                let vm = try! NotebookVM.builder()
+                    .name("nb:\(nb.id)")
+                    .model(nb)
+                    .services(hub: self.hub, dispatcher: self.dispatcher)
+                    .childrenGetter({ [weak self] parent in self?.childrenOf(parent) ?? [] })
+                    .build()
+                try? vm.construct()
+                self._all.append(vm)
+            }
 
-        guard status != .disposed, !Task.isCancelled else { return }
-        // Structural reset notification — subscribers refresh their tree projections.
-        hub.send(TreeStructureChangedMessage(
-            sender: self,
-            senderName: self.name,
-            change: .added,
-            affected: self,
-            index: -1
-        ))
-
-        // Roots is a computed snapshot: an already-bound tree view only
-        // re-reads it on an explicit raise. Marshal to the foreground.
-        dispatcher.scheduleForeground { [weak self] in
-            guard let self, self.status != .disposed else { return }
+            self.hub.send(TreeStructureChangedMessage(
+                sender: self,
+                senderName: self.name,
+                change: .added,
+                affected: self,
+                index: -1
+            ))
             self._notifyPropertyChanged("roots")
         }
     }

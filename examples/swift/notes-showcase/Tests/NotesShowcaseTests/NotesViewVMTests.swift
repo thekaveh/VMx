@@ -30,7 +30,7 @@ private func makeRepo(
 }
 
 private func buildVM(
-    repo: InMemoryNoteRepository,
+    repo: any NoteRepository,
     pageSize: Int = 5
 ) throws -> NotesViewVM {
     let hub = MessageHub()
@@ -44,6 +44,55 @@ private func buildVM(
         // tests drive immediate flush via `vm.search()`.
         .searchDebounce(.milliseconds(0))
         .build()
+}
+
+private actor ControlledLoadRepository: NoteRepository {
+    private let seed = SeedData.build()
+    private var firstLoadStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstLoadGate: CheckedContinuation<Void, Never>?
+
+    func waitForFirstLoad() async {
+        if firstLoadStarted { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func releaseFirstLoad() {
+        firstLoadGate?.resume()
+        firstLoadGate = nil
+    }
+
+    func loadNotes(notebookId: String) async throws -> [NoteModel] {
+        if notebookId == "nb-reviews" {
+            firstLoadStarted = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { firstLoadGate = $0 }
+        }
+        return seed.notes.filter { $0.notebookId == notebookId }
+    }
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
+        seed
+    }
+
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        fatalError("not used")
+    }
+
+    func saveNote(_ note: NoteModel) async throws { fatalError("not used") }
+    func deleteNote(id: String) async throws { fatalError("not used") }
+    func addNotebook(_ notebook: NotebookModel) async throws { fatalError("not used") }
+    func export(
+        notebooks: [NotebookModel],
+        notes: [NoteModel],
+        path: String
+    ) async throws { fatalError("not used") }
 }
 
 private func buildAndBind(
@@ -206,6 +255,29 @@ final class NotesViewVMTests: XCTestCase {
         )
     }
 
+    func testOverlappingBindTo_onlyLatestRequestCanCommit() async throws {
+        let repo = ControlledLoadRepository()
+        let vm = try buildVM(repo: repo)
+        try vm.construct()
+        let transferableVM = FlagshipTransferBox(vm)
+
+        let first = Task { [transferableVM] in
+            await transferableVM.value.bindTo(notebookId: "nb-reviews")
+        }
+        await repo.waitForFirstLoad()
+        let second = Task { [transferableVM] in
+            await transferableVM.value.bindTo(notebookId: "nb-work")
+        }
+        await second.value
+        await repo.releaseFirstLoad()
+        await first.value
+
+        XCTAssertEqual("nb-work", vm.boundNotebookId)
+        XCTAssertTrue(vm.filteredItems.allSatisfy {
+            $0.model.notebookId == "nb-work"
+        })
+    }
+
     // MARK: - Current selection
 
     func testCurrent_setter_is_idempotent() async throws {
@@ -250,20 +322,10 @@ final class NotesViewVMTests: XCTestCase {
         let target = vm.inner.at(0)
         vm.current = target
 
-        // Fire deletion through NoteVM's deleteCommand — the same path the UI uses.
-        target.deleteCommand.execute()
-
-        // `deleteCommand.execute()` runs synchronously through `onDelete` →
-        // `NotesViewVM.deleteNote`, which spawns (and retains) the fire-and-forget
-        // delete Task before returning. With `ImmediateDispatcher` that Task removes
-        // the note from `inner` *inline on its own executor*. Awaiting the retained
-        // handle drains persistence + removal to completion and establishes a
-        // happens-before, so the reads below never race the in-place `inner` array
-        // mutation on another executor — the previous `waitUntil { vm.inner.count …}`
-        // poll read `children.count` while `removeAt` shifted the same buffer,
-        // which is undefined behaviour and crashed CI with a ContiguousArray
-        // "Index out of range".
-        await vm.pendingDeleteTask?.value
+        // Await the same async relay the UI invokes through the synchronous
+        // Command surface. Foreground removal completes before this returns.
+        let deleteCommand = try XCTUnwrap(target.deleteCommand as? AsyncRelayCommand)
+        try await deleteCommand.executeAsync()
 
         XCTAssertEqual(before - 1, vm.inner.count,
                        "Inner count should decrement by 1 after delete")

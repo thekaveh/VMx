@@ -3,7 +3,7 @@
 //
 // Mirrors the C# App.axaml.cs composition order:
 //   1. Build InMemoryNoteRepository with SeedData
-//   2. Build WorkspaceVM (MessageHub + NotificationHub + MainQueueDispatcher +
+//   2. Build WorkspaceVM (MessageHub + NotificationHub + DefaultDispatcher +
 //      AppKitDialogService for native file/confirm/notify dialogs)
 //   3. Fire async construct (fire-and-forget)
 //   4. Build ThemeAdapter from workspace.theme and apply synchronously
@@ -17,28 +17,11 @@ import Combine
 import VMx
 import NotesShowcaseCore
 
-// MARK: - MainQueueDispatcher
+private final class AppTransferBox<Value>: @unchecked Sendable {
+    let value: Value
 
-/// A foreground dispatcher that marshals UI work to `DispatchQueue.main`,
-/// running synchronously when already on the main thread.
-///
-/// Replaces `ImmediateDispatcher.INSTANCE` (which runs work synchronously on
-/// whichever thread called it — correct for tests but not for a real app whose
-/// async task continuations may resume off the main thread).
-final class MainQueueDispatcher: Dispatcher {
-    static let INSTANCE = MainQueueDispatcher()
-    private init() {}
-
-    func scheduleForeground(_ work: @escaping () -> Void) {
-        if Thread.isMainThread {
-            work()
-        } else {
-            DispatchQueue.main.async { work() }
-        }
-    }
-
-    func scheduleBackground(_ work: @escaping () -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async { work() }
+    init(_ value: Value) {
+        self.value = value
     }
 }
 
@@ -52,11 +35,11 @@ final class AppState: ObservableObject {
 
     init() {
         let repo = InMemoryNoteRepository(seed: SeedData.build())
-        // Use MainQueueDispatcher so foreground-marshalled work arrives on the
+        // Use DefaultDispatcher so foreground-marshalled work arrives on the
         // main thread regardless of which async continuation fires scheduleForeground.
         let workspace = try! WorkspaceVM.builder()
             .repository(repo)
-            .dispatcher(MainQueueDispatcher.INSTANCE)
+            .dispatcher(DefaultDispatcher())
             .dialogService(AppKitDialogService())
             .build()
         self.workspace = workspace
@@ -65,8 +48,9 @@ final class AppState: ObservableObject {
         // Fire-and-forget async construct: populates notebooks, selects first
         // root, binds notes view. The UI binds to live properties as each step
         // completes — startup latency mirrors the C# async construct path.
-        Task {
-            try? await workspace.constructAsync()
+        let transferableWorkspace = AppTransferBox(workspace)
+        Task { [transferableWorkspace] in
+            try? await transferableWorkspace.value.constructAsync()
         }
     }
 }

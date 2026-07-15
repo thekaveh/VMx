@@ -109,6 +109,13 @@ jobs:
       - name: Build NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
         run: swift build
+      - name: Enforce NotesShowcase strict concurrency
+        working-directory: examples/swift/notes-showcase
+        run: >-
+          swift build -c release
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warn-concurrency
+          -Xswiftc -warnings-as-errors
       - name: Test NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
         run: swift test

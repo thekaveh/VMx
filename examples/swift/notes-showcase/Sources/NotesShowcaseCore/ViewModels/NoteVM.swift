@@ -129,20 +129,26 @@ public final class NoteVM: ComponentVMBase,
     private func _performDelete(_ item: NoteVM) async throws {
         // Defensive re-guard (mirrors the C# reference) so this stays correct if
         // ever invoked from a new call site beyond the already-gated commands.
-        guard canDelete(item) else { return }
+        let deletedTitle = await runOnForeground { [weak self, weak item] () -> String? in
+            guard let self, let item, self.canDelete(item) else { return nil }
+            return item.title
+        }
+        guard let deletedTitle else { return }
         try await _onDelete?(item)
         if let notificationHub = _notificationHub {
-            Task {
-                _ = await notificationHub.post(VMx.Notification(
-                    type: .notification,
-                    message: "Note deleted: \u{201C}\(item.title)\u{201D}"
-                ))
-            }
+            _ = await notificationHub.post(VMx.Notification(
+                type: .notification,
+                message: "Note deleted: \u{201C}\(deletedTitle)\u{201D}"
+            ))
         }
     }
 
     private func _performSave(_ item: NoteVM) async throws {
-        guard canSave(item) else { return }
+        let admitted = await runOnForeground { [weak self, weak item] in
+            guard let self, let item else { return false }
+            return self.canSave(item)
+        }
+        guard admitted else { return }
         try await _onSave?(item)
     }
 

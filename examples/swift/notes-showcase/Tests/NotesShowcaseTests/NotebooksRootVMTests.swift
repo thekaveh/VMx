@@ -188,9 +188,6 @@ final class NotebooksRootVMTests: XCTestCase {
 
         try await vm.addNotebook(parentId: nil, name: "Inbox")
 
-        // Allow the fire-and-forget notification post to flush.
-        await waitUntil { observed.contains(where: { $0.message.contains("Inbox") }) }
-
         XCTAssertTrue(
             observed.contains(where: { $0.message.contains("Notebook added") && $0.message.contains("Inbox") }),
             "Expected 'Notebook added: \"Inbox\"' notification; got: \(observed.map(\.message))"

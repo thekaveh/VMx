@@ -54,3 +54,12 @@ tree messaging contract.
 
 Use the parity matrix for the exact row-by-row feature coverage, then drill into
 the flavor README you care about for project layout and run commands.
+
+## 8.3.5. Swift Foreground Contract
+
+The Swift flagship uses VMx's `DefaultDispatcher` in production. Persistence
+and notification awaits may resume on any executor, but observable collection,
+selection, form, and command-state mutations complete through an awaited
+foreground-dispatch bridge. Its CI build enables complete strict-concurrency
+checking and promotes every concurrency warning to an error for both the VMx
+package and the full SwiftUI flagship.

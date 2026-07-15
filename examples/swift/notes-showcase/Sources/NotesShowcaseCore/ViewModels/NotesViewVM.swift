@@ -59,17 +59,8 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
 
     /// Handle for the current in-flight `bindTo` fetch.
     /// Cancelled by a superseding `bindTo` call or by `_onDispose`.
-    private var _activeFetchTask: Task<Void, Never>?
-
-    /// Handle for the most recent in-flight fire-and-forget delete (`deleteNote`).
-    ///
-    /// Retained so a caller can `await` the delete to completion — persistence
-    /// plus the inline `_inner` removal — rather than polling `inner` while that
-    /// removal mutates the backing array in place on another executor (a Swift
-    /// `Array` concurrent read/mutate is undefined behaviour). The production UI
-    /// keeps using the fire-and-forget `deleteCommand.execute()` path and simply
-    /// ignores this handle; deterministic tests await it. Cancelled by `_onDispose`.
-    internal private(set) var pendingDeleteTask: Task<Void, Never>?
+    private var _activeFetchTask: Task<[NoteModel]?, Never>?
+    private var _fetchGeneration: UInt64 = 0
 
     private var _pagedChangedCancellable: AnyCancellable?
     private var _searchCancellable: AnyCancellable?
@@ -311,23 +302,31 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     /// inline, so `await bindTo(notebookId:)` returns only after `replaceItems`
     /// has finished — same deterministic guarantee as C#'s `ImmediateScheduler`.
     public func bindTo(notebookId: String) async {
-        _activeFetchTask?.cancel()
-        let task = Task { [weak self] in
-            guard let self else { return }
+        let repo = _repo
+        let task = Task { () -> [NoteModel]? in
             do {
-                let notes = try await self._repo.loadNotes(notebookId: notebookId)
-                guard !Task.isCancelled else { return }
-                self.dispatcher.scheduleForeground { [weak self] in
-                    guard let self else { return }
-                    self.boundNotebookId = notebookId
-                    self.replaceItems(notes)
-                }
+                let notes = try await repo.loadNotes(notebookId: notebookId)
+                return Task.isCancelled ? nil : notes
             } catch {
-                // CancellationError and persistence errors are swallowed.
+                return nil
             }
         }
-        _activeFetchTask = task
-        await task.value
+        let generation = await runOnForeground { [weak self] in
+            guard let self else { return UInt64.max }
+            self._activeFetchTask?.cancel()
+            self._fetchGeneration &+= 1
+            self._activeFetchTask = task
+            return self._fetchGeneration
+        }
+        guard let notes = await task.value else { return }
+        await runOnForeground { [weak self] in
+            guard let self,
+                  self.status != .disposed,
+                  self._fetchGeneration == generation,
+                  !task.isCancelled else { return }
+            self.boundNotebookId = notebookId
+            self.replaceItems(notes)
+        }
     }
 
     /// Refreshes the list row for `note` after an external update (save):
@@ -369,7 +368,11 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
             })
             .onSave({ [weak self] vm in
                 guard let self else { return }
-                try await self._repo.saveNote(vm.model)
+                let model = await self.runOnForeground { [weak vm] in
+                    vm?.model
+                }
+                guard let model else { return }
+                try await self._repo.saveNote(model)
             })
 
         if let dialogService = _dialogService {
@@ -419,27 +422,25 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     /// Persists deletion, then removes the note from `inner` on the foreground
     /// dispatcher. The async command awaits this operation and surfaces errors.
     private func deleteNote(_ vm: NoteVM) async throws {
-        let operation = Task { [weak self, weak vm] in
+        let repo = _repo
+        let noteID = await runOnForeground { [weak vm] in vm?.noteId }
+        guard let noteID else { return }
+        try await repo.deleteNote(id: noteID)
+        await runOnForeground { [weak self, weak vm] in
             guard let self, let vm else { return }
-            try await self._repo.deleteNote(id: vm.noteId)
-            self.dispatcher.scheduleForeground { [weak self, weak vm] in
-                guard let self, let vm else { return }
-                for i in 0..<self._inner.count {
-                    if self._inner.at(i) === vm {
-                        self._inner.removeAt(i)
-                        if self._current === vm {
-                            self._current = nil
-                            self._notifyPropertyChanged("current")
-                        }
-                        self.recomputeFiltered()
-                        vm.dispose()
-                        break
+            for i in 0..<self._inner.count {
+                if self._inner.at(i) === vm {
+                    self._inner.removeAt(i)
+                    if self._current === vm {
+                        self._current = nil
+                        self._notifyPropertyChanged("current")
                     }
+                    self.recomputeFiltered()
+                    vm.dispose()
+                    break
                 }
             }
         }
-        pendingDeleteTask = Task { try? await operation.value }
-        try await operation.value
     }
 
     /// Recomputes `filteredItems` by blending `showStarredOnly` + custom `filter`
@@ -487,8 +488,6 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     public override func _onDispose() {
         _activeFetchTask?.cancel()
         _activeFetchTask = nil
-        pendingDeleteTask?.cancel()
-        pendingDeleteTask = nil
         _pagedChangedCancellable?.cancel()
         _pagedChangedCancellable = nil
         _searchCancellable?.cancel()
