@@ -21,6 +21,7 @@ src/async_resource_vm.rs
 src/async_value.rs
 src/fixtures/lifecycle-transitions.json
 src/forms.rs
+src/forwarding.rs
 src/lib.rs
 src/specialized_vms.rs
 src/token_paging.rs
