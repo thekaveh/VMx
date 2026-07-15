@@ -547,10 +547,7 @@ impl EditorModeVm {
     fn new(hub: MessageHub) -> Self {
         Self {
             core: ComponentVm::with_model("editor-mode", (), hub, NullDispatcher::new()),
-            discriminator: DiscriminatorVm::new(
-                "edit".to_string(),
-                ["edit".to_string(), "preview".to_string()],
-            ),
+            discriminator: DiscriminatorVm::new("edit".to_string()),
         }
     }
 
@@ -558,19 +555,19 @@ impl EditorModeVm {
         self.discriminator.active_key()
     }
 
-    pub fn show_edit(&self) -> VmxResult<()> {
-        self.discriminator.set_active_key("edit".to_string())
+    pub fn show_edit(&self) {
+        self.discriminator.set_active_key("edit".to_string());
     }
 
-    pub fn show_preview(&self) -> VmxResult<()> {
-        self.discriminator.set_active_key("preview".to_string())
+    pub fn show_preview(&self) {
+        self.discriminator.set_active_key("preview".to_string());
     }
 
-    pub fn toggle(&self) -> VmxResult<()> {
+    pub fn toggle(&self) {
         if self.mode() == "edit" {
-            self.show_preview()
+            self.show_preview();
         } else {
-            self.show_edit()
+            self.show_edit();
         }
     }
 }
