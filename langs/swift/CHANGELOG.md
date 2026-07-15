@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `MessageHub` now invokes subscriber and completion callbacks outside its state
   condition. Ordinary foreign producers still wait for calling-thread delivery,
   while nested cross-hub sends enqueue to avoid opposing-callback deadlocks.
+- `NotificationHub.pending` now registers subscriber state under its lock but
+  attaches downstream afterward, so `CurrentValueSubject` initial replay cannot
+  run user code while holding the hub lock.
 
 ## [3.22.0] — 2026-07-14
 

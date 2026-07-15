@@ -324,12 +324,18 @@ public final class NotificationHub: NotificationHubProtocol, @unchecked Sendable
             subject: subject,
             startSequence: pendingSequence
         )
+        lock.unlock()
+
+        // CurrentValueSubject synchronously replays its current value from
+        // receive(subscriber:). Attach only after the record is registered and
+        // the hub lock is released so initial subscriber code cannot form an
+        // opposing-hub lock cycle. Any mutation in this gap updates or finishes
+        // the registered subject before its downstream attaches.
         subject
             .handleEvents(receiveCancel: { [weak self] in
                 self?.detachPendingSubscriber(id)
             })
             .receive(subscriber: subscriber)
-        lock.unlock()
     }
 
     private func detachPendingSubscriber(_ id: UUID) {

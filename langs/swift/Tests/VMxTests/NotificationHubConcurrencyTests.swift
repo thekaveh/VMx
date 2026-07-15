@@ -99,7 +99,52 @@ private final class FailureCounter {
     }
 }
 
+private final class CancellableStore {
+    private let lock = NSLock()
+    private var values: [AnyCancellable] = []
+
+    func insert(_ value: AnyCancellable) {
+        lock.withLock { values.append(value) }
+    }
+}
+
 final class NotificationHubConcurrencyTests: XCTestCase {
+    func testOpposingInitialSubscriptionsDoNotDeadlock() async {
+        let hubA = NotificationHub()
+        let hubB = NotificationHub()
+        let barrier = TwoPartyBarrier()
+        let subscriptionsReturned = expectation(description: "both subscriptions returned")
+        subscriptionsReturned.expectedFulfillmentCount = 2
+        let barrierFailures = FailureCounter()
+        let cancellables = CancellableStore()
+
+        DispatchQueue.global().async {
+            let outer = hubA.pending.sink { _ in
+                if !barrier.rendezvous() {
+                    barrierFailures.increment()
+                    return
+                }
+                cancellables.insert(hubB.pending.sink { _ in })
+            }
+            cancellables.insert(outer)
+            subscriptionsReturned.fulfill()
+        }
+        DispatchQueue.global().async {
+            let outer = hubB.pending.sink { _ in
+                if !barrier.rendezvous() {
+                    barrierFailures.increment()
+                    return
+                }
+                cancellables.insert(hubA.pending.sink { _ in })
+            }
+            cancellables.insert(outer)
+            subscriptionsReturned.fulfill()
+        }
+
+        await fulfillment(of: [subscriptionsReturned], timeout: 2)
+        XCTAssertEqual(barrierFailures.snapshot(), 0)
+    }
+
     func testPostThenResolvePublishesInMutationOrder() async {
         let gate = OneShotDrainGate()
         let counter = EnqueueCounter()

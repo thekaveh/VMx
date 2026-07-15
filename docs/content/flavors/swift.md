@@ -10,6 +10,8 @@
 - Naming idiom: camelCase
 - Hub delivery: callbacks run outside the state condition; ordinary concurrent
   producers remain synchronous and nested cross-hub sends cannot deadlock
+- Notification replay: pending subscribers are registered atomically, then
+  attached outside the hub lock before `CurrentValueSubject` replays state
 - Modal completion: `BasicModalVM` atomically registers waiters and accepts only
   the first concurrent dismissal or disposal result
 
