@@ -4,19 +4,19 @@
 
 import Foundation
 
-private enum BasicModalState<Result> {
+private enum BasicModalState<Result: Sendable> {
     case pending([CheckedContinuation<Result, Never>])
     case dismissed(Result)
 }
 
-private enum ModalWaitDisposition<Result> {
+private enum ModalWaitDisposition<Result: Sendable> {
     case registered
     case resolved(Result)
 }
 
 /// Result-bearing VM-backed modal contract.
 public protocol ModalVM: AnyObject {
-    associatedtype Result
+    associatedtype Result: Sendable
 
     /// Result used when the modal is cancelled or disposed.
     var cancellationResult: Result { get }
@@ -38,7 +38,7 @@ public protocol ModalVM: AnyObject {
 }
 
 /// Small base implementation for result-bearing VM-backed modals.
-public final class BasicModalVM<Result>: ModalVM {
+public final class BasicModalVM<Result: Sendable>: ModalVM {
     public let cancellationResult: Result
     private let lock = NSLock()
     private var state: BasicModalState<Result> = .pending([])

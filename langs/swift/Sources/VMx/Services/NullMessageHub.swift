@@ -6,7 +6,7 @@
 import Foundation
 import Combine
 
-public final class NullMessageHub: TransactionalMessageHubProtocol {
+public final class NullMessageHub: TransactionalMessageHubProtocol, @unchecked Sendable {
     /// Shared singleton instance. The hub is stateless.
     public static let INSTANCE = NullMessageHub()
 

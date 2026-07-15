@@ -275,11 +275,12 @@ public final class FormVM<Model> {
         approveCommand = RelayCommand(
             task: { [weak self] in
                 guard let self else { return }
-                Task {
+                let form = UncheckedSendableBox(self)
+                Task { [form] in
                     do {
-                        try await self.approveAsync()
+                        try await form.value.approveAsync()
                     } catch {
-                        self.emitApproveError(error)
+                        form.value.emitApproveError(error)
                     }
                 }
             },

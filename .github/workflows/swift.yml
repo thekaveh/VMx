@@ -56,6 +56,13 @@ jobs:
         run: python3 tools/check-swift-package-sync.py
       - name: Build root package
         run: swift build -c release
+      - name: Enforce strict concurrency boundaries
+        if: matrix.xcode == 'default'
+        run: >-
+          swift build -c release
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warn-concurrency
+          -Xswiftc -warnings-as-errors
       - name: Test root package
         run: swift test --parallel
       - name: Build nested package

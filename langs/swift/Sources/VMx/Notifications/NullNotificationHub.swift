@@ -11,7 +11,7 @@ import Combine
 /// Conforms to ADR-0017 (null-object pattern). The singleton `INSTANCE` is
 /// provided for convenience; `public init()` matches `NullLocalizer` precedent
 /// so it is injectable wherever a `NotificationHubProtocol` is required.
-public final class NullNotificationHub: NotificationHubProtocol {
+public final class NullNotificationHub: NotificationHubProtocol, @unchecked Sendable {
     /// Shared singleton instance. The hub is stateless.
     public static let INSTANCE = NullNotificationHub()
 

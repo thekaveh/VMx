@@ -44,11 +44,12 @@ public final class ConfirmationDecoratorCommand: Command {
     /// Fire-and-forget. Errors from the confirm gate are routed to `errors`
     /// rather than propagated to the synchronous caller (CMDD-010).
     public func execute() {
-        Task {
+        let command = UncheckedSendableBox(self)
+        Task { [command] in
             do {
-                try await self.executeAsync()
+                try await command.value.executeAsync()
             } catch {
-                self.errorsSubject.send(error)
+                command.value.errorsSubject.send(error)
             }
         }
     }

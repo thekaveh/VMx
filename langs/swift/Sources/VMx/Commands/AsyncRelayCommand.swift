@@ -118,8 +118,9 @@ public final class AsyncRelayCommand: AsyncCommand {
 
         // Wrap the body in a Task so `cancel()` can cancel it independently of
         // the calling Task's lifetime.
-        let bodyTask = Task { [body] in
-            try await body?()
+        let transferableBody = UncheckedSendableBox(body)
+        let bodyTask = Task { [transferableBody] in
+            try await transferableBody.value?()
         }
         let cancelDuringAdmission = stateQueue.sync { () -> Bool in
             cancelHandle = { bodyTask.cancel() }
@@ -167,15 +168,18 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// instead of being swallowed or becoming an unobserved faulted Task.
     public func execute() {
         guard canExecute() else { return }
-        Task {
+        let command = UncheckedSendableBox(self)
+        Task { [command] in
             do {
-                try await self.executeAsync()
+                try await command.value.executeAsync()
             } catch is CancellationError {
                 return
             } catch {
-                let isDisposed = self.stateQueue.sync { self.disposed }
+                let isDisposed = command.value.stateQueue.sync {
+                    command.value.disposed
+                }
                 guard !isDisposed else { return }
-                self.errorsSubject.send(error)
+                command.value.errorsSubject.send(error)
             }
         }
     }

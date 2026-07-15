@@ -34,6 +34,16 @@ def test_swift_ci_uses_supported_runners_and_compiles_declared_platforms() -> No
     assert "CODE_SIGNING_ALLOWED=NO build" in workflow
 
 
+def test_swift_ci_enforces_complete_strict_concurrency() -> None:
+    workflow = _workflow("swift.yml")
+
+    assert "name: Enforce strict concurrency boundaries" in workflow
+    assert "if: matrix.xcode == 'default'" in workflow
+    assert "-Xswiftc -strict-concurrency=complete" in workflow
+    assert "-Xswiftc -warn-concurrency" in workflow
+    assert "-Xswiftc -warnings-as-errors" in workflow
+
+
 def test_swift_release_requires_same_sha_semantic_tag() -> None:
     workflow = _workflow("release.yml")
 

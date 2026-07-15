@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Swift's complete strict-concurrency diagnostics are now enforced in CI.
+  Internally spawned tasks and dispatch closures use narrow transfer boundaries,
+  immutable singleton services declare their sendability, and modal results are
+  constrained to `Sendable` before crossing an async continuation.
 - `BasicModalVM` now atomically registers waiters and claims its first dismissal,
   preventing concurrent dismissal/disposal from losing or resuming a waiter
   more than once.
