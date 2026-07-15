@@ -846,3 +846,28 @@ fn reset_wins_racing_model_mutation() {
     assert!(approve_command.can_execute());
     assert_eq!(approve_command.can_execute_changed().history().len(), 2);
 }
+
+#[test]
+fn dropping_form_releases_cached_command_captures() {
+    let marker = Arc::new(());
+    let released = Arc::downgrade(&marker);
+    let form = FormVm::with_options(
+        "form",
+        1,
+        move |_| {
+            let _keep_alive = &marker;
+            Ok(())
+        },
+        false,
+        MessageHub::new(),
+    );
+    drop(form.approve_command());
+    drop(form.deny_command());
+
+    drop(form);
+
+    assert!(
+        released.upgrade().is_none(),
+        "cached commands must not strongly retain their form"
+    );
+}

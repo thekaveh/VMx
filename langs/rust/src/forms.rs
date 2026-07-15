@@ -262,7 +262,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     pub fn approve_command(&self) -> RelayCommand {
         self.approve_command
             .get_or_init(|| {
-                let form = self.clone();
+                let form = self.command_target();
                 RelayCommandBuilder::default()
                     .action(move || {
                         if let Err(error) = form.approve() {
@@ -273,7 +273,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                         }
                     })
                     .can_execute({
-                        let form = self.clone();
+                        let form = self.command_target();
                         move || form.can_approve()
                     })
                     .trigger(self.approve_can_execute_changed.clone())
@@ -285,9 +285,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     pub fn deny_command(&self) -> RelayCommand {
         self.deny_command
             .get_or_init(|| {
-                let form = self.clone();
+                let form = self.command_target();
                 RelayCommand::new(move || form.revert()).with_can_execute({
-                    let form = self.clone();
+                    let form = self.command_target();
                     move || !*lock(&form.disposed)
                 })
             })
@@ -340,6 +340,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         lock(&self.field_validators).clear();
         lock(&self.model_validators).clear();
         let _ = self.component.dispose();
+    }
+
+    fn command_target(&self) -> Self {
+        let mut target = self.clone();
+        target.approve_command = Arc::new(OnceLock::new());
+        target.deny_command = Arc::new(OnceLock::new());
+        target
     }
 
     fn validate(&self) {

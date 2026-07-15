@@ -329,3 +329,20 @@ fn async_resource_dispose_cancels_and_late_completion_is_inert() {
     vm.cancel();
     assert_eq!(changes.load(Ordering::SeqCst), notifications);
 }
+
+#[test]
+fn dropping_async_resource_releases_command_captures() {
+    let marker = Arc::new(());
+    let released = Arc::downgrade(&marker);
+    let vm = AsyncResourceVm::new("resource", move |_| {
+        let _keep_alive = &marker;
+        Ok(1)
+    });
+
+    drop(vm);
+
+    assert!(
+        released.upgrade().is_none(),
+        "cached commands must not strongly retain their owner"
+    );
+}

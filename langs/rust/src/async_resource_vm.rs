@@ -171,24 +171,44 @@ where
             commands: Mutex::new(None),
         });
 
-        let load_inner = inner.clone();
-        let load_predicate = inner.clone();
+        let load_inner = Arc::downgrade(&inner);
+        let load_predicate = Arc::downgrade(&inner);
         let load_command = AsyncRelayCommand::new(move |token| {
-            run_intent(load_inner.clone(), StartIntent::Load, token)
+            load_inner
+                .upgrade()
+                .map_or(Ok(()), |inner| run_intent(inner, StartIntent::Load, token))
         })
-        .with_can_execute(move || can_load(&load_predicate));
+        .with_can_execute(move || {
+            load_predicate
+                .upgrade()
+                .is_some_and(|inner| can_load(&inner))
+        });
 
-        let reload_inner = inner.clone();
-        let reload_predicate = inner.clone();
+        let reload_inner = Arc::downgrade(&inner);
+        let reload_predicate = Arc::downgrade(&inner);
         let reload_command = AsyncRelayCommand::new(move |token| {
-            run_intent(reload_inner.clone(), StartIntent::Reload, token)
+            reload_inner.upgrade().map_or(Ok(()), |inner| {
+                run_intent(inner, StartIntent::Reload, token)
+            })
         })
-        .with_can_execute(move || can_reload(&reload_predicate));
+        .with_can_execute(move || {
+            reload_predicate
+                .upgrade()
+                .is_some_and(|inner| can_reload(&inner))
+        });
 
-        let cancel_inner = inner.clone();
-        let cancel_predicate = inner.clone();
-        let cancel_command = RelayCommand::new(move || cancel_current(&cancel_inner))
-            .with_can_execute(move || can_cancel(&cancel_predicate));
+        let cancel_inner = Arc::downgrade(&inner);
+        let cancel_predicate = Arc::downgrade(&inner);
+        let cancel_command = RelayCommand::new(move || {
+            if let Some(inner) = cancel_inner.upgrade() {
+                cancel_current(&inner);
+            }
+        })
+        .with_can_execute(move || {
+            cancel_predicate
+                .upgrade()
+                .is_some_and(|inner| can_cancel(&inner))
+        });
 
         *lock(&inner.commands) = Some(Commands {
             load: load_command.clone(),

@@ -29,6 +29,9 @@ Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
 - Hierarchical parent links now hold weak state, so dropping an unreachable
   materialized tree releases both parents and descendants without making
   hierarchy disposal own, detach, or dispose child lifetimes.
+- Cached form and async-resource commands no longer form owner-retention
+  cycles; dropping the VM and its external command handles releases captured
+  persisters, loaders, validators, and cleanup resources.
 
 ## [0.24.0] — 2026-07-14
 
