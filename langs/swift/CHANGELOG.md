@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Token pagination now runs page comparison and child construction outside its
+  state queue, then rejects commits and later notifications when either callback
+  disposes the pager reentrantly.
+
 - Common VM options factories now retain each independently supplied service
   through the builder's combined services validation (BLD-006, ADR-0112).
 - Swift's complete strict-concurrency diagnostics are now enforced in CI.

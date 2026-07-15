@@ -83,32 +83,36 @@ export class TokenPagedComposition<TVM, TToken> {
   }
 
   async #loadMore(): Promise<void> {
+    if (this.#disposed) return;
     const generation = ++this.#operationGeneration;
     const page = await this.#fetchNext(this.#currentToken);
-    if (this.#disposed || generation !== this.#operationGeneration) return;
-    this.#items.push(...page.items);
+    if (!this.#isOperationCurrent(generation)) return;
     this.#constructIfNeeded(page.items);
+    if (!this.#isOperationCurrent(generation)) return;
+    this.#items.push(...page.items);
     this.#currentToken = page.nextToken;
     this.#loadedOnce = true;
     this.#notifyReset();
   }
 
   async #refresh(): Promise<void> {
+    if (this.#disposed) return;
     const generation = ++this.#operationGeneration;
     const page = await this.#fetchNext(null);
-    if (this.#disposed || generation !== this.#operationGeneration) return;
+    if (!this.#isOperationCurrent(generation)) return;
     const head = this.#items.slice(0, page.items.length);
-    if (this.#pagesEqual(page.items, head)) {
-      this.#currentToken = page.nextToken;
-      this.#loadedOnce = true;
-      this.#notifyProperties();
-      return;
-    }
-    this.#items = [...page.items];
-    this.#constructIfNeeded(page.items);
+    const pagesMatch = this.#pagesEqual(page.items, head);
+    if (!pagesMatch) this.#constructIfNeeded(page.items);
+    if (!this.#isOperationCurrent(generation)) return;
+    if (!pagesMatch) this.#items = [...page.items];
     this.#currentToken = page.nextToken;
     this.#loadedOnce = true;
-    this.#notifyReset();
+    if (pagesMatch) this.#notifyProperties();
+    else this.#notifyReset();
+  }
+
+  #isOperationCurrent(generation: number): boolean {
+    return !this.#disposed && generation === this.#operationGeneration;
   }
 
   #constructIfNeeded(items: readonly TVM[]): void {
@@ -121,14 +125,17 @@ export class TokenPagedComposition<TVM, TToken> {
   }
 
   #notifyReset(): void {
+    if (this.#disposed) return;
     this.#collectionChanged.next(makeCollectionChangedEvent("reset"));
     this.#notifyProperties();
   }
 
   #notifyProperties(): void {
     for (const name of ["items", "currentToken", "hasMore"]) {
+      if (this.#disposed) return;
       this.#propertyChanged.next(name);
     }
+    if (this.#disposed) return;
     this.#commandChanged.next();
   }
 

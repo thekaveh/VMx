@@ -67,6 +67,32 @@ describe("COL-025", () => {
     expect(collectionEvents).toEqual([]);
     expect(propertyEvents).toEqual([]);
   });
+
+  it("auto construction may dispose reentrantly without committing the page", async () => {
+    let sut!: TokenPagedComposition<ComponentVM, string>;
+    const child = ComponentVM.builder()
+      .name("child")
+      .withNullServices()
+      .onConstruct(() => { sut.dispose(); })
+      .build();
+    sut = new TokenPagedComposition<ComponentVM, string>(
+      () => Promise.resolve({ items: [child], nextToken: "next" }),
+      { autoConstructOnAdd: true },
+    );
+    const collectionEvents: unknown[] = [];
+    const propertyEvents: string[] = [];
+    sut.collectionChanged.subscribe((event) => collectionEvents.push(event));
+    sut.propertyChanged.subscribe((name) => propertyEvents.push(name));
+
+    await expect(sut.loadMoreCommand.executeAsync()).resolves.toBeUndefined();
+
+    expect(child.isConstructed).toBe(true);
+    expect(sut.items).toEqual([]);
+    expect(sut.currentToken).toBeNull();
+    expect(sut.hasMore).toBe(true);
+    expect(collectionEvents).toEqual([]);
+    expect(propertyEvents).toEqual([]);
+  });
 });
 
 describe("COL-026", () => {
@@ -142,6 +168,25 @@ describe("COL-027", () => {
     expect(sut.hasMore).toBe(true);
     expect(collectionEvents).toEqual([]);
     expect(propertyEvents).toEqual([]);
+  });
+
+  it("a page comparer may dispose reentrantly without committing refresh state", async () => {
+    let sut!: TokenPagedComposition<number, string>;
+    sut = new TokenPagedComposition<number, string>(
+      () => Promise.resolve({ items: [1], nextToken: "next" }),
+      {
+        pagesEqual: (left, right) => {
+          sut.dispose();
+          return left.length === right.length;
+        },
+      },
+    );
+
+    await expect(sut.refreshCommand.executeAsync()).resolves.toBeUndefined();
+
+    expect(sut.items).toEqual([]);
+    expect(sut.currentToken).toBeNull();
+    expect(sut.hasMore).toBe(true);
   });
 });
 

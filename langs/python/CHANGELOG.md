@@ -19,6 +19,9 @@ All notable changes to the Python flavor are documented here. The format is base
 - Message-hub disposal now serializes stream completion behind an active
   delivery, including reentrant disposal, so every current subscriber observes
   the in-flight message before its terminal notification.
+- Token pagination now treats reentrant disposal during page comparison,
+  child construction, or reset notification as terminal without committing
+  losing state or publishing through disposed subjects.
 
 ## [3.22.0] — 2026-07-14
 

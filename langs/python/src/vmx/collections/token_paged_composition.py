@@ -85,35 +85,44 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         return self._property_changed.pipe(ops.as_observable())
 
     async def _load_more(self) -> None:
+        if self._disposed:
+            return
         self._operation_generation += 1
         generation = self._operation_generation
         page, next_token = await self._fetch_next(self._current_token)
         if self._disposed or generation != self._operation_generation:
             return
         additions = list(page)
-        self._items.extend(additions)
         self._construct_if_needed(additions)
+        if self._disposed or generation != self._operation_generation:
+            return
+        self._items.extend(additions)
         self._current_token = next_token
         self._loaded_once = True
         self._notify_reset()
 
     async def _refresh(self) -> None:
+        if self._disposed:
+            return
         self._operation_generation += 1
         generation = self._operation_generation
         page, next_token = await self._fetch_next(None)
         if self._disposed or generation != self._operation_generation:
             return
         fresh = list(page)
-        if self._pages_equal(fresh, self._items[: len(fresh)]):
-            self._current_token = next_token
-            self._loaded_once = True
-            self._notify_properties()
+        pages_match = self._pages_equal(fresh, self._items[: len(fresh)])
+        if not pages_match:
+            self._construct_if_needed(fresh)
+        if self._disposed or generation != self._operation_generation:
             return
-        self._items = fresh
-        self._construct_if_needed(fresh)
+        if not pages_match:
+            self._items = fresh
         self._current_token = next_token
         self._loaded_once = True
-        self._notify_reset()
+        if pages_match:
+            self._notify_properties()
+        else:
+            self._notify_reset()
 
     def _construct_if_needed(self, items: Sequence[TVM]) -> None:
         if not self._auto_construct_on_add:
@@ -123,12 +132,18 @@ class TokenPagedComposition(Generic[TVM, TToken]):
                 item.construct()
 
     def _notify_reset(self) -> None:
+        if self._disposed:
+            return
         self._collection_changed.on_next(CollectionChangedEvent(action="reset"))
         self._notify_properties()
 
     def _notify_properties(self) -> None:
         for name in ("items", "current_token", "has_more"):
+            if self._disposed:
+                return
             self._property_changed.on_next(name)
+        if self._disposed:
+            return
         self._command_changed.on_next(None)
 
     def dispose(self) -> None:

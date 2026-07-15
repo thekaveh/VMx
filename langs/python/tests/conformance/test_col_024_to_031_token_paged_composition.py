@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 
 import pytest
 
@@ -67,6 +68,36 @@ async def test_load_more_does_not_mutate_or_notify_when_disposed_during_fetch() 
     page.set_result(([1, 2], "next"))
     await load
 
+    assert sut.items == []
+    assert sut.current_token is None
+    assert sut.has_more is True
+    assert collection_events == []
+    assert property_events == []
+
+
+async def test_auto_construct_reentrant_dispose_does_not_commit_or_fault() -> None:
+    sut: TokenPagedComposition[ComponentVM, str] | None = None
+
+    def dispose_pager() -> None:
+        assert sut is not None
+        sut.dispose()
+
+    child = (
+        ComponentVM.builder().name("child").with_null_services().on_construct(dispose_pager).build()
+    )
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return ([child], "next")
+
+    sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+    collection_events: list[object] = []
+    property_events: list[str] = []
+    sut.on_collection_changed.subscribe(collection_events.append)
+    sut.on_property_changed.subscribe(property_events.append)
+
+    await sut.load_more_command.execute_async()
+
+    assert child.is_constructed is True
     assert sut.items == []
     assert sut.current_token is None
     assert sut.has_more is True
@@ -160,6 +191,26 @@ async def test_refresh_does_not_mutate_or_notify_when_disposed_during_fetch() ->
     assert property_events == []
 
 
+async def test_refresh_comparer_reentrant_dispose_does_not_commit_or_fault() -> None:
+    sut: TokenPagedComposition[int, str] | None = None
+
+    def pages_equal(left: Sequence[int], right: Sequence[int]) -> bool:
+        assert sut is not None
+        sut.dispose()
+        return left == right
+
+    async def fetch(token: str | None) -> tuple[list[int], str | None]:
+        return ([1], "next")
+
+    sut = TokenPagedComposition(fetch_next=fetch, pages_equal=pages_equal)
+
+    await sut.refresh_command.execute_async()
+
+    assert sut.items == []
+    assert sut.current_token is None
+    assert sut.has_more is True
+
+
 @pytest.mark.conformance("COL-028")
 async def test_COL_028_refresh_dedup_guard_suppresses_redundant_mutation() -> None:
     async def fetch(token: str | None) -> tuple[list[int], str | None]:
@@ -188,6 +239,21 @@ async def test_COL_029_token_paged_collection_changed_events_use_reset() -> None
     await sut.load_more_command.execute_async()
 
     assert actions == ["reset"]
+
+
+async def test_collection_observer_reentrant_dispose_stops_later_notifications() -> None:
+    async def fetch(token: str | None) -> tuple[list[int], str | None]:
+        return ([1], None)
+
+    sut = TokenPagedComposition(fetch_next=fetch)
+    property_events: list[str] = []
+    sut.on_collection_changed.subscribe(lambda _: sut.dispose())
+    sut.on_property_changed.subscribe(property_events.append)
+
+    await sut.load_more_command.execute_async()
+
+    assert sut.items == [1]
+    assert property_events == []
 
 
 @pytest.mark.conformance("COL-030")

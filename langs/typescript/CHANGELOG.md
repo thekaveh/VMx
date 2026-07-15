@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Token pagination now treats reentrant disposal during page comparison,
+  child construction, or reset notification as terminal without committing
+  losing state or publishing later notifications.
+
 - `ServicedObservableCollection.splice` now distinguishes an omitted
   `deleteCount` from explicit `undefined`, matching native array removal and
   insertion semantics (ADR-0115).
