@@ -12,7 +12,11 @@ def test_expected_package_paths_are_accepted() -> None:
 
 
 def test_extracted_runtime_modules_are_allowlisted() -> None:
-    assert {"src/async_value.rs", "src/forms.rs"} <= checker.REQUIRED_PATHS
+    assert {
+        "src/async_value.rs",
+        "src/forms.rs",
+        "src/specialized_vms.rs",
+    } <= checker.REQUIRED_PATHS
 
 
 def test_license_text_is_allowlisted() -> None:
