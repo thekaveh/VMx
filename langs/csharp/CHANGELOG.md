@@ -6,6 +6,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Nested sends from one active message-hub callback to another hub now enqueue
+  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
+  while ordinary producers retain synchronous calling-thread delivery.
+
 ## [3.22.0] — 2026-07-14
 
 Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.

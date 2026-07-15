@@ -6,6 +6,7 @@
 //! trait-based contracts, and shared lifecycle/message cores.
 
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
@@ -35,6 +36,29 @@ pub const MIN_SPEC_VERSION: &str = "3.22.0";
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static MESSAGE_HUB_DELIVERY_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct MessageHubDeliveryGuard;
+
+impl MessageHubDeliveryGuard {
+    fn enter() -> Self {
+        MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+}
+
+impl Drop for MessageHubDeliveryGuard {
+    fn drop(&mut self) {
+        MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+}
+
+fn is_delivering_message_hub() -> bool {
+    MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.get() > 0)
+}
 
 fn next_id() -> usize {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
@@ -319,6 +343,9 @@ impl MessageHub {
         while inner.batch_owner.is_some_and(|owner| owner != current)
             || inner.draining_owner.is_some_and(|owner| owner != current)
         {
+            if is_delivering_message_hub() {
+                break;
+            }
             inner = wait(&self.inner.ready, inner);
         }
         if inner.disposed {
@@ -326,7 +353,7 @@ impl MessageHub {
         }
         inner.history.push(message.clone());
         inner.pending.push_back(message);
-        if inner.batch_owner == Some(current) || inner.draining_owner == Some(current) {
+        if inner.batch_owner.is_some() || inner.draining_owner.is_some() {
             return;
         }
         inner.draining_owner = Some(current);
@@ -414,6 +441,7 @@ impl MessageHub {
             #[cfg(debug_assertions)]
             message_types.insert(message.type_name());
             for subscriber in subscribers {
+                let _delivery = MessageHubDeliveryGuard::enter();
                 let _ = catch_unwind(AssertUnwindSafe(|| subscriber(&message)));
             }
 

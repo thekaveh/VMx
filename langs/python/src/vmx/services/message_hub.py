@@ -6,7 +6,7 @@ import logging
 from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from threading import Condition, RLock, get_ident
+from threading import Condition, RLock, get_ident, local
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 import reactivex as rx
@@ -16,6 +16,26 @@ from reactivex.subject import Subject
 from vmx.messages.protocols import Message
 
 _logger = logging.getLogger(__name__)
+
+
+class _DeliveryContext(local):
+    depth: int
+
+    def __init__(self) -> None:
+        self.depth = 0
+
+
+_delivery_context = _DeliveryContext()
+
+
+@contextmanager
+def _delivery_scope() -> Iterator[None]:
+    _delivery_context.depth += 1
+    try:
+        yield
+    finally:
+        _delivery_context.depth -= 1
+
 
 TMessage = TypeVar("TMessage", bound=Message, contravariant=True)
 
@@ -105,11 +125,13 @@ class MessageHub(Generic[_THubMessage]):
                 self._batch_owner not in (None, caller)
                 or self._drainer_thread not in (None, caller)
             ) and not self._disposed:
+                if _delivery_context.depth > 0:
+                    break
                 self._gate.wait()
             if self._disposed:
                 return
             self._pending.append(message)
-            if self._batch_owner == caller:
+            if self._batch_owner is not None:
                 return
             if self._drainer_thread is None:
                 self._drainer_thread = caller
@@ -174,7 +196,8 @@ class MessageHub(Generic[_THubMessage]):
             if __debug__:
                 message_types.add(type(message).__name__)
             try:
-                self._subject.on_next(message)
+                with _delivery_scope():
+                    self._subject.on_next(message)
             except BaseException:
                 with self._gate:
                     self._pending.clear()

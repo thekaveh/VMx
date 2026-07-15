@@ -15,6 +15,8 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #if DEBUG
     private const int DevelopmentDrainLimit = 10_000;
 #endif
+    [ThreadStatic]
+    private static int s_deliveryDepth;
     private readonly object _gate = new();
     private readonly Queue<IMessage> _pending = new();
     private readonly Subject<IMessage> _subject = new();
@@ -44,11 +46,14 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         {
             while (((_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller) ||
                     (_drainerThreadId != 0 && _drainerThreadId != caller)) && !_disposed)
+            {
+                if (s_deliveryDepth > 0) break;
                 Monitor.Wait(_gate);
+            }
             if (_disposed) return;
 
             _pending.Enqueue(message);
-            if (_batchOwnerThreadId == caller) return;
+            if (_batchOwnerThreadId != 0) return;
             if (_drainerThreadId == 0)
             {
                 _drainerThreadId = caller;
@@ -139,12 +144,17 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #endif
             try
             {
+                s_deliveryDepth++;
                 _subject.OnNext(message);
             }
             catch
             {
                 AbandonPending();
                 throw;
+            }
+            finally
+            {
+                s_deliveryDepth--;
             }
 #if DEBUG
             delivered++;

@@ -8,6 +8,8 @@
   `csharp-v*` release publishes it.
 - Reactive primitive: `System.Reactive`
 - Naming idiom: PascalCase
+- Hub concurrency: ordinary producers retain synchronous calling-thread
+  delivery while nested cross-hub callbacks enqueue without a wait cycle
 
 ## 7.2.2. What To Reach For
 

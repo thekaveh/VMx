@@ -35,6 +35,9 @@ Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
 - Modeled components now expose `modeled_hint()` separately from the immutable
   fixed `hint()`, so the builder's default empty fixed hint no longer masks
   model-derived text or causes CVM-004 to test the wrong property.
+- Nested sends from one active message-hub callback to another hub now enqueue
+  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
+  while ordinary producers retain synchronous calling-thread delivery.
 
 ## [0.24.0] — 2026-07-14
 

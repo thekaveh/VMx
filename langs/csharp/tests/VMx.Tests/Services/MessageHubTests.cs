@@ -165,6 +165,48 @@ public class MessageHubTests
     }
 
     [Fact]
+    public async Task Opposing_Hub_Callbacks_Do_Not_Deadlock()
+    {
+        using var left = new MessageHub();
+        using var right = new MessageHub();
+        using var callbacksEntered = new Barrier(2);
+        var innerDeliveries = 0;
+        using var leftSubscription = left.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "outer")
+            {
+                callbacksEntered.SignalAndWait();
+                right.Send(new Stub("inner"));
+            }
+            else
+            {
+                Interlocked.Increment(ref innerDeliveries);
+            }
+        });
+        using var rightSubscription = right.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "outer")
+            {
+                callbacksEntered.SignalAndWait();
+                left.Send(new Stub("inner"));
+            }
+            else
+            {
+                Interlocked.Increment(ref innerDeliveries);
+            }
+        });
+
+        var sends = Task.WhenAll(
+            Task.Run(() => left.Send(new Stub("outer"))),
+            Task.Run(() => right.Send(new Stub("outer"))));
+
+        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().BeSameAs(sends, "nested cross-hub sends must not form a wait cycle");
+        await sends;
+        innerDeliveries.Should().Be(2);
+    }
+
+    [Fact]
     public void Development_Drain_Diagnostic_Names_Message_Type()
     {
 #if DEBUG

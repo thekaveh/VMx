@@ -7,6 +7,8 @@
   may be ahead of the latest public release.
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
+- Hub concurrency: ordinary producers retain synchronous calling-thread
+  delivery while nested cross-hub callbacks enqueue without a wait cycle
 
 ## 7.3.2. What To Reach For
 

@@ -6,6 +6,7 @@ All other tests are implemented directly.
 
 from __future__ import annotations
 
+from threading import Barrier, Lock, Thread
 from typing import Any
 
 import pytest
@@ -329,3 +330,42 @@ def test_HUB_013_ordinary_send_remains_synchronous() -> None:
     hub.send(_make_msg("A"))
 
     assert delivered
+
+
+def test_opposing_hub_callbacks_do_not_deadlock() -> None:
+    left = _fresh_hub()
+    right = _fresh_hub()
+    callbacks_entered = Barrier(2)
+    inner_deliveries = 0
+    delivery_lock = Lock()
+
+    def subscribe_crossing(
+        source: MessageHub[PropertyChangedMessage[object]],
+        target: MessageHub[PropertyChangedMessage[object]],
+    ) -> None:
+        def callback(message: PropertyChangedMessage[object]) -> None:
+            nonlocal inner_deliveries
+            if message.property_name == "outer":
+                callbacks_entered.wait()
+                target.send(_make_msg("inner"))
+            else:
+                with delivery_lock:
+                    inner_deliveries += 1
+
+        source.messages.subscribe(callback)
+
+    subscribe_crossing(left, right)
+    subscribe_crossing(right, left)
+    workers = [
+        Thread(target=left.send, args=(_make_msg("outer"),), daemon=True),
+        Thread(target=right.send, args=(_make_msg("outer"),), daemon=True),
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=2)
+
+    assert not any(worker.is_alive() for worker in workers)
+    assert inner_deliveries == 2
+    left.dispose()
+    right.dispose()
