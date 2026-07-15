@@ -57,7 +57,10 @@ package-specific `csharp-notifications-vX.Y.Z` and
 versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
 operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
 Registry-backed channels are protected by environment approval, OIDC,
-public-artifact checks, and fresh-consumer verification.
+pre-publish checks of the exact locally built artifact, public-artifact checks,
+and fresh-consumer verification. The Python channel pins its isolated PEP 517
+backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
+action, then repeats the consumer check from the public registry.
 
 For the exact release and tagging procedure, use
 [CONTRIBUTING.md#4-releases-and-tagging](../../CONTRIBUTING.md#4-releases-and-tagging).

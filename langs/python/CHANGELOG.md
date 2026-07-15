@@ -8,6 +8,8 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Python releases now pin the isolated Hatchling backend and install/smoke the
+  exact local wheel before the irreversible PyPI upload.
 - Common VM options factories now retain a supplied hub or dispatcher
   independently, so builder validation identifies the actual missing service
   counterpart (BLD-006, ADR-0112).

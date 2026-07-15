@@ -346,6 +346,15 @@ jobs:
           set -euo pipefail
           uv tool run --from "twine==6.2.0" twine check dist/*
 
+      - name: Verify exact local wheel in a fresh environment
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/python-v}"
+          rm -rf .package-venv
+          uv venv --python 3.12 .package-venv
+          uv pip install --python .package-venv/bin/python dist/*.whl
+          .package-venv/bin/python langs/python/scripts/smoke_test.py "$tag_version"
+
       - name: Publish to PyPI
         # Sigstore attestations (`attestations: true`, PEP 740) ship signed
         # provenance alongside the sdist and wheel.

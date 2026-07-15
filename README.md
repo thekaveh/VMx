@@ -362,8 +362,9 @@ This README is the entry point; the documents below add focused detail.
   pipeline for `VMx` plus companion packages,
   [`langs/python/RELEASING.md`](langs/python/RELEASING.md) — PyPI release
   pipeline (`python-test` matrix gate → `pypi-python` environment approval →
-  Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740) attestations →
-  `python-verify-published` fresh-venv smoke test → `python-release-notes`
+  exact-backend build → local-wheel fresh-venv smoke →
+  Trusted-Publishing-via-OIDC PyPI upload with Sigstore (PEP 740) attestations
+  → `python-verify-published` public fresh-venv smoke → `python-release-notes`
   CHANGELOG-extracted GitHub Release),
   [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md) — npm
   publish with provenance, and
