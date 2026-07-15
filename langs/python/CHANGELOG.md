@@ -16,6 +16,9 @@ All notable changes to the Python flavor are documented here. The format is base
 - Nested sends from one active message-hub callback to another hub now enqueue
   instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
   while ordinary producers retain synchronous calling-thread delivery.
+- Message-hub disposal now serializes stream completion behind an active
+  delivery, including reentrant disposal, so every current subscriber observes
+  the in-flight message before its terminal notification.
 
 ## [3.22.0] — 2026-07-14
 

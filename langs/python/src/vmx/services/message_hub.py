@@ -82,6 +82,8 @@ class MessageHub(Generic[_THubMessage]):
         self._gate = Condition(RLock())
         self._pending: deque[Message] = deque()
         self._disposed: bool = False
+        self._subject_termination_claimed = False
+        self._subject_terminated = False
         self._drainer_thread: int | None = None
         self._batch_owner: int | None = None
         self._batch_depth = 0
@@ -187,22 +189,31 @@ class MessageHub(Generic[_THubMessage]):
         delivered = 0
         message_types: set[str] = set()
         while True:
+            stop_draining = False
+            should_terminate_subject = False
             with self._gate:
                 if self._disposed or not self._pending:
-                    self._drainer_thread = None
-                    self._gate.notify_all()
-                    return
-                message = self._pending.popleft()
+                    should_terminate_subject = self._release_drainer_locked()
+                    stop_draining = True
+                    message = None
+                else:
+                    message = self._pending.popleft()
+            if should_terminate_subject:
+                self._terminate_subject()
+            if stop_draining:
+                return
             if __debug__:
+                assert message is not None
                 message_types.add(type(message).__name__)
             try:
                 with _delivery_scope():
+                    assert message is not None
                     self._subject.on_next(message)
             except BaseException:
-                with self._gate:
-                    self._pending.clear()
-                    self._drainer_thread = None
-                    self._gate.notify_all()
+                try:
+                    self._abandon_pending()
+                except BaseException:
+                    pass  # Preserve the original delivery failure.
                 raise
             if __debug__:
                 delivered += 1
@@ -211,23 +222,59 @@ class MessageHub(Generic[_THubMessage]):
                 if delivered >= 10_000 and has_pending:
                     with self._gate:
                         message_types.update(type(item).__name__ for item in self._pending)
-                        self._pending.clear()
-                        self._drainer_thread = None
-                        self._gate.notify_all()
                     names = ", ".join(sorted(message_types))
                     cycle_error = RuntimeError(
                         "MessageHub drain exceeded 10000 messages; "
                         f"possible publish cycle involving: {names}"
                     )
+                    self._abandon_pending()
                     raise cycle_error
+
+    def _abandon_pending(self) -> None:
+        should_terminate_subject = False
+        with self._gate:
+            self._pending.clear()
+            should_terminate_subject = self._release_drainer_locked()
+        if should_terminate_subject:
+            self._terminate_subject()
+
+    def _release_drainer_locked(self) -> bool:
+        """Release the drainer and claim deferred subject termination."""
+        self._drainer_thread = None
+        should_terminate_subject = self._disposed and not self._subject_termination_claimed
+        if should_terminate_subject:
+            self._subject_termination_claimed = True
+        self._gate.notify_all()
+        return should_terminate_subject
+
+    def _terminate_subject(self) -> None:
+        try:
+            self._subject.on_completed()
+        finally:
+            try:
+                self._subject.dispose()
+            finally:
+                with self._gate:
+                    self._subject_terminated = True
+                    self._gate.notify_all()
 
     def dispose(self) -> None:
         """Complete and dispose the underlying subject."""
+        caller = get_ident()
+        should_terminate_subject = False
         with self._gate:
             if self._disposed:
                 return
             self._disposed = True
             self._pending.clear()
             self._gate.notify_all()
-        self._subject.on_completed()
-        self._subject.dispose()
+
+            if self._drainer_thread is None:
+                self._subject_termination_claimed = True
+                should_terminate_subject = True
+            elif self._drainer_thread != caller and _delivery_context.depth == 0:
+                while not self._subject_terminated:
+                    self._gate.wait()
+                return
+        if should_terminate_subject:
+            self._terminate_subject()
