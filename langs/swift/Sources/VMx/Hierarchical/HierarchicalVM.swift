@@ -4,19 +4,16 @@
 // Each node carries a typed `TModel` and may contain children of the same
 // concrete type `TVM`. Children are lazy by default (the factory runs on first
 // access, then the result is cached); eager materialization is opt-in via the
-// `eagerChildren` constructor flag (wired by the child-construction task — the
-// flag is stored here so HIER-007..009 can read it without re-touching the
-// init surface).
+// `eagerChildren` constructor flag (HIER-007..009).
 //
-// This is the foundational tree-identity type for the whole hierarchical area;
-// later tasks add structural mutation (add/remove/reparent + hub messages),
-// capability composition, and the fluent builder.
+// This is the foundational tree-identity type for the hierarchical area,
+// including structural mutation, capability composition, and fluent building.
 //
 // CRTP (curiously recurring template pattern), ADR-0028 §3.2: `TVM` is the
 // concrete subclass — the canonical concrete shape is
 // `final class MyNode: HierarchicalVM<MyModel, MyNode>`.
 //
-// CROSS-FLAVOR DIVERGENCE (documented; for the Task-9 ADR). C#/TS express the
+// CROSS-FLAVOR DIVERGENCE (ADR-0061 §2.1). C#/TS express the
 // recursive bound directly (`where TVM : HierarchicalVM<TModel, TVM>` /
 // `TVM extends HierarchicalVM<TModel, TVM>`). Swift's compiler REJECTS the
 // equivalent class constraint `TVM: HierarchicalVM<TModel, TVM>` as a
@@ -105,13 +102,11 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Factory that produces this node's children. Invoked once, lazily, on
     /// first access to `children` (or eagerly at construct() time when
-    /// `eagerChildren` is set — wired by the child-construction task).
+    /// `eagerChildren` is set).
     private let childrenFactory: (TVM) -> [TVM]
 
     /// When `true`, the full subtree is materialized at construct() time
-    /// (depth-first). Stored here so the child-construction task (HIER-008/009)
-    /// can read it without re-opening this init surface; the baseline
-    /// tree-identity surface (HIER-001..006) does not act on it.
+    /// (depth-first), as required by HIER-008/009.
     private let eagerChildren: Bool
 
     // ── Tree links / caches ─────────────────────────────────────────────
@@ -128,7 +123,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     private var _children: [TVM]?
 
     /// Cached root→self path. `nil` until first access. (Invalidation on
-    /// reparent is added with the structural-mutation task.)
+    /// reparent keeps the cached path consistent with structural mutation.)
     private var _pathCache: [TVM]?
 
     /// Missing-parent items retained on this structural root.
@@ -164,8 +159,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///     `super.init`; under the canonical `final class` CRTP shape the two
     ///     resolve to the same name.
     ///   - hint: optional hint string.
-    ///   - eagerChildren: opt-in eager subtree materialization (read by a later
-    ///     task; inert for HIER-001..006).
+    ///   - eagerChildren: opt-in eager subtree materialization.
     public init(
         model: TModel,
         childrenFactory: @escaping (TVM) -> [TVM],

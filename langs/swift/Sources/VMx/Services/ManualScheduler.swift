@@ -16,7 +16,7 @@
 // (`ManualScheduler.flush()`, `ManualDispatcher.flushForeground()` /
 // `flushBackground()`). This is a documented, intentional divergence from
 // the framework `TestScheduler` the other flavors reuse — captured in the
-// Task 9 ADR.
+// Swift threading decision at ADR-0061 §2.7.
 //
 import Foundation
 import Combine
