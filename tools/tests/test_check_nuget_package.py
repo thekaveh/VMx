@@ -67,6 +67,11 @@ def test_validate_package_pair_accepts_exact_assets_and_dependency_floor(tmp_pat
     assert checker.validate_package_pair(tmp_path, "VMx.Notifications", "1.2.0", "3.20.0") == []
 
 
+def test_main_packages_include_legal_texts_but_symbol_packages_do_not() -> None:
+    assert {"LICENSE", "NOTICE"} <= checker.expected_paths("VMx", symbols=False)
+    assert {"LICENSE", "NOTICE"}.isdisjoint(checker.expected_paths("VMx", symbols=True))
+
+
 def test_validate_package_pair_rejects_unexpected_content(tmp_path: Path) -> None:
     _write_packages(tmp_path, "VMx", "3.20.0", unexpected="secrets.txt")
 

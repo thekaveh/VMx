@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Packed npm artifacts now include the repository's byte-identical Apache-2.0
+  `LICENSE` and `NOTICE` files.
 - Token pagination now treats reentrant disposal during page comparison,
   child construction, or reset notification as terminal without committing
   losing state or publishing later notifications.

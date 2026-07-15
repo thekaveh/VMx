@@ -41,7 +41,9 @@
   },
   "files": [
     "dist",
-    "src/fixtures"
+    "src/fixtures",
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsup",

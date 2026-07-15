@@ -8,6 +8,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- NuGet packages now include the repository's Apache-2.0 `LICENSE` and `NOTICE`
+  files alongside the existing SPDX metadata.
 - Command and component disposal now attempts every terminal notification,
   subscription release, stream teardown, and owned command before rethrowing the
   first observer failure.

@@ -37,15 +37,16 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
     } <= checker.REQUIRED_PATHS
 
 
-def test_license_text_is_allowlisted() -> None:
-    assert "LICENSE" in checker.REQUIRED_PATHS
+def test_legal_texts_are_allowlisted() -> None:
+    assert {"LICENSE", "NOTICE"} <= checker.REQUIRED_PATHS
 
 
-def test_packaged_license_matches_repository_license() -> None:
+def test_packaged_legal_texts_match_repository_sources() -> None:
     repository_root = Path(__file__).resolve().parents[2]
-    assert (repository_root / "langs/rust/LICENSE").read_bytes() == (
-        repository_root / "LICENSE"
-    ).read_bytes()
+    for name in ("LICENSE", "NOTICE"):
+        assert (repository_root / f"langs/rust/{name}").read_bytes() == (
+            repository_root / name
+        ).read_bytes()
 
 
 def test_package_listing_enforces_lockfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

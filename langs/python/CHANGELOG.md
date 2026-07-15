@@ -8,6 +8,8 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Built distributions now include the repository's byte-identical Apache-2.0
+  `LICENSE` and `NOTICE` files and declare them through PEP 639 metadata.
 - Python releases now pin the isolated Hatchling backend and install/smoke the
   exact local wheel before the irreversible PyPI upload.
 - Common VM options factories now retain a supplied hub or dispatcher

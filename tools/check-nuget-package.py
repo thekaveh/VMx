@@ -29,6 +29,8 @@ def expected_paths(package_id: str, *, symbols: bool) -> set[str]:
     if not symbols:
         paths.update(
             {
+                "LICENSE",
+                "NOTICE",
                 f"lib/net8.0/{package_id}.xml",
                 f"lib/netstandard2.0/{package_id}.xml",
                 "README.md",

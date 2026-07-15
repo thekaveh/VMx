@@ -15,6 +15,7 @@ Cargo.lock
 Cargo.toml
 Cargo.toml.orig
 LICENSE
+NOTICE
 README.md
 src/aggregate_change_stream.rs
 src/aggregates.rs

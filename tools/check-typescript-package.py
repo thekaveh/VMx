@@ -19,6 +19,8 @@ FIXTURES = (
 )
 
 REQUIRED_PATHS = {
+    "LICENSE",
+    "NOTICE",
     "README.md",
     "package.json",
     *(f"src/fixtures/{name}" for name in FIXTURES),

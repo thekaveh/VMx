@@ -8,6 +8,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Packed crates now include the repository's byte-identical Apache-2.0
+  `LICENSE` and `NOTICE` files.
 - Hierarchy structural messages now include the mutation kind, affected child
   identity, and index, and parent-change notifications use Rust's `parent`
   property spelling.
