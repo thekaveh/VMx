@@ -12,6 +12,7 @@ import reactivex as rx
 from reactivex import Observable
 from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
+from reactivex.internal.exceptions import DisposedException
 from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import BehaviorSubject, Subject
 
@@ -69,9 +70,7 @@ class SearchableState(ISearchable, Generic[T]):
             else rx.empty()
         )
         recompute = rx.merge(debounced, force, source)
-        self._subscription = recompute.subscribe(
-            on_next=lambda term: self._filtered_subject.on_next(self._apply_filter(term))
-        )
+        self._subscription = recompute.subscribe(on_next=self._emit_filtered)
 
         # Close the initial snapshot/attach gap. This constructor-only first
         # value cannot be observed by callers; signals after attachment flow
@@ -118,6 +117,19 @@ class SearchableState(ISearchable, Generic[T]):
 
     def _apply_filter(self, term: str) -> list[T]:
         return [item for item in self._items_source() if self._predicate(item, term)]
+
+    def _emit_filtered(self, term: str) -> None:
+        # The debounce runs on a background Timer thread; dispose() can dispose
+        # _filtered_subject between this callback's start and its on_next.
+        # reactivex raises DisposedException on post-dispose on_next (unlike
+        # rxjs's no-op), so drop that fault — a disposed searchable has no
+        # observers to notify (parity with the C# guard).
+        if self._disposed:
+            return
+        try:
+            self._filtered_subject.on_next(self._apply_filter(term))
+        except DisposedException:
+            pass
 
     @staticmethod
     def _isolate_source_failure(_error: Exception, _source: Observable[str]) -> Observable[str]:
