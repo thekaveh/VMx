@@ -1,13 +1,13 @@
 # VMx — Swift
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for Swift,
-spec-compatible with the C# / Python / TypeScript flavors.
+spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.20.0 — total parity.** Covers **all 391 of 391** library conformance IDs
-from `spec-v3.20.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **396 total**, at
+**v3.22.0 source — total parity.** Covers **all 395 of 395** library conformance IDs
+from `spec-v3.22.0` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **400 total**, at
 full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
@@ -133,18 +133,18 @@ The C# / Python / TypeScript flavors mirror this shape — only the
 identifier casing differs (per ADR-0006: Swift uses **camelCase**,
 matching the TypeScript flavor).
 
-See [docs/integration/swiftui.md](../../docs/integration/swiftui.md) for
+See [SwiftUI Integration](../../docs/content/integration/swiftui.md) for
 a one-page SwiftUI integration recipe.
 
 ### 3.1 Cross-language naming
 
-| Concept             | C#                  | Python             | TypeScript         | Swift              |
-| ------------------- | ------------------- | ------------------ | ------------------ | ------------------ |
-| Unmodeled VM        | `ComponentVM`       | `ComponentVM`      | `ComponentVM`      | `ComponentVM`      |
-| Modeled VM          | `ComponentVM<M>`    | `ComponentVMOf[M]` | `ComponentVMOf<M>` | `ComponentVMOf<M>` |
-| Status property     | `Status`            | `status`           | `status`           | `status`           |
-| Builder entrypoint  | `Builder()`         | `builder()`        | `builder()`        | `builder()`        |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` |
+| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                    |
+| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ----------------------- |
+| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`       |
+| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`              |
+| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`             |
+| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 ## 4. API surface
 
@@ -249,9 +249,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (396)
+## 5. Conformance — total parity (400)
 
-This flavor implements **all 391 library conformance IDs** from the
+This flavor implements **all 395 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -480,7 +480,7 @@ ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 391 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (396) with C#, Python, TypeScript, and Rust.**
+**All 395 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (400) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
 
 Run the suite:
 

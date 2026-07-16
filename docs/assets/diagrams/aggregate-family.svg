@@ -39,7 +39,7 @@
 <rect x="500" y="166" width="250" height="118" rx="8" fill="#0f172a"/>
 <rect x="500" y="166" width="250" height="118" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="625" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Slot factories</text>
-<text x="625" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Component1(...) through Component6(...)</text>
+<text x="625" y="220" fill="#cbd5e1" font-size="9.49" font-weight="400" text-anchor="middle">Component1(...) through Component6(...)</text>
 <text x="625" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">invoked during construct()</text>
 <text x="625" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">stable semantic names</text>
 <rect x="830" y="166" width="250" height="118" rx="8" fill="#0f172a"/>

@@ -185,11 +185,9 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
         if (_eagerChildren)
         {
-            // Depth-first: materialize and construct children before returning.
-            // Each child's OnConstruct recurses into its own children first,
-            // so the deepest leaf reaches Constructed before the parent.
-            foreach (var child in Children)
-                child.Construct();
+            CompleteLifecycleHookAfter(TransitionChildrenAsync(
+                Children.Cast<IComponentVM>().ToArray(),
+                construct: true));
         }
     }
 
@@ -203,18 +201,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     public void AddChild(TVM child)
     {
         ThrowHelper.ThrowIfNull(child, nameof(child));
-
-        EnsureChildrenMaterialized();
-        var index = _children!.Count;
-        _children.Add(child);
-
-        child.SetHierarchicalParent((TVM)this);
-
-        Hub.Send(new TreeStructureChangedMessage(
-            Source: this,
-            Change: TreeStructureChange.Added,
-            Affected: child,
-            Index: index));
+        AttachChild(child, explicitReparent: false);
     }
 
     /// <summary>
@@ -250,38 +237,45 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     public void ReparentChild(TVM child)
     {
         ThrowHelper.ThrowIfNull(child, nameof(child));
-        if (ReferenceEquals(child.HierarchicalParent, this)) return;
+        AttachChild(child, explicitReparent: true);
+    }
 
-        // HIER-018: reparenting this node or one of its ancestors under
-        // itself would create a parent cycle and corrupt Depth/Path/Walk.
-        // Identity comparison, not Equals: a TVM overriding Equals (e.g.
-        // model-value equality) must not falsely reject a legal reparent
-        // (Python uses `is`, TS uses SameValueZero includes()).
+    private void AttachChild(TVM child, bool explicitReparent)
+    {
+        if (ReferenceEquals(child.HierarchicalParent, this)) return;
         if (Path.Any(p => ReferenceEquals(p, child)))
             throw new InvalidOperationException(
                 $"Cannot reparent '{child.Name}' under '{Name}': it is this node or one of its ancestors (HIER-018).");
 
-        // Remove from old parent silently (no message — reparent covers it).
-        // Detach by identity (not Equals) to match the HIER-018 cycle check
-        // above and the TS flavor: a TVM overriding Equals must not cause the
-        // wrong sibling to be removed.
+        // Materialize both collections before mutation so a factory failure
+        // cannot leave the child detached from its original parent.
+        EnsureChildrenMaterialized();
         var oldParent = child._hierarchicalParent;
-        if (oldParent is not null)
+        oldParent?.EnsureChildrenMaterialized();
+        var oldIndex = oldParent?._children!.FindIndex(c => ReferenceEquals(c, child)) ?? -1;
+        var newIndex = _children!.Count;
+
+        if (oldIndex >= 0) oldParent!._children!.RemoveAt(oldIndex);
+        try
         {
-            oldParent.EnsureChildrenMaterialized();
-            var detachIndex = oldParent._children!.FindIndex(c => ReferenceEquals(c, child));
-            if (detachIndex >= 0) oldParent._children.RemoveAt(detachIndex);
+            _children.Add(child);
+            child.SetHierarchicalParent((TVM)this);
+        }
+        catch
+        {
+            _children.RemoveAll(candidate => ReferenceEquals(candidate, child));
+            if (oldIndex >= 0) oldParent!._children!.Insert(oldIndex, child);
+            if (!ReferenceEquals(child._hierarchicalParent, oldParent))
+                child.SetHierarchicalParent(oldParent);
+            throw;
         }
 
-        EnsureChildrenMaterialized();
-        _children!.Add(child);
-        child.SetHierarchicalParent((TVM)this);
-
+        var reparented = explicitReparent || oldParent is not null;
         Hub.Send(new TreeStructureChangedMessage(
             Source: this,
-            Change: TreeStructureChange.Reparented,
+            Change: reparented ? TreeStructureChange.Reparented : TreeStructureChange.Added,
             Affected: child,
-            Index: -1));
+            Index: reparented ? -1 : newIndex));
     }
 
     /// <summary>Number of missing-parent items retained on the structural root.</summary>
@@ -454,6 +448,13 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     public void InvalidateChildren()
     {
         if (_children is null) return;
+        foreach (var child in _children)
+        {
+            if (!ReferenceEquals(child._hierarchicalParent, this)) continue;
+            child._hierarchicalParent = null;
+            child._pathCache = null;
+            child.InvalidatePathCacheDescendants();
+        }
         _children = null;
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(
             this, Name, nameof(Children)));

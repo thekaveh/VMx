@@ -47,6 +47,14 @@ public struct ComponentVMOfBuilder<Model> {
         var copy = self; copy._hub = hub; copy._dispatcher = dispatcher; return copy
     }
 
+    func _optionHub(_ hub: MessageHubProtocol) -> ComponentVMOfBuilder<Model> {
+        var copy = self; copy._hub = hub; return copy
+    }
+
+    func _optionDispatcher(_ dispatcher: Dispatcher) -> ComponentVMOfBuilder<Model> {
+        var copy = self; copy._dispatcher = dispatcher; return copy
+    }
+
     public func modeledHinter(
         _ fn: @escaping (Model) -> String
     ) -> ComponentVMOfBuilder<Model> {

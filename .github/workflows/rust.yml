@@ -25,6 +25,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  audit:
+    name: dependency advisory audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        with:
+          toolchain: stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Deny vulnerabilities and advisory warnings
+        run: |
+          cargo audit --file langs/rust/Cargo.lock --deny warnings
+          cargo audit --file examples/rust/console/hello-vmx/Cargo.lock --deny warnings
+          cargo audit --file examples/rust/tui/notes-showcase/Cargo.lock --deny warnings
+
   build:
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -33,10 +53,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -45,30 +65,30 @@ jobs:
         run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
 
       - name: Clippy
-        run: cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --manifest-path langs/rust/Cargo.toml
+        run: cargo test --locked --manifest-path langs/rust/Cargo.toml
 
   examples:
     name: examples
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
         with:
           toolchain: stable
 
       - name: Run hello-vmx example
-        run: cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
+        run: cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml
 
       - name: Test notes-showcase TUI example
-        run: cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+        run: cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 
       - name: Smoke notes-showcase TUI example
-        run: cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
+        run: cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 
   package:
     name: package (${{ matrix.toolchain }})
@@ -78,15 +98,15 @@ jobs:
       matrix:
         toolchain: ["1.88.0", "stable"]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
         with:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Package crate
-        run: cargo package --manifest-path langs/rust/Cargo.toml
+        run: cargo package --locked --manifest-path langs/rust/Cargo.toml
 
       - name: Check package contents
         run: python3 tools/check-rust-package.py

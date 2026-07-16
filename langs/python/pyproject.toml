@@ -1,12 +1,13 @@
 [build-system]
-requires = ["hatchling>=1.21"]
+requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "vmx"
 description = "Hierarchical, lifecycle-aware MVVM viewmodel framework."
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Kaveh Razavi", email = "kaveh.razavi@gmail.com" }]
 requires-python = ">=3.10"
 keywords = ["mvvm", "viewmodel", "rx", "reactive", "lifecycle", "ui-architecture"]
@@ -29,7 +30,7 @@ dynamic = ["version"]
 
 [project.urls]
 Repository = "https://github.com/thekaveh/VMx"
-Documentation = "https://github.com/thekaveh/VMx#readme"
+Documentation = "https://thekaveh.github.io/VMx/"
 Issues = "https://github.com/thekaveh/VMx/issues"
 Changelog = "https://github.com/thekaveh/VMx/blob/main/langs/python/CHANGELOG.md"
 

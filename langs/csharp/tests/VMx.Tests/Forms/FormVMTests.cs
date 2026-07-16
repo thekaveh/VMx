@@ -360,6 +360,52 @@ public class FormVMTests
     }
 
     [Fact]
+    public async Task Admitted_Deny_Finishes_Before_Concurrent_Dispose()
+    {
+        using var releaseSnapshot = new ManualResetEventSlim();
+        var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pauseSnapshot = false;
+        Model Snapshotter(Model model)
+        {
+            if (pauseSnapshot)
+            {
+                snapshotStarted.SetResult();
+                // The test thread owns releaseSnapshot.Set() below; wait without a
+                // fixed deadline so CI thread-pool starvation can't trip a spurious
+                // timeout here. The outer WhenAll(...).WaitAsync() bounds the test.
+                releaseSnapshot.Wait();
+            }
+
+            return model;
+        }
+
+        var sut = new FormVM<Model>(
+            new Model("A", 1),
+            _ => Task.CompletedTask,
+            snapshotter: Snapshotter);
+        sut.SetModel(new Model("B", 2));
+        pauseSnapshot = true;
+
+        var denier = Task.Run(() => sut.DenyCommand.Execute(null));
+        await snapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var disposer = Task.Run(() =>
+        {
+            sut.Dispose();
+            disposeFinished.SetResult();
+        });
+        var disposedDuringSnapshot = await Task.WhenAny(
+            disposeFinished.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
+        releaseSnapshot.Set();
+
+        await Task.WhenAll(denier, disposer).WaitAsync(TimeSpan.FromSeconds(5));
+        disposedDuringSnapshot.Should().BeFalse();
+        sut.Model.Should().Be(new Model("A", 1));
+    }
+
+    [Fact]
     public async Task Approve_After_Dispose_Does_Not_Invoke_Persister()
     {
         // The persister is an external side effect and must not run on a
@@ -407,6 +453,44 @@ public class FormVMTests
         sut.Dispose();
 
         completed.Should().BeTrue("ApproveErrors completes on Dispose");
+    }
+
+    [Fact]
+    public async Task Dispose_Waits_For_InFlight_ApproveError_Delivery()
+    {
+        using var observerEntered = new ManualResetEventSlim();
+        using var releaseObserver = new ManualResetEventSlim();
+        using var disposeStarted = new ManualResetEventSlim();
+        var sut = new FormVM<Model>(
+            new Model("A", 1),
+            _ => Task.FromException(new InvalidOperationException("boom")));
+        using var subscription = sut.ApproveErrors.Subscribe(_ =>
+        {
+            observerEntered.Set();
+            releaseObserver.Wait();
+        });
+
+        var execute = Task.Run(() => sut.ApproveCommand.Execute(null));
+        observerEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var dispose = Task.Run(() =>
+        {
+            disposeStarted.Set();
+            sut.Dispose();
+        });
+        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        try
+        {
+            var first = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromMilliseconds(100)));
+            first.Should().NotBeSameAs(dispose,
+                "approve-error teardown must serialize with an admitted delivery");
+        }
+        finally
+        {
+            releaseObserver.Set();
+        }
+
+        await Task.WhenAll(execute, dispose);
     }
 
     // ── Test double helpers ───────────────────────────────────────────────────

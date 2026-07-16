@@ -72,7 +72,7 @@ emits a `PropertyChangedMessage` — it is a silent no-op, distinct from the
 lifecycle operations, which raise from `Disposed`. C#/Python/TypeScript now mirror
 the guard Swift already had.
 
-### 2.4 Hook failure is transactional — roll back, do not wedge (`02 §2.4`, VMX-007 — newly implemented)
+### 2.4 Hook failure is transactional — roll back, do not wedge (`02 §2.5`, VMX-007 — newly implemented)
 
 If `OnConstruct`/`OnDestruct` raises, `Status` rolls back to the prior settled
 state before the exception propagates: a failed construct (or the construct phase
@@ -80,10 +80,12 @@ of `reconstruct()`) rolls back to `Destructed`; a failed destruct (or the destru
 phase) rolls back to `Constructed`. The rollback runs under the §2.3 guard,
 publishes its own `ConstructionStatusChangedMessage` (so invariant 4 holds), and
 clears the in-flight guard. In the synchronous form the original exception is
-re-raised to the caller; in the background form the rollback emission is marshalled
-onto `Foreground` and the exception is re-thrown on the scheduler (unobservable by
-the already-returned caller). `OnDispose` is not subject to rollback — `dispose()`
-is terminal and idempotent. Verified by the new **`LIFE-014`**.
+re-raised to the caller; in the background form the rollback emission is
+marshalled onto `Foreground`. C# async lifecycle callers receive the original
+exception through the returned `Task` after rollback (ADR-0109);
+fire-and-forget and non-C# surfaces retain their documented scheduler error
+route. `OnDispose` is not subject to rollback — `dispose()` is terminal and
+idempotent. Verified by the new **`LIFE-014`**.
 
 The alternative — transition to a dedicated `Faulted`/error state — was rejected
 (§4): it adds a sixth state and new transition edges to every flavor and fixture
@@ -94,10 +96,11 @@ still leave the VM un-`construct()`-able without a recovery operation.
 
 - Child visitation order stays unspecified; subscribers MUST NOT rely on it and no
   conformance ID constrains it (`02 §6`, VMX-046).
-- The background await primitive is the terminal-status subscription; the hub does
-  not replay the last status, and a first-class completion/error future +
-  composite "await all children" orchestration is C#-only today and a tracked
-  follow-up for the other flavors (`11 §4`, VMX-049).
+- A consumer-defined background await primitive can use terminal-status
+  subscription; the hub does not replay the last status. First-class outcome
+  tasks plus composite "await all children" orchestration remain C#-only and
+  fault on lifecycle failure after rollback (ADR-0109). Other flavors
+  deliberately retain their synchronous lifecycle calling convention.
 - The ch.11 default-dispatchers table gains a Swift row + a note that Swift ships
   no `RxDispatcher.default()` equivalent yet (host-provided Combine schedulers;
   deferred per ADR-0036 §2.E) (VMX-118).

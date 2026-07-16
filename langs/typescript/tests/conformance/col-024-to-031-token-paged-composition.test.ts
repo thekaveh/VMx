@@ -67,6 +67,32 @@ describe("COL-025", () => {
     expect(collectionEvents).toEqual([]);
     expect(propertyEvents).toEqual([]);
   });
+
+  it("auto construction may dispose reentrantly without committing the page", async () => {
+    let sut!: TokenPagedComposition<ComponentVM, string>;
+    const child = ComponentVM.builder()
+      .name("child")
+      .withNullServices()
+      .onConstruct(() => { sut.dispose(); })
+      .build();
+    sut = new TokenPagedComposition<ComponentVM, string>(
+      () => Promise.resolve({ items: [child], nextToken: "next" }),
+      { autoConstructOnAdd: true },
+    );
+    const collectionEvents: unknown[] = [];
+    const propertyEvents: string[] = [];
+    sut.collectionChanged.subscribe((event) => collectionEvents.push(event));
+    sut.propertyChanged.subscribe((name) => propertyEvents.push(name));
+
+    await expect(sut.loadMoreCommand.executeAsync()).resolves.toBeUndefined();
+
+    expect(child.isConstructed).toBe(true);
+    expect(sut.items).toEqual([]);
+    expect(sut.currentToken).toBeNull();
+    expect(sut.hasMore).toBe(true);
+    expect(collectionEvents).toEqual([]);
+    expect(propertyEvents).toEqual([]);
+  });
 });
 
 describe("COL-026", () => {
@@ -102,6 +128,25 @@ describe("COL-027", () => {
     expect(sut.hasMore).toBe(false);
   });
 
+  it("refresh supersedes an older in-flight loadMore", async () => {
+    const resolvers: Array<(page: { items: number[]; nextToken: string | null }) => void> = [];
+    const sut = new TokenPagedComposition<number, string>(() =>
+      new Promise((resolve) => { resolvers.push(resolve); }),
+    );
+
+    const load = sut.loadMoreCommand.executeAsync();
+    const refresh = sut.refreshCommand.executeAsync();
+    resolvers[1]!({ items: [9], nextToken: "fresh" });
+    await refresh;
+    expect(sut.items).toEqual([9]);
+
+    resolvers[0]!({ items: [1], nextToken: "stale" });
+    await load;
+
+    expect(sut.items).toEqual([9]);
+    expect(sut.currentToken).toBe("fresh");
+  });
+
   it("refresh does not mutate or notify after disposal during fetch", async () => {
     let resolvePage!: (page: { items: number[]; nextToken: string | null }) => void;
     const pending = new Promise<{ items: number[]; nextToken: string | null }>((resolve) => {
@@ -123,6 +168,25 @@ describe("COL-027", () => {
     expect(sut.hasMore).toBe(true);
     expect(collectionEvents).toEqual([]);
     expect(propertyEvents).toEqual([]);
+  });
+
+  it("a page comparer may dispose reentrantly without committing refresh state", async () => {
+    let sut!: TokenPagedComposition<number, string>;
+    sut = new TokenPagedComposition<number, string>(
+      () => Promise.resolve({ items: [1], nextToken: "next" }),
+      {
+        pagesEqual: (left, right) => {
+          sut.dispose();
+          return left.length === right.length;
+        },
+      },
+    );
+
+    await expect(sut.refreshCommand.executeAsync()).resolves.toBeUndefined();
+
+    expect(sut.items).toEqual([]);
+    expect(sut.currentToken).toBeNull();
+    expect(sut.hasMore).toBe(true);
   });
 });
 

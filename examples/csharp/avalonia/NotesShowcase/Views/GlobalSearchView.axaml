@@ -8,9 +8,11 @@
                     Content="Search"
                     Command="{Binding RefreshCommand}" />
             <TextBox Watermark="Search all notes..."
+                     AutomationProperties.Name="Search all notes"
                      Text="{Binding SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
         </DockPanel>
-        <ItemsControl ItemsSource="{Binding Results}">
+        <ItemsControl ItemsSource="{Binding Results}"
+                      AutomationProperties.Name="Global search results">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <StackPanel Orientation="Horizontal" Spacing="8" />

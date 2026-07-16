@@ -1,6 +1,6 @@
 # 6.2.8.2. FormVM
 
-## When To Use It
+## 6.2.8.2.1. When To Use It
 
 Use `FormVM<TM>` when the user edits a working copy, then either approves the
 changes or denies them and reverts to the last snapshot. This is the right
@@ -17,7 +17,7 @@ edit-save-cancel workflows.
   <a href="../../../../assets/diagrams/forms-dialogs-notifications.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.8.2.2. Shape And Ownership
 
 `FormVM` owns a live `Model`, a `Snapshot`, dirty tracking, validation state,
 and approve/deny commands. It is not a leaf container and it is not a subclass
@@ -35,7 +35,7 @@ Important members:
 - optional builder `resetOnApproved` / `ResetOnApproved` /
   `reset_on_approved`
 
-## Lifecycle And Messaging
+## 6.2.8.2.3. Lifecycle And Messaging
 
 Construction captures the initial snapshot. After that:
 
@@ -60,7 +60,7 @@ be cancelled for resource control; this guard only rejects a late form result.
 
 Strict mode gates approve on `IsValid && IsDirty`.
 
-### Settled model publication
+### 6.2.8.2.3.1. Settled model publication
 
 An accepted unequal `SetModel` / `set_model` call is one synchronous edit
 transaction. VMx installs the candidate, recomputes validation, errors, dirty
@@ -81,7 +81,7 @@ one idiomatic model property message after the revert settles. A successful
 reset-after-approve publishes through `OnApproved` only and does not emit a
 model property message.
 
-### Declarative submit-then-clear
+### 6.2.8.2.3.2. Declarative submit-then-clear
 
 Configure reset-after-approve when a successful submission should leave the
 form pristine with a derived next model. VMx captures the model before awaiting
@@ -98,7 +98,7 @@ persistence has already succeeded but local state is not changed and
 path emits it once on `ApproveErrors`. A retry can therefore repeat external
 persistence and should be handled as such.
 
-## Cross-Language Surface
+## 6.2.8.2.4. Cross-Language Surface
 
 | Concept           | C#                  | Python                | TypeScript             | Swift               | Rust                  |
 | ----------------- | ------------------- | --------------------- | ---------------------- | ------------------- | --------------------- |
@@ -160,7 +160,7 @@ Builder examples use the idiomatic name but the same captured-model contract:
         .build()?;
     ```
 
-## Example
+## 6.2.8.2.5. Example
 
 The Notes Workspace editor is the best concrete reference:
 
@@ -233,7 +233,7 @@ editor-specific commands and notifications around that core workflow.
     )
     ```
 
-## TypeScript Cloneability And Tableau Migration
+## 6.2.8.2.6. TypeScript Cloneability And Tableau Migration
 
 TypeScript uses `structuredClone` for the default snapshot. Functions,
 `WeakMap`/`WeakSet`, host handles, and objects containing those values are not
@@ -241,6 +241,13 @@ structured-cloneable. If the default fails during construction, approve
 snapshot advance, or deny/revert, `FormVM` reports that phase and the first
 failing enumerable top-level field it can safely identify. The native error is
 preserved as `cause`; the diagnostic never renders field values.
+
+The matching default structural equality understands the same common binary
+values: buffers compare by concrete buffer type, length, and bytes; `DataView`
+and typed-array views compare by concrete view type and their visible byte span.
+Separately allocated equal bytes therefore remain clean, while changed bytes or
+a different binary interpretation make the form dirty. Inject `equals` when a
+domain needs reference identity or a different binary policy.
 
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can
@@ -281,7 +288,7 @@ include `a.imagePayload === b.imagePayload` in `equalsGenesis`. VMx does not
 provide `snapshotExclude`: exclusion without an explicit equality policy would
 make dirty and revert semantics ambiguous.
 
-## Common Pitfalls
+## 6.2.8.2.7. Common Pitfalls
 
 - Treating `FormVM` as a drop-in `ComponentVM` subclass. It is a distinct
   workflow primitive.
@@ -296,7 +303,7 @@ make dirty and revert semantics ambiguous.
   `setModel` calls. VMx now rejects those calls after disposal; retain only
   cancellation that still owns application resources.
 
-## Related Primitives
+## 6.2.8.2.8. Related Primitives
 
 - [Component Family](../component-family.md)
 - [DiscriminatorVM](discriminator-vm.md)

@@ -45,8 +45,8 @@ public sealed class ComponentVM : ComponentVMBase, IComponentVM
             .Hint(options.Hint)
             .Background(options.Background);
         if (options.Name is not null) b = b.Name(options.Name);
-        if (options.Hub is not null && options.Dispatcher is not null)
-            b = b.Services(options.Hub, options.Dispatcher);
+        if (options.Hub is not null) b = b.OptionHub(options.Hub);
+        if (options.Dispatcher is not null) b = b.OptionDispatcher(options.Dispatcher);
         if (options.OnConstruct is not null) b = b.OnConstruct(options.OnConstruct);
         if (options.OnDestruct is not null) b = b.OnDestruct(options.OnDestruct);
         return b.Build();
@@ -122,8 +122,8 @@ public sealed class ComponentVM<M> : ComponentVMBaseOfM<M>, IComponentVM<M>
             .Model(options.Model)
             .Background(options.Background);
         if (options.Name is not null) b = b.Name(options.Name);
-        if (options.Hub is not null && options.Dispatcher is not null)
-            b = b.Services(options.Hub, options.Dispatcher);
+        if (options.Hub is not null) b = b.OptionHub(options.Hub);
+        if (options.Dispatcher is not null) b = b.OptionDispatcher(options.Dispatcher);
         if (options.ModeledHinter is not null) b = b.ModeledHinter(options.ModeledHinter);
         if (options.OnModelChanged is not null) b = b.OnModelChanged(options.OnModelChanged);
         if (options.OnConstruct is not null) b = b.OnConstruct(options.OnConstruct);

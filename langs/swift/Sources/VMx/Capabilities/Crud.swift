@@ -13,7 +13,7 @@
 // The three item-scoped verbs are generic over the item type. Swift protocols
 // cannot be generic, so the parameter is modeled with `associatedtype Item`
 // (mirroring the `<T>` of the TypeScript / C# flavors — see Filter.swift and the
-// Task-10 ADR for the associatedtype-vs-generic divergence note).
+// associatedtype-vs-generic decision in ADR-0059 §2.3).
 //
 // Swift idiom: bare protocol names (no `I`-prefix), camelCase members.
 //

@@ -161,7 +161,7 @@ final class CapabilityActionsVMTests: XCTestCase {
                       "Expected empty actions for nil focus")
     }
 
-    func testAddNoteCommandDelegatesToHostPredicateAndAction() throws {
+    func testAddNoteCommandDelegatesToHostPredicateAndAction() async throws {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE
         var canAdd = false
@@ -176,13 +176,13 @@ final class CapabilityActionsVMTests: XCTestCase {
         try caps.construct()
 
         XCTAssertFalse(caps.addNoteCommand.canExecute())
-        caps.addNoteCommand.execute()
+        try await caps.addNoteCommand.executeAsync()
         XCTAssertEqual(0, calls)
 
         canAdd = true
 
         XCTAssertTrue(caps.addNoteCommand.canExecute())
-        caps.addNoteCommand.execute()
+        try await caps.addNoteCommand.executeAsync()
         XCTAssertEqual(1, calls)
     }
 
@@ -285,19 +285,7 @@ final class CapabilityActionsVMTests: XCTestCase {
 
         XCTAssertEqual(1, deleted.count, "Expected onDelete called exactly once")
 
-        // The notification is posted fire-and-forget (`Task { await hub.post(...) }`);
-        // a single yield cannot drain that chain, so poll until it lands. The
-        // recorder is lock-guarded, so this poll is race-free against the
-        // snapshot write on the post Task's executor.
-        var landed = false
-        for _ in 0..<500 {
-            if recorder.anyMessage({ $0.contains("Note deleted") }) {
-                landed = true
-                break
-            }
-            try? await Task.sleep(nanoseconds: 1_000_000)
-        }
-        XCTAssertTrue(landed,
+        XCTAssertTrue(recorder.anyMessage({ $0.contains("Note deleted") }),
                       "Expected 'Note deleted' notification; got \(recorder.messages)")
     }
 }

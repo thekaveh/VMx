@@ -48,7 +48,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # check-version-consistency.py reconciles the compatibility matrix
           # against git tags; the default shallow checkout fetches no tags, so
@@ -57,15 +57,15 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: "0.11.19"
+          version: "0.11.28"
 
       - name: Set up Python
         run: uv python install 3.12
 
       - name: Sync Python dependencies (for pytest)
-        run: uv --project langs/python sync --all-extras
+        run: uv --project langs/python sync --locked --all-extras
 
       - name: Ruff lint tools/
         # The conformance-coverage tool lives at the repo root (outside the
@@ -92,6 +92,9 @@ jobs:
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
         run: uv --project langs/python run python tools/check-version-consistency.py
 
+      - name: Check workflow pin inventory
+        run: uv --project langs/python run python tools/check-workflow-pins.py
+
       - name: Check Python fixture sync
         run: uv --project langs/python run python tools/check-python-fixture-sync.py
 
@@ -109,14 +112,14 @@ jobs:
         # ones (verified: spec/**/*.md matches 41 of 64).
         run: |
           git ls-files 'spec/*.md' 'docs/*.md' \
-            | grep -Ev '^(docs/content/(installation|quickstart)\.md|docs/content/examples/rust-tui-notes-showcase\.md|docs/content/flavors/rust\.md|docs/content/primitives/(command-families|services-messages-dispatching)\.md|docs/content/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/content/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md)$' \
+            | grep -Ev '^(docs/content/installation\.md|docs/content/getting-started/index\.md|docs/content/examples/rust-tui-notes-showcase\.md|docs/content/flavors/rust\.md|docs/content/primitives/(command-families|services-messages-dispatching)\.md|docs/content/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/content/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md)$' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
                 mdformat --check
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift + rust)
         # All five flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 363-ID library catalog. Swift and Rust use
+        # 100% coverage of the full 395-ID library catalog. Swift and Rust use
         # doc-comment markers attached to real test functions, so this coverage
         # check does not need either toolchain. The tool exits non-zero if any
         # required language falls below full catalog coverage.

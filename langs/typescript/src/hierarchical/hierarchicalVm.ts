@@ -232,19 +232,7 @@ export abstract class HierarchicalVM<
   addChild(child: TVM): void {
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
-    const list = this.#requireChildren();
-    const index = list.length;
-    list.push(child);
-    child.#setHierarchicalParent(this.#self);
-    this._hub.send(
-      new TreeStructureChangedMessage(
-        this.#self,
-        this._name,
-        "added" satisfies TreeStructureChange,
-        child,
-        index,
-      ),
-    );
+    this.#attachChild(child, false);
   }
 
   /**
@@ -277,7 +265,11 @@ export abstract class HierarchicalVM<
   reparentChild(child: TVM): void {
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
-    if (child.#hierarchicalParent === (this.#self)) return; // no-op
+    this.#attachChild(child, true);
+  }
+
+  #attachChild(child: TVM, explicitReparent: boolean): void {
+    if (child.#hierarchicalParent === this.#self) return;
 
     // HIER-018: reparenting this node or one of its ancestors under
     // itself would create a parent cycle and corrupt depth/path/walk.
@@ -288,25 +280,40 @@ export abstract class HierarchicalVM<
       );
     }
 
-    // Detach from old parent silently.
+    // Materialize both lists before mutation so a factory failure cannot
+    // detach the child from its original parent.
+    const list = this.#requireChildren();
     const oldParent = child.#hierarchicalParent;
+    let oldList: TVM[] | null = null;
+    let oldIndex = -1;
     if (oldParent !== null) {
-      const oldList = oldParent.#requireChildren();
-      const idx = oldList.indexOf(child);
-      if (idx >= 0) oldList.splice(idx, 1);
+      oldList = oldParent.#requireChildren();
+      oldIndex = oldList.indexOf(child);
     }
 
-    // Attach to new parent.
-    const list = this.#requireChildren();
-    list.push(child);
-    child.#setHierarchicalParent(this.#self);
+    const newIndex = list.length;
+    if (oldList !== null && oldIndex >= 0) oldList.splice(oldIndex, 1);
+    try {
+      list.push(child);
+      child.#setHierarchicalParent(this.#self);
+    } catch (error) {
+      const inserted = list.indexOf(child);
+      if (inserted >= 0) list.splice(inserted, 1);
+      if (oldList !== null && oldIndex >= 0) oldList.splice(oldIndex, 0, child);
+      if (child.#hierarchicalParent !== oldParent) {
+        child.#setHierarchicalParent(oldParent);
+      }
+      throw error;
+    }
+
+    const reparented = explicitReparent || oldParent !== null;
     this._hub.send(
       new TreeStructureChangedMessage(
         this.#self,
         this._name,
-        "reparented" satisfies TreeStructureChange,
+        (reparented ? "reparented" : "added") satisfies TreeStructureChange,
         child,
-        -1,
+        reparented ? -1 : newIndex,
       ),
     );
   }
@@ -456,6 +463,12 @@ export abstract class HierarchicalVM<
    */
   invalidateChildren(): void {
     if (this.#children === null) return;
+    for (const child of this.#children) {
+      if (child.#hierarchicalParent !== this.#self) continue;
+      child.#hierarchicalParent = null;
+      child.#pathCache = null;
+      child.#invalidatePathCacheDescendants();
+    }
     this.#children = null;
     this._hub.send(
       PropertyChangedMessage.create(

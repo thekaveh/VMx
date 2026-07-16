@@ -25,6 +25,7 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     where VM5 : class, IComponentVM
     where VM6 : class, IComponentVM
 {
+    private readonly IParentCompositeVM _aggregateParent;
     private readonly Func<VM1> _factory1;
     private readonly Func<VM2> _factory2;
     private readonly Func<VM3> _factory3;
@@ -94,6 +95,7 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
         _factory4 = factory4;
         _factory5 = factory5;
         _factory6 = factory6;
+        _aggregateParent = new AggregateParent(this, this);
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────────
@@ -101,6 +103,14 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        var next1 = _factory1();
+        var next2 = _factory2();
+        var next3 = _factory3();
+        var next4 = _factory4();
+        var next5 = _factory5();
+        var next6 = _factory6();
+        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3, next4, next5, next6);
+        IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5, _component6];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
         _component1?.Dispose();
@@ -113,41 +123,40 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
         // Emit Hub message before the local PropertyChanged, matching arities
         // 1–5 and the Python/TS flavors (spec/08 §; relative order is uniform
         // across all aggregate arities).
-        _component1 = _factory1();
+        _component1 = next1;
         NotifyPropertyChanged(nameof(Component1));
 
-        _component2 = _factory2();
+        _component2 = next2;
         NotifyPropertyChanged(nameof(Component2));
 
-        _component3 = _factory3();
+        _component3 = next3;
         NotifyPropertyChanged(nameof(Component3));
 
-        _component4 = _factory4();
+        _component4 = next4;
         NotifyPropertyChanged(nameof(Component4));
 
-        _component5 = _factory5();
+        _component5 = next5;
         NotifyPropertyChanged(nameof(Component5));
 
-        _component6 = _factory6();
+        _component6 = next6;
+        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3, next4, next5, next6]);
         NotifyPropertyChanged(nameof(Component6));
 
-        _component1.Construct();
-        _component2.Construct();
-        _component3.Construct();
-        _component4.Construct();
-        _component5.Construct();
-        _component6.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            [_component1, _component2, _component3, _component4, _component5, _component6],
+            construct: true));
     }
 
     /// <inheritdoc/>
     protected override void OnDestruct()
     {
-        _component1?.Destruct();
-        _component2?.Destruct();
-        _component3?.Destruct();
-        _component4?.Destruct();
-        _component5?.Destruct();
-        _component6?.Destruct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            new IComponentVM?[]
+            {
+                _component1, _component2, _component3,
+                _component4, _component5, _component6,
+            }.OfType<IComponentVM>(),
+            construct: false));
     }
 
     /// <summary>
@@ -155,13 +164,14 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     /// </summary>
     public override void Dispose()
     {
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        _component4?.Dispose();
-        _component5?.Dispose();
-        _component6?.Dispose();
-        base.Dispose();
+        var firstError = DisposeChildren(
+            [_component1, _component2, _component3, _component4, _component5, _component6]);
+        try { base.Dispose(); }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

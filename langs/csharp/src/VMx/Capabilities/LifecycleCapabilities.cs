@@ -14,7 +14,10 @@ public interface IConstructable
     /// <summary>Performs the construct operation.</summary>
     void Construct();
 
-    /// <summary>Performs the construct operation asynchronously.</summary>
+    /// <summary>
+    /// Performs the construct operation asynchronously. Hook and deferred-child
+    /// failures fault the task after transactional rollback.
+    /// </summary>
     Task ConstructAsync();
 }
 
@@ -27,7 +30,10 @@ public interface IDestructable
     /// <summary>Performs the destruct operation.</summary>
     void Destruct();
 
-    /// <summary>Performs the destruct operation asynchronously.</summary>
+    /// <summary>
+    /// Performs the destruct operation asynchronously. Hook and deferred-child
+    /// failures fault the task after transactional rollback.
+    /// </summary>
     Task DestructAsync();
 }
 
@@ -40,6 +46,9 @@ public interface IReconstructable
     /// <summary>Performs the reconstruct operation.</summary>
     void Reconstruct();
 
-    /// <summary>Performs the reconstruct operation asynchronously.</summary>
+    /// <summary>
+    /// Performs the reconstruct operation asynchronously. Hook and deferred-child
+    /// failures fault the task after transactional rollback.
+    /// </summary>
     Task ReconstructAsync();
 }

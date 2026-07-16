@@ -7,8 +7,8 @@ single-page proof that every spec feature in scope is exercised by every
 UI-backed flavor.
 
 Published walkthroughs:
-[Notes Workspace](https://thekaveh.github.io/VMx/examples/notes-workspace/),
-[VM layer map](https://thekaveh.github.io/VMx/examples/notes-workspace-vm-layer/).
+[Notes Workspace](../docs/content/examples/notes-workspace.md),
+[VM layer map](../docs/content/examples/notes-workspace-vm-layer.md).
 
 ## 1. VM hierarchy
 
@@ -40,32 +40,38 @@ and [`assets/notes-showcase-vmx-components.png`](assets/notes-showcase-vmx-compo
 - **Swift / SwiftUI + Combine (macOS)** — `examples/swift/notes-showcase/` (ADR-0067)
 
 Each column reports whether the indicated flavor implements the VM/spec surface
-and wires it into the flagship host. A `✓` means the feature is represented in
+and wires it into the flagship host. `Yes` means the feature is represented in
 the flavor's VM/model tests and host integration; view-purity enforcement is
 covered by the dedicated C#, Python, and React tooling, while Swift's core/view
 split is enforced by SwiftPM target boundaries.
 
 | #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React | Swift / SwiftUI |
 | --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ | --------------- |
-| 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | ✓             | ✓                | ✓                  | ✓               |
-| 2   | `CompositeVM.Current` (ch. 6) — notes selection[^current] | ✓         | ✓                | ✓                  | ✓               |
-| 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | ✓          | ✓                | ✓                  | ✓               |
-| 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | ✓ | ✓ | ✓ | ✓ |
-| 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | ✓ | ✓        | ✓                  | ✓               |
-| 6   | `RelayCommand` reactive `canExecute` (ch. 4) — Save / Revert / Delete | ✓ | ✓         | ✓                  | ✓               |
-| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5-14.6) — title search + starred filter | ✓ | ✓ | ✓ | ✓ |
-| 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | ✓ | ✓             | ✓                  | ✓               |
-| 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | ✓     | ✓                | ✓                  | ✓               |
-| 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save[^dispatcher] | ✓ | ✓ | ✓ | ✓ |
-| 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | ✓ | ✓             | ✓                  | ✓               |
-| 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | ✓           | ✓                | ✓                  | ✓               |
-| 13  | `IDialogService` (ch. 19) — export → save-file dialog | ✓             | ✓                | ✓                  | ✓               |
-| 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | ✓     | ✓                | ✓                  | ✓               |
-| 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | ✓ | ✓           | ✓                  | ✓               |
-| 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | ✓ | ✓ | ✓ | ✓ |
-| 17  | `TokenPagedComposition` (ch. 21) — global all-notes search with forward tokens | ✓ | ✓ | ✓ | ✓ |
-| 18  | `DiscriminatorVM` (ch. 22) — edit/preview note editor mode | ✓ | ✓ | ✓ | ✓ |
-| 19  | `SearchableState<string>` — workspace tag autocomplete in `NoteFormVM` | ✓ | ✓ | ✓ | ✓ |
+| 1   | `HierarchicalVM` (ch. 18) — notebooks tree[^hier]     | Yes           | Yes              | Yes                | Yes             |
+| 2   | `CompositeVM.Current` (ch. 6) — notes selection[^current] | Yes       | Yes              | Yes                | Yes             |
+| 3   | `ComponentVM<M>` modeled (ch. 5) — `NoteVM`/`NotebookVM` | Yes        | Yes              | Yes                | Yes             |
+| 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | Yes | Yes | Yes | Yes |
+| 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | Yes | Yes      | Yes                | Yes             |
+| 6   | `RelayCommand` + `AsyncRelayCommand` reactive `canExecute` (ch. 4) — persistence-backed workspace, notebook, form, capability, Save, and Delete actions are awaitable; repository failures remain observable and success notifications follow persistence | Yes | Yes | Yes | Yes |
+| 7   | `SearchableState` + `IFilterable<TItem>` (§14.5-14.6) — title search + starred filter | Yes | Yes | Yes | Yes |
+| 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) — notes pagination | Yes | Yes           | Yes                | Yes             |
+| 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | Yes   | Yes              | Yes                | Yes             |
+| 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save[^dispatcher] | Yes | Yes | Yes | Yes |
+| 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | Yes | Yes           | Yes                | Yes             |
+| 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | Yes         | Yes              | Yes                | Yes             |
+| 13  | `IDialogService` (ch. 19) — export → save-file dialog | Yes           | Yes              | Yes                | Yes             |
+| 14  | Capability-aware UI (§14.4) — capability action bar[^readonly] | Yes   | Yes              | Yes                | Yes             |
+| 15  | `AggregateVM6` (ch. 8 — new in 2.2.0) — `WorkspaceVM` composes 6 children | Yes | Yes         | Yes                | Yes             |
+| 16  | `ThemeVM` scenario contract (proposal 2026-06-02, v2.4.0) — palette + accent + font scale + high contrast as a VM[^theme] | Yes | Yes | Yes | Yes |
+| 17  | `TokenPagedComposition` (ch. 21) — global all-notes search with forward tokens | Yes | Yes | Yes | Yes |
+| 18  | `DiscriminatorVM` (ch. 22) — edit/preview note editor mode | Yes | Yes | Yes | Yes |
+| 19  | `SearchableState<string>` — workspace tag autocomplete in `NoteFormVM` | Yes | Yes | Yes | Yes |
+
+Row 17 has an explicit item-lifetime boundary: each `GlobalSearchVM` owns every
+constructed `NoteVM` it creates until terminal disposal, including results
+replaced by refresh or discarded by equality/stale-operation handling. The Rust
+TUI counterpart stores cloned `NoteModel` values and therefore has no
+lifecycle-bearing search-result ownership obligation.
 
 [^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
     `ThemeAdapter` in `views/adapter/`. `WorkspaceVM` owns the `ThemeVM` as a
@@ -96,7 +102,7 @@ split is enforced by SwiftPM target boundaries.
 
 [^dispatcher]: The async-`construct()` marshalling half of this row is wired to a
     live UI dispatcher only in C# (`AvaloniaDispatcher`, Avalonia's global UI
-    thread) and Swift (`MainQueueDispatcher`). The React and Textual flagships
+    thread) and Swift (`DefaultDispatcher`). The React and Textual flagships
     ship a purpose-built adapter (`ReactDispatcher` asap-microtask,
     `TextualDispatcher` AsyncIO) exercised by the `views/adapter/` unit tests, but
     their composition roots build the VM tree on the synchronous immediate
@@ -113,7 +119,7 @@ split is enforced by SwiftPM target boundaries.
   no headless view smoke test — see §2). All four ship per-VM unit tests under
   `tests/viewmodels/` (Swift: `Tests/NotesShowcaseTests/`) mirroring the VM API.
   The Pure-VM contract checks (`tools/check-*-views.*`) keep view code
-  declarative so these `✓` marks are not load-bearing on incidental view-side
+  declarative so these `Yes` entries are not load-bearing on incidental view-side
   state.
 - **`AggregateVM6` (row 15)** is the spec extension this portfolio drove —
   added via ADR-0034 as a non-breaking minor bump (`spec-v2.2.0`) so that
@@ -126,7 +132,9 @@ split is enforced by SwiftPM target boundaries.
   target. Views use `@StateObject`/`@ObservedObject` + live VM getters. The
   `NotesShowcaseCore` target (pure VM layer, no SwiftUI) is
   CommandLineTools-buildable; the `NotesShowcase` and `NotesShowcaseTests`
-  targets require macOS + Xcode.
+  targets require macOS + Xcode. CI compiles the complete flagship with Swift's
+  complete strict-concurrency diagnostics promoted to errors; post-await
+  observable mutations return through the injected foreground dispatcher.
 - **Screenshots.** Reference screenshots are owner-driven and pending. Once
   captured they will live under `assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.

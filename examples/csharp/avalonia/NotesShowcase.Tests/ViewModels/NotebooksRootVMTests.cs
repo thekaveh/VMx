@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
 using VMx.Capabilities;
+using VMx.Commands;
 using VMx.Hierarchical;
 using VMx.Notifications;
 using VMx.Services;
@@ -100,9 +101,7 @@ public sealed class NotebooksRootVMTests
         vm.Construct();
         await vm.PopulateAsync();
         var before = vm.All.Count;
-        vm.AddNotebookCommand.Execute(null);
-        // CreateNew uses fire-and-forget — wait for the new notebook to appear.
-        await TestWait.WaitUntilAsync(() => vm.All.Count > before);
+        await Assert.IsType<AsyncRelayCommand>(vm.AddNotebookCommand).ExecuteAsync();
         Assert.True(vm.All.Count > before);
     }
 
@@ -127,7 +126,7 @@ public sealed class NotebooksRootVMTests
         Assert.Empty(specs.Children);
     }
 
-    // ── Audit pass #1, B2: "Notebook added" notification ──────────────────
+    // ── notification coverage: "Notebook added" notification ──────────────────
 
     [Fact]
     public async Task AddNotebookAsync_publishes_Notebook_added_notification_when_hub_wired()

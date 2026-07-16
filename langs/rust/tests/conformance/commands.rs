@@ -1,7 +1,10 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use vmx::{AsyncRelayCommand, Command, Message, MessageHub, RelayCommand, RelayCommandOf};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
+use std::time::{Duration, Instant};
+use vmx::{
+    AsyncRelayCommand, CancellationToken, Command, Message, MessageHub, RelayCommand,
+    RelayCommandOf, VmxError, VmxResult,
+};
 
 /// CMD-001 — execute invokes the configured task
 #[test]
@@ -29,6 +32,24 @@ fn relay_command_can_execute_returns_predicate_result() {
     assert!(!RelayCommand::noop()
         .with_can_execute(|| false)
         .can_execute());
+}
+
+#[test]
+fn command_predicate_panics_map_to_not_executable() {
+    let relay = RelayCommand::noop().with_can_execute(|| panic!("relay predicate"));
+    let parameterized =
+        RelayCommandOf::<i32>::noop().with_can_execute(|_| panic!("parameterized predicate"));
+    let asynchronous = AsyncRelayCommand::noop().with_can_execute(|| panic!("async predicate"));
+    let decorated = RelayCommand::noop().wrap_with(
+        Some(|| panic!("decorator predicate")),
+        None::<fn()>,
+        None::<fn()>,
+    );
+
+    assert!(!relay.can_execute());
+    assert!(!parameterized.can_execute(&1));
+    assert!(!asynchronous.can_execute());
+    assert!(!decorated.can_execute());
 }
 
 /// CMD-004 — Trigger emission fires CanExecuteChanged
@@ -245,6 +266,208 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
     run.join().unwrap().unwrap();
 
     assert!(observed_cancel.load(Ordering::SeqCst));
+    assert!(!command.is_executing());
+    assert!(command.can_execute());
+}
+
+#[test]
+fn async_relay_command_immediate_cancel_is_not_lost_during_admission() {
+    const RUNS: usize = 4_096;
+    const RUN_TIMEOUT: Duration = Duration::from_millis(250);
+    for run_number in 0..RUNS {
+        let observed_cancel = Arc::new(AtomicBool::new(false));
+        let observed_cancel_clone = observed_cancel.clone();
+        let command = AsyncRelayCommand::new(move |token| {
+            let deadline = Instant::now() + RUN_TIMEOUT;
+            while !token.is_cancelled() && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            observed_cancel_clone.store(token.is_cancelled(), Ordering::SeqCst);
+            Ok(())
+        });
+
+        let (execution_sender, execution_receiver) = mpsc::channel();
+        let executing_command = command.clone();
+        let starter = std::thread::spawn(move || {
+            execution_sender
+                .send(executing_command.execute_async())
+                .unwrap();
+        });
+        let observation_deadline = Instant::now() + RUN_TIMEOUT;
+        while !command.is_executing() && Instant::now() < observation_deadline {
+            std::thread::yield_now();
+        }
+        assert!(
+            command.is_executing(),
+            "execution was not observable while admitting run {run_number}"
+        );
+        command.cancel();
+        let execution = execution_receiver
+            .recv_timeout(RUN_TIMEOUT)
+            .unwrap_or_else(|_| panic!("execution handle was not returned for run {run_number}"));
+        starter.join().unwrap();
+        execution.join().unwrap().unwrap();
+
+        assert!(
+            observed_cancel.load(Ordering::SeqCst),
+            "cancel was lost while admitting run {run_number}"
+        );
+    }
+}
+
+#[test]
+fn async_relay_command_builder_owns_predicate_and_additive_triggers() {
+    let allowed = Arc::new(AtomicBool::new(false));
+    let trigger = MessageHub::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let command = AsyncRelayCommand::builder()
+        .task({
+            let calls = calls.clone();
+            move |_| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .predicate({
+            let allowed = allowed.clone();
+            move || allowed.load(Ordering::SeqCst)
+        })
+        .trigger(trigger.clone())
+        .build();
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let observed = notifications.clone();
+    let _subscription = command.can_execute_changed().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    assert!(!command.can_execute());
+    trigger.send(Message::Custom {
+        sender_id: 1,
+        name: "predicate_changed".to_string(),
+    });
+    assert_eq!(notifications.load(Ordering::SeqCst), 1);
+    allowed.store(true, Ordering::SeqCst);
+    command.execute_async().join().unwrap().unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn async_relay_command_routes_fire_and_forget_faults_to_errors() {
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
+    let errors = Arc::new(AtomicUsize::new(0));
+    let observed = errors.clone();
+    let _subscription = command.errors().subscribe(move |message| {
+        if matches!(message, Message::Custom { name, .. } if name == "error") {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+
+    command.execute();
+    while command.is_executing() {
+        std::thread::yield_now();
+    }
+
+    assert_eq!(errors.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn async_relay_command_supports_default_and_throwing_cancellation_modes() {
+    fn cancellable(token: CancellationToken) -> VmxResult<()> {
+        while !token.is_cancelled() {
+            std::thread::yield_now();
+        }
+        Err(VmxError::Cancelled)
+    }
+
+    let default = AsyncRelayCommand::new(cancellable);
+    let run = default.execute_async();
+    while !default.is_executing() {
+        std::thread::yield_now();
+    }
+    default.cancel();
+    assert_eq!(run.join().unwrap(), Ok(()));
+
+    let throwing = AsyncRelayCommand::builder()
+        .task(cancellable)
+        .throw_on_cancel()
+        .build();
+    let run = throwing.execute_async();
+    while !throwing.is_executing() {
+        std::thread::yield_now();
+    }
+    throwing.cancel();
+    assert_eq!(run.join().unwrap(), Err(VmxError::Cancelled));
+
+    let faulting = AsyncRelayCommand::new(|token| {
+        while !token.is_cancelled() {
+            std::thread::yield_now();
+        }
+        Err(VmxError::Other("fault after cancel".into()))
+    });
+    let run = faulting.execute_async();
+    while !faulting.is_executing() {
+        std::thread::yield_now();
+    }
+    faulting.cancel();
+    assert_eq!(
+        run.join().unwrap(),
+        Err(VmxError::Other("fault after cancel".into()))
+    );
+}
+
+#[test]
+fn async_relay_command_admits_only_one_concurrent_execution() {
+    const CALLERS: usize = 8;
+    let predicate_barrier = Arc::new(Barrier::new(CALLERS));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new(AtomicBool::new(false));
+    let command = AsyncRelayCommand::new({
+        let calls = calls.clone();
+        let release = release.clone();
+        move |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            while !release.load(Ordering::SeqCst) {
+                std::thread::yield_now();
+            }
+            Ok(())
+        }
+    })
+    .with_can_execute({
+        let predicate_barrier = predicate_barrier.clone();
+        move || {
+            predicate_barrier.wait();
+            true
+        }
+    });
+
+    let callers = (0..CALLERS)
+        .map(|_| {
+            let command = command.clone();
+            std::thread::spawn(move || command.execute_async())
+        })
+        .collect::<Vec<_>>();
+    let runs = callers
+        .into_iter()
+        .map(|caller| caller.join().unwrap())
+        .collect::<Vec<_>>();
+
+    release.store(true, Ordering::SeqCst);
+    for run in runs {
+        run.join().unwrap().unwrap();
+    }
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn async_relay_command_clears_execution_state_after_action_panic() {
+    let command = AsyncRelayCommand::new(|_| -> vmx::VmxResult<()> {
+        panic!("action panic");
+    });
+
+    let result = command.execute_async().join();
+
+    assert!(result.is_err());
     assert!(!command.is_executing());
     assert!(command.can_execute());
 }

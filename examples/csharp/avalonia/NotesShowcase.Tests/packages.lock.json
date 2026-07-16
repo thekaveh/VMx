@@ -336,20 +336,20 @@
           "Avalonia.Desktop": "[11.3.18, )",
           "Avalonia.Fonts.Inter": "[11.3.18, )",
           "Avalonia.Themes.Fluent": "[11.3.18, )",
-          "VMx": "[3.8.0, )",
+          "VMx": "[3.20.1, )",
           "VMx.Notifications": "[1.2.0, )"
         }
       },
       "vmx": {
         "type": "Project",
         "dependencies": {
-          "System.Reactive": "[6.0.1, )"
+          "System.Reactive": "[6.1.0, )"
         }
       },
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.8.0, )"
+          "VMx": "[3.20.1, )"
         }
       }
     }

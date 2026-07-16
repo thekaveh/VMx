@@ -21,6 +21,39 @@ def test_swift_ci_covers_root_nested_and_manifest_parity() -> None:
     assert "name: Test nested package" in workflow
 
 
+def test_swift_ci_uses_supported_runners_and_compiles_declared_platforms() -> None:
+    workflow = _workflow("swift.yml")
+
+    assert "macos-14" not in workflow
+    assert "macos-latest" not in workflow
+    assert "Xcode_15" not in workflow
+    assert "/Applications/Xcode_16.0.app" in workflow
+    assert 'destination: "generic/platform=iOS"' in workflow
+    assert 'destination: "generic/platform=tvOS"' in workflow
+    assert 'destination: "generic/platform=watchOS"' in workflow
+    assert "CODE_SIGNING_ALLOWED=NO build" in workflow
+
+
+def test_swift_ci_enforces_complete_strict_concurrency() -> None:
+    workflow = _workflow("swift.yml")
+
+    assert "name: Enforce strict concurrency boundaries" in workflow
+    assert "if: matrix.xcode == 'default'" in workflow
+    assert "-Xswiftc -strict-concurrency=complete" in workflow
+    assert "-Xswiftc -warn-concurrency" in workflow
+    assert "-Xswiftc -warnings-as-errors" in workflow
+
+
+def test_swift_ci_enforces_strict_concurrency_for_flagship() -> None:
+    workflow = _workflow("swift.yml")
+    examples_job = workflow.split("\n  examples:\n", maxsplit=1)[1]
+
+    assert "name: Enforce NotesShowcase strict concurrency" in examples_job
+    assert "-Xswiftc -strict-concurrency=complete" in examples_job
+    assert "-Xswiftc -warn-concurrency" in examples_job
+    assert "-Xswiftc -warnings-as-errors" in examples_job
+
+
 def test_swift_release_requires_same_sha_semantic_tag() -> None:
     workflow = _workflow("release.yml")
 

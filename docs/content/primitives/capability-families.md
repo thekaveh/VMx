@@ -1,12 +1,12 @@
 # 6.4. Capability Families
 
-## When To Use It
+## 6.4.1. When To Use It
 
 Use capability interfaces when consumers should depend on what a VM can do
 rather than what concrete type it is. Capabilities are the additive behavior
 surface of VMx.
 
-## Shape And Ownership
+## 6.4.2. Shape And Ownership
 
 The 22 capabilities are grouped by intent:
 
@@ -20,7 +20,7 @@ The 22 capabilities are grouped by intent:
 Capabilities never reshape the core hierarchy. A VM advertises only the verbs it
 actually supports.
 
-## Lifecycle And Messaging
+## 6.4.3. Lifecycle And Messaging
 
 Capabilities define contracts, not subscriptions. Any property-changed or
 message-hub side effects come from the implementing VM or helper, not from the
@@ -29,7 +29,7 @@ interface itself.
 The important rule is uniform across families: if a capability has a `can_*`
 predicate, callers should respect it before invoking the verb.
 
-## Cross-Language Surface
+## 6.4.4. Cross-Language Surface
 
 Representative families:
 
@@ -43,7 +43,7 @@ Representative families:
 The conceptual set is identical across flavors; only the identifier casing
 changes.
 
-## Example
+## 6.4.5. Example
 
 Capability-aware consumers usually read like this in any flavor:
 
@@ -54,13 +54,13 @@ Capability-aware consumers usually read like this in any flavor:
 The Notes Workspace capability action bar is the concrete reference for this
 style of consumer.
 
-## Common Pitfalls
+## 6.4.6. Common Pitfalls
 
 - Treating capabilities as inheritance roots instead of additive contracts.
 - Collapsing granular verbs into a coarser abstraction and losing intent.
 - Forgetting that core VM types do not implicitly implement every capability.
 
-## Related Primitives
+## 6.4.7. Related Primitives
 
 - [State & Reactive Helpers](state-reactive-helpers.md)
 - [Command Families](command-families.md)

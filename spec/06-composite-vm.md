@@ -135,6 +135,32 @@ live handle is disposed:
 
 Nested batches are ref-counted: only the outermost completion fires the `Reset`.
 
+### 4.2 Atomic child ownership transfer (spec v3.21)
+
+Child identity is exclusive. `Add`, `Insert`, index replacement, and builder
+population MUST validate destination indices, same-container duplicate
+identity, and self/ancestor cycles before changing either container.
+
+When the child belongs to a different mutable composite or group, the
+destination performs one transaction:
+
+1. Capture the old parent, child index, selection/current flags, and deferred
+   removal notification.
+1. Remove the child from the old membership without destructing, disposing, or
+   publishing.
+1. Attach it to the destination and perform any required auto-construction.
+1. Commit the old `Remove` notification before the new `Add` notification.
+
+If any step after preflight fails, both memberships, `Parent`, `Current`, child
+current flags, lifecycle state, and lazy/builder population state MUST equal
+their pre-call values. No membership notification is published for a failed
+transaction. Bulk population commits as one batch and rolls earlier transfers
+back in reverse order if a later child fails.
+
+Adding an identity already present in the destination or creating a parent
+cycle fails without mutation. `Move` remains the only operation that reorders
+an existing child within one container.
+
 ## 5. Children construction orchestration
 
 The non-modeled `CompositeVM<VM>` may be built with the fluent builder or the
@@ -388,6 +414,13 @@ The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
 - `COMP-027` — `Add` sets a child's `Parent` (the child becomes selectable and
   `select()` delegates through it); `Remove` clears it (the child is no longer
   selectable and `select()` becomes a no-op).
+- `COMP-038` — adding to a new mutable parent removes the same identity from its
+  previous parent without changing child lifecycle state.
+- `COMP-039` — duplicate and self/ancestor-cycle attempts fail before mutation.
+- `COMP-040` — failed attachment or auto-construction restores both containers,
+  the parent link, index, and selection state.
+- `COMP-041` — successful transfer publishes old removal before new addition;
+  failed transfer publishes neither.
 
 Cross-cutting `DISP-001` covers repeated parent cascades, and `DISP-006`
 covers idempotent batch/projection disposal without changing this chapter's

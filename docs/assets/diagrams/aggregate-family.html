@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -133,7 +127,7 @@
 <rect x="500" y="166" width="250" height="118" rx="8" fill="#0f172a"/>
 <rect x="500" y="166" width="250" height="118" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="625" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Slot factories</text>
-<text x="625" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Component1(...) through Component6(...)</text>
+<text x="625" y="220" fill="#cbd5e1" font-size="9.49" font-weight="400" text-anchor="middle">Component1(...) through Component6(...)</text>
 <text x="625" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">invoked during construct()</text>
 <text x="625" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">stable semantic names</text>
 <rect x="830" y="166" width="250" height="118" rx="8" fill="#0f172a"/>
@@ -208,7 +202,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -233,7 +226,7 @@
         <ul><li>Use aggregates for workspace roots, dashboards, and composition shells.</li><li>Do not use aggregates as a substitute for variable-length child lists.</li><li>Wrap an aggregate in an app-specific VM when the host needs a narrower facade.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.20.0.</footer>
+
   </main>
 </body>
 </html>

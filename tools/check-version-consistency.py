@@ -15,10 +15,12 @@ Rules enforced:
      flavor release also implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
      Source-only rows containing only a pre-1.0 Rust flavor do not imply
      repository release tags.
+  4. TypeScript example lockfiles must record the current local VMx package
+     version so dependency refreshes cannot retain stale workspace metadata.
 
 In-development exemption:
-  ``spec/VERSION`` and each current flavor manifest version recorded in that
-  spec row are being prepared but are not tagged yet. Flavors version
+  ``spec/VERSION`` and versions recorded in its current matrix row are source
+  history for the active line and may be untagged. Flavors version
   independently, so a package version may differ while its min-spec remains
   ``spec/VERSION``. Those tags are reported as "in development, untagged —
   OK" and do not cause a non-zero exit. All other ``major >= 2`` matrix rows
@@ -57,6 +59,15 @@ from pathlib import Path
 # as informational notes and do NOT cause exit 1.
 MIN_ENFORCED_MAJOR: int = 2
 FLAVORS: tuple[str, ...] = ("csharp", "python", "typescript", "swift", "rust")
+TYPESCRIPT_EXAMPLE_LOCKS: tuple[Path, ...] = (
+    Path("examples/typescript/console/hello-vmx/package-lock.json"),
+    Path("examples/typescript/react/notes-showcase/package-lock.json"),
+)
+CSHARP_TAG_PREFIXES: dict[str, str] = {
+    "VMx": "csharp",
+    "VMx.Notifications": "csharp-notifications",
+    "VMx.Extensions.DependencyInjection": "csharp-dependency-injection",
+}
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
@@ -107,11 +118,14 @@ def parse_csharp_versions(csproj_path: Path) -> dict[str, str]:
     msv_m = re.search(r"<MinSpecVersion>([^<]+)</MinSpecVersion>", text)
     pkg_m = re.search(r"<PackageId>([^<]+)</PackageId>", text)
     unreleased_m = re.search(r"<IsUnreleased>([^<]+)</IsUnreleased>", text)
+    package_id = pkg_m.group(1).strip() if pkg_m else csproj_path.stem
+    if package_id not in CSHARP_TAG_PREFIXES:
+        raise ValueError(f"C# package {package_id!r} has no collision-free release tag namespace")
     return {
-        "package_id": pkg_m.group(1).strip() if pkg_m else csproj_path.stem,
+        "package_id": package_id,
         "version": ver_m.group(1).strip() if ver_m else "",
         "min_spec_version": msv_m.group(1).strip() if msv_m else "",
-        "tag_prefix": "csharp",
+        "tag_prefix": CSHARP_TAG_PREFIXES[package_id],
         "require_current_spec": "true" if csproj_path.stem == "VMx" else "false",
         "unreleased": (
             "true" if unreleased_m and unreleased_m.group(1).strip().lower() == "true" else "false"
@@ -142,6 +156,32 @@ def parse_typescript_versions(pkg_path: Path, src_dir: Path) -> dict[str, str]:
             min_spec = m.group(1)
             break
     return {"version": version, "min_spec_version": min_spec}
+
+
+def check_typescript_example_locks(repo_root: Path, expected_version: str) -> list[str]:
+    """Report stale local VMx metadata in tracked TypeScript example lockfiles."""
+    issues: list[str] = []
+    for relative_path in TYPESCRIPT_EXAMPLE_LOCKS:
+        lock_path = repo_root / relative_path
+        if not lock_path.is_file():
+            continue
+        lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+        packages = lock_data.get("packages", {})
+        local_entries = [
+            package
+            for package in packages.values()
+            if isinstance(package, dict) and package.get("name") == "@thekaveh/vmx"
+        ]
+        if not local_entries:
+            issues.append(f"  {relative_path}: local @thekaveh/vmx package metadata is missing")
+            continue
+        actual_version = local_entries[0].get("version", "")
+        if actual_version != expected_version:
+            issues.append(
+                f"  {relative_path}: local @thekaveh/vmx version {actual_version!r} "
+                f"!= manifest version {expected_version!r}"
+            )
+    return issues
 
 
 def parse_swift_versions(version_swift_path: Path) -> dict[str, str]:
@@ -238,7 +278,10 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     Cells containing ``—`` (em-dash) or ``-`` map to an empty list.
     Annotation parentheticals like ``(subset)`` are stripped before
     version extraction.  Range cells (e.g. ``1.1.0`` to ``1.2.0``) yield
-    ``["1.1.0", "1.2.0"]``.
+    ``["1.1.0", "1.2.0"]``.  A spec-cell
+    ``[^legacy-semantic-tag-only]`` marker records the historical case where
+    the immutable semantic ``vX.Y.0`` tag exists without a duplicate
+    ``spec-vX.Y.0`` operational tag.
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
     header_idx: int | None = None
@@ -265,11 +308,15 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) < 5:
             continue
-        spec_row = cells[0].strip()
+        spec_cell = cells[0].strip()
+        legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
+        spec_row = re.sub(r"\[\^[^]]+\]", "", spec_cell).strip()
         if not _SPEC_ROW_RE.match(spec_row):
             continue
 
         row: dict[str, object] = {"spec_row": spec_row}
+        if legacy_semantic_tag_only:
+            row["legacy_semantic_tag_only"] = True
         for idx, flavor in enumerate(FLAVORS):
             cell = cells[idx + 1].strip() if idx + 1 < len(cells) else ""
             # Strip annotation parentheticals like "(subset)".
@@ -369,7 +416,8 @@ def find_missing_tags(
             row.get(flavor, []) for flavor in FLAVORS if flavor != "rust"
         )
         if has_stable_release:
-            _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
+            if not row.get("legacy_semantic_tag_only"):
+                _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
             _want(
                 f"v{spec_canonical}",
                 f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)",
@@ -390,7 +438,12 @@ def current_development_versions(
     manifests: dict[str, dict[str, str]],
     matrix_rows: list[dict[str, object]],
 ) -> set[str]:
-    """Return current untagged spec and independently versioned flavor lines."""
+    """Return untagged versions belonging to the active source line.
+
+    The current matrix row is a source-history range, not a publication claim.
+    A version in that row becomes a release claim only once its immutable tag
+    exists; until then it remains valid in-development history.
+    """
     versions = {spec_version}
     versions.update(
         info["version"]
@@ -405,6 +458,9 @@ def current_development_versions(
     )
     if row is None:
         return versions
+
+    for flavor in FLAVORS:
+        versions.update(str(version) for version in row.get(flavor, []))
 
     for flavor in FLAVORS:
         manifest = manifests.get(flavor)
@@ -527,6 +583,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     tags = get_git_tags(repo_root)
 
     msv_issues = check_min_spec_versions(spec_version, manifests)
+    typescript_version = manifests.get("typescript", {}).get("version", "")
+    if typescript_version:
+        msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))
     all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
     # Carve out current source lines first. Flavor package versions can advance

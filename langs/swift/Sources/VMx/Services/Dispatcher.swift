@@ -6,6 +6,7 @@
 // Rx Scheduler used by the C# / Python / TS flavors.
 //
 import Foundation
+@preconcurrency import Dispatch
 
 /// Pair of execution targets for VMx work. Mirrors `IDispatcher` in the
 /// other flavors. A dispatcher is intentionally just a "schedule this
@@ -33,11 +34,15 @@ public final class DefaultDispatcher: Dispatcher {
         if Thread.isMainThread {
             work()
         } else {
-            DispatchQueue.main.async(execute: work)
+            let transferableWork = UncheckedSendableBox(work)
+            DispatchQueue.main.async { transferableWork.value() }
         }
     }
 
     public func scheduleBackground(_ work: @escaping () -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async(execute: work)
+        let transferableWork = UncheckedSendableBox(work)
+        DispatchQueue.global(qos: .userInitiated).async {
+            transferableWork.value()
+        }
     }
 }

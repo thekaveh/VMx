@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 
 import pytest
 
@@ -74,6 +75,36 @@ async def test_load_more_does_not_mutate_or_notify_when_disposed_during_fetch() 
     assert property_events == []
 
 
+async def test_auto_construct_reentrant_dispose_does_not_commit_or_fault() -> None:
+    sut: TokenPagedComposition[ComponentVM, str] | None = None
+
+    def dispose_pager() -> None:
+        assert sut is not None
+        sut.dispose()
+
+    child = (
+        ComponentVM.builder().name("child").with_null_services().on_construct(dispose_pager).build()
+    )
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return ([child], "next")
+
+    sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+    collection_events: list[object] = []
+    property_events: list[str] = []
+    sut.on_collection_changed.subscribe(collection_events.append)
+    sut.on_property_changed.subscribe(property_events.append)
+
+    await sut.load_more_command.execute_async()
+
+    assert child.is_constructed is True
+    assert sut.items == []
+    assert sut.current_token is None
+    assert sut.has_more is True
+    assert collection_events == []
+    assert property_events == []
+
+
 @pytest.mark.conformance("COL-026")
 async def test_COL_026_terminal_token_disables_load_more() -> None:
     async def fetch(token: str | None) -> tuple[list[int], str | None]:
@@ -105,6 +136,36 @@ async def test_COL_027_refresh_clears_and_refetches_first_page() -> None:
     assert sut.has_more is False
 
 
+async def test_refresh_supersedes_an_older_in_flight_load_more() -> None:
+    entered = [asyncio.Event(), asyncio.Event()]
+    release = [asyncio.Event(), asyncio.Event()]
+    calls = 0
+
+    async def fetch(token: str | None) -> tuple[list[str], str | None]:
+        nonlocal calls
+        index = calls
+        calls += 1
+        entered[index].set()
+        await release[index].wait()
+        return ([f"page-{index}"], f"token-{index}")
+
+    sut = TokenPagedComposition(fetch_next=fetch)
+    load = asyncio.create_task(sut.load_more_command.execute_async())
+    await entered[0].wait()
+
+    refresh = asyncio.create_task(sut.refresh_command.execute_async())
+    await entered[1].wait()
+    release[1].set()
+    await refresh
+    assert sut.items == ["page-1"]
+
+    release[0].set()
+    await load
+
+    assert sut.items == ["page-1"]
+    assert sut.current_token == "token-1"
+
+
 async def test_refresh_does_not_mutate_or_notify_when_disposed_during_fetch() -> None:
     page: asyncio.Future[tuple[list[int], str | None]] = asyncio.Future()
 
@@ -128,6 +189,26 @@ async def test_refresh_does_not_mutate_or_notify_when_disposed_during_fetch() ->
     assert sut.has_more is True
     assert collection_events == []
     assert property_events == []
+
+
+async def test_refresh_comparer_reentrant_dispose_does_not_commit_or_fault() -> None:
+    sut: TokenPagedComposition[int, str] | None = None
+
+    def pages_equal(left: Sequence[int], right: Sequence[int]) -> bool:
+        assert sut is not None
+        sut.dispose()
+        return left == right
+
+    async def fetch(token: str | None) -> tuple[list[int], str | None]:
+        return ([1], "next")
+
+    sut = TokenPagedComposition(fetch_next=fetch, pages_equal=pages_equal)
+
+    await sut.refresh_command.execute_async()
+
+    assert sut.items == []
+    assert sut.current_token is None
+    assert sut.has_more is True
 
 
 @pytest.mark.conformance("COL-028")
@@ -158,6 +239,21 @@ async def test_COL_029_token_paged_collection_changed_events_use_reset() -> None
     await sut.load_more_command.execute_async()
 
     assert actions == ["reset"]
+
+
+async def test_collection_observer_reentrant_dispose_stops_later_notifications() -> None:
+    async def fetch(token: str | None) -> tuple[list[int], str | None]:
+        return ([1], None)
+
+    sut = TokenPagedComposition(fetch_next=fetch)
+    property_events: list[str] = []
+    sut.on_collection_changed.subscribe(lambda _: sut.dispose())
+    sut.on_property_changed.subscribe(property_events.append)
+
+    await sut.load_more_command.execute_async()
+
+    assert sut.items == [1]
+    assert property_events == []
 
 
 @pytest.mark.conformance("COL-030")

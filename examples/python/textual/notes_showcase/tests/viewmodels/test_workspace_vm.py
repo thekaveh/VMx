@@ -53,6 +53,49 @@ async def test_construct_async_populates_notebooks_and_binds_first() -> None:
     assert ws.notes_view.bound_notebook_id == first.model.id
 
 
+async def test_failed_selection_bind_is_observed_and_retryable() -> None:
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        failure_mode=None,
+    )
+    ws = WorkspaceVM.builder().repository(repo).build()
+    await ws.construct_async()
+    personal = next(
+        notebook
+        for notebook in ws.notebooks_root.roots
+        if notebook.model.id == "nb-personal"
+    )
+    loop = asyncio.get_running_loop()
+    unhandled: list[dict[str, object]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    try:
+        repo.fail_next(RuntimeError("transient load failure"))
+        ws.notebooks_root.current = personal
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert unhandled == []
+
+        work = next(
+            notebook
+            for notebook in ws.notebooks_root.roots
+            if notebook.model.id == "nb-work"
+        )
+        ws.notebooks_root.current = work
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        ws.notebooks_root.current = personal
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert ws.notes_view.bound_notebook_id == "nb-personal"
+    finally:
+        loop.set_exception_handler(previous_handler)
+        ws.dispose()
+
+
 async def test_construct_synchronous_does_not_populate() -> None:
     ws = _build()
     ws.construct()
@@ -126,7 +169,7 @@ def test_builder_requires_repository() -> None:
         WorkspaceVM.builder().build()
 
 
-# ── Audit pass #1, C1: toolbar-command body coverage ──────────────────────
+# ── toolbar-command coverage: toolbar-command body coverage ──────────────────────
 
 
 class _StubDialogService(IDialogService):
@@ -173,7 +216,7 @@ async def test_new_notebook_command_adds_notebook_and_fires_notification() -> No
             InMemoryNoteRepository(
                 build_seed(),
                 load_all_delay=0.0,
-                add_notebook_delay=0.0,
+                add_notebook_delay=0.02,
             )
         )
         .notification_hub(notification_hub)
@@ -182,9 +225,7 @@ async def test_new_notebook_command_adds_notebook_and_fires_notification() -> No
     await ws.construct_async()
     before = ws.notebooks_root.all.count
 
-    ws.new_notebook_command.execute()
-    # Fire-and-forget; let the loop drain.
-    await asyncio.sleep(0.05)
+    await ws.new_notebook_command.execute_async()
 
     assert ws.notebooks_root.all.count == before + 1
     assert any("Notebook added" in n.message for n in observed)
@@ -211,8 +252,7 @@ async def test_new_note_command_adds_note_to_current_notebook() -> None:
     nb_id = ws.notebooks_root.current.model.id  # type: ignore[union-attr]
     before = len(await repo.load_notes(nb_id))
 
-    ws.new_note_command.execute()
-    await asyncio.sleep(0.05)
+    await ws.new_note_command.execute_async()
 
     after = len(await repo.load_notes(nb_id))
     assert after == before + 1
@@ -253,8 +293,7 @@ async def test_export_command_uses_dialog_service_and_writes_via_repo(tmp_path) 
     )
     await ws.construct_async()
 
-    ws.export_command.execute()
-    await asyncio.sleep(0.05)
+    await ws.export_command.execute_async()
 
     assert dialog.save_calls == 1
     assert repo.export_count == 1
@@ -279,8 +318,7 @@ async def test_export_command_cancelled_does_not_call_repo() -> None:
     )
     await ws.construct_async()
 
-    ws.export_command.execute()
-    await asyncio.sleep(0.05)
+    await ws.export_command.execute_async()
 
     assert dialog.save_calls == 1
     assert repo.export_count == 0
@@ -301,9 +339,7 @@ def test_dialog_service_property_round_trips() -> None:
 
 
 async def test_new_note_command_no_op_when_no_current_notebook() -> None:
-    """``new_note_command`` predicate fails when no notebook is current; calling
-    execute is still safe (fire-and-forget guard inside the body).
-    """
+    """The new-note operation safely returns when no notebook is current."""
     ws = _build()
     ws.construct()
     # No populate → current notebook is None.
@@ -329,7 +365,7 @@ async def test_export_command_internal_returns_early_when_no_dialog_path() -> No
     assert repo.export_count == 0
 
 
-# ── Round-3 Critical-2: WorkspaceVM observes notes_view.current and rebinds
+# ── current-selection rebinding: WorkspaceVM observes notes_view.current and rebinds
 # the note form so the right-pane editor reflects the selection. Without
 # this subscription, the editor stays empty in the running app.
 
@@ -347,7 +383,7 @@ async def test_setting_notes_view_current_rebinds_note_form() -> None:
     assert ws.note_form.body == first.body
 
 
-# ── Round-4 Important-1: selecting + deleting clears the form ──────────────
+# ── cleared-selection form behavior: selecting + deleting clears the form ──────────────
 #
 # When notes_view.current transitions to None (e.g. the user deletes the
 # selected note), the WorkspaceVM subscription must call note_form.unbind()

@@ -22,7 +22,7 @@ final class TokenPagedCompositionTests: XCTestCase {
             fetchNext: { token in token == nil ? ([1, 2], "next") : ([], nil) }
         )
 
-        XCTAssertEqual(sut.items, [])
+        XCTAssertTrue(sut.items.isEmpty)
         XCTAssertNil(sut.currentToken)
         XCTAssertTrue(sut.hasMore)
         XCTAssertTrue(sut.loadMoreCommand.canExecute())
@@ -77,6 +77,32 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(propertyEvents, 0)
     }
 
+    func testAutoConstructReentrantDisposeDoesNotCommitOrFault() async throws {
+        var sut: TokenPagedComposition<ComponentVM, String>!
+        let child = try ComponentVM.builder()
+            .name("child")
+            .withNullServices()
+            .onConstruct { sut.dispose() }
+            .build()
+        sut = TokenPagedComposition<ComponentVM, String>(
+            fetchNext: { _ in ([child], "next") },
+            autoConstructOnAdd: true
+        )
+        var collectionEvents = 0
+        var propertyEvents = 0
+        sut.collectionChanged.sink { _ in collectionEvents += 1 }.store(in: &cancellables)
+        sut.propertyChanged.sink { _ in propertyEvents += 1 }.store(in: &cancellables)
+
+        try await sut.loadMoreCommand.executeAsync()
+
+        XCTAssertTrue(child.isConstructed)
+        XCTAssertTrue(sut.items.isEmpty)
+        XCTAssertNil(sut.currentToken)
+        XCTAssertTrue(sut.hasMore)
+        XCTAssertEqual(collectionEvents, 0)
+        XCTAssertEqual(propertyEvents, 0)
+    }
+
     /// COL-026 — terminal token disables loadMore.
     func testCOL026TerminalTokenDisablesLoadMore() async throws {
         let sut = TokenPagedComposition<Int, String>(
@@ -103,6 +129,44 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(sut.items, [9])
         XCTAssertNil(sut.currentToken)
         XCTAssertFalse(sut.hasMore)
+    }
+
+    func testRefreshSupersedesAnOlderInFlightLoadMore() async throws {
+        let gate = NSLock()
+        var call = 0
+        var loadContinuation: CheckedContinuation<([Int], String?), Error>?
+        var refreshContinuation: CheckedContinuation<([Int], String?), Error>?
+        let loadStarted = expectation(description: "loadMore fetch started")
+        let refreshStarted = expectation(description: "refresh fetch started")
+        let sut = TokenPagedComposition<Int, String>(fetchNext: { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                gate.lock()
+                defer { gate.unlock() }
+                if call == 0 {
+                    loadContinuation = continuation
+                    loadStarted.fulfill()
+                } else {
+                    refreshContinuation = continuation
+                    refreshStarted.fulfill()
+                }
+                call += 1
+            }
+        })
+
+        let load = Task { try await sut.loadMoreCommand.executeAsync() }
+        await fulfillment(of: [loadStarted], timeout: 2.0)
+        let refresh = Task { try await sut.refreshCommand.executeAsync() }
+        await fulfillment(of: [refreshStarted], timeout: 2.0)
+
+        refreshContinuation?.resume(returning: ([9], "fresh"))
+        try await refresh.value
+        XCTAssertEqual(sut.items, [9])
+
+        loadContinuation?.resume(returning: ([1], "stale"))
+        try await load.value
+
+        XCTAssertEqual(sut.items, [9])
+        XCTAssertEqual(sut.currentToken, "fresh")
     }
 
     func testRefreshDoesNotMutateOrNotifyWhenDisposedDuringFetch() async throws {
@@ -132,6 +196,23 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(propertyEvents, 0)
     }
 
+    func testRefreshComparerReentrantDisposeDoesNotCommitOrDeadlock() async throws {
+        var sut: TokenPagedComposition<Int, String>!
+        sut = TokenPagedComposition<Int, String>(
+            fetchNext: { _ in ([1], "next") },
+            pagesEqual: { left, right in
+                sut.dispose()
+                return left == right
+            }
+        )
+
+        try await sut.refreshCommand.executeAsync()
+
+        XCTAssertEqual(sut.items, [])
+        XCTAssertNil(sut.currentToken)
+        XCTAssertTrue(sut.hasMore)
+    }
+
     /// COL-028 — refresh dedup guard suppresses redundant mutation.
     func testCOL028RefreshDedupSuppressesRedundantMutation() async throws {
         let sut = TokenPagedComposition<Int, String>(
@@ -159,6 +240,20 @@ final class TokenPagedCompositionTests: XCTestCase {
         try await sut.loadMoreCommand.executeAsync()
 
         XCTAssertEqual(actions, [.reset])
+    }
+
+    func testCollectionObserverReentrantDisposeStopsLaterNotifications() async throws {
+        let sut = TokenPagedComposition<Int, String>(
+            fetchNext: { _ in ([1], nil) }
+        )
+        var propertyEvents: [String] = []
+        sut.collectionChanged.sink { _ in sut.dispose() }.store(in: &cancellables)
+        sut.propertyChanged.sink { propertyEvents.append($0) }.store(in: &cancellables)
+
+        try await sut.loadMoreCommand.executeAsync()
+
+        XCTAssertEqual(sut.items, [1])
+        XCTAssertEqual(propertyEvents, [])
     }
 
     /// COL-030 — autoConstructOnAdd constructs component VMs added by a page.

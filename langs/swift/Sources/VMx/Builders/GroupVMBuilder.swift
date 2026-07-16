@@ -28,6 +28,12 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     ) -> GroupVMBuilder<Child> {
         var c = self; c._hub = hub; c._dispatcher = dispatcher; return c
     }
+    func _optionHub(_ hub: MessageHubProtocol) -> GroupVMBuilder<Child> {
+        var c = self; c._hub = hub; return c
+    }
+    func _optionDispatcher(_ dispatcher: Dispatcher) -> GroupVMBuilder<Child> {
+        var c = self; c._dispatcher = dispatcher; return c
+    }
     public func children(
         _ factory: @escaping () -> [Child]
     ) -> GroupVMBuilder<Child> {

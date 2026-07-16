@@ -146,4 +146,72 @@ describe("FORM-030", () => {
     denySub.unsubscribe();
     resetSub.unsubscribe();
   });
+
+  it("finishes an admitted assignment before reentrant disposal tears down signals", () => {
+    const hub = new MessageHub();
+    const published: string[] = [];
+    const signalTrace: string[] = [];
+    let form: FormVM<Model>;
+    form = new FormVM<Model>({
+      initial: model("initial"),
+      persister: async () => {},
+      hub,
+      strict: true,
+      snapshotter: (value) => value,
+      equals: (left, right) => {
+        if (right.value === "accepted") form.dispose();
+        return left.value === right.value;
+      },
+      validators: {
+        value: (value) => value.value === "accepted" ? "invalid" : undefined,
+      },
+    });
+    form.errorsChanged.subscribe({
+      next: () => signalTrace.push("errors"),
+      complete: () => signalTrace.push("complete"),
+    });
+    hub.messages.subscribe((message) => {
+      if (
+        message instanceof PropertyChangedMessage &&
+        message.sender === form &&
+        message.propertyName === "model"
+      ) {
+        published.push(form.model.value);
+      }
+    });
+
+    form.setModel(model("accepted"));
+    form.setModel(model("late"));
+
+    expect(form.model).toEqual(model("accepted"));
+    expect(form.errors).toEqual({ value: "invalid" });
+    expect(published).toEqual(["accepted"]);
+    expect(signalTrace).toEqual(["errors", "complete"]);
+  });
+
+  it("publishes validation from an assignment whose validator disposes reentrantly", () => {
+    const signalTrace: string[] = [];
+    let form: FormVM<Model>;
+    form = new FormVM<Model>({
+      initial: model("initial"),
+      persister: async () => {},
+      snapshotter: (value) => value,
+      validators: {
+        value: (value) => {
+          if (value.value === "accepted") form.dispose();
+          return value.value === "accepted" ? "invalid" : undefined;
+        },
+      },
+    });
+    form.errorsChanged.subscribe({
+      next: () => signalTrace.push("errors"),
+      complete: () => signalTrace.push("complete"),
+    });
+
+    form.setModel(model("accepted"));
+
+    expect(form.model).toEqual(model("accepted"));
+    expect(form.errors).toEqual({ value: "invalid" });
+    expect(signalTrace).toEqual(["errors", "complete"]);
+  });
 });

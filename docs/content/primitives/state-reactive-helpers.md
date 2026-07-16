@@ -1,13 +1,13 @@
 # 6.5. State & Reactive Helpers
 
-## When To Use It
+## 6.5.1. When To Use It
 
 Use these helpers when the VM shape is already correct, but you need reusable
 reactive behavior layered onto it: search, expand/collapse state, derived
 values, active-key coordination, edit/revert state, or one asynchronously
 acquired presentation value.
 
-## Shape And Ownership
+## 6.5.2. Shape And Ownership
 
 The main helpers in this area are:
 
@@ -22,7 +22,7 @@ Most of these primitives are composed inside a larger VM. `AsyncResourceVM`
 is itself a component VM and may be the outer binding boundary for one remote
 or otherwise expensive value.
 
-## Async Resource State
+## 6.5.3. Async Resource State
 
 `AsyncResourceVM<T>` standardizes the state and commands around one async
 loader without choosing a transport, cache, route, scheduler policy, or paging
@@ -68,7 +68,7 @@ Use `PagedComposition` or `TokenPagedComposition` when the domain is a page or
 cursor sequence. Keep product-specific client construction and caching outside
 this primitive and inject them through the loader closure.
 
-## Reactive Search Sources
+## 6.5.4. Reactive Search Sources
 
 `SearchableState<TItem>` always keeps its existing lazy item supplier. Add the
 optional source-change signal when the supplier can mutate while the search
@@ -112,7 +112,7 @@ Membership-only consumers can map their collection's structural event directly.
 When no signal is supplied, mutation remains intentionally explicit: call
 `search()` to refresh, preserving compatibility with earlier releases.
 
-## Lifecycle And Messaging
+## 6.5.5. Lifecycle And Messaging
 
 The lifecycle rule is simple: if a helper owns subscriptions, dispose it with
 its owner. That matters especially for `DerivedProperty`, `SearchableState`, and
@@ -125,7 +125,7 @@ down cleanly on disposal.
 The [Disposal Contract](disposal-contract.md) inventories which helpers expose
 disposal, which last values remain readable, and which streams complete.
 
-## Cross-Language Surface
+## 6.5.6. Cross-Language Surface
 
 | Helper                    | Key surface                                      |
 | ------------------------- | ------------------------------------------------ |
@@ -136,7 +136,7 @@ disposal, which last values remain readable, and which streams complete.
 | `FormVM<TM>`              | model, snapshot, dirty/valid state, approve/deny |
 | `AsyncResourceVM<T>`      | state snapshot, load/reload/cancel commands      |
 
-## Example
+## 6.5.7. Example
 
 The Notes Workspace examples combine several helpers inside one editor and one
 status surface:
@@ -147,7 +147,7 @@ status surface:
 
 That composition style is the norm in VMx.
 
-## Common Pitfalls
+## 6.5.8. Common Pitfalls
 
 - Re-implementing reactive glue with hand-managed subscriptions instead of
   composing a helper.
@@ -161,7 +161,7 @@ That composition style is the norm in VMx.
 - Treating `AsyncResourceVM` as a cache, transport client, or paging owner.
 - Forgetting cleanup when the loaded value owns a handle or subscription.
 
-## Related Primitives
+## 6.5.9. Related Primitives
 
 - [Capability Families](capability-families.md)
 - [FormVM](viewmodel-families/specialized/form-vm.md)

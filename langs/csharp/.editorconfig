@@ -1,4 +1,4 @@
-# C# specific overrides on top of /Users/kaveh/repos/VMx/.editorconfig
+# C#-specific overrides layered on the repository-root .editorconfig.
 [*.cs]
 dotnet_diagnostic.IDE0005.severity = warning
 csharp_using_directive_placement = outside_namespace:warning

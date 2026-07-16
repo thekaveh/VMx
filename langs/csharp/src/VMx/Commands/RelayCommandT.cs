@@ -1,5 +1,5 @@
 using System.Reactive;
-using System.Reactive.Disposables;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 
 namespace VMx.Commands;
@@ -29,7 +29,7 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
 {
     private readonly Action<T>? _task;
     private readonly Func<T, bool>? _predicate;
-    private readonly CompositeDisposable _triggerSubscriptions = new();
+    private readonly List<IDisposable> _triggerSubscriptions = [];
     private bool _disposed;
 
     internal RelayCommand(Action<T>? task, Func<T, bool>? predicate, IReadOnlyList<IObservable<Unit>> triggers)
@@ -86,8 +86,15 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
-        _triggerSubscriptions.Dispose();
+        ExceptionDispatchInfo? firstError = null;
+        try { CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
+        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
+        foreach (var subscription in _triggerSubscriptions)
+        {
+            try { subscription.Dispose(); }
+            catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
+        }
+        firstError?.Throw();
     }
 
     /// <summary>Returns a new immutable builder for <see cref="RelayCommand{T}"/>.</summary>

@@ -6,14 +6,14 @@ idiomatic hosts, and one shared VM contract.
 <img src="../../assets/diagrams/examples-vm-layer.svg" alt="Examples VM Layer Map" class="vmx-diagram" />
 
 <p>
-  <a href="../notes-workspace-vm-layer/">Open the VM layer walkthrough</a>
+  <a href="notes-workspace-vm-layer/">Open the VM layer walkthrough</a>
   &middot;
   <a href="../../assets/diagrams/examples-vm-layer.svg">SVG</a>
   &middot;
   <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
 </p>
 
-## Canonical Sources
+## 8.3.1. Canonical Sources
 
 - Cross-flavor parity matrix:
   [examples/notes-showcase-parity.md](../../../examples/notes-showcase-parity.md)
@@ -22,7 +22,7 @@ idiomatic hosts, and one shared VM contract.
 - Scenario proposal:
   [spec/proposals/2026-05-29-notes-showcase-scenario.md](../../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 
-## Flavor Hosts
+## 8.3.2. Flavor Hosts
 
 - C# / Avalonia:
   [examples/csharp/avalonia/NotesShowcase/README.md](../../../examples/csharp/avalonia/NotesShowcase/README.md)
@@ -33,7 +33,7 @@ idiomatic hosts, and one shared VM contract.
 - Swift / SwiftUI:
   [examples/swift/notes-showcase/README.md](../../../examples/swift/notes-showcase/README.md)
 
-## What It Exercises
+## 8.3.3. What It Exercises
 
 The portfolio is the working example for the current full-parity surface:
 
@@ -45,7 +45,7 @@ The portfolio is the working example for the current full-parity surface:
 - dialogs, notifications, confirmation flows, and theme state
 - edit/preview mode with `DiscriminatorVM`
 
-## Important Modeling Note
+## 8.3.4. Important Modeling Note
 
 The notebooks tree in the current flagship apps is not built from direct
 `HierarchicalVM` subclasses. All four UI-backed examples use flat `ComponentVM`-based
@@ -54,3 +54,12 @@ tree messaging contract.
 
 Use the parity matrix for the exact row-by-row feature coverage, then drill into
 the flavor README you care about for project layout and run commands.
+
+## 8.3.5. Swift Foreground Contract
+
+The Swift flagship uses VMx's `DefaultDispatcher` in production. Persistence
+and notification awaits may resume on any executor, but observable collection,
+selection, form, and command-state mutations complete through an awaited
+foreground-dispatch bridge. Its CI build enables complete strict-concurrency
+checking and promotes every concurrency warning to an error for both the VMx
+package and the full SwiftUI flagship.

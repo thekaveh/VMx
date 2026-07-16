@@ -54,7 +54,7 @@ class NotesShowcaseApp(App[None]):
     def get_default_screen(self) -> MainScreen:
         # Screens are installed, never composed: yielding a Screen from
         # ``compose()`` mounts it as a zero-sized child widget and the whole
-        # app renders blank (real-wiring audit, pass 5).
+        # app renders blank (runtime behavior).
         return MainScreen(self.workspace)
 
     async def action_save(self) -> None:

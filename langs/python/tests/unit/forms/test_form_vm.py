@@ -6,9 +6,11 @@ Conformance-level tests live in tests/conformance/test_form_001_to_010_form_vm.p
 from __future__ import annotations
 
 import dataclasses
+from threading import Event, Thread
 from typing import Any
 
 import pytest
+from reactivex.subject import Subject
 
 from vmx.forms import FormVM
 from vmx.messages import FormRevertedMessage, PropertyChangedMessage
@@ -319,6 +321,43 @@ def test_deny_after_dispose_is_noop() -> None:
     assert sut.model == Model("B", 2)
 
 
+def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
+    snapshot_started = Event()
+    release_snapshot = Event()
+    dispose_finished = Event()
+    pause_snapshot = False
+
+    def snapshotter(model: Model) -> Model:
+        if pause_snapshot:
+            snapshot_started.set()
+            assert release_snapshot.wait(1)
+        return model
+
+    sut = FormVM(Model("A", 1), _noop, snapshotter=snapshotter)
+    sut.set_model(Model("B", 2))
+    pause_snapshot = True
+
+    denier = Thread(target=sut.deny_command.execute, daemon=True)
+    denier.start()
+    assert snapshot_started.wait(1)
+
+    disposer = Thread(
+        target=lambda: (sut.dispose(), dispose_finished.set()),
+        daemon=True,
+    )
+    disposer.start()
+    disposed_during_snapshot = dispose_finished.wait(0.1)
+    release_snapshot.set()
+
+    denier.join(timeout=1)
+    disposer.join(timeout=1)
+
+    assert not denier.is_alive()
+    assert not disposer.is_alive()
+    assert not disposed_during_snapshot
+    assert sut.model == Model("A", 1)
+
+
 async def test_approve_after_dispose_does_not_invoke_persister() -> None:
     """Approve on a disposed form is a full no-op — the persister is an
     external side effect and must not run (symmetric with the deny guard)."""
@@ -333,6 +372,53 @@ async def test_approve_after_dispose_does_not_invoke_persister() -> None:
     await sut.approve_async()
 
     assert persisted == []
+
+
+def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
+    emission_started = Event()
+    release_emission = Event()
+    dispose_finished = Event()
+
+    class BlockingSubject(Subject[BaseException]):
+        def on_next(self, value: BaseException) -> None:
+            emission_started.set()
+            assert release_emission.wait(1)
+            super().on_next(value)
+
+    sut = _make()
+    subject = BlockingSubject()
+    observed: list[BaseException] = []
+    subject.subscribe(observed.append)
+    sut._approve_errors = subject
+    failure = RuntimeError("persist failed")
+    emission_failures: list[BaseException] = []
+
+    def emit() -> None:
+        try:
+            sut._emit_approve_error(failure)
+        except BaseException as error:
+            emission_failures.append(error)
+
+    emitter = Thread(target=emit, daemon=True)
+    emitter.start()
+    assert emission_started.wait(1)
+
+    disposer = Thread(
+        target=lambda: (sut.dispose(), dispose_finished.set()),
+        daemon=True,
+    )
+    disposer.start()
+    disposed_during_emission = dispose_finished.wait(0.1)
+    release_emission.set()
+
+    emitter.join(timeout=1)
+    disposer.join(timeout=1)
+
+    assert not emitter.is_alive()
+    assert not disposer.is_alive()
+    assert not disposed_during_emission
+    assert emission_failures == []
+    assert observed == [failure]
 
 
 def test_builder_snapshotter_is_used() -> None:
@@ -408,3 +494,34 @@ def test_approve_errors_completes_on_dispose() -> None:
 
     sut.dispose()
     assert len(completed) == 1, "approve_errors observable completes on dispose"
+
+
+def test_approve_command_without_running_loop_returns_while_persist_is_pending() -> None:
+    import asyncio
+    from threading import Event, Thread
+
+    started = Event()
+    release = Event()
+    finished = Event()
+    returned = Event()
+
+    async def persister(model: Model) -> None:
+        started.set()
+        while not release.is_set():
+            await asyncio.sleep(0)
+        finished.set()
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    caller = Thread(target=lambda: (sut.approve_command.execute(), returned.set()), daemon=True)
+    caller.start()
+
+    try:
+        assert started.wait(1), "the persister starts on a background event loop"
+        returned_before_release = returned.wait(0.1)
+    finally:
+        release.set()
+        caller.join(timeout=1)
+
+    assert returned_before_release, "fire-and-forget approval must not await persistence inline"
+    assert finished.wait(1)
+    sut.dispose()

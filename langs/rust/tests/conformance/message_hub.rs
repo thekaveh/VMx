@@ -1,4 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
+use std::time::Duration;
 use vmx::{Message, MessageHub, Subscription};
 
 fn make_msg(name: &str) -> Message {
@@ -300,10 +302,62 @@ fn ordinary_send_remains_synchronous() {
 }
 
 #[test]
-fn concurrent_producer_waits_for_batch_and_delivers_on_own_thread() {
-    use std::sync::mpsc;
-    use std::time::Duration;
+fn opposing_hub_callbacks_do_not_deadlock() {
+    let left = MessageHub::new();
+    let right = MessageHub::new();
+    let callbacks_entered = Arc::new(Barrier::new(2));
+    let inner_deliveries = Arc::new(AtomicUsize::new(0));
 
+    let _left_subscription = left.subscribe({
+        let right = right.clone();
+        let callbacks_entered = callbacks_entered.clone();
+        let inner_deliveries = inner_deliveries.clone();
+        move |message| {
+            if custom_name(message) == "outer" {
+                callbacks_entered.wait();
+                right.send(make_msg("inner"));
+            } else {
+                inner_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+    let _right_subscription = right.subscribe({
+        let left = left.clone();
+        let callbacks_entered = callbacks_entered.clone();
+        let inner_deliveries = inner_deliveries.clone();
+        move |message| {
+            if custom_name(message) == "outer" {
+                callbacks_entered.wait();
+                left.send(make_msg("inner"));
+            } else {
+                inner_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let left_worker = std::thread::spawn({
+        let left = left.clone();
+        let returned_tx = returned_tx.clone();
+        move || {
+            left.send(make_msg("outer"));
+            returned_tx.send(()).unwrap();
+        }
+    });
+    let right_worker = std::thread::spawn(move || {
+        right.send(make_msg("outer"));
+        returned_tx.send(()).unwrap();
+    });
+
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    left_worker.join().unwrap();
+    right_worker.join().unwrap();
+    assert_eq!(inner_deliveries.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn concurrent_producer_waits_for_batch_and_delivers_on_own_thread() {
     let hub = MessageHub::new();
     let delivery_thread = Arc::new(Mutex::new(None));
     let delivery_thread_clone = delivery_thread.clone();

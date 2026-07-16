@@ -18,6 +18,7 @@ import pytest
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
+from vmx.components.component_vm import ComponentVM
 from vmx.components.protocols import ViewModelType
 from vmx.groups.builders import GroupVMBuilder
 from vmx.groups.group_vm import GroupVM
@@ -52,6 +53,11 @@ def _make_group(
     d = _dispatcher()
     vm: GroupVM[object] = GroupVMBuilder().name(name).services(h, d).children(lambda: ()).build()
     return vm, h
+
+
+class _ThrowingDisposeChild(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError("dispose hook failure")
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +437,35 @@ class TestGroupVMLifecycle:
         # Factory should be called only once.
         assert factory_calls == [1]
 
+    def test_failed_factory_population_rolls_back_and_retries(self) -> None:
+        h = _hub()
+        d = _dispatcher()
+        child_a = _make_child("a", hub=h)
+        child_b = _make_child("b", hub=h)
+        calls = 0
+
+        def _factory() -> object:
+            nonlocal calls
+            calls += 1
+            yield child_a
+            if calls == 1:
+                raise RuntimeError("transient factory failure")
+            yield child_b
+
+        grp: GroupVM[object] = GroupVMBuilder().name("g").services(h, d).children(_factory).build()
+
+        with pytest.raises(RuntimeError, match="transient factory failure"):
+            grp.construct()
+
+        assert grp.status == ConstructionStatus.DESTRUCTED
+        assert grp.count == 0
+
+        grp.construct()
+
+        assert calls == 2
+        assert list(grp) == [child_a, child_b]
+        assert grp.status == ConstructionStatus.CONSTRUCTED
+
     def test_dispose_disposes_children(self) -> None:
         grp, _ = _make_group()
         children = [_make_child(f"c{i}") for i in range(2)]
@@ -440,6 +475,21 @@ class TestGroupVMLifecycle:
         grp.dispose()
         for c in children:
             assert c.status == ConstructionStatus.DISPOSED  # type: ignore[union-attr]
+        assert grp.status == ConstructionStatus.DISPOSED
+
+    def test_dispose_continues_after_child_failure_and_reraises_first_error(self) -> None:
+        grp, hub = _make_group()
+        dispatcher = _dispatcher()
+        throwing = _ThrowingDisposeChild(name="throwing", hint="", hub=hub, dispatcher=dispatcher)
+        sibling = _make_child("sibling", hub)
+        grp.add(throwing)
+        grp.add(sibling)
+
+        with pytest.raises(RuntimeError, match="dispose hook failure"):
+            grp.dispose()
+
+        assert throwing.status == ConstructionStatus.DISPOSED
+        assert sibling.status == ConstructionStatus.DISPOSED  # type: ignore[union-attr]
         assert grp.status == ConstructionStatus.DISPOSED
 
     def test_dispose_cascade_is_depth_first(self) -> None:

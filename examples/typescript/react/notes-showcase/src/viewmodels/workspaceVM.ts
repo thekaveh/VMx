@@ -16,9 +16,9 @@
 import { BehaviorSubject, Subject, observeOn, type Subscription } from "rxjs";
 import {
   AggregateVM6,
+  AsyncRelayCommand,
   DerivedProperty,
   MessageHub,
-  RelayCommand,
   RxDispatcher,
   whenPropertyChanged,
   type ICommand,
@@ -70,11 +70,11 @@ export class WorkspaceVM {
     CapabilityActionsVM
   >;
 
-  readonly #newNotebookCommand: RelayCommand;
-  readonly #newNoteCommand: RelayCommand;
-  readonly #exportCommand: RelayCommand;
+  readonly #newNotebookCommand: AsyncRelayCommand;
+  readonly #newNoteCommand: AsyncRelayCommand;
+  readonly #exportCommand: AsyncRelayCommand;
 
-  // Round-3 Critical-2 parity: rebind noteForm whenever notesView.current
+  // current-selection rebinding: rebind noteForm whenever notesView.current
   // changes. The VM-level subscription is the single bridge — views set
   // `notesView.current` and everything downstream flows from here.
   readonly #currentNoteSubscription: Subscription;
@@ -82,7 +82,7 @@ export class WorkspaceVM {
   // Pushed whenever toolbar-command predicates may have flipped
   // (construct completes, notebook selection changes) — without a trigger
   // the commands' canExecuteChanged never fires and useCommand's disabled
-  // mirror stays frozen at first render (real-wiring audit, pass 6).
+  // mirror otherwise stays frozen at first render.
   readonly #commandTrigger = new Subject<void>();
 
   readonly #focusSubject: BehaviorSubject<object | null>;
@@ -149,9 +149,7 @@ export class WorkspaceVM {
           this.#notebooks.current !== null &&
           !this.#notesView.currentNotebookIsReadonly,
       )
-      .addNoteAction(() => {
-        void this.#addNewNoteToCurrentAsync();
-      })
+      .addNoteAction(() => this.#addNewNoteToCurrentAsync())
       .build();
     this.#globalSearch = GlobalSearchVM.builder()
       .name("global-search")
@@ -195,17 +193,17 @@ export class WorkspaceVM {
       null,
     );
 
-    // Round-3 Critical-2: subscribe to notesView "current" PropertyChanged
+    // current-selection rebinding: subscribe to notesView "current" PropertyChanged
     // and rebind the note form. Captures locals so we don't reference
     // `this.#notesView` / `this.#noteForm` before they're assigned during
     // the rest of the constructor.
     //
-    // Round-4 Important-1: when current transitions to null (e.g. the
+    // cleared-selection form behavior: when current transitions to null (e.g. the
     // selected note is deleted in NotesViewVM.#deleteNoteAsync) the form
     // must be unbound — otherwise the right pane keeps the deleted note's
     // title/body and approve would persist a ghost.
     //
-    // Round-4 Important-2: marshal delivery onto the foreground scheduler
+    // foreground dispatch: marshal delivery onto the foreground scheduler
     // so bindTo / unbind (which raise PropertyChanged for React subscribers
     // via useSyncExternalStore) always run on the rendering thread. Today
     // current is set from React click handlers (already main-thread) so
@@ -232,7 +230,7 @@ export class WorkspaceVM {
         }
       });
 
-    // Real-wiring audit, pass 6: refresh the saved note's list row (title /
+    // Live-binding invariant: refresh the saved note's list row (title /
     // star were construction-time snapshots and went stale after every
     // save). Mirrors the Python flagship's on_saved → refresh_note wiring.
     this.#savedNoteSubscription = this.#noteForm.onSaved
@@ -241,25 +239,19 @@ export class WorkspaceVM {
         notesViewRef.refreshNote(saved);
       });
 
-    this.#newNotebookCommand = RelayCommand.builder()
+    this.#newNotebookCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isConstructed)
-      .task(() => {
-        void this.#notebooks.addNotebookAsync(null, "New Notebook");
-      })
+      .task(async () => { await this.#notebooks.addNotebookAsync(null, "New Notebook"); })
       .triggers(this.#commandTrigger)
       .build();
-    this.#newNoteCommand = RelayCommand.builder()
+    this.#newNoteCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isConstructed && this.#notebooks.current !== null)
-      .task(() => {
-        void this.#addNewNoteToCurrentAsync();
-      })
+      .task(async () => { await this.#addNewNoteToCurrentAsync(); })
       .triggers(this.#commandTrigger)
       .build();
-    this.#exportCommand = RelayCommand.builder()
+    this.#exportCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isConstructed)
-      .task(() => {
-        void this.#exportInternalAsync();
-      })
+      .task(async () => { await this.#exportInternalAsync(); })
       .triggers(this.#commandTrigger)
       .build();
   }
@@ -269,14 +261,23 @@ export class WorkspaceVM {
    * focus, the readonly mirror the capability bar gates on, and rebinds
    * the notes view. The single entry the tree view calls — the readonly
    * mirror was previously set only at construct time, so capability
-   * gating went stale on every selection change (real-wiring audit,
-   * pass 6).
+   * gating otherwise goes stale on every selection change.
    */
   selectNotebook(nb: NotebookVM): void {
     this.#notebooks.current = nb;
     this.setFocus(nb);
     this.#notesView.currentNotebookIsReadonly = nb.model.isReadonly ?? false;
-    void this.#notesView.bindToAsync(nb.model.id);
+    void this.#bindNotesObservedAsync(nb.model.id);
+  }
+
+  async #bindNotesObservedAsync(notebookId: string): Promise<void> {
+    try {
+      await this.#notesView.bindToAsync(notebookId);
+    } catch {
+      // The synchronous selection entry point has no error result. Observe
+      // the rejected promise so a transient repository fault does not become
+      // a global unhandled rejection; a later selection can retry.
+    }
   }
 
   // ── Component accessors ───────────────────────────────────────────────────

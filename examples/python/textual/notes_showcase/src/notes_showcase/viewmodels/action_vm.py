@@ -19,7 +19,7 @@ class ActionVM:
     ``command`` is typed as the :class:`~vmx.commands.protocols.Command`
     protocol so the action-bar can reuse decorated commands such as
     :class:`~vmx.commands.ConfirmationDecoratorCommand` (e.g. the wrapped
-    ``NoteVM.delete_command``) — round-3 Critical-1.
+    ``NoteVM.delete_command``) — shared delete-command behavior.
     """
 
     label: str

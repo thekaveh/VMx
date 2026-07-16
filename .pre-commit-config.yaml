@@ -24,10 +24,10 @@ repos:
         # from the repo root. Pass --config explicitly to apply the same
         # rule-set CI enforces (see .github/workflows/conformance.yml).
         args: ["--fix", "--config", "langs/python/pyproject.toml"]
-        files: ^(langs/python|tools)/.*\.py$
+        files: ^(langs/python|tools|scripts/docs|tests/docs|docs/assets/diagrams)/.*\.py$
       - id: ruff-format
         args: ["--config", "langs/python/pyproject.toml"]
-        files: ^(langs/python|tools)/.*\.py$
+        files: ^(langs/python|tools|scripts/docs|tests/docs|docs/assets/diagrams)/.*\.py$
 
   - repo: https://github.com/executablebooks/mdformat
     # mdformat 1.0.0 is incompatible with mdformat-gfm (requires mdformat <0.8.0).
@@ -40,7 +40,8 @@ repos:
         # blocks, which builds but renders as separate single-tab groups.
         exclude: |
           (?x)^(
-            docs/content/(installation|quickstart)\.md|
+            docs/content/installation\.md|
+            docs/content/getting-started/index\.md|
             docs/content/examples/rust-tui-notes-showcase\.md|
             docs/content/flavors/rust\.md|
             docs/content/primitives/(command-families|services-messages-dispatching)\.md|
@@ -60,7 +61,7 @@ repos:
           bash -c '
             args=();
             for f in "$@"; do args+=("--include" "${f#langs/csharp/}"); done;
-            cd langs/csharp && dotnet format VMx.sln --verify-no-changes "${args[@]}"
+            cd langs/csharp && dotnet format VMx.sln --verify-no-changes --no-restore "${args[@]}"
           ' --
         language: system
         files: ^langs/csharp/.*\.(cs|csproj|props)$

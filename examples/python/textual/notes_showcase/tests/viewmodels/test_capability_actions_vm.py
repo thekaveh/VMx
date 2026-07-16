@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -159,7 +160,7 @@ def test_dispose_releases_resources() -> None:
     assert vm.status == ConstructionStatus.DISPOSED
 
 
-# ── Round-3 Critical-1: capability-bar Delete reuses NoteVM.delete_command ──
+# ── shared delete-command behavior: capability-bar Delete reuses NoteVM.delete_command ──
 # so the ConfirmationDecoratorCommand + "Note deleted" notification fire
 # from the action-bar identically to the in-list delete button. Prior code
 # built a fresh RelayCommand that called note.delete() directly, bypassing
@@ -206,8 +207,7 @@ def _make_note_with_confirm(
 
 async def test_capability_bar_delete_reuses_note_delete_command_confirm_false() -> None:
     """Action-bar Delete must route through the ConfirmationDecoratorCommand
-    so a "No" answer cancels the delete (regression cover for Round-3
-    Critical-1).
+    so a "No" answer cancels the delete.
     """
     from vmx.commands import ConfirmationDecoratorCommand
 
@@ -241,5 +241,9 @@ async def test_capability_bar_delete_reuses_note_delete_command_confirm_true() -
     vm.recompute_actions()
     delete_action = next(a for a in vm.actions.value if a.label == "Delete")
     await delete_action.command.execute_async()  # type: ignore[union-attr]
+    for _ in range(10):
+        if deleted and observed:
+            break
+        await asyncio.sleep(0)
     assert deleted == [True]
     assert any("Note deleted" in n.message for n in observed)

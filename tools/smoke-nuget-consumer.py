@@ -22,7 +22,7 @@ PACKAGE_IDS = {
     "VMx.Notifications",
     "VMx.Extensions.DependencyInjection",
 }
-CORE_VERSION = "3.20.0"
+CORE_VERSION = "3.22.0"
 NUGET_SOURCE = "https://api.nuget.org/v3/index.json"
 _SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 

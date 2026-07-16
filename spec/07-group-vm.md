@@ -40,6 +40,16 @@ the selectable extension. `Move(from, to)` validates both pre-move indices,
 emits one `Move` event with the same child and both indices, and preserves
 identity, parent, lifecycle, subscriptions, and auto-construction state.
 
+### 1.1 Atomic child ownership transfer (spec v3.21)
+
+Group membership follows chapter 06 §4.2 exactly. Adding or inserting a child
+owned by another mutable composite or group removes it from the old membership
+before adding it here, without destructing or disposing it. Duplicate identity
+and self/ancestor cycles fail before mutation. Replacement and lazy population
+are transactional; failure restores the old parent, index, selection state (if
+the old parent is a composite), parent link, lifecycle state, and population
+retryability without publishing membership events.
+
 ## 2. Children construction orchestration
 
 Identical to `CompositeVM`: `construct()` waits for every child to reach
@@ -96,6 +106,8 @@ in `12-conformance.md` cover:
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
 - group children are peers whose inherited select command is disabled
+- atomic cross-parent transfer, duplicate/cycle rejection, exact rollback, and
+  old-removal-before-new-add observation order (`COMP-038` through `COMP-041`)
 
 `DISP-001` and `DISP-006` provide the cross-cutting repeated-cascade and
 batch-handle idempotency assertions (ADR-0084).

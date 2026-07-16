@@ -282,18 +282,21 @@ public final class AsyncResourceVM<Value>: ComponentVMBase {
 
         let loader = self.loader
         let cleanupLate = self.cleanupValue
-        let task = Task { [weak self, admitted] in
+        let owner = UncheckedSendableWeakBox(self)
+        let context = UncheckedSendableBox((admitted, loader, cleanupLate))
+        let task = Task { [owner, context] in
+            let (admitted, loader, cleanupLate) = context.value
             do {
                 let value = try await loader()
-                if let self {
-                    self.completeSuccess(value, operation: admitted)
+                if let owner = owner.value {
+                    owner.completeSuccess(value, operation: admitted)
                 } else {
                     cleanupLate?(value)
                 }
             } catch is CancellationError {
-                self?.completeCancellation(operation: admitted)
+                owner.value?.completeCancellation(operation: admitted)
             } catch {
-                self?.completeFailure(error, operation: admitted)
+                owner.value?.completeFailure(error, operation: admitted)
             }
             admitted.finish()
         }
@@ -302,10 +305,12 @@ public final class AsyncResourceVM<Value>: ComponentVMBase {
     }
 
     private func waitForOperation(_ admitted: AsyncResourceOperation) async {
+        let owner = UncheckedSendableWeakBox(self)
+        let operationID = admitted.id
         await withTaskCancellationHandler {
             await admitted.wait()
-        } onCancel: { [weak self] in
-            self?.cancelOperation(admitted.id)
+        } onCancel: { [owner, operationID] in
+            owner.value?.cancelOperation(operationID)
         }
     }
 

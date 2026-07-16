@@ -25,10 +25,15 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
+from threading import RLock
 
 import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
+
+from vmx._asyncio_runner import submit_background
+from vmx.commands.relay_command import _run_disposal_steps
 
 
 class AsyncRelayCommand:
@@ -48,9 +53,11 @@ class AsyncRelayCommand:
         self._task = task
         self._predicate = predicate
         self._throw_on_cancel = throw_on_cancel
+        self._gate = RLock()
         self._can_execute_changed_subject: Subject[None] = Subject()
         self._errors: Subject[BaseException] = Subject()
         self._current_task: asyncio.Task[None] | None = None
+        self._current_loop: asyncio.AbstractEventLoop | None = None
         self._cancel_requested = False
         self._is_executing = False
         self._disposed = False
@@ -65,23 +72,25 @@ class AsyncRelayCommand:
     @property
     def is_executing(self) -> bool:
         """True while an execution is in flight; False when idle."""
-        return self._is_executing
+        with self._gate:
+            return self._is_executing
 
     def can_execute(self, parameter: object = None) -> bool:
         """Return False while in flight; otherwise the predicate result (or True).
 
         A predicate that raises is treated as False (defensive).
         """
-        if self._disposed:
-            return False
-        if self._is_executing:
-            return False
+        with self._gate:
+            if self._disposed or self._is_executing:
+                return False
         if self._predicate is None:
             return True
         try:
-            return self._predicate()
+            allowed = self._predicate()
         except Exception:
             return False
+        with self._gate:
+            return allowed and not self._disposed and not self._is_executing
 
     async def execute_async(self, parameter: object = None) -> None:
         """Run the async task once, observing cancellation.
@@ -91,26 +100,46 @@ class AsyncRelayCommand:
         returns normally; with ``throw_on_cancel=True`` the ``CancelledError`` is
         re-raised to the awaiter.
         """
-        if not self.can_execute(parameter):
+        task_factory = self._task
+        if task_factory is None:
             return
-        if self._task is None:
-            return
-        self._cancel_requested = False
-        self._is_executing = True
+        with self._gate:
+            if self._disposed or self._is_executing:
+                return
+        if self._predicate is not None:
+            try:
+                if not self._predicate():
+                    return
+            except Exception:
+                return
+        with self._gate:
+            if self._disposed or self._is_executing:
+                return
+            self._cancel_requested = False
+            self._is_executing = True
         self.raise_can_execute_changed()
-        inner: asyncio.Task[None] = asyncio.ensure_future(self._task())
-        self._current_task = inner
         try:
+            inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
+            with self._gate:
+                self._current_task = inner
+                self._current_loop = asyncio.get_running_loop()
+                cancel_immediately = self._cancel_requested or self._disposed
+            if cancel_immediately:
+                inner.cancel()
             await inner
         except asyncio.CancelledError:
             # Non-throwing default (DIA-007 alignment): swallow only the
             # cancellation WE requested via cancel(); re-raise an external one so
             # asyncio cancellation semantics are preserved.
-            if self._throw_on_cancel or not self._cancel_requested:
+            with self._gate:
+                cancel_requested = self._cancel_requested
+            if self._throw_on_cancel or not cancel_requested:
                 raise
         finally:
-            self._is_executing = False
-            self._current_task = None
+            with self._gate:
+                self._is_executing = False
+                self._current_task = None
+                self._current_loop = None
             self.raise_can_execute_changed()
 
     def execute(self, parameter: object = None) -> None:
@@ -122,24 +151,23 @@ class AsyncRelayCommand:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop: run to completion synchronously, routing a failure
-            # to the error channel (parity with the running-loop path).
-            try:
-                asyncio.run(self.execute_async(parameter))
-            except asyncio.CancelledError:
-                return
-            except Exception as exc:
-                self._emit_error(exc)
+            future = submit_background(self.execute_async(parameter))
+            future.add_done_callback(self._on_done)
             return
         task = loop.create_task(self.execute_async(parameter))
         task.add_done_callback(self._on_done)
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight task; a no-op when idle."""
-        self._cancel_requested = True
-        task = self._current_task
+        with self._gate:
+            self._cancel_requested = True
+            task = self._current_task
+            loop = self._current_loop
         if task is not None and not task.done():
-            task.cancel()
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(task.cancel)
+            else:
+                task.cancel()
 
     @property
     def can_execute_changed(self) -> rx.Observable[None]:
@@ -161,7 +189,7 @@ class AsyncRelayCommand:
         """
         return self._errors.pipe(ops.as_observable())
 
-    def _on_done(self, task: asyncio.Future[None]) -> None:
+    def _on_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
             return
         exc = task.exception()
@@ -169,8 +197,9 @@ class AsyncRelayCommand:
             self._emit_error(exc)
 
     def _emit_error(self, exc: BaseException) -> None:
-        if self._disposed:
-            return
+        with self._gate:
+            if self._disposed:
+                return
         self._errors.on_next(exc)
 
     def raise_can_execute_changed(self) -> None:
@@ -179,8 +208,9 @@ class AsyncRelayCommand:
         Valid while idle or in flight; repeated calls are additive. Calls after
         :meth:`dispose` are no-ops.
         """
-        if self._disposed:
-            return
+        with self._gate:
+            if self._disposed:
+                return
         self._can_execute_changed_subject.on_next(None)
 
     def dispose(self) -> None:
@@ -188,16 +218,18 @@ class AsyncRelayCommand:
 
         Idempotent: subsequent calls are a no-op.
         """
-        if self._disposed:
-            return
-        self._disposed = True
-        self.cancel()
-        for sub in self._subscriptions:
-            sub.dispose()
-        self._can_execute_changed_subject.on_completed()
-        self._can_execute_changed_subject.dispose()
-        self._errors.on_completed()
-        self._errors.dispose()
+        with self._gate:
+            if self._disposed:
+                return
+            self._disposed = True
+        _run_disposal_steps(
+            self.cancel,
+            *(sub.dispose for sub in self._subscriptions),
+            self._can_execute_changed_subject.on_completed,
+            self._can_execute_changed_subject.dispose,
+            self._errors.on_completed,
+            self._errors.dispose,
+        )
 
     # ------------------------------------------------------------------
     # Builder entry-point

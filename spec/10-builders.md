@@ -127,6 +127,13 @@ modeled `ComponentVM<M>` form is supplied as a normal field/parameter (the "must
 call `Model(...)`" requirement is a fluent-path concern); all other required
 fields are validated identically to the builder.
 
+When an options representation can carry `Hub`/`hub` and
+`Dispatcher`/`dispatcher` independently, the factory MUST retain each supplied
+field until builder validation. A partial pair therefore reports the absent
+counterpart in flavors with field-specific service errors; flavors whose builder
+uses one combined `services` error retain that combined diagnostic. Validation
+order remains identical to `Build()` / `build()` (ADR-0112).
+
 This is a public-surface addition only (ADR-0055 / VMX-020). No behaviour of the
 existing builders changes, and the equivalence above is pinned by the `BLD-006`
 conformance ID (added in ADR-0079; it was originally left to per-flavor

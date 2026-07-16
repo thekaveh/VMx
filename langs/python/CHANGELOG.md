@@ -4,6 +4,84 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Built distributions now include the repository's byte-identical Apache-2.0
+  `LICENSE` and `NOTICE` files and declare them through PEP 639 metadata.
+- Python releases now pin the isolated Hatchling backend and install/smoke the
+  exact local wheel before the irreversible PyPI upload.
+- Common VM options factories now retain a supplied hub or dispatcher
+  independently, so builder validation identifies the actual missing service
+  counterpart (BLD-006, ADR-0112).
+- Nested sends from one active message-hub callback to another hub now enqueue
+  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
+  while ordinary producers retain synchronous calling-thread delivery.
+- Message-hub disposal now serializes stream completion behind an active
+  delivery, including reentrant disposal, so every current subscriber observes
+  the in-flight message before its terminal notification.
+- Token pagination now treats reentrant disposal during page comparison,
+  child construction, or reset notification as terminal without committing
+  losing state or publishing through disposed subjects.
+- Command and component disposal now attempts every terminal notification,
+  subscription release, stream teardown, and owned command before rethrowing the
+  first observer failure.
+
+## [3.22.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- The existing best-effort disposal cascade is now part of the normative
+  cross-flavor contract (LIFE-013, ADR-0108).
+
+## [3.21.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- Components now have one authoritative owning parent. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
+
+### Fixed
+
+- Form reset publication now defers model edits requested by validation
+  observers until `on_approved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
+- `AsyncRelayCommand` now restores its execution state when invoking the task
+  factory raises before returning an awaitable.
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
+- Container construction, destruction, and reconstruction now wait for
+  background-dispatched child lifecycle transitions before the parent settles.
+- Synchronous command entry points now schedule coroutine work on a shared
+  background loop instead of blocking the caller with `asyncio.run`.
+
+## [3.20.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
+### Fixed
+
+- Lazy composite children roll back a failed factory attempt so a later access
+  can retry instead of retaining partial state.
+- Component teardown always performs base cleanup after a throwing override,
+  and composite, group, and aggregate disposal isolates child failures while
+  still disposing every sibling and the parent.
+- `ForwardingCompositeVM` now delegates `move` and `batch_update` alongside the
+  rest of the mutable composite surface.
+- `HierarchicalVM.add_child` rejects cycles and transfers attached children
+  atomically (HIER-018, ADR-0105).
+- `PagedComposition` snapshots one-shot iterators once so page count and items
+  remain consistent, while reiterable sources stay live.
+- Tree walking no longer swallows a `TypeError` raised during iteration.
+
 ## [3.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps Python at full library parity: 391/391

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import cast
 
+import pytest
 from reactivex.scheduler import ImmediateScheduler
 
 from vmx import (
+    AsyncRelayCommand,
     IClosable,
     IDeletable,
     IReconstructable,
@@ -89,22 +92,43 @@ def test_close_command_invokes_on_close_callback() -> None:
     assert captured == [vm]
 
 
-def test_save_command_invokes_on_save_callback_only_when_constructed() -> None:
+async def test_save_command_invokes_on_save_callback_only_when_constructed() -> None:
     captured: list[NoteVM] = []
     vm = _build(on_save=lambda v: captured.append(v))
     # Pre-construct: can_save False — execute should no-op.
-    vm.save_command.execute()
+    await vm.save_command.execute_async()
     assert captured == []
     vm.construct()
-    vm.save_command.execute()
+    await vm.save_command.execute_async()
     assert captured == [vm]
 
 
-def test_delete_command_invokes_on_delete_callback() -> None:
+async def test_save_command_awaits_async_callback_and_propagates_failure() -> None:
+    release = asyncio.Event()
+
+    async def fail_after_release(_vm: NoteVM) -> None:
+        await release.wait()
+        raise OSError("disk full")
+
+    vm = _build(on_save=fail_after_release)
+    vm.construct()
+    assert isinstance(vm.save_command, AsyncRelayCommand)
+
+    execution = asyncio.create_task(vm.save_command.execute_async())
+    await asyncio.sleep(0)
+    assert vm.save_command.is_executing
+    release.set()
+    with pytest.raises(OSError, match="disk full"):
+        await execution
+    assert not vm.save_command.is_executing
+
+
+async def test_delete_command_invokes_on_delete_callback() -> None:
     captured: list[NoteVM] = []
     vm = _build(on_delete=lambda v: captured.append(v))
     vm.construct()
-    vm.delete_command.execute()
+    assert isinstance(vm.delete_command, AsyncRelayCommand)
+    await vm.delete_command.execute_async()
     assert captured == [vm]
 
 
@@ -136,7 +160,7 @@ def test_builder_requires_name_and_model() -> None:
         NoteVM.builder().name("x").build()
 
 
-# ── Audit-round-2 Imp-4: ConfirmationDecoratorCommand parity with C# trio ──
+# ── confirmation-decorator parity: ConfirmationDecoratorCommand parity with C# trio ──
 #
 # These mirror NotesShowcase.Tests.ViewModels.NoteVMTests
 # (DeleteCommand_with_confirm_returning_{false,true}_* + the
@@ -200,6 +224,10 @@ async def test_delete_command_with_confirm_true_invokes_on_delete() -> None:
 
     assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
     await vm.delete_command.execute_async()  # type: ignore[union-attr]
+    for _ in range(10):
+        if captured:
+            break
+        await asyncio.sleep(0)
 
     assert captured == [vm]
 
@@ -226,5 +254,60 @@ async def test_delete_command_with_confirm_true_publishes_note_deleted_notificat
 
     assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
     await vm.delete_command.execute_async()  # type: ignore[union-attr]
+    for _ in range(10):
+        if observed:
+            break
+        await asyncio.sleep(0)
 
     assert any("Note deleted" in msg and "Hello" in msg for msg in observed)
+
+
+async def test_delete_success_notification_waits_for_async_callback() -> None:
+    from vmx.notifications import NotificationHub
+
+    release = asyncio.Event()
+    notified = asyncio.Event()
+
+    async def persist(_vm: NoteVM) -> None:
+        await release.wait()
+
+    notification_hub = NotificationHub()
+    notification_hub.pending.subscribe(
+        on_next=lambda snapshot: (
+            notified.set()
+            if any("Note deleted" in n.message for n in snapshot)
+            else None
+        )
+    )
+    vm = _build_with_confirm(
+        confirm=True,
+        on_delete=persist,
+        notification_hub=notification_hub,
+    )
+
+    await vm.delete_command.execute_async()  # type: ignore[union-attr]
+
+    assert not notified.is_set()
+    release.set()
+    await asyncio.wait_for(notified.wait(), timeout=2)
+
+
+async def test_delete_failure_does_not_publish_success() -> None:
+    from vmx.notifications import NotificationHub
+
+    async def fail(_vm: NoteVM) -> None:
+        raise OSError("disk full")
+
+    notification_hub = NotificationHub()
+    observed: list[str] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snapshot: observed.extend(n.message for n in snapshot)
+    )
+    vm = _build(on_delete=fail, notification_hub=notification_hub)
+    vm.construct()
+    assert isinstance(vm.delete_command, AsyncRelayCommand)
+
+    with pytest.raises(OSError, match="disk full"):
+        await vm.delete_command.execute_async()
+
+    assert not any("Note deleted" in message for message in observed)

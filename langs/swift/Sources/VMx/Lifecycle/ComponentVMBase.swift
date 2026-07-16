@@ -25,6 +25,65 @@ public protocol ParentVM: AnyObject {
     func deselectChild(_ vm: ComponentVMBase)
 }
 
+/// Typed failure for exclusive container ownership operations.
+public enum ContainerOwnershipError: Error {
+    case duplicate
+    case cycle
+    case inconsistentParent
+    case attachmentFailed(Error)
+}
+
+/// Internal ownership surface kept separate from public selection delegation.
+protocol OwnershipParentVM: AnyObject {
+    var ownershipOwner: ComponentVMBase { get }
+    var ownershipOwnerParent: OwnershipParentVM? { get }
+    func containsIdentity(_ vm: ComponentVMBase) -> Bool
+    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer
+}
+
+/// One-shot staged removal from an old parent.
+final class ParentTransfer {
+    private let commitAction: () -> Void
+    private let rollbackAction: () -> Void
+    private var finished = false
+
+    init(commit: @escaping () -> Void, rollback: @escaping () -> Void) {
+        commitAction = commit
+        rollbackAction = rollback
+    }
+
+    func commit() {
+        precondition(!finished, "parent transfer is already finished")
+        finished = true
+        commitAction()
+    }
+
+    func rollback() {
+        precondition(!finished, "parent transfer is already finished")
+        finished = true
+        rollbackAction()
+    }
+}
+
+func beginParentTransfer(
+    _ child: ComponentVMBase,
+    to destination: OwnershipParentVM
+) throws -> ParentTransfer? {
+    guard !destination.containsIdentity(child) else {
+        throw ContainerOwnershipError.duplicate
+    }
+
+    var cursor: OwnershipParentVM? = destination
+    while let current = cursor {
+        guard current.ownershipOwner !== child else {
+            throw ContainerOwnershipError.cycle
+        }
+        cursor = current.ownershipOwnerParent
+    }
+
+    return try child._ownershipParent?.detachForTransfer(child)
+}
+
 /// View-model kind tag. Mirrors `ViewModelType`.
 public enum ViewModelType: String, Sendable {
     case component = "Component"
@@ -61,27 +120,22 @@ open class ComponentVMBase {
 
     private var _status: ConstructionStatus = .destructed
     private var inFlight = false
+    private var transitionGeneration: UInt64 = 0
+    private var disposalRequested = false
     private var _isCurrent = false
 
-    /// Serializes every lifecycle state transition — the `_status` RMW, the
-    /// hub publish, and the status-trigger emission inside `_setStatus` —
-    /// against `dispose()`. Swift has no `volatile`, so this lock is also what
-    /// gives `_status` / `inFlight` / `triggersDisposed` reads a memory barrier
-    /// (the audit flags the unsynchronized plain-`var` access as an
-    /// undefined-behaviour data race — VMX-002). A background completion
-    /// (construct/destruct dispatched on the background queue) therefore cannot
-    /// interleave with disposal: it observes the terminal `.disposed` state
-    /// under the lock and aborts instead of resurrecting the VM, publishing a
-    /// post-dispose status message, or sending on a finished Combine subject
-    /// (spec/02 invariant 3 — Disposed is terminal). Recursive so a re-entrant
-    /// lifecycle call from a same-thread subscriber cannot self-deadlock —
-    /// parity with the C# `lock` / Python `RLock`.
+    /// Protects lifecycle state, transition admission, publication ordering,
+    /// property-publication leases, selection state, and owned resources. User
+    /// callbacks are never invoked while this lock is held. Status mutations
+    /// enqueue immutable records under the lock; an ordered handoff lane then
+    /// publishes each committed record in full.
     private let lifecycleLock = NSRecursiveLock()
 
     /// Parent backpointer — set by `CompositeVM` / `GroupVM` when this VM
     /// is added as a child. `internal` so containers in the module can
     /// flip it.
     weak var _parent: ParentVM?
+    weak var _ownershipParent: OwnershipParentVM?
 
     // ── Reactive primitives ─────────────────────────────────────────────
 
@@ -91,6 +145,50 @@ open class ComponentVMBase {
     private var activePropertyNotifications = 0
     private var propertyNotificationTeardownPending = false
     private var ownedCleanups: [() throws -> Void] = []
+
+    private final class LifecyclePublication {
+        let status: ConstructionStatus
+        let generation: UInt64?
+        let isDisposal: Bool
+        let ownerThread: UInt64
+        let mayBeAdopted: Bool
+        let afterDelivery: () -> Void
+        let ready = DispatchSemaphore(value: 0)
+        var applied = false
+        var succeeded = false
+
+        init(
+            status: ConstructionStatus,
+            generation: UInt64?,
+            isDisposal: Bool,
+            ownerThread: UInt64,
+            mayBeAdopted: Bool,
+            afterDelivery: @escaping () -> Void = {}
+        ) {
+            self.status = status
+            self.generation = generation
+            self.isDisposal = isDisposal
+            self.ownerThread = ownerThread
+            self.mayBeAdopted = mayBeAdopted
+            self.afterDelivery = afterDelivery
+        }
+    }
+
+    private final class LifecycleHookLease {
+        let threadID: UInt64
+        let completed = DispatchSemaphore(value: 0)
+
+        init(threadID: UInt64) {
+            self.threadID = threadID
+        }
+    }
+
+    private var lifecyclePublications: [LifecyclePublication] = []
+    private var lifecyclePublicationHead = 0
+    private var lifecycleDrainerThread: UInt64 = 0
+    private var activeHookLease: LifecycleHookLease?
+    private var disposalCleanupPendingForHook = false
+    private var disposalFinished = false
 
     // ── Built-in commands ───────────────────────────────────────────────
 
@@ -179,17 +277,25 @@ open class ComponentVMBase {
 
     // ── isCurrent ───────────────────────────────────────────────────────
 
-    public var isCurrent: Bool { _isCurrent }
+    public var isCurrent: Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return _isCurrent
+    }
 
     /// Internal setter used by containers to flip the flag.
     func _setIsCurrent(_ value: Bool) {
-        guard _isCurrent != value else { return }
-        // spec/02 invariant 3: a disposed VM publishes nothing further —
-        // the trigger raise below was already gated, but the hub send was
-        // not (pass-7 review).
-        guard status != .disposed else { return }
+        lifecycleLock.lock()
+        guard !disposalRequested,
+              _status != .disposed,
+              _isCurrent != value else {
+            lifecycleLock.unlock()
+            return
+        }
         _isCurrent = value
-        _notifyPropertyChanged("isCurrent")
+        activePropertyNotifications += 1
+        lifecycleLock.unlock()
+        _publishAdmittedPropertyChanged("isCurrent")
     }
 
     // ── propertyChanged publisher ───────────────────────────────────────
@@ -204,13 +310,8 @@ open class ComponentVMBase {
     /// no `protected`; this is the cross-module analogue of C#'s
     /// `protected RaisePropertyChanged`).
     public func _raisePropertyChanged(_ propertyName: String) {
-        // `triggersDisposed` is flipped by `dispose()` under `lifecycleLock`;
-        // read it (and emit) under the same lock so a background transition
-        // never sends on a finished subject. Reentrant: `_setStatus` already
-        // holds the lock when it calls through here.
-        lifecycleLock.lock()
-        defer { lifecycleLock.unlock() }
-        guard !triggersDisposed else { return }
+        guard _beginPropertyPublication() else { return }
+        defer { _endPropertyPublication() }
         propertyChangedSubject.send(propertyName)
     }
 
@@ -218,22 +319,21 @@ open class ComponentVMBase {
     /// state that a subclass has already equality-gated and assigned.
     public func _notifyPropertyChanged(_ propertyName: String) {
         lifecycleLock.lock()
-        guard _status != .disposed, !triggersDisposed else {
+        guard !disposalRequested,
+              _status != .disposed,
+              !triggersDisposed else {
             lifecycleLock.unlock()
             return
         }
         activePropertyNotifications += 1
         lifecycleLock.unlock()
 
+        _publishAdmittedPropertyChanged(propertyName)
+    }
+
+    private func _publishAdmittedPropertyChanged(_ propertyName: String) {
         defer {
-            lifecycleLock.lock()
-            activePropertyNotifications -= 1
-            if activePropertyNotifications == 0,
-               propertyNotificationTeardownPending {
-                propertyNotificationTeardownPending = false
-                propertyChangedSubject.send(completion: .finished)
-            }
-            lifecycleLock.unlock()
+            _endPropertyPublication()
         }
 
         hub.send(PropertyChangedMessage(
@@ -243,237 +343,247 @@ open class ComponentVMBase {
         propertyChangedSubject.send(propertyName)
     }
 
+    private func _beginPropertyPublication(allowDisposed: Bool = false) -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard (allowDisposed || (!disposalRequested && _status != .disposed)),
+              !triggersDisposed else {
+            return false
+        }
+        activePropertyNotifications += 1
+        return true
+    }
+
+    private func _endPropertyPublication() {
+        lifecycleLock.lock()
+        activePropertyNotifications -= 1
+        let shouldComplete = activePropertyNotifications == 0 &&
+            propertyNotificationTeardownPending
+        if shouldComplete { propertyNotificationTeardownPending = false }
+        lifecycleLock.unlock()
+        if shouldComplete {
+            propertyChangedSubject.send(completion: .finished)
+        }
+    }
+
     // ── Lifecycle predicates ────────────────────────────────────────────
 
     public func canConstruct() -> Bool {
-        let s = _statusSnapshot()
-        return s == .destructed || s == .constructed
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return !disposalRequested &&
+            (_status == .destructed || _status == .constructed)
     }
 
     public func canDestruct() -> Bool {
-        let s = _statusSnapshot()
-        return s == .constructed || s == .destructed
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return !disposalRequested &&
+            (_status == .constructed || _status == .destructed)
     }
 
     public func canReconstruct() -> Bool {
-        _statusSnapshot() == .constructed
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return !disposalRequested && _status == .constructed
     }
 
     // ── Lifecycle operations ────────────────────────────────────────────
 
     public func construct() throws {
-        // Snapshot status + claim the in-flight guard atomically under the lock
-        // so a concurrent transition cannot observe a torn `_status` / `inFlight`.
         lifecycleLock.lock()
-        if _status == .constructed {
-            lifecycleLock.unlock()
-            return
-        }
         let current = _status
-        guard _isLegalTransition(from: current, operation: "construct") else {
+        if disposalRequested || inFlight {
             lifecycleLock.unlock()
-            // v3 (ADR-0053): Swift converges to the throwing lifecycle contract.
-            // An illegal transition surfaces a *catchable* `StatusTransitionError`
-            // (was an uncatchable `preconditionFailure` trap under ADR-0037 §2.5).
-            // Callers may still pre-flight via canConstruct()/canDestruct()/
-            // canReconstruct().
             throw StatusTransitionError(
                 currentStatus: current, attemptedOperation: "construct"
             )
         }
-
-        if inFlight {
+        if current == .constructed {
             lifecycleLock.unlock()
-            // LIFE-008: a concurrent re-invocation while a transition is already
-            // in flight now throws rather than trapping (ADR-0053).
+            return
+        }
+        guard _isLegalTransition(from: current, operation: "construct") else {
+            lifecycleLock.unlock()
             throw StatusTransitionError(
                 currentStatus: current, attemptedOperation: "construct"
             )
         }
         inFlight = true
+        transitionGeneration &+= 1
+        let generation = transitionGeneration
+        let publication = _enqueueStatusLocked(
+            .constructing,
+            generation: generation
+        )
         lifecycleLock.unlock()
+        _publishLifecycle(publication)
 
         if background {
-            let priorStatus = _status           // .destructed — captured before any mutation
-            _setStatus(.constructing)
             dispatcher.scheduleBackground { [weak self] in
                 guard let self else { return }
-                // dispose() may have run between scheduling and execution.
-                // Re-check the terminal state under the lock and abort if
-                // disposed (spec/02 invariant 3). `_setStatus` re-checks under
-                // the same lock, so even a dispose() that lands while
-                // `_onConstruct()` runs cannot complete the Constructed
-                // transition — no resurrection, no post-dispose publish, no
-                // send on a finished Combine subject (VMX-002).
-                guard !self._isDisposed() else {
-                    // Disposed before the hook ran: there is no terminal
-                    // transition to emit. Release the in-flight guard inline —
-                    // the VM is terminal, so no construct/destruct can succeed
-                    // (LIFE-008 is moot post-dispose).
-                    self._setInFlight(false)
-                    return
-                }
-                // The background path has no completion/error future in this
-                // flavor (VMX-049, deferred): a throwing hook / child
-                // transition cannot be redelivered to the already-returned
-                // caller, so it is caught here. The foreground form — the
-                // common path — propagates via `throws`.
+                guard let lease = self._claimHook(
+                    generation,
+                    status: .constructing
+                ) else { return }
                 let terminal: ConstructionStatus
                 do {
                     try self._onConstruct()
                     terminal = .constructed
                 } catch {
-                    terminal = priorStatus         // LIFE-014: roll back to entry state
-                    // swallowed: no async error channel on the bg path yet.
+                    terminal = current
                 }
-                // spec/11 §4 step 3 (VMX-025): the TERMINAL transition — the
-                // Constructed emission on success or the LIFE-014 rollback to
-                // `priorStatus` on failure — is marshalled onto
-                // IDispatcher.Foreground so subscribers observe the completion on
-                // the foreground thread, not the pool thread. `_setInFlight(false)`
-                // runs INSIDE this closure, AFTER the terminal emit, so the
-                // LIFE-008 in-flight guard is not released until the transition
-                // has fully settled. `_setStatus` still re-checks `.disposed`
-                // under `lifecycleLock`, so a dispose() landing between the hook
-                // and this foreground task cannot resurrect the VM. If `self` is
-                // deallocated before this runs, the reset is moot (object gone).
+                self._finishHook(lease)
                 self.dispatcher.scheduleForeground { [weak self] in
                     guard let self else { return }
-                    self._setStatus(terminal)
-                    self._setInFlight(false)
+                    _ = self._commitStatus(terminal, generation: generation)
+                    self._clearInFlight(generation)
                 }
             }
         } else {
-            defer { _setInFlight(false) }
-            let priorStatus = _status           // .destructed — captured before any mutation
-            _setStatus(.constructing)
+            guard let lease = _claimHook(
+                generation,
+                status: .constructing
+            ) else { return }
             do {
                 try _onConstruct()
             } catch {
-                _setStatus(priorStatus)         // LIFE-014: roll back so the VM is recoverable
+                _finishHook(lease)
+                _ = _commitStatus(current, generation: generation)
+                _clearInFlight(generation)
                 throw error
             }
-            _setStatus(.constructed)
+            _finishHook(lease)
+            _ = _commitStatus(.constructed, generation: generation)
+            _clearInFlight(generation)
         }
     }
 
     public func destruct() throws {
         lifecycleLock.lock()
-        if _status == .destructed {
-            lifecycleLock.unlock()
-            return
-        }
         let current = _status
-        guard _isLegalTransition(from: current, operation: "destruct") else {
+        if disposalRequested || inFlight {
             lifecycleLock.unlock()
-            // v3 (ADR-0053): catchable throw instead of a trap — see construct().
             throw StatusTransitionError(
                 currentStatus: current, attemptedOperation: "destruct"
             )
         }
-
-        if inFlight {
+        if current == .destructed {
             lifecycleLock.unlock()
-            // LIFE-008: concurrent re-invocation now throws (ADR-0053).
+            return
+        }
+        guard _isLegalTransition(from: current, operation: "destruct") else {
+            lifecycleLock.unlock()
             throw StatusTransitionError(
                 currentStatus: current, attemptedOperation: "destruct"
             )
         }
         inFlight = true
+        transitionGeneration &+= 1
+        let generation = transitionGeneration
+        let publication = _enqueueStatusLocked(
+            .destructing,
+            generation: generation
+        )
         lifecycleLock.unlock()
+        _publishLifecycle(publication)
 
         if background {
-            let priorStatus = _status           // .constructed — captured before any mutation
-            _setStatus(.destructing)
             dispatcher.scheduleBackground { [weak self] in
                 guard let self else { return }
-                // dispose() may have run between scheduling and execution.
-                // Re-check the terminal state under the lock and abort if
-                // disposed (spec/02 invariant 3). `_setStatus` re-checks under
-                // the same lock, so even a dispose() that lands while
-                // `_onDestruct()` runs cannot complete the Destructed
-                // transition — no resurrection, no post-dispose publish, no
-                // send on a finished Combine subject (VMX-002).
-                guard !self._isDisposed() else {
-                    // Disposed before the hook ran: no terminal transition to
-                    // emit. Release the in-flight guard inline — the VM is
-                    // terminal (LIFE-008 is moot post-dispose).
-                    self._setInFlight(false)
-                    return
-                }
-                // Background path has no error channel yet (see construct()).
+                guard let lease = self._claimHook(
+                    generation,
+                    status: .destructing
+                ) else { return }
                 let terminal: ConstructionStatus
                 do {
                     try self._onDestruct()
                     terminal = .destructed
                 } catch {
-                    terminal = priorStatus         // LIFE-014: roll back to entry state
-                    // swallowed: no async error channel on the bg path yet.
+                    terminal = current
                 }
-                // spec/11 §4 step 3 (VMX-025): marshal the TERMINAL transition
-                // (Destructed on success, or the LIFE-014 rollback to
-                // `priorStatus`) onto IDispatcher.Foreground; release the
-                // in-flight guard INSIDE the foreground closure, AFTER the
-                // terminal emit. `_setStatus` re-checks `.disposed` under the
-                // lock, so a racing dispose() cannot resurrect the VM.
+                self._finishHook(lease)
                 self.dispatcher.scheduleForeground { [weak self] in
                     guard let self else { return }
-                    self._setStatus(terminal)
-                    self._setInFlight(false)
+                    _ = self._commitStatus(terminal, generation: generation)
+                    self._clearInFlight(generation)
                 }
             }
         } else {
-            defer { _setInFlight(false) }
-            let priorStatus = _status           // .constructed — captured before any mutation
-            _setStatus(.destructing)
+            guard let lease = _claimHook(
+                generation,
+                status: .destructing
+            ) else { return }
             do {
                 try _onDestruct()
             } catch {
-                _setStatus(priorStatus)         // LIFE-014: roll back so the VM is recoverable
+                _finishHook(lease)
+                _ = _commitStatus(current, generation: generation)
+                _clearInFlight(generation)
                 throw error
             }
-            _setStatus(.destructed)
+            _finishHook(lease)
+            _ = _commitStatus(.destructed, generation: generation)
+            _clearInFlight(generation)
         }
     }
 
     public func reconstruct() throws {
         lifecycleLock.lock()
         let current = _status
-        guard _isLegalTransition(from: current, operation: "reconstruct") else {
+        if disposalRequested || inFlight {
             lifecycleLock.unlock()
-            // v3 (ADR-0053): catchable throw instead of a trap — see construct().
             throw StatusTransitionError(
                 currentStatus: current, attemptedOperation: "reconstruct"
             )
         }
-        if inFlight {
+        guard _isLegalTransition(from: current, operation: "reconstruct") else {
             lifecycleLock.unlock()
-            // LIFE-008: concurrent re-invocation now throws (ADR-0053).
             throw StatusTransitionError(
                 currentStatus: current, attemptedOperation: "reconstruct"
             )
         }
         inFlight = true
+        transitionGeneration &+= 1
+        let generation = transitionGeneration
+        let publication = _enqueueStatusLocked(
+            .destructing,
+            generation: generation
+        )
         lifecycleLock.unlock()
-        defer { _setInFlight(false) }
+        _publishLifecycle(publication)
 
-        _setStatus(.destructing)
+        guard let destructLease = _claimHook(
+            generation,
+            status: .destructing
+        ) else { return }
         do {
             try _onDestruct()
         } catch {
-            _setStatus(.constructed)
+            _finishHook(destructLease)
+            _ = _commitStatus(.constructed, generation: generation)
+            _clearInFlight(generation)
             throw error
         }
-        _setStatus(.destructed)
+        _finishHook(destructLease)
+        guard _commitStatus(.destructed, generation: generation) else { return }
+        guard _commitStatus(.constructing, generation: generation) else { return }
 
-        _setStatus(.constructing)
+        guard let constructLease = _claimHook(
+            generation,
+            status: .constructing
+        ) else { return }
         do {
             try _onConstruct()
         } catch {
-            _setStatus(.destructed)
+            _finishHook(constructLease)
+            _ = _commitStatus(.destructed, generation: generation)
+            _clearInFlight(generation)
             throw error
         }
-        _setStatus(.constructed)
+        _finishHook(constructLease)
+        _ = _commitStatus(.constructed, generation: generation)
+        _clearInFlight(generation)
     }
 
     /// Idempotent terminal transition. From any non-Disposed state,
@@ -482,42 +592,23 @@ open class ComponentVMBase {
     /// cascade to children).
     open func dispose() {
         lifecycleLock.lock()
-        if _status == .disposed {
+        if disposalRequested || _status == .disposed {
             lifecycleLock.unlock()
             return
         }
-
-        // `_setStatus(.disposed)` flips `_status` to `.disposed` atomically
-        // under `lifecycleLock`, so a racing background transition re-checking
-        // via `_isDisposed()` observes the terminal state and aborts.
-        _setStatus(.disposed)
-        lifecycleLock.unlock()
-        _onDispose()
-        disposeOwnedResources()
-
-        // Tear down the trigger / property-changed subjects under the same lock
-        // so the `triggersDisposed` flip and the `send(completion:)` cannot
-        // interleave with an in-flight background `_setStatus`: that transition
-        // either completes its guarded emission before this runs, or observes
-        // `.disposed` / `triggersDisposed` under the lock and skips it — never a
-        // send on an already-finished subject (VMX-002).
-        lifecycleLock.lock()
-        if !triggersDisposed {
-            triggersDisposed = true
-            statusTriggerSubject.send(completion: .finished)
-            if activePropertyNotifications == 0 {
-                propertyChangedSubject.send(completion: .finished)
-            } else {
-                propertyNotificationTeardownPending = true
+        disposalRequested = true
+        transitionGeneration &+= 1
+        inFlight = false
+        let hookLease = activeHookLease
+        let publication = _enqueueStatusLocked(
+            .disposed,
+            isDisposal: true,
+            afterDelivery: { [weak self] in
+                self?._scheduleDisposalFinish(waitingFor: hookLease)
             }
-        }
+        )
         lifecycleLock.unlock()
-
-        selectCommand.dispose()
-        deselectCommand.dispose()
-        selectNextCommand.dispose()
-        selectPreviousCommand.dispose()
-        reconstructCommand.dispose()
+        _publishLifecycle(publication)
     }
 
     // ── Selection ───────────────────────────────────────────────────────
@@ -525,6 +616,7 @@ open class ComponentVMBase {
     public func canSelect() -> Bool {
         // spec/05 §5 + spec/07: parent non-nil, parent owns a selection slot,
         // not already current, constructed.
+        guard !_isDisposalRequested() else { return false }
         guard let parent = _parent else { return false }
         return parent.supportsChildSelection &&
             parent.currentChild !== self &&
@@ -532,15 +624,18 @@ open class ComponentVMBase {
     }
 
     public func select() {
+        guard !_isDisposalRequested() else { return }
         _parent?.selectChild(self)
     }
 
     public func canDeselect() -> Bool {
+        guard !_isDisposalRequested() else { return false }
         guard let parent = _parent else { return false }
         return parent.currentChild === self
     }
 
     public func deselect() {
+        guard !_isDisposalRequested() else { return }
         _parent?.deselectChild(self)
     }
 
@@ -569,7 +664,7 @@ open class ComponentVMBase {
     /// Register a throwing cleanup closure for terminal VM disposal.
     open func own(_ cleanup: @escaping () throws -> Void) {
         lifecycleLock.lock()
-        let disposeNow = _status == .disposed
+        let disposeNow = disposalRequested || _status == .disposed
         if !disposeNow {
             ownedCleanups.append(cleanup)
         }
@@ -605,50 +700,278 @@ open class ComponentVMBase {
         return _status
     }
 
-    /// Reads the terminal-state flag under `lifecycleLock` so a background
-    /// completion observes a concurrently in-progress `dispose()` and aborts
-    /// its transition rather than resurrecting the VM (VMX-002).
-    private func _isDisposed() -> Bool {
+    private func _isDisposalRequested() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        return _status == .disposed
+        return disposalRequested || _status == .disposed
     }
 
-    /// Writes the in-flight reentrancy guard under `lifecycleLock` so the
-    /// background completion's reset is synchronized with the foreground
-    /// claim (no torn `inFlight` access — VMX-002).
-    private func _setInFlight(_ value: Bool) {
+    private typealias LifecyclePublicationPlan = (
+        publication: LifecyclePublication,
+        shouldDrain: Bool,
+        shouldAwaitTurn: Bool,
+        shouldDeliverInline: Bool
+    )
+
+    private func _claimHook(
+        _ generation: UInt64,
+        status: ConstructionStatus
+    ) -> LifecycleHookLease? {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        inFlight = value
+        guard transitionGeneration == generation,
+              _status == status,
+              activeHookLease == nil else { return nil }
+        let lease = LifecycleHookLease(threadID: Self.currentThreadID)
+        activeHookLease = lease
+        return lease
     }
 
-    func _setStatus(_ newStatus: ConstructionStatus) {
-        // The terminal check, the `_status` write, the hub publish and the
-        // status-trigger send all run under `lifecycleLock` so the whole
-        // transition is atomic with respect to `dispose()` — a background
-        // transition racing `dispose()` can neither resurrect the VM, publish a
-        // post-dispose status message, nor send on a finished Combine subject
-        // (VMX-002; spec/02 invariant 3: Disposed is terminal). The lock is
-        // recursive, so a same-thread subscriber re-entering a lifecycle call
-        // from one of the emissions below cannot self-deadlock.
+    private func _finishHook(_ lease: LifecycleHookLease) {
         lifecycleLock.lock()
-        defer { lifecycleLock.unlock() }
-
-        if _status == .disposed { return }
-
-        _status = newStatus
-
-        hub.send(ConstructionStatusChangedMessage(
-            sender: self, senderName: name, status: newStatus
-        ))
-
-        _raisePropertyChanged("status")
-        _raisePropertyChanged("isConstructed")
-
-        if !triggersDisposed {
-            statusTriggerSubject.send(())
+        if activeHookLease === lease {
+            activeHookLease = nil
         }
+        let shouldFinishDisposal = disposalCleanupPendingForHook
+        if shouldFinishDisposal {
+            disposalCleanupPendingForHook = false
+        }
+        lifecycleLock.unlock()
+
+        lease.completed.signal()
+        if shouldFinishDisposal {
+            _finishDisposalNow()
+        }
+    }
+
+    private func _clearInFlight(_ generation: UInt64) {
+        lifecycleLock.lock()
+        if transitionGeneration == generation { inFlight = false }
+        lifecycleLock.unlock()
+    }
+
+    @discardableResult
+    private func _commitStatus(
+        _ status: ConstructionStatus,
+        generation: UInt64
+    ) -> Bool {
+        lifecycleLock.lock()
+        guard transitionGeneration == generation,
+              !disposalRequested,
+              _status != .disposed else {
+            lifecycleLock.unlock()
+            return false
+        }
+        let publication = _enqueueStatusLocked(
+            status,
+            generation: generation
+        )
+        lifecycleLock.unlock()
+        _publishLifecycle(publication)
+        lifecycleLock.lock()
+        let succeeded = publication.publication.succeeded
+        lifecycleLock.unlock()
+        return succeeded
+    }
+
+    /// Mutate status and enqueue its immutable publication record while
+    /// `lifecycleLock` is held. Callbacks are drained only after unlocking.
+    private func _enqueueStatusLocked(
+        _ status: ConstructionStatus,
+        generation: UInt64? = nil,
+        isDisposal: Bool = false,
+        afterDelivery: @escaping () -> Void = {}
+    ) -> LifecyclePublicationPlan {
+        let caller = Self.currentThreadID
+        let mayBeAdopted = lifecycleDrainerThread == caller
+        let publication = LifecyclePublication(
+            status: status,
+            generation: generation,
+            isDisposal: isDisposal,
+            ownerThread: caller,
+            mayBeAdopted: mayBeAdopted,
+            afterDelivery: afterDelivery
+        )
+        if isDisposal && lifecycleDrainerThread == caller {
+            _applyLifecyclePublicationLocked(publication)
+            return (publication, false, false, true)
+        }
+        lifecyclePublications.append(publication)
+        if lifecycleDrainerThread == 0 {
+            lifecycleDrainerThread = caller
+            _applyLifecyclePublicationLocked(publication)
+            return (publication, true, false, false)
+        }
+        let shouldAwaitTurn = lifecycleDrainerThread != caller && !mayBeAdopted
+        return (publication, false, shouldAwaitTurn, false)
+    }
+
+    private func _applyLifecyclePublicationLocked(
+        _ publication: LifecyclePublication
+    ) {
+        guard !publication.applied else { return }
+        publication.applied = true
+        if publication.isDisposal {
+            guard disposalRequested, _status != .disposed else { return }
+        } else {
+            guard let generation = publication.generation,
+                  transitionGeneration == generation,
+                  !disposalRequested,
+                  _status != .disposed else { return }
+        }
+        _status = publication.status
+        publication.succeeded = true
+    }
+
+    private func _publishLifecycle(_ plan: LifecyclePublicationPlan) {
+        if plan.shouldDeliverInline {
+            _deliverLifecyclePublication(plan.publication)
+        } else if plan.shouldDrain {
+            _drainLifecyclePublications()
+        } else if plan.shouldAwaitTurn {
+            plan.publication.ready.wait()
+            _drainLifecyclePublications()
+        }
+    }
+
+    private func _drainLifecyclePublications() {
+        let caller = Self.currentThreadID
+        while true {
+            lifecycleLock.lock()
+            guard lifecyclePublicationHead < lifecyclePublications.count else {
+                lifecyclePublications.removeAll(keepingCapacity: true)
+                lifecyclePublicationHead = 0
+                lifecycleDrainerThread = 0
+                lifecycleLock.unlock()
+                return
+            }
+            let publication = lifecyclePublications[lifecyclePublicationHead]
+            _applyLifecyclePublicationLocked(publication)
+            let shouldDeliver = publication.succeeded
+            lifecycleLock.unlock()
+
+            if shouldDeliver { _deliverLifecyclePublication(publication) }
+
+            lifecycleLock.lock()
+            lifecyclePublicationHead += 1
+            if lifecyclePublicationHead >= lifecyclePublications.count {
+                lifecyclePublications.removeAll(keepingCapacity: true)
+                lifecyclePublicationHead = 0
+                lifecycleDrainerThread = 0
+                lifecycleLock.unlock()
+                return
+            }
+            let next = lifecyclePublications[lifecyclePublicationHead]
+            if next.ownerThread == caller || next.mayBeAdopted {
+                lifecycleDrainerThread = caller
+                lifecycleLock.unlock()
+                continue
+            }
+            lifecycleDrainerThread = next.ownerThread
+            next.ready.signal()
+            lifecycleLock.unlock()
+            return
+        }
+    }
+
+    private func _deliverLifecyclePublication(
+        _ publication: LifecyclePublication
+    ) {
+        hub.send(ConstructionStatusChangedMessage(
+            sender: self,
+            senderName: name,
+            status: publication.status
+        ))
+        guard _publicationIsCurrent(publication) else { return }
+        _publishStatusProperty("status")
+        guard _publicationIsCurrent(publication) else { return }
+        _publishStatusProperty("isConstructed")
+        guard _publicationIsCurrent(publication) else { return }
+        statusTriggerSubject.send(())
+        guard _publicationIsCurrent(publication) else { return }
+        publication.afterDelivery()
+    }
+
+    private func _publicationIsCurrent(
+        _ publication: LifecyclePublication
+    ) -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        if publication.isDisposal {
+            return publication.succeeded && disposalRequested && _status == .disposed
+        }
+        return publication.succeeded &&
+            !disposalRequested &&
+            transitionGeneration == publication.generation &&
+            _status == publication.status
+    }
+
+    private func _publishStatusProperty(_ propertyName: String) {
+        guard _beginPropertyPublication(allowDisposed: true) else { return }
+        defer { _endPropertyPublication() }
+        propertyChangedSubject.send(propertyName)
+    }
+
+    private func _scheduleDisposalFinish(
+        waitingFor lease: LifecycleHookLease?
+    ) {
+        if let lease {
+            if lease.threadID == Self.currentThreadID {
+                lifecycleLock.lock()
+                if activeHookLease === lease {
+                    disposalCleanupPendingForHook = true
+                    lifecycleLock.unlock()
+                    return
+                }
+                lifecycleLock.unlock()
+            } else {
+                lease.completed.wait()
+            }
+        }
+        _finishDisposalNow()
+    }
+
+    private func _finishDisposalNow() {
+        lifecycleLock.lock()
+        guard !disposalFinished else {
+            lifecycleLock.unlock()
+            return
+        }
+        disposalFinished = true
+        lifecycleLock.unlock()
+
+        _onDispose()
+        disposeOwnedResources()
+
+        lifecycleLock.lock()
+        let shouldComplete = !triggersDisposed
+        var shouldCompleteProperties = false
+        if shouldComplete {
+            triggersDisposed = true
+            if activePropertyNotifications == 0 {
+                shouldCompleteProperties = true
+            } else {
+                propertyNotificationTeardownPending = true
+            }
+        }
+        lifecycleLock.unlock()
+
+        if shouldComplete {
+            statusTriggerSubject.send(completion: .finished)
+            if shouldCompleteProperties {
+                propertyChangedSubject.send(completion: .finished)
+            }
+        }
+
+        selectCommand.dispose()
+        deselectCommand.dispose()
+        selectNextCommand.dispose()
+        selectPreviousCommand.dispose()
+        reconstructCommand.dispose()
+    }
+
+    private static var currentThreadID: UInt64 {
+        UInt64(pthread_mach_thread_np(pthread_self()))
     }
 
     // ── Transition table (fixture-driven, LIFE-011) ─────────────────────

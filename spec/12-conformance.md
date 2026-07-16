@@ -175,6 +175,9 @@ each child itself a container with grand-children all `Constructed`
 **When** `parent.dispose()` is called
 **Then** when it returns, every child and every grand-child has `Status == Disposed`
 **And** the disposal order is depth-first (grand-children before children before parent)
+**And** if one child or parent disposal hook fails, all later siblings and the
+parent's mandatory teardown still complete before the first failure is
+propagated in flavors with a throwing/result-based disposal surface
 
 ### LIFE-014 — A throwing construct/destruct hook rolls Status back (transactional)
 
@@ -190,7 +193,7 @@ reaches `Constructed`
 (not `Destructing`), and a subsequent `destruct()` with a non-throwing hook reaches
 `Destructed`
 
-> Normatively defined in `02-lifecycle.md §2.4`.
+> Normatively defined in `02-lifecycle.md §2.5`.
 
 ______________________________________________________________________
 
@@ -478,7 +481,7 @@ and `CanExecute` returns `true`
 cannot double-run)
 
 > Spec: `04-commands.md §10`, ADR-0056, ADR-0076. Full-parity
-> (C#/Python/TypeScript/Swift).
+> (C#/Python/TypeScript/Swift/Rust).
 
 ### CMD-013 — disposed relay commands are inert
 
@@ -950,6 +953,9 @@ on repeated calls per BLD-001's standard semantics
 equivalent fluent builder path
 **And** missing required fields are validated through the same
 `BuilderValidationError` / `BuilderValidationException` path as `Build()`
+**And** where the options type can represent a partial service pair, each
+supplied service is retained until normal builder validation, preserving the
+builder's validation order and missing-field diagnostic
 
 ______________________________________________________________________
 
@@ -1766,6 +1772,50 @@ because `c` no longer has a `Parent` to delegate to
 **When** that score state changes and `RefreshScores()` is called
 **Then** the visible projection is reordered from the latest scores
 
+### COMP-038 — Adding to a new parent transfers exclusive ownership
+
+**Given** two mutable containers `old` and `new`, covering both `CompositeVM`
+and `GroupVM` as source and destination
+**And** the same child identity `c` occurs once in `old` and is `Constructed`
+**When** `new.Add(c)` is called
+**Then** `old` no longer contains `c` and `new` contains it exactly once
+**And** `c.Parent` denotes only `new`, including parent-derived selection behavior
+**And** `c.Status` remains `Constructed`
+**And** a later removal attempt against `old` cannot clear `c`'s new parent
+
+### COMP-039 — Duplicate and cycle rejection is mutation-free
+
+**Given** a mutable composite or group `parent` containing child `c`
+**When** `parent.Add(c)` is attempted again
+**Then** the flavor-standard ownership error is returned or raised
+**And** membership, parent link, selection state, lifecycle state, and
+collection notifications are unchanged
+**And** attaching a container to itself or beneath one of its descendants is
+rejected with the same mutation-free guarantee
+
+### COMP-040 — Failed ownership transfer restores exact state
+
+**Given** child `c` at index `i` in `old`, with `old.Current == c` when `old` is
+a composite
+**And** destination `new` is configured to auto-construct added children
+**And** `c` is `Destructed` and its construct hook fails
+**When** `new.Add(c)` is attempted
+**Then** the original construction error is returned or raised
+**And** `c` is restored at index `i` in `old` with the original `Parent`,
+`Current`, `IsCurrent`, and `Destructed` state
+**And** `new` has its exact pre-call membership and selection state
+**And** lazy or bulk population remains retryable after the failing child is fixed
+
+### COMP-041 — Transfer notifications commit removal before addition
+
+**Given** collection-change recorders on `old` and `new`
+**And** child `c` belongs to `old`
+**When** `new.Add(c)` succeeds
+**Then** the global observation order is `old:Remove(c)` followed by `new:Add(c)`
+**And** each callback observes committed membership and the new parent link
+**And** when destination attachment or construction fails, neither recorder
+observes a membership event
+
 ### SRCH-001 — source signal refreshes an unchanged search term
 
 **Given** a `SearchableState` over `["one"]` with an optional source-change
@@ -2095,6 +2145,9 @@ a legacy `index` or typed item payload
 **When** items are removed from the source until 4 items remain (2 full pages)
 **Then** `PageCount == 2`
 **And** `CurrentPageIndex` is clamped to `1` (the new upper bound)
+**And in TypeScript** non-finite or fractional page sizes and indexes raise
+`RangeError` before retained state or property notifications change, while
+negative finite integers retain zero clamping
 
 ### COL-017 — `PagedComposition<TVM>` `PageCount` derivation under add and remove
 
@@ -2791,7 +2844,7 @@ but no `Model`
 flavor-idiomatic equivalent), and `node.Children` is materialized **lazily** on first
 access (the default for `EagerChildren = false`)
 
-### HIER-018 — `ReparentChild` rejects self- and ancestor-reparenting — spec v2.5.0
+### HIER-018 — Hierarchy mutators reject cycles and transfer atomically — spec v3.20.1
 
 **Given** a hierarchy `root → mid → leaf`
 **When** `leaf.ReparentChild(root)` is called (reparenting an ancestor under its own
@@ -2801,6 +2854,15 @@ descendant) or `node.ReparentChild(node)` is called (self-reparenting)
 **And** the tree structure is unchanged (`Parent`, `Depth`, and `Path` of every node
 are as before)
 **And** no `TreeStructureChangedMessage` is published
+
+**When** the equivalent cycle is attempted through `AddChild`
+**Then** it is rejected through the flavor's idiomatic failure channel with the
+same no-mutation and no-message guarantees.
+
+**When** `newParent.AddChild(child)` is called for a child owned by `oldParent`
+**Then** the child is removed from `oldParent` by identity, appended once to
+`newParent`, and its parent/path state points only to `newParent`
+**And** one `Reparented` message is published by `newParent`
 
 ### HIER-019 — `InvalidateChildren` reloads on next access
 
@@ -3062,8 +3124,10 @@ equality is evaluated by each flavor's chapter 20 §4 mechanism — `object.Equa
 `==` for `Equatable` models (with injectable `equals` for custom semantics).
 The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
-and handles `Date`/`Map`/`Set`/`BigInt`/circular references, so the equal-values
-guarantee now holds for value-equality-capable models in all full-parity flavors.
+and handles `Date`/`Map`/`Set`/`BigInt`/circular references. TypeScript binary
+buffers and views compare by concrete constructor and visible bytes (ADR-0113),
+so the equal-values guarantee holds for value-equality-capable models in all
+full-parity flavors.
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality (C#/Python).
 

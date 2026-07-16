@@ -11,6 +11,17 @@ public sealed class FORM_030_SetModelHubPublicationTests
 {
     private sealed record Model(string Value);
 
+    private sealed class SignalingHub(IMessageHub inner, Action<IMessage> beforeSend) : IMessageHub
+    {
+        public IObservable<IMessage> Messages => inner.Messages;
+
+        public void Send<TMessage>(TMessage message) where TMessage : IMessage
+        {
+            beforeSend(message);
+            inner.Send(message);
+        }
+    }
+
     [Fact]
     [Trait("Conformance", "FORM-030")]
     public async Task FORM_030_SetModel_Publishes_One_Settled_Hub_Message()
@@ -116,5 +127,172 @@ public sealed class FORM_030_SetModelHubPublicationTests
         resetMessages.OfType<PropertyChangedMessage<FormVM<Model>>>()
             .Where(message => message.PropertyName == "Model")
             .Should().BeEmpty("approval reset keeps its existing non-hub outcome contract");
+    }
+
+    [Fact]
+    public async Task Admitted_SetModel_Finishes_Before_Concurrent_Dispose()
+    {
+        using var releaseValidation = new ManualResetEventSlim();
+        var validationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var validators = new Dictionary<string, Func<Model, string?>>
+        {
+            ["Value"] = model =>
+            {
+                if (model.Value == "accepted")
+                {
+                    validationEntered.SetResult();
+                    releaseValidation.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+                }
+
+                return null;
+            },
+        };
+        var form = new FormVM<Model>(
+            new Model("initial"),
+            _ => Task.CompletedTask,
+            snapshotter: model => model,
+            validators: validators);
+
+        var setter = Task.Run(() => form.SetModel(new Model("accepted")));
+        await validationEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var disposer = Task.Run(() =>
+        {
+            form.Dispose();
+            disposeFinished.SetResult();
+        });
+        var disposedDuringValidation = await Task.WhenAny(
+            disposeFinished.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
+        releaseValidation.Set();
+
+        await Task.WhenAll(setter, disposer).WaitAsync(TimeSpan.FromSeconds(1));
+        disposedDuringValidation.Should().BeFalse();
+        form.Model.Should().Be(new Model("accepted"));
+    }
+
+    [Fact]
+    public void Validator_Observes_The_Accepted_Live_Model()
+    {
+        FormVM<Model>? form = null;
+        var validators = new Dictionary<string, Func<Model, string?>>
+        {
+            ["Value"] = candidate =>
+            {
+                if (candidate.Value == "accepted")
+                    form!.Model.Should().Be(candidate);
+                return null;
+            },
+        };
+        form = new FormVM<Model>(
+            new Model("initial"),
+            _ => Task.CompletedTask,
+            snapshotter: model => model,
+            validators: validators);
+
+        form.SetModel(new Model("accepted"));
+
+        form.Model.Should().Be(new Model("accepted"));
+    }
+
+    [Fact]
+    public void Admitted_SetModel_Completes_When_Validator_Disposes_Reentrantly()
+    {
+        using var hub = new MessageHub();
+        var messages = new List<IMessage>();
+        using var subscription = hub.Messages.Subscribe(messages.Add);
+        FormVM<Model>? form = null;
+        var validators = new Dictionary<string, Func<Model, string?>>
+        {
+            ["Value"] = candidate =>
+            {
+                if (candidate.Value == "accepted") form!.Dispose();
+                return null;
+            },
+        };
+        form = new FormVM<Model>(
+            new Model("initial"),
+            _ => Task.CompletedTask,
+            hub: hub,
+            snapshotter: model => model,
+            validators: validators);
+
+        form.SetModel(new Model("accepted"));
+        form.SetModel(new Model("late"));
+
+        form.Model.Should().Be(new Model("accepted"));
+        messages.OfType<PropertyChangedMessage<FormVM<Model>>>().Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Form_Mutation_Does_Not_Hold_Gate_While_Waiting_For_Hub_Delivery(bool deny)
+    {
+        var innerHub = new MessageHub();
+        var blockerSender = new object();
+        using var releaseBlocker = new ManualResetEventSlim();
+        var blockerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var formSendStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reentryFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var armed = false;
+        var proxyHub = new SignalingHub(innerHub, message =>
+        {
+            if (armed && ((deny && message is FormRevertedMessage) ||
+                (!deny && message is PropertyChangedMessage<FormVM<Model>>)))
+                formSendStarted.TrySetResult();
+        });
+        FormVM<Model>? form = null;
+        using var subscription = innerHub.Messages.Subscribe(message =>
+        {
+            if (message is not FormRevertedMessage reverted ||
+                !ReferenceEquals(reverted.Sender, blockerSender)) return;
+            blockerEntered.SetResult();
+            // The test thread owns releaseBlocker.Set() below; wait without a fixed
+            // deadline so CI thread-pool contention can't trip a spurious timeout.
+            releaseBlocker.Wait();
+            form!.SetModel(new Model("nested"));
+            reentryFinished.SetResult();
+        });
+        form = new FormVM<Model>(
+            new Model("initial"),
+            _ => Task.CompletedTask,
+            hub: proxyHub,
+            snapshotter: model => model);
+        if (deny) form.SetModel(new Model("dirty"));
+        armed = true;
+
+        var blocker = Task.Run(() => innerHub.Send(new FormRevertedMessage(blockerSender, "blocker")));
+        await blockerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var mutator = Task.Run(() =>
+        {
+            if (deny)
+                form.DenyCommand.Execute(null);
+            else
+                form.SetModel(new Model("outer"));
+        });
+        await formSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseBlocker.Set();
+
+        // Await the deterministic reentry signal directly instead of racing it
+        // against an arbitrary 100ms delay: a real gate-held-across-hub-delivery
+        // regression would hang reentryFinished forever, so a finite ceiling still
+        // distinguishes bug from no-bug without conflating scheduling latency.
+        bool reenteredWithoutDeadlock;
+        try
+        {
+            await reentryFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            reenteredWithoutDeadlock = true;
+        }
+        catch (TimeoutException)
+        {
+            reenteredWithoutDeadlock = false;
+        }
+        if (!reenteredWithoutDeadlock) innerHub.Dispose();
+        await Task.WhenAll(mutator, blocker).WaitAsync(TimeSpan.FromSeconds(5));
+        if (reenteredWithoutDeadlock) innerHub.Dispose();
+
+        reenteredWithoutDeadlock.Should().BeTrue();
     }
 }

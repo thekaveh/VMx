@@ -16,6 +16,7 @@ public final class TokenPagedComposition<TVM, TToken> {
     private var _items: [TVM] = []
     private var _currentToken: TToken?
     private var loadedOnce = false
+    private var operationGeneration = 0
     private var disposed = false
     private let collectionChangedSubject = PassthroughSubject<CollectionChangedEvent, Never>()
     private let propertyChangedSubject = PassthroughSubject<String, Never>()
@@ -62,43 +63,61 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     private func loadMore() async throws {
-        let start = stateQueue.sync { (disposed: disposed, token: _currentToken) }
+        let start = stateQueue.sync { () -> (disposed: Bool, token: TToken?, generation: Int) in
+            guard !disposed else { return (true, nil, operationGeneration) }
+            operationGeneration += 1
+            return (false, _currentToken, operationGeneration)
+        }
         guard !start.disposed else { return }
 
         let page = try await fetchNext(start.token)
-        let itemsToConstruct = stateQueue.sync { () -> [TVM]? in
-            guard !disposed else { return nil }
+        let isCurrent = stateQueue.sync {
+            !disposed && start.generation == operationGeneration
+        }
+        guard isCurrent else { return }
+        try constructIfNeeded(page.0)
+        let committed = stateQueue.sync { () -> Bool in
+            guard !disposed, start.generation == operationGeneration else { return false }
             _items.append(contentsOf: page.0)
             _currentToken = page.1
             loadedOnce = true
-            return page.0
+            return true
         }
-        guard let itemsToConstruct else { return }
-        try constructIfNeeded(itemsToConstruct)
+        guard committed else { return }
         notifyResetIfLive()
     }
 
     private func refresh() async throws {
+        let generation = stateQueue.sync { () -> Int? in
+            guard !disposed else { return nil }
+            operationGeneration += 1
+            return operationGeneration
+        }
+        guard let generation else { return }
         let page = try await fetchNext(nil)
-        let outcome = stateQueue.sync { () -> (resetItems: [TVM]?, notifyProperties: Bool) in
-            guard !disposed else { return (nil, false) }
-            let head = Array(_items.prefix(page.0.count))
-            if pagesEqual(page.0, head) {
-                _currentToken = page.1
-                loadedOnce = true
-                return (nil, true)
+        let head = stateQueue.sync { () -> [TVM]? in
+            guard !disposed, generation == operationGeneration else { return nil }
+            return Array(_items.prefix(page.0.count))
+        }
+        guard let head else { return }
+        let pagesMatch = pagesEqual(page.0, head)
+        if !pagesMatch {
+            try constructIfNeeded(page.0)
+        }
+        let committed = stateQueue.sync { () -> Bool in
+            guard !disposed, generation == operationGeneration else { return false }
+            if !pagesMatch {
+                _items = page.0
             }
-            _items = page.0
             _currentToken = page.1
             loadedOnce = true
-            return (page.0, true)
+            return true
         }
-        guard outcome.notifyProperties else { return }
-        if let resetItems = outcome.resetItems {
-            try constructIfNeeded(resetItems)
-            notifyResetIfLive()
-        } else {
+        guard committed else { return }
+        if pagesMatch {
             notifyPropertiesIfLive()
+        } else {
+            notifyResetIfLive()
         }
     }
 
@@ -118,10 +137,11 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     private func notifyPropertiesIfLive() {
+        for name in ["items", "currentToken", "hasMore"] {
+            guard !isDisposed else { return }
+            propertyChangedSubject.send(name)
+        }
         guard !isDisposed else { return }
-        propertyChangedSubject.send("items")
-        propertyChangedSubject.send("currentToken")
-        propertyChangedSubject.send("hasMore")
         commandChangedSubject.send(())
     }
 

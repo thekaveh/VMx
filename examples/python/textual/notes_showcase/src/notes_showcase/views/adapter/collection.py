@@ -83,7 +83,7 @@ def bind_collection(
             # Tail insert only — ListView.append cannot honor a mid-list
             # position, so any other insertion index rebuilds (an
             # unconditional append rendered mid-list inserts at the wrong
-            # row; real-wiring audit, pass 5).
+            # row).
             list_view.append(factory(event.new_items[0]))
         elif event.action == "remove" and event.old_index >= 0:
             list_view.pop(event.old_index)
@@ -111,7 +111,7 @@ def bind_collection(
 
     # Widget→VM selection via Textual reactive watcher, chaining the class
     # watcher (ListView.watch_index drives row highlighting — an instance
-    # override must not shadow it; real-wiring audit, pass 5).
+    # override must not shadow it).
     cls_watcher = getattr(type(list_view), "watch_index", None)
 
     def _watch_index(_old: object, new: int | None) -> None:

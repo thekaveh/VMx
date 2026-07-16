@@ -3,15 +3,18 @@
 Global all-notes search is the scenario path that demonstrates
 `TokenPagedComposition` beyond the simpler fixed-page notes list.
 
-## What It Proves
+## 8.6.1. What It Proves
 
 - forward-only token paging through repository-backed search
 - search results that are independent of the currently focused notebook
 - source-change refresh with an unchanged search term before token paging reads
   the new filtered projection
+- explicit ownership of every lifecycle-bearing result VM created by a search,
+  including results later replaced, equality-suppressed, or returned by stale
+  asynchronous work
 - the same conceptual flow across C#, Python, TypeScript, and Swift
 
-## Where It Lives
+## 8.6.2. Where It Lives
 
 - C#:
   `ViewModels/GlobalSearchVM.cs` in the Avalonia flagship
@@ -29,7 +32,21 @@ and host wiring:
 [TypeScript](../../../examples/typescript/react/notes-showcase/README.md),
 [Swift](../../../examples/swift/notes-showcase/README.md).
 
-## Related Reading
+## 8.6.3. Result Ownership
+
+The four host examples construct `NoteVM` instances from repository values and
+enable `autoConstructOnAdd`. `TokenPagedComposition` deliberately does not own
+item lifetimes, so the enclosing `GlobalSearchVM` keeps an identity registry of
+every result it creates—not only the currently visible page. Disposal marks that
+registry terminal, disposes every retained result, and immediately disposes any
+late result produced by already-running asynchronous work.
+
+This local ownership boundary prevents refresh, same-page equality suppression,
+or superseded fetches from making a constructed result unreachable before its
+lifecycle closes. Rust's TUI search stores cloned `NoteModel` values rather than
+lifecycle-bearing result VMs, so it does not need this registry.
+
+## 8.6.4. Related Reading
 
 - [Notes Workspace](notes-workspace.md)
 - [State & Reactive Helpers](../primitives/state-reactive-helpers.md)

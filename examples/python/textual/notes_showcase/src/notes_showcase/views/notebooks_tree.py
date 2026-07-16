@@ -15,8 +15,7 @@ functions so the Phase 6 CI grep stays happy.
 
 The tree repopulates on every :class:`~vmx.TreeStructureChangedMessage` from
 the root VM (via the adapter's :func:`on_tree_structure_changed`) — a
-populate-once tree never showed notebooks added at runtime (real-wiring
-audit, pass 5).
+populate-once tree never showed notebooks added at runtime.
 """
 
 from __future__ import annotations

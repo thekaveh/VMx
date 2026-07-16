@@ -4,14 +4,14 @@
 //
 // See spec/10-builders.md §3 and spec/18-hierarchical-vm.md (HIER-015/016/017).
 //
-// vmFactory decision (for Task-9 ADR):
+// vmFactory decision (ADR-0061 §2.2):
 // TypeScript requires a vmFactory because JS erases generic-type identity at
 // runtime. Swift has reified generics but binds `TVM: AnyObject` (not
 // `TVM: HierarchicalVM<TModel, TVM>`) because the self-referential constraint
 // is rejected by the Swift compiler (see HierarchicalVM.swift file header).
 // `AnyObject` exposes no `init(...)` surface, so this builder also cannot
 // construct TVM directly and requires the same vmFactory pattern as TypeScript.
-// The divergence is documented in the Task-9 ADR.
+// The divergence is documented in ADR-0061 §2.2.
 //
 import Foundation
 

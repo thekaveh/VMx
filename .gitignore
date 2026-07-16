@@ -54,10 +54,8 @@ venv/
 ENV/
 
 # uv
-# uv.lock is not committed in this repo. The vmx library (langs/python/) is a
-# library, not an application, so consumers always re-resolve. The examples
-# under examples/python/ are tiny demo apps — re-resolving is fine for them too.
-uv.lock
+# Project lockfiles are committed so CI and executable examples resolve
+# reproducibly. Keep only temporary backup locks ignored.
 uv.lock.bak
 
 # ─── .NET / C# ────────────────────────────────────────────────────────
@@ -96,6 +94,11 @@ xcuserdata/
 # ─── Rust ─────────────────────────────────────────────────────────────
 target/
 Cargo.lock
+!/langs/rust/Cargo.lock
+# Rust libraries do not commit Cargo.lock, but runnable application examples
+# do so their documented and CI `--locked` commands are reproducible.
+!/examples/rust/console/hello-vmx/Cargo.lock
+!/examples/rust/tui/notes-showcase/Cargo.lock
 
 # ─── Node / TypeScript ────────────────────────────────────────────────
 node_modules/

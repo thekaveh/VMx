@@ -6,41 +6,60 @@ use crate::{
     lock, AsyncRelayCommand, CancellationToken, ComponentVm, MessageHub, NullDispatcher,
     PropertyChangedStream, RelayCommand, VmxError, VmxResult,
 };
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The current acquisition phase of an [`AsyncResourceVm`].
 pub enum AsyncResourceStatus {
+    /// No acquisition has completed or is running.
     Idle,
+    /// A loader invocation is currently in flight.
     Loading,
+    /// The latest acquisition completed with a value.
     Ready,
+    /// The latest acquisition failed.
     Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Controls whether a reload exposes the previous stable value while loading.
 pub enum AsyncResourceRetention {
+    /// Discard and clean up the previous value before starting the next load.
     DiscardPrevious,
+    /// Retain the previous value until the next load reaches a stable state.
     RetainPrevious,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Observable acquisition state, including any retained value or failure.
 pub enum AsyncResourceState<T> {
+    /// No value or operation is present.
     Idle,
+    /// Acquisition is in progress.
     Loading {
+        /// The retained stable value, when retention is enabled.
         previous: Option<T>,
     },
+    /// Acquisition completed successfully.
     Ready {
+        /// The accepted resource value.
         value: T,
     },
+    /// Acquisition completed with an error.
     Error {
+        /// The retained stable value, when available.
         previous: Option<T>,
+        /// The loader failure.
         error: VmxError,
     },
 }
 
 impl<T> AsyncResourceState<T> {
+    /// Returns this state's phase without cloning its payload.
     pub fn status(&self) -> AsyncResourceStatus {
         match self {
             Self::Idle => AsyncResourceStatus::Idle,
@@ -50,6 +69,7 @@ impl<T> AsyncResourceState<T> {
         }
     }
 
+    /// Borrows the ready or retained value, when one is present.
     pub fn value(&self) -> Option<&T> {
         match self {
             Self::Loading {
@@ -64,6 +84,7 @@ impl<T> AsyncResourceState<T> {
         }
     }
 
+    /// Borrows the loader failure when this is an error state.
     pub fn error(&self) -> Option<&VmxError> {
         match self {
             Self::Error { error, .. } => Some(error),
@@ -122,6 +143,7 @@ struct Inner<T> {
 }
 
 #[derive(Clone)]
+/// A cancellable, command-backed asynchronous resource state machine.
 pub struct AsyncResourceVm<T> {
     inner: Arc<Inner<T>>,
     load_command: AsyncRelayCommand,
@@ -139,6 +161,7 @@ impl<T> AsyncResourceVm<T>
 where
     T: Clone + Send + 'static,
 {
+    /// Creates a resource VM that discards previous values and needs no cleanup.
     pub fn new<F>(name: impl Into<String>, loader: F) -> Self
     where
         F: Fn(CancellationToken) -> VmxResult<T> + Send + Sync + 'static,
@@ -146,6 +169,7 @@ where
         Self::with_options(name, loader, AsyncResourceRetention::DiscardPrevious, None)
     }
 
+    /// Creates a resource VM with explicit retention and optional value cleanup.
     pub fn with_options<F>(
         name: impl Into<String>,
         loader: F,
@@ -170,24 +194,44 @@ where
             commands: Mutex::new(None),
         });
 
-        let load_inner = inner.clone();
-        let load_predicate = inner.clone();
+        let load_inner = Arc::downgrade(&inner);
+        let load_predicate = Arc::downgrade(&inner);
         let load_command = AsyncRelayCommand::new(move |token| {
-            run_intent(load_inner.clone(), StartIntent::Load, token)
+            load_inner
+                .upgrade()
+                .map_or(Ok(()), |inner| run_intent(inner, StartIntent::Load, token))
         })
-        .with_can_execute(move || can_load(&load_predicate));
+        .with_can_execute(move || {
+            load_predicate
+                .upgrade()
+                .is_some_and(|inner| can_load(&inner))
+        });
 
-        let reload_inner = inner.clone();
-        let reload_predicate = inner.clone();
+        let reload_inner = Arc::downgrade(&inner);
+        let reload_predicate = Arc::downgrade(&inner);
         let reload_command = AsyncRelayCommand::new(move |token| {
-            run_intent(reload_inner.clone(), StartIntent::Reload, token)
+            reload_inner.upgrade().map_or(Ok(()), |inner| {
+                run_intent(inner, StartIntent::Reload, token)
+            })
         })
-        .with_can_execute(move || can_reload(&reload_predicate));
+        .with_can_execute(move || {
+            reload_predicate
+                .upgrade()
+                .is_some_and(|inner| can_reload(&inner))
+        });
 
-        let cancel_inner = inner.clone();
-        let cancel_predicate = inner.clone();
-        let cancel_command = RelayCommand::new(move || cancel_current(&cancel_inner))
-            .with_can_execute(move || can_cancel(&cancel_predicate));
+        let cancel_inner = Arc::downgrade(&inner);
+        let cancel_predicate = Arc::downgrade(&inner);
+        let cancel_command = RelayCommand::new(move || {
+            if let Some(inner) = cancel_inner.upgrade() {
+                cancel_current(&inner);
+            }
+        })
+        .with_can_execute(move || {
+            cancel_predicate
+                .upgrade()
+                .is_some_and(|inner| can_cancel(&inner))
+        });
 
         *lock(&inner.commands) = Some(Commands {
             load: load_command.clone(),
@@ -203,58 +247,71 @@ where
         }
     }
 
+    /// Returns a snapshot of the complete current acquisition state.
     pub fn state(&self) -> AsyncResourceState<T> {
         lock(&self.inner.machine).state.clone()
     }
 
+    /// Returns the current acquisition phase.
     pub fn status(&self) -> AsyncResourceStatus {
         lock(&self.inner.machine).state.status()
     }
 
+    /// Clones the ready or retained value, when available.
     pub fn value(&self) -> Option<T> {
         lock(&self.inner.machine).state.value().cloned()
     }
 
+    /// Clones the current loader failure, when present.
     pub fn error(&self) -> Option<VmxError> {
         lock(&self.inner.machine).state.error().cloned()
     }
 
+    /// Returns the VM-local property-change stream.
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.inner.component.property_changed()
     }
 
+    /// Returns the message hub used for state notifications.
     pub fn hub(&self) -> MessageHub {
         self.inner.component.hub()
     }
 
+    /// Returns the command that starts the initial load.
     pub fn load_command(&self) -> AsyncRelayCommand {
         self.load_command.clone()
     }
 
+    /// Returns the command that reloads from a non-idle state.
     pub fn reload_command(&self) -> AsyncRelayCommand {
         self.reload_command.clone()
     }
 
+    /// Returns the command that cancels the active acquisition.
     pub fn cancel_command(&self) -> RelayCommand {
         self.cancel_command.clone()
     }
 
+    /// Starts a load on a dedicated thread and returns its join handle.
     pub fn load_async(&self) -> JoinHandle<VmxResult<()>> {
         let inner = self.inner.clone();
         thread::spawn(move || run_intent(inner, StartIntent::Load, CancellationToken::new()))
     }
 
+    /// Starts a reload on a dedicated thread and returns its join handle.
     pub fn reload_async(&self) -> JoinHandle<VmxResult<()>> {
         let inner = self.inner.clone();
         thread::spawn(move || run_intent(inner, StartIntent::Reload, CancellationToken::new()))
     }
 
+    /// Cancels the active acquisition, if any.
     pub fn cancel(&self) {
         cancel_current(&self.inner);
         self.load_command.cancel();
         self.reload_command.cancel();
     }
 
+    /// Cancels work, cleans up the retained value, and disposes owned commands.
     pub fn dispose(&self) -> VmxResult<()> {
         let (operation, accepted, first) = {
             let mut machine = lock(&self.inner.machine);
@@ -360,9 +417,14 @@ where
     let loader_inner = inner.clone();
     let loader_operation = operation.clone();
     thread::spawn(move || {
-        let result = (loader_inner.loader)(loader_operation.token.clone());
-        complete_operation(&loader_inner, &loader_operation, result);
-        let _ = done_send.send(());
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let result = (loader_inner.loader)(loader_operation.token.clone());
+            complete_operation(&loader_inner, &loader_operation, result);
+        }));
+        if outcome.is_err() {
+            rollback_panicked_operation(&loader_inner, &loader_operation);
+        }
+        let _ = done_send.send(outcome);
     });
 
     loop {
@@ -374,9 +436,35 @@ where
             return Ok(());
         }
         match done_receive.recv_timeout(Duration::from_millis(1)) {
-            Ok(()) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(panic)) => resume_unwind(panic),
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("async resource loader worker disconnected before reporting completion")
+            }
             Err(RecvTimeoutError::Timeout) => {}
         }
+    }
+}
+
+fn rollback_panicked_operation<T>(inner: &Inner<T>, operation: &Operation<T>)
+where
+    T: Clone + Send + 'static,
+{
+    let notify = {
+        let mut machine = lock(&inner.machine);
+        if machine.disposed
+            || machine.operation.as_ref().map(|current| current.identity)
+                != Some(operation.identity)
+        {
+            false
+        } else {
+            machine.operation = None;
+            machine.state = state_from_stable(&operation.baseline);
+            true
+        }
+    };
+    if notify {
+        notify_state(inner);
     }
 }
 

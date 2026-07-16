@@ -66,6 +66,34 @@ fn construct_constructs_all_children() {
     assert_eq!(b.status(), ConstructionStatus::Constructed);
 }
 
+#[test]
+fn parent_reaches_constructed_only_after_children() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let item = Child::with_model("child", "child", hub.clone(), NullDispatcher::new());
+    group.add(item.clone()).unwrap();
+
+    group.construct().unwrap();
+
+    let statuses = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change) => Some((change.sender_id, change.status)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        vec![
+            (group.id(), ConstructionStatus::Constructing),
+            (item.id(), ConstructionStatus::Constructing),
+            (item.id(), ConstructionStatus::Constructed),
+            (group.id(), ConstructionStatus::Constructed),
+        ]
+    );
+}
+
 /// GRP-004 — Destruct waits until all children reach Destructed
 #[test]
 fn destruct_destructs_all_children() {

@@ -12,10 +12,10 @@
  * the same way they would on a `HierarchicalVM`.
  */
 import {
+  AsyncRelayCommand,
   ComponentVMBase,
   ConstructionStatus,
   declareCapabilities,
-  RelayCommand,
   TreeStructureChangedMessage,
   ViewModelType,
   type ICommand,
@@ -44,7 +44,7 @@ export class NotebooksRootVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #notificationHub: INotificationHub | null;
   readonly #all: NotebookVM[] = [];
-  readonly #addNotebookCommand: RelayCommand;
+  readonly #addNotebookCommand: AsyncRelayCommand;
   #current: NotebookVM | null = null;
 
   constructor(opts: {
@@ -65,11 +65,9 @@ export class NotebooksRootVM extends ComponentVMBase {
     this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(this, "INewCreatable", "IReconstructable");
 
-    this.#addNotebookCommand = RelayCommand.builder()
+    this.#addNotebookCommand = AsyncRelayCommand.builder()
       .predicate(() => this.canCreateNew())
-      .task(() => {
-        void this.addNotebookAsync(null, "New Notebook");
-      })
+      .task(async () => { await this.addNotebookAsync(null, "New Notebook"); })
       .build();
   }
 
@@ -119,7 +117,7 @@ export class NotebooksRootVM extends ComponentVMBase {
   }
 
   createNew(): void {
-    void this.addNotebookAsync(null, "New Notebook");
+    this.#addNotebookCommand.execute();
   }
 
   get addNotebookCommand(): ICommand {
@@ -140,7 +138,7 @@ export class NotebooksRootVM extends ComponentVMBase {
       .build();
     vm.construct();
     this.#all.push(vm);
-    // Real-wiring audit, pass 6: useVm re-renders only on
+    // Live-binding invariant: useVm re-renders only on
     // PropertyChangedMessage — TreeStructureChangedMessage alone left the
     // new notebook invisible until the next unrelated re-render.
     this._notifyPropertyChanged("roots");

@@ -4,6 +4,150 @@ All notable changes to the Rust flavor of VMx are documented here. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Packed crates now include the repository's byte-identical Apache-2.0
+  `LICENSE` and `NOTICE` files.
+- Hierarchy structural messages now include the mutation kind, affected child
+  identity, and index, and parent-change notifications use Rust's `parent`
+  property spelling.
+- Children whose previous weak owner has been dropped can be attached to a new
+  composite or group instead of retaining an unusable expired ownership handle.
+- Serviced collections now serialize mutation commit with delivery admission,
+  so concurrent Add positions publish in committed order without weakening
+  same-thread re-entrant delivery or caller-thread hub publication.
+
+## [0.25.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Added
+
+- `AggregateVm1` through `AggregateVm6` now expose immutable builders with
+  required lazy component factories, optional pre-construction slots, and the
+  common name, hint, reconstruction, selection, and command surface.
+
+### Changed
+
+- Aggregate factories are invoked at construct time and again on reconstruct;
+  all candidates are ownership-validated before any previous slot is replaced.
+- Aggregate slot accessors now use idiomatic `component_1` through
+  `component_6` names and return `Option<T>` because builder-created slots are
+  empty before construction. The unnumbered aliases remain available.
+
+### Fixed
+
+- Hierarchical parent links now hold weak state, so dropping an unreachable
+  materialized tree releases both parents and descendants without making
+  hierarchy disposal own, detach, or dispose child lifetimes.
+- Cached form and async-resource commands no longer form owner-retention
+  cycles; dropping the VM and its external command handles releases captured
+  persisters, loaders, validators, and cleanup resources.
+- Modeled components now expose `modeled_hint()` separately from the immutable
+  fixed `hint()`, so the builder's default empty fixed hint no longer masks
+  model-derived text or causes CVM-004 to test the wrong property.
+- Nested sends from one active message-hub callback to another hub now enqueue
+  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
+  while ordinary producers retain synchronous calling-thread delivery.
+- The published crate now includes the repository's Apache-2.0 license text.
+
+## [0.24.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Fixed
+
+- Terminal disposal now attempts every child and the parent core before
+  returning the first failure (LIFE-013, ADR-0108).
+- `AggregateVm3` through `AggregateVm6` now expose every typed slot and the
+  complete lifecycle, service, ownership, status, equality, and `VmNode`
+  surfaces already provided by the lower arities.
+
+## [0.23.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- `VmNode` parent state is now a real weak owner handle. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
+- `ReadonlyComponentVm` now exposes the component baseline directly and
+  implements `VmNode`/`TreeNode` without revealing its writable inner VM.
+- Component hints are construction-time state; the public post-construction
+  `set_hint` mutation escape is removed.
+- `FormVm` and `FormVmBuilder` now live in a focused forms module while
+  retaining their crate-root exports.
+- The disposable package consumer now recreates the crate with the committed
+  lockfile enforced.
+
+### Fixed
+
+- Form reset publication now defers model edits requested by validation
+  observers until approved callbacks have observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
+- Failed lifecycle hooks publish the rolled-back construction status, and a
+  failing dispose hook still completes the local property-change stream.
+- Form commands are stable handles; form disposal closes commands, channels,
+  callbacks, validators, and the underlying component deterministically.
+- Model hints, form callbacks, validators, and snapshotters execute without
+  holding their backing state locks, allowing safe reentrant reads or updates.
+- Concurrent hierarchy materialization invokes its factory once, and
+  concurrent reparenting preserves exactly one parent-child membership.
+
+## [0.22.0] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
+### Added
+
+- `AsyncValue<T>` provides executor-neutral `Future` and blocking completion
+  for dialog, notification, modal, and confirmation flows (ADR-0106).
+- `make_confirm` adapts the notification hub to an async confirmation gate.
+
+### Changed
+
+- `DialogService`, `ModalVm::completion`, `NotificationWaiter`, and
+  `ConfirmationDecoratorCommand` now model genuinely pending interactions.
+- `ForwardingCompositeVm` delegates the complete collection and selection
+  surface.
+
+### Fixed
+
+- Async-command cancellation cannot be lost during token admission.
+- Command predicate panics map to `false` instead of unwinding through callers.
+- Hierarchy attachment rejects cycles and transfers attached children without
+  duplicating them across parents (HIER-018, ADR-0105).
+
+## [0.21.0] — 2026-07-13
+
+Implements `spec-v3.20.0` and keeps Rust at full library parity: 391/391
+conformance IDs covered.
+
+### Added
+
+- `AsyncRelayCommandBuilder` now provides `task`, `predicate`, additive
+  `trigger`, and opt-in `throw_on_cancel` setters.
+- `AsyncRelayCommand::errors()` routes non-cancellation fire-and-forget faults;
+  `VmxError::Cancelled` distinguishes the cooperative cancellation result.
+
+### Changed
+
+- Async command admission is atomic, panic-safe teardown always clears the
+  in-flight state, default cancellation completes normally, and throwing mode
+  returns `VmxError::Cancelled` through the join handle (ADR-0104).
+- The Rust reactive primitive is documented and packaged as the directly
+  implemented VMx-owned hot-stream facade; the unused `rxrust` and runtime-only
+  `serde_json` dependencies are removed (ADR-0103).
+- Application examples now commit lockfiles, enforce `--locked` CI execution,
+  and declare an MSRV no lower than the library.
+- A panicking async-resource loader restores the prior stable state and
+  preserves the panic through the public load handle.
+
 ## [0.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps Rust at full library parity: 391/391

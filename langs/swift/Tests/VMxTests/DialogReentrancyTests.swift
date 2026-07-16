@@ -58,9 +58,7 @@ private final class RejectingDialogService: DialogService {
     func notify(_ message: String, title: String?, severity: NotificationSeverity) async {}
 
     func confirm(_ message: String, title: String?) async -> Bool {
-        lock.lock()
-        let hasActive = activeContinuation != nil
-        lock.unlock()
+        let hasActive = lock.withLock { activeContinuation != nil }
         if hasActive {
             // Reentrant call — reject immediately without suspending.
             return false

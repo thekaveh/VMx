@@ -29,6 +29,8 @@ def expected_paths(package_id: str, *, symbols: bool) -> set[str]:
     if not symbols:
         paths.update(
             {
+                "LICENSE",
+                "NOTICE",
                 f"lib/net8.0/{package_id}.xml",
                 f"lib/netstandard2.0/{package_id}.xml",
                 "README.md",
@@ -133,14 +135,18 @@ def validate_package_pair(
 
 def discover_expected(project_root: Path) -> dict[str, tuple[str, str | None]]:
     """Read package IDs/versions from C# source projects."""
-    expected: dict[str, tuple[str, str | None]] = {}
+    discovered: dict[str, str] = {}
     for project in sorted(project_root.glob("*/*.csproj")):
         root = ET.parse(project).getroot()
         package_id = root.findtext("PropertyGroup/PackageId")
         version = root.findtext("PropertyGroup/Version")
         if package_id and version:
-            expected[package_id] = (version, None if package_id == "VMx" else "3.20.0")
-    return expected
+            discovered[package_id] = version
+    core_version = discovered.get("VMx")
+    return {
+        package_id: (version, None if package_id == "VMx" else core_version)
+        for package_id, version in discovered.items()
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,6 +156,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project-root", type=Path, default=repo / "langs" / "csharp" / "src")
     args = parser.parse_args(argv)
     expected = discover_expected(args.project_root)
+    if not expected:
+        print(
+            f"ERROR: no packable projects discovered under {args.project_root}",
+            file=sys.stderr,
+        )
+        return 1
     errors = [
         error
         for package_id, (version, vmx_floor) in expected.items()

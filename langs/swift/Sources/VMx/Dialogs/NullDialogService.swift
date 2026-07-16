@@ -11,7 +11,7 @@
 
 /// Null-object implementation of `DialogService`. Suitable as a default
 /// injection target when no real host UI is available (tests, previews, CLI).
-public final class NullDialogService: DialogService {
+public final class NullDialogService: DialogService, Sendable {
     /// Shared singleton instance. The service is stateless.
     public static let INSTANCE = NullDialogService()
 

@@ -21,6 +21,7 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
     where VM3 : class, IComponentVM
     where VM4 : class, IComponentVM
 {
+    private readonly IParentCompositeVM _aggregateParent;
     private readonly Func<VM1> _factory1;
     private readonly Func<VM2> _factory2;
     private readonly Func<VM3> _factory3;
@@ -74,6 +75,7 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
         _factory2 = factory2;
         _factory3 = factory3;
         _factory4 = factory4;
+        _aggregateParent = new AggregateParent(this, this);
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────────
@@ -81,6 +83,12 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        var next1 = _factory1();
+        var next2 = _factory2();
+        var next3 = _factory3();
+        var next4 = _factory4();
+        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3, next4);
+        IComponentVM?[] previous = [_component1, _component2, _component3, _component4];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
         _component1?.Dispose();
@@ -88,31 +96,31 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
         _component3?.Dispose();
         _component4?.Dispose();
 
-        _component1 = _factory1();
+        _component1 = next1;
         NotifyPropertyChanged(nameof(Component1));
 
-        _component2 = _factory2();
+        _component2 = next2;
         NotifyPropertyChanged(nameof(Component2));
 
-        _component3 = _factory3();
+        _component3 = next3;
         NotifyPropertyChanged(nameof(Component3));
 
-        _component4 = _factory4();
+        _component4 = next4;
+        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3, next4]);
         NotifyPropertyChanged(nameof(Component4));
 
-        _component1.Construct();
-        _component2.Construct();
-        _component3.Construct();
-        _component4.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            [_component1, _component2, _component3, _component4],
+            construct: true));
     }
 
     /// <inheritdoc/>
     protected override void OnDestruct()
     {
-        _component1?.Destruct();
-        _component2?.Destruct();
-        _component3?.Destruct();
-        _component4?.Destruct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            new IComponentVM?[] { _component1, _component2, _component3, _component4 }
+                .OfType<IComponentVM>(),
+            construct: false));
     }
 
     /// <summary>
@@ -120,11 +128,13 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
     /// </summary>
     public override void Dispose()
     {
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        _component4?.Dispose();
-        base.Dispose();
+        var firstError = DisposeChildren([_component1, _component2, _component3, _component4]);
+        try { base.Dispose(); }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

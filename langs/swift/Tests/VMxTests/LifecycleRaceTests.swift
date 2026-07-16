@@ -9,10 +9,9 @@
 // an unsynchronized data race (undefined behaviour, ThreadSanitizer-flaggable):
 // the background thread could write `_status = .constructed` *after* the VM was
 // disposed (resurrection) and publish a post-dispose status message. The fix
-// serializes the `_status` read-modify-write + emission against `dispose()`
-// under a single recursive `lifecycleLock`, so the background completion either
-// runs entirely before disposal or observes the terminal `.disposed` state under
-// the lock and aborts.
+// serializes status admission and ordered publication, so a background
+// completion either wins before disposal or observes the terminal `.disposed`
+// generation and aborts.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is exercised by CI (`swift.yml` on macos-latest). The
@@ -77,6 +76,133 @@ final class LifecycleRaceTests: XCTestCase {
     }
 
     // MARK: - Deterministic abort-on-disposed
+
+    func testConstructingSubscriberDisposePreventsForegroundHook() throws {
+        let hub = MessageHub()
+        var constructCalls = 0
+        let vm = try ComponentVM.builder()
+            .name("vm")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
+            .onConstruct { constructCalls += 1 }
+            .build()
+        var statuses: [ConstructionStatus] = []
+        var propertyChanges: [String] = []
+        var propertyCompleted = false
+        var cleanupCalls = 0
+        var statusAfterDisposeReturn: ConstructionStatus?
+        var cleanupAfterDisposeReturn = -1
+        var completionAfterDisposeReturn = false
+        vm.own { cleanupCalls += 1 }
+        let propertyCancel = vm.propertyChanged.sink(
+            receiveCompletion: { _ in propertyCompleted = true },
+            receiveValue: { propertyChanges.append($0) }
+        )
+        let cancel = hub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .filter { $0.sender === vm }
+            .sink { message in
+                statuses.append(message.status)
+                if message.status == .constructing {
+                    vm.dispose()
+                    statusAfterDisposeReturn = vm.status
+                    cleanupAfterDisposeReturn = cleanupCalls
+                    completionAfterDisposeReturn = propertyCompleted
+                }
+            }
+
+        try vm.construct()
+
+        XCTAssertEqual(vm.status, .disposed)
+        XCTAssertEqual(statusAfterDisposeReturn, .disposed)
+        XCTAssertEqual(cleanupAfterDisposeReturn, 1)
+        XCTAssertTrue(completionAfterDisposeReturn)
+        XCTAssertEqual(constructCalls, 0,
+                       "a hook must not start after transient publication disposed the VM")
+        XCTAssertEqual(statuses, [.constructing, .disposed])
+        XCTAssertEqual(
+            propertyChanges,
+            ["status", "isConstructed"],
+            "the superseded transient status must not publish stale local changes"
+        )
+        XCTAssertEqual(cleanupCalls, 1)
+        XCTAssertTrue(propertyCompleted)
+        cancel.cancel()
+        propertyCancel.cancel()
+    }
+
+    func testReentrantConstructDuringTerminalPublicationRaises() throws {
+        let hub = MessageHub()
+        let vm = try ComponentVM.builder()
+            .name("vm")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
+            .build()
+        var reentrantError: Error?
+        let cancel = hub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .filter { $0.sender === vm && $0.status == .constructed }
+            .sink { _ in
+                do {
+                    try vm.construct()
+                } catch {
+                    reentrantError = error
+                }
+            }
+
+        try vm.construct()
+
+        XCTAssertTrue(reentrantError is StatusTransitionError,
+                      "LIFE-008 applies until terminal publication has completed")
+        cancel.cancel()
+    }
+
+    func testDisposeDuringReconstructDestructHookSkipsConstructPhase() throws {
+        let hub = MessageHub()
+        let destructEntered = DispatchSemaphore(value: 0)
+        let releaseDestruct = DispatchSemaphore(value: 0)
+        let reconstructDone = DispatchSemaphore(value: 0)
+        let counterLock = NSLock()
+        var constructCalls = 0
+        let vm = try ComponentVM.builder()
+            .name("vm")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
+            .onConstruct {
+                counterLock.lock()
+                constructCalls += 1
+                counterLock.unlock()
+            }
+            .onDestruct {
+                destructEntered.signal()
+                releaseDestruct.wait()
+            }
+            .build()
+        try vm.construct()
+
+        DispatchQueue.global().async {
+            try? vm.reconstruct()
+            reconstructDone.signal()
+        }
+        XCTAssertEqual(destructEntered.wait(timeout: .now() + 1), .success)
+        let disposeDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            vm.dispose()
+            disposeDone.signal()
+        }
+        XCTAssertEqual(
+            disposeDone.wait(timeout: .now() + 0.05),
+            .timedOut,
+            "dispose must wait for an admitted lifecycle hook before returning"
+        )
+        releaseDestruct.signal()
+        XCTAssertEqual(disposeDone.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(reconstructDone.wait(timeout: .now() + 1), .success)
+
+        counterLock.lock()
+        let calls = constructCalls
+        counterLock.unlock()
+        XCTAssertEqual(calls, 1,
+                       "a disposed reconstruct must not enter its second construct phase")
+        XCTAssertEqual(vm.status, .disposed)
+    }
 
     /// A `dispose()` that lands while a background `construct()` is in flight
     /// must abort the completion: no resurrection, no post-dispose `.constructed`

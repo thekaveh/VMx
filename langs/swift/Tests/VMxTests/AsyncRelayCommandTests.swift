@@ -15,6 +15,21 @@ import XCTest
 import Combine
 @testable import VMx
 
+private actor CancellationObservation {
+    private(set) var bodyWasCancelled = false
+    private(set) var missedCancellations = 0
+
+    func recordBodyCancellation() {
+        bodyWasCancelled = Task.isCancelled
+    }
+
+    func recordAdmissionCancellation() {
+        if !Task.isCancelled {
+            missedCancellations += 1
+        }
+    }
+}
+
 final class AsyncRelayCommandTests: XCTestCase {
 
     // MARK: - CMD-012
@@ -124,6 +139,34 @@ final class AsyncRelayCommandTests: XCTestCase {
         cmd.dispose()
     }
 
+    /// CMD-012 — a cancellation request made immediately after admission must
+    /// reach the body even if its Task cancellation handle is still being installed.
+    func testCmd012ImmediateCancelDuringAdmissionIsNeverLost() async {
+        let observation = CancellationObservation()
+
+        for _ in 0..<2_000 {
+            let cmd = AsyncRelayCommand.builder()
+                .task {
+                    let deadline = ContinuousClock.now + .milliseconds(10)
+                    while !Task.isCancelled && ContinuousClock.now < deadline {
+                        await Task.yield()
+                    }
+                    await observation.recordAdmissionCancellation()
+                }
+                .build()
+            let run = Task<Void, Error> { try await cmd.executeAsync() }
+            while !cmd.isExecuting {
+                await Task.yield()
+            }
+            cmd.cancel()
+            _ = try? await run.value
+            cmd.dispose()
+        }
+
+        let missedCancellations = await observation.missedCancellations
+        XCTAssertEqual(missedCancellations, 0)
+    }
+
     /// CMD-012 — `throwOnCancel()` mode: `cancel()` surfaces `CancellationError`
     /// to the awaiter of `executeAsync()` instead of completing normally.
     func testCmd012ThrowOnCancelSurfacesCancellationError() async {
@@ -162,6 +205,47 @@ final class AsyncRelayCommandTests: XCTestCase {
                       "awaiter must observe CancellationError when throwOnCancel is set")
         XCTAssertFalse(cmd.isExecuting,
                        "isExecuting must be false after cancel, even in throwOnCancel mode")
+        cmd.dispose()
+    }
+
+    /// CMD-012 — cancellation of the task awaiting `executeAsync()` propagates
+    /// into the command body and remains observable by the external awaiter.
+    func testCmd012ParentTaskCancellationPropagatesToBody() async {
+        let startedExp = expectation(description: "CMD-012 parent cancellation: body is running")
+        let observation = CancellationObservation()
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                startedExp.fulfill()
+                do {
+                    while true {
+                        try await Task.sleep(nanoseconds: 1_000_000)
+                    }
+                } catch is CancellationError {
+                    await observation.recordBodyCancellation()
+                    throw CancellationError()
+                }
+            }
+            .build()
+
+        let run = Task<Void, Error> {
+            try await cmd.executeAsync()
+        }
+        await fulfillment(of: [startedExp], timeout: 2.0)
+
+        run.cancel()
+
+        do {
+            try await run.value
+            XCTFail("parent-task cancellation must surface CancellationError")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("parent-task cancellation must preserve CancellationError; got: \(error)")
+        }
+
+        let bodyWasCancelled = await observation.bodyWasCancelled
+        XCTAssertTrue(bodyWasCancelled)
+        XCTAssertFalse(cmd.isExecuting)
         cmd.dispose()
     }
 

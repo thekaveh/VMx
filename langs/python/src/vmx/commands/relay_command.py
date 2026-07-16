@@ -36,6 +36,19 @@ from reactivex.subject import Subject
 T = TypeVar("T")
 
 
+def _run_disposal_steps(*steps: Callable[[], None]) -> None:
+    """Attempt every terminal step and re-raise the first failure."""
+    first_error: BaseException | None = None
+    for step in steps:
+        try:
+            step()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+    if first_error is not None:
+        raise first_error
+
+
 # ---------------------------------------------------------------------------
 # RelayCommand (non-parameterized)
 # ---------------------------------------------------------------------------
@@ -119,11 +132,12 @@ class RelayCommand:
         if self._disposed:
             return
         self._disposed = True
-        self._can_execute_changed_subject.on_next(None)
-        for sub in self._subscriptions:
-            sub.dispose()
-        self._can_execute_changed_subject.on_completed()
-        self._can_execute_changed_subject.dispose()
+        _run_disposal_steps(
+            lambda: self._can_execute_changed_subject.on_next(None),
+            *(sub.dispose for sub in self._subscriptions),
+            self._can_execute_changed_subject.on_completed,
+            self._can_execute_changed_subject.dispose,
+        )
 
     # ------------------------------------------------------------------
     # Builder entry-point
@@ -249,11 +263,12 @@ class RelayCommandOf(Generic[T]):
         if self._disposed:
             return
         self._disposed = True
-        self._can_execute_changed_subject.on_next(None)
-        for sub in self._subscriptions:
-            sub.dispose()
-        self._can_execute_changed_subject.on_completed()
-        self._can_execute_changed_subject.dispose()
+        _run_disposal_steps(
+            lambda: self._can_execute_changed_subject.on_next(None),
+            *(sub.dispose for sub in self._subscriptions),
+            self._can_execute_changed_subject.on_completed,
+            self._can_execute_changed_subject.dispose,
+        )
 
     # ------------------------------------------------------------------
     # Builder entry-point

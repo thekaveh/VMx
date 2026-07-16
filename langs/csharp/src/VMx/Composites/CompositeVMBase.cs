@@ -66,6 +66,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     }
 
     bool IParentCompositeVM.SupportsChildSelection => true;
+    IComponentVM IParentCompositeVM.Owner => this;
+    IParentCompositeVM? IParentCompositeVM.OwnerParent => Parent;
 
     // ── IList<VM> ─────────────────────────────────────────────────────────────
 
@@ -82,21 +84,28 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         set
         {
             var old = _children[index];
+            var transfer = ComponentOwnership.BeginTransfer(value, this);
             _children[index] = value;
             old.SetParent(null);
-            // Mirror RemoveAt: if the slot we just replaced held the current
-            // selection, drop Current to null before subscribers see any
-            // CollectionChanged event for this replace.
+            value.SetParent(this);
+            try
+            {
+                MaybeAutoConstruct(value);
+            }
+            catch
+            {
+                _children[index] = old;
+                old.SetParent(this);
+                value.SetParent(null);
+                transfer?.Rollback();
+                throw;
+            }
+
+            transfer?.Commit();
             if (ReferenceEquals(_current, old))
                 SetCurrent(null, async: false);
-            value.SetParent(this);
-            // Notify replace as Remove then Add (standard INCC pattern). The new
-            // child is auto-constructed BETWEEN the two events, matching Python/TS:
-            // subscribers observe the remove before the new child's construct
-            // messages, and the add after.
             RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Remove, old, index));
-            MaybeAutoConstruct(value);
             RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Add, value, index));
         }
@@ -140,6 +149,32 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         if (vm is VM typed) DeselectComponent(typed);
     }
 
+    bool IParentCompositeVM.ContainsChild(IComponentVM vm)
+        => _children.Any(child => ReferenceEquals(child, vm));
+
+    ParentTransferToken IParentCompositeVM.DetachForTransfer(IComponentVM vm)
+    {
+        var index = _children.FindIndex(child => ReferenceEquals(child, vm));
+        if (index < 0 || vm is not VM child)
+            throw new InvalidOperationException("The recorded parent does not contain the child identity.");
+
+        var wasCurrent = ReferenceEquals(_current, child);
+        _children.RemoveAt(index);
+        return new ParentTransferToken(
+            commit: () =>
+            {
+                if (wasCurrent && ReferenceEquals(_current, child))
+                    SetCurrent(null, async: false);
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, child, index));
+            },
+            rollback: () =>
+            {
+                _children.Insert(index, child);
+                child.SetParent(this);
+            });
+    }
+
     // ── ICompositeVM: selection ───────────────────────────────────────────────
 
     /// <inheritdoc/>
@@ -162,16 +197,29 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     /// <inheritdoc/>
     public bool CanSelectComponent(VM vm)
-        => _children.Contains(vm) && vm.Status == ConstructionStatus.Constructed;
+        => IndexOfIdentity(vm) >= 0 && vm.Status == ConstructionStatus.Constructed;
 
     // ── IList<VM>: mutation ───────────────────────────────────────────────────
 
     /// <inheritdoc/>
     public void Add(VM item)
     {
+        var transfer = ComponentOwnership.BeginTransfer(item, this);
         _children.Add(item);
         item.SetParent(this);
-        MaybeAutoConstruct(item);
+        try
+        {
+            MaybeAutoConstruct(item);
+        }
+        catch
+        {
+            _children.RemoveAt(_children.Count - 1);
+            item.SetParent(null);
+            transfer?.Rollback();
+            throw;
+        }
+
+        transfer?.Commit();
         var idx = _children.Count - 1;
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Add, item, idx));
@@ -180,7 +228,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        var idx = _children.IndexOf(item);
+        var idx = IndexOfIdentity(item);
         if (idx < 0) return false;
         RemoveAt(idx);
         return true;
@@ -189,9 +237,24 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
+        if (index < 0 || index > _children.Count)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        var transfer = ComponentOwnership.BeginTransfer(item, this);
         _children.Insert(index, item);
         item.SetParent(this);
-        MaybeAutoConstruct(item);
+        try
+        {
+            MaybeAutoConstruct(item);
+        }
+        catch
+        {
+            _children.RemoveAt(index);
+            item.SetParent(null);
+            transfer?.Rollback();
+            throw;
+        }
+
+        transfer?.Commit();
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Add, item, index));
     }
@@ -215,7 +278,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     {
         var item = _children[index];
         _children.RemoveAt(index);
-        item.SetParent(null);
+        if (ReferenceEquals(item.GetParent(), this))
+            item.SetParent(null);
         if (ReferenceEquals(_current, item))
             SetCurrent(null, async: false);
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
@@ -226,7 +290,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     public void Clear()
     {
         foreach (var child in _children)
-            child.SetParent(null);
+            if (ReferenceEquals(child.GetParent(), this))
+                child.SetParent(null);
         _children.Clear();
         SetCurrent(null, async: false);
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
@@ -303,10 +368,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     // ── IList<VM>: query ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public bool Contains(VM item) => _children.Contains(item);
+    public bool Contains(VM item) => IndexOfIdentity(item) >= 0;
 
     /// <inheritdoc/>
-    public int IndexOf(VM item) => _children.IndexOf(item);
+    public int IndexOf(VM item) => IndexOfIdentity(item);
 
     /// <inheritdoc/>
     public void CopyTo(VM[] array, int arrayIndex) => _children.CopyTo(array, arrayIndex);
@@ -329,25 +394,25 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         base.OnConstruct(); // invoke user's onConstruct callback if any
         // Populate children from factory (lazy: only on first construct).
         PopulateChildren();
-        // Construct all children.
-        ConstructChildren();
-        // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
-        // The composite is still in Constructing here; every child is Constructed.
-        // Selector returning null or an out-of-set value leaves Current at its
-        // prior value and emits no notification (matches SelectComponent semantics).
-        if (_currentSelector is not null)
-        {
-            var initial = _currentSelector(this);
-            if (initial is not null && _children.Contains(initial))
-                SetCurrent(initial, async: false);
-        }
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: true,
+            after: () =>
+            {
+                // The selector runs only after every child settles Constructed.
+                if (_currentSelector is null) return;
+                var initial = _currentSelector(this);
+                if (initial is not null && IndexOfIdentity(initial) >= 0)
+                    SetCurrent(initial, async: false);
+            }));
     }
 
     /// <summary>Constructs all current children sequentially.</summary>
     protected void ConstructChildren()
     {
-        foreach (var child in _children.ToArray())
-            child.Construct();
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: true));
     }
 
     /// <summary>
@@ -357,18 +422,77 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     protected virtual void PopulateChildren() { }
 
+    /// <summary>Attaches one factory population as an all-or-nothing transaction.</summary>
+    protected void AttachPopulation(IEnumerable<VM> children)
+    {
+        var candidates = children.ToArray();
+        var start = _children.Count;
+        var transfers = new List<ParentTransferToken?>();
+        var originalStatuses = new List<ConstructionStatus>();
+        try
+        {
+            foreach (var child in candidates)
+            {
+                var transfer = ComponentOwnership.BeginTransfer(child, this);
+                transfers.Add(transfer);
+                originalStatuses.Add(child.Status);
+                _children.Add(child);
+                child.SetParent(this);
+            }
+
+            // Populate the complete snapshot before invoking any child hook.
+            // Hooks may inspect or mutate later siblings, and background
+            // children must have only one lifecycle transition in flight.
+            foreach (var child in candidates)
+            {
+                if (Status == ConstructionStatus.Constructing)
+                    child.Construct();
+                else
+                    MaybeAutoConstruct(child);
+            }
+        }
+        catch
+        {
+            while (_children.Count > start)
+            {
+                var child = _children[_children.Count - 1];
+                _children.RemoveAt(_children.Count - 1);
+                var originalStatus = originalStatuses[_children.Count - start];
+                if (originalStatus == ConstructionStatus.Destructed &&
+                    child.Status == ConstructionStatus.Constructed)
+                {
+                    try { child.DestructAsync().GetAwaiter().GetResult(); }
+                    catch { /* Preserve the original population failure. */ }
+                }
+                if (ReferenceEquals(child.GetParent(), this)) child.SetParent(null);
+            }
+            for (var index = transfers.Count - 1; index >= 0; index--)
+                transfers[index]?.Rollback();
+            throw;
+        }
+
+        foreach (var transfer in transfers) transfer?.Commit();
+        foreach (var child in candidates)
+        {
+            var index = _children.FindIndex(candidate => ReferenceEquals(candidate, child));
+            if (index >= start)
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, child, index));
+        }
+    }
+
     /// <summary>
-    /// Overrides Destruct: sets Current = null first, then destructs all children.
+    /// Overrides Destruct: sets Current = null first, then waits for every child.
     /// </summary>
     protected override void OnDestruct()
     {
         if (_current is not null)
             SetCurrent(null, async: false);
 
-        foreach (var child in _children.ToArray())
-            child.Destruct();
-
-        base.OnDestruct(); // invoke user's onDestruct callback if any
+        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+            _children.ToArray(),
+            construct: false,
+            after: () => base.OnDestruct()));
     }
 
     /// <summary>
@@ -376,11 +500,16 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     public override void Dispose()
     {
-        // Depth-first: dispose each child before self.
-        foreach (var child in _children.ToArray())
-            child.Dispose();
-
-        base.Dispose();
+        var firstError = DisposeChildren(_children.ToArray());
+        try
+        {
+            base.Dispose();
+        }
+        catch (Exception error)
+        {
+            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+        }
+        firstError?.Throw();
     }
 
     // ── IComponentVM.Type ─────────────────────────────────────────────────────
@@ -392,7 +521,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     private void SetCurrent(VM? value, bool async)
     {
-        if (value is not null && !_children.Contains(value))
+        if (value is not null && IndexOfIdentity(value) < 0)
             throw new InvalidOperationException(
                 $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
 
@@ -412,7 +541,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // between SetCurrent's membership check and this deferred foreground
         // delivery. Dropping silently upholds the spec/06 §3 invariant that a
         // non-null Current is always a member of the children collection.
-        if (value is not null && !_children.Contains(value)) return;
+        if (value is not null && IndexOfIdentity(value) < 0) return;
         if (ReferenceEquals(_current, value)) return;
 
         var previous = _current;
@@ -432,4 +561,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // see the new value consistently (spec/06 §3.2, ADR-0042 §5.2).
         _onCurrentChanged?.Invoke(value);
     }
+
+    private int IndexOfIdentity(VM item) =>
+        _children.FindIndex(candidate => ReferenceEquals(candidate, item));
 }

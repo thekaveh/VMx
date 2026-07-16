@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -215,7 +209,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -240,7 +233,7 @@
         <ul><li>Use leaves for rows, panels, action bars, status blocks, and render-ready projections.</li><li>Wrap leaves with forwarding decorators when adapting behavior is cleaner than subclassing.</li><li>Promote to Composite, Group, Aggregate, or Hierarchical only when child ownership appears.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.20.0.</footer>
+
   </main>
 </body>
 </html>

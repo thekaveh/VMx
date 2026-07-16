@@ -139,6 +139,11 @@ The collision guarantee is identical (two distinct key tuples produce distinct
 `CompositeKey` values), and the encoding is invisible to callers — the public
 API accepts the constituent keys as separate arguments.
 
+> **Amended by ADR-0111 (2026-07-15):** TypeScript's length prefix prevented
+> boundary collisions but not `String()` coercion collisions across primitive
+> types, object identities, or symbol identities. TypeScript now uses nested
+> native `Map` storage; Swift's `CompositeKey` decision remains unchanged.
+
 ### 2.5 `PagedComposition` source mutation — `COL-016..021`
 
 **Divergence:** The TypeScript / C# / Python implementations of

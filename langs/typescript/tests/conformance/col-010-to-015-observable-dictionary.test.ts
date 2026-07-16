@@ -43,6 +43,61 @@ describe("COL-010", () => {
     const keys2 = [...sut.keys2];
     expect(keys2).toContain(1);
   });
+
+  it("keeps primitive types and object identities distinct on both key axes", () => {
+    const sut = new ObservableDictionary<unknown, unknown, string>();
+    const firstObject = { id: 1 };
+    const secondObject = { id: 1 };
+
+    sut.set(1, "axis", "number-key1");
+    sut.set("1", "axis", "string-key1");
+    sut.set("axis", 1, "number-key2");
+    sut.set("axis", "1", "string-key2");
+    sut.set(firstObject, "object", "first-object");
+    sut.set(secondObject, "object", "second-object");
+
+    expect(sut.size).toBe(6);
+    expect(sut.get(1, "axis")).toBe("number-key1");
+    expect(sut.get("1", "axis")).toBe("string-key1");
+    expect(sut.get("axis", 1)).toBe("number-key2");
+    expect(sut.get("axis", "1")).toBe("string-key2");
+    expect(sut.get(firstObject, "object")).toBe("first-object");
+    expect(sut.get(secondObject, "object")).toBe("second-object");
+    expect(sut.has({ id: 1 }, "object")).toBe(false);
+    expect([...sut.keys1]).toEqual([
+      1,
+      "1",
+      "axis",
+      firstObject,
+      secondObject,
+    ]);
+    expect([...sut.keys2]).toEqual(["axis", 1, "1", "object"]);
+
+    expect(sut.delete(firstObject, "object")).toBe(true);
+    expect(sut.has(firstObject, "object")).toBe(false);
+    expect(sut.get(secondObject, "object")).toBe("second-object");
+    expect([...sut.keys1]).not.toContain(firstObject);
+    expect([...sut.keys1]).toContain(secondObject);
+  });
+
+  it("uses SameValueZero for NaN and identity for symbols", () => {
+    const firstSymbol = Symbol("key");
+    const secondSymbol = Symbol("key");
+    const sut = new ObservableDictionary<unknown, unknown, string>();
+
+    sut.set(Number.NaN, Number.NaN, "nan");
+    sut.set(firstSymbol, "symbol", "first");
+    sut.set(secondSymbol, "symbol", "second");
+
+    expect(sut.size).toBe(3);
+    expect(sut.get(Number.NaN, Number.NaN)).toBe("nan");
+    expect(sut.get(firstSymbol, "symbol")).toBe("first");
+    expect(sut.get(secondSymbol, "symbol")).toBe("second");
+
+    expect(sut.delete(Number.NaN, Number.NaN)).toBe(true);
+    expect([...sut.keys1].some(Number.isNaN)).toBe(false);
+    expect([...sut.keys2].some(Number.isNaN)).toBe(false);
+  });
 });
 
 describe("COL-011", () => {

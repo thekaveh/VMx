@@ -11,12 +11,19 @@ help:
 
 docs-build:
 	$(PYTHON) -m scripts.docs.build_docs --site --wiki
+	$(PYTHON) docs/assets/diagrams/generate_diagrams.py --check
+	$(PYTHON) tools/generate-doc-diagrams.py --check
 	$(PYTHON) -m scripts.docs.validate_diagrams
 	mkdocs build --strict
 
 docs-check:
+	$(PYTHON) -m ruff check scripts/docs tests/docs docs/assets/diagrams tools/generate-doc-diagrams.py tools/docs --config langs/python/pyproject.toml
+	$(PYTHON) -m ruff format --check scripts/docs tests/docs docs/assets/diagrams tools/generate-doc-diagrams.py tools/docs --config langs/python/pyproject.toml
 	$(PYTHON) -m scripts.docs.check_docs
+	$(PYTHON) docs/assets/diagrams/generate_diagrams.py --check
+	$(PYTHON) tools/generate-doc-diagrams.py --check
 	$(PYTHON) -m scripts.docs.validate_diagrams
+	$(PYTHON) -m pytest tests/docs docs/assets/diagrams/test_generate_diagrams.py -q
 	mkdocs build --strict
 
 docs-serve:

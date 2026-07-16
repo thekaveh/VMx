@@ -141,6 +141,113 @@ def test_concurrent_producer_waits_for_batch_and_delivers_on_own_thread() -> Non
     assert delivery_thread == producer_thread
 
 
+def test_concurrent_producer_waits_for_active_drain_and_delivers_on_own_thread() -> None:
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    drain_entered = Event()
+    release_drain = Event()
+    send_started = Event()
+    send_finished = Event()
+    producer_thread: list[int] = []
+    delivery_thread: list[int] = []
+
+    def observe(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name == "blocker":
+            drain_entered.set()
+            assert release_drain.wait(1)
+        elif message.property_name == "concurrent":
+            delivery_thread.append(get_ident())
+
+    hub.messages.subscribe(observe)
+    drainer = Thread(target=lambda: hub.send(_make_msg("blocker")))
+    drainer.start()
+    assert drain_entered.wait(1)
+
+    def send() -> None:
+        producer_thread.append(get_ident())
+        send_started.set()
+        hub.send(_make_msg("concurrent"))
+        send_finished.set()
+
+    producer = Thread(target=send)
+    producer.start()
+    assert send_started.wait(1)
+    try:
+        assert not send_finished.wait(0.05)
+    finally:
+        release_drain.set()
+        drainer.join(1)
+        producer.join(1)
+
+    assert send_finished.is_set()
+    assert delivery_thread == producer_thread
+
+
+def test_concurrent_dispose_waits_for_active_delivery_before_completion() -> None:
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    delivery_entered = Event()
+    release_delivery = Event()
+    dispose_started = Event()
+    dispose_finished = Event()
+    trace: list[str] = []
+
+    def receive(_: object) -> None:
+        trace.append("message:start")
+        delivery_entered.set()
+        assert release_delivery.wait(1)
+        trace.append("message:end")
+
+    hub.messages.subscribe(receive, on_completed=lambda: trace.append("completed"))
+    sender = Thread(target=lambda: hub.send(_make_msg("blocking")))
+    sender.start()
+    assert delivery_entered.wait(1)
+
+    def dispose() -> None:
+        dispose_started.set()
+        hub.dispose()
+        dispose_finished.set()
+
+    disposer = Thread(target=dispose)
+    disposer.start()
+    assert dispose_started.wait(1)
+    try:
+        assert not dispose_finished.wait(0.05)
+        assert trace == ["message:start"]
+    finally:
+        release_delivery.set()
+        sender.join(1)
+        disposer.join(1)
+
+    assert not sender.is_alive()
+    assert not disposer.is_alive()
+    assert trace == ["message:start", "message:end", "completed"]
+
+
+def test_reentrant_dispose_completes_after_in_flight_message_reaches_subscribers() -> None:
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    trace: list[str] = []
+
+    def first(_: object) -> None:
+        trace.append("first:start")
+        hub.dispose()
+        trace.append("first:end")
+
+    hub.messages.subscribe(first, on_completed=lambda: trace.append("first:completed"))
+    hub.messages.subscribe(
+        lambda _: trace.append("second:message"),
+        on_completed=lambda: trace.append("second:completed"),
+    )
+
+    hub.send(_make_msg("dispose"))
+
+    assert trace == [
+        "first:start",
+        "first:end",
+        "second:message",
+        "first:completed",
+        "second:completed",
+    ]
+
+
 def test_development_drain_diagnostic_names_message_type() -> None:
     if not __debug__:
         pytest.skip("development diagnostics are compiled out under python -O")

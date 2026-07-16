@@ -10,7 +10,7 @@ See spec/21-collections.md §5 and ADR-0023.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Generic, TypeVar
 
 import reactivex as rx
@@ -55,6 +55,9 @@ class PagedComposition(Pageable, Generic[TVM]):
         self._source_factory: Callable[[], Iterable[TVM]]
         if callable(source) and not isinstance(source, Iterable):
             self._source_factory = source
+        elif isinstance(source, Iterator):
+            snapshot = list(source)
+            self._source_factory = lambda: snapshot
         else:
             # Wrap the iterable in a zero-arg callable so _items() is uniform.
             # We keep the original reference so observers can subscribe to it.

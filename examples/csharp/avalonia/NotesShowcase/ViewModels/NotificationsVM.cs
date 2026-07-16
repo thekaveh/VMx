@@ -65,7 +65,7 @@ public sealed class NotificationsVM : ComponentVMBase
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
-        // Pass-6 real-wiring audit: posts arrive from background
+        // live binding: posts arrive from background
         // continuations and auto-dismiss timers (pool threads), and
         // SyncFromPending mutates the ItemsSource-bound collection — INCC
         // off the UI thread crashes Avalonia. Marshal.

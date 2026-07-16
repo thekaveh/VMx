@@ -84,18 +84,61 @@ describe("ReactDialogService", () => {
     expect(svc.currentValue).toBeNull();
   });
 
-  it("current observable emits on every request and after close()", () => {
+  it("queues concurrent requests in FIFO order and settles both promises", async () => {
     const svc = new ReactDialogService();
     const events: (DialogRequest | null)[] = [];
     const sub = svc.current.subscribe((r) => events.push(r));
 
-    void svc.confirm("first");
-    void svc.confirm("second"); // overwrites the prior unfinished request
-    svc.close();
+    const first = svc.confirm("first");
+    const firstRequest = captureRequest(svc);
+    const second = svc.confirm("second", "Second confirmation");
+
+    expect(captureRequest(svc)).toBe(firstRequest);
+    firstRequest.resolveBool(true);
+    await expect(first).resolves.toBe(true);
+
+    const secondRequest = captureRequest(svc);
+    expect(secondRequest.kind).toBe("confirm");
+    expect(secondRequest.title).toBe("Second confirmation");
+    firstRequest.resolveBool(false); // a stale callback cannot close the next dialog
+    expect(captureRequest(svc)).toBe(secondRequest);
+    secondRequest.resolveBool(false);
+    await expect(second).resolves.toBe(false);
 
     expect(events.length).toBeGreaterThanOrEqual(4);
     expect(events[0]).toBeNull(); // initial seed
     expect(events[events.length - 1]).toBeNull();
+    sub.unsubscribe();
+  });
+
+  it("close() safely cancels the active request and advances the queue", async () => {
+    const svc = new ReactDialogService();
+    const first = svc.confirm("first");
+    const second = svc.pickFileToOpen(null, "second");
+
+    svc.close();
+    await expect(first).resolves.toBe(false);
+    expect(captureRequest(svc).title).toBe("second");
+
+    svc.close();
+    await expect(second).resolves.toBeNull();
+    expect(svc.currentValue).toBeNull();
+  });
+
+  it("settles the active promise before a promoted request can complete", async () => {
+    const svc = new ReactDialogService();
+    const settled: string[] = [];
+    const first = svc.confirm("first").then(() => settled.push("first"));
+    const firstRequest = captureRequest(svc);
+    const second = svc.confirm("second").then(() => settled.push("second"));
+    const sub = svc.current.subscribe((request) => {
+      if (request?.message === "second") request.resolveBool(true);
+    });
+
+    firstRequest.resolveBool(true);
+    await Promise.all([first, second]);
+
+    expect(settled).toEqual(["first", "second"]);
     sub.unsubscribe();
   });
 });

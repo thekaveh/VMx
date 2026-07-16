@@ -9,6 +9,9 @@ import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 
+const optionHub = Symbol("optionHub");
+const optionDispatcher = Symbol("optionDispatcher");
+
 export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM> {
   readonly #childrenFactory: (() => Iterable<VM>) | null;
 
@@ -31,9 +34,7 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
 
   protected override _populateChildren(): void {
     if (this.#childrenFactory === null) return;
-    for (const child of this.#childrenFactory()) {
-      this.add(child);
-    }
+    this._attachPopulation(this.#childrenFactory());
   }
 
   static builder<VM extends ComponentVMBase>(): CompositeVMBuilder<VM> {
@@ -57,7 +58,8 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
     if (o.children !== undefined) b = b.children(o.children);
     if (o.name !== undefined) b = b.name(o.name);
     if (o.hint !== undefined) b = b.hint(o.hint);
-    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.hub !== undefined) b = b[optionHub](o.hub);
+    if (o.dispatcher !== undefined) b = b[optionDispatcher](o.dispatcher);
     if (o.asyncSelection !== undefined) b = b.asyncSelection(o.asyncSelection);
     if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
     if (o.current !== undefined) b = b.current(o.current);
@@ -146,6 +148,18 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
   services(hub: IMessageHub, dispatcher: IDispatcher): CompositeVMBuilder<VM> {
     const b = new CompositeVMBuilder<VM>(this);
     b.#hub = hub;
+    b.#dispatcher = dispatcher;
+    return b;
+  }
+
+  [optionHub](hub: IMessageHub): CompositeVMBuilder<VM> {
+    const b = new CompositeVMBuilder<VM>(this);
+    b.#hub = hub;
+    return b;
+  }
+
+  [optionDispatcher](dispatcher: IDispatcher): CompositeVMBuilder<VM> {
+    const b = new CompositeVMBuilder<VM>(this);
     b.#dispatcher = dispatcher;
     return b;
   }

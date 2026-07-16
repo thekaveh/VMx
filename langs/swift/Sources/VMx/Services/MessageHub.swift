@@ -20,6 +20,7 @@
 //
 import Foundation
 import Combine
+import Darwin
 
 /// Pub/sub hub protocol. Mirrors `IMessageHub` in the C# / Python / TS
 /// flavors. Publishes a stream of `Message`-conforming envelopes.
@@ -86,14 +87,19 @@ public final class MessageHub: TransactionalMessageHubProtocol {
 #if DEBUG
     private static let developmentDrainLimit = 10_000
 #endif
+    private static let deliveryDepthKey = "VMx.MessageHub.deliveryDepth"
     private let subject = PassthroughSubject<any Message, Never>()
-    private let gate = NSRecursiveLock()
+    private let gate = NSCondition()
     private let diagnosticHandler: ((MessageHubOverflowError) -> Void)?
     private var pending: [any Message] = []
     private var pendingHead = 0
     private var disposed = false
-    private var draining = false
+    private var drainerThread: UInt64?
+    private var batchOwnerThread: UInt64?
     private var batchDepth = 0
+    private var completionRequested = false
+    private var completionStarted = false
+    private var completionFinished = false
 
     public init() {
         self.diagnosticHandler = nil
@@ -108,60 +114,123 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     }
 
     public func send(_ message: any Message) {
+        let caller = Self.currentThread
+        var shouldDrain = false
         gate.lock()
-        defer { gate.unlock() }
-        guard !disposed else { return }
+        while !disposed && hasForeignOwner(for: caller) {
+            // A normal producer waits so its own thread performs synchronous
+            // delivery. A send made by a subscriber may already be inside a
+            // different hub's drain; enqueueing breaks opposing-hub wait cycles
+            // and the target's active drainer still delivers it before exiting.
+            if Self.isDelivering {
+                break
+            }
+            gate.wait()
+        }
+        guard !disposed else {
+            gate.unlock()
+            return
+        }
         pending.append(message)
-        if batchDepth == 0 && !draining { drain() }
+        if batchOwnerThread == nil && drainerThread == nil {
+            drainerThread = caller
+            shouldDrain = true
+        }
+        gate.unlock()
+
+        if shouldDrain {
+            drain()
+        }
     }
 
     public func batch(_ transaction: () throws -> Void) throws {
+        let caller = Self.currentThread
+        var entered = false
         gate.lock()
-        defer { gate.unlock() }
-        batchDepth += 1
+        while !disposed && hasForeignOwner(for: caller) {
+            gate.wait()
+        }
+        if !disposed {
+            batchOwnerThread = caller
+            batchDepth += 1
+            entered = true
+        }
+        gate.unlock()
+
+        var transactionError: Error?
         do {
             try transaction()
         } catch {
-            endBatch()
-            throw error
+            transactionError = error
         }
-        endBatch()
-    }
 
-    private func endBatch() {
-        batchDepth -= 1
-        if batchDepth == 0 && !disposed && !draining { drain() }
+        var shouldDrain = false
+        if entered {
+            gate.lock()
+            batchDepth -= 1
+            if batchDepth == 0 {
+                batchOwnerThread = nil
+                if !disposed && pendingHead < pending.count && drainerThread == nil {
+                    drainerThread = caller
+                    shouldDrain = true
+                }
+                gate.broadcast()
+            }
+            gate.unlock()
+        }
+        if shouldDrain {
+            drain()
+        }
+        if let transactionError {
+            throw transactionError
+        }
     }
 
     private func drain() {
-        draining = true
 #if DEBUG
         var delivered = 0
         var messageTypes = Set<String>()
 #endif
-        defer {
+
+        while true {
+            var shouldComplete = false
+            gate.lock()
             if disposed || pendingHead >= pending.count {
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
+                drainerThread = nil
+                if disposed && completionRequested && !completionStarted {
+                    completionStarted = true
+                    shouldComplete = true
+                }
+                gate.broadcast()
+                gate.unlock()
+                if shouldComplete {
+                    completeSubject()
+                }
+                return
             }
-            draining = false
-        }
-
-        while !disposed && pendingHead < pending.count {
             let message = pending[pendingHead]
             pendingHead += 1
+            gate.unlock()
 #if DEBUG
             messageTypes.insert(String(describing: type(of: message)))
 #endif
-            subject.send(message)
+            Self.withDeliveryContext {
+                subject.send(message)
+            }
 #if DEBUG
             delivered += 1
-            if delivered >= Self.developmentDrainLimit && pendingHead < pending.count {
-                for queued in pending[pendingHead...] {
-                    messageTypes.insert(String(describing: type(of: queued)))
+            gate.lock()
+            if delivered >= Self.developmentDrainLimit && pendingHead < pending.count && !disposed {
+                for queuedMessage in pending[pendingHead...] {
+                    messageTypes.insert(String(describing: type(of: queuedMessage)))
                 }
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
+                drainerThread = nil
+                gate.broadcast()
+                gate.unlock()
                 let diagnostic = MessageHubOverflowError(
                     limit: Self.developmentDrainLimit,
                     messageTypes: messageTypes.sorted()
@@ -173,19 +242,79 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 }
                 return
             }
+            gate.unlock()
 #endif
         }
+    }
+
+    private func hasForeignOwner(for caller: UInt64) -> Bool {
+        batchOwnerThread.map { $0 != caller } == true
+            || drainerThread.map { $0 != caller } == true
+    }
+
+    private static var currentThread: UInt64 {
+        UInt64(pthread_mach_thread_np(pthread_self()))
+    }
+
+    private static var isDelivering: Bool {
+        (Thread.current.threadDictionary[deliveryDepthKey] as? Int ?? 0) > 0
+    }
+
+    private static func withDeliveryContext(_ delivery: () -> Void) {
+        let dictionary = Thread.current.threadDictionary
+        let previousDepth = dictionary[deliveryDepthKey] as? Int ?? 0
+        dictionary[deliveryDepthKey] = previousDepth + 1
+        defer {
+            if previousDepth == 0 {
+                dictionary.removeObject(forKey: deliveryDepthKey)
+            } else {
+                dictionary[deliveryDepthKey] = previousDepth
+            }
+        }
+        delivery()
+    }
+
+    private func completeSubject() {
+        Self.withDeliveryContext {
+            subject.send(completion: .finished)
+        }
+        gate.lock()
+        completionFinished = true
+        gate.broadcast()
+        gate.unlock()
     }
 
     /// Complete the underlying subject and stop accepting new sends.
     /// Idempotent.
     public func dispose() {
+        let caller = Self.currentThread
+        var shouldComplete = false
+        var shouldWait = false
         gate.lock()
-        defer { gate.unlock() }
-        guard !disposed else { return }
+        guard !disposed else {
+            gate.unlock()
+            return
+        }
         disposed = true
         pending.removeAll(keepingCapacity: false)
         pendingHead = 0
-        subject.send(completion: .finished)
+        if drainerThread == nil {
+            completionStarted = true
+            shouldComplete = true
+        } else {
+            completionRequested = true
+            shouldWait = drainerThread != caller && !Self.isDelivering
+        }
+        gate.broadcast()
+        if shouldWait {
+            while !completionFinished {
+                gate.wait()
+            }
+        }
+        gate.unlock()
+
+        if shouldComplete {
+            completeSubject()
+        }
     }
 }

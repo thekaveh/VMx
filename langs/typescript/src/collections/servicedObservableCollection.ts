@@ -101,10 +101,13 @@ export class ServicedObservableCollection<T>
    * Remove *count* items starting at *start* and optionally insert *newItems*.
    * Emits a Reset message (coarse-grained) for any multi-item splice.
    * For single-item operations (no inserts, count=1) emits a Remove.
-   */
+  */
   splice(start: number, deleteCount?: number, ...newItems: T[]): T[] {
     const lengthBeforeSplice = this.#items.length;
-    const removed = this.#items.splice(start, deleteCount ?? this.#items.length, ...newItems);
+    const deleteCountProvided = arguments.length >= 2;
+    const removed = deleteCountProvided
+      ? this.#items.splice(start, deleteCount ?? 0, ...newItems)
+      : this.#items.splice(start);
     if (removed.length === 0 && newItems.length === 0) {
       // No-op splice: nothing mutated, so nothing is emitted
       // (spec/21 §2.4 — messages are emitted per mutation).

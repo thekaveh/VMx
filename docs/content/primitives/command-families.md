@@ -1,6 +1,6 @@
 # 6.3. Command Families
 
-## When To Use It
+## 6.3.1. When To Use It
 
 Use the command family when behavior should be executable, bindable, and
 reactively re-evaluated without baking that behavior into the VM hierarchy
@@ -19,7 +19,7 @@ workflow needs it.
   <a href="../../assets/diagrams/commands-capabilities.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.3.2. Shape And Ownership
 
 The shipped command surface breaks down into a few layers:
 
@@ -32,7 +32,7 @@ The shipped command surface breaks down into a few layers:
 Commands own their predicates, tasks, trigger subscriptions, and disposal
 inertness. They do not own VM lifecycle.
 
-## Lifecycle And Messaging
+## 6.3.3. Lifecycle And Messaging
 
 Commands become interesting when triggers are involved:
 
@@ -49,7 +49,7 @@ Repeated command disposal, including during an in-flight async operation,
 follows the [Disposal Contract](disposal-contract.md): cancellation and terminal
 completion occur at most once.
 
-## Cross-Language Surface
+## 6.3.4. Cross-Language Surface
 
 Representative naming differences:
 
@@ -60,7 +60,7 @@ Representative naming differences:
 | Imperative raise | `RaiseCanExecuteChanged()` | `raise_can_execute_changed()` | `raiseCanExecuteChanged()` | `raiseCanExecuteChanged()` | `raise_can_execute_changed()` |
 | Confirm helper   | extension `Confirm(...)`   | `confirm(...)` helper         | `confirm(...)` helper      | `confirm(...)` helper      | `confirm(...)`                |
 
-## Triggers Or Imperative Raise?
+## 6.3.5. Triggers Or Imperative Raise?
 
 Use a trigger when the predicate dependency already has an observable stream.
 The command owns that subscription and every trigger emission publishes one
@@ -115,7 +115,7 @@ decorators forward inner `CanExecuteChanged` notifications but do not expose a
 synthetic raise method. Retain the owning relay reference when decorating a
 command that needs imperative invalidation.
 
-## Example
+## 6.3.6. Example
 
 Canonical relay-command shape:
 
@@ -135,7 +135,7 @@ The same structure appears across all full-parity source flavors with only
 casing and trait-import changes.
 The Notes Workspace editor and delete flows are concrete examples.
 
-## Common Pitfalls
+## 6.3.7. Common Pitfalls
 
 - Depending on mutable state in `CanExecute` without a trigger that raises
   `CanExecuteChanged` or an explicit imperative raise at the mutation site.
@@ -146,7 +146,7 @@ The Notes Workspace editor and delete flows are concrete examples.
 - Re-implementing pre/post/confirm composition manually instead of using the
   decorator and fluent surfaces.
 
-## Related Primitives
+## 6.3.8. Related Primitives
 
 - [Composite Family](viewmodel-families/composite-family.md)
 - [FormVM](viewmodel-families/specialized/form-vm.md)

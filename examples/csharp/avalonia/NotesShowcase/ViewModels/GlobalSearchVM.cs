@@ -11,7 +11,11 @@ using NotesShowcase.Models;
 
 namespace NotesShowcase.ViewModels;
 
-/// <summary>Token-paged search over all notes in the workspace.</summary>
+/// <summary>
+/// Token-paged search over all notes in the workspace. Owns every result VM it
+/// creates because <see cref="TokenPagedComposition{TVM, TToken}"/> does not own
+/// item lifetimes.
+/// </summary>
 public sealed class GlobalSearchVM : ComponentVMBase
 {
     private readonly INoteRepository _repo;
@@ -19,6 +23,9 @@ public sealed class GlobalSearchVM : ComponentVMBase
     private readonly int _pageSize;
     private readonly SearchableState<string> _search;
     private readonly TokenPagedComposition<NoteVM, string> _paged;
+    private readonly object _ownedResultsGate = new();
+    private readonly HashSet<NoteVM> _ownedResults = new(ReferenceEqualityComparer.Instance);
+    private bool _ownedResultsDisposed;
     private bool _ownDisposed;
 
     private GlobalSearchVM(
@@ -90,13 +97,41 @@ public sealed class GlobalSearchVM : ComponentVMBase
     {
         var page = await _repo.SearchNotesAsync(SearchTerm, token, _pageSize).ConfigureAwait(false);
         var items = page.Items
-            .Select(model => NoteVM.Builder()
-                .Name($"global-{model.Id}")
-                .Services(Hub, _dispatcher)
-                .Model(model)
-                .Build())
+            .Select(model => OwnResult(
+                NoteVM.Builder()
+                    .Name($"global-{model.Id}")
+                    .Services(Hub, _dispatcher)
+                    .Model(model)
+                    .Build()))
             .ToList();
         return new TokenPage<NoteVM, string>(items, page.NextToken);
+    }
+
+    private NoteVM OwnResult(NoteVM result)
+    {
+        bool disposeImmediately;
+        lock (_ownedResultsGate)
+        {
+            disposeImmediately = _ownedResultsDisposed;
+            if (!disposeImmediately)
+                _ownedResults.Add(result);
+        }
+        if (disposeImmediately)
+            result.Dispose();
+        return result;
+    }
+
+    private void DisposeOwnedResults()
+    {
+        NoteVM[] owned;
+        lock (_ownedResultsGate)
+        {
+            _ownedResultsDisposed = true;
+            owned = _ownedResults.ToArray();
+            _ownedResults.Clear();
+        }
+        foreach (var result in owned)
+            result.Dispose();
     }
 
     private void OnPagedCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -119,8 +154,7 @@ public sealed class GlobalSearchVM : ComponentVMBase
         _ownDisposed = true;
         _paged.CollectionChanged -= OnPagedCollectionChanged;
         _paged.PropertyChanged -= OnPagedPropertyChanged;
-        foreach (var result in _paged.Items)
-            result.Dispose();
+        DisposeOwnedResults();
         _paged.Dispose();
         _search.Dispose();
         base.Dispose();

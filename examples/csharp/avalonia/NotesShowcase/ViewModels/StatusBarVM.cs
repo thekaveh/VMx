@@ -75,7 +75,7 @@ public sealed class StatusBarVM : ComponentVMBase
         _noteFormSubject = new BehaviorSubject<NoteFormVM>(noteForm);
 
         // Re-emit each source whenever its hub publishes a relevant PropertyChanged.
-        // Pass-6 real-wiring audit: hub messages can arrive from background
+        // live binding: hub messages can arrive from background
         // continuations; the subjects feed BindableDerived, which raises
         // INPC on the caller's thread — marshal to the foreground.
         _notesViewSub = notesView.Hub.Messages

@@ -46,7 +46,7 @@ public final class NoteFormVM: ComponentVMBase {
 
     /// Approve = persist via repo + post "Saved …" notification + emit `onSaved`.
     /// Predicate: `isDirty && isValid`.
-    public private(set) var approveCommand: RelayCommand
+    public private(set) var approveCommand: AsyncRelayCommand
 
     /// Deny = revert draft to the current snapshot. No-op when unbound.
     public private(set) var denyCommand: RelayCommand
@@ -177,12 +177,17 @@ public final class NoteFormVM: ComponentVMBase {
         _notificationHub = notificationHub
 
         // Phase 1: placeholder commands (required before super.init).
-        let placeholder = RelayCommand(task: nil, predicate: nil, triggers: [])
-        approveCommand = placeholder
-        denyCommand = placeholder
-        addTagCommand = placeholder
-        showEditModeCommand = placeholder
-        showPreviewModeCommand = placeholder
+        let relayPlaceholder = RelayCommand(task: nil, predicate: nil, triggers: [])
+        approveCommand = AsyncRelayCommand(
+            body: nil,
+            predicate: nil,
+            triggers: [],
+            throwOnCancel: false
+        )
+        denyCommand = relayPlaceholder
+        addTagCommand = relayPlaceholder
+        showEditModeCommand = relayPlaceholder
+        showPreviewModeCommand = relayPlaceholder
         removeTagCommand = RelayCommandOf<String>(task: nil, predicate: nil, triggers: [])
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
@@ -207,14 +212,14 @@ public final class NoteFormVM: ComponentVMBase {
 
         let trigger = _canExecuteTrigger.eraseToAnyPublisher()
 
-        approveCommand = RelayCommand.builder()
+        approveCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in
                 guard let self else { return false }
                 return self.isDirty && self.isValid
             })
             .task({ [weak self] in
                 guard let self else { return }
-                Task { try? await self.approveAsync() }
+                try await self.approveAsync()
             })
             .triggers(trigger)
             .build()
@@ -321,23 +326,20 @@ public final class NoteFormVM: ComponentVMBase {
     public func approveAsync() async throws {
         guard let form = _form else { return }
         try await form.approveAsync()
-        // Marshal the INPC emit (+ notification) back onto the foreground
+        // Marshal the INPC emit back onto the foreground
         // dispatcher: the thread that resumes after the await is not guaranteed
         // to be the UI execution target. Mirrors C# `_dispatcher.Foreground
         // .Schedule(...)`. Under `ImmediateDispatcher` (tests) this runs
         // synchronously, so callers observe the emit before `approveAsync` returns.
         let savedTitle = snapshot.title
-        dispatcher.scheduleForeground { [weak self] in
-            guard let self else { return }
-            self.emitDraftChanges()
-            if let notificationHub = self._notificationHub {
-                Task {
-                    _ = await notificationHub.post(VMx.Notification(
-                        type: .notification,
-                        message: "Saved \u{201C}\(savedTitle)\u{201D}"
-                    ))
-                }
-            }
+        await runOnForeground { [weak self] in
+            self?.emitDraftChanges()
+        }
+        if let notificationHub = _notificationHub {
+            _ = await notificationHub.post(VMx.Notification(
+                type: .notification,
+                message: "Saved \u{201C}\(savedTitle)\u{201D}"
+            ))
         }
         await refreshTagSuggestions()
     }
@@ -381,11 +383,21 @@ public final class NoteFormVM: ComponentVMBase {
                     }
                 }
             }
-            _tagCatalog = seen.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            let catalog = seen.values.sorted { left, right in
+                let leftKey = left.lowercased()
+                let rightKey = right.lowercased()
+                return leftKey == rightKey ? left < right : leftKey < rightKey
+            }
+            await runOnForeground { [weak self] in
+                self?._tagCatalog = catalog
+                self?._tagSearch?.search()
+            }
         } catch {
-            _tagCatalog = []
+            await runOnForeground { [weak self] in
+                self?._tagCatalog = []
+                self?._tagSearch?.search()
+            }
         }
-        _tagSearch?.search()
     }
 
     private func tagMatches(_ tag: String, _ term: String) -> Bool {

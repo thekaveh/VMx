@@ -8,10 +8,13 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
 
 export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
+  readonly #aggregateParent: AggregateParent;
   readonly #factory1: () => VM1;
   #component1: VM1 | null = null;
 
@@ -23,6 +26,7 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     factory1: () => VM1;
   }) {
     super(opts);
+    this.#aggregateParent = new AggregateParent(this, () => this.components());
     this.#factory1 = opts.factory1;
   }
 
@@ -46,11 +50,15 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
   }
 
   protected override _onConstruct(): void {
+    const next1 = this.#factory1();
+    validateAggregateSlots(this.#aggregateParent, [next1]);
+    const previous = [this.#component1];
     // On Reconstruct, the previous slot instance is in Destructed state but
     // still holds hub subscriptions and command Subjects. Dispose it before
     // overwriting so subscribers don't leak across the Reconstruct boundary.
     this.#component1?.dispose();
-    this.#component1 = this.#factory1();
+    this.#component1 = next1;
+    commitAggregateSlots(this.#aggregateParent, previous, [next1]);
     this._notifyPropertyChanged("component1");
     this.#component1.construct();
   }
@@ -65,8 +73,10 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // subscribers observe child Disposed transitions before the aggregate's
     // own Disposed transition — a single dispose-ordering rule across all
     // container VM kinds.
-    this.#component1?.dispose();
-    super.dispose();
+    disposeBestEffort([
+      () => this.#component1?.dispose(),
+      () => super.dispose(),
+    ]);
   }
 
   static builder<VM1 extends ComponentVMBase>(): AggregateVM1Builder<VM1> {

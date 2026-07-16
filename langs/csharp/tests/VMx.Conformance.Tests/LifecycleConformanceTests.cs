@@ -448,7 +448,7 @@ public class LifecycleConformanceTests
 
     // LIFE-014 — a throwing OnConstruct/OnDestruct hook rolls Status back to the
     // prior settled state (transactional) instead of wedging the VM in the
-    // transient state, and the VM remains recoverable. See spec/02 §2.4.
+    // transient state, and the VM remains recoverable. See spec/02 §2.5.
     [Fact, Trait("Conformance", "LIFE-014")]
     public void LIFE_014_Throwing_Hook_Rolls_Status_Back()
     {

@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -126,15 +120,15 @@
 <rect x="110" y="170" width="290" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="255" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">CompositeVM</text>
 <text x="255" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ordered homogeneous children</text>
-<text x="255" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current designates one selected child</text>
-<text x="255" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">select_component / deselect_component</text>
-<text x="255" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ModeledCrudCommands can bind to Current</text>
+<text x="255" y="243" fill="#cbd5e1" font-size="11.78" font-weight="400" text-anchor="middle">Current designates one selected child</text>
+<text x="255" y="262" fill="#cbd5e1" font-size="11.78" font-weight="400" text-anchor="middle">select_component / deselect_component</text>
+<text x="255" y="281" fill="#cbd5e1" font-size="11.18" font-weight="400" text-anchor="middle">ModeledCrudCommands can bind to Current</text>
 <rect x="450" y="170" width="290" height="168" rx="8" fill="#0f172a"/>
 <rect x="450" y="170" width="290" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="595" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">GroupVM</text>
 <text x="595" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same IList surface</text>
 <text x="595" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">peer children only</text>
-<text x="595" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">group child select command stays disabled</text>
+<text x="595" y="262" fill="#cbd5e1" font-size="10.63" font-weight="400" text-anchor="middle">group child select command stays disabled</text>
 <text x="595" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">good for notification stacks</text>
 <rect x="790" y="170" width="300" height="168" rx="8" fill="#0f172a"/>
 <rect x="790" y="170" width="300" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
@@ -159,20 +153,20 @@
 <rect x="490" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
 <rect x="490" y="398" width="280" height="162" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
 <text x="630" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Collection semantics</text>
-<text x="630" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared group/composite capability</text>
+<text x="630" y="452" fill="#cbd5e1" font-size="12.71" font-weight="400" text-anchor="middle">shared group/composite capability</text>
 <text x="630" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Move preserves child identity</text>
 <text x="630" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">one Move or batched Reset</text>
 <rect x="830" y="398" width="280" height="162" rx="8" fill="#0f172a"/>
 <rect x="830" y="398" width="280" height="162" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="970" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Construction semantics</text>
-<text x="970" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Constructed after children settle</text>
+<text x="970" y="452" fill="#cbd5e1" font-size="12.71" font-weight="400" text-anchor="middle">Constructed after children settle</text>
 <text x="970" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">reference implementations</text>
 <text x="970" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">visit children sequentially</text>
 <rect x="1170" y="398" width="360" height="162" rx="8" fill="#0f172a"/>
 <rect x="1170" y="398" width="360" height="162" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="1350" y="426" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Tree semantics</text>
 <text x="1350" y="452" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">HierarchicalVM rejects ancestor cycles</text>
-<text x="1350" y="471" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">InvalidateChildren refreshes the child cache</text>
+<text x="1350" y="471" fill="#cbd5e1" font-size="12.51" font-weight="400" text-anchor="middle">InvalidateChildren refreshes the child cache</text>
 <text x="1350" y="490" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">lazy boundaries stay explicit</text>
 <rect x="180" y="810" width="290" height="120" rx="8" fill="#0f172a"/>
 <rect x="180" y="810" width="290" height="120" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
@@ -227,7 +221,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -252,7 +245,7 @@
         <ul><li>This diagram is the bridge between the family map and the Notes Workspace example.</li><li>It explains why the framework kept several focused container types instead of flattening them.</li><li>It also answers the common question about where paging belongs in the architecture.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.20.0.</footer>
+
   </main>
 </body>
 </html>

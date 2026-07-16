@@ -10,7 +10,7 @@ Status-line ``editing_text`` is a :class:`DerivedProperty`, so we route it
 through ``bind_derived_property`` (Phase 5.b binding-gap #3) — the
 ``PropertyChangedMessage`` channel is not used.
 
-Subscription hygiene (audit round 2 Imp-5): every ``bind_*`` returns a
+Subscription hygiene (subscription ownership): every ``bind_*`` returns a
 ``Disposable`` that we collect into a ``CompositeDisposable`` and dispose
 in ``on_unmount`` so subscriptions don't outlive the widget.
 """
@@ -85,7 +85,7 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
         ),
         # Tag chip strip — one-way bound to the ``tags_text``
         # DerivedProperty[str] so the rendered string is "alpha, beta"
-        # (Round-3 Important C-I1; bound through bind_derived_property so it
+        # (flattened tag binding; bound through bind_derived_property so it
         # tracks DerivedProperty.value_changed rather than the hub).
         bind_derived_property(
             view.query_one("#form_tag_chips", Static), "renderable", vm.tags_text

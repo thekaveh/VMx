@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use vmx::{
-    Command, DialogService, FileFilter, ModalVm, NotificationSeverity, NullDialogService,
-    RelayCommand,
+    AsyncValue, Command, DialogService, FileFilter, ModalVm, NotificationSeverity,
+    NullDialogService, RelayCommand,
 };
 
 /// DIA-001 — PickFileToOpen contract
@@ -10,15 +10,17 @@ use vmx::{
 fn pick_file_to_open_contract_allows_optional_arguments() {
     let service = NullDialogService;
 
-    assert_eq!(service.pick_file_to_open(None, None), None);
+    assert_eq!(service.pick_file_to_open(None, None).wait(), None);
     assert_eq!(
-        service.pick_file_to_open(
-            Some(FileFilter {
-                description: "Rust".to_string(),
-                extensions: vec!["rs".to_string()],
-            }),
-            Some("Open"),
-        ),
+        service
+            .pick_file_to_open(
+                Some(FileFilter {
+                    description: "Rust".to_string(),
+                    extensions: vec!["rs".to_string()],
+                }),
+                Some("Open"),
+            )
+            .wait(),
         None
     );
 }
@@ -28,9 +30,11 @@ fn pick_file_to_open_contract_allows_optional_arguments() {
 fn pick_file_to_save_contract_allows_optional_arguments() {
     let service = NullDialogService;
 
-    assert_eq!(service.pick_file_to_save(None, None, None), None);
+    assert_eq!(service.pick_file_to_save(None, None, None).wait(), None);
     assert_eq!(
-        service.pick_file_to_save(None, Some("Save"), Some("vmx.rs")),
+        service
+            .pick_file_to_save(None, Some("Save"), Some("vmx.rs"))
+            .wait(),
         None
     );
 }
@@ -40,7 +44,7 @@ fn pick_file_to_save_contract_allows_optional_arguments() {
 fn confirm_contract_returns_boolean_safe_default() {
     let service = NullDialogService;
 
-    assert!(!service.confirm("Proceed?", None));
+    assert!(!service.confirm("Proceed?", None).wait());
 }
 
 /// DIA-004 — Notify contract
@@ -48,9 +52,15 @@ fn confirm_contract_returns_boolean_safe_default() {
 fn notify_contract_accepts_default_and_explicit_severity() {
     let service = NullDialogService;
 
-    service.notify("Info", None, NotificationSeverity::Info);
-    service.notify("Warn", Some("Title"), NotificationSeverity::Warning);
-    service.notify("Error", Some("Title"), NotificationSeverity::Error);
+    service
+        .notify("Info", None, NotificationSeverity::Info)
+        .wait();
+    service
+        .notify("Warn", Some("Title"), NotificationSeverity::Warning)
+        .wait();
+    service
+        .notify("Error", Some("Title"), NotificationSeverity::Error)
+        .wait();
 }
 
 /// DIA-005 — NullDialogService null-object behavior
@@ -58,10 +68,12 @@ fn notify_contract_accepts_default_and_explicit_severity() {
 fn null_dialog_service_returns_safe_defaults() {
     let service = NullDialogService;
 
-    assert_eq!(service.pick_file_to_open(None, None), None);
-    assert_eq!(service.pick_file_to_save(None, None, None), None);
-    assert!(!service.confirm("anything", None));
-    service.notify("anything", None, NotificationSeverity::Info);
+    assert_eq!(service.pick_file_to_open(None, None).wait(), None);
+    assert_eq!(service.pick_file_to_save(None, None, None).wait(), None);
+    assert!(!service.confirm("anything", None).wait());
+    service
+        .notify("anything", None, NotificationSeverity::Info)
+        .wait();
 }
 
 /// DIA-006 — Reentrancy is implementation-defined
@@ -75,8 +87,8 @@ fn immediate_rejecting_reentrant_service_returns_safe_default() {
             &self,
             _filter: Option<FileFilter>,
             _title: Option<&str>,
-        ) -> Option<String> {
-            None
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
         }
 
         fn pick_file_to_save(
@@ -84,20 +96,76 @@ fn immediate_rejecting_reentrant_service_returns_safe_default() {
             _filter: Option<FileFilter>,
             _title: Option<&str>,
             _suggested_name: Option<&str>,
-        ) -> Option<String> {
-            None
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
         }
 
-        fn confirm(&self, _message: &str, _title: Option<&str>) -> bool {
-            false
+        fn confirm(&self, _message: &str, _title: Option<&str>) -> AsyncValue<bool> {
+            AsyncValue::ready(false)
         }
 
-        fn notify(&self, _message: &str, _title: Option<&str>, _severity: NotificationSeverity) {}
+        fn notify(
+            &self,
+            _message: &str,
+            _title: Option<&str>,
+            _severity: NotificationSeverity,
+        ) -> AsyncValue<()> {
+            AsyncValue::ready(())
+        }
     }
 
     let service = RejectingService;
 
-    assert!(!service.confirm("second", None));
+    assert!(!service.confirm("second", None).wait());
+}
+
+#[test]
+fn dialog_contract_can_remain_pending_until_host_resolution() {
+    #[derive(Clone)]
+    struct PendingService {
+        decision: AsyncValue<bool>,
+    }
+
+    impl DialogService for PendingService {
+        fn pick_file_to_open(
+            &self,
+            _filter: Option<FileFilter>,
+            _title: Option<&str>,
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
+        }
+
+        fn pick_file_to_save(
+            &self,
+            _filter: Option<FileFilter>,
+            _title: Option<&str>,
+            _suggested_name: Option<&str>,
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
+        }
+
+        fn confirm(&self, _message: &str, _title: Option<&str>) -> AsyncValue<bool> {
+            self.decision.clone()
+        }
+
+        fn notify(
+            &self,
+            _message: &str,
+            _title: Option<&str>,
+            _severity: NotificationSeverity,
+        ) -> AsyncValue<()> {
+            AsyncValue::ready(())
+        }
+    }
+
+    let decision = AsyncValue::pending();
+    let service = PendingService {
+        decision: decision.clone(),
+    };
+    let confirmation = service.confirm("Proceed?", None);
+    assert_eq!(confirmation.try_get(), None);
+    decision.resolve(true);
+    assert!(confirmation.wait());
 }
 
 /// DIA-007 — Cancellation completes with safe default, does not throw
@@ -105,8 +173,8 @@ fn immediate_rejecting_reentrant_service_returns_safe_default() {
 fn cancellation_style_defaults_are_safe() {
     let service = NullDialogService;
 
-    assert_eq!(service.pick_file_to_open(None, None), None);
-    assert!(!service.confirm("cancelled", None));
+    assert_eq!(service.pick_file_to_open(None, None).wait(), None);
+    assert!(!service.confirm("cancelled", None).wait());
 }
 
 /// DIA-008 — ConfirmationDecoratorCommand integration
@@ -122,7 +190,7 @@ fn confirmation_decorator_uses_dialog_confirm_gate() {
     blocked.execute();
     assert_eq!(*called.lock().unwrap(), 0);
 
-    let allowed = inner.confirm(|| true);
+    let allowed = inner.confirm(|| AsyncValue::ready(true));
     allowed.execute();
     assert_eq!(*called.lock().unwrap(), 1);
 }
@@ -131,10 +199,13 @@ fn confirmation_decorator_uses_dialog_confirm_gate() {
 #[test]
 fn modal_presentation_returns_host_result() {
     let modal = ModalVm::new("cancel");
+    let completion = modal.completion();
+
+    assert_eq!(completion.try_get(), None);
 
     modal.dismiss("accepted");
 
-    assert_eq!(modal.completion(), "accepted");
+    assert_eq!(completion.wait(), "accepted");
     assert_eq!(modal.result(), Some("accepted"));
 }
 
@@ -146,7 +217,7 @@ fn null_modal_presentation_uses_cancellation_result() {
 
     let result = service.present(&modal);
 
-    assert_eq!(result, "cancel");
+    assert_eq!(result.wait(), "cancel");
     assert!(modal.is_dismissed());
 }
 
@@ -157,7 +228,7 @@ fn modal_disposal_completes_with_cancellation_result() {
 
     modal.dispose();
 
-    assert_eq!(modal.completion(), "cancel");
+    assert_eq!(modal.completion().wait(), "cancel");
     assert!(modal.is_dismissed());
 }
 
@@ -169,7 +240,7 @@ fn modal_dismissal_is_idempotent() {
     modal.dismiss("first");
     modal.dismiss("second");
 
-    assert_eq!(modal.completion(), "first");
+    assert_eq!(modal.completion().wait(), "first");
     assert_eq!(modal.result(), Some("first"));
 }
 
@@ -178,8 +249,10 @@ fn modal_dismissal_is_idempotent() {
 fn null_dialog_service_exposes_existing_method_names() {
     let service = NullDialogService;
 
-    let _ = service.pick_file_to_open(None, None);
-    let _ = service.pick_file_to_save(None, None, None);
-    let _ = service.confirm("Proceed?", None);
-    service.notify("Done", None, NotificationSeverity::Info);
+    drop(service.pick_file_to_open(None, None));
+    drop(service.pick_file_to_save(None, None, None));
+    drop(service.confirm("Proceed?", None));
+    service
+        .notify("Done", None, NotificationSeverity::Info)
+        .wait();
 }

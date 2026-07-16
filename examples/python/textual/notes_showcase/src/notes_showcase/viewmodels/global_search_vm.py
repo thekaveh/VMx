@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import threading
 
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler
@@ -26,7 +27,7 @@ _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
 
 
 class GlobalSearchVM(ComponentVM):
-    """Token-paged search over every note in the repository."""
+    """Token-paged search that owns every result VM it creates."""
 
     def __init__(
         self,
@@ -49,6 +50,9 @@ class GlobalSearchVM(ComponentVM):
             debounce_seconds=search_debounce_seconds,
             scheduler=search_scheduler or ImmediateScheduler(),
         )
+        self._owned_results_lock = threading.Lock()
+        self._owned_results: dict[int, NoteVM] = {}
+        self._owned_results_disposed = False
         self._paged: TokenPagedComposition[NoteVM, str] = TokenPagedComposition(
             self._fetch_next,
             auto_construct_on_add=True,
@@ -103,15 +107,34 @@ class GlobalSearchVM(ComponentVM):
         )
         return (
             [
-                NoteVM.builder()
-                .name(f"global-{note.id}")
-                .services(self._hub, self._dispatcher)
-                .model(note)
-                .build()
+                self._own_result(
+                    NoteVM.builder()
+                    .name(f"global-{note.id}")
+                    .services(self._hub, self._dispatcher)
+                    .model(note)
+                    .build()
+                )
                 for note in page
             ],
             next_token,
         )
+
+    def _own_result(self, result: NoteVM) -> NoteVM:
+        with self._owned_results_lock:
+            dispose_immediately = self._owned_results_disposed
+            if not dispose_immediately:
+                self._owned_results[id(result)] = result
+        if dispose_immediately:
+            result.dispose()
+        return result
+
+    def _dispose_owned_results(self) -> None:
+        with self._owned_results_lock:
+            self._owned_results_disposed = True
+            owned = list(self._owned_results.values())
+            self._owned_results.clear()
+        for result in owned:
+            result.dispose()
 
     def _notify_results(self) -> None:
         self._notify_property_changed("results")
@@ -122,8 +145,7 @@ class GlobalSearchVM(ComponentVM):
     def dispose(self) -> None:
         self._collection_sub.dispose()
         self._property_sub.dispose()
-        for result in self._paged.items:
-            result.dispose()
+        self._dispose_owned_results()
         self._paged.dispose()
         self._search.dispose()
         super().dispose()

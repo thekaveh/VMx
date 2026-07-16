@@ -7,7 +7,7 @@
 //
 import Foundation
 
-public final class NullDispatcher: Dispatcher {
+public final class NullDispatcher: Dispatcher, Sendable {
     /// Shared singleton instance.
     public static let INSTANCE = NullDispatcher()
 

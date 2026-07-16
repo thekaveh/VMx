@@ -62,6 +62,14 @@ class CompositeVMBuilder(Generic[VM]):
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
+    def _option_hub(self, hub: MessageHub[Message]) -> CompositeVMBuilder[VM]:
+        """Retain a hub supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _hub=hub)
+
+    def _option_dispatcher(self, dispatcher: Dispatcher) -> CompositeVMBuilder[VM]:
+        """Retain a dispatcher supplied through the options factory until build validation."""
+        return dataclasses.replace(self, _dispatcher=dispatcher)
+
     def async_selection(self, value: bool) -> CompositeVMBuilder[VM]:
         """Enable/disable async selection dispatch (default: False)."""
         return dataclasses.replace(self, _async_selection=value)

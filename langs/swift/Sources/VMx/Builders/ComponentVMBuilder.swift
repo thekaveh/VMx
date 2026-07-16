@@ -38,6 +38,18 @@ public struct ComponentVMBuilder {
         return copy
     }
 
+    func _optionHub(_ hub: MessageHubProtocol) -> ComponentVMBuilder {
+        var copy = self
+        copy._hub = hub
+        return copy
+    }
+
+    func _optionDispatcher(_ dispatcher: Dispatcher) -> ComponentVMBuilder {
+        var copy = self
+        copy._dispatcher = dispatcher
+        return copy
+    }
+
     public func onConstruct(_ cb: @escaping () -> Void) -> ComponentVMBuilder {
         var copy = self
         copy._onConstruct = cb

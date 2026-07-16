@@ -104,7 +104,7 @@ editor, capability-aware action bar, notifications, async lifecycle,
 dialogs, token-paged global search, edit/preview state, tag autocomplete,
 `AggregateVM6` root, and the v2.4.0 `ThemeVM` scenario contract).
 Pure-VM contract enforced; every `*.axaml.cs` code-behind is
-`InitializeComponent()`-only.
+limited to the view constructor's `AvaloniaXamlLoader.Load(this)` call.
 
 **Run (macOS / Linux / Windows):**
 

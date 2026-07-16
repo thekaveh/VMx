@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from threading import Event, Thread
 
 import pytest
 
@@ -251,3 +252,89 @@ async def test_form_029_reset_wins_racing_model_mutation() -> None:
     assert form.model == Model("reset:approved")
     assert form.snapshot == Model("reset:approved")
     assert not form.is_dirty
+
+
+class _CommitBarrierForm(FormVM[Model]):
+    def __init__(self) -> None:
+        self.commit_reached = Event()
+        self.release_commit = Event()
+        self.pause_commit = False
+        super().__init__(
+            Model("initial"),
+            _noop,
+            reset_on_approved=lambda model: Model(f"reset:{model.value}"),
+        )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "_snapshot" and getattr(self, "pause_commit", False):
+            self.commit_reached.set()
+            assert self.release_commit.wait(1)
+        super().__setattr__(name, value)
+
+
+def test_form_reset_commit_and_approval_observation_are_atomic() -> None:
+    form = _CommitBarrierForm()
+    observed: list[tuple[Model, Model, bool]] = []
+    form.on_approved.subscribe(
+        lambda _: observed.append((form.model, form.snapshot, form.is_dirty))
+    )
+    form.set_model(Model("approved"))
+    form.pause_commit = True
+    approver = Thread(target=lambda: asyncio.run(form.approve_async()), daemon=True)
+    approver.start()
+    assert form.commit_reached.wait(1)
+
+    setter = Thread(target=lambda: form.set_model(Model("racing")), daemon=True)
+    setter.start()
+    form.release_commit.set()
+    approver.join(timeout=1)
+    setter.join(timeout=1)
+
+    assert not approver.is_alive()
+    assert not setter.is_alive()
+    assert observed == [(Model("reset:approved"), Model("reset:approved"), False)]
+    assert form.model == Model("racing")
+    assert form.snapshot == Model("reset:approved")
+    assert form.is_dirty
+
+
+@pytest.mark.asyncio
+async def test_reset_error_observer_mutation_runs_after_pristine_approval() -> None:
+    form = FormVM(
+        Model("saved"),
+        _noop,
+        validators={"value": lambda model: "required" if not model.value else None},
+        reset_on_approved=lambda _: Model(""),
+    )
+    observed: list[tuple[Model, Model, Model, bool]] = []
+    form.errors_changed.subscribe(lambda _: form.set_model(Model("reentrant")))
+    form.on_approved.subscribe(
+        lambda approved: observed.append((approved, form.model, form.snapshot, form.is_dirty))
+    )
+
+    await form.approve_async()
+
+    assert observed == [(Model("saved"), Model(""), Model(""), False)]
+    assert form.model == Model("reentrant")
+    assert form.snapshot == Model("")
+    assert form.is_dirty
+
+
+@pytest.mark.asyncio
+async def test_dispose_from_reset_error_observer_stops_remaining_publication() -> None:
+    form = FormVM(
+        Model("initial"),
+        _noop,
+        validators={"value": lambda model: "required" if model.value == "" else None},
+        reset_on_approved=lambda _: Model(""),
+    )
+    form.set_model(Model("saved"))
+    approved: list[Model] = []
+    form.on_approved.subscribe(approved.append)
+    form.errors_changed.subscribe(lambda _: form.dispose())
+
+    await form.approve_async()
+
+    assert form.model == Model("")
+    assert form.snapshot == Model("")
+    assert approved == []

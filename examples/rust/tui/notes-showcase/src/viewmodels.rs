@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
     AggregateVm6, Command, ComponentVm, CompositeVm, DiscriminatorVm, FilteredCompositeVm, FormVm,
     MessageHub, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
-    NullDispatcher, PagedComposition, RelayCommand, SearchableState, TokenPagedComposition, VmNode,
-    VmxError, VmxResult,
+    NullDispatcher, PagedComposition, ParentHandle, RelayCommand, SearchableState,
+    TokenPagedComposition, VmNode, VmxError, VmxResult,
 };
 
 const PAGE_SIZE: usize = 2;
@@ -85,6 +85,14 @@ impl VmNode for NoteVm {
 
     fn parent_id(&self) -> Option<usize> {
         self.component.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.component.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.component.parent_handle()
     }
 
     fn set_current_flag(&self, is_current: bool) {
@@ -539,10 +547,7 @@ impl EditorModeVm {
     fn new(hub: MessageHub) -> Self {
         Self {
             core: ComponentVm::with_model("editor-mode", (), hub, NullDispatcher::new()),
-            discriminator: DiscriminatorVm::new(
-                "edit".to_string(),
-                ["edit".to_string(), "preview".to_string()],
-            ),
+            discriminator: DiscriminatorVm::new("edit".to_string()),
         }
     }
 
@@ -550,19 +555,19 @@ impl EditorModeVm {
         self.discriminator.active_key()
     }
 
-    pub fn show_edit(&self) -> VmxResult<()> {
-        self.discriminator.set_active_key("edit".to_string())
+    pub fn show_edit(&self) {
+        self.discriminator.set_active_key("edit".to_string());
     }
 
-    pub fn show_preview(&self) -> VmxResult<()> {
-        self.discriminator.set_active_key("preview".to_string())
+    pub fn show_preview(&self) {
+        self.discriminator.set_active_key("preview".to_string());
     }
 
-    pub fn toggle(&self) -> VmxResult<()> {
+    pub fn toggle(&self) {
         if self.mode() == "edit" {
-            self.show_preview()
+            self.show_preview();
         } else {
-            self.show_edit()
+            self.show_edit();
         }
     }
 }
@@ -789,6 +794,14 @@ macro_rules! impl_node {
 
             fn parent_id(&self) -> Option<usize> {
                 self.core.parent_id()
+            }
+
+            fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+                self.core.set_parent_handle(parent);
+            }
+
+            fn parent_handle(&self) -> Option<ParentHandle> {
+                self.core.parent_handle()
             }
 
             fn set_current_flag(&self, is_current: bool) {

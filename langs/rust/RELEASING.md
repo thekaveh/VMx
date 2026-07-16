@@ -23,11 +23,12 @@ only on this environment, never as a repository-wide secret.
 
 ### 1.2 First publication bootstrap
 
-crates.io trusted publishing requires an existing crate, so 0.20.0 needs a
-one-time owner-authorized API token:
+crates.io trusted publishing requires an existing crate, so the first release
+needs a one-time owner-authorized API token:
 
 1. Sign in to crates.io with the intended owner and verify the email address.
-1. Reconfirm that `vmx-rs` does not exist and `rust-v0.20.0` is absent.
+1. Reconfirm that `vmx-rs` does not exist and the intended `rust-v<X.Y.Z>` tag
+   is absent.
 1. Create a short-lived token whose endpoint scope is only `publish-new`, with
    crate pattern `vmx-rs` and the earliest practical expiry.
 1. Add it through the GitHub UI as the `CRATES_IO_TOKEN` secret on
@@ -42,7 +43,7 @@ main-ancestry, package, MSRV, conformance, and consumer gates as later releases.
 
 ### 1.3 Switch to trusted publishing
 
-After 0.20.0 is visible, open the crate's **Settings → Trusted Publishing** and
+After the first release is visible, open the crate's **Settings → Trusted Publishing** and
 add a GitHub configuration with these exact values:
 
 - repository owner: `thekaveh`;

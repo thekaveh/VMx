@@ -6,11 +6,13 @@ Generated architecture diagrams for all examples live in
 
 ## 1. Setup
 
-All examples share a single virtual environment managed by [uv](https://docs.astral.sh/uv/).
+The console and tkinter examples share the root `examples/python` environment.
+Each Textual example is a standalone uv project with its own environment and
+lockfile, as shown in its section below.
 
 ```bash
 cd examples/python
-uv sync          # creates .venv and installs vmx (editable) + reactivex
+uv sync          # prepares the console + tkinter environment
 ```
 
 ---

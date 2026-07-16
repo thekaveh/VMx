@@ -4,6 +4,89 @@ All notable changes to the Swift flavor of VMx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Token pagination now runs page comparison and child construction outside its
+  state queue, then rejects commits and later notifications when either callback
+  disposes the pager reentrantly.
+
+- Common VM options factories now retain each independently supplied service
+  through the builder's combined services validation (BLD-006, ADR-0112).
+- Swift's complete strict-concurrency diagnostics are now enforced in CI.
+  Internally spawned tasks and dispatch closures use narrow transfer boundaries,
+  immutable singleton services declare their sendability, and modal results are
+  constrained to `Sendable` before crossing an async continuation.
+- The Notes Showcase now awaits foreground-dispatched UI mutations and
+  notification posts, rejects stale overlapping note fetches, uses the library
+  `DefaultDispatcher`, and passes the same strict-concurrency CI gate.
+- `BasicModalVM` now atomically registers waiters and claims its first dismissal,
+  preventing concurrent dismissal/disposal from losing or resuming a waiter
+  more than once.
+- `MessageHub` now invokes subscriber and completion callbacks outside its state
+  condition. Ordinary foreign producers still wait for calling-thread delivery,
+  while nested cross-hub sends enqueue to avoid opposing-callback deadlocks.
+- `NotificationHub.pending` now registers subscriber state under its lock but
+  attaches downstream afterward, so `CurrentValueSubject` initial replay cannot
+  run user code while holding the hub lock.
+- `VirtualTimeScheduler` now claims cancellation and execution atomically,
+  keeps its clock monotonic when overdue work runs, and retains work scheduled
+  through Combine's `Void`-returning overloads until advancement.
+
+## [3.22.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- The existing non-throwing, complete disposal cascade is now part of the
+  normative cross-flavor contract (LIFE-013, ADR-0108).
+
+## [3.21.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- Components now have one authoritative owning parent. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
+
+### Fixed
+
+- Form reset publication now defers model edits requested by validation
+  observers until `onApproved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
+- Disposing an executing `AsyncRelayCommand` now records cancellation before
+  cancelling the task, so the command body observes the terminal request.
+- Lifecycle status publication, hook completion, property notifications, and
+  terminal cleanup are serialized so concurrent or re-entrant disposal cannot
+  resurrect a component or tear down an admitted notification.
+- `NotificationHub` now publishes concurrent post, resolve, and disposal
+  mutations in FIFO order while late subscribers receive only the current
+  pending snapshot.
+- `FormVM` now serializes model assignment, validation, deny, approval reset,
+  and disposal while allowing admitted mutations to finish their observable
+  contract.
+
+## [3.20.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
+### Fixed
+
+- `AsyncRelayCommand` now links parent-task cancellation into its execution
+  token so structured-concurrency cancellation reaches the command body.
+- `AsyncRelayCommand.cancel()` can no longer lose a request made while the body
+  task's cancellation handle is being installed.
+- `HierarchicalVM.addChild` returns an ignorable `Result`, rejects cycles, and
+  atomically transfers attached children (HIER-018, ADR-0105).
+
 ## [3.20.0] — 2026-07-12
 
 Implements `spec-v3.20.0` and keeps Swift at full library parity: 391/391

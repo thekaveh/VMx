@@ -205,6 +205,17 @@ public sealed class ObservableCollectionBridgeTests
         Assert.Equal(new[] { 1, 2, 3, 4 }, bridge);
     }
 
+    [Fact]
+    public void Remove_without_source_index_falls_back_to_full_resync()
+    {
+        var src = new ManualIncc<int> { 1, 2, 3 };
+        using var bridge = new ObservableCollectionBridge<int>(src);
+
+        src.RaiseRemoveWithoutIndex(2);
+
+        Assert.Equal(new[] { 1, 3 }, bridge);
+    }
+
     /// <summary>
     /// Minimal INCC + IList&lt;T&gt; source that lets tests fire arbitrary
     /// <see cref="NotifyCollectionChangedEventArgs"/> actions (including
@@ -230,6 +241,13 @@ public sealed class ObservableCollectionBridgeTests
             AddRange(next);
             CollectionChanged?.Invoke(this,
                 new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+
+        public void RaiseRemoveWithoutIndex(T item)
+        {
+            Remove(item);
+            CollectionChanged?.Invoke(this,
+                new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, item));
         }
     }
 }

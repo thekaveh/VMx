@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  type IAsyncCommand,
   MessageHub,
   RxDispatcher,
   TreeStructureChangedMessage,
@@ -88,9 +89,7 @@ describe("NotebooksRootVM", () => {
     const { vm, repo } = makeRoot();
     await vm.populateAsync();
     const before = vm.all.length;
-    vm.addNotebookCommand.execute();
-    // Allow the awaited internals to drain.
-    await new Promise((r) => setTimeout(r, 0));
+    await (vm.addNotebookCommand as IAsyncCommand).executeAsync();
     expect(vm.all.length).toBe(before + 1);
     void repo;
   });

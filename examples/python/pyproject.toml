@@ -11,6 +11,12 @@ dependencies = [
     "vmx>=3.1.0",
 ]
 
+[dependency-groups]
+dev = [
+    "mypy>=1.10",
+    "ruff>=0.4",
+]
+
 [tool.uv.sources]
 vmx = { path = "../../langs/python", editable = true }
 

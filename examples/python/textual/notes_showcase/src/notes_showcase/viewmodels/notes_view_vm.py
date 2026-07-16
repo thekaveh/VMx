@@ -358,7 +358,7 @@ class NotesViewVM(
                 # TextualDialogService after the App exists, and a
                 # default-arg capture here froze the boot NullDialogService
                 # (confirm -> False) into every NoteVM, making deletion
-                # impossible (real-wiring audit, pass 5). A still-unbound
+                # impossible (runtime behavior). A still-unbound
                 # service falls back to proceed-unconfirmed, matching the
                 # behavior when no service was attached at all.
                 async def _confirm(_vm: NoteVM) -> bool:
@@ -387,7 +387,7 @@ class NotesViewVM(
         Re-seats the persisted model into the matching :class:`NoteVM` and
         re-runs the combined filter so row labels, the starred filter, and
         search results reflect the saved values (rows otherwise kept their
-        construction-time title/star; real-wiring audit, pass 5).
+        construction-time title/star).
         """
         for vm in self._inner:
             if vm.model.id == note.id:
@@ -400,57 +400,23 @@ class NotesViewVM(
     def _clear_current(self) -> None:
         self.current = None
 
-    def _delete_note(self, note: NoteVM) -> None:
-        """Remove ``note`` from the inner collection and persist via the repo.
+    async def _delete_note(self, note: NoteVM) -> None:
+        """Persist the deletion before mutating the live list mirror."""
+        await self._repo.delete_note(note.model.id)
+        for i in range(self._inner.count):
+            if self._inner[i] is note:
+                with self._inner.batch_update():
+                    self._inner.remove_at(i)
+                break
+        if self._current is note:
+            self._current = None
+            self._notify_property_changed("current")
+        self._recompute_filtered()
+        note.dispose()
 
-        Fire-and-forget: schedules the async delete and returns. The list
-        mirror updates synchronously after the repo call resolves.
-        """
-        import asyncio
-
-        async def run() -> None:
-            try:
-                await self._repo.delete_note(note.model.id)
-            except Exception:  # pragma: no cover — surfaced via hub in prod
-                return
-            for i in range(self._inner.count):
-                if self._inner[i] is note:
-                    with self._inner.batch_update():
-                        self._inner.remove_at(i)
-                    break
-            if self._current is note:
-                self._current = None
-                self._notify_property_changed("current")
-            self._recompute_filtered()
-            note.dispose()
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(run())
-        except RuntimeError:
-            asyncio.run(run())
-
-    def _save_note(self, note: NoteVM) -> None:
-        """Persist ``note``'s current model via the repo.
-
-        Fire-and-forget: schedules the async save and returns, mirroring the
-        C#/TS/Swift showcases (``.OnSave``/``.onSave``). Without this wiring the
-        capability bar's Save action was a silent no-op in Python only
-        (real-wiring audit — the other three flavors wired it in pass 6).
-        """
-        import asyncio
-
-        async def run() -> None:
-            try:
-                await self._repo.save_note(note.model)
-            except Exception:  # pragma: no cover — surfaced via hub in prod
-                return
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(run())
-        except RuntimeError:
-            asyncio.run(run())
+    async def _save_note(self, note: NoteVM) -> None:
+        """Persist ``note`` and surface repository failure through the command."""
+        await self._repo.save_note(note.model)
 
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:
@@ -487,12 +453,20 @@ class NotesViewVM(
             self._notify_property_changed("visible_items")
 
     # ── Lifecycle override ─────────────────────────────────────────────────
-    def _on_destruct(self) -> None:
+    def _release_children(self) -> None:
         for prev in list(self._inner):
             prev.dispose()
+        self._inner.clear()
+        self._filtered = []
+        self._current = None
+        self._bound_notebook_id = None
+
+    def _on_destruct(self) -> None:
+        self._release_children()
         super()._on_destruct()
 
     def _on_dispose(self) -> None:
+        self._release_children()
         self._paged.dispose()
         self._search.dispose()
         self._is_empty.dispose()
@@ -503,8 +477,6 @@ class NotesViewVM(
         self._move_to_previous_page_command.dispose()
         self._move_to_next_page_command.dispose()
         self._move_to_last_page_command.dispose()
-        for prev in list(self._inner):
-            prev.dispose()
         super()._on_dispose()
 
     # ── Builder entry-point ────────────────────────────────────────────────

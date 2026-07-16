@@ -17,6 +17,8 @@ from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
 from vmx.composites.composite_vm import CompositeVM, CompositeVMOf
+from vmx.groups.builders import GroupVMBuilder
+from vmx.groups.group_vm import GroupVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -63,6 +65,22 @@ def _build_child(
     h = hub if hub is not None else _hub()
     d = dispatcher if dispatcher is not None else _dispatcher()
     return ComponentVMBuilder().name(name).services(h, d).build()
+
+
+class _EqualByNameComponent(ComponentVM):
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _EqualByNameComponent) and other.name == self.name
+
+    __hash__ = None
+
+
+def _build_equal_child(name: str) -> _EqualByNameComponent:
+    return _EqualByNameComponent(
+        name=name,
+        hint="",
+        hub=_hub(),
+        dispatcher=_dispatcher(),
+    )
 
 
 def _prop_messages(hub: MessageHub[object]) -> list[PropertyChangedMessage]:
@@ -756,3 +774,212 @@ def test_COMP_027_add_sets_parent_remove_clears_it() -> None:
     assert not child.can_select()
     child.select()  # no-op: parent is None
     assert composite.current is None
+
+
+@pytest.mark.conformance("COMP-038")
+def test_COMP_038_add_transfers_child_from_previous_parent() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    child = _build_child("c", hub=hub, dispatcher=dispatcher)
+    old_parent.add(child)
+    old_parent.construct()
+    group: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("group").services(hub, dispatcher).children(lambda: ()).build()
+    )
+
+    group.add(child)
+
+    assert list(old_parent) == []
+    assert list(group) == [child]
+    assert child.status is ConstructionStatus.CONSTRUCTED
+    assert not old_parent.remove(child)
+
+    next_parent, _ = _build_composite("next", hub=hub, dispatcher=dispatcher)
+    next_parent.construct()
+    next_parent.add(child)
+    assert list(group) == []
+    assert child.can_select()
+    child.select()
+    assert next_parent.current is child
+
+
+@pytest.mark.conformance("COMP-039")
+def test_COMP_039_duplicate_and_cycle_rejection_is_mutation_free() -> None:
+    parent, hub = _build_composite()
+    child = _build_child(hub=hub)
+    parent.add(child)
+    events: list[CollectionChangedEvent] = []
+    parent.on_collection_changed.subscribe(events.append)
+
+    with pytest.raises(ValueError):
+        parent.add(child)
+
+    assert list(parent) == [child]
+    assert events == []
+
+    outer, _ = _build_composite("outer", hub=hub)
+    inner, _ = _build_composite("inner", hub=hub)
+    outer.add(inner)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        inner.add(outer)  # type: ignore[arg-type]
+    assert list(outer) == [inner]
+    assert list(inner) == []
+
+
+@pytest.mark.conformance("COMP-039")
+def test_COMP_039_membership_uses_identity_when_children_override_equality() -> None:
+    child = _build_equal_child("same")
+    foreign = _build_equal_child("same")
+    comp: CompositeVM[_EqualByNameComponent] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(_hub(), _dispatcher())
+        .children(lambda: ())
+        .build()
+    )
+    comp.add(child)
+    child.construct()
+
+    assert foreign not in comp
+    with pytest.raises(ValueError):
+        comp.index(foreign)
+    assert comp.can_select_component(foreign) is False
+    with pytest.raises(ValueError):
+        comp.current = foreign
+    assert comp.remove(foreign) is False
+    assert list(comp) == [child]
+
+    group_child = _build_equal_child("group-same")
+    group_foreign = _build_equal_child("group-same")
+    group: GroupVM[_EqualByNameComponent] = (
+        GroupVMBuilder().name("group").services(_hub(), _dispatcher()).children(lambda: ()).build()
+    )
+    group.add(group_child)
+
+    assert group_foreign not in group
+    assert group.index_of(group_foreign) == -1
+    assert group.remove(group_foreign) is False
+    assert list(group) == [group_child]
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_failed_transfer_restores_parent_index_and_current() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    def fail_construct() -> None:
+        raise RuntimeError("boom")
+
+    child = (
+        ComponentVMBuilder()
+        .name("failing")
+        .services(hub, dispatcher)
+        .on_construct(fail_construct)
+        .build()
+    )
+    sibling = _build_child("sibling", hub=hub, dispatcher=dispatcher)
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    old_parent.add(sibling)
+    old_parent.add(child)
+    old_parent.current = child
+    destination: GroupVM[ComponentVM] = (
+        GroupVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    destination.construct()
+    events: list[str] = []
+    old_parent.on_collection_changed.subscribe(lambda _event: events.append("old"))
+    destination.on_collection_changed.subscribe(lambda _event: events.append("new"))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        destination.add(child)
+
+    assert list(old_parent) == [sibling, child]
+    assert old_parent.current is child
+    assert child.is_current
+    assert child.status is ConstructionStatus.DESTRUCTED
+    assert list(destination) == []
+    assert events == []
+
+    # A later failure in lazy population rolls back every earlier transfer and
+    # leaves the population attempt retryable.
+    bulk_destination: GroupVM[ComponentVM]
+
+    def assert_complete_population() -> None:
+        assert len(bulk_destination) == 2
+
+    first = (
+        ComponentVMBuilder()
+        .name("first")
+        .services(hub, dispatcher)
+        .on_construct(assert_complete_population)
+        .build()
+    )
+    blocker = (
+        ComponentVMBuilder()
+        .name("bulk-failing")
+        .services(hub, dispatcher)
+        .on_construct(fail_construct)
+        .build()
+    )
+    bulk_old, _ = _build_composite("bulk-old", hub=hub, dispatcher=dispatcher)
+    bulk_old.add(first)
+    batch = [first, blocker]
+    bulk_destination = (
+        GroupVMBuilder()
+        .name("bulk-destination")
+        .services(hub, dispatcher)
+        .children(lambda: tuple(batch))
+        .build()
+    )
+    bulk_events: list[str] = []
+    bulk_old.on_collection_changed.subscribe(lambda _event: bulk_events.append("old"))
+    bulk_destination.on_collection_changed.subscribe(lambda _event: bulk_events.append("new"))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        bulk_destination.construct()
+
+    assert list(bulk_old) == [first]
+    assert first.status is ConstructionStatus.DESTRUCTED
+    assert list(bulk_destination) == []
+    assert bulk_events == []
+    batch.clear()
+    bulk_destination.construct()
+    assert list(bulk_destination) == []
+
+
+@pytest.mark.conformance("COMP-041")
+def test_COMP_041_transfer_publishes_old_remove_before_new_add() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    child = _build_child(hub=hub, dispatcher=dispatcher)
+    old_parent.add(child)
+    destination: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("destination").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    observed: list[str] = []
+
+    def record_old(event: CollectionChangedEvent) -> None:
+        assert event.action == "remove"
+        assert child not in old_parent
+        assert child in destination
+        observed.append("old:remove")
+
+    def record_new(event: CollectionChangedEvent) -> None:
+        assert event.action == "add"
+        assert child not in old_parent
+        assert child in destination
+        observed.append("new:add")
+
+    old_parent.on_collection_changed.subscribe(record_old)
+    destination.on_collection_changed.subscribe(record_new)
+
+    destination.add(child)
+
+    assert observed == ["old:remove", "new:add"]

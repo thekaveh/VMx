@@ -120,6 +120,34 @@ public sealed class NoteVMTests
     }
 
     [Fact]
+    public async Task SaveCommand_awaits_async_OnSave_and_propagates_failure()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var model = new NoteModel("n", "nb", "T", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnSave(async _ =>
+            {
+                await release.Task;
+                throw new IOException("disk full");
+            })
+            .Build();
+        vm.Construct();
+
+        var command = Assert.IsType<AsyncRelayCommand>(vm.SaveCommand);
+        var execution = command.ExecuteAsync();
+
+        Assert.True(command.IsExecuting);
+        release.SetResult();
+        var error = await Assert.ThrowsAsync<IOException>(() => execution);
+        Assert.Equal("disk full", error.Message);
+        Assert.False(command.IsExecuting);
+    }
+
+    [Fact]
     public void DeleteCommand_invokes_OnDelete_callback()
     {
         var hub = new MessageHub();
@@ -148,7 +176,7 @@ public sealed class NoteVMTests
         Assert.False(vm.CanDelete(vm));
     }
 
-    // ── Audit pass #1, B1: DeleteCommand wraps in ConfirmationDecoratorCommand ──
+    // ── delete-confirmation coverage: DeleteCommand wraps in ConfirmationDecoratorCommand ──
 
     [Fact]
     public async Task DeleteCommand_with_confirm_returning_false_does_NOT_invoke_OnDelete()
@@ -192,7 +220,7 @@ public sealed class NoteVMTests
         Assert.Same(vm, deleted);
     }
 
-    // ── Audit pass #1, B2: NoteVM publishes "Note deleted" notification ──
+    // ── notification coverage: NoteVM publishes "Note deleted" notification ──
 
     [Fact]
     public async Task DeleteCommand_publishes_Note_deleted_notification_on_success()
@@ -218,6 +246,59 @@ public sealed class NoteVMTests
         await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
 
         Assert.Contains(observed, n => n.Message.Contains("Note deleted") && n.Message.Contains("Important"));
+    }
+
+    [Fact]
+    public async Task DeleteCommand_publishes_success_only_after_async_OnDelete_completes()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        using var notificationHub = new NotificationHub();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            if (snapshot.Any(n => n.Message.Contains("Note deleted"))) notified.TrySetResult();
+        });
+        var model = new NoteModel("n", "nb", "Important", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(async _ => await release.Task)
+            .ConfirmDelete(_ => Task.FromResult(true))
+            .NotificationHub(notificationHub)
+            .Build();
+        vm.Construct();
+
+        await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+
+        Assert.False(notified.Task.IsCompleted, "success must wait for repository persistence");
+        release.SetResult();
+        await notified.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task DeleteCommand_does_not_publish_success_when_async_OnDelete_fails()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot => observed.AddRange(snapshot));
+        var model = new NoteModel("n", "nb", "Important", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(_ => Task.FromException(new IOException("disk full")))
+            .NotificationHub(notificationHub)
+            .Build();
+        vm.Construct();
+
+        var command = Assert.IsType<AsyncRelayCommand>(vm.DeleteCommand);
+        var error = await Assert.ThrowsAsync<IOException>(() => command.ExecuteAsync());
+
+        Assert.Equal("disk full", error.Message);
+        Assert.DoesNotContain(observed, n => n.Message.Contains("Note deleted"));
     }
 
     [Fact]

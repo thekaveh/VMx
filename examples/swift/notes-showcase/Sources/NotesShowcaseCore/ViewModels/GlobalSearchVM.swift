@@ -2,11 +2,42 @@ import Combine
 import Foundation
 import VMx
 
+private final class GlobalSearchResultOwner: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [ObjectIdentifier: NoteVM] = [:]
+    private var disposed = false
+
+    func track(_ result: NoteVM) -> NoteVM {
+        let disposeImmediately = lock.withLock { () -> Bool in
+            guard !disposed else { return true }
+            results[ObjectIdentifier(result)] = result
+            return false
+        }
+        if disposeImmediately {
+            result.dispose()
+        }
+        return result
+    }
+
+    func disposeAll() {
+        let owned = lock.withLock { () -> [NoteVM] in
+            disposed = true
+            defer { results.removeAll() }
+            return Array(results.values)
+        }
+        for result in owned {
+            result.dispose()
+        }
+    }
+}
+
+/// Token-paged search and lifetime owner for every result VM it creates.
 public final class GlobalSearchVM: ComponentVMBase {
     private let repo: any NoteRepository
     private let pageSize: Int
     private let search: SearchableState<String>
     private let paged: TokenPagedComposition<NoteVM, String>
+    private let resultOwner: GlobalSearchResultOwner
     private var cancellables: Set<AnyCancellable> = []
 
     private init(
@@ -25,6 +56,8 @@ public final class GlobalSearchVM: ComponentVMBase {
             predicate: { _, _ in true },
             debounce: searchDebounce
         )
+        let resultOwner = GlobalSearchResultOwner()
+        self.resultOwner = resultOwner
         let repoRef = repository
         let hubRef = hub
         let dispatcherRef = dispatcher
@@ -36,11 +69,13 @@ public final class GlobalSearchVM: ComponentVMBase {
                     pageSize: pageSize
                 )
                 let items = try page.items.map { model in
-                    try NoteVM.builder()
-                        .name("global-\(model.id)")
-                        .services(hub: hubRef, dispatcher: dispatcherRef)
-                        .model(model)
-                        .build()
+                    resultOwner.track(
+                        try NoteVM.builder()
+                            .name("global-\(model.id)")
+                            .services(hub: hubRef, dispatcher: dispatcherRef)
+                            .model(model)
+                            .build()
+                    )
                 }
                 return (items, page.nextToken)
             },
@@ -106,9 +141,7 @@ public final class GlobalSearchVM: ComponentVMBase {
 
     public override func _onDispose() {
         cancellables.removeAll()
-        for result in paged.items {
-            result.dispose()
-        }
+        resultOwner.disposeAll()
         paged.dispose()
         search.dispose()
         super._onDispose()

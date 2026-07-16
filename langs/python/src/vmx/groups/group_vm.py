@@ -21,7 +21,13 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
-from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
+from vmx.components.base import (
+    _begin_parent_transfer,
+    _ComponentVMBase,
+    _dispose_children_then_self,
+    _ParentCompositeVM,
+    _ParentTransfer,
+)
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -132,7 +138,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         return iter(self._children)
 
     def __contains__(self, item: object) -> bool:
-        return item in self._children
+        return any(child is item for child in self._children)
 
     def __getitem__(self, index: int) -> VM:
         return self._children[index]
@@ -142,13 +148,25 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert/remove_at and ObservableList).
         resolved_index = index + len(self._children) if index < 0 else index
+        parent = self._as_parent()
+        transfer = _begin_parent_transfer(value, parent)
         self._children[index] = value
         old._set_parent(None)
-        value._set_parent(self._as_parent())
+        value._set_parent(parent)
+        try:
+            self._maybe_auto_construct(value)
+        except BaseException:
+            self._children[index] = old
+            old._set_parent(parent)
+            value._set_parent(None)
+            if transfer is not None:
+                transfer.rollback()
+            raise
+        if transfer is not None:
+            transfer.commit()
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
         )
-        self._maybe_auto_construct(value)
         self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
         )
@@ -158,10 +176,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def index_of(self, item: VM) -> int:
         """Return the index of *item*, or ``-1`` if not found."""
-        try:
-            return self._children.index(item)
-        except ValueError:
-            return -1
+        return next(
+            (index for index, child in enumerate(self._children) if child is item),
+            -1,
+        )
 
     def insert(self, index: int, item: VM) -> None:
         """Insert *item* at *index*, shifting existing children right.
@@ -173,9 +191,20 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             index = max(index + len(self._children), 0)
         elif index > len(self._children):
             index = len(self._children)
+        parent = self._as_parent()
+        transfer = _begin_parent_transfer(item, parent)
         self._children.insert(index, item)
-        item._set_parent(self._as_parent())
-        self._maybe_auto_construct(item)
+        item._set_parent(parent)
+        try:
+            self._maybe_auto_construct(item)
+        except BaseException:
+            self._children.pop(index)
+            item._set_parent(None)
+            if transfer is not None:
+                transfer.rollback()
+            raise
+        if transfer is not None:
+            transfer.commit()
         self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
         )
@@ -183,9 +212,20 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
         idx = len(self._children)
+        parent = self._as_parent()
+        transfer = _begin_parent_transfer(item, parent)
         self._children.append(item)
-        item._set_parent(self._as_parent())
-        self._maybe_auto_construct(item)
+        item._set_parent(parent)
+        try:
+            self._maybe_auto_construct(item)
+        except BaseException:
+            self._children.pop()
+            item._set_parent(None)
+            if transfer is not None:
+                transfer.rollback()
+            raise
+        if transfer is not None:
+            transfer.commit()
         self._emit_collection_changed(
             CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
         )
@@ -211,7 +251,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         item = self._children[index]
         resolved_index = index + len(self._children) if index < 0 else index
         del self._children[index]
-        item._set_parent(None)
+        if item._parent is self._as_parent():
+            item._set_parent(None)
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
         )
@@ -219,7 +260,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def clear(self) -> None:
         """Remove all children."""
         for child in self._children:
-            child._set_parent(None)
+            if child._parent is self._as_parent():
+                child._set_parent(None)
         self._children.clear()
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
@@ -294,23 +336,23 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._on_construct_cb is not None:
             self._on_construct_cb()
         self._populate_children()
-        # Snapshot (parity with _CompositeVMBase and dispose below): a child
-        # lifecycle hook that mutates the group must not skip/repeat siblings.
-        for child in list(self._children):
-            child.construct()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(list(self._children), construct=True)
+        )
 
     def _on_destruct(self) -> None:
         """Destruct every child, then invoke the builder's on_destruct callback."""
-        for child in list(self._children):
-            child.destruct()
-        if self._on_destruct_cb is not None:
-            self._on_destruct_cb()
+        self._complete_lifecycle_hook_after(
+            self._transition_children(
+                list(self._children),
+                construct=False,
+                after=self._on_destruct_cb,
+            )
+        )
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
-        for child in list(self._children):
-            child.dispose()
-        super().dispose()
+        _dispose_children_then_self(list(self._children), super().dispose)
 
     def _on_dispose(self) -> None:
         if not self._collection_changed_subject.is_disposed:
@@ -321,9 +363,54 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         """Evaluate the children factory (idempotent: runs at most once)."""
         if self._populated or self._children_factory is None:
             return
+        children = list(self._children_factory())
+        initial_count = len(self._children)
+        parent = self._as_parent()
+        transfers: list[_ParentTransfer | None] = []
+        original_statuses: list[ConstructionStatus] = []
+        try:
+            for child in children:
+                transfer = _begin_parent_transfer(child, parent)
+                transfers.append(transfer)
+                original_statuses.append(child.status)
+                self._children.append(child)
+                child._set_parent(parent)
+
+            # Make the entire factory snapshot visible before any child hook
+            # runs, matching composite population and the other flavors.
+            for child in children:
+                self._maybe_auto_construct(child)
+                if (
+                    self.status is ConstructionStatus.CONSTRUCTING
+                    and child.status is not ConstructionStatus.CONSTRUCTED
+                ):
+                    child.construct()
+        except BaseException:
+            while len(self._children) > initial_count:
+                child = self._children.pop()
+                original_status = original_statuses[len(self._children) - initial_count]
+                if (
+                    original_status is ConstructionStatus.DESTRUCTED
+                    and child.status is ConstructionStatus.CONSTRUCTED
+                ):
+                    try:
+                        child.destruct()
+                    except BaseException:
+                        pass
+                if child._parent is parent:
+                    child._set_parent(None)
+            for transfer in reversed(transfers):
+                if transfer is not None:
+                    transfer.rollback()
+            raise
+        for transfer in transfers:
+            if transfer is not None:
+                transfer.commit()
+        for index, child in enumerate(children, start=initial_count):
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="add", new_items=(child,), new_index=index)
+            )
         self._populated = True
-        for child in self._children_factory():
-            self.add(child)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -368,8 +455,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         builder = builder.hint(hint).auto_construct_on_add(auto_construct_on_add).children(children)
         if name is not None:
             builder = builder.name(name)
-        if hub is not None and dispatcher is not None:
-            builder = builder.services(hub, dispatcher)
+        if hub is not None:
+            builder = builder._option_hub(hub)
+        if dispatcher is not None:
+            builder = builder._option_dispatcher(dispatcher)
         if on_construct is not None:
             builder = builder.on_construct(on_construct)
         if on_destruct is not None:
@@ -393,6 +482,14 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
         self._group = group
 
     @property
+    def owner(self) -> _ComponentVMBase:
+        return self._group
+
+    @property
+    def owner_parent(self) -> _ParentCompositeVM | None:
+        return self._group._parent
+
+    @property
     def current_child(self) -> object | None:
         return None
 
@@ -407,3 +504,23 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
 
     def deselect_child(self, vm: _ComponentVMBase) -> None:
         """No-op: GroupVM has no selection concept."""
+
+    def contains_child(self, vm: _ComponentVMBase) -> bool:
+        return any(child is vm for child in self._group._children)
+
+    def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
+        index = next((i for i, child in enumerate(self._group._children) if child is vm), -1)
+        if index < 0:
+            raise RuntimeError("recorded parent does not contain child identity")
+        child = self._group._children.pop(index)
+
+        def commit() -> None:
+            self._group._emit_collection_changed(
+                CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
+            )
+
+        def rollback() -> None:
+            self._group._children.insert(index, child)
+            child._set_parent(self)
+
+        return _ParentTransfer(commit, rollback)

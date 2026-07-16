@@ -12,11 +12,13 @@ alongside the synchronous ones:
 - `Task DestructAsync()`
 - `Task ReconstructAsync()`
 
-Each returns a `Task` that completes when the corresponding terminal
-`ConstructionStatusChangedMessage` arrives on the hub. They are convenience
-wrappers around the synchronous methods that simply subscribe to the hub and
-complete the task when the expected status is observed; they do not introduce
-new lifecycle semantics.
+Each returns a `Task` that completes after the corresponding terminal lifecycle
+publication. The implementation observes guarded lifecycle state rather than
+depending on hub replay, so it also works with `NullMessageHub`. Successful and
+idempotent transitions complete normally; hook and deferred child failures
+fault the task after transactional rollback. ADR-0109 supersedes this ADR's
+original completion-only implementation detail without introducing a new
+language-neutral lifecycle operation.
 
 The Python and TypeScript flavors do not expose async equivalents. The
 question is whether to add them for parity or to document the asymmetry as

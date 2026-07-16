@@ -82,6 +82,14 @@ impl VmNode for TestNode {
     fn parent_id(&self) -> Option<usize> {
         self.inner.parent_id()
     }
+
+    fn set_parent_handle(&self, parent: Option<vmx::ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<vmx::ParentHandle> {
+        self.inner.parent_handle()
+    }
 }
 
 impl ObservablePropertySource for TestNode {
@@ -586,7 +594,10 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     let composite =
         CompositeVm::with_services("composite", shared_hub.clone(), NullDispatcher::new());
     let group = GroupVm::with_services("group", shared_hub.clone(), NullDispatcher::new());
-    let child = TestNode::new(17, "child");
+    // Keep the explicit test identity distinct from the generated container identities.
+    // Test execution order is nondeterministic, so a small fixed ID can otherwise collide
+    // with either container and make the cycle guard reject a valid reparenting operation.
+    let child = TestNode::new(composite.id().max(group.id()) + 1, "child");
     let composite_pulses = Arc::new(Mutex::new(0));
     let group_pulses = Arc::new(Mutex::new(0));
     let composite_capture = Arc::clone(&composite_pulses);
@@ -597,9 +608,9 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     composite.add(child.clone()).unwrap();
     assert_eq!(*locked(&group_pulses), 0);
     group.add(child).unwrap();
-    assert_eq!(composite.snapshot().len(), 1);
+    assert_eq!(composite.snapshot().len(), 0);
     assert_eq!(group.snapshot().len(), 1);
-    assert_eq!(*locked(&composite_pulses), 1);
+    assert_eq!(*locked(&composite_pulses), 2);
     assert_eq!(*locked(&group_pulses), 1);
     shared_hub.send(Message::CollectionChanged(vmx::CollectionChangedMessage {
         sender_id: usize::MAX,
@@ -608,7 +619,7 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
         old_index: None,
         new_index: None,
     }));
-    assert_eq!(*locked(&composite_pulses), 1);
+    assert_eq!(*locked(&composite_pulses), 2);
     assert_eq!(*locked(&group_pulses), 1);
     drop((composite_subscription, group_subscription));
 

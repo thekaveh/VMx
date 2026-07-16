@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Groups;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Tests.Helpers;
@@ -16,6 +17,20 @@ namespace VMx.Conformance.Tests;
 /// </summary>
 public class CompositeVMConformanceTests
 {
+    private sealed class EqualByNameVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher)
+        : ComponentVMBase(name, "", hub, dispatcher, null, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        public override bool Equals(object? obj) =>
+            obj is EqualByNameVM other && other.Name == Name;
+
+        public override int GetHashCode() => Name.GetHashCode(StringComparison.Ordinal);
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (CompositeVM<ComponentVM<string>> composite, TestHub hub, TestDispatcher dispatcher)
@@ -564,5 +579,229 @@ public class CompositeVMConformanceTests
         child.CanSelect().Should().BeFalse("Remove cleared the child's Parent");
         child.Select(); // no-op: Parent is null
         composite.Current.Should().BeNull("a parentless child's Select() is a no-op");
+    }
+
+    // ── COMP-038..041 — Exclusive transactional parent ownership ────────────
+
+    [Fact, Trait("Conformance", "COMP-038")]
+    public void COMP_038_Add_Transfers_Child_From_Previous_Parent()
+    {
+        var (oldParent, hub, dispatcher) = BuildComposite("old");
+        var child = BuildChild(hub, dispatcher, "c");
+        oldParent.Add(child);
+        oldParent.Construct();
+
+        var group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("group")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+
+        group.Add(child);
+
+        oldParent.Should().BeEmpty();
+        group.Should().ContainSingle(item => ReferenceEquals(item, child));
+        child.Status.Should().Be(ConstructionStatus.Constructed);
+        oldParent.Remove(child).Should().BeFalse();
+
+        var nextParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("next")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        nextParent.Construct();
+        nextParent.Add(child);
+
+        group.Should().BeEmpty();
+        child.CanSelect().Should().BeTrue("the composite is now the only parent");
+        child.Select();
+        nextParent.Current.Should().BeSameAs(child);
+    }
+
+    [Fact, Trait("Conformance", "COMP-039")]
+    public void COMP_039_Duplicate_And_Cycle_Rejection_Is_Mutation_Free()
+    {
+        var (parent, hub, dispatcher) = BuildComposite();
+        var child = BuildChild(hub, dispatcher);
+        parent.Add(child);
+        var events = 0;
+        parent.CollectionChanged += (_, _) => events++;
+
+        Action duplicate = () => parent.Add(child);
+
+        duplicate.Should().Throw<InvalidOperationException>();
+        parent.Should().ContainSingle(item => ReferenceEquals(item, child));
+        events.Should().Be(0);
+
+        var outer = CompositeVM<IComponentVM>.Builder()
+            .Name("outer")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .Build();
+        var inner = CompositeVM<IComponentVM>.Builder()
+            .Name("inner")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .Build();
+        outer.Add(inner);
+
+        Action cycle = () => inner.Add(outer);
+
+        cycle.Should().Throw<InvalidOperationException>();
+        outer.Should().ContainSingle(item => ReferenceEquals(item, inner));
+        inner.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-039")]
+    public void COMP_039_Membership_Uses_Identity_When_Children_Override_Equality()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var child = new EqualByNameVM("same", hub, dispatcher);
+        var foreign = new EqualByNameVM("same", hub, dispatcher);
+        var composite = CompositeVM<EqualByNameVM>.Builder()
+            .Name("composite")
+            .Services(hub, dispatcher)
+            .Children(() => [])
+            .Build();
+        composite.Add(child);
+        child.Construct();
+
+        composite.Contains(foreign).Should().BeFalse();
+        composite.IndexOf(foreign).Should().Be(-1);
+        composite.CanSelectComponent(foreign).Should().BeFalse();
+        ((Action)(() => composite.Current = foreign)).Should().Throw<InvalidOperationException>();
+        composite.Remove(foreign).Should().BeFalse();
+        composite.Should().ContainSingle(item => ReferenceEquals(item, child));
+
+        var groupChild = new EqualByNameVM("group-same", hub, dispatcher);
+        var groupForeign = new EqualByNameVM("group-same", hub, dispatcher);
+        var group = GroupVM<EqualByNameVM>.Builder()
+            .Name("group")
+            .Services(hub, dispatcher)
+            .Children(() => [])
+            .Build();
+        group.Add(groupChild);
+
+        group.Contains(groupForeign).Should().BeFalse();
+        group.IndexOf(groupForeign).Should().Be(-1);
+        group.Remove(groupForeign).Should().BeFalse();
+        group.Should().ContainSingle(item => ReferenceEquals(item, groupChild));
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Failed_Transfer_Restores_Parent_Index_And_Current()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var child = ComponentVM<string>.Builder()
+            .Name("failing")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() => throw new InvalidOperationException("boom"))
+            .Build();
+        var sibling = BuildChild(hub, dispatcher, "sibling");
+        var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("old")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        oldParent.Add(sibling);
+        oldParent.Add(child);
+        oldParent.Current = child;
+
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .AutoConstructOnAdd(true)
+            .Build();
+        destination.Construct();
+        var events = new List<string>();
+        oldParent.CollectionChanged += (_, _) => events.Add("old");
+        destination.CollectionChanged += (_, _) => events.Add("new");
+
+        Action transfer = () => destination.Add(child);
+
+        transfer.Should().Throw<InvalidOperationException>().WithMessage("boom");
+        oldParent.Should().Equal(sibling, child);
+        oldParent.Current.Should().BeSameAs(child);
+        child.IsCurrent.Should().BeTrue();
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        destination.Should().BeEmpty();
+        events.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Lazy_Population_Rolls_Back_As_One_Transaction()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var first = BuildChild(hub, dispatcher, "first");
+        var blocker = ComponentVM<string>.Builder()
+            .Name("bulk-failing")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() => throw new InvalidOperationException("boom"))
+            .Build();
+        var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("bulk-old")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        oldParent.Add(first);
+        var batch = new List<ComponentVM<string>> { first, blocker };
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("bulk-destination")
+            .Services(hub, dispatcher)
+            .Children(() => batch)
+            .Build();
+        var events = new List<string>();
+        oldParent.CollectionChanged += (_, _) => events.Add("old");
+        destination.CollectionChanged += (_, _) => events.Add("new");
+
+        Action populate = destination.Construct;
+
+        populate.Should().Throw<InvalidOperationException>().WithMessage("boom");
+        oldParent.Should().ContainSingle(item => ReferenceEquals(item, first));
+        first.Status.Should().Be(ConstructionStatus.Destructed);
+        destination.Should().BeEmpty();
+        events.Should().BeEmpty();
+
+        batch.Clear();
+        destination.Construct();
+        destination.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-041")]
+    public void COMP_041_Transfer_Publishes_Old_Remove_Before_New_Add()
+    {
+        var (oldParent, hub, dispatcher) = BuildComposite("old");
+        var child = BuildChild(hub, dispatcher);
+        oldParent.Add(child);
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        var observed = new List<string>();
+        oldParent.CollectionChanged += (_, args) =>
+        {
+            args.Action.Should().Be(NotifyCollectionChangedAction.Remove);
+            oldParent.Should().NotContain(child);
+            destination.Should().Contain(child);
+            observed.Add("old:remove");
+        };
+        destination.CollectionChanged += (_, args) =>
+        {
+            args.Action.Should().Be(NotifyCollectionChangedAction.Add);
+            oldParent.Should().NotContain(child);
+            destination.Should().Contain(child);
+            observed.Add("new:add");
+        };
+
+        destination.Add(child);
+
+        observed.Should().Equal("old:remove", "new:add");
     }
 }

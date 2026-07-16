@@ -16,6 +16,7 @@ from typing import Any, Generic, TypeVar, cast
 
 import reactivex as rx
 
+from vmx.collections import BatchUpdateHandle
 from vmx.commands.relay_command import RelayCommand
 from vmx.components.protocols import ViewModelType
 from vmx.composites.composite_vm import _CompositeVMBase
@@ -221,3 +222,9 @@ class ForwardingCompositeVM(Generic[VM]):
 
     def clear(self) -> None:
         self._wrapped.clear()
+
+    def move(self, from_index: int, to_index: int) -> None:
+        self._wrapped.move(from_index, to_index)
+
+    def batch_update(self) -> BatchUpdateHandle:
+        return self._wrapped.batch_update()

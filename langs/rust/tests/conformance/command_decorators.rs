@@ -1,7 +1,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use vmx::{
-    Command, CompositeCommand, ConfirmationDecoratorCommand, DecoratorCommand, RelayCommand,
+    AsyncValue, Command, CompositeCommand, ConfirmationDecoratorCommand, DecoratorCommand,
+    RelayCommand,
 };
 
 fn recording_command(
@@ -109,9 +110,12 @@ fn decorator_command_execute_noop_when_disabled() {
 fn confirmation_decorator_invokes_inner_only_when_confirmed() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let yes =
-        ConfirmationDecoratorCommand::new(recording_command(log.clone(), "yes", true), || true);
-    let no =
-        ConfirmationDecoratorCommand::new(recording_command(log.clone(), "no", true), || false);
+        ConfirmationDecoratorCommand::new(recording_command(log.clone(), "yes", true), || {
+            AsyncValue::ready(true)
+        });
+    let no = ConfirmationDecoratorCommand::new(recording_command(log.clone(), "no", true), || {
+        AsyncValue::ready(false)
+    });
 
     yes.execute();
     no.execute();
@@ -119,13 +123,51 @@ fn confirmation_decorator_invokes_inner_only_when_confirmed() {
     assert_eq!(*log.lock().unwrap(), vec!["yes"]);
 }
 
+#[test]
+fn confirmation_decorator_awaits_pending_decision() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let decision = AsyncValue::pending();
+    let pending_decision = decision.clone();
+    let command = ConfirmationDecoratorCommand::new(
+        recording_command(log.clone(), "confirmed", true),
+        move || pending_decision.clone(),
+    );
+
+    let execution = command.execute_async();
+    assert!(log.lock().unwrap().is_empty());
+    decision.resolve(true);
+    execution.join().unwrap();
+
+    assert_eq!(*log.lock().unwrap(), vec!["confirmed"]);
+}
+
+#[test]
+fn confirmation_decorator_async_path_propagates_inner_panic() {
+    let command =
+        ConfirmationDecoratorCommand::new(RelayCommand::new(|| panic!("inner boom")), || {
+            AsyncValue::ready(true)
+        });
+    let errors = Arc::new(AtomicUsize::new(0));
+    let errors_clone = errors.clone();
+    let _subscription = command.errors().subscribe(move |_| {
+        errors_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    assert!(command.execute_async().join().is_err());
+    assert_eq!(errors.load(Ordering::SeqCst), 0);
+}
+
 /// CMDD-008 — ConfirmationDecoratorCommand.CanExecute delegates to inner
 #[test]
 fn confirmation_decorator_can_execute_delegates_to_inner() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let enabled =
-        ConfirmationDecoratorCommand::new(recording_command(log.clone(), "x", true), || true);
-    let disabled = ConfirmationDecoratorCommand::new(recording_command(log, "x", false), || true);
+        ConfirmationDecoratorCommand::new(recording_command(log.clone(), "x", true), || {
+            AsyncValue::ready(true)
+        });
+    let disabled = ConfirmationDecoratorCommand::new(recording_command(log, "x", false), || {
+        AsyncValue::ready(true)
+    });
 
     assert!(enabled.can_execute());
     assert!(!disabled.can_execute());
@@ -136,7 +178,7 @@ fn confirmation_decorator_can_execute_delegates_to_inner() {
 fn decorators_compose() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let relay = recording_command(log.clone(), "relay", true);
-    let confirmation = ConfirmationDecoratorCommand::new(relay, || true);
+    let confirmation = ConfirmationDecoratorCommand::new(relay, || AsyncValue::ready(true));
     let decorated = DecoratorCommand::new(
         confirmation,
         None::<fn() -> bool>,
@@ -153,7 +195,7 @@ fn decorators_compose() {
 #[test]
 fn confirmation_decorator_surfaces_fire_and_forget_errors() {
     let throwing = RelayCommand::new(|| panic!("inner boom"));
-    let confirming = ConfirmationDecoratorCommand::new(throwing, || true);
+    let confirming = ConfirmationDecoratorCommand::new(throwing, || AsyncValue::ready(true));
     let errors = Arc::new(AtomicUsize::new(0));
     let errors_clone = errors.clone();
     let _subscription = confirming.errors().subscribe(move |_| {
@@ -172,8 +214,8 @@ fn confirm_fluent_matches_explicit_confirmation_decorator() {
     let called_inner = called.clone();
     let command = RelayCommand::new(move || *called_inner.lock().unwrap() += 1);
 
-    let confirmed = command.clone().confirm(|| true);
-    let explicit = ConfirmationDecoratorCommand::new(command, || true);
+    let confirmed = command.clone().confirm(|| AsyncValue::ready(true));
+    let explicit = ConfirmationDecoratorCommand::new(command, || AsyncValue::ready(true));
 
     assert_eq!(confirmed.can_execute(), explicit.can_execute());
     confirmed.execute();

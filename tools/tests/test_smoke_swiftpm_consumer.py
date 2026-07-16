@@ -6,13 +6,13 @@ import pytest
 import smoke_swiftpm_consumer as smoke
 
 
-def test_render_manifest_uses_public_from_dependency() -> None:
+def test_render_manifest_uses_exact_public_dependency() -> None:
     manifest = smoke.render_manifest(
         "https://github.com/thekaveh/VMx.git",
         "3.20.0",
     )
 
-    assert '.package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0")' in manifest
+    assert '.package(url: "https://github.com/thekaveh/VMx.git", exact: "3.20.0")' in manifest
     assert '.product(name: "VMx", package: "vmx")' in manifest
     assert ".macOS(.v13)" in manifest
 

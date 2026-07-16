@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ConstructionStatus,
   hasCapability,
   MessageHub,
   RxDispatcher,
@@ -48,6 +49,19 @@ describe("NotesViewVM", () => {
     expect(vm.boundNotebookId).toBe("nb-reviews");
     expect(vm.current).toBeNull();
     expect(vm.currentPageIndex).toBe(0);
+  });
+
+  it("direct dispose releases all live note children", async () => {
+    const { vm } = makeVM();
+    await vm.bindToAsync("nb-personal");
+    const children = [...vm.inner];
+
+    vm.dispose();
+
+    expect(children).not.toHaveLength(0);
+    expect(children.every((child) => child.status === ConstructionStatus.Disposed)).toBe(true);
+    expect(vm.inner).toHaveLength(0);
+    expect(vm.boundNotebookId).toBeNull();
   });
 
   it("pagination boundaries (next/prev/first/last) clamp correctly", async () => {
@@ -286,7 +300,7 @@ describe("NotesViewVM", () => {
     expect(vm.filteredItems.length).toBe(first);
   });
 
-  // ── Round-3 Important B-I1 parity: full delete pathway (repo delete →
+  // ── end-to-end delete-path coverage: full delete pathway (repo delete →
   // remove from inner → clear current → dispose). Mirrors the C# and Py
   // tests of the same shape.
   it("deleteNote removes from inner, clears current, and persists", async () => {
@@ -347,6 +361,19 @@ describe("Global search token paging", () => {
     expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
   });
 
+  it("repository rejects malformed and unsafe search offsets", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadNotesDelayMs: 0,
+    });
+    const first = await repo.searchNotes("review", null, 2);
+
+    const malformed = await repo.searchNotes("review", "2junk", 2);
+    const unsafe = await repo.searchNotes("review", String(Number.MAX_SAFE_INTEGER + 1), 2);
+
+    expect(malformed.items).toEqual(first.items);
+    expect(unsafe.items).toEqual(first.items);
+  });
+
   it("GlobalSearchVM refreshes, resets for a new term, and appends load-more results", async () => {
     const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
     const hub = new MessageHub();
@@ -368,10 +395,17 @@ describe("Global search token paging", () => {
 
     await vm.loadMoreCommand.executeAsync();
     expect(vm.results.length).toBeGreaterThan(2);
+    const replacedResults = [...vm.results];
 
     vm.searchTerm = "travel";
     await vm.refreshCommand.executeAsync();
     expect(vm.results.every((n) => n.model.notebookId === "nb-personal")).toBe(true);
+    const finalResults = [...vm.results];
     vm.dispose();
+    expect(
+      [...replacedResults, ...finalResults].every(
+        (result) => result.status === ConstructionStatus.Disposed,
+      ),
+    ).toBe(true);
   });
 });

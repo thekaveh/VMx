@@ -52,6 +52,10 @@ NotificationSeverity:
   it as a modal-capable service capability plus a fallback helper.
 
 All four methods are `async` (return an awaitable). Callers must `await` them.
+Rust maps these awaitables to the executor-neutral `AsyncValue<T>` facade. It
+implements `Future` and supports blocking `wait()` for non-async hosts; a custom
+dialog adapter can return a pending handle and resolve it later without choosing
+Tokio, async-std, or another runtime (ADR-0106).
 
 ## 3. VM-backed modals
 
@@ -71,6 +75,10 @@ ModalVM<Result>:
     Dismiss(result : Result) -> void
     Dispose() -> void                 # resolves with cancellationResult
 ```
+
+Rust `ModalVm::completion()` returns the same `AsyncValue<Result>` handle on
+every call. Before dismissal it is pending; the first dismiss or disposal
+resolves it exactly once.
 
 `Dismiss` is idempotent: the first result wins. `Dispose` is also idempotent and
 completes the modal with `cancellationResult`, so awaiters never hang. The null

@@ -1,55 +1,27 @@
-# Security policy
+# Security Policy
 
-## 1. Supported versions
+## 1. Supported Versions
 
-| Component                     | Version | Supported |
-|---                            |---      |---        |
-| C# (`VMx`)                    | 3.1.x   | ✅        |
-| C# (`VMx`)                    | 2.6.x   | ✅        |
-| C# (`VMx`)                    | 2.5.x   | ✅        |
-| C# (`VMx`)                    | 2.4.x   | ✅        |
-| C# (`VMx`)                    | 2.3.x   | ✅        |
-| C# (`VMx`)                    | 2.2.x   | ✅        |
-| C# (`VMx`)                    | 2.1.x   | ✅        |
-| C# (`VMx`)                    | 2.0.x   | ✅        |
-| C# (`VMx`)                    | 1.2.x   | ✅        |
-| C# (`VMx`)                    | 1.1.x   | ✅        |
-| C# (`VMx`)                    | 1.0.x   | ✅        |
-| Python (`vmx`)                | 3.1.x   | ✅        |
-| Python (`vmx`)                | 2.6.x   | ✅        |
-| Python (`vmx`)                | 2.5.x   | ✅        |
-| Python (`vmx`)                | 2.4.x   | ✅        |
-| Python (`vmx`)                | 2.3.x   | ✅        |
-| Python (`vmx`)                | 2.2.x   | ✅        |
-| Python (`vmx`)                | 2.1.x   | ✅        |
-| Python (`vmx`)                | 2.0.x   | ✅        |
-| Python (`vmx`)                | 1.2.x   | ✅        |
-| Python (`vmx`)                | 1.1.x   | ✅        |
-| Python (`vmx`)                | 1.0.x   | ✅        |
-| TypeScript (`@thekaveh/vmx`)  | 3.1.x   | ✅        |
-| TypeScript (`@thekaveh/vmx`)  | 2.6.x   | ✅        |
-| TypeScript (`@thekaveh/vmx`)  | 2.5.x   | ✅        |
-| TypeScript (`@thekaveh/vmx`)  | 2.4.x   | ✅        |
-| TypeScript (`vmx` — legacy)   | 2.3.x   | ✅        |
-| TypeScript (`vmx` — legacy)   | 2.2.x   | ✅        |
-| TypeScript (`vmx` — legacy)   | 2.1.x   | ✅        |
-| TypeScript (`vmx` — legacy)   | 2.0.x   | ✅        |
-| TypeScript (`vmx` — legacy)   | 1.2.x   | ✅        |
-| TypeScript (`vmx` — legacy)   | 1.1.x   | ✅        |
-| Swift (`VMx`)                 | 3.1.x   | ✅        |
-| Swift (`VMx`)                 | 2.6.x   | ✅ *(subset)* |
-| Swift (`VMx`)                 | 2.5.x   | ✅ *(subset)* |
-| Swift (`VMx`)                 | 2.4.x   | ✅ *(subset)* |
+VMx applies security fixes to the current source line and to the latest stable
+release of each published distribution. Older releases and historical commits
+are unsupported; upgrade before requesting a backport.
 
-Older minor or patch versions on a still-supported major receive fixes on a
-best-effort basis; we recommend upgrading to the latest published version
-within each major.
+| Distribution | Supported line |
+| --- | --- |
+| Repository source and unpublished flavors | Current `main` |
+| Python (`vmx` on PyPI) | Latest stable PyPI release |
+| Swift (`VMx` through SwiftPM) | Latest stable GitHub release |
+| C# (`VMx`), TypeScript (`@thekaveh/vmx`), and Rust (`vmx-rs`) | Current `main` until the first public registry release; latest stable release thereafter |
 
-## 2. Reporting a vulnerability
+The compatibility matrix describes implementation compatibility, not a promise
+to maintain every historical package line.
 
-Please report security issues privately, not in public issues. Two options:
+## 2. Reporting a Vulnerability
 
-1. Use GitHub's **Report a vulnerability** feature on the repository's Security tab.
-2. Email `kaveh.razavi@gmail.com` with subject `[VMx security]`.
+Report security issues privately, not in public issues. Use either:
 
-You will receive an acknowledgement within 72 hours. Coordinated disclosure timelines are negotiated case-by-case.
+1. GitHub's **Report a vulnerability** feature on the repository Security tab.
+1. Email `kaveh.razavi@gmail.com` with subject `[VMx security]`.
+
+You will receive an acknowledgement within 72 hours. Coordinated disclosure
+timelines are negotiated case by case.

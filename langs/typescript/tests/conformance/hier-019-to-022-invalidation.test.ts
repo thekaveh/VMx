@@ -42,6 +42,20 @@ describe("HIER-019", () => {
     expect(calls).toBe(2);
     expect(second).not.toBe(first);
   });
+
+  it("invalidateChildren detaches discarded children", () => {
+    const root = new Node({ childrenFactory: () => [new Node()] });
+    const discarded = root.children[0]!;
+
+    root.invalidateChildren();
+    const replacement = root.children[0];
+
+    expect(replacement).not.toBe(discarded);
+    expect(discarded.parent).toBeNull();
+    expect(discarded.isRoot).toBe(true);
+    root.addChild(discarded);
+    expect(root.children).toContain(discarded);
+  });
 });
 
 describe("HIER-020", () => {

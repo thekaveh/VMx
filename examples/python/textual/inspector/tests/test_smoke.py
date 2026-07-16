@@ -22,7 +22,7 @@ async def test_app_boots_and_exits() -> None:
 @pytest.mark.asyncio
 async def test_lifecycle_keys_feed_the_message_log_and_refresh_labels() -> None:
     """Pressing a lifecycle key must produce hub-message rows in the log
-    and refresh the affected tree label (real-wiring audit, pass 7)."""
+    and refresh the affected tree label (selection-refresh regression)."""
     from textual.widgets import DataTable, Tree
 
     app = VMxInspectorApp()

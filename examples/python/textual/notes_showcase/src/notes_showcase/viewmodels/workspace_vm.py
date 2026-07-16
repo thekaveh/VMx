@@ -25,9 +25,9 @@ from reactivex.abc import DisposableBase
 
 from vmx import (
     AggregateVM6,
+    AsyncRelayCommand,
     ConstructionStatus,
     MessageHub,
-    RelayCommand,
     RxDispatcher,
     when_property_changed,
 )
@@ -72,7 +72,7 @@ class WorkspaceVM:
         # awaiting the repository. A counter, not an id — an id-keyed
         # marker collides when two outstanding binds target the same
         # notebook (B,A,B: the first B's cleanup erased the second B's
-        # marker and resurrected the race; pass-7 adversarial review).
+        # marker and resurrected the race; overlapping-bind cleanup).
         self._requested_notebook_id: str | None = None
         self._inflight_binds: int = 0
         self._notification_hub = notification_hub
@@ -142,7 +142,7 @@ class WorkspaceVM:
                     and not self.notes_view.current_notebook_is_readonly
                 )
             )
-            .add_note_action(self._fire_new_note)
+            .add_note_action(self._add_new_note_to_current)
             .build()
         )
         global_search = (
@@ -186,19 +186,19 @@ class WorkspaceVM:
         )
         self._global_search: GlobalSearchVM = global_search
 
-        # Round-3 Critical-2: rebind note_form whenever notes_view.current
+        # current-selection rebinding: rebind note_form whenever notes_view.current
         # changes (e.g. user clicks a different note in the list). Without
         # this the right-pane editor stays empty in the running app. Mirror
         # of the C# WorkspaceVM subscription (parity with the TS view
         # which performs the same wiring inline in NotesList.tsx).
         #
-        # Round-4 Important-1: when current transitions to None (e.g. the
+        # cleared-selection form behavior: when current transitions to None (e.g. the
         # selected note is deleted in NotesViewVM._delete_note_async, or the
         # host explicitly clears selection) the form must be unbound —
         # otherwise the right pane keeps the title/body of the deleted note
         # and approve would attempt to persist a ghost.
         #
-        # Round-4 Important-2: marshal delivery onto the foreground
+        # foreground dispatch: marshal delivery onto the foreground
         # scheduler so bind_to / unbind (which raise PropertyChanged) always
         # fire on the UI thread. Today current is set from the Textual UI
         # thread so this is defensive, but matches the foreground-marshal
@@ -225,7 +225,7 @@ class WorkspaceVM:
             .subscribe(on_next=_on_notes_view_msg)
         )
 
-        # Pass-5 real-wiring audit: the tree view sets notebooks.current on
+        # the tree view sets notebooks.current on
         # node selection, but nothing re-bound the notes view — the centre
         # pane stayed on the first notebook forever. Mirror the
         # construct_async wiring on every notebook-selection change.
@@ -245,7 +245,7 @@ class WorkspaceVM:
             .subscribe(on_next=_on_notebook_msg)
         )
 
-        # Pass-5 real-wiring audit: refresh the saved note's list row (title /
+        # refresh the saved note's list row (title /
         # star marker were construction-time snapshots and went stale after
         # every save).
         self._saved_note_subscription: DisposableBase = note_form.on_saved.pipe(
@@ -253,23 +253,23 @@ class WorkspaceVM:
         ).subscribe(on_next=notes_view.refresh_note)
 
         self._new_notebook_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.is_constructed)
-            .task(self._fire_new_notebook)
+            .task(self._add_new_notebook)
             .build()
         )
         self._new_note_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(
                 lambda: self.is_constructed and self.notebooks_root.current is not None
             )
-            .task(self._fire_new_note)
+            .task(self._add_new_note_to_current)
             .build()
         )
         self._export_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.is_constructed)
-            .task(self._fire_export)
+            .task(self._export_internal)
             .build()
         )
 
@@ -360,15 +360,15 @@ class WorkspaceVM:
         self.capability_actions.recompute_actions()
 
     @property
-    def new_notebook_command(self) -> RelayCommand:
+    def new_notebook_command(self) -> AsyncRelayCommand:
         return self._new_notebook_command
 
     @property
-    def new_note_command(self) -> RelayCommand:
+    def new_note_command(self) -> AsyncRelayCommand:
         return self._new_note_command
 
     @property
-    def export_command(self) -> RelayCommand:
+    def export_command(self) -> AsyncRelayCommand:
         return self._export_command
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ class WorkspaceVM:
         self._global_search.dispose()
         self._agg.dispose()
 
-    # ── Command fire-and-forget wrappers ───────────────────────────────────
+    # ── Selection-observation task ─────────────────────────────────────────
     def _fire_bind_notes(self, notebook_id: str) -> None:
         async def _bind() -> None:
             if self._requested_notebook_id != notebook_id:
@@ -431,7 +431,7 @@ class WorkspaceVM:
                 # check matters for A→B→A: with a bind to B mid-await,
                 # "bound is still A" does NOT mean A needs no rebind — the
                 # superseding bind_to_async token must discard B's result
-                # (race confirmed by the pass-6 adversarial probe).
+                # (race confirmed by the overlapping-bind test).
                 return
             self._inflight_binds += 1
             try:
@@ -442,34 +442,24 @@ class WorkspaceVM:
         self._requested_notebook_id = notebook_id
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_bind())
+            task = loop.create_task(_bind())
+
+            def _observe_bind(done: asyncio.Task[None]) -> None:
+                if done.cancelled():
+                    return
+                try:
+                    done.result()
+                except Exception:
+                    # Selection-change handlers are synchronous, so the bind
+                    # cannot propagate to their caller. Consume the rejected
+                    # task and leave the notebook retryable, matching the C#
+                    # and Swift flagship adapters.
+                    if self._requested_notebook_id == notebook_id:
+                        self._requested_notebook_id = None
+
+            task.add_done_callback(_observe_bind)
         except RuntimeError:
             asyncio.run(_bind())
-
-    def _fire_new_notebook(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                self.notebooks_root.add_notebook(parent_id=None, name="New Notebook")
-            )
-        except RuntimeError:
-            asyncio.run(
-                self.notebooks_root.add_notebook(parent_id=None, name="New Notebook")
-            )
-
-    def _fire_new_note(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._add_new_note_to_current())
-        except RuntimeError:
-            asyncio.run(self._add_new_note_to_current())
-
-    def _fire_export(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._export_internal())
-        except RuntimeError:
-            asyncio.run(self._export_internal())
 
     async def _add_new_note_to_current(self) -> None:
         nb = self.notebooks_root.current
@@ -488,6 +478,9 @@ class WorkspaceVM:
         )
         await self._repo.save_note(note)
         await self.notes_view.bind_to_async(nb.model.id)
+
+    async def _add_new_notebook(self) -> None:
+        await self.notebooks_root.add_notebook(parent_id=None, name="New Notebook")
 
     async def _export_internal(self) -> None:
         path = await self._dialog_service.pick_file_to_save(

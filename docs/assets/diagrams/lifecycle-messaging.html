@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -145,18 +139,18 @@
 <rect x="800" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
 <rect x="800" y="170" width="180" height="94" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
 <text x="890" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Destructing</text>
-<text x="890" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Current clears first</text>
+<text x="890" y="224" fill="#cbd5e1" font-size="12.78" font-weight="400" text-anchor="middle">Current clears first</text>
 <text x="890" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">OnDestruct hook</text>
 <rect x="1030" y="170" width="180" height="94" rx="8" fill="#0f172a"/>
 <rect x="1030" y="170" width="180" height="94" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="1120" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Disposed</text>
 <text x="1120" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">terminal</text>
-<text x="1120" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">late completion aborts</text>
+<text x="1120" y="243" fill="#cbd5e1" font-size="11.62" font-weight="400" text-anchor="middle">late completion aborts</text>
 <rect x="1300" y="160" width="290" height="112" rx="8" fill="#0f172a"/>
 <rect x="1300" y="160" width="290" height="112" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="1445" y="188" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Fixture-backed validator</text>
-<text x="1445" y="214" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">spec/fixtures/lifecycle-transitions.json</text>
-<text x="1445" y="233" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared across all conformance suites</text>
+<text x="1445" y="214" fill="#cbd5e1" font-size="10.9" font-weight="400" text-anchor="middle">spec/fixtures/lifecycle-transitions.json</text>
+<text x="1445" y="233" fill="#cbd5e1" font-size="12.11" font-weight="400" text-anchor="middle">shared across all conformance suites</text>
 <rect x="110" y="420" width="230" height="122" rx="8" fill="#0f172a"/>
 <rect x="110" y="420" width="230" height="122" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="225" y="448" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Operations</text>
@@ -179,9 +173,9 @@
 <text x="820" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">prevents resurrection</text>
 <rect x="1000" y="420" width="260" height="122" rx="8" fill="#0f172a"/>
 <rect x="1000" y="420" width="260" height="122" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1130" y="448" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Transactional rollback</text>
-<text x="1130" y="474" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">failed construct -&gt; Destructed</text>
-<text x="1130" y="493" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">failed destruct -&gt; Constructed</text>
+<text x="1130" y="448" fill="#f8fafc" font-size="17.58" font-weight="700" text-anchor="middle">Transactional rollback</text>
+<text x="1130" y="474" fill="#cbd5e1" font-size="12.89" font-weight="400" text-anchor="middle">failed construct -&gt; Destructed</text>
+<text x="1130" y="493" fill="#cbd5e1" font-size="12.89" font-weight="400" text-anchor="middle">failed destruct -&gt; Constructed</text>
 <text x="1130" y="512" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">rollback publishes status</text>
 <rect x="1310" y="420" width="260" height="122" rx="8" fill="#0f172a"/>
 <rect x="1310" y="420" width="260" height="122" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
@@ -193,7 +187,7 @@
 <rect x="90" y="684" width="220" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="200" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Status messages</text>
 <text x="200" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">construction status</text>
-<text x="200" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">2 / 4 lifecycle emissions</text>
+<text x="200" y="757" fill="#cbd5e1" font-size="12.85" font-weight="400" text-anchor="middle">2 / 4 lifecycle emissions</text>
 <text x="200" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hot FIFO delivery</text>
 <rect x="345" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
 <rect x="345" y="684" width="220" height="132" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
@@ -215,7 +209,7 @@
 <text x="965" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">re-entrant append</text>
 <rect x="1110" y="684" width="220" height="132" rx="8" fill="#0f172a"/>
 <rect x="1110" y="684" width="220" height="132" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
-<text x="1220" y="712" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Per-instance bindings</text>
+<text x="1220" y="712" fill="#f8fafc" font-size="15.3" font-weight="700" text-anchor="middle">Per-instance bindings</text>
 <text x="1220" y="738" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">property change events</text>
 <text x="1220" y="757" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">single-VM adapters</text>
 <text x="1220" y="776" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">bypass shared hub</text>
@@ -253,7 +247,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -278,7 +271,7 @@
         <ul><li>Hub transactions preserve every typed message while deferring one iterative FIFO drain until the outermost scope exits.</li><li>Subscriber-generated messages append to the same queue instead of recursively re-entering the subject.</li><li>Per-instance propertyChanged surfaces exist so views do not need to filter the shared hub when they bind one VM.</li></ul>
       </section>
     </div>
-    <footer>Generated from repo-derived facts for VMx spec 3.20.0.</footer>
+
   </main>
 </body>
 </html>

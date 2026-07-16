@@ -10,6 +10,7 @@ import textwrap
 from pathlib import Path
 
 import check_version_consistency as cvc
+import pytest
 
 # ── parse_spec_version ────────────────────────────────────────────────
 
@@ -70,6 +71,18 @@ def test_parse_csharp_versions_reads_explicit_unreleased_marker(tmp_path: Path) 
     assert cvc.parse_csharp_versions(csproj)["unreleased"] == "true"
 
 
+def test_parse_csharp_versions_rejects_unmapped_package_namespace(tmp_path: Path) -> None:
+    csproj = tmp_path / "VMx.Future.csproj"
+    csproj.write_text(
+        "<Project><PropertyGroup><PackageId>VMx.Future</PackageId>"
+        "<Version>1.0.0</Version></PropertyGroup></Project>",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="no collision-free release tag namespace"):
+        cvc.parse_csharp_versions(csproj)
+
+
 def test_collect_manifests_includes_csharp_companion_packages(tmp_path: Path) -> None:
     csharp_src = tmp_path / "langs" / "csharp" / "src"
     core = csharp_src / "VMx"
@@ -102,12 +115,16 @@ def test_collect_manifests_includes_csharp_companion_packages(tmp_path: Path) ->
     assert manifests["csharp"]["version"] == "3.1.0"
     assert manifests["csharp"]["require_current_spec"] == "true"
     assert manifests["csharp/VMx.Notifications"]["version"] == "1.2.0"
-    assert manifests["csharp/VMx.Notifications"]["tag_prefix"] == "csharp"
+    assert manifests["csharp/VMx.Notifications"]["tag_prefix"] == "csharp-notifications"
     assert manifests["csharp/VMx.Notifications"]["require_current_spec"] == "false"
     assert manifests["csharp/VMx.Extensions.DependencyInjection"]["version"] == "2.1.0"
+    assert (
+        manifests["csharp/VMx.Extensions.DependencyInjection"]["tag_prefix"]
+        == "csharp-dependency-injection"
+    )
 
 
-def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -> None:
+def test_csharp_companion_manifests_require_package_specific_tags_but_not_current_spec() -> None:
     manifests = {
         "csharp": {
             "version": "3.1.0",
@@ -118,7 +135,7 @@ def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -
         "csharp/VMx.Extensions.DependencyInjection": {
             "version": "2.1.0",
             "min_spec_version": "2.1.0",
-            "tag_prefix": "csharp",
+            "tag_prefix": "csharp-dependency-injection",
             "require_current_spec": "false",
         },
     }
@@ -126,7 +143,7 @@ def test_csharp_companion_manifests_require_csharp_tags_but_not_current_spec() -
     assert cvc.check_min_spec_versions("3.1.0", manifests) == []
 
     missing = cvc.find_missing_tags("3.1.0", manifests, [], {"csharp-v3.1.0"})
-    assert "csharp-v2.1.0" in missing
+    assert "csharp-dependency-injection-v2.1.0" in missing
 
 
 def test_current_development_versions_includes_explicit_unreleased_companion() -> None:
@@ -198,6 +215,51 @@ def test_parse_typescript_versions_no_min_spec(tmp_path: Path) -> None:
     info = cvc.parse_typescript_versions(pkg, src)
     assert info["version"] == "2.6.0"
     assert info["min_spec_version"] == ""
+
+
+def test_check_typescript_example_locks_match_package_version(tmp_path: Path) -> None:
+    for relative in cvc.TYPESCRIPT_EXAMPLE_LOCKS:
+        lock_path = tmp_path / relative
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(
+            json.dumps(
+                {
+                    "packages": {
+                        "../../../../langs/typescript": {
+                            "name": "@thekaveh/vmx",
+                            "version": "3.21.0",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    assert cvc.check_typescript_example_locks(tmp_path, "3.21.0") == []
+
+
+def test_check_typescript_example_locks_reports_stale_metadata(tmp_path: Path) -> None:
+    lock_path = tmp_path / cvc.TYPESCRIPT_EXAMPLE_LOCKS[0]
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(
+        json.dumps(
+            {
+                "packages": {
+                    "../../../../langs/typescript": {
+                        "name": "@thekaveh/vmx",
+                        "version": "3.8.0",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    issues = cvc.check_typescript_example_locks(tmp_path, "3.21.0")
+
+    assert len(issues) == 1
+    assert "3.8.0" in issues[0]
+    assert "3.21.0" in issues[0]
 
 
 # ── parse_swift_versions ──────────────────────────────────────────────
@@ -274,6 +336,30 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     assert sorted(row["csharp"]) == ["1.1.0", "1.2.0"]
     assert sorted(row["python"]) == ["1.1.0", "1.2.0"]
     assert row["swift"] == []
+
+
+def test_parse_matrix_marks_legacy_semantic_tag_row(tmp_path: Path) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        textwrap.dedent("""\
+            | spec                               | csharp | python | typescript | swift  | rust |
+            | ---------------------------------- | ------ | ------ | ---------- | ------ | ---- |
+            | 3.20.x[^legacy-semantic-tag-only] | —      | —      | —          | 3.20.0 | —    |
+        """),
+        encoding="utf-8",
+    )
+
+    assert cvc.parse_matrix(matrix) == [
+        {
+            "spec_row": "3.20.x",
+            "legacy_semantic_tag_only": True,
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": ["3.20.0"],
+            "rust": [],
+        }
+    ]
 
 
 def test_parse_matrix_dash_cell(tmp_path: Path) -> None:
@@ -466,6 +552,27 @@ def test_find_missing_tags_requires_release_tags_for_stable_rust_only_row() -> N
     assert "rust-v2.0.0" in missing
     assert "spec-v4.0.0" in missing
     assert "v4.0.0" in missing
+
+
+def test_find_missing_tags_accepts_explicit_legacy_semantic_tag_only_row() -> None:
+    rows = [
+        {
+            "spec_row": "3.20.x",
+            "legacy_semantic_tag_only": True,
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": ["3.20.0"],
+            "rust": [],
+        }
+    ]
+    tags = {"v3.20.0", "swift-v3.20.0"}
+
+    missing = cvc.find_missing_tags("3.21.0", {}, rows, tags)
+
+    assert "spec-v3.20.0" not in missing
+    assert "v3.20.0" not in missing
+    assert "swift-v3.20.0" not in missing
 
 
 # ── main integration ───────────────────────────────────────────────────
@@ -797,6 +904,31 @@ def test_main_exempts_independently_versioned_current_flavor(
     )
     package_json = tmp_path / "langs" / "typescript" / "package.json"
     package_json.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
+    import check_version_consistency as _cvc
+
+    monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert _cvc.main(["--repo-root", str(tmp_path)]) == 0
+
+
+def test_main_exempts_untagged_source_history_in_current_row(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Earlier untagged snapshots in the active row are source history, not releases."""
+    _make_repo_v3(tmp_path)
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        matrix.read_text(encoding="utf-8").replace(
+            "| 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) |",
+            "| 3.0.x | 3.0.0\u20133.0.1 | 3.0.0 | 3.0.0 | 3.0.0 (subset) |",
+        ),
+        encoding="utf-8",
+    )
+    csproj = tmp_path / "langs" / "csharp" / "src" / "VMx" / "VMx.csproj"
+    csproj.write_text(
+        "<Version>3.0.1</Version><MinSpecVersion>3.0.0</MinSpecVersion>",
+        encoding="utf-8",
+    )
     import check_version_consistency as _cvc
 
     monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))

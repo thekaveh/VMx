@@ -4,6 +4,7 @@ import {
   MessageHub,
   RxDispatcher,
   ComponentVM,
+  CompositeVM,
   AggregateVM1,
   AggregateVM2,
   AggregateVM3,
@@ -365,4 +366,47 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
       });
     },
   );
+});
+
+describe("Aggregate fixed-slot ownership", () => {
+  it("rejects an already-owned factory result without mutating either container", () => {
+    const hub = makeHub();
+    const child = makeChild(hub, "child");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, makeDisp())
+      .children(() => [child])
+      .build();
+    composite.construct();
+    const aggregate = AggregateVM1.builder<ComponentVM>()
+      .name("aggregate")
+      .services(hub, makeDisp())
+      .component1(() => child)
+      .build();
+
+    expect(() => aggregate.construct()).toThrow(/already owned/);
+    expect(composite.snapshot()).toEqual([child]);
+    expect(aggregate.component1).toBeNull();
+  });
+
+  it("does not allow a mutable container to transfer a fixed aggregate slot", () => {
+    const hub = makeHub();
+    const child = makeChild(hub, "child");
+    const aggregate = AggregateVM1.builder<ComponentVM>()
+      .name("aggregate")
+      .services(hub, makeDisp())
+      .component1(() => child)
+      .build();
+    aggregate.construct();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    composite.construct();
+
+    expect(() => composite.add(child)).toThrow(/fixed aggregate slot/);
+    expect(aggregate.component1).toBe(child);
+    expect(composite.snapshot()).toEqual([]);
+  });
 });

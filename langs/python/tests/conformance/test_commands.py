@@ -17,6 +17,7 @@ CMD-014..019  Imperative can-execute re-evaluation notifications
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 
 import pytest
 from reactivex.subject import Subject
@@ -359,3 +360,33 @@ async def test_CMD_012_throw_on_cancel_reraises() -> None:
         await run
     assert cmd.is_executing is False, "still returns to a non-executing state when throwing"
     cmd.dispose()
+
+
+async def test_async_relay_command_restores_state_when_task_factory_raises() -> None:
+    def fail_before_returning_awaitable() -> Awaitable[None]:
+        raise RuntimeError("factory boom")
+
+    cmd = AsyncRelayCommand.builder().task(fail_before_returning_awaitable).build()
+
+    with pytest.raises(RuntimeError, match="factory boom"):
+        await cmd.execute_async()
+
+    assert cmd.is_executing is False
+    assert cmd.can_execute() is True
+
+
+async def test_async_relay_command_reports_factory_error_and_restores_state() -> None:
+    def fail_before_returning_awaitable() -> Awaitable[None]:
+        raise RuntimeError("factory boom")
+
+    cmd = AsyncRelayCommand.builder().task(fail_before_returning_awaitable).build()
+    errors: list[BaseException] = []
+    cmd.errors.subscribe(errors.append)
+
+    cmd.execute()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert [str(error) for error in errors] == ["factory boom"]
+    assert cmd.is_executing is False
+    assert cmd.can_execute() is True

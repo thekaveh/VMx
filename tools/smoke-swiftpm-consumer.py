@@ -31,7 +31,7 @@ def _validate_inputs(url: str, version: str) -> None:
 
 
 def render_manifest(url: str, version: str) -> str:
-    """Render a standalone executable package using SwiftPM's `from` form."""
+    """Render a standalone executable pinned to one exact SwiftPM release."""
     _validate_inputs(url, version)
     swift_url = json.dumps(url)
     swift_version = json.dumps(version)
@@ -42,7 +42,7 @@ let package = Package(
     name: "VMxSmoke",
     platforms: [.macOS(.v13)],
     dependencies: [
-        .package(url: {swift_url}, from: {swift_version}),
+        .package(url: {swift_url}, exact: {swift_version}),
     ],
     targets: [
         .executableTarget(

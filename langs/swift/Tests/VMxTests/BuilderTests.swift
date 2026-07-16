@@ -158,5 +158,29 @@ final class BuilderTests: XCTestCase {
             }
             XCTAssertEqual(e.missingField, "name")
         }
+
+        let partialFactories: [() throws -> Any] = [
+            { try ComponentVM.create(ComponentVMOptions(name: "partial", hub: hub)) },
+            { try ComponentVMOf<String>.create(ComponentVMOfOptions(name: "partial", model: "m", hub: hub)) },
+            { try CompositeVM<ComponentVM>.create(CompositeVMOptions(name: "partial", hub: hub, children: { [] })) },
+            { try GroupVM<ComponentVM>.create(GroupVMOptions(name: "partial", hub: hub, children: { [] })) },
+            { try ComponentVM.create(ComponentVMOptions(name: "partial", dispatcher: dispatcher)) },
+            { try ComponentVMOf<String>.create(ComponentVMOfOptions(name: "partial", model: "m", dispatcher: dispatcher)) },
+            { try CompositeVM<ComponentVM>.create(CompositeVMOptions(name: "partial", dispatcher: dispatcher, children: { [] })) },
+            { try GroupVM<ComponentVM>.create(GroupVMOptions(name: "partial", dispatcher: dispatcher, children: { [] })) },
+        ]
+        for factory in partialFactories {
+            XCTAssertThrowsError(try factory()) { error in
+                guard let validation = error as? BuilderValidationError else {
+                    XCTFail("expected BuilderValidationError, got \(error)")
+                    return
+                }
+                XCTAssertEqual(validation.missingField, "services")
+            }
+        }
+
+        XCTAssertThrowsError(try ComponentVM.create(ComponentVMOptions(hub: hub))) { error in
+            XCTAssertEqual((error as? BuilderValidationError)?.missingField, "name")
+        }
     }
 }

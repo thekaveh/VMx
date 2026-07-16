@@ -35,23 +35,23 @@ public final class NoteVM: ComponentVMBase,
 
     private var _model: NoteModel
     private let _onClose: (() -> Void)?
-    private let _onDelete: ((NoteVM) -> Void)?
-    private let _onSave: ((NoteVM) -> Void)?
+    private let _onDelete: ((NoteVM) async throws -> Void)?
+    private let _onSave: ((NoteVM) async throws -> Void)?
     private let _confirmDelete: (() async throws -> Bool)?
     private let _notificationHub: NotificationHubProtocol?
 
     // ── Commands (phase-1 placeholders, rewired in init phase 2) ──────────
 
-    /// Inner delete relay — always a plain `RelayCommand`, gated on
+    /// Inner delete relay — always an `AsyncRelayCommand`, gated on
     /// `canDelete(self)`. Wrapped by `deleteCommand` when a confirm delegate
     /// is wired.
-    private var _innerDeleteCommand: RelayCommand
+    private var _innerDeleteCommand: AsyncRelayCommand
 
     /// Convenience command wrapper for `close()`.
     public private(set) var closeCommand: RelayCommand
 
     /// Convenience command wrapper for `save(self)`.
-    public private(set) var saveCommand: RelayCommand
+    public private(set) var saveCommand: AsyncRelayCommand
 
     /// Convenience command wrapper for `delete(self)`.
     /// Type is `any Command` because it is a plain `RelayCommand` when no
@@ -110,7 +110,7 @@ public final class NoteVM: ComponentVMBase,
 
     public func delete(_ item: NoteVM) {
         guard canDelete(item) else { return }
-        _performDelete(item)
+        _innerDeleteCommand.execute()
     }
 
     // ── Savable (Item = NoteVM) ────────────────────────────────────────────
@@ -121,24 +121,35 @@ public final class NoteVM: ComponentVMBase,
 
     public func save(_ item: NoteVM) {
         guard canSave(item) else { return }
-        _onSave?(item)
+        saveCommand.execute()
     }
 
     // ── Internal delete implementation ─────────────────────────────────────
 
-    private func _performDelete(_ item: NoteVM) {
+    private func _performDelete(_ item: NoteVM) async throws {
         // Defensive re-guard (mirrors the C# reference) so this stays correct if
         // ever invoked from a new call site beyond the already-gated commands.
-        guard canDelete(item) else { return }
-        _onDelete?(item)
-        if let notificationHub = _notificationHub {
-            Task {
-                _ = await notificationHub.post(VMx.Notification(
-                    type: .notification,
-                    message: "Note deleted: \u{201C}\(item.title)\u{201D}"
-                ))
-            }
+        let deletedTitle = await runOnForeground { [weak self, weak item] () -> String? in
+            guard let self, let item, self.canDelete(item) else { return nil }
+            return item.title
         }
+        guard let deletedTitle else { return }
+        try await _onDelete?(item)
+        if let notificationHub = _notificationHub {
+            _ = await notificationHub.post(VMx.Notification(
+                type: .notification,
+                message: "Note deleted: \u{201C}\(deletedTitle)\u{201D}"
+            ))
+        }
+    }
+
+    private func _performSave(_ item: NoteVM) async throws {
+        let admitted = await runOnForeground { [weak self, weak item] in
+            guard let self, let item else { return false }
+            return self.canSave(item)
+        }
+        guard admitted else { return }
+        try await _onSave?(item)
     }
 
     // ── Init ───────────────────────────────────────────────────────────────
@@ -150,8 +161,8 @@ public final class NoteVM: ComponentVMBase,
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         onClose: (() -> Void)?,
-        onDelete: ((NoteVM) -> Void)?,
-        onSave: ((NoteVM) -> Void)?,
+        onDelete: ((NoteVM) async throws -> Void)?,
+        onSave: ((NoteVM) async throws -> Void)?,
         confirmDelete: (() async throws -> Bool)?,
         notificationHub: NotificationHubProtocol?
     ) {
@@ -163,24 +174,30 @@ public final class NoteVM: ComponentVMBase,
         _notificationHub = notificationHub
 
         // Phase 1: placeholder no-op commands (required before super.init).
-        let placeholder = RelayCommand(task: nil, predicate: nil, triggers: [])
-        _innerDeleteCommand = placeholder
-        closeCommand = placeholder
-        saveCommand = placeholder
-        deleteCommand = placeholder
+        let relayPlaceholder = RelayCommand(task: nil, predicate: nil, triggers: [])
+        let asyncPlaceholder = AsyncRelayCommand(
+            body: nil,
+            predicate: nil,
+            triggers: [],
+            throwOnCancel: false
+        )
+        _innerDeleteCommand = asyncPlaceholder
+        closeCommand = relayPlaceholder
+        saveCommand = asyncPlaceholder
+        deleteCommand = asyncPlaceholder
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
 
         // Phase 2: rewire with self-capturing closures — `self` is valid here.
 
-        let innerDelete = RelayCommand.builder()
+        let innerDelete = AsyncRelayCommand.builder()
             .predicate({ [weak self] in
                 guard let self = self else { return false }
                 return self.canDelete(self)
             })
             .task({ [weak self] in
                 guard let self = self else { return }
-                self._performDelete(self)
+                try await self._performDelete(self)
             })
             .build()
         _innerDeleteCommand = innerDelete
@@ -190,14 +207,14 @@ public final class NoteVM: ComponentVMBase,
             .task({ [weak self] in self?.close() })
             .build()
 
-        saveCommand = RelayCommand.builder()
+        saveCommand = AsyncRelayCommand.builder()
             .predicate({ [weak self] in
                 guard let self = self else { return false }
                 return self.canSave(self)
             })
             .task({ [weak self] in
                 guard let self = self else { return }
-                self.save(self)
+                try await self._performSave(self)
             })
             .build()
 
@@ -241,8 +258,8 @@ public final class NoteVM: ComponentVMBase,
         private var _hub: MessageHubProtocol?
         private var _dispatcher: Dispatcher?
         private var _onClose: (() -> Void)?
-        private var _onDelete: ((NoteVM) -> Void)?
-        private var _onSave: ((NoteVM) -> Void)?
+        private var _onDelete: ((NoteVM) async throws -> Void)?
+        private var _onSave: ((NoteVM) async throws -> Void)?
         private var _confirmDelete: (() async throws -> Bool)?
         private var _notificationHub: NotificationHubProtocol?
 
@@ -277,12 +294,12 @@ public final class NoteVM: ComponentVMBase,
         }
 
         /// Sets the optional delete callback (route to repo).
-        public func onDelete(_ handler: @escaping (NoteVM) -> Void) -> NoteVMBuilder {
+        public func onDelete(_ handler: @escaping (NoteVM) async throws -> Void) -> NoteVMBuilder {
             var copy = self; copy._onDelete = handler; return copy
         }
 
         /// Sets the optional save callback (route to repo).
-        public func onSave(_ handler: @escaping (NoteVM) -> Void) -> NoteVMBuilder {
+        public func onSave(_ handler: @escaping (NoteVM) async throws -> Void) -> NoteVMBuilder {
             var copy = self; copy._onSave = handler; return copy
         }
 

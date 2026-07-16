@@ -13,8 +13,13 @@
  */
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
-import { ComponentVMBase } from "../components/componentVMBase.js";
-import type { IParentVM } from "../components/componentVMBase.js";
+import {
+  beginParentTransfer,
+  ComponentVMBase,
+  ParentTransfer,
+} from "../components/componentVMBase.js";
+import type { IOwningParentVM } from "../components/componentVMBase.js";
+import { disposeBestEffort } from "../components/disposal.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
@@ -34,12 +39,13 @@ import type { Subscription } from "rxjs";
 export abstract class CompositeVMBase<VM extends ComponentVMBase>
   extends ComponentVMBase
   implements
-    IParentVM,
+    IOwningParentVM,
     IBatchable,
     ISelectableVmCollection<VM>,
     ObservableMembershipSource<VM>
 {
   readonly supportsChildSelection = true;
+  readonly owner = this;
   readonly #asyncSelection: boolean;
   readonly #autoConstructOnAdd: boolean;
   protected _children: VM[] = [];
@@ -80,6 +86,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     return this.#current;
   }
 
+  get ownerParent(): IOwningParentVM | null {
+    return this._parent;
+  }
+
   selectChild(vm: ComponentVMBase): void {
     for (const child of this._children) {
       if (child === vm) {
@@ -93,6 +103,30 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (this.#current === vm) {
       this._setCurrent(null, this.#asyncSelection);
     }
+  }
+
+  containsChild(vm: ComponentVMBase): boolean {
+    return this._children.some((child) => child === vm);
+  }
+
+  detachForTransfer(vm: ComponentVMBase): ParentTransfer {
+    const index = this._children.findIndex((child) => child === vm);
+    if (index < 0) throw new Error("Recorded parent does not contain child identity");
+    const child = this._children[index] as VM;
+    const wasCurrent = this.#current === child;
+    this._children.splice(index, 1);
+    return new ParentTransfer(
+      () => {
+        if (wasCurrent && this.#current === child) this._setCurrent(null, false);
+        this._emitCollectionChanged(
+          makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
+        );
+      },
+      () => {
+        this._children.splice(index, 0, child);
+        child._parent = this;
+      },
+    );
   }
 
   // ── collectionChanged ─────────────────────────────────────────────────────
@@ -163,9 +197,18 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   add(item: VM): void {
+    const transfer = beginParentTransfer(item, this);
     this._children.push(item);
     item._parent = this;
-    this._maybeAutoConstruct(item);
+    try {
+      this._maybeAutoConstruct(item);
+    } catch (error) {
+      this._children.pop();
+      item._parent = null;
+      transfer?.rollback();
+      throw error;
+    }
+    transfer?.commit();
     const idx = this._children.length - 1;
     this._emitCollectionChanged(
       makeCollectionChangedEvent("add", {
@@ -181,9 +224,18 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (index < 0 || index > this._children.length) {
       throw new RangeError(`Index ${String(index)} out of range`);
     }
+    const transfer = beginParentTransfer(item, this);
     this._children.splice(index, 0, item);
     item._parent = this;
-    this._maybeAutoConstruct(item);
+    try {
+      this._maybeAutoConstruct(item);
+    } catch (error) {
+      this._children.splice(index, 1);
+      item._parent = null;
+      transfer?.rollback();
+      throw error;
+    }
+    transfer?.commit();
     this._emitCollectionChanged(
       makeCollectionChangedEvent("add", {
         newItems: [item],
@@ -205,7 +257,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     const item = this._children[index] as VM;
     this._children.splice(index, 1);
-    item._parent = null;
+    if (item._parent === this) item._parent = null;
     if (this.#current === item) {
       this._setCurrent(null, false);
     }
@@ -223,19 +275,24 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw new RangeError(`Index ${String(index)} out of range`);
     }
     const old = this._children[index] as VM;
+    const transfer = beginParentTransfer(value, this);
     this._children[index] = value;
     old._parent = null;
-    // Mirror removeAt: if the slot we just replaced held the current
-    // selection, drop Current to null before subscribers see any
-    // CollectionChanged event for this replace.
-    if (this.#current === old) {
-      this._setCurrent(null, false);
-    }
     value._parent = this;
+    try {
+      this._maybeAutoConstruct(value);
+    } catch (error) {
+      this._children[index] = old;
+      old._parent = this;
+      value._parent = null;
+      transfer?.rollback();
+      throw error;
+    }
+    transfer?.commit();
+    if (this.#current === old) this._setCurrent(null, false);
     this._emitCollectionChanged(
       makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
     );
-    this._maybeAutoConstruct(value);
     this._emitCollectionChanged(
       makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
     );
@@ -243,7 +300,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   clear(): void {
     for (const child of this._children) {
-      child._parent = null;
+      if (child._parent === this) child._parent = null;
     }
     this._children = [];
     // Route through _setCurrent (mirrors C# Clear / removeAt): a bare
@@ -311,8 +368,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   protected override _onConstruct(): void {
     super._onConstruct();
     if (!this.#populated) {
-      this.#populated = true;
       this._populateChildren();
+      this.#populated = true;
     }
     for (const child of [...this._children]) {
       child.construct();
@@ -341,10 +398,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   override dispose(): void {
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
-    for (const child of [...this._children]) {
-      child.dispose();
-    }
-    super.dispose();
+    disposeBestEffort([
+      ...[...this._children].map((child) => () => child.dispose()),
+      () => super.dispose(),
+    ]);
   }
 
   protected override _onDispose(): void {
@@ -357,6 +414,56 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   protected _populateChildren(): void {
     // Default: no-op. Subclasses override to evaluate their factory.
+  }
+
+  protected _attachPopulation(children: Iterable<VM>): void {
+    const candidates = [...children];
+    const start = this._children.length;
+    const transfers: Array<ParentTransfer | null> = [];
+    const originalStatuses: ConstructionStatus[] = [];
+    try {
+      for (const child of candidates) {
+        const transfer = beginParentTransfer(child, this);
+        transfers.push(transfer);
+        originalStatuses.push(child.status);
+        this._children.push(child);
+        child._parent = this;
+      }
+
+      // Make the entire snapshot visible before any child hook runs.
+      for (const child of candidates) {
+        this._maybeAutoConstruct(child);
+        if (
+          this.status === ConstructionStatus.Constructing &&
+          child.status !== ConstructionStatus.Constructed
+        ) child.construct();
+      }
+    } catch (error) {
+      while (this._children.length > start) {
+        const child = this._children.pop();
+        const originalStatus = originalStatuses[this._children.length - start];
+        if (
+          child !== undefined &&
+          originalStatus === ConstructionStatus.Destructed &&
+          child.status === ConstructionStatus.Constructed
+        ) {
+          try { child.destruct(); } catch { /* preserve the original failure */ }
+        }
+        if (child?._parent === this) child._parent = null;
+      }
+      for (const transfer of [...transfers].reverse()) transfer?.rollback();
+      throw error;
+    }
+
+    for (const transfer of transfers) transfer?.commit();
+    candidates.forEach((child) => {
+      const index = this._children.findIndex((candidate) => candidate === child);
+      if (index >= start) {
+        this._emitCollectionChanged(
+          makeCollectionChangedEvent("add", { newItems: [child], newIndex: index }),
+        );
+      }
+    });
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────

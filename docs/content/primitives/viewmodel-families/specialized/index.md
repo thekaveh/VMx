@@ -1,6 +1,6 @@
 # 6.2.8.1. Specialized ViewModels & Coordinators
 
-## When To Use It
+## 6.2.8.1.1. When To Use It
 
 These primitives are not alternate container shapes. They solve specific
 workflow problems that show up repeatedly across apps:
@@ -24,7 +24,7 @@ smaller helpers instead.
   <a href="../../../assets/diagrams/specialized-vm-family.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.8.1.2. Shape And Ownership
 
 These types typically wrap or coordinate other VM state rather than replacing
 the core ownership hierarchy:
@@ -34,7 +34,7 @@ the core ownership hierarchy:
 - `NotificationVM` and `ConfirmationVM` own render-ready notification state
 - `ModalVM` owns completion state around a presented modal workflow
 
-## Lifecycle And Messaging
+## 6.2.8.1.3. Lifecycle And Messaging
 
 Specialized primitives matter when a recurring workflow has its own lifecycle
 or message flow:
@@ -46,14 +46,14 @@ or message flow:
 
 The dedicated pages cover the exact hooks and host seams each workflow uses.
 
-## Cross-Language Surface
+## 6.2.8.1.4. Cross-Language Surface
 
 All five source flavors ship the same conceptual set of specialized primitives, with
 idiomatic naming differences only. The dedicated pages call out where example
 apps currently exercise them and where a flavor surfaces helper APIs
 idiomatically.
 
-## Example
+## 6.2.8.1.5. Example
 
 In the Notes Workspace examples, the editor flow composes `FormVM` with
 `DiscriminatorVM`, while notifications and dialogs use the render-oriented
@@ -69,14 +69,14 @@ The flagship examples are especially useful here:
 
 The dedicated pages below call out the relevant example files directly.
 
-## Common Pitfalls
+## 6.2.8.1.6. Common Pitfalls
 
 - Reaching for a specialized primitive when a plain `ComponentVM` plus a command
   or property would do.
 - Treating these pages as alternatives to the core container families.
 - Assuming every example app must use every specialized primitive directly.
 
-## Related Primitives
+## 6.2.8.1.7. Related Primitives
 
 - [ViewModel Families](../index.md)
 - [Command Families](../../command-families.md)

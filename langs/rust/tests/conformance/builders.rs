@@ -54,11 +54,13 @@ fn field_defaults_are_applied() {
     let vm = ComponentVm::<&'static str>::builder()
         .name("vm")
         .model("model")
+        .model_hint(|model| Some(format!("modeled:{model}")))
         .services(MessageHub::new(), NullDispatcher::new())
         .build()
         .unwrap();
 
     assert_eq!(vm.hint(), Some(String::new()));
+    assert_eq!(vm.modeled_hint(), Some("modeled:model".to_string()));
 }
 
 /// BLD-005 — Additive setters retain prior values across repeated calls
@@ -92,7 +94,7 @@ fn relay_command_trigger_setter_is_additive() {
 /// BLD-006 — Common VM options factories match builder semantics
 #[test]
 fn common_options_factories_match_builder_shape() {
-    let child = child("a");
+    let composite_child = child("a");
     let component = ComponentVm::create(ComponentVmOptions {
         name: Some("component".to_string()),
         hint: Some("hint".to_string()),
@@ -106,7 +108,7 @@ fn common_options_factories_match_builder_shape() {
         hint: None,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
-        children: Some(vec![child.clone()]),
+        children: Some(vec![composite_child]),
         auto_construct_on_add: false,
     })
     .unwrap();
@@ -115,7 +117,7 @@ fn common_options_factories_match_builder_shape() {
         hint: None,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
-        children: Some(vec![child]),
+        children: Some(vec![child("b")]),
         auto_construct_on_add: false,
     })
     .unwrap();

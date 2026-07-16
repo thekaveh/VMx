@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
+use std::time::Duration;
 
 use vmx::{
     Command, DialogService, FormVm, Message, MessageHub, ModalVm, NullDialogService, VmxError,
@@ -230,6 +232,149 @@ fn disposed_form_is_inert() {
     assert_eq!(form.model(), 2);
 }
 
+#[test]
+fn form_commands_are_stable_handles() {
+    let form = FormVm::new("form", 1);
+    let first = form.approve_command();
+    let second = form.approve_command();
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&notifications);
+    let _subscription = second.can_execute_changed().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    first.raise_can_execute_changed();
+
+    assert_eq!(notifications.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn form_dispose_closes_commands_and_owned_channels() {
+    let form = FormVm::new("form", 1);
+    let approve = form.approve_command();
+    let deny = form.deny_command();
+    let approve_changed = approve.can_execute_changed();
+    let deny_changed = deny.can_execute_changed();
+    let errors_changed = form.errors_changed();
+    let approve_errors = form.approve_errors();
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let mut subscriptions = Vec::new();
+    for hub in [
+        approve_changed.clone(),
+        deny_changed.clone(),
+        errors_changed.clone(),
+        approve_errors.clone(),
+    ] {
+        let observed = Arc::clone(&notifications);
+        subscriptions.push(hub.subscribe(move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }));
+    }
+
+    form.dispose();
+    approve.raise_can_execute_changed();
+    deny.raise_can_execute_changed();
+    for hub in [approve_changed, deny_changed] {
+        hub.send(Message::Custom {
+            sender_id: 0,
+            name: "late-command-change".to_string(),
+        });
+    }
+    errors_changed.send(Message::Custom {
+        sender_id: 0,
+        name: "late-error-change".to_string(),
+    });
+    approve_errors.send(Message::Custom {
+        sender_id: 0,
+        name: "late-approve-error".to_string(),
+    });
+
+    assert!(!approve.can_execute());
+    assert!(!deny.can_execute());
+    assert_eq!(notifications.load(Ordering::SeqCst), 0);
+    drop(subscriptions);
+}
+
+#[test]
+fn approved_callbacks_may_register_callbacks_reentrantly() {
+    let form = FormVm::new("form", 1);
+    let holder = Arc::new(Mutex::new(Some(form.clone())));
+    let reentrant_holder = Arc::clone(&holder);
+    form.on_approved(move |_| {
+        let form = reentrant_holder.lock().unwrap().clone().unwrap();
+        form.on_approved(|_| {});
+    });
+    form.set_model(2);
+    let (completed, completion) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        completed.send(form.approve()).unwrap();
+    });
+
+    assert!(completion
+        .recv_timeout(Duration::from_secs(1))
+        .expect("approval deadlocked while invoking a callback")
+        .is_ok());
+}
+
+#[test]
+fn validators_may_register_validators_reentrantly() {
+    let form = FormVm::new("form", 1);
+    let holder = Arc::new(Mutex::new(Some(form.clone())));
+    let reentrant_holder = Arc::clone(&holder);
+    let first_call = Arc::new(AtomicBool::new(true));
+    let reentrant_first_call = Arc::clone(&first_call);
+    let (completed, completion) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        form.with_field_validator("outer", move |_| {
+            if reentrant_first_call.swap(false, Ordering::SeqCst) {
+                let form = reentrant_holder.lock().unwrap().clone().unwrap();
+                form.with_field_validator("inner", |_| None);
+            }
+            None
+        });
+        completed.send(()).unwrap();
+    });
+
+    completion
+        .recv_timeout(Duration::from_secs(1))
+        .expect("validation deadlocked while invoking a validator");
+}
+
+#[test]
+fn snapshotter_may_read_snapshot_reentrantly() {
+    let holder = Arc::new(Mutex::new(None::<FormVm<i32>>));
+    let reentrant_holder = Arc::clone(&holder);
+    let armed = Arc::new(AtomicBool::new(false));
+    let reentrant_armed = Arc::clone(&armed);
+    let form = FormVm::builder()
+        .initial(1)
+        .persister(|_| Ok(()))
+        .snapshotter(move |model| {
+            if reentrant_armed.load(Ordering::SeqCst) {
+                let form = reentrant_holder.lock().unwrap().clone().unwrap();
+                let _ = form.snapshot();
+            }
+            *model
+        })
+        .build()
+        .unwrap();
+    *holder.lock().unwrap() = Some(form.clone());
+    armed.store(true, Ordering::SeqCst);
+    form.set_model(2);
+    let (completed, completion) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        form.revert();
+        completed.send(()).unwrap();
+    });
+
+    completion
+        .recv_timeout(Duration::from_secs(1))
+        .expect("revert deadlocked while invoking the snapshotter");
+}
+
 /// DISP-004 — interaction owners complete once and preserve their post-dispose contract
 #[test]
 fn repeated_form_and_modal_dispose_preserve_one_terminal_result() {
@@ -255,7 +400,7 @@ fn repeated_form_and_modal_dispose_preserve_one_terminal_result() {
     modal.dismiss("first");
     modal.dispose();
     modal.dispose();
-    assert_eq!(modal.completion(), "first");
+    assert_eq!(modal.completion().wait(), "first");
 }
 
 /// FORM-015 — ApproveCommand surfaces persister failure on ApproveErrors
@@ -443,6 +588,44 @@ fn reset_runs_after_persist_and_approved_uses_captured_model() {
     assert_eq!(form.model(), "reset");
     assert_eq!(form.snapshot(), "reset");
     assert!(!form.is_dirty());
+}
+
+#[test]
+fn reset_error_observer_mutation_runs_after_pristine_approval() {
+    let form = FormVm::builder()
+        .initial("saved".to_string())
+        .persister(|_| Ok(()))
+        .validator("value", |model| {
+            model.is_empty().then(|| "required".to_string())
+        })
+        .reset_on_approved(|_| Ok(String::new()))
+        .build()
+        .unwrap();
+    let reentrant_form = form.clone();
+    let _subscription = form.errors_changed().subscribe(move |_| {
+        reentrant_form.set_model("reentrant".to_string());
+    });
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_inner = Arc::clone(&observed);
+    let approval_form = form.clone();
+    form.on_approved(move |approved| {
+        observed_inner.lock().unwrap().push((
+            approved,
+            approval_form.model(),
+            approval_form.snapshot(),
+            approval_form.is_dirty(),
+        ));
+    });
+
+    form.approve().unwrap();
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![("saved".to_string(), String::new(), String::new(), false)]
+    );
+    assert_eq!(form.model(), "reentrant");
+    assert_eq!(form.snapshot(), "");
+    assert!(form.is_dirty());
 }
 
 #[derive(Clone, Debug)]
@@ -662,4 +845,29 @@ fn reset_wins_racing_model_mutation() {
     assert!(!form.is_dirty());
     assert!(approve_command.can_execute());
     assert_eq!(approve_command.can_execute_changed().history().len(), 2);
+}
+
+#[test]
+fn dropping_form_releases_cached_command_captures() {
+    let marker = Arc::new(());
+    let released = Arc::downgrade(&marker);
+    let form = FormVm::with_options(
+        "form",
+        1,
+        move |_| {
+            let _keep_alive = &marker;
+            Ok(())
+        },
+        false,
+        MessageHub::new(),
+    );
+    drop(form.approve_command());
+    drop(form.deny_command());
+
+    drop(form);
+
+    assert!(
+        released.upgrade().is_none(),
+        "cached commands must not strongly retain their form"
+    );
 }

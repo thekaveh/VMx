@@ -26,7 +26,7 @@ on:
 
 jobs:
   build:
-    name: build & test (${{ matrix.os }})
+    name: build & test (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,20 +35,34 @@ jobs:
         # Linux Swift drops Combine, so the Swift VMx flavor is macOS-only
         # for now. A Combine-shim layer (or migration to swift-async-algorithms)
         # would re-enable ubuntu-latest in a follow-up PR.
-        os: [macos-latest]
+        include:
+          - os: macos-15
+            label: default-xcode
+            xcode: default
+          - os: macos-15
+            label: oldest-hosted-xcode
+            xcode: /Applications/Xcode_16.0.app
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      # Toolchain policy: latest-only — the job builds with whatever Swift the
-      # current macos-latest image ships (displayed below for forensics). The
-      # Package.swift floor (swift-tools-version 5.9) is declared but not
-      # exercised by a dedicated matrix cell; if a contributor reports a 5.9
-      # breakage, add a pinned-Xcode cell rather than silently raising the floor.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Select oldest hosted Xcode
+        if: matrix.xcode != 'default'
+        run: sudo xcode-select --switch "${{ matrix.xcode }}/Contents/Developer"
       - name: Show Swift version
         run: swift --version
+      - name: Verify oldest hosted compiler
+        if: matrix.xcode != 'default'
+        run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.|$)'
       - name: Check root and nested manifest parity
         run: python3 tools/check-swift-package-sync.py
       - name: Build root package
         run: swift build -c release
+      - name: Enforce strict concurrency boundaries
+        if: matrix.xcode == 'default'
+        run: >-
+          swift build -c release
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warn-concurrency
+          -Xswiftc -warnings-as-errors
       - name: Test root package
         run: swift test --parallel
       - name: Build nested package
@@ -58,11 +72,35 @@ jobs:
         working-directory: langs/swift
         run: swift test --parallel
 
+  platforms:
+    name: build (${{ matrix.label }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: iOS 16
+            destination: "generic/platform=iOS"
+          - label: tvOS 16
+            destination: "generic/platform=tvOS"
+          - label: watchOS 9
+            destination: "generic/platform=watchOS"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Build root package for ${{ matrix.label }}
+        run: >-
+          xcodebuild -scheme VMx
+          -destination "${{ matrix.destination }}"
+          -configuration Release
+          CODE_SIGNING_ALLOWED=NO build
+
   examples:
     name: examples (notes-showcase)
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Show Swift version
         run: swift --version
       # The flagship example is a separate SwiftPM package depending on the
@@ -71,6 +109,13 @@ jobs:
       - name: Build NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
         run: swift build
+      - name: Enforce NotesShowcase strict concurrency
+        working-directory: examples/swift/notes-showcase
+        run: >-
+          swift build -c release
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warn-concurrency
+          -Xswiftc -warnings-as-errors
       - name: Test NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
         run: swift test

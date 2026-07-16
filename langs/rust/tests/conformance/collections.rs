@@ -438,7 +438,8 @@ fn serviced_collection_reentrant_delivery_keeps_local_external_pairs_ordered() {
     );
 }
 
-// Concurrency companion for COL-004/COL-054: foreign publishers wait and drain themselves.
+// Concurrency companion for COL-004/COL-054: foreign publishers wait before
+// committing, then drain their own change on the caller thread.
 #[test]
 fn serviced_collection_foreign_publisher_waits_and_delivers_on_caller_thread() {
     let hub = MessageHub::new();
@@ -492,21 +493,22 @@ fn serviced_collection_foreign_publisher_waits_and_delivers_on_caller_thread() {
         }
     }
 
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let foreign_list = list.clone();
     let foreign = std::thread::spawn(move || {
         let caller = std::thread::current().id();
+        started_tx.send(()).unwrap();
         foreign_list.push("foreign");
         done_tx.send(caller).unwrap();
     });
 
-    for _ in 0..100_000 {
-        if list.len() == 2 {
-            break;
-        }
-        std::thread::yield_now();
-    }
-    assert_eq!(list.len(), 2, "foreign mutation did not reach publication");
+    started_rx.recv().unwrap();
+    assert_eq!(
+        list.len(),
+        1,
+        "foreign mutation must not commit ahead of its delivery turn"
+    );
     assert!(matches!(
         done_rx.try_recv(),
         Err(std::sync::mpsc::TryRecvError::Empty)
@@ -1002,8 +1004,8 @@ fn keyed_serviced_reentrant_mutation_preserves_consistent_index_and_delivery_pai
     assert!(trace.iter().all(|entry| entry.2));
 }
 
-// Concurrency regression for COL-058/COL-064: Add positions are captured while
-// the keyed state is locked rather than recomputed from a later collection length.
+// Concurrency regression for COL-058/COL-064: mutation commits and delivery
+// admission share one ordered turn; the assertion intentionally does not sort.
 #[test]
 fn keyed_serviced_concurrent_upserts_publish_each_committed_add_position() {
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1029,14 +1031,41 @@ fn keyed_serviced_concurrent_upserts_publish_each_committed_add_position() {
     for key in 0..32 {
         assert_eq!(list.get_by_key(&key), Some(ConcurrentItem(key)));
     }
-    let mut positions = collection_messages(&list.collection_changed())
+    let positions = collection_messages(&list.collection_changed())
         .into_iter()
         .map(|message| {
             assert_eq!(message.action, CollectionChangeAction::Add);
             message.new_index.unwrap()
         })
         .collect::<Vec<_>>();
-    positions.sort_unstable();
+    assert_eq!(positions, (0..32).collect::<Vec<_>>());
+}
+
+#[test]
+fn serviced_collection_concurrent_pushes_publish_in_committed_position_order() {
+    let list = ServicedObservableCollection::new(33);
+    let start = std::sync::Arc::new(std::sync::Barrier::new(33));
+    let mut workers = Vec::new();
+    for value in 0..32 {
+        let worker_list = list.clone();
+        let worker_start = start.clone();
+        workers.push(std::thread::spawn(move || {
+            worker_start.wait();
+            worker_list.push(value);
+        }));
+    }
+    start.wait();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    let positions = collection_messages(&list.collection_changed())
+        .into_iter()
+        .map(|message| {
+            assert_eq!(message.action, CollectionChangeAction::Add);
+            message.new_index.unwrap()
+        })
+        .collect::<Vec<_>>();
     assert_eq!(positions, (0..32).collect::<Vec<_>>());
 }
 

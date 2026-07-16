@@ -6,6 +6,12 @@
 import Foundation
 
 open class AggregateVM2<C1: ComponentVMBase, C2: ComponentVMBase>: ComponentVMBase {
+    private lazy var aggregateParent = AggregateParent(owner: self) { [unowned self] in
+        [
+            self.component1 as ComponentVMBase?,
+            self.component2 as ComponentVMBase?
+        ].compactMap { $0 }
+    }
     private let factory1: () -> C1
     private let factory2: () -> C2
     public private(set) var component1: C1?
@@ -26,13 +32,18 @@ open class AggregateVM2<C1: ComponentVMBase, C2: ComponentVMBase>: ComponentVMBa
 
     open override func _onConstruct() throws {
         try super._onConstruct()
+        let c1 = factory1()
+        let c2 = factory2()
+        try validateAggregateSlots(parent: aggregateParent, children: [c1, c2])
+        let previous: [ComponentVMBase?] = [component1, component2]
         component1?.dispose()
         component2?.dispose()
 
-        let c1 = factory1(); component1 = c1
+        component1 = c1
         _notifyPropertyChanged("component1")
 
-        let c2 = factory2(); component2 = c2
+        component2 = c2
+        commitAggregateSlots(parent: aggregateParent, previous: previous, next: [c1, c2])
         _notifyPropertyChanged("component2")
 
         try c1.construct(); try c2.construct()

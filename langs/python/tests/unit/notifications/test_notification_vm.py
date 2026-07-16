@@ -5,9 +5,11 @@ Conformance-level tests live in tests/conformance/test_notifications.py.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 import pytest
+from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
 
 from vmx.notifications import (
@@ -112,6 +114,25 @@ async def test_zero_lifespan_opacity_is_zero() -> None:
     hub.post(notif)
     vm = NotificationVM(notif, hub, scheduler, lifespan=timedelta(0))
     assert vm.opacity == 0.0
+    vm.dispose()
+
+
+async def test_zero_lifespan_supports_synchronous_scheduler() -> None:
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "immediate")
+    completion = hub.post(notification)
+
+    vm = NotificationVM(
+        notification,
+        hub,
+        ImmediateScheduler(),
+        lifespan=timedelta(0),
+    )
+    await asyncio.sleep(0)
+
+    assert vm.is_resolved
+    assert completion.done()
+    assert completion.result() is NotificationReaction.APPROVE
     vm.dispose()
 
 

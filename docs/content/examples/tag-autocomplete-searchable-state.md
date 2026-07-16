@@ -3,7 +3,7 @@
 The note form's tag suggestions are the smallest high-signal example of
 `SearchableState<T>` in the flagship portfolio.
 
-## Current Scenario Use
+## 8.8.1. Current Scenario Use
 
 - the workspace maintains the available tag set
 - `NoteFormVM` composes `SearchableState<string>` over that tag list
@@ -13,7 +13,7 @@ The note form's tag suggestions are the smallest high-signal example of
 - the host adapter binds the filtered suggestions without moving search state
   into the view
 
-## Why It Matters
+## 8.8.2. Why It Matters
 
 This example complements the broader notes-list filtering story. The notes list
 uses `SearchableState` over note VMs; tag autocomplete shows the same helper on
@@ -23,7 +23,7 @@ If suggestions also depend on mutable state inside tag viewmodels, map an
 `AggregateChangeStream` to the search source signal. The aggregate owns dynamic
 member observation; search owns only its subscription to the resulting pulse.
 
-## Where To Verify
+## 8.8.3. Where To Verify
 
 - Primitive guide:
   [State & Reactive Helpers](../primitives/state-reactive-helpers.md)

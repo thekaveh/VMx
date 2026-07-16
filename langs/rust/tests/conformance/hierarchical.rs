@@ -1,8 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
+use std::time::Duration;
 
 use vmx::{
     walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState,
+    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
 };
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
@@ -125,6 +127,79 @@ fn children_factory_is_lazy_by_default() {
     assert_eq!(*calls.lock().unwrap(), 1);
 }
 
+#[test]
+fn concurrent_children_materialization_runs_factory_once() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(100));
+            vec![leaf("child")]
+        },
+        false,
+        MessageHub::new(),
+    );
+    let start = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let root = root.clone();
+        let start = Arc::clone(&start);
+        workers.push(std::thread::spawn(move || {
+            start.wait();
+            root.children()
+        }));
+    }
+
+    start.wait();
+    for worker in workers {
+        assert_eq!(worker.join().unwrap().len(), 1);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn concurrent_reparenting_keeps_one_parent_child_pair() {
+    const PARENT_COUNT: usize = 32;
+    let child = leaf("child");
+    let parents = (0..PARENT_COUNT)
+        .map(|index| leaf(&format!("parent-{index}")))
+        .collect::<Vec<_>>();
+    let start = Arc::new(Barrier::new(PARENT_COUNT + 1));
+    let mut workers = Vec::new();
+    for parent in &parents {
+        let parent = parent.clone();
+        let child = child.clone();
+        let start = Arc::clone(&start);
+        workers.push(std::thread::spawn(move || {
+            start.wait();
+            parent.add_child(child)
+        }));
+    }
+
+    start.wait();
+    for worker in workers {
+        worker.join().unwrap().unwrap();
+    }
+
+    let parent_id = child.parent().expect("child must remain attached").id();
+    let memberships = parents
+        .iter()
+        .flat_map(HierarchicalVm::children)
+        .filter(|candidate| candidate.id() == child.id())
+        .collect::<Vec<_>>();
+    assert_eq!(memberships.len(), 1);
+    assert!(parents
+        .iter()
+        .find(|parent| parent.id() == parent_id)
+        .unwrap()
+        .children()
+        .iter()
+        .any(|candidate| candidate.id() == child.id()));
+}
+
 /// HIER-008 — Eager child loading via constructor option
 #[test]
 fn eager_construct_materializes_descendants() {
@@ -209,7 +284,7 @@ fn parent_change_publishes_property_changed() {
     root.add_child(child).unwrap();
 
     assert!(hub.history().iter().any(
-        |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "Parent")
+        |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "parent")
     ));
 }
 
@@ -224,18 +299,44 @@ fn structural_mutations_publish_tree_structure_changed() {
         false,
         hub.clone(),
     );
+    let destination = HierarchicalVm::with_children_factory(
+        "destination",
+        "destination".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
     let child = leaf("child");
 
     root.add_child(child.clone()).unwrap();
     root.remove_child(&child).unwrap();
+    root.add_child(child.clone()).unwrap();
+    destination.reparent_child(&child).unwrap();
 
-    assert_eq!(
-        hub.history()
-            .iter()
-            .filter(|message| matches!(message, Message::TreeStructureChanged(_)))
-            .count(),
-        2
-    );
+    let changes = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::TreeStructureChanged(change) => Some(change),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 4);
+    assert_eq!(changes[0].sender_id, root.id());
+    assert_eq!(changes[0].change, TreeStructureChange::Added);
+    assert_eq!(changes[0].affected_id, child.id());
+    assert_eq!(changes[0].index, 0);
+    assert_eq!(changes[1].sender_id, root.id());
+    assert_eq!(changes[1].change, TreeStructureChange::Removed);
+    assert_eq!(changes[1].affected_id, child.id());
+    assert_eq!(changes[1].index, 0);
+    assert_eq!(changes[2].change, TreeStructureChange::Added);
+    assert_eq!(changes[2].affected_id, child.id());
+    assert_eq!(changes[2].index, 0);
+    assert_eq!(changes[3].sender_id, destination.id());
+    assert_eq!(changes[3].change, TreeStructureChange::Reparented);
+    assert_eq!(changes[3].affected_id, child.id());
+    assert_eq!(changes[3].index, -1);
 }
 
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
@@ -361,7 +462,16 @@ fn reparent_rejects_self_and_ancestor_cycles() {
 
     assert!(leaf_node.reparent_child(&root).is_err());
     assert!(mid.reparent_child(&mid).is_err());
+    assert!(leaf_node.add_child(leaf_node.clone()).is_err());
+    assert!(leaf_node.add_child(root.clone()).is_err());
     assert_eq!(leaf_node.depth(), 2);
+
+    let new_parent = leaf("new-parent");
+    new_parent.add_child(leaf_node.clone()).unwrap();
+    assert!(mid.children().is_empty());
+    let transferred = new_parent.children();
+    assert!(transferred.len() == 1 && transferred[0] == leaf_node);
+    assert!(leaf_node.parent().as_ref() == Some(&new_parent));
 }
 
 /// HIER-019 — InvalidateChildren reloads on next access
@@ -387,6 +497,27 @@ fn invalidate_children_reloads_on_next_access() {
     assert_eq!(node.children()[0].model(), "child-1");
     node.invalidate_children();
     assert_eq!(node.children()[0].model(), "child-2");
+}
+
+#[test]
+fn invalidate_children_detaches_discarded_children() {
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        |_| vec![leaf("child")],
+        false,
+        MessageHub::new(),
+    );
+    let discarded = root.children()[0].clone();
+
+    root.invalidate_children();
+    let replacement = root.children()[0].clone();
+
+    assert!(replacement != discarded);
+    assert!(discarded.parent().is_none());
+    assert!(discarded.is_root());
+    root.add_child(discarded.clone()).unwrap();
+    assert!(root.children().contains(&discarded));
 }
 
 /// HIER-020 — InvalidateChildren on an unmaterialized node is a no-op
@@ -444,4 +575,21 @@ fn invalidate_children_publishes_property_changed() {
     assert!(hub.history().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "children")
     ));
+}
+
+#[test]
+fn dropping_a_materialized_tree_releases_parent_and_child_state() {
+    let marker = Arc::new(());
+    let released = Arc::downgrade(&marker);
+    {
+        let root = HierarchicalVm::new("root", ("root", marker.clone()));
+        let child = HierarchicalVm::new("child", ("child", Arc::new(())));
+        root.add_child(child).unwrap();
+    }
+    drop(marker);
+
+    assert!(
+        released.upgrade().is_none(),
+        "parent back-references must not keep an unreachable tree alive"
+    );
 }

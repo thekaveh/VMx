@@ -54,7 +54,7 @@ VMs MUST dispatch the following emissions via `IDispatcher.Foreground`:
   changed.
 - The **terminal** `ConstructionStatusChangedMessage` of a *background*
   construct/destruct — i.e. the `Constructed` / `Destructed` emission, and the
-  `02-lifecycle.md §2.4` transactional-rollback emission — which the reference
+  `02-lifecycle.md §2.5` transactional-rollback emission — which the reference
   implementations marshal onto `IDispatcher.Foreground` rather than publish on the
   background (pool) thread (VMX-025; see §4).
 
@@ -114,17 +114,21 @@ Three normative guarantees apply to the background completion:
   `reconstruct()` entered while a background transition is in flight is rejected
   by the in-flight guard and the per-VM primitive (`LIFE-008`; `02-lifecycle.md §2.3`).
 - **Transactional rollback.** If the background hook raises, `Status` is rolled
-  back to the prior settled state (`02-lifecycle.md §2.4`) with the rollback
+  back to the prior settled state (`02-lifecycle.md §2.5`) with the rollback
   emission marshalled onto `IDispatcher.Foreground`; the in-flight guard is
-  cleared so the VM stays recoverable. The exception is re-thrown on the
-  scheduler but, because the caller has already returned, cannot be redelivered
-  to it.
+  cleared so the VM stays recoverable. A C# async lifecycle caller receives the
+  original failure through its returned `Task` after rollback (ADR-0109).
+  Fire-and-forget and non-C# surfaces follow their documented scheduler error
+  route; Swift has no awaiter and its non-throwing scheduler closure cannot
+  redeliver the error to the already-returned caller (ADR-0053).
 
-The await primitive for the background form is the terminal-status subscription
-above; the hub does not replay the last status to a late subscriber. A first-class
-completion/error future (and composite "await all children" orchestration over
-background-enabled children) is C#-only today (`ConstructAsync` /
-`DestructAsync`) and a tracked follow-up for the other flavors (VMX-049).
+The await primitive for a consumer-defined background wrapper is the
+terminal-status subscription above; the hub does not replay the last status to
+a late subscriber. C# alone ships first-class outcome tasks and composite
+"await all children" orchestration (`ConstructAsync` / `DestructAsync`); those
+tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
+lifecycle entry points remain deliberately absent from the other flavors under
+ADR-0008/ADR-0009 rather than an active parity requirement.
 
 ## 5. Null variant — `NullDispatcher` (spec v2.0)
 

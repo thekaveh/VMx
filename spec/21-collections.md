@@ -161,6 +161,16 @@ non-generic message identifies the move through its action and positions only.
 Move does not construct, dispose, reparent, detach, or otherwise manage the
 item.
 
+#### 2.3.5 TypeScript splice compatibility
+
+TypeScript's established `splice` convenience follows native
+`Array.prototype.splice` argument-count semantics (ADR-0115). Omitting
+`deleteCount` removes from the normalized start through the end. Explicitly
+passing `undefined` supplies a delete count that normalizes to zero, so it
+removes nothing and may insert following items. A splice that removes and
+inserts nothing is a true no-op; every effective insertion-only or bulk splice
+emits one Reset under §2.4.
+
 ### 2.4 `CollectionChangedMessage`
 
 A `CollectionChangedMessage` is emitted for each mutation. C#, Python,
@@ -622,9 +632,12 @@ Per ADR-0025.
 The documented common case is `ObservableDictionary<TKey1, TKey2, TValue>` (the
 two-key form). Each flavor implements it as a standalone class over a
 compound-key backing store — `ValueTuple` keys in C#, `tuple` keys in Python,
-and a serialized-string key map in TypeScript (the entry type exposed to
-consumers remains `DictionaryEntry`). There is no single-key base type.
-(Corrected in v2.5.0 via ADR-0038.)
+an internal `CompositeKey` value in Swift, and nested native `Map` instances in
+TypeScript (the entry type exposed to consumers remains `DictionaryEntry`). Each
+axis uses the host language's standard dictionary-key equality; in TypeScript
+that is `Map`'s SameValueZero primitive equality and reference identity for
+objects. There is no single-key base type. (Corrected in v2.5.0 via ADR-0038
+and in v3.22.0 via ADR-0111.)
 
 ```
 ObservableDictionary<TKey1, TKey2, TValue>:
@@ -732,6 +745,11 @@ PagedComposition<TVM>:
     Items : Iterable<TVM>      # read-only; current page slice
     Count : int                # count of items in current page (not total)
 ```
+
+The state fields are integers. TypeScript's `number`-typed constructor and
+setters reject `NaN`, infinities, and fractional candidates with `RangeError`
+before mutation or notification; negative finite integers retain the normal
+zero-clamping behavior (ADR-0114).
 
 ### 5.2 Decorator semantics
 

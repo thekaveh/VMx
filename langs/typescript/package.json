@@ -1,6 +1,6 @@
 {
   "name": "@thekaveh/vmx",
-  "version": "3.21.0",
+  "version": "3.23.0",
   "description": "Hierarchical lifecycle-aware MVVM viewmodel framework",
   "type": "module",
   "sideEffects": false,
@@ -41,7 +41,9 @@
   },
   "files": [
     "dist",
-    "src/fixtures"
+    "src/fixtures",
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsup",
@@ -70,7 +72,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://github.com/thekaveh/VMx#readme",
+  "homepage": "https://thekaveh.github.io/VMx/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/thekaveh/VMx.git",

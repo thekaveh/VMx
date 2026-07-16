@@ -50,7 +50,7 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
 }
 
 open class CompositeVM<Child: ComponentVMBase>:
-    ComponentVMBase, ParentVM, _Batchable, SelectableVMCollection,
+    ComponentVMBase, ParentVM, OwnershipParentVM, _Batchable, SelectableVMCollection,
     ObservableMembershipSource {
     private var children: [Child] = []
     private var _current: Child?
@@ -145,6 +145,34 @@ open class CompositeVM<Child: ComponentVMBase>:
         if _current === vm {
             _setCurrent(nil)
         }
+    }
+
+    var ownershipOwner: ComponentVMBase { self }
+    var ownershipOwnerParent: OwnershipParentVM? { _ownershipParent }
+
+    func containsIdentity(_ vm: ComponentVMBase) -> Bool {
+        children.contains(where: { $0 === vm })
+    }
+
+    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
+        guard let index = children.firstIndex(where: { $0 === vm }) else {
+            throw ContainerOwnershipError.inconsistentParent
+        }
+        let child = children.remove(at: index)
+        let wasCurrent = _current === child
+        return ParentTransfer(
+            commit: { [weak self, weak child] in
+                guard let self, let child else { return }
+                if wasCurrent, self._current === child { self._applyCurrentChange(nil) }
+                self.emit(.removed(child, at: index))
+            },
+            rollback: { [weak self, weak child] in
+                guard let self, let child else { return }
+                self.children.insert(child, at: index)
+                child._parent = self
+                child._ownershipParent = self
+            }
+        )
     }
 
     // ── Public collection surface ───────────────────────────────────────
@@ -242,8 +270,22 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     public func add(_ child: Child) {
+        _ = addResult(child)
+    }
+
+    @discardableResult
+    public func addResult(_ child: Child) -> Result<Void, ContainerOwnershipError> {
+        let transfer: ParentTransfer?
+        do {
+            transfer = try beginParentTransfer(child, to: self)
+        } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         children.append(child)
         child._parent = self
+        child._ownershipParent = self
         // When autoConstructOnAdd is set and the composite is already
         // Constructed, construct the child BEFORE emitting the Add event
         // (COMP-012). `add` is non-throwing per the public API contract;
@@ -251,9 +293,15 @@ open class CompositeVM<Child: ComponentVMBase>:
         // Divergence from TS (which throws on failure) is recorded in ADR-0060.
         if _autoConstructOnAdd && isConstructed {
             do { try child.construct() } catch {
-                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+                children.removeLast()
+                child._parent = nil
+                child._ownershipParent = nil
+                transfer?.rollback()
+                return .failure(.attachmentFailed(error))
             }
         }
+        // Commit the old-parent removal before publishing the destination add.
+        transfer?.commit()
         // Emit AFTER the child is appended, parent is wired, and (if
         // autoConstructOnAdd) the child has been constructed.
         let index = children.count - 1
@@ -262,17 +310,44 @@ open class CompositeVM<Child: ComponentVMBase>:
         } else {
             collectionChangedSubject.send(.added(child, at: index))
         }
+        return .success(())
     }
 
     public func insert(_ child: Child, at index: Int) {
+        _ = insertResult(child, at: index)
+    }
+
+    @discardableResult
+    public func insertResult(
+        _ child: Child,
+        at index: Int
+    ) -> Result<Void, ContainerOwnershipError> {
+        guard index >= 0 && index <= children.count else {
+            return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: children.count)))
+        }
+        let transfer: ParentTransfer?
+        do {
+            transfer = try beginParentTransfer(child, to: self)
+        } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         children.insert(child, at: index)
         child._parent = self
+        child._ownershipParent = self
         if _autoConstructOnAdd && isConstructed {
             do { try child.construct() } catch {
-                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+                children.remove(at: index)
+                child._parent = nil
+                child._ownershipParent = nil
+                transfer?.rollback()
+                return .failure(.attachmentFailed(error))
             }
         }
+        transfer?.commit()
         emit(.added(child, at: index))
+        return .success(())
     }
 
     public func remove(_ child: Child) -> Bool {
@@ -285,7 +360,10 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     public func removeAt(_ index: Int) {
         let item = children.remove(at: index)
-        item._parent = nil
+        if item._ownershipParent === self {
+            item._parent = nil
+            item._ownershipParent = nil
+        }
         if _current === item {
             // Structural removal: the current child is no longer a member, so the
             // clear MUST be synchronous (spec/06 §3 — a non-nil `current` must be a
@@ -300,22 +378,54 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     public func replace(at index: Int, with child: Child) {
+        _ = replaceResult(at: index, with: child)
+    }
+
+    @discardableResult
+    public func replaceResult(
+        at index: Int,
+        with child: Child
+    ) -> Result<Void, ContainerOwnershipError> {
+        guard index >= 0 && index < children.count else {
+            return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: children.count)))
+        }
+        let transfer: ParentTransfer?
+        do {
+            transfer = try beginParentTransfer(child, to: self)
+        } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         let old = children[index]
         children[index] = child
         old._parent = nil
-        if _current === old { _applyCurrentChange(nil) }
+        old._ownershipParent = nil
         child._parent = self
-        emit(.removed(old, at: index))
+        child._ownershipParent = self
         if _autoConstructOnAdd && isConstructed {
             do { try child.construct() } catch {
-                assertionFailure("autoConstructOnAdd: child construct failed: \(error)")
+                children[index] = old
+                old._parent = self
+                old._ownershipParent = self
+                child._parent = nil
+                child._ownershipParent = nil
+                transfer?.rollback()
+                return .failure(.attachmentFailed(error))
             }
         }
+        transfer?.commit()
+        if _current === old { _applyCurrentChange(nil) }
+        emit(.removed(old, at: index))
         emit(.added(child, at: index))
+        return .success(())
     }
 
     public func clear() {
-        for child in children { child._parent = nil }
+        for child in children where child._ownershipParent === self {
+            child._parent = nil
+            child._ownershipParent = nil
+        }
         children.removeAll()
         if _current != nil { _applyCurrentChange(nil) }
         emit(.reset())
@@ -349,10 +459,10 @@ open class CompositeVM<Child: ComponentVMBase>:
     open override func _onConstruct() throws {
         try super._onConstruct()
         if !populated {
-            populated = true
             if let factory = childrenFactory {
-                for c in factory() { add(c) }
+                try attachPopulation(factory()).get()
             }
+            populated = true
         }
         // A child's throwing `construct()` (ADR-0053) propagates up through this
         // hook to the composite's originating `construct()` call. Snapshot first
@@ -368,6 +478,56 @@ open class CompositeVM<Child: ComponentVMBase>:
             // hits its non-child trap here.
             _setCurrent(initial)
         }
+    }
+
+    private func attachPopulation(
+        _ candidates: [Child]
+    ) -> Result<Void, ContainerOwnershipError> {
+        let start = children.count
+        var transfers: [ParentTransfer?] = []
+        var originalStatuses: [ConstructionStatus] = []
+        do {
+            for child in candidates {
+                let transfer = try beginParentTransfer(child, to: self)
+                transfers.append(transfer)
+                originalStatuses.append(child.status)
+                children.append(child)
+                child._parent = self
+                child._ownershipParent = self
+            }
+            // Make the entire snapshot visible before any child hook runs.
+            for child in candidates {
+                if _autoConstructOnAdd && isConstructed { try child.construct() }
+                if status == .constructing && child.status != .constructed {
+                    try child.construct()
+                }
+            }
+        } catch {
+            while children.count > start {
+                let child = children.removeLast()
+                let originalStatus = originalStatuses[children.count - start]
+                if originalStatus == .destructed && child.status == .constructed {
+                    try? child.destruct()
+                }
+                if child._ownershipParent === self {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
+            }
+            for transfer in transfers.reversed() { transfer?.rollback() }
+            if let ownershipError = error as? ContainerOwnershipError {
+                return .failure(ownershipError)
+            }
+            return .failure(.attachmentFailed(error))
+        }
+
+        for transfer in transfers { transfer?.commit() }
+        for child in candidates {
+            if let index = children.firstIndex(where: { $0 === child }), index >= start {
+                emit(.added(child, at: index))
+            }
+        }
+        return .success(())
     }
 
     open override func _onDestruct() throws {
@@ -398,9 +558,8 @@ open class CompositeVM<Child: ComponentVMBase>:
             .autoConstructOnAdd(options.autoConstructOnAdd)
             .asyncSelection(options.asyncSelection)
         if let name = options.name { b = b.name(name) }
-        if let hub = options.hub, let dispatcher = options.dispatcher {
-            b = b.services(hub: hub, dispatcher: dispatcher)
-        }
+        if let hub = options.hub { b = b._optionHub(hub) }
+        if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }
         if let children = options.children { b = b.children(children) }
         if let current = options.current { b = b.current(current) }
         if let onCurrentChanged = options.onCurrentChanged { b = b.onCurrentChanged(onCurrentChanged) }
