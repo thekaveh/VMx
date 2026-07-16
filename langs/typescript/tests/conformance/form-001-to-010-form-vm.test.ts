@@ -235,6 +235,10 @@ describe("FORM-008", () => {
     sub.unsubscribe();
 
     expect(messages).toHaveLength(2);
+    // FORM-008 order: the model PropertyChangedMessage is published after the
+    // FormRevertedMessage.
+    expect(messages[0]).toBeInstanceOf(FormRevertedMessage);
+    expect(messages[1]).toBeInstanceOf(PropertyChangedMessage);
 
     const revertMsg = messages.find(
       (m): m is FormRevertedMessage => m instanceof FormRevertedMessage,

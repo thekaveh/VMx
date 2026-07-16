@@ -332,13 +332,15 @@ async def test_ares_011_dispose_cancels_and_late_completion_is_inert() -> None:
     cleaned: list[int] = []
     changes: list[str] = []
     calls = 0
+    cancellation_observed = False
 
     async def loader() -> int:
-        nonlocal calls
+        nonlocal calls, cancellation_observed
         calls += 1
         try:
             return await asyncio.shield(late)
         except asyncio.CancelledError:
+            cancellation_observed = True
             return await asyncio.shield(late)
 
     vm = _vm(loader, cleanup=cleaned.append)
@@ -361,3 +363,6 @@ async def test_ares_011_dispose_cancels_and_late_completion_is_inert() -> None:
     assert len(changes) == count
     assert calls == 1
     await load
+    # ARES-011: the in-flight loader observed cancellation on dispose (parity with
+    # the C# suite's token.IsCancellationRequested assertion).
+    assert cancellation_observed

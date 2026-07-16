@@ -158,6 +158,12 @@ final class FormVMApproveTests: XCTestCase {
         cancellables.removeAll()
 
         XCTAssertEqual(received.count, 2, "deny should publish exactly 2 hub messages")
+        // FORM-008 order: the model PropertyChangedMessage is published after the
+        // FormRevertedMessage.
+        XCTAssertTrue(received[0] is FormRevertedMessage, "revert precedes the model change")
+        XCTAssertEqual(
+            (received[1] as? PropertyChangedMessage)?.propertyName, "model",
+            "model change follows the revert")
 
         let revertMsg = received.first { $0 is FormRevertedMessage } as? FormRevertedMessage
         XCTAssertNotNil(revertMsg, "hub messages should include a FormRevertedMessage")
