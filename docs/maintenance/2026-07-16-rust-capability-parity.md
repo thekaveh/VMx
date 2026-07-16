@@ -224,6 +224,33 @@ inputs plus a transform, subscribe internally, drive recompute off source emissi
 (distinct-until-changed), and dispose the subscriptions; rewrite DPROP-002..005/012
 to mutate real sources and assert auto-recompute.
 
+### 4.7. Further residual divergences (collections and commands)
+
+An adversarial residual sweep surfaced five more Rust-only divergences against the
+four-flavour + spec consensus; each is verified in the current tree:
+
+- **`composites.rs` `remove`/`remove_at` emit `CollectionChanged(Remove)` before
+  clearing `current`.** At the moment the Remove publishes, `current` still
+  references the removed item, transiently violating spec/06 §3 ("a non-null
+  `Current` MUST be a member"). C#/Python/Swift clear `current` first, and Rust's
+  own `replace`/`clear` already do. Fix: clear `current` (and the parent handle)
+  before the `items.remove_at` publishes.
+- **`collections.rs` `ObservableList::remove_at` silently returns `None` on an
+  out-of-range index.** All four peers raise (`ArgumentOutOfRangeException` /
+  `RangeError` / `IndexError` / trap), and Rust's own
+  `ServicedObservableCollection::remove_at` returns `Err(InvalidArgument)`. Fix:
+  return `VmxResult<T>` (or panic) on OOB.
+- **`composites.rs` `FilteredCompositeVm` default cursor policy is `Clear`; the
+  four peers default to `SnapToFirst`** (and the Rust enum also lacks the peers'
+  `PreserveIfVisible` variant). Fix: default to `SnapToFirst`; add the variant.
+- **`commands.rs` `ConfirmationDecoratorCommand` has no `dispose()` and no disposed
+  guard**, so its `errors` channel never completes and post-dispose emission is
+  unguarded — spec/04 §8.3.1 requires completion on dispose and a post-dispose
+  no-op. Fix: add `dispose()` completing `errors` plus a guard on `execute_after`.
+- **`commands.rs` `RelayCommand`/`RelayCommandOf::dispose` omit the final
+  `can_execute_changed` notification the four peers emit** — spec/04 §5 makes this
+  a MAY, so it is a soft parity gap, listed for completeness.
+
 ## 5. Related spec-wording note (not Rust-specific)
 
 `spec/02-lifecycle.md` §7 lists the parent's terminal disposal work as "…command
