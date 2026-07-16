@@ -170,7 +170,20 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
             _cancelRequested = true;
             cts = _cts;
         }
-        cts?.Cancel();
+        if (cts is not null)
+            CancelIgnoringDisposed(cts);
+    }
+
+    // ExecuteAsync's finally disposes the CTS off-gate right after nulling _cts.
+    // Cancel()/Dispose() capture _cts under the gate but must invoke Cancel()
+    // off-gate; a concurrently-completing execution can dispose the CTS in that
+    // window, and System.Reactive-era CancellationTokenSource.Cancel() throws
+    // ObjectDisposedException post-dispose. Cancelling a finished operation is a
+    // no-op, so drop that fault (mirrors AsyncResourceVM.ResourceOperation.Cancel).
+    private static void CancelIgnoringDisposed(CancellationTokenSource cts)
+    {
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     /// <summary>
@@ -189,7 +202,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         }
         ExceptionDispatchInfo? firstError = null;
         if (cts is not null)
-            CaptureFailure(ref firstError, cts.Cancel);
+            CaptureFailure(ref firstError, () => CancelIgnoringDisposed(cts));
         foreach (var subscription in _triggerSubscriptions)
             CaptureFailure(ref firstError, subscription.Dispose);
         CaptureFailure(ref firstError, _errors.OnCompleted);
