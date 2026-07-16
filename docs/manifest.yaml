@@ -22,7 +22,7 @@ sections:
         source: docs/content/getting-started/index.md
       - id: getting-started-csharp
         number: "3.2"
-        title: Getting Started with VMx — C\#
+        title: "Getting Started with VMx — C#"
         source: docs/content/getting-started/csharp.md
       - id: getting-started-python
         number: "3.3"
@@ -170,7 +170,7 @@ sections:
         source: docs/content/flavors/index.md
       - id: csharp
         number: "7.2"
-        title: C\#
+        title: "C#"
         source: docs/content/flavors/csharp.md
       - id: python
         number: "7.3"

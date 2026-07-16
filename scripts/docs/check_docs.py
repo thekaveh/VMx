@@ -10,6 +10,12 @@ from scripts.docs.links import find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
+# CommonMark backslash-escapes any ASCII punctuation; mdformat forces `C#` at the
+# end of an ATX heading to `C\#` (a trailing `#` would otherwise read as a closing
+# sequence). Unescape before comparing an H1 to its manifest label so the label can
+# stay clean (`C#`) on every rendered surface while the on-disk heading keeps the
+# escape mdformat requires.
+MD_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
 HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
@@ -231,7 +237,7 @@ def check_heading_numbers(repo_root: Path) -> list[Finding]:
         assert section.source is not None
         path = repo_root / section.source
         text = path.read_text(encoding="utf-8")
-        first_line = text.splitlines()[0].strip()
+        first_line = MD_ESCAPE_RE.sub(r"\1", text.splitlines()[0].strip())
         expected = f"# {section.label}"
         if first_line != expected:
             findings.append(

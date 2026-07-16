@@ -1,6 +1,6 @@
 //! Pull-based filtering state with change notifications.
 //!
-//! Spec: `spec/08-composites-and-filtering.md`.
+//! Spec: `spec/06-composite-vm.md` §Search / filter; ADR-0014.
 
 use super::{lock, Arc, AtomicBool, Message, MessageHub, Mutex, Ordering, Subscription};
 
