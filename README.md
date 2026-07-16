@@ -243,8 +243,10 @@ cargo add vmx-rs --path langs/rust
 - [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
   at total parity on the v3.22.0 source line; see `langs/swift/README.md` §5).
-- [`langs/rust/README.md`](langs/rust/README.md) — Rust crate commands
-  and a minimal `ComponentVm` example.
+- [`docs/content/getting-started/rust.md`](docs/content/getting-started/rust.md) —
+  Rust source-tree tutorial (ComponentVm, RelayCommand, CompositeVm with
+  selection), with [`langs/rust/README.md`](langs/rust/README.md) for crate
+  commands and a minimal example.
 
 ### 4.3 Examples
 
@@ -377,7 +379,8 @@ This README is the entry point; the documents below add focused detail.
   [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md),
   [`docs/content/getting-started/python.md`](docs/content/getting-started/python.md),
   [`docs/content/getting-started/typescript.md`](docs/content/getting-started/typescript.md),
-  [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md).
+  [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md),
+  [`docs/content/getting-started/rust.md`](docs/content/getting-started/rust.md).
 - Per-flavor examples READMEs (run instructions):
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
@@ -396,8 +399,9 @@ This README is the entry point; the documents below add focused detail.
   external dependency and tool-contract checks recorded during the maintenance
   run.
 - [`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md) —
-  tracked capability-surface parity gaps between the source-tree Rust flavor and
-  the four published flavors, with the canonical decision and proposed fix for each.
+  tracked capability-surface and behavioural parity gaps between the source-tree
+  Rust flavor and the four published flavors, with the canonical decision and
+  proposed fix for each.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 

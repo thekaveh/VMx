@@ -10,7 +10,7 @@ with child selection — all in a plain Cargo binary.
 > it as a path or git dependency (below). See
 > [`langs/rust/README.md`](../../../langs/rust/README.md) for the current status
 > and [`docs/maintenance/2026-07-16-rust-capability-parity.md`](../../../docs/maintenance/2026-07-16-rust-capability-parity.md)
-> for the tracked capability-surface gaps.
+> for the tracked capability and behavioural parity gaps.
 >
 > For the normative contracts behind each type, see `spec/05-component-vm.md`,
 > `spec/04-commands.md`, and `spec/06-composite-vm.md`.
@@ -35,8 +35,9 @@ Or by git:
 vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
 ```
 
-The crate has one runtime dependency, `serde`; the reactive primitives are
-VMx-owned hot-stream facades, so no third-party reactive runtime is pulled in.
+The crate declares only `serde` and `thiserror` as runtime dependencies; the
+reactive primitives are VMx-owned hot-stream facades, so no third-party reactive
+runtime is pulled in.
 
 ## 3.6.2. Wire up `MessageHub` and a `Dispatcher`
 

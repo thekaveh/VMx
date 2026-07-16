@@ -1,12 +1,20 @@
-# 2026-07 Rust Capability Parity Gaps
+# 2026-07 Rust Parity Gaps
 
-Filed: **2026-07-16**. This record documents a set of capability-surface parity
-breaks between the Rust flavor and the four other flavors (C#, Python,
-TypeScript, Swift), together with the canonical-behaviour decision and a proposed
-fix for each. It is a tracked backlog for a focused Rust follow-up, not a release
-note. The Rust flavor is a source-tree flavor and has not been published to
-crates.io, so these corrections are pre-publication and carry no released-API
-break.
+Filed: **2026-07-16**. This record documents a set of parity breaks between the
+Rust flavor and the four other flavors (C#, Python, TypeScript, Swift) —
+capability-surface gaps (§3) and behavioural divergences (§4) — together with the
+canonical-behaviour decision and a proposed fix for each. It is a tracked backlog
+for a focused Rust follow-up, not a release note. The Rust flavor is a source-tree
+flavor and has not been published to crates.io, so these corrections are
+pre-publication and carry no released-API break.
+
+Two behavioural divergences found alongside these were straightforward and fixed
+in the maintenance run itself (not listed below): the Rust `FormVm` no longer
+publishes an extra `PropertyChanged("is_valid")` onto the main hub, and
+`HierarchicalVm` no longer emits N spurious `PropertyChanged("parent")` messages
+on first `children()` materialization. The items below need a signature change,
+a semantic decision on a spec-underspecified edge, or a coordinated
+conformance-test strengthening, so they are batched here for one reviewed change.
 
 ## 1. Scope and authority
 
@@ -127,10 +135,85 @@ getter diverges.
 Proposed fix: return the empty string from `search_term()` when disposed, so the
 read converges with the four peers.
 
-## 4. Disposition
+## 4. Behavioural divergences
 
-Filed for a focused Rust capability-parity follow-up. The other four flavours
-remain member-identical to the spec; the source-tree Rust flavour is the sole
-outlier, and no correction here alters a published artifact. Until the follow-up
-lands, `compatibility-matrix.md`'s full-parity claim for Rust should be read as
-"conformance-ID coverage present; capability-member parity tracked here".
+These are Rust-only observable-behaviour differences (not capability-shape gaps)
+where the other four flavours agree with each other and the spec. Each needs a
+signature change, a decision on a spec-underspecified edge, or a strengthened
+conformance test, so they are filed rather than fixed inline.
+
+### 4.1. reparent_child of a detached child reports Added instead of Reparented
+
+`langs/rust/src/hierarchical.rs` funnels `reparent_child` through `attach_child`,
+which derives the change type from the prior parent only, so reparenting a
+currently-detached child emits `Added` / `index = len`. C#/Python/TypeScript/Swift
+carry an explicit-reparent flag (`explicitReparent: true`) so an explicit reparent
+always reports `Reparented` / `index = -1`, even from detached. Spec §7/§8 and
+ADR-0105 pin `AddChild`-of-detached to `Added` but are silent on
+`reparent_child`-of-detached; the four-flavour consensus is `Reparented`.
+
+Proposed fix: give Rust `attach_child(&self, child, explicit_reparent: bool)`,
+with `reparent_child` passing `true`, so `reparented = explicit_reparent || old_parent.is_some()`. Alternatively record the unified choice in an ADR.
+
+### 4.2. remove_child of a non-member errors instead of no-op
+
+Rust `remove_child` returns `Err(VmxError::NonChild)` for a non-member; the other
+four silently no-op. Spec §7/§8 do not specify remove-of-non-member.
+
+Proposed fix: return `Ok(())` on a non-member (match the peers), or record
+`NonChild` as an intentional Rust idiom in an ADR (as was done for non-child
+selection).
+
+### 4.3. AggregateVmN::construct interleaves notify and child construct
+
+Rust `AggregateVmN::construct` emits each `PropertyChanged("component_N")`
+immediately before that slot's child `construct()`; C#/Python/TypeScript/Swift
+emit all N slot-population messages first, then construct all children. This
+differs on happy-path hub ordering and, more materially, on the child-construct
+failure path: a failure in child 1 means Rust never emits `component_2`/`_3`,
+whereas the peers have already emitted all N. Spec §2's "order … unspecified"
+latitude covers slot order (still 1→N in Rust), not the notify-vs-construct
+interleave or the failure-path emitted set.
+
+Proposed fix: hoist all `notify_property_changed("component_N")` calls above the
+child `construct()` calls in each `AggregateVmN::construct` (VM1–VM6), making the
+emitted set and ordering identical to the peers on both paths.
+
+### 4.4. FormVm direct approve() gates on strict+dirty
+
+Rust's awaitable `approve()` gates on `can_approve()` (which includes the
+strict-mode dirty check); the spec's direct `ApproveAsync` and all four peers gate
+the direct path only on disposal + validity, keeping the strict/dirty gate solely
+on `ApproveCommand.CanExecute` (spec §9). Consequently a strict + valid + clean
+form persists via direct approve in the peers but returns `Err` in Rust.
+
+Proposed fix: gate Rust's direct `approve()` on validity only (silent `Ok(())`
+no-op when invalid, matching the peers), keeping strict/dirty on
+`approve_command`'s `can_execute`. Add a Rust conformance assertion for the
+strict-clean-valid direct-approve case.
+
+### 4.5. Base ComponentVm surface is narrower (informational)
+
+Rust's base `ComponentVm` omits `type`/`view_model_type`, the `can_*()` selection
+gates, and four of the five built-in commands (only `select_command`), so the Rust
+forwarder cannot forward them. This is a broader base-surface parity question, not
+a forwarding defect; recorded here for a coordinated look during the follow-up.
+
+## 5. Related spec-wording note (not Rust-specific)
+
+`spec/02-lifecycle.md` §7 lists the parent's terminal disposal work as "…command
+teardown, and stream completion," but all five flavours complete the streams
+before tearing down the commands. The order in the sentence is editorial (no
+conformance ID pins intra-parent order), so it is deferred rather than fixed in
+this run — correcting a non-exempt `spec/` chapter requires a new ADR, which would
+bump the ADR count and cascade into the count claims and generated diagrams,
+disproportionate to a one-clause wording fix. Best folded into the next spec ADR.
+
+## 6. Disposition
+
+Filed for a focused Rust-parity follow-up. The other four flavours remain
+member-identical to the spec and mutually consistent on behaviour; the source-tree
+Rust flavour is the sole outlier, and no correction here alters a published
+artifact. Until the follow-up lands, `compatibility-matrix.md`'s full-parity claim
+for Rust should be read as "conformance-ID coverage present; capability-member and
+behavioural parity tracked here".
