@@ -395,6 +395,9 @@ This README is the entry point; the documents below add focused detail.
 - [`docs/maintenance/2026-07-01-contract-ledger.md`](docs/maintenance/2026-07-01-contract-ledger.md) —
   external dependency and tool-contract checks recorded during the maintenance
   run.
+- [`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md) —
+  tracked capability-surface parity gaps between the source-tree Rust flavor and
+  the four published flavors, with the canonical decision and proposed fix for each.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 
