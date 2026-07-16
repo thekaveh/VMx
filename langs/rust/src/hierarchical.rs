@@ -1,6 +1,6 @@
 //! Recursive hierarchical view models, batch attachment, and tree traversal.
 //!
-//! Spec: `spec/19-hierarchical-vm.md`; ADR-0048 and ADR-0087.
+//! Spec: `spec/18-hierarchical-vm.md`; ADR-0048 and ADR-0087.
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
@@ -562,7 +562,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         }
     }
 
-    /// Disposes this node, descendants, and parked batch items.
+    /// Disposes this node and clears parked batch items. Children are not
+    /// disposed, destructed, detached, or reparented (spec/18-hierarchical-vm.md
+    /// §3).
     pub fn dispose(&self) -> VmxResult<()> {
         lock(&self.inner.parked_attach_items).clear();
         self.inner.component.dispose()

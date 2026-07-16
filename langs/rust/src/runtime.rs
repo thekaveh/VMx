@@ -1,6 +1,6 @@
 //! Core errors, messages, lifecycle, dispatch, and tree ownership contracts.
 //!
-//! Spec: `spec/03-lifecycle.md`, `spec/05-messages.md`, and `spec/06-services.md`.
+//! Spec: `spec/02-lifecycle.md`, `spec/03-messages.md`, and `spec/11-threading.md`.
 
 use super::{
     catch_unwind, resume_unwind, thread, Arc, AssertUnwindSafe, AtomicUsize, BTreeMap, Cell,

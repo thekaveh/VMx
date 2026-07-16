@@ -1,6 +1,6 @@
 //! Homogeneous and fixed-arity aggregate view-model families.
 //!
-//! Spec: `spec/07-aggregate-vm.md`; ADR-0013 and ADR-0094.
+//! Spec: `spec/08-aggregate-vm.md`; ADR-0013 and ADR-0094.
 
 use super::{
     finish_with_first_error, lock, retain_first_error, Arc, ComponentCore, ConstructionStatus,

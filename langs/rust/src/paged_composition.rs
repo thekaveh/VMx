@@ -1,6 +1,6 @@
 //! Index-based paging over an in-memory composition.
 //!
-//! Spec: `spec/17-collections-and-paging.md`.
+//! Spec: `spec/21-collections.md`.
 
 use super::{lock, Arc, Mutex};
 

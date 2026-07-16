@@ -1,6 +1,6 @@
 //! Notification values, pending waiters, and resolution hubs.
 //!
-//! Spec: `spec/18-notifications.md`; ADR-0031.
+//! Spec: `spec/16-notifications.md`; ADR-0031.
 
 use super::{
     lock, Arc, AsyncValue, AtomicU64, BTreeMap, Context, Future, HashMap, Message, MessageHub,

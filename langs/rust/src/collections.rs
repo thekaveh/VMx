@@ -1,6 +1,6 @@
 //! Observable and serviced collection primitives.
 //!
-//! Spec: `spec/17-collections-and-paging.md`.
+//! Spec: `spec/21-collections.md`.
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, CollectionChangeAction,
